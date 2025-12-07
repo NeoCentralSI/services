@@ -337,3 +337,20 @@ src/
 8. **DOCUMENT** di OpenAPI/Swagger
 
 **Jangan pernah skip langkah dokumentasi!** Dokumentasi adalah bagian integral dari implementasi fitur.
+
+## DILARANG: Membuat File Summary/Changelog
+
+❌ **JANGAN PERNAH** membuat file markdown untuk summary setelah implementasi selesai, seperti:
+- `IMPLEMENTATION.md`
+- `CHANGES.md`
+- `SUMMARY.md`
+- `CHANGELOG.md`
+- atau file dokumentasi perubahan lainnya
+
+✅ **YANG BENAR:**
+- Langsung implementasi code
+- Update dokumentasi di `src/docs/` (OpenAPI/Swagger)
+- Berikan penjelasan singkat di chat jika diperlukan
+- Code dan dokumentasi API adalah satu-satunya output yang diperlukan
+
+**Prinsip:** Code speaks for itself. Dokumentasi API di OpenAPI/Swagger sudah cukup.
