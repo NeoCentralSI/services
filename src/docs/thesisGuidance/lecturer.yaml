@@ -11,7 +11,7 @@ lecturer_my_students:
         required: false
         schema:
           type: string
-        description: Comma-separated ThesisRole filter (e.g., SUPERVISOR_1,EXAMINER_1); defaults to SUPERVISOR_1,SUPERVISOR_2
+        description: Comma-separated role filter (e.g., pembimbing1,pembimbing2); defaults to pembimbing1,pembimbing2
     responses:
       "200":
         description: List of supervised students

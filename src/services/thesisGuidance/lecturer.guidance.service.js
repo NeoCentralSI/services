@@ -59,11 +59,24 @@ function toFlatGuidance(g) {
 export async function getMyStudentsService(userId, roles) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
-	// Default to supervisor roles only
-	const students = await findMyStudents(
+	// Default to supervisor roles only (using actual role names from DB)
+	const defaultRoles = ["pembimbing1", "pembimbing2"];
+	const rawStudents = await findMyStudents(
 		lecturer.id,
-		Array.isArray(roles) && roles.length ? roles : ["SUPERVISOR_1", "SUPERVISOR_2"]
+		Array.isArray(roles) && roles.length ? roles : defaultRoles
 	);
+	
+	// Transform data to flat structure for frontend
+	const students = rawStudents.map(s => ({
+		studentId: s.studentId,
+		fullName: s.studentUser?.fullName || null,
+		email: s.studentUser?.email || null,
+		identityNumber: s.studentUser?.identityNumber || null,
+		thesisId: s.thesisId,
+		thesisTitle: s.thesisTitle,
+		roles: s.role ? [s.role] : []
+	}));
+	
 	return { count: students.length, students };
 }
 

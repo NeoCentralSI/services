@@ -16,9 +16,18 @@ import {
 
 export async function myStudents(req, res, next) {
 	try {
-		// Enforce supervisor roles based on UserRole names
-		// We use user_roles.name values: pembimbing1 and pembimbing2
-		const roles = ["pembimbing1", "pembimbing 1", "pembimbing2", "pembimbing 2"]; // allow space variants
+		// Get roles from query params or use default supervisor roles
+		const rolesParam = req.query?.roles;
+		let roles;
+		
+		if (rolesParam) {
+			// Support comma-separated roles from query
+			roles = Array.isArray(rolesParam) ? rolesParam : rolesParam.split(',').map(r => r.trim());
+		} else {
+			// Default to supervisor roles - use exact role names from DB
+			roles = ["pembimbing1", "pembimbing2"];
+		}
+		
 		const result = await getMyStudentsService(req.user.sub, roles);
 		res.json({ success: true, ...result });
 	} catch (err) {
