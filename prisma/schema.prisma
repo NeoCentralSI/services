@@ -24,8 +24,13 @@ model User {
   password        String?
   phoneNumber     String?  @map("phone_number")
   isVerified      Boolean  @default(false)
-  token           String?
-  refreshToken    String?  @map("refresh_token")
+  token           String?  @db.Text
+  refreshToken    String?  @db.Text @map("refresh_token")
+  // OAuth fields for Microsoft authentication
+  oauthProvider   String?  @map("oauth_provider") // e.g., "microsoft", "google"
+  oauthId         String?  @map("oauth_id") // Microsoft user ID or object ID
+  oauthAccessToken String? @db.Text @map("oauth_access_token") // OAuth access token (encrypted)
+  oauthRefreshToken String? @db.Text @map("oauth_refresh_token") // OAuth refresh token (encrypted)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

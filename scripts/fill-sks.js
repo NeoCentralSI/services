@@ -1,9 +1,3 @@
-// Fill missing/empty SKS values for students with a random number between 90 and 100
-// Usage: node scripts/fill-sks.js [--min=90] [--max=100]
-// Notes:
-// - Treats "empty" as skscompleted === 0 (and also attempts to cover NULL if present)
-// - Logs a summary of how many rows were updated
-
 import 'dotenv/config';
 import prisma from "../src/config/prisma.js";
 

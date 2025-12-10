@@ -75,6 +75,15 @@ export const ENV = {
   FCM_PROJECT_ID: process.env.FCM_PROJECT_ID || "",
   FCM_CLIENT_EMAIL: process.env.FCM_CLIENT_EMAIL || "",
   FCM_PRIVATE_KEY: process.env.FCM_PRIVATE_KEY || "",
+
+  // ===============================
+  // 🔐 Microsoft OAuth2 Credentials
+  // ===============================
+  CLIENT_ID: process.env.CLIENT_ID || "",
+  CLIENT_SECRET: process.env.CLIENT_SECRET || "",
+  TENANT_ID: process.env.TENANT_ID || "",
+  REDIRECT_URI: process.env.REDIRECT_URI || "",
+  SESSION_KEY: process.env.SESSION_KEY || "",
 };
 
 // 🚨 Validasi sederhana: pastikan variabel penting terisi

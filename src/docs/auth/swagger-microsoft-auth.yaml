@@ -1,0 +1,89 @@
+# Microsoft OAuth Authentication Endpoints
+
+microsoft_login:
+  get:
+    tags:
+      - Auth
+    summary: Get Microsoft OAuth login URL
+    description: Returns the Microsoft OAuth authorization URL that the client should redirect to for login
+    operationId: getMicrosoftAuthUrl
+    responses:
+      '200':
+        description: Successfully generated Microsoft auth URL
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                authUrl:
+                  type: string
+                  format: uri
+                  example: "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize?..."
+                message:
+                  type: string
+                  example: "Redirect user to this URL for Microsoft login"
+      '500':
+        $ref: "../openapi.yaml#/components/responses/InternalError"
+
+microsoft_callback:
+  get:
+    tags:
+      - Auth
+    summary: Handle Microsoft OAuth callback
+    description: Handles the OAuth callback from Microsoft and authenticates the user
+    operationId: handleMicrosoftCallback
+    parameters:
+      - in: query
+        name: code
+        required: true
+        schema:
+          type: string
+        description: Authorization code from Microsoft OAuth
+      - in: query
+        name: state
+        required: false
+        schema:
+          type: string
+        description: Optional state parameter for CSRF protection
+    responses:
+      '200':
+        description: Successfully authenticated with Microsoft
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                message:
+                  type: string
+                  example: "Successfully authenticated with Microsoft"
+                user:
+                  $ref: "../openapi.yaml#/components/schemas/AuthUser"
+                accessToken:
+                  type: string
+                  description: JWT access token for API authentication
+                refreshToken:
+                  type: string
+                  description: JWT refresh token
+      '400':
+        description: Bad request - missing authorization code
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: false
+                message:
+                  type: string
+                  example: "Authorization code is required"
+      '401':
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      '500':
+        $ref: "../openapi.yaml#/components/responses/InternalError"

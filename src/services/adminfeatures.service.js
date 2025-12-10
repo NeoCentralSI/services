@@ -744,7 +744,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 							select: {
 								thesisGuidances: {
 									where: { 
-										status: "completed",
+										status: "accepted",
 									},
 								},
 								thesisSeminarScores: true,

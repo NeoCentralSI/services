@@ -1,9 +1,3 @@
-// Set studentStatusId for students where it's null to a desired status (default: 'Aktif')
-// Usage:
-//   node scripts/fill-student-status.js              # uses name 'Aktif'
-//   node scripts/fill-student-status.js --name=Aktif # explicit by name
-//   node scripts/fill-student-status.js --id=<uuid>  # explicit by id
-
 import 'dotenv/config';
 import prisma from "../src/config/prisma.js";
 

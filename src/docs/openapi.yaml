@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=./openapi-schema.json
 openapi: 3.1.0
 info:
   title: Backend API
@@ -85,6 +86,12 @@ paths:
 
   "/auth/verify/request":
     $ref: "./auth/swagger-auth.yaml#/auth_verify_request"
+
+  "/auth/microsoft/login":
+    $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_login"
+
+  "/auth/microsoft/callback":
+    $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_callback"
 
   "/adminfeatures/students/import":
     $ref: "./admin/swagger-admin.yaml#/admin_import_students"
