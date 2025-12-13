@@ -39,14 +39,15 @@ export async function handleCallback(req, res, next) {
       return res.redirect(frontendUrl);
     }
 
-    // Exchange code for tokens and get user profile
-    const { accessToken, refreshToken, userProfile } = await exchangeCodeForTokens(code);
+    // Exchange code for tokens and get user profile (including calendar access check)
+    const { accessToken, refreshToken, userProfile, hasCalendarAccess } = await exchangeCodeForTokens(code);
 
-    // Login or register user
+    // Login or register user with calendar access status
     const result = await loginOrRegisterWithMicrosoft(
       userProfile,
       accessToken,
-      refreshToken
+      refreshToken,
+      hasCalendarAccess
     );
 
     // Redirect ke frontend callback dengan tokens sebagai query params (base64 encoded)
@@ -54,7 +55,8 @@ export async function handleCallback(req, res, next) {
     const tokenData = {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
-      user: result.user
+      user: result.user,
+      hasCalendarAccess: result.hasCalendarAccess,
     };
     
     // Base64 encode untuk avoid special characters di URL

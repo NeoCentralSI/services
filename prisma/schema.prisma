@@ -286,6 +286,9 @@ model ThesisGuidance {
   supervisorFeedback String? @map("supervisor_feedback")
   meetingUrl        String?  @map("meeting_url")
   status            GuidanceStatus @default(requested)
+  // Outlook Calendar sync fields
+  studentCalendarEventId    String? @map("student_calendar_event_id")
+  supervisorCalendarEventId String? @map("supervisor_calendar_event_id")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   thesis            Thesis   @relation(fields: [thesisId], references: [id])

@@ -5,6 +5,8 @@ import { ENV } from "../config/env.js";
 import prisma from "../config/prisma.js";
 import jwt from "jsonwebtoken";
 
+const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
+
 // MSAL Configuration
 const msalConfig = {
   auth: {
@@ -16,14 +18,26 @@ const msalConfig = {
 
 const msalClient = new ConfidentialClientApplication(msalConfig);
 
+// Scopes for Microsoft OAuth (including Calendar access)
+const MICROSOFT_SCOPES = [
+  "user.read",
+  "openid",
+  "profile",
+  "email",
+  "Calendars.ReadWrite",
+  "offline_access",
+];
+
 /**
  * Get Microsoft OAuth authorization URL
  * @returns {string} Authorization URL
  */
 export function getMicrosoftAuthUrl() {
   const authCodeUrlParameters = {
-    scopes: ["user.read", "openid", "profile", "email"],
+    scopes: MICROSOFT_SCOPES,
     redirectUri: ENV.REDIRECT_URI,
+    // Don't force consent every time - just select account
+    prompt: 'select_account',
   };
 
   return msalClient.getAuthCodeUrl(authCodeUrlParameters);
@@ -37,7 +51,7 @@ export function getMicrosoftAuthUrl() {
 export async function exchangeCodeForTokens(code) {
   const tokenRequest = {
     code,
-    scopes: ["user.read", "openid", "profile", "email"],
+    scopes: MICROSOFT_SCOPES,
     redirectUri: ENV.REDIRECT_URI,
   };
 
@@ -48,18 +62,24 @@ export async function exchangeCodeForTokens(code) {
     const response = await msalClient.acquireTokenByCode(tokenRequest);
     
     console.log('✅ Token exchange successful');
-    console.log('🔄 Fetching user profile from Microsoft Graph...');
+    console.log('� Has refresh token:', !!response.refreshToken);
+    console.log('�🔄 Fetching user profile from Microsoft Graph...');
     
     // Get user profile from Microsoft Graph
     const userProfile = await getMicrosoftUserProfile(response.accessToken);
     
     console.log('✅ User profile fetched successfully');
+    
+    // Check calendar access
+    const calendarAccess = await checkCalendarAccessWithToken(response.accessToken);
+    console.log('📅 Calendar access:', calendarAccess ? 'Yes' : 'No');
 
     return {
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
       idToken: response.idToken,
       userProfile,
+      hasCalendarAccess: calendarAccess,
     };
   } catch (error) {
     console.error("❌ Error exchanging code for tokens:");
@@ -86,7 +106,7 @@ export async function exchangeCodeForTokens(code) {
  */
 async function getMicrosoftUserProfile(accessToken) {
   try {
-    const response = await axios.get("https://graph.microsoft.com/v1.0/me", {
+    const response = await axios.get(`${GRAPH_API_BASE}/me`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -102,13 +122,34 @@ async function getMicrosoftUserProfile(accessToken) {
 }
 
 /**
+ * Check if the access token has calendar permissions by trying to access calendars
+ * @param {string} accessToken - Microsoft access token
+ * @returns {Promise<boolean>} True if calendar access is available
+ */
+async function checkCalendarAccessWithToken(accessToken) {
+  try {
+    // Try to access user's calendars to verify calendar permission
+    await axios.get(`${GRAPH_API_BASE}/me/calendars`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    return true;
+  } catch (error) {
+    console.log("[MicrosoftAuth] Calendar access check failed:", error.response?.status, error.response?.data?.error?.code);
+    return false;
+  }
+}
+
+/**
  * Login or register user with Microsoft account
  * @param {Object} microsoftProfile - Microsoft user profile
  * @param {string} accessToken - Microsoft access token
  * @param {string} refreshToken - Microsoft refresh token (optional)
+ * @param {boolean} hasCalendarAccess - Whether calendar access is granted
  * @returns {Promise<Object>} User data with JWT tokens
  */
-export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken, refreshToken = null) {
+export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken, refreshToken = null, hasCalendarAccess = false) {
   const { id: oauthId, mail, userPrincipalName, displayName } = microsoftProfile;
   
   // ✅ DEBUG: Log semua email info dari Microsoft
@@ -220,6 +261,7 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
     user: userResponse,
     accessToken: jwtAccessToken,
     refreshToken: jwtRefreshToken,
+    hasCalendarAccess,
   };
 }
 

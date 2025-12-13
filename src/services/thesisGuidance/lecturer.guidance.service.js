@@ -22,6 +22,8 @@ import {
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
+import { createGuidanceCalendarEvents } from "../outlook-calendar.service.js";
+import prisma from "../../config/prisma.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
@@ -146,6 +148,47 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 	}
 	const updated = await approveGuidanceById(guidanceId, { feedback, meetingUrl });
 	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_APPROVED", feedback || undefined);
+	
+	// Sync to Outlook Calendar (if users have Microsoft account connected)
+	try {
+		const studentUser = updated.thesis?.student?.user;
+		const supervisorUser = updated.supervisor?.user;
+		
+		if (studentUser && supervisorUser && updated.schedule?.guidanceDate) {
+			const calendarEvents = await createGuidanceCalendarEvents(
+				{
+					schedule: updated.schedule,
+					studentNotes: updated.studentNotes,
+					meetingUrl: meetingUrl || updated.meetingUrl,
+				},
+				{
+					userId: studentUser.id,
+					fullName: studentUser.fullName,
+					email: studentUser.email,
+				},
+				{
+					userId: supervisorUser.id,
+					fullName: supervisorUser.fullName,
+					email: supervisorUser.email,
+				}
+			);
+			
+			// Save calendar event IDs to database
+			if (calendarEvents.studentEventId || calendarEvents.supervisorEventId) {
+				await prisma.thesisGuidance.update({
+					where: { id: guidanceId },
+					data: {
+						studentCalendarEventId: calendarEvents.studentEventId,
+						supervisorCalendarEventId: calendarEvents.supervisorEventId,
+					},
+				});
+				console.log("[Guidance] Calendar events synced:", calendarEvents);
+			}
+		}
+	} catch (e) {
+		console.error("Failed to sync calendar:", e?.message || e);
+		// Don't fail the request if calendar sync fails
+	}
 	
 	// Send notification to student
 	try {

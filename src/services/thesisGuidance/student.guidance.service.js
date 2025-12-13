@@ -20,6 +20,7 @@ import { sendFcmToUsers } from "../../services/push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
+import { deleteCalendarEvent } from "../outlook-calendar.service.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
@@ -331,6 +332,27 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
     err.statusCode = 400;
     throw err;
   }
+  
+  // Delete old calendar events if they exist (will create new ones when approved)
+  try {
+    if (guidance.studentCalendarEventId) {
+      await deleteCalendarEvent(userId, guidance.studentCalendarEventId);
+    }
+    if (guidance.supervisorCalendarEventId && guidance.supervisor?.user?.id) {
+      await deleteCalendarEvent(guidance.supervisor.user.id, guidance.supervisorCalendarEventId);
+    }
+    // Clear calendar event IDs
+    await prisma.thesisGuidance.update({
+      where: { id: guidanceId },
+      data: {
+        studentCalendarEventId: null,
+        supervisorCalendarEventId: null,
+      },
+    });
+  } catch (e) {
+    console.error("Failed to delete old calendar events:", e?.message || e);
+  }
+  
   // update schedule date
   if (guidance.scheduleId) {
     await updateGuidanceScheduleDate(guidance.scheduleId, guidanceDate);
@@ -414,6 +436,19 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     const err = new Error("Can only cancel pending guidance requests");
     err.statusCode = 400;
     throw err;
+  }
+  
+  // Delete calendar events if they exist
+  try {
+    if (guidance.studentCalendarEventId) {
+      await deleteCalendarEvent(userId, guidance.studentCalendarEventId);
+    }
+    if (guidance.supervisorCalendarEventId && guidance.supervisor?.user?.id) {
+      await deleteCalendarEvent(guidance.supervisor.user.id, guidance.supervisorCalendarEventId);
+    }
+  } catch (e) {
+    console.error("Failed to delete calendar events:", e?.message || e);
+    // Don't fail if calendar deletion fails
   }
   
   // Log activity before deleting
