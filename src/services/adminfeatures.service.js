@@ -487,6 +487,25 @@ export async function updateAcademicYear(id, { semester, year, startDate, endDat
 		throw err;
 	}
 
+	// Check if academic year is currently active (based on date range)
+	// Only active academic years can be edited
+	const now = new Date();
+	const wibOffset = 7 * 60; // WIB = UTC+7
+	const nowWIB = new Date(now.getTime() + (wibOffset + now.getTimezoneOffset()) * 60 * 1000);
+	
+	let isCurrentlyActive = false;
+	if (existing.startDate && existing.endDate) {
+		const endDate = new Date(existing.endDate);
+		endDate.setHours(23, 59, 59, 999);
+		isCurrentlyActive = nowWIB >= existing.startDate && nowWIB <= endDate;
+	}
+	
+	if (!isCurrentlyActive) {
+		const err = new Error("Tahun ajaran yang tidak aktif tidak dapat diedit");
+		err.statusCode = 400;
+		throw err;
+	}
+
 	// When both semester & year provided, prevent duplicates
 	if (semester && typeof year === "number") {
 		const dup = await prisma.academicYear.findFirst({ where: { semester, year, NOT: { id } } });
