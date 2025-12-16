@@ -7,15 +7,7 @@
   "scripts": {
     "test": "vitest run",
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "seed": "prisma db seed",
-    "import:students": "node scripts/import-csv.js",
-    "import:lecturers": "node scripts/import-lecturers.js",
-    "fix:sks": "node scripts/fill-sks.js",
-    "fix:student-status": "node scripts/fill-student-status.js",
-    "seed:thesis-dummy": "node scripts/seed-thesis.js",
-    "seed:thesis-participants": "node scripts/seed-thesis-participants.js",
-    "seed:thesis-guidance": "node scripts/seed-thesis-guidance.js"
+    "dev": "nodemon src/server.js"
   },
   "devDependencies": {
     "vitest": "^1.6.1"

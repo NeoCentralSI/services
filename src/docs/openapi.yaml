@@ -243,6 +243,18 @@ components:
         meetingUrl:
           type: string
           format: uri
+        approvedDate:
+          type: string
+          format: date-time
+          description: Override approved date (defaults to requestedDate)
+        type:
+          type: string
+          enum: [online, offline]
+        duration:
+          type: integer
+          description: Duration in minutes
+        location:
+          type: string
     ApproveComponentsBody:
       type: object
       required: [componentIds]
@@ -268,20 +280,35 @@ components:
         id: { type: string }
         thesisId: { type: string }
         supervisorId: { type: string, nullable: true }
-        status: { type: string }
+        supervisorName: { type: string, nullable: true }
+        studentId: { type: string, nullable: true }
+        studentName: { type: string, nullable: true }
+        status: 
+          type: string
+          enum: [requested, accepted, rejected, completed, cancelled]
+        requestedDate: { type: string, format: date-time, nullable: true }
+        requestedDateFormatted: { type: string, nullable: true }
+        approvedDate: { type: string, format: date-time, nullable: true }
+        approvedDateFormatted: { type: string, nullable: true }
+        type: 
+          type: string
+          enum: [online, offline]
+          nullable: true
+        duration: { type: integer, nullable: true, description: "Duration in minutes" }
+        location: { type: string, nullable: true }
         meetingUrl: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
         supervisorFeedback: { type: string, nullable: true }
-        schedule:
-          $ref: "#/components/schemas/GuidanceScheduleItem"
-        student:
+        rejectionReason: { type: string, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        document:
           type: object
           nullable: true
-          additionalProperties: true
-    GuidanceScheduleItem:
-      type: object
-      properties:
-        id: { type: string }
-        guidanceDate: { type: string, format: date-time, nullable: true }
+          properties:
+            fileName: { type: string }
+            filePath: { type: string }
     ProgressSummaryItem:
       type: object
       properties:
@@ -294,16 +321,25 @@ components:
         componentId: { type: string }
         name: { type: string }
         description: { type: string, nullable: true }
+        orderIndex: { type: integer }
+        isMandatory: { type: boolean }
         completedAt: { type: string, format: date-time, nullable: true }
         validatedBySupervisor: { type: boolean }
+        validatedAt: { type: string, format: date-time, nullable: true }
+        notes: { type: string, nullable: true }
+        evidenceUrl: { type: string, nullable: true }
     ActivityLogItem:
       type: object
       properties:
         id: { type: string }
         thesisId: { type: string }
         userId: { type: string }
+        activityType: 
+          type: string
+          enum: [guidance, submission, revision, approval, milestone, notification, other]
         activity: { type: string }
         notes: { type: string, nullable: true }
+        metadata: { type: object, nullable: true }
         createdAt: { type: string, format: date-time }
     SupervisorItem:
       type: object
@@ -320,12 +356,30 @@ components:
       properties:
         guidanceDate: { type: string, format: date-time }
         studentNotes: { type: string }
+        type: 
+          type: string
+          enum: [online, offline]
+          default: online
+        duration: 
+          type: integer
+          default: 60
+          description: Duration in minutes
+        location: { type: string }
+        supervisorId: { type: string, format: uuid }
+        meetingUrl: { type: string, format: uri }
     StudentRescheduleGuidanceBody:
       type: object
       required: [guidanceDate]
       properties:
         guidanceDate: { type: string, format: date-time }
         studentNotes: { type: string }
+        type: 
+          type: string
+          enum: [online, offline]
+        duration: 
+          type: integer
+          description: Duration in minutes
+        location: { type: string }
     StudentNotesBody:
       type: object
       required: [studentNotes]

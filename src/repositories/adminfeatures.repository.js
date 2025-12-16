@@ -56,15 +56,15 @@ export function createStudentStatus(name) {
 export function createStudentForUser({ userId, studentStatusId, enrollmentYear, skscompleted }) {
 	const sks = Number.isInteger(skscompleted) && skscompleted >= 0 ? skscompleted : 0;
 	return prisma.student.create({
-		data: { userId, studentStatusId: studentStatusId || null, enrollmentYear: enrollmentYear ?? null, skscompleted: sks },
+		data: { id: userId, studentStatusId: studentStatusId || null, enrollmentYear: enrollmentYear ?? null, skscompleted: sks },
 	});
 }
 
 export function findLecturerByUserId(userId) {
-	return prisma.lecturer.findUnique({ where: { userId } });
+	return prisma.lecturer.findUnique({ where: { id: userId } });
 }
 export function createLecturerForUser({ userId, scienceGroupId = null }) {
-	return prisma.lecturer.create({ data: { userId, scienceGroupId } });
+	return prisma.lecturer.create({ data: { id: userId, scienceGroupId } });
 }
 
 // Admin-oriented helpers moved from user.repository.js
@@ -88,7 +88,7 @@ export function upsertUserRole(userId, roleId, status = "active") {
 	});
 }
 export function findStudentByUserId(userId) {
-	return prisma.student.findUnique({ where: { userId } });
+	return prisma.student.findUnique({ where: { id: userId } });
 }
 export function findRoleByName(name) {
 	return prisma.userRole.findFirst({ where: { name } });

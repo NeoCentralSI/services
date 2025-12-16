@@ -13,6 +13,7 @@ import {
 		supervisorEligibilityService,
 		failStudentThesisService,
 } from "../../services/thesisGuidance/lecturer.guidance.service.js";
+import { SUPERVISOR_ROLES } from "../../constants/roles.js";
 
 export async function myStudents(req, res, next) {
 	try {
@@ -24,8 +25,8 @@ export async function myStudents(req, res, next) {
 			// Support comma-separated roles from query
 			roles = Array.isArray(rolesParam) ? rolesParam : rolesParam.split(',').map(r => r.trim());
 		} else {
-			// Default to supervisor roles - use exact role names from DB
-			roles = ["pembimbing1", "pembimbing2"];
+			// Default to supervisor roles
+			roles = SUPERVISOR_ROLES;
 		}
 		
 		const result = await getMyStudentsService(req.user.sub, roles);
@@ -62,8 +63,8 @@ export async function rejectGuidance(req, res, next) {
 export async function approveGuidance(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
-		const { feedback, meetingUrl } = req.body || {};
-		const result = await approveGuidanceService(req.user.sub, guidanceId, { feedback, meetingUrl });
+		const { feedback, meetingUrl, approvedDate, type, duration, location } = req.body || {};
+		const result = await approveGuidanceService(req.user.sub, guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location });
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

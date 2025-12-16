@@ -78,6 +78,18 @@ student_guidance_request:
                 type: string
                 format: uri
                 description: Optional meeting URL (Google Meet/Zoom/etc.)
+              type:
+                type: string
+                enum: [online, offline]
+                default: online
+                description: Guidance type
+              duration:
+                type: integer
+                default: 60
+                description: Duration in minutes
+              location:
+                type: string
+                description: Physical location (for offline meetings)
               file:
                 type: string
                 format: binary

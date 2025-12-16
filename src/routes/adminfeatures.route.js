@@ -5,19 +5,20 @@ import { importStudentsCsv, updateUserByAdmin, createAcademicYearController, upd
 import { updateUserSchema, createUserSchema } from "../validators/user.validator.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
+import { ROLES } from "../constants/roles.js";
 
 
 const router = express.Router();
 
-router.post("/students/import", authGuard, requireRole("admin"), uploadCsv, importStudentsCsv);
-router.get("/users", authGuard, requireRole("admin"), getUsersController);
-router.get("/students", authGuard, requireRole("admin"), getStudentsController);
-router.get("/lecturers", authGuard, requireRole("admin"), getLecturersController);
-router.post("/users", authGuard, requireRole("admin"), validate(createUserSchema), createUserByAdminController);
-router.patch("/:id", authGuard, requireRole("admin"), validate(updateUserSchema), updateUserByAdmin);
-router.get("/academic-years", authGuard, requireRole("admin"), getAcademicYearsController);
-router.post("/academic-years", authGuard, requireRole("admin"), validate(createAcademicYearSchema), createAcademicYearController);
-router.patch("/academic-years/:id", authGuard, requireRole("admin"), validate(updateAcademicYearSchema), updateAcademicYearController);
+router.post("/students/import", authGuard, requireRole(ROLES.ADMIN), uploadCsv, importStudentsCsv);
+router.get("/users", authGuard, requireRole(ROLES.ADMIN), getUsersController);
+router.get("/students", authGuard, requireRole(ROLES.ADMIN), getStudentsController);
+router.get("/lecturers", authGuard, requireRole(ROLES.ADMIN), getLecturersController);
+router.post("/users", authGuard, requireRole(ROLES.ADMIN), validate(createUserSchema), createUserByAdminController);
+router.patch("/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateUserSchema), updateUserByAdmin);
+router.get("/academic-years", authGuard, requireRole(ROLES.ADMIN), getAcademicYearsController);
+router.post("/academic-years", authGuard, requireRole(ROLES.ADMIN), validate(createAcademicYearSchema), createAcademicYearController);
+router.patch("/academic-years/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateAcademicYearSchema), updateAcademicYearController);
 
 
 export default router;

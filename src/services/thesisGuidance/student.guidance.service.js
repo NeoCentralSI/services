@@ -4,9 +4,8 @@ import {
   getSupervisorsForThesis,
   listGuidancesForThesis,
   getGuidanceByIdForStudent,
-  createGuidanceSchedule,
   createGuidance,
-  updateGuidanceScheduleDate,
+  updateGuidanceRequestedDate,
   updateGuidanceById,
   listActivityLogsByStudent,
   listGuidanceHistoryByStudent,
@@ -21,6 +20,7 @@ import { createNotificationsForUsers } from "../notification.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import { deleteCalendarEvent } from "../outlook-calendar.service.js";
+import { ROLES, isSupervisorRole, ROLE_CATEGORY } from "../../constants/roles.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
@@ -58,13 +58,15 @@ async function getOrCreateDocumentType(name = "Thesis") {
   return dt;
 }
 
-async function logThesisActivity(thesisId, userId, activity, notes) {
+// Schema baru: tambah activityType untuk ThesisActivityLog
+async function logThesisActivity(thesisId, userId, activity, notes, activityType = "other") {
   try {
     await prisma.thesisActivityLog.create({
       data: {
         thesisId,
         userId,
         activity,
+        activityType,
         notes: notes || "",
       },
     });
@@ -93,23 +95,30 @@ async function getActiveThesisOrThrow(userId) {
   return { student, thesis };
 }
 
+// Schema baru: gunakan requestedDate/approvedDate langsung, bukan schedule relation
 export async function listMyGuidancesService(userId, status) {
   const { thesis } = await getActiveThesisOrThrow(userId);
   const rows = await listGuidancesForThesis(thesis.id, status);
   rows.sort((a, b) => {
-    const at = a?.schedule?.guidanceDate ? new Date(a.schedule.guidanceDate).getTime() : 0;
-    const bt = b?.schedule?.guidanceDate ? new Date(b.schedule.guidanceDate).getTime() : 0;
+    // Schema baru: gunakan requestedDate bukan schedule.guidanceDate
+    const at = a?.requestedDate ? new Date(a.requestedDate).getTime() : 0;
+    const bt = b?.requestedDate ? new Date(b.requestedDate).getTime() : 0;
     if (bt !== at) return bt - at;
     return String(b.id).localeCompare(String(a.id));
   });
   const items = rows.map((g) => ({
     id: g.id,
     status: g.status,
-    scheduledAt: g?.schedule?.guidanceDate || null,
-    scheduledAtFormatted: g?.schedule?.guidanceDate ? formatDateTimeJakarta(g.schedule.guidanceDate, { withDay: true }) : null,
-    schedule: g?.schedule
-      ? { id: g.schedule.id, guidanceDate: g.schedule.guidanceDate, guidanceDateFormatted: formatDateTimeJakarta(g.schedule.guidanceDate, { withDay: true }) }
+    // Schema baru: gunakan requestedDate/approvedDate
+    scheduledAt: g.approvedDate || g.requestedDate || null,
+    scheduledAtFormatted: (g.approvedDate || g.requestedDate) 
+      ? formatDateTimeJakarta(g.approvedDate || g.requestedDate, { withDay: true }) 
       : null,
+    requestedDate: g.requestedDate || null,
+    approvedDate: g.approvedDate || null,
+    duration: g.duration || 60,
+    type: g.type || "online",
+    location: g.location || null,
     supervisorId: g.supervisorId || null,
     supervisorName: g?.supervisor?.user?.fullName || null,
   }));
@@ -139,19 +148,25 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     err.statusCode = 404;
     throw err;
   }
+  // Schema baru: gunakan requestedDate/approvedDate
   const flat = {
     id: guidance.id,
     status: guidance.status,
-    scheduledAt: guidance?.schedule?.guidanceDate || null,
-    scheduledAtFormatted: guidance?.schedule?.guidanceDate ? formatDateTimeJakarta(guidance.schedule.guidanceDate, { withDay: true }) : null,
-    schedule: guidance?.schedule
-      ? { id: guidance.schedule.id, guidanceDate: guidance.schedule.guidanceDate, guidanceDateFormatted: formatDateTimeJakarta(guidance.schedule.guidanceDate, { withDay: true }) }
+    scheduledAt: guidance.approvedDate || guidance.requestedDate || null,
+    scheduledAtFormatted: (guidance.approvedDate || guidance.requestedDate) 
+      ? formatDateTimeJakarta(guidance.approvedDate || guidance.requestedDate, { withDay: true }) 
       : null,
+    requestedDate: guidance.requestedDate || null,
+    approvedDate: guidance.approvedDate || null,
+    duration: guidance.duration || 60,
+    type: guidance.type || "online",
+    location: guidance.location || null,
     supervisorId: guidance.supervisorId || null,
     supervisorName: guidance?.supervisor?.user?.fullName || null,
     meetingUrl: guidance.meetingUrl || null,
     notes: guidance.studentNotes || null,
     supervisorFeedback: guidance.supervisorFeedback || null,
+    rejectionReason: guidance.rejectionReason || null,
   };
   // attach thesis document
   try {
@@ -167,7 +182,8 @@ export async function getGuidanceDetailService(userId, guidanceId) {
   return { guidance: flat };
 }
 
-export async function requestGuidanceService(userId, guidanceDate, studentNotes, file, meetingUrl, supervisorId) {
+export async function requestGuidanceService(userId, guidanceDate, studentNotes, file, meetingUrl, supervisorId, options = {}) {
+  const { type = "online", duration = 60, location = null } = options;
   let { student, thesis } = await getActiveThesisOrThrow(userId);
   thesis = await ensureThesisAcademicYear(thesis);
   
@@ -176,19 +192,18 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
   
   // Check if there's any pending request (status: requested)
+  // Schema baru: tidak ada schedule relation
   const pendingRequest = await prisma.thesisGuidance.findFirst({
     where: {
       thesisId: thesis.id,
       status: "requested",
     },
-    include: {
-      schedule: true,
-    },
   });
   
   if (pendingRequest) {
-    const dateStr = pendingRequest?.schedule?.guidanceDate 
-      ? formatDateTimeJakarta(new Date(pendingRequest.schedule.guidanceDate), { withDay: true })
+    // Schema baru: gunakan requestedDate langsung
+    const dateStr = pendingRequest?.requestedDate 
+      ? formatDateTimeJakarta(new Date(pendingRequest.requestedDate), { withDay: true })
       : "belum ditentukan";
     const err = new Error(`Anda masih memiliki pengajuan bimbingan yang belum direspon oleh dosen (jadwal: ${dateStr}). Tunggu hingga dosen menyetujui atau menolak pengajuan sebelumnya.`);
     err.statusCode = 400;
@@ -196,9 +211,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   }
   
   const supervisors = await getSupervisorsForThesis(thesis.id);
-  const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
-  const sup1 = supervisors.find((p) => norm(p.role?.name) === "pembimbing1");
-  const sup2 = supervisors.find((p) => norm(p.role?.name) === "pembimbing2");
+  const sup1 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_1);
+  const sup2 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_2);
   let selectedSupervisorId = supervisorId || null;
   if (selectedSupervisorId) {
     const allowed = supervisors.some((s) => s.lecturerId === selectedSupervisorId);
@@ -216,18 +230,21 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     throw err;
   }
 
-  const schedule = await createGuidanceSchedule(guidanceDate);
+  // Schema baru: tidak perlu createGuidanceSchedule, requestedDate langsung di ThesisGuidance
   const created = await createGuidance({
     thesisId: thesis.id,
-    scheduleId: schedule.id,
+    requestedDate: guidanceDate, // Schema baru
     supervisorId: selectedSupervisorId,
     studentNotes: studentNotes || `Request guidance on ${guidanceDate.toISOString()}`,
     supervisorFeedback: "",
     meetingUrl: meetingUrl || "",
+    type: type || "online",
+    duration: duration || 60,
+    location: location || null,
     status: "requested",
   });
 
-  await logThesisActivity(thesis.id, userId, "request-guidance", `Requested at ${guidanceDate.toISOString()}`);
+  await logThesisActivity(thesis.id, userId, "request-guidance", `Requested at ${guidanceDate.toISOString()}`, "guidance");
 
   try {
     const supervisorsUserIds = supervisors.map((p) => p?.lecturer?.user?.id).filter(Boolean);
@@ -245,13 +262,14 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   try {
     const supUserIds = supervisors.map((p) => p?.lecturer?.user?.id).filter(Boolean);
     console.log(`[Guidance] Sending FCM requested -> supervisors=${supUserIds.join(',')} guidanceId=${created.id}`);
+    // Schema baru: gunakan requestedDate
     const data = {
       type: "thesis-guidance:requested",
       role: "supervisor",
       guidanceId: String(created.id),
       thesisId: String(thesis.id),
-      scheduledAt: schedule?.guidanceDate ? new Date(schedule.guidanceDate).toISOString() : "",
-      scheduledAtFormatted: formatDateTimeJakarta(schedule?.guidanceDate, { withDay: true }) || "",
+      scheduledAt: created?.requestedDate ? new Date(created.requestedDate).toISOString() : "",
+      scheduledAtFormatted: formatDateTimeJakarta(created?.requestedDate, { withDay: true }) || "",
       supervisorId: String(selectedSupervisorId),
       playSound: "true",
     };
@@ -289,7 +307,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
 
       await prisma.thesis.update({ where: { id: thesis.id }, data: { documentId: doc.id } });
 
-      await logThesisActivity(thesis.id, userId, "upload-thesis-document", `Uploaded ${file.originalname}`);
+      await logThesisActivity(thesis.id, userId, "upload-thesis-document", `Uploaded ${file.originalname}`, "submission");
     } catch (err) {
       console.error("Failed to store uploaded thesis file:", err.message || err);
     }
@@ -297,13 +315,16 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
 
   const supMap = new Map(supervisors.map((p) => [p.lecturerId, p]));
   const sup = supMap.get(selectedSupervisorId);
+  // Schema baru: gunakan requestedDate
   const flat = {
     id: created.id,
     status: created.status,
-    scheduledAt: schedule?.guidanceDate || null,
-    scheduledAtFormatted: schedule?.guidanceDate ? formatDateTimeJakarta(schedule.guidanceDate, { withDay: true }) : null,
-    scheduleId: schedule?.id || null,
-    schedule: schedule ? { id: schedule.id, guidanceDate: schedule.guidanceDate, guidanceDateFormatted: formatDateTimeJakarta(schedule.guidanceDate, { withDay: true }) } : null,
+    scheduledAt: created?.requestedDate || null,
+    scheduledAtFormatted: created?.requestedDate ? formatDateTimeJakarta(created.requestedDate, { withDay: true }) : null,
+    requestedDate: created?.requestedDate || null,
+    approvedDate: created?.approvedDate || null,
+    duration: created?.duration || 60,
+    type: created?.type || "online",
     supervisorId: created.supervisorId || null,
     supervisorName: sup?.lecturer?.user?.fullName || null,
     meetingUrl: created.meetingUrl || null,
@@ -313,7 +334,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   return { guidance: flat };
 }
 
-export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate, studentNotes) {
+export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate, studentNotes, options = {}) {
+  const { type, duration, location } = options;
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
   
@@ -353,18 +375,20 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
     console.error("Failed to delete old calendar events:", e?.message || e);
   }
   
-  // update schedule date
-  if (guidance.scheduleId) {
-    await updateGuidanceScheduleDate(guidance.scheduleId, guidanceDate);
-  } else {
-    const schedule = await createGuidanceSchedule(guidanceDate);
-    await updateGuidanceById(guidance.id, { scheduleId: schedule.id });
-  }
-  const updated = await updateGuidanceById(guidance.id, {
+  // Update requested date and reset feedback
+  const updateData = {
+    requestedDate: guidanceDate,
     studentNotes: studentNotes || guidance.studentNotes || "",
     supervisorFeedback: "", // back to pending
-  });
-  await logThesisActivity(guidance.thesisId, userId, "reschedule-guidance", `New date ${guidanceDate.toISOString()}`);
+    approvedDate: null, // reset approved date
+  };
+  // Only update optional fields if provided
+  if (type !== undefined) updateData.type = type;
+  if (duration !== undefined) updateData.duration = duration;
+  if (location !== undefined) updateData.location = location;
+  
+  const updated = await updateGuidanceById(guidance.id, updateData);
+  await logThesisActivity(guidance.thesisId, userId, "reschedule-guidance", `New date ${guidanceDate.toISOString()}`, "guidance");
   // Persist notifications
   try {
     const supervisors = await getSupervisorsForThesis(guidance.thesisId);
@@ -406,16 +430,18 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
   const flat = {
     id: updated.id,
     status: updated.status,
-    scheduledAt: updated?.schedule?.guidanceDate || null,
-    scheduledAtFormatted: updated?.schedule?.guidanceDate ? formatDateTimeJakarta(updated.schedule.guidanceDate, { withDay: true }) : null,
-    schedule: updated?.schedule
-      ? { id: updated.schedule.id, guidanceDate: updated.schedule.guidanceDate, guidanceDateFormatted: formatDateTimeJakarta(updated.schedule.guidanceDate, { withDay: true }) }
-      : null,
+    requestedDate: updated.requestedDate || null,
+    requestedDateFormatted: updated.requestedDate ? formatDateTimeJakarta(updated.requestedDate, { withDay: true }) : null,
+    approvedDate: updated.approvedDate || null,
+    approvedDateFormatted: updated.approvedDate ? formatDateTimeJakarta(updated.approvedDate, { withDay: true }) : null,
     supervisorId: updated.supervisorId || null,
     supervisorName: null,
     meetingUrl: updated.meetingUrl || null,
     notes: updated.studentNotes || null,
     supervisorFeedback: updated.supervisorFeedback || null,
+    type: updated.type || null,
+    duration: updated.duration || null,
+    location: updated.location || null,
   };
   return { guidance: flat };
 }
@@ -452,7 +478,7 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
   }
   
   // Log activity before deleting
-  await logThesisActivity(guidance.thesisId, userId, "delete-guidance-request", reason || "");
+  await logThesisActivity(guidance.thesisId, userId, "delete-guidance-request", reason || "", "guidance");
   
   // Delete the guidance record (no notifications needed)
   await prisma.thesisGuidance.delete({
@@ -477,7 +503,7 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
     throw err;
   }
   const updated = await updateGuidanceById(guidance.id, { studentNotes: studentNotes || "" });
-  await logThesisActivity(guidance.thesisId, userId, "update-student-notes", studentNotes || "");
+  await logThesisActivity(guidance.thesisId, userId, "update-student-notes", studentNotes || "", "guidance");
   // Persist notifications
   try {
     const supervisors = await getSupervisorsForThesis(guidance.thesisId);
@@ -501,7 +527,7 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
     const preview = (studentNotes || "").slice(0, 100);
     const data = {
       type: "thesis-guidance:notes-updated",
-      role: "supervisor",
+      role: ROLE_CATEGORY.LECTURER,
       guidanceId: String(guidance.id),
       thesisId: String(guidance.thesisId),
       notes: String(studentNotes || ""),
@@ -514,7 +540,7 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
     await sendFcmToUsers([userId], { 
       title: "Catatan diperbarui", 
       body: preview ? `${preview}${studentNotes.length > 100 ? '...' : ''}` : "Catatan berhasil diperbarui", 
-      data: { ...data, role: "student" } 
+      data: { ...data, role: ROLE_CATEGORY.STUDENT } 
     });
   } catch (e) {
     console.warn("FCM notify failed (notes updated):", e?.message || e);
@@ -522,15 +548,18 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
   const flat = {
     id: updated.id,
     status: updated.status,
-    scheduledAt: updated?.schedule?.guidanceDate || null,
-    schedule: updated?.schedule
-      ? { id: updated.schedule.id, guidanceDate: updated.schedule.guidanceDate }
-      : null,
+    requestedDate: updated.requestedDate || null,
+    requestedDateFormatted: updated.requestedDate ? formatDateTimeJakarta(updated.requestedDate, { withDay: true }) : null,
+    approvedDate: updated.approvedDate || null,
+    approvedDateFormatted: updated.approvedDate ? formatDateTimeJakarta(updated.approvedDate, { withDay: true }) : null,
     supervisorId: updated.supervisorId || null,
     supervisorName: null,
     meetingUrl: updated.meetingUrl || null,
     notes: updated.studentNotes || null,
     supervisorFeedback: updated.supervisorFeedback || null,
+    type: updated.type || null,
+    duration: updated.duration || null,
+    location: updated.location || null,
   };
   return { guidance: flat };
 }
@@ -563,13 +592,16 @@ export async function guidanceHistoryService(userId) {
   const items = rows.map((g) => ({
     id: g.id,
     status: g.status,
-    scheduledAt: g?.schedule?.guidanceDate || null,
-    scheduledAtFormatted: g?.schedule?.guidanceDate ? formatDateTimeJakarta(g.schedule.guidanceDate, { withDay: true }) : null,
-    schedule: g?.schedule
-      ? { id: g.schedule.id, guidanceDate: g.schedule.guidanceDate, guidanceDateFormatted: formatDateTimeJakarta(g.schedule.guidanceDate, { withDay: true }) }
-      : null,
+    requestedDate: g.requestedDate || null,
+    requestedDateFormatted: g.requestedDate ? formatDateTimeJakarta(g.requestedDate, { withDay: true }) : null,
+    approvedDate: g.approvedDate || null,
+    approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
     supervisorId: g.supervisorId || null,
     supervisorName: g?.supervisor?.user?.fullName || null,
+    type: g.type || null,
+    duration: g.duration || null,
+    location: g.location || null,
+    completedAt: g.completedAt || null,
   }));
   return { count: items.length, items };
 }

@@ -1,8 +1,10 @@
 import prisma from "../../config/prisma.js";
+import { ROLES } from "../../constants/roles.js";
 
 // Helper to resolve lecturer by userId (JWT sub)
+// Schema baru: Lecturer.id adalah foreign key ke User.id
 export async function getLecturerByUserId(userId) {
-	return prisma.lecturer.findUnique({ where: { userId } });
+	return prisma.lecturer.findUnique({ where: { id: userId } });
 }
 
 // List students supervised by the lecturer via ThesisParticipant (SUPERVISOR_1/2)
@@ -48,6 +50,7 @@ export async function findMyStudents(lecturerId, roles) {
 }
 
 // List guidance requests assigned to this lecturer that are pending (requested status)
+// Schema baru: tidak ada schedule relation, gunakan requestedDate langsung
 export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10 } = {}) {
 	const take = Math.max(1, Math.min(50, Number(pageSize) || 10));
 	const currentPage = Math.max(1, Number(page) || 1);
@@ -62,10 +65,10 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 		prisma.thesisGuidance.count({ where }),
 		prisma.thesisGuidance.findMany({
 			where,
-			// newest-first by creation time; fallback by schedule date then id
+			// newest-first by creation time; fallback by requestedDate then id
 			orderBy: [
 				{ createdAt: "desc" },
-				{ schedule: { guidanceDate: "desc" } },
+				{ requestedDate: "desc" },
 				{ id: "desc" },
 			],
 			include: {
@@ -75,7 +78,6 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 						document: true,
 					},
 				},
-				schedule: true,
 				supervisor: { include: { user: true } },
 			},
 			skip,
@@ -91,20 +93,27 @@ export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 		where: { id: guidanceId, supervisorId: lecturerId },
 		include: {
 			thesis: { include: { student: { include: { user: true } }, document: true } },
-			schedule: true,
 			supervisor: { include: { user: true } },
 		},
 	});
 }
 
-export async function approveGuidanceById(guidanceId, { feedback, meetingUrl } = {}) {
+// Schema baru: set approvedDate saat approve, support optional fields
+export async function approveGuidanceById(guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location } = {}) {
+	const data = {
+		status: "accepted",
+		approvedDate: approvedDate ? new Date(approvedDate) : new Date(), // Use provided date or current time
+		supervisorFeedback: feedback ?? "APPROVED",
+	};
+	// Only set optional fields if provided
+	if (meetingUrl !== undefined) data.meetingUrl = meetingUrl;
+	if (type !== undefined) data.type = type;
+	if (duration !== undefined) data.duration = duration;
+	if (location !== undefined) data.location = location;
+	
 	return prisma.thesisGuidance.update({
 		where: { id: guidanceId },
-		data: {
-			status: "accepted",
-			supervisorFeedback: feedback ?? "APPROVED",
-			meetingUrl: meetingUrl ?? undefined,
-		},
+		data,
 		include: { 
 			thesis: { 
 				include: { 
@@ -115,7 +124,6 @@ export async function approveGuidanceById(guidanceId, { feedback, meetingUrl } =
 					} 
 				} 
 			},
-			schedule: true,
 			supervisor: { 
 				include: { 
 					user: true 
@@ -130,6 +138,7 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 		where: { id: guidanceId },
 		data: {
 			status: "rejected",
+			rejectionReason: feedback ?? "REJECTED",
 			supervisorFeedback: feedback ?? "REJECTED",
 		},
 		include: { 
@@ -142,7 +151,6 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 					} 
 				} 
 			},
-			schedule: true,
 			supervisor: { 
 				include: { 
 					user: true 
@@ -154,7 +162,7 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 
 export async function getLecturerTheses(lecturerId) {
 	const parts = await prisma.thesisParticipant.findMany({
-		where: { lecturerId, role: { name: { in: ["pembimbing1", "pembimbing2"] } } },
+		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
 		select: { thesisId: true },
 	});
 	return parts.map((p) => p.thesisId);
@@ -178,20 +186,22 @@ export async function getStudentActiveThesis(studentId, lecturerId) {
 	return prisma.thesis.findFirst({
 		where: {
 			studentId,
-			thesisParticipants: { some: { lecturerId, role: { name: { in: ["pembimbing1", "pembimbing2"] } } } },
+			thesisParticipants: { some: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } } },
 		},
 		include: { thesisProgressCompletions: true },
 	});
 }
 
 export async function getAllProgressComponents() {
-	return prisma.thesisProgressComponent.findMany({ orderBy: { name: "asc" } });
+	// Schema baru: orderBy orderIndex untuk urutan milestone
+	return prisma.thesisProgressComponent.findMany({ orderBy: { orderIndex: "asc" } });
 }
 
 export async function getCompletionsForThesis(thesisId) {
 	return prisma.thesisProgressCompletion.findMany({ where: { thesisId } });
 }
 
+// Schema baru: tambah validatedAt saat validasi
 export async function upsertCompletionsValidated(thesisId, componentIds = []) {
 	if (!componentIds.length) return { updated: 0, created: 0 };
 
@@ -209,12 +219,18 @@ export async function upsertCompletionsValidated(thesisId, componentIds = []) {
 		toUpdateIds.length
 			? prisma.thesisProgressCompletion.updateMany({
 					where: { id: { in: toUpdateIds } },
-					data: { validatedBySupervisor: true, completedAt: now },
+					data: { validatedBySupervisor: true, validatedAt: now, completedAt: now },
 				})
 			: Promise.resolve({ count: 0 }),
 		toCreateComponentIds.length
 			? prisma.thesisProgressCompletion.createMany({
-					data: toCreateComponentIds.map((cid) => ({ thesisId, componentId: cid, validatedBySupervisor: true, completedAt: now })),
+					data: toCreateComponentIds.map((cid) => ({ 
+						thesisId, 
+						componentId: cid, 
+						validatedBySupervisor: true, 
+						validatedAt: now,
+						completedAt: now 
+					})),
 					skipDuplicates: true,
 				})
 			: Promise.resolve({ count: 0 }),
@@ -223,8 +239,11 @@ export async function upsertCompletionsValidated(thesisId, componentIds = []) {
 	return { updated: updateRes.count || 0, created: createRes.count || 0 };
 }
 
-export async function logThesisActivity(thesisId, userId, activity, notes = null) {
-	return prisma.thesisActivityLog.create({ data: { thesisId, userId, activity, notes } });
+// Schema baru: tambah activityType untuk ThesisActivityLog
+export async function logThesisActivity(thesisId, userId, activity, notes = null, activityType = "other") {
+	return prisma.thesisActivityLog.create({ 
+		data: { thesisId, userId, activity, notes, activityType } 
+	});
 }
 
 export async function listGuidanceHistory(studentId, lecturerId) {
@@ -233,8 +252,8 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 			thesis: { studentId },
 			supervisorId: lecturerId,
 		},
-		include: { schedule: true },
-		orderBy: { id: "asc" },
+		include: { supervisor: { include: { user: true } } },
+		orderBy: { requestedDate: "asc" },
 	});
 }
 
@@ -249,7 +268,7 @@ export async function listActivityLogs(studentId) {
 export async function countGraduatedAsSupervisor2(lecturerId) {
 	// Get studentIds supervised as SUPERVISOR_2
 	const parts = await prisma.thesisParticipant.findMany({
-		where: { lecturerId, role: { name: "pembimbing2" } },
+		where: { lecturerId, role: { name: ROLES.PEMBIMBING_2 } },
 		select: { thesis: { select: { studentId: true } } },
 	});
 	const studentIds = Array.from(new Set(parts.map((p) => p.thesis?.studentId).filter(Boolean)));

@@ -3,6 +3,7 @@ import {
   getUpcomingEvents,
   getEventStatistics,
 } from "../services/calendar.service.js";
+import { getRoleCategory } from "../constants/roles.js";
 
 /**
  * @route GET /calendar/my-events
@@ -57,28 +58,16 @@ async function getUserPrimaryRole(userId) {
       },
     });
     
-    const roleName = userWithRoles?.userHasRoles?.[0]?.role?.name || "student";
+    const roleName = userWithRoles?.userHasRoles?.[0]?.role?.name;
     
     console.log('[getUserPrimaryRole] Raw role name from DB:', roleName);
     console.log('[getUserPrimaryRole] User has roles:', userWithRoles?.userHasRoles?.map(r => r.role?.name));
     
-    // Normalize role names
-    if (roleName === "mahasiswa") {
-      console.log('[getUserPrimaryRole] Normalized to: student');
-      return "student";
-    }
-    // Lecturer roles: dosen, pembimbing1, pembimbing2, penguji
-    if (roleName === "dosen" || roleName === "pembimbing1" || roleName === "pembimbing2" || roleName === "penguji") {
-      console.log('[getUserPrimaryRole] Normalized to: lecturer');
-      return "lecturer";
-    }
-    if (roleName === "admin") {
-      console.log('[getUserPrimaryRole] Normalized to: admin');
-      return "admin";
-    }
+    // Use centralized role category helper
+    const category = getRoleCategory(roleName);
+    console.log('[getUserPrimaryRole] Role category:', category);
     
-    console.log('[getUserPrimaryRole] No normalization, returning:', roleName);
-    return roleName;
+    return category;
   } finally {
     await prisma.$disconnect();
   }

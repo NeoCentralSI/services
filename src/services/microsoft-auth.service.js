@@ -6,8 +6,9 @@ import prisma from "../config/prisma.js";
 import jwt from "jsonwebtoken";
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
+const MICROSOFT_TOKEN_URL = `https://login.microsoftonline.com/${ENV.TENANT_ID}/oauth2/v2.0/token`;
 
-// MSAL Configuration
+// MSAL Configuration (for auth URL only)
 const msalConfig = {
   auth: {
     clientId: ENV.CLIENT_ID,
@@ -36,7 +37,6 @@ export function getMicrosoftAuthUrl() {
   const authCodeUrlParameters = {
     scopes: MICROSOFT_SCOPES,
     redirectUri: ENV.REDIRECT_URI,
-    // Don't force consent every time - just select account
     prompt: 'select_account',
   };
 
@@ -44,40 +44,54 @@ export function getMicrosoftAuthUrl() {
 }
 
 /**
- * Exchange authorization code for tokens
+ * Exchange authorization code for tokens using direct HTTP request
+ * This ensures we get the refresh token (MSAL caches it internally and doesn't always return it)
  * @param {string} code - Authorization code from Microsoft
- * @returns {Promise<Object>} Token response with access token and user info
+ * @returns {Promise<Object>} Token response with access token, refresh token and user info
  */
 export async function exchangeCodeForTokens(code) {
-  const tokenRequest = {
-    code,
-    scopes: MICROSOFT_SCOPES,
-    redirectUri: ENV.REDIRECT_URI,
-  };
-
   try {
-    console.log('🔄 Attempting to exchange code for tokens...');
+    console.log('🔄 Attempting to exchange code for tokens (direct HTTP)...');
     console.log('📍 Redirect URI:', ENV.REDIRECT_URI);
     
-    const response = await msalClient.acquireTokenByCode(tokenRequest);
+    // Use direct HTTP request to get tokens (this guarantees refresh_token)
+    const tokenResponse = await axios.post(
+      MICROSOFT_TOKEN_URL,
+      new URLSearchParams({
+        client_id: ENV.CLIENT_ID,
+        client_secret: ENV.CLIENT_SECRET,
+        code: code,
+        redirect_uri: ENV.REDIRECT_URI,
+        grant_type: 'authorization_code',
+        scope: MICROSOFT_SCOPES.join(' '),
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    const { access_token, refresh_token, id_token } = tokenResponse.data;
     
     console.log('✅ Token exchange successful');
-    console.log('� Has refresh token:', !!response.refreshToken);
-    console.log('�🔄 Fetching user profile from Microsoft Graph...');
+    console.log('🔑 Has access token:', !!access_token);
+    console.log('🔄 Has refresh token:', !!refresh_token);
+    console.log('🔄 Fetching user profile from Microsoft Graph...');
     
     // Get user profile from Microsoft Graph
-    const userProfile = await getMicrosoftUserProfile(response.accessToken);
+    const userProfile = await getMicrosoftUserProfile(access_token);
     
     console.log('✅ User profile fetched successfully');
     
     // Check calendar access
-    const calendarAccess = await checkCalendarAccessWithToken(response.accessToken);
+    const calendarAccess = await checkCalendarAccessWithToken(access_token);
     console.log('📅 Calendar access:', calendarAccess ? 'Yes' : 'No');
 
     return {
-      accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
-      idToken: response.idToken,
+      accessToken: access_token,
+      refreshToken: refresh_token,
+      idToken: id_token,
       userProfile,
       hasCalendarAccess: calendarAccess,
     };
@@ -85,15 +99,13 @@ export async function exchangeCodeForTokens(code) {
     console.error("❌ Error exchanging code for tokens:");
     console.error("Error type:", error.constructor.name);
     console.error("Error message:", error.message);
-    console.error("Error details:", error);
     
-    // Log specific MSAL error details
-    if (error.errorCode) {
-      console.error("MSAL Error Code:", error.errorCode);
-      console.error("MSAL Error Message:", error.errorMessage);
+    if (error.response) {
+      console.error("Response status:", error.response.status);
+      console.error("Response data:", error.response.data);
     }
     
-    const err = new Error(`Failed to authenticate with Microsoft: ${error.message || 'Unknown error'}`);
+    const err = new Error(`Failed to authenticate with Microsoft: ${error.response?.data?.error_description || error.message || 'Unknown error'}`);
     err.statusCode = 401;
     throw err;
   }

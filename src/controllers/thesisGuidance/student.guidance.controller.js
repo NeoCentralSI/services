@@ -34,14 +34,14 @@ export async function guidanceDetail(req, res, next) {
 
 export async function requestGuidance(req, res, next) {
   try {
-    const { guidanceDate, studentNotes, meetingUrl, supervisorId } = (req.validated ?? req.body ?? {});
+    const { guidanceDate, studentNotes, meetingUrl, supervisorId, type, duration, location } = (req.validated ?? req.body ?? {});
     const file = req.file || null;
     if (!file) {
       const err = new Error("Thesis file is required (field name: 'file')");
       err.statusCode = 400;
       throw err;
     }
-    const result = await requestGuidanceService(req.user.sub, guidanceDate, studentNotes, file, meetingUrl, supervisorId);
+    const result = await requestGuidanceService(req.user.sub, guidanceDate, studentNotes, file, meetingUrl, supervisorId, { type, duration, location });
     res.status(201).json({ success: true, ...result });
   } catch (err) {
     next(err);
@@ -51,8 +51,8 @@ export async function requestGuidance(req, res, next) {
 export async function rescheduleGuidance(req, res, next) {
   try {
     const { guidanceId } = req.params;
-    const { guidanceDate, studentNotes } = (req.validated ?? req.body ?? {});
-    const result = await rescheduleGuidanceService(req.user.sub, guidanceId, guidanceDate, studentNotes);
+    const { guidanceDate, studentNotes, type, duration, location } = (req.validated ?? req.body ?? {});
+    const result = await rescheduleGuidanceService(req.user.sub, guidanceId, guidanceDate, studentNotes, { type, duration, location });
     res.json({ success: true, ...result });
   } catch (err) {
     next(err);

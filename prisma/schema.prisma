@@ -78,11 +78,10 @@ model UserHasRole {
 
 // Student Management
 model Student {
-  id                String   @id @default(uuid())
-  userId            String   @unique @map("user_id")
+  id                String   @id @map("user_id")
   studentStatusId   String?  @map("student_status_id")
   enrollmentYear    Int?     @map("enrollment_year")
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [id], references: [id], onDelete: Cascade)
   studentStatus     StudentStatus? @relation(fields: [studentStatusId], references: [id])
   skscompleted      Int
   thesis            Thesis[]
@@ -107,12 +106,12 @@ model StudentStatus {
 
 // Lecturer Management
 model Lecturer {
-  id                    String   @id @default(uuid())
-  userId                String   @unique @map("user_id")
+  id                    String   @id @map("user_id")
   scienceGroupId        String?  @map("science_group_id")
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                  User     @relation(fields: [id], references: [id], onDelete: Cascade)
   scienceGroup          ScienceGroup? @relation(fields: [scienceGroupId], references: [id])
   thesisParticipants    ThesisParticipant[]
+  thesisExaminers       ThesisExaminer[]
   thesisGuidances       ThesisGuidance[]
   thesisSeminarAudiences ThesisSeminarAudience[]
   thesisSeminarScores   ThesisSeminarScore[]
@@ -186,6 +185,7 @@ model Thesis {
   academicYear      AcademicYear? @relation(fields: [academicYearId], references: [id])
   document          Document? @relation(fields: [documentId], references: [id])
   thesisParticipants ThesisParticipant[]
+  thesisExaminers   ThesisExaminer[]
   thesisProgressCompletions ThesisProgressCompletion[]
   thesisGuidances   ThesisGuidance[]
   thesisActivityLogs ThesisActivityLog[]
@@ -193,6 +193,26 @@ model Thesis {
   thesisDefences    ThesisDefence[]
 
   @@map("thesis")
+}
+
+// Penguji Thesis - untuk seminar dan sidang
+// Satu tabel untuk track penguji di semua event
+model ThesisExaminer {
+  id          String   @id @default(uuid())
+  thesisId    String   @map("thesis_id")
+  lecturerId  String   @map("lecturer_id")
+  eventType   ExaminerEventType @map("event_type") // seminar atau defence
+  isChair     Boolean  @default(false) @map("is_chair") // Ketua penguji
+  assignedAt  DateTime @default(now()) @map("assigned_at")
+  confirmedAt DateTime? @map("confirmed_at") // Konfirmasi kehadiran
+  thesis      Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  lecturer    Lecturer @relation(fields: [lecturerId], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([thesisId, lecturerId, eventType]) // Satu dosen hanya sekali per thesis per event type
+  @@index([thesisId, eventType])
+  @@map("thesis_examiners")
 }
 
 model ThesisParticipant {
@@ -245,7 +265,9 @@ model ThesisProposal {
 model ThesisProgressComponent {
   id          String   @id @default(uuid())
   name        String
-  description String?
+  description String?  @db.Text
+  orderIndex  Int      @default(0) @map("order_index") // Urutan milestone
+  isMandatory Boolean  @default(true) @map("is_mandatory") // Wajib atau tidak
   thesisProgressCompletions ThesisProgressCompletion[]
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -259,55 +281,85 @@ model ThesisProgressCompletion {
   componentId               String   @map("component_id")
   completedAt               DateTime? @map("completed_at")
   validatedBySupervisor     Boolean  @default(false) @map("validated_by_supervisor")
+  validatedAt               DateTime? @map("validated_at")
+  notes                     String?  @db.Text // Catatan dari supervisor
+  evidenceUrl               String?  @map("evidence_url") // Link bukti/dokumen
   thesis                    Thesis   @relation(fields: [thesisId], references: [id])
   component                 ThesisProgressComponent @relation(fields: [componentId], references: [id])
   createdAt                 DateTime @default(now()) @map("created_at")
   updatedAt                 DateTime @updatedAt @map("updated_at")
 
+  @@unique([thesisId, componentId]) // Satu thesis hanya punya satu completion per component
   @@map("thesis_progress_completions")
-}
-
-model ThesisGuidanceSchedule {
-  id          String   @id @default(uuid())
-  guidanceDate DateTime? @map("guidance_date")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  thesisGuidances ThesisGuidance[]
-
-  @@map("thesis_guidance_schedules")
 }
 
 model ThesisGuidance {
   id                String   @id @default(uuid())
   thesisId          String   @map("thesis_id")
-  scheduleId        String?  @map("schedule_id")
   supervisorId      String?  @map("supervisor_id")
-  studentNotes      String?  @map("student_notes")
-  supervisorFeedback String? @map("supervisor_feedback")
-  meetingUrl        String?  @map("meeting_url")
+  
+  // Request details
+  requestedDate     DateTime @map("requested_date") // Tanggal/waktu yang diminta mahasiswa
+  approvedDate      DateTime? @map("approved_date") // Tanggal/waktu yang disetujui dosen
+  duration          Int      @default(60) // Durasi dalam menit
+  type              GuidanceType @default(online) // online/offline
+  location          String?  // Lokasi jika offline
+  meetingUrl        String?  @map("meeting_url") // Link meeting jika online
+  
+  // Notes & feedback
+  studentNotes      String?  @db.Text @map("student_notes") // Agenda dari mahasiswa
+  supervisorFeedback String? @db.Text @map("supervisor_feedback") // Feedback dari dosen
+  rejectionReason   String?  @db.Text @map("rejection_reason") // Alasan penolakan
+  
+  // Status
   status            GuidanceStatus @default(requested)
+  completedAt       DateTime? @map("completed_at") // Kapan bimbingan selesai
+  
   // Outlook Calendar sync fields
   studentCalendarEventId    String? @map("student_calendar_event_id")
   supervisorCalendarEventId String? @map("supervisor_calendar_event_id")
+  
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  // Relations
   thesis            Thesis   @relation(fields: [thesisId], references: [id])
-  schedule          ThesisGuidanceSchedule? @relation(fields: [scheduleId], references: [id])
   supervisor        Lecturer? @relation(fields: [supervisorId], references: [id])
+  sessionLogs       ThesisGuidanceLog[] // Log untuk setiap sesi bimbingan
 
   @@map("thesis_guidances")
 }
 
-model ThesisActivityLog {
-  id        String   @id @default(uuid())
-  thesisId  String   @map("thesis_id")
-  userId    String   @map("user_id")
-  activity  String
-  notes     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  thesis    Thesis   @relation(fields: [thesisId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
+// Log detail untuk setiap sesi bimbingan
+model ThesisGuidanceLog {
+  id              String   @id @default(uuid())
+  guidanceId      String   @map("guidance_id")
+  topic           String   // Topik yang dibahas
+  discussion      String?  @db.Text // Isi diskusi
+  actionItems     String?  @db.Text @map("action_items") // Tugas/action items untuk mahasiswa
+  attachmentUrl   String?  @map("attachment_url") // Lampiran (file bimbingan)
+  progressNotes   String?  @db.Text @map("progress_notes") // Catatan progress
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  guidance        ThesisGuidance @relation(fields: [guidanceId], references: [id], onDelete: Cascade)
 
+  @@map("thesis_guidance_logs")
+}
+
+model ThesisActivityLog {
+  id            String   @id @default(uuid())
+  thesisId      String   @map("thesis_id")
+  userId        String   @map("user_id")
+  activityType  ActivityType @default(other) @map("activity_type") // Tipe aktivitas
+  activity      String   // Deskripsi singkat
+  notes         String?  @db.Text // Detail catatan
+  metadata      Json?    // Data tambahan dalam JSON
+  createdAt     DateTime @default(now()) @map("created_at")
+  thesis        Thesis   @relation(fields: [thesisId], references: [id])
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([thesisId, activityType])
   @@map("thesis_activity_logs")
 }
 
@@ -819,6 +871,30 @@ enum GuidanceStatus {
   requested
   accepted
   rejected
+  completed
+  cancelled
+}
+
+enum GuidanceType {
+  online
+  offline
+}
+
+enum ExaminerEventType {
+  seminar   // Penguji seminar
+  defence   // Penguji sidang
+}
+
+enum ActivityType {
+  guidance         // Bimbingan
+  submission       // Pengumpulan dokumen
+  revision         // Revisi
+  approval         // Persetujuan
+  milestone        // Pencapaian milestone
+  seminar          // Seminar
+  defence          // Sidang
+  status_change    // Perubahan status
+  other            // Lainnya
 }
 
 enum SeminarStatus {

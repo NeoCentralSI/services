@@ -1,21 +1,10 @@
 // src/services/outlook-calendar.service.js
 import axios from "axios";
-import { ConfidentialClientApplication } from "@azure/msal-node";
 import { ENV } from "../config/env.js";
 import prisma from "../config/prisma.js";
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
-
-// MSAL Configuration for calendar access
-const msalConfig = {
-  auth: {
-    clientId: ENV.CLIENT_ID,
-    authority: `https://login.microsoftonline.com/${ENV.TENANT_ID}`,
-    clientSecret: ENV.CLIENT_SECRET,
-  },
-};
-
-const msalClient = new ConfidentialClientApplication(msalConfig);
+const MICROSOFT_TOKEN_URL = `https://login.microsoftonline.com/${ENV.TENANT_ID}/oauth2/v2.0/token`;
 
 /**
  * Get calendar scopes needed for Outlook integration
@@ -30,23 +19,34 @@ export const CALENDAR_SCOPES = [
 ];
 
 /**
- * Refresh Microsoft access token using refresh token
+ * Refresh Microsoft access token using refresh token (direct HTTP)
  * @param {string} refreshToken - OAuth refresh token
  * @returns {Promise<Object>} New tokens
  */
 async function refreshMicrosoftToken(refreshToken) {
   try {
-    const response = await msalClient.acquireTokenByRefreshToken({
-      refreshToken,
-      scopes: CALENDAR_SCOPES,
-    });
+    const response = await axios.post(
+      MICROSOFT_TOKEN_URL,
+      new URLSearchParams({
+        client_id: ENV.CLIENT_ID,
+        client_secret: ENV.CLIENT_SECRET,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+        scope: CALENDAR_SCOPES.join(' '),
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
 
     return {
-      accessToken: response.accessToken,
-      refreshToken: response.refreshToken || refreshToken,
+      accessToken: response.data.access_token,
+      refreshToken: response.data.refresh_token || refreshToken,
     };
   } catch (error) {
-    console.error("[OutlookCalendar] Failed to refresh token:", error.message);
+    console.error("[OutlookCalendar] Failed to refresh token:", error.response?.data || error.message);
     throw new Error("Failed to refresh Microsoft token");
   }
 }
@@ -361,14 +361,17 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
     supervisorEventId: null,
   };
 
-  const scheduledAt = guidance.schedule?.guidanceDate || guidance.scheduledAt;
+  // Use approvedDate (new schema) or fall back to legacy properties
+  const scheduledAt = guidance.approvedDate || guidance.requestedDate;
   if (!scheduledAt) {
     console.log("[OutlookCalendar] No schedule date, skipping calendar sync");
     return results;
   }
 
   const startTime = new Date(scheduledAt);
-  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour duration
+  // Use duration from guidance if available, default to 60 minutes
+  const durationMinutes = guidance.duration || 60;
+  const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
 
   const eventData = {
     subject: `Bimbingan Tugas Akhir - ${student.fullName}`,
@@ -378,11 +381,14 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
       <p>Pembimbing: ${supervisor.fullName}</p>
       ${guidance.studentNotes ? `<p>Catatan: ${guidance.studentNotes}</p>` : ""}
       ${guidance.meetingUrl ? `<p>Link Meeting: <a href="${guidance.meetingUrl}">${guidance.meetingUrl}</a></p>` : ""}
+      ${guidance.location ? `<p>Lokasi: ${guidance.location}</p>` : ""}
+      ${guidance.type ? `<p>Tipe: ${guidance.type === 'online' ? 'Online' : 'Offline'}</p>` : ""}
     `,
     startTime,
     endTime,
     meetingUrl: guidance.meetingUrl,
-    isOnlineMeeting: !!guidance.meetingUrl,
+    isOnlineMeeting: !!guidance.meetingUrl || guidance.type === 'online',
+    location: guidance.location,
   };
 
   // Create event for supervisor (if connected to Microsoft)

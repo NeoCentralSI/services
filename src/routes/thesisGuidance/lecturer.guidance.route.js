@@ -2,6 +2,7 @@ import express from "express";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { validate } from "../../middlewares/validation.middleware.js";
 import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema } from "../../validators/lecturer.guidance.validator.js";
+import { ROLES } from "../../constants/roles.js";
 import {
 	myStudents,
 	listRequests,
@@ -22,8 +23,8 @@ const router = express.Router();
 
 // Base path: /thesisGuidance/lecturer (will be mounted as /thesisGuidance/lecturer.guidance by auto-loader, so expose full path explicitly in parent route if needed)
 
-// Accept either pembimbing1 or pembimbing2 (case/space insensitive)
-router.use(authGuard, requireAnyRole(["pembimbing1", "pembimbing 1", "pembimbing2", "pembimbing 2"]));
+// Accept Pembimbing 1 or Pembimbing 2 roles
+router.use(authGuard, requireAnyRole([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]));
 
 router.get("/my-students", myStudents);
 router.get("/requests", listRequests);

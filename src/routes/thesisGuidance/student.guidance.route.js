@@ -21,11 +21,12 @@ import {
 	listSupervisors,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
 import { uploadThesisFile } from "../../middlewares/file.middleware.js";
+import { ROLES } from "../../constants/roles.js";
 
 const router = express.Router();
 
-// Accept only student roles (adjust names as per your user_roles)
-router.use(authGuard, requireAnyRole(["mahasiswa", "student"]));
+// Accept only Mahasiswa role
+router.use(authGuard, requireAnyRole([ROLES.MAHASISWA]));
 
 // Guidance list/detail
 router.get("/guidance", listMyGuidances);

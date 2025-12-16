@@ -9,6 +9,16 @@ import redisClient from "../config/redis.js";
 import { accountInviteTemplate } from "../utils/emailTemplate.js";
 import { generatePassword } from "../utils/password.util.js";
 import {
+	ROLES,
+	SUPERVISOR_ROLES,
+	LECTURER_ROLES,
+	isStudentRole,
+	isLecturerRole,
+	isAdminRole,
+	isSupervisorRole,
+	normalize,
+} from "../constants/roles.js";
+import {
 	getOrCreateRole,
 	findUserByEmailOrIdentity,
 	createUser,
@@ -64,10 +74,10 @@ export async function adminUpdateUser(id, payload = {}) {
 	if (newIdentityType === "NIM" && Array.isArray(roles)) {
 		const hasNonStudentRole = roles.some((r) => {
 			const roleName = typeof r === "string" ? r : r?.name;
-			return String(roleName || "").trim().toLowerCase() !== "student";
+			return !isStudentRole(roleName);
 		});
 		if (hasNonStudentRole) {
-			const err = new Error("User dengan identity type NIM hanya dapat memiliki role student (mahasiswa)");
+			const err = new Error("User dengan identity type NIM hanya dapat memiliki role Mahasiswa");
 			err.statusCode = 400;
 			throw err;
 		}
@@ -77,10 +87,10 @@ export async function adminUpdateUser(id, payload = {}) {
 	if (newIdentityType === "NIP" && Array.isArray(roles)) {
 		const hasStudentRole = roles.some((r) => {
 			const roleName = typeof r === "string" ? r : r?.name;
-			return String(roleName || "").trim().toLowerCase() === "student";
+			return isStudentRole(roleName);
 		});
 		if (hasStudentRole) {
-			const err = new Error("User dengan identity type NIP tidak dapat memiliki role student (mahasiswa)");
+			const err = new Error("User dengan identity type NIP tidak dapat memiliki role Mahasiswa");
 			err.statusCode = 400;
 			throw err;
 		}
@@ -119,7 +129,7 @@ export async function adminUpdateUser(id, payload = {}) {
 			// Normalize
 			const desiredClean = desired
 				.map((x) => ({ name: x.name.trim().toLowerCase(), status: x.status }))
-				.filter((x) => x.name && x.name !== "admin");
+				.filter((x) => x.name && normalize(x.name) !== normalize(ROLES.ADMIN));
 
 			// Map role names -> role ids, then upsert with status if provided
 			const existing = await getUserRolesWithIds(id);
@@ -139,11 +149,11 @@ export async function adminUpdateUser(id, payload = {}) {
 	// Ensure Student/Lecturer records when relevant
 	const latest = await findUserById(id);
 	const currentRoles = await getUserRolesWithIds(id);
-	const roleNames = new Set(currentRoles.map((r) => (r.role?.name || "").toLowerCase()));
+	const roleNames = currentRoles.map((r) => r.role?.name || "");
 	const type = (latest?.identityType || identityType || "").toString();
 
 	// Student
-	if (roleNames.has("student") || type === "NIM") {
+	if (roleNames.some(isStudentRole) || type === "NIM") {
 		const existingStudent = await findStudentByUserId(id);
 		if (!existingStudent) {
 			const enrollmentYear = deriveEnrollmentYearFromNIM(latest?.identityNumber || identityNumber);
@@ -152,7 +162,7 @@ export async function adminUpdateUser(id, payload = {}) {
 	}
 
 	// Lecturer
-	if (roleNames.has("lecturer") || type === "NIP") {
+	if (roleNames.some(isLecturerRole) || type === "NIP") {
 		const existingLect = await findLecturerByUserId(id);
 		if (!existingLect) {
 			await createLecturerForUser({ userId: id });
@@ -182,9 +192,9 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 
 	// Validate: if identityType is NIM, role must be student only
 	if (String(identityType || "").toUpperCase() === "NIM") {
-		const hasNonStudentRole = roles.some((r) => String(r).trim().toLowerCase() !== "student");
+		const hasNonStudentRole = roles.some((r) => !isStudentRole(r));
 		if (hasNonStudentRole || roles.length === 0) {
-			const err = new Error("User dengan identity type NIM hanya dapat memiliki role student (mahasiswa)");
+			const err = new Error("User dengan identity type NIM hanya dapat memiliki role Mahasiswa");
 			err.statusCode = 400;
 			throw err;
 		}
@@ -192,9 +202,9 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 
 	// Validate: if identityType is NIP, cannot have student role
 	if (String(identityType || "").toUpperCase() === "NIP") {
-		const hasStudentRole = roles.some((r) => String(r).trim().toLowerCase() === "student");
+		const hasStudentRole = roles.some((r) => isStudentRole(r));
 		if (hasStudentRole) {
-			const err = new Error("User dengan identity type NIP tidak dapat memiliki role student (mahasiswa)");
+			const err = new Error("User dengan identity type NIP tidak dapat memiliki role Mahasiswa");
 			err.statusCode = 400;
 			throw err;
 		}
@@ -218,8 +228,8 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		isVerified: false,
 	});
 
-	// Roles: admin can set any roles EXCEPT 'admin' for this endpoint
-	const rawRoles = Array.isArray(roles) ? roles.filter((r) => String(r).trim().toLowerCase() !== "admin") : [];
+	// Roles: admin can set any roles EXCEPT 'Admin' for this endpoint
+	const rawRoles = Array.isArray(roles) ? roles.filter((r) => r !== ROLES.ADMIN) : [];
 	const uniqueRoles = [...new Set(rawRoles)];
 	console.log("[adminCreateUser] email:", String(email).toLowerCase(), "identityType:", identityType, "identityNumber:", identityNumber);
 	console.log("[adminCreateUser] incoming roles:", roles);
@@ -229,11 +239,11 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		await addRolesToUser(user.id, [role.id]); // idempotent via skipDuplicates
 	}
 
-	// If role 'student' is assigned, ensure Student record exists
-	if (uniqueRoles.some((r) => String(r).trim().toLowerCase() === "student")) {
+	// If role 'Mahasiswa' is assigned, ensure Student record exists
+	if (uniqueRoles.some((r) => isStudentRole(r))) {
 		let status = await findStudentStatusByName("Aktif");
 		if (!status) status = await createStudentStatus("Aktif");
-		const existingStudent = await prisma.student.findUnique({ where: { userId: user.id } });
+		const existingStudent = await prisma.student.findUnique({ where: { id: user.id } });
 		if (!existingStudent) {
 			const enrollmentYear = identityNumber ? deriveEnrollmentYearFromNIM(identityNumber) : null;
 			await createStudentForUser({ userId: user.id, studentStatusId: status.id, enrollmentYear, skscompleted: 0 });
@@ -241,11 +251,10 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 	}
 
 	// If identityType is NIP OR lecturer-related role is assigned, ensure Lecturer record exists
-	const lecturerRoleSet = new Set(["pembimbing", "penguji", "kadep", "sekretaris_departemen", "gkm", "pembimbing 1", "pembimbing 2", "sekdep", "sekretaris departemen"]);
-	const isLecturerRole = uniqueRoles.some((r) => lecturerRoleSet.has(String(r).trim().toLowerCase()));
+	const hasLecturerRole = uniqueRoles.some((r) => isLecturerRole(r));
 	const isLecturerIdentity = String(identityType || "").toUpperCase() === "NIP";
-	console.log("[adminCreateUser] lecturer-role detected:", isLecturerRole, "; identityType=NIP:", isLecturerIdentity);
-	if (isLecturerRole || isLecturerIdentity) {
+	console.log("[adminCreateUser] lecturer-role detected:", hasLecturerRole, "; identityType=NIP:", isLecturerIdentity);
+	if (hasLecturerRole || isLecturerIdentity) {
 		const existingLect = await findLecturerByUserId(user.id);
 		if (!existingLect) {
 			console.log("[adminCreateUser] creating Lecturer for user", user.id);
@@ -392,8 +401,8 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 		sksCompleted: r.sksCompleted,
 	}]));
 
-	// Ensure role 'student'
-	const studentRole = await getOrCreateRole("student");
+	// Ensure role 'Mahasiswa'
+	const studentRole = await getOrCreateRole(ROLES.MAHASISWA);
 
 	const userRoleData = createdUsers.map((u) => ({ userId: u.id, roleId: studentRole.id, status: "active" }));
 	// Use createMany with skipDuplicates to avoid constraint errors if re-run
@@ -403,7 +412,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 	const studentData = createdUsers.map((u) => {
 		const e = enrollmentByEmail.get(u.email) || {};
 		return {
-			userId: u.id,
+			id: u.id,
 			enrollmentYear: e.enrollmentYear ?? null,
 			skscompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
 		};
@@ -687,9 +696,9 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 					activeTheses: user.student.thesis.map((thesis) => ({
 						title: thesis.title,
 						supervisors: thesis.thesisParticipants
-							.filter((tp) => tp.role.name === "pembimbing1" || tp.role.name === "pembimbing2")
+							.filter((tp) => isSupervisorRole(tp.role.name))
 							.map((tp) => ({
-								role: tp.role.name === "pembimbing1" ? "Pembimbing 1" : "Pembimbing 2",
+								role: tp.role.name,
 								fullName: tp.lecturer.user.fullName,
 							})),
 					})),

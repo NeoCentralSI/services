@@ -1,4 +1,5 @@
 import { PrismaClient } from "../generated/prisma/index.js";
+import { ROLE_CATEGORY } from "../constants/roles.js";
 
 const prisma = new PrismaClient();
 
@@ -40,7 +41,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
     const events = [];
 
     // Get guidance events
-    if (userRole === "student" && user.student) {
+    if (userRole === ROLE_CATEGORY.STUDENT && user.student) {
       const guidances = await prisma.thesisGuidance.findMany({
         where: {
           thesis: {
@@ -50,16 +51,13 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           status: status || "accepted",
           ...(startDate &&
             endDate && {
-              schedule: {
-                guidanceDate: {
-                  gte: new Date(startDate),
-                  lte: new Date(endDate),
-                },
+              approvedDate: {
+                gte: new Date(startDate),
+                lte: new Date(endDate),
               },
             }),
         },
         include: {
-          schedule: true,
           supervisor: {
             include: {
               user: true,
@@ -78,7 +76,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       });
 
       guidances.forEach((guidance) => {
-        if (guidance.schedule?.guidanceDate) {
+        if (guidance.approvedDate) {
           events.push({
             id: `guidance-${guidance.id}`,
             title: `Bimbingan - ${guidance.supervisor?.user?.fullName || "Dosen"}`,
@@ -90,8 +88,8 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
                 ? "guidance_request"
                 : "guidance_rejected",
             status: guidance.status,
-            startDate: guidance.schedule.guidanceDate,
-            endDate: guidance.schedule.guidanceDate,
+            startDate: guidance.approvedDate,
+            endDate: guidance.approvedDate,
             userId,
             userRole,
             relatedId: guidance.id,
@@ -100,7 +98,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
               {
                 userId: guidance.supervisor?.user?.id,
                 name: guidance.supervisor?.user?.fullName,
-                role: "lecturer",
+                role: ROLE_CATEGORY.LECTURER,
               },
             ],
             location: null,
@@ -215,7 +213,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
     }
 
     // Lecturer events
-    if (userRole === "lecturer" && user.lecturer) {
+    if (userRole === ROLE_CATEGORY.LECTURER && user.lecturer) {
       console.log('[Calendar Service] ===== LECTURER SECTION =====');
       console.log('[Calendar Service] Fetching lecturer guidances for lecturer ID:', user.lecturer.id);
       console.log('[Calendar Service] Date range:', { startDate, endDate });
@@ -241,16 +239,13 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           status: "accepted", // Only show accepted guidances in lecturer calendar
           ...(startDate &&
             endDate && {
-              schedule: {
-                guidanceDate: {
-                  gte: new Date(startDate),
-                  lte: new Date(endDate),
-                },
+              approvedDate: {
+                gte: new Date(startDate),
+                lte: new Date(endDate),
               },
             }),
         },
         include: {
-          schedule: true,
           thesis: {
             include: {
               student: {
@@ -268,12 +263,12 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
         id: g.id,
         status: g.status,
         supervisorId: g.supervisorId,
-        scheduleDate: g.schedule?.guidanceDate,
+        approvedDate: g.approvedDate,
         studentName: g.thesis?.student?.user?.fullName
       })));
 
       guidances.forEach((guidance) => {
-        if (guidance.schedule?.guidanceDate) {
+        if (guidance.approvedDate) {
           console.log('[Calendar Service] Adding guidance event:', guidance.id);
           events.push({
             id: `guidance-${guidance.id}`,
@@ -286,8 +281,8 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
                 ? "guidance_request"
                 : "guidance_rejected",
             status: guidance.status,
-            startDate: guidance.schedule.guidanceDate,
-            endDate: guidance.schedule.guidanceDate,
+            startDate: guidance.approvedDate,
+            endDate: guidance.approvedDate,
             userId,
             userRole,
             relatedId: guidance.id,
@@ -296,10 +291,10 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
               {
                 userId: guidance.thesis.student.user.id,
                 name: guidance.thesis.student.user.fullName,
-                role: "student",
+                role: ROLE_CATEGORY.STUDENT,
               },
             ],
-            location: null,
+            location: guidance.location || null,
             meetingLink: guidance.meetingUrl,
             reminderMinutes: 30,
             notificationSent: false,
@@ -367,7 +362,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
               {
                 userId: audience.seminar.thesis.student.user.id,
                 name: audience.seminar.thesis.student.user.fullName,
-                role: "student",
+                role: ROLE_CATEGORY.STUDENT,
               },
             ],
             location: audience.seminar.schedule.room?.name,

@@ -19,6 +19,7 @@ import {
   getThesisStatusMap,
   updateThesisStatusById,
 } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
+import { ROLE_CATEGORY, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
@@ -38,13 +39,15 @@ function toFlatGuidance(g) {
   if (!g) return null;
   return {
 		id: g.id,
-		// Keep minimal identifiers; include studentId for UI fallbacks, omit thesisId/scheduleId to reduce noise
+		// Keep minimal identifiers; include studentId for UI fallbacks, omit thesisId to reduce noise
 		studentId: g.thesis?.studentId || g.thesis?.student?.id || null,
 		studentName: g.thesis?.student?.user?.fullName || null,
 		supervisorName: g?.supervisor?.user?.fullName || null,
 		status: g.status,
-		scheduledAt: g?.schedule?.guidanceDate || null,
-		schedule: g?.schedule ? { guidanceDate: g.schedule.guidanceDate } : null,
+		requestedDate: g.requestedDate || null,
+		requestedDateFormatted: g.requestedDate ? formatDateTimeJakarta(g.requestedDate, { withDay: true }) : null,
+		approvedDate: g.approvedDate || null,
+		approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
 		meetingUrl: g.meetingUrl || null,
 		notes: g.studentNotes || null,
 		supervisorFeedback: g.supervisorFeedback || null,
@@ -55,14 +58,20 @@ function toFlatGuidance(g) {
     updatedAt: g.updatedAt || null,
 		// alias for UI compatibility
 		requestedAt: g.createdAt || null,
+		// New fields
+		type: g.type || null,
+		duration: g.duration || null,
+		location: g.location || null,
+		completedAt: g.completedAt || null,
+		rejectionReason: g.rejectionReason || null,
   };
 }
 
 export async function getMyStudentsService(userId, roles) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
-	// Default to supervisor roles only (using actual role names from DB)
-	const defaultRoles = ["pembimbing1", "pembimbing2"];
+	// Default to supervisor roles only
+	const defaultRoles = SUPERVISOR_ROLES;
 	const rawStudents = await findMyStudents(
 		lecturer.id,
 		Array.isArray(roles) && roles.length ? roles : defaultRoles
@@ -101,15 +110,15 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 		throw err;
 	}
 	const updated = await rejectGuidanceById(guidanceId, { feedback });
-	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_REJECTED", feedback || undefined);
+	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_REJECTED", feedback || undefined, "guidance");
 	
 	// Send notification to student
 	try {
 		const studentUserId = updated.thesis?.student?.user?.id;
 		if (studentUserId) {
 			const lecturerName = updated.supervisor?.user?.fullName || "Dosen";
-			const scheduleDateStr = updated.schedule?.guidanceDate 
-				? formatDateTimeJakarta(new Date(updated.schedule.guidanceDate), { withDay: true })
+			const scheduleDateStr = updated.requestedDate 
+				? formatDateTimeJakarta(new Date(updated.requestedDate), { withDay: true })
 				: "";
 			const dateInfo = scheduleDateStr ? ` pada ${scheduleDateStr}` : "";
 			
@@ -124,7 +133,7 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 				data: {
 					type: "thesis-guidance:rejected",
 					guidanceId: guidanceId,
-					role: "student",
+					role: ROLE_CATEGORY.STUDENT,
 				}
 			});
 		}
@@ -137,7 +146,7 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 	return { guidance: toFlatGuidance(fresh) };
 }
 
-export async function approveGuidanceService(userId, guidanceId, { feedback, meetingUrl } = {}) {
+export async function approveGuidanceService(userId, guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location } = {}) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
@@ -146,20 +155,23 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 		err.statusCode = 404;
 		throw err;
 	}
-	const updated = await approveGuidanceById(guidanceId, { feedback, meetingUrl });
-	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_APPROVED", feedback || undefined);
+	const updated = await approveGuidanceById(guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location });
+	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_APPROVED", feedback || undefined, "approval");
 	
 	// Sync to Outlook Calendar (if users have Microsoft account connected)
 	try {
 		const studentUser = updated.thesis?.student?.user;
 		const supervisorUser = updated.supervisor?.user;
 		
-		if (studentUser && supervisorUser && updated.schedule?.guidanceDate) {
+		if (studentUser && supervisorUser && updated.approvedDate) {
 			const calendarEvents = await createGuidanceCalendarEvents(
 				{
-					schedule: updated.schedule,
+					approvedDate: updated.approvedDate,
 					studentNotes: updated.studentNotes,
 					meetingUrl: meetingUrl || updated.meetingUrl,
+					duration: updated.duration,
+					location: updated.location,
+					type: updated.type,
 				},
 				{
 					userId: studentUser.id,
@@ -195,8 +207,8 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 		const studentUserId = updated.thesis?.student?.user?.id;
 		if (studentUserId) {
 			const lecturerName = updated.supervisor?.user?.fullName || "Dosen";
-			const scheduleDateStr = updated.schedule?.guidanceDate 
-				? formatDateTimeJakarta(new Date(updated.schedule.guidanceDate), { withDay: true })
+			const scheduleDateStr = updated.approvedDate 
+				? formatDateTimeJakarta(new Date(updated.approvedDate), { withDay: true })
 				: "";
 			const dateInfo = scheduleDateStr ? ` pada ${scheduleDateStr}` : "";
 			const meetingInfo = meetingUrl ? `\nLink Meeting: ${meetingUrl}` : "";
@@ -212,7 +224,7 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 				data: {
 					type: "thesis-guidance:approved",
 					guidanceId: guidanceId,
-					role: "student",
+					role: ROLE_CATEGORY.STUDENT,
 				}
 			});
 		}
@@ -269,7 +281,7 @@ export async function approveStudentProgressComponentsService(userId, studentId,
 		throw err;
 	}
 	const result = await upsertCompletionsValidated(thesis.id, componentIds);
-	await logThesisActivity(thesis.id, userId, "PROGRESS_COMPONENTS_VALIDATED", `components=${componentIds.length}`);
+	await logThesisActivity(thesis.id, userId, "PROGRESS_COMPONENTS_VALIDATED", `components=${componentIds.length}`, "milestone");
 	return { thesisId: thesis.id, ...result };
 }
 
@@ -284,7 +296,7 @@ export async function postGuidanceFeedbackService(userId, guidanceId, { feedback
 	}
 	await approveGuidanceById(guidanceId, { feedback });
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
-	await logThesisActivity(fresh.thesisId, userId, "GUIDANCE_FEEDBACK", feedback || undefined);
+	await logThesisActivity(fresh.thesisId, userId, "GUIDANCE_FEEDBACK", feedback || undefined, "guidance");
 	return { guidance: toFlatGuidance(fresh) };
 }
 
@@ -306,7 +318,7 @@ export async function finalApprovalService(userId, studentId) {
 		err.statusCode = 400;
 		throw err;
 	}
-	await logThesisActivity(thesis.id, userId, "FINAL_PROGRESS_APPROVED");
+	await logThesisActivity(thesis.id, userId, "FINAL_PROGRESS_APPROVED", undefined, "approval");
 	return { thesisId: thesis.id, approved: true };
 }
 
@@ -362,7 +374,7 @@ export async function failStudentThesisService(userId, studentId, { reason } = {
 	}
 
 	await updateThesisStatusById(thesis.id, idFailed);
-	await logThesisActivity(thesis.id, userId, "THESIS_FAILED", reason || undefined);
+	await logThesisActivity(thesis.id, userId, "THESIS_FAILED", reason || undefined, "milestone");
 	return { thesisId: thesis.id, status: "failed" };
 }
 

@@ -1,7 +1,9 @@
 import prisma from "../../config/prisma.js";
+import { ROLES } from "../../constants/roles.js";
 
 export function getStudentByUserId(userId) {
-  return prisma.student.findUnique({ where: { userId } });
+  // Schema baru: Student.id adalah foreign key ke User.id
+  return prisma.student.findUnique({ where: { id: userId } });
 }
 
 export async function getActiveThesisForStudent(studentId) {
@@ -18,7 +20,7 @@ export async function getActiveThesisForStudent(studentId) {
 
 export async function getSupervisorsForThesis(thesisId) {
   const parts = await prisma.thesisParticipant.findMany({
-    where: { thesisId, role: { name: { in: ["pembimbing1", "pembimbing2"] } } },
+    where: { thesisId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
     include: {
       lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
       role: { select: { id: true, name: true } },
@@ -30,12 +32,12 @@ export async function getSupervisorsForThesis(thesisId) {
 export function listGuidancesForThesis(thesisId, status) {
   const where = { thesisId };
   if (status) where.status = status;
+  // Schema baru: tidak ada schedule relation, gunakan requestedDate/approvedDate langsung
   return prisma.thesisGuidance.findMany({
     where,
-    include: { schedule: true, supervisor: { include: { user: true } } },
+    include: { supervisor: { include: { user: true } } },
     orderBy: [
-      // newest schedule first; fallback to newest id
-      { schedule: { guidanceDate: "desc" } },
+      { requestedDate: "desc" },
       { id: "desc" },
     ],
   });
@@ -44,24 +46,32 @@ export function listGuidancesForThesis(thesisId, status) {
 export function getGuidanceByIdForStudent(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
     where: { id: guidanceId, thesis: { studentId } },
-    include: { schedule: true, supervisor: { include: { user: true } } },
+    include: { supervisor: { include: { user: true } } },
   });
 }
 
-export function createGuidanceSchedule(guidanceDate) {
-  return prisma.thesisGuidanceSchedule.create({ data: { guidanceDate } });
-}
-
+// Schema baru: tidak ada ThesisGuidanceSchedule, requestedDate langsung di ThesisGuidance
 export function createGuidance(data) {
-  return prisma.thesisGuidance.create({ data });
+  return prisma.thesisGuidance.create({ 
+    data,
+    include: { supervisor: { include: { user: true } } }
+  });
 }
 
-export function updateGuidanceScheduleDate(scheduleId, guidanceDate) {
-  return prisma.thesisGuidanceSchedule.update({ where: { id: scheduleId }, data: { guidanceDate } });
+// Schema baru: update requestedDate langsung di ThesisGuidance
+export function updateGuidanceRequestedDate(guidanceId, requestedDate) {
+  return prisma.thesisGuidance.update({ 
+    where: { id: guidanceId }, 
+    data: { requestedDate } 
+  });
 }
 
 export function updateGuidanceById(id, data) {
-  return prisma.thesisGuidance.update({ where: { id }, data, include: { schedule: true } });
+  return prisma.thesisGuidance.update({ 
+    where: { id }, 
+    data, 
+    include: { supervisor: { include: { user: true } } } 
+  });
 }
 
 export function listActivityLogsByStudent(studentId) {
@@ -71,16 +81,17 @@ export function listActivityLogsByStudent(studentId) {
 export function listGuidanceHistoryByStudent(studentId) {
   return prisma.thesisGuidance.findMany({
     where: { thesis: { studentId } },
-    include: { schedule: true, supervisor: { include: { user: true } } },
+    include: { supervisor: { include: { user: true } } },
     orderBy: [
-      { schedule: { guidanceDate: "desc" } },
+      { requestedDate: "desc" },
       { id: "desc" },
     ],
   });
 }
 
 export function listProgressComponents() {
-  return prisma.thesisProgressComponent.findMany({ orderBy: { name: "asc" } });
+  // Schema baru: orderBy orderIndex untuk urutan milestone
+  return prisma.thesisProgressComponent.findMany({ orderBy: { orderIndex: "asc" } });
 }
 
 export function getCompletionsForThesis(thesisId) {
