@@ -1,4 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getUsers, getStudents, getLecturers } from "../services/adminfeatures.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers } from "../services/adminfeatures.service.js";
 
 export async function importStudentsCsv(req, res, next) {
 	try {
@@ -54,8 +54,8 @@ export async function updateAcademicYearController(req, res, next) {
 	try {
 		const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
-		const { semester, year, startDate, endDate } = body;
-		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate });
+		const { semester, year, startDate, endDate, isActive } = body;
+		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate, isActive });
 		res.status(200).json({ success: true, academicYear: updated });
 	} catch (err) {
 		next(err);
@@ -69,6 +69,15 @@ export async function getAcademicYearsController(req, res, next) {
 		const search = req.query.search || "";
 		const result = await getAcademicYears({ page, pageSize, search });
 		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getActiveAcademicYearController(req, res, next) {
+	try {
+		const active = await getActiveAcademicYear();
+		res.status(200).json({ success: true, academicYear: active });
 	} catch (err) {
 		next(err);
 	}

@@ -18,6 +18,7 @@ import {
 	isSupervisorRole,
 	normalize,
 } from "../constants/roles.js";
+import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
 import {
 	getOrCreateRole,
 	findUserByEmailOrIdentity,
@@ -502,11 +503,18 @@ export async function updateAcademicYear(id, { semester, year, startDate, endDat
 	if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
 	if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
 
+	// Note: isActive is now computed automatically based on date range,
+	// so we no longer accept or update isActive field
+
 	const updated = await prisma.academicYear.update({ where: { id }, data });
 	return updated;
 }
 
+// Re-export getActiveAcademicYear from helper for API controller
+export { getActiveAcademicYear };
+
 // Get all Academic Years with pagination
+// isActive is now computed based on current date being within startDate-endDate range
 export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } = {}) {
 	const skip = (page - 1) * pageSize;
 	const take = pageSize;
@@ -530,8 +538,26 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 		prisma.academicYear.count({ where }),
 	]);
 
+	// Compute isActive based on current WIB date being within startDate-endDate range
+	const now = new Date();
+	// Convert to WIB (UTC+7)
+	const wibOffset = 7 * 60; // minutes
+	const nowWIB = new Date(now.getTime() + (wibOffset + now.getTimezoneOffset()) * 60 * 1000);
+
+	const academicYearsWithStatus = academicYears.map((ay) => {
+		let isActive = false;
+		if (ay.startDate && ay.endDate) {
+			const startDate = new Date(ay.startDate);
+			const endDate = new Date(ay.endDate);
+			// Set end date to end of day for inclusive comparison
+			endDate.setHours(23, 59, 59, 999);
+			isActive = nowWIB >= startDate && nowWIB <= endDate;
+		}
+		return { ...ay, isActive };
+	});
+
 	return {
-		academicYears,
+		academicYears: academicYearsWithStatus,
 		meta: {
 			page,
 			pageSize,

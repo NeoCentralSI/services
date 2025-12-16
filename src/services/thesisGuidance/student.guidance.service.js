@@ -21,6 +21,7 @@ import { formatDateTimeJakarta } from "../../utils/date.util.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import { deleteCalendarEvent } from "../outlook-calendar.service.js";
 import { ROLES, isSupervisorRole, ROLE_CATEGORY } from "../../constants/roles.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
@@ -29,20 +30,28 @@ const mkdir = promisify(fs.mkdir);
 
 async function ensureThesisAcademicYear(thesis) {
   if (thesis.academicYearId) return thesis;
-  const now = new Date();
-  const current = await prisma.academicYear.findFirst({
-    where: {
-      OR: [
-        { AND: [{ startDate: { lte: now } }, { endDate: { gte: now } }] },
-        { startDate: { lte: now } },
-        { endDate: { gte: now } },
+  
+  // First, try to use the active academic year
+  let current = await getActiveAcademicYear();
+  
+  // Fallback to date-based lookup if no active year is set
+  if (!current) {
+    const now = new Date();
+    current = await prisma.academicYear.findFirst({
+      where: {
+        OR: [
+          { AND: [{ startDate: { lte: now } }, { endDate: { gte: now } }] },
+          { startDate: { lte: now } },
+          { endDate: { gte: now } },
+        ],
+      },
+      orderBy: [
+        { year: "desc" },
+        { startDate: "desc" },
       ],
-    },
-    orderBy: [
-      { year: "desc" },
-      { startDate: "desc" },
-    ],
-  });
+    });
+  }
+  
   if (current) {
     await prisma.thesis.update({ where: { id: thesis.id }, data: { academicYearId: current.id } });
     return { ...thesis, academicYearId: current.id };

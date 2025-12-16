@@ -12,4 +12,5 @@ export const updateAcademicYearSchema = z.object({
   year: z.number().int().min(1900).max(3000).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
+  isActive: z.boolean().optional(),
 });

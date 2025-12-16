@@ -148,18 +148,21 @@ async function seedAcademicYears() {
       year: 2024,
       startDate: new Date("2024-08-01"),
       endDate: new Date("2025-01-31"),
+      isActive: false,
     },
     {
       semester: "genap",
       year: 2024,
       startDate: new Date("2025-02-01"),
       endDate: new Date("2025-07-31"),
+      isActive: false,
     },
     {
       semester: "ganjil",
       year: 2025,
       startDate: new Date("2025-08-01"),
       endDate: new Date("2026-01-31"),
+      isActive: true, // Current active academic year
     },
   ];
 
@@ -172,9 +175,18 @@ async function seedAcademicYears() {
     });
     if (!existing) {
       existing = await prisma.academicYear.create({ data: ay });
-      console.log(`  ✅ Created academic year: ${key}`);
+      console.log(`  ✅ Created academic year: ${key}${ay.isActive ? ' (ACTIVE)' : ''}`);
     } else {
-      console.log(`  ⏭️  Academic year exists: ${key}`);
+      // Update isActive if needed
+      if (existing.isActive !== ay.isActive) {
+        existing = await prisma.academicYear.update({
+          where: { id: existing.id },
+          data: { isActive: ay.isActive },
+        });
+        console.log(`  🔄 Updated academic year: ${key}${ay.isActive ? ' (ACTIVE)' : ''}`);
+      } else {
+        console.log(`  ⏭️  Academic year exists: ${key}${existing.isActive ? ' (ACTIVE)' : ''}`);
+      }
     }
     yearMap.set(key, existing);
   }
