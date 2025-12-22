@@ -39,6 +39,10 @@ export const requestGuidanceSchema = z.object({
   supervisorId: z
     .preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().uuid("supervisorId must be a valid UUID"))
     .optional(),
+  // Optional milestone selection; must be a valid UUID if provided
+  milestoneId: z
+    .preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().uuid("milestoneId must be a valid UUID"))
+    .optional(),
   // Allow empty string from multipart forms -> treat as undefined
   meetingUrl: z
     .any()
@@ -52,6 +56,20 @@ export const requestGuidanceSchema = z.object({
     })
     .refine((v) => v === undefined || isValidAbsoluteUrl(v), {
       message: "meetingUrl must be a valid URL",
+    })
+    .optional(),
+  // Optional document URL (Google Docs, Overleaf, Notion, etc.)
+  documentUrl: z
+    .any()
+    .transform((v) => {
+      if (typeof v !== "string") return undefined;
+      const raw = v.trim();
+      if (!raw) return undefined;
+      const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      return withProtocol;
+    })
+    .refine((v) => v === undefined || isValidAbsoluteUrl(v), {
+      message: "documentUrl must be a valid URL",
     })
     .optional(),
 });

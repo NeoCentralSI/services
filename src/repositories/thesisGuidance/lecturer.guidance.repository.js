@@ -79,6 +79,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 					},
 				},
 				supervisor: { include: { user: true } },
+				milestone: { select: { id: true, title: true, status: true } },
 			},
 			skip,
 			take,
@@ -94,6 +95,7 @@ export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 		include: {
 			thesis: { include: { student: { include: { user: true } }, document: true } },
 			supervisor: { include: { user: true } },
+			milestone: { select: { id: true, title: true, status: true } },
 		},
 	});
 }

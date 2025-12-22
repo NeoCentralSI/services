@@ -352,6 +352,7 @@ model ThesisGuidance {
   type              GuidanceType @default(online) // online/offline
   location          String?  // Lokasi jika offline
   meetingUrl        String?  @map("meeting_url") // Link meeting jika online
+  documentUrl       String?  @map("document_url") // Link dokumen yang akan dibahas (Google Docs, Overleaf, dll)
   
   // Notes & feedback
   studentNotes      String?  @db.Text @map("student_notes") // Agenda dari mahasiswa

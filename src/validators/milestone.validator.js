@@ -222,3 +222,46 @@ export const milestoneStatusQuerySchema = z.object({
 export const templateCategoryQuerySchema = z.object({
   category: z.string().optional(),
 });
+
+// ============================================
+// Template CRUD Schemas (Sekretaris Departemen)
+// ============================================
+
+export const createTemplateSchema = z.object({
+  name: z
+    .string()
+    .min(1, "Name is required")
+    .max(255, "Name must be less than 255 characters"),
+  description: z
+    .string()
+    .max(5000, "Description must be less than 5000 characters")
+    .optional()
+    .nullable(),
+  category: z
+    .string()
+    .max(100, "Category must be less than 100 characters")
+    .optional()
+    .nullable(),
+  orderIndex: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const updateTemplateSchema = z.object({
+  name: z
+    .string()
+    .min(1, "Name is required")
+    .max(255, "Name must be less than 255 characters")
+    .optional(),
+  description: z
+    .string()
+    .max(5000, "Description must be less than 5000 characters")
+    .optional()
+    .nullable(),
+  category: z
+    .string()
+    .max(100, "Category must be less than 100 characters")
+    .optional()
+    .nullable(),
+  orderIndex: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});

@@ -34,14 +34,14 @@ export async function guidanceDetail(req, res, next) {
 
 export async function requestGuidance(req, res, next) {
   try {
-    const { guidanceDate, studentNotes, meetingUrl, supervisorId, type, duration, location } = (req.validated ?? req.body ?? {});
+    const { guidanceDate, studentNotes, meetingUrl, supervisorId, milestoneId, documentUrl, type, duration, location } = (req.validated ?? req.body ?? {});
     const file = req.file || null;
     if (!file) {
       const err = new Error("Thesis file is required (field name: 'file')");
       err.statusCode = 400;
       throw err;
     }
-    const result = await requestGuidanceService(req.user.sub, guidanceDate, studentNotes, file, meetingUrl, supervisorId, { type, duration, location });
+    const result = await requestGuidanceService(req.user.sub, guidanceDate, studentNotes, file, meetingUrl, supervisorId, { type, duration, location, milestoneId, documentUrl });
     res.status(201).json({ success: true, ...result });
   } catch (err) {
     next(err);

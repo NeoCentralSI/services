@@ -49,12 +49,15 @@ function toFlatGuidance(g) {
 		approvedDate: g.approvedDate || null,
 		approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
 		meetingUrl: g.meetingUrl || null,
+		documentUrl: g.documentUrl || null, // Link dokumen yang akan dibahas
 		notes: g.studentNotes || null,
+		studentNotes: g.studentNotes || null, // Alias for clarity
 		supervisorFeedback: g.supervisorFeedback || null,
 		document: g?.thesis?.document
 			? { fileName: g.thesis.document.fileName, filePath: g.thesis.document.filePath }
 			: null,
 		createdAt: g.createdAt || null,
+		createdAtFormatted: g.createdAt ? formatDateTimeJakarta(g.createdAt, { withDay: true }) : null,
     updatedAt: g.updatedAt || null,
 		// alias for UI compatibility
 		requestedAt: g.createdAt || null,
@@ -64,6 +67,11 @@ function toFlatGuidance(g) {
 		location: g.location || null,
 		completedAt: g.completedAt || null,
 		rejectionReason: g.rejectionReason || null,
+		// Milestone info
+		milestoneId: g.milestoneId || null,
+		milestone: g.milestone ? { id: g.milestone.id, title: g.milestone.title, status: g.milestone.status } : null,
+		milestoneName: g.milestone?.title || null,
+		milestoneStatus: g.milestone?.status || null,
   };
 }
 
@@ -158,49 +166,50 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 	const updated = await approveGuidanceById(guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location });
 	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_APPROVED", feedback || undefined, "approval");
 	
-	// Sync to Outlook Calendar (if users have Microsoft account connected)
-	try {
-		const studentUser = updated.thesis?.student?.user;
-		const supervisorUser = updated.supervisor?.user;
-		
-		if (studentUser && supervisorUser && updated.approvedDate) {
-			const calendarEvents = await createGuidanceCalendarEvents(
-				{
-					approvedDate: updated.approvedDate,
-					studentNotes: updated.studentNotes,
-					meetingUrl: meetingUrl || updated.meetingUrl,
-					duration: updated.duration,
-					location: updated.location,
-					type: updated.type,
-				},
-				{
-					userId: studentUser.id,
-					fullName: studentUser.fullName,
-					email: studentUser.email,
-				},
-				{
-					userId: supervisorUser.id,
-					fullName: supervisorUser.fullName,
-					email: supervisorUser.email,
-				}
-			);
-			
-			// Save calendar event IDs to database
-			if (calendarEvents.studentEventId || calendarEvents.supervisorEventId) {
-				await prisma.thesisGuidance.update({
-					where: { id: guidanceId },
-					data: {
-						studentCalendarEventId: calendarEvents.studentEventId,
-						supervisorCalendarEventId: calendarEvents.supervisorEventId,
-					},
-				});
-				console.log("[Guidance] Calendar events synced:", calendarEvents);
-			}
-		}
-	} catch (e) {
-		console.error("Failed to sync calendar:", e?.message || e);
-		// Don't fail the request if calendar sync fails
-	}
+	// Sync to Outlook Calendar - DISABLED during development
+	// TODO: Re-enable when Microsoft SSO is properly configured for all users
+	// try {
+	// 	const studentUser = updated.thesis?.student?.user;
+	// 	const supervisorUser = updated.supervisor?.user;
+	// 	
+	// 	if (studentUser && supervisorUser && updated.approvedDate) {
+	// 		const calendarEvents = await createGuidanceCalendarEvents(
+	// 			{
+	// 				approvedDate: updated.approvedDate,
+	// 				studentNotes: updated.studentNotes,
+	// 				meetingUrl: meetingUrl || updated.meetingUrl,
+	// 				duration: updated.duration,
+	// 				location: updated.location,
+	// 				type: updated.type,
+	// 			},
+	// 			{
+	// 				userId: studentUser.id,
+	// 				fullName: studentUser.fullName,
+	// 				email: studentUser.email,
+	// 			},
+	// 			{
+	// 				userId: supervisorUser.id,
+	// 				fullName: supervisorUser.fullName,
+	// 				email: supervisorUser.email,
+	// 			}
+	// 		);
+	// 		
+	// 		// Save calendar event IDs to database
+	// 		if (calendarEvents.studentEventId || calendarEvents.supervisorEventId) {
+	// 			await prisma.thesisGuidance.update({
+	// 				where: { id: guidanceId },
+	// 				data: {
+	// 					studentCalendarEventId: calendarEvents.studentEventId,
+	// 					supervisorCalendarEventId: calendarEvents.supervisorEventId,
+	// 				},
+	// 			});
+	// 			console.log("[Guidance] Calendar events synced:", calendarEvents);
+	// 		}
+	// 	}
+	// } catch (e) {
+	// 	console.error("Failed to sync calendar:", e?.message || e);
+	// 	// Don't fail the request if calendar sync fails
+	// }
 	
 	// Send notification to student
 	try {

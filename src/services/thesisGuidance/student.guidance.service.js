@@ -27,6 +27,7 @@ import path from "path";
 import { promisify } from "util";
 const writeFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
+const unlink = promisify(fs.unlink);
 
 async function ensureThesisAcademicYear(thesis) {
   if (thesis.academicYearId) return thesis;
@@ -192,7 +193,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 }
 
 export async function requestGuidanceService(userId, guidanceDate, studentNotes, file, meetingUrl, supervisorId, options = {}) {
-  const { type = "online", duration = 60, location = null } = options;
+  const { type = "online", duration = 60, location = null, milestoneId = null, documentUrl = null } = options;
   let { student, thesis } = await getActiveThesisOrThrow(userId);
   thesis = await ensureThesisAcademicYear(thesis);
   
@@ -217,6 +218,59 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     const err = new Error(`Anda masih memiliki pengajuan bimbingan yang belum direspon oleh dosen (jadwal: ${dateStr}). Tunggu hingga dosen menyetujui atau menolak pengajuan sebelumnya.`);
     err.statusCode = 400;
     throw err;
+  }
+
+  // === VALIDASI MILESTONE - WAJIB UNTUK BIMBINGAN ===
+  // Check if thesis has milestones
+  const milestones = await prisma.thesisMilestone.findMany({
+    where: { thesisId: thesis.id },
+  });
+
+  if (milestones.length === 0) {
+    const err = new Error("Anda belum memiliki milestone. Buat milestone terlebih dahulu sebelum mengajukan bimbingan.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Check for milestones with progress (in_progress or revision_needed)
+  const activeOrPendingMilestones = milestones.filter(
+    (m) => m.status === "in_progress" || m.status === "revision_needed" || m.status === "pending_review"
+  );
+
+  // Either:
+  // 1. Must have at least one active milestone, OR
+  // 2. Must specify a milestone to work on (which will become active)
+  if (activeOrPendingMilestones.length === 0 && !milestoneId) {
+    const err = new Error("Tidak ada milestone yang sedang dikerjakan. Pilih milestone yang akan dibahas untuk melanjutkan pengajuan bimbingan.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Validate milestoneId if provided
+  let selectedMilestoneId = null;
+  let milestoneName = null;
+  if (milestoneId) {
+    const milestone = await prisma.thesisMilestone.findFirst({
+      where: { id: milestoneId, thesisId: thesis.id },
+    });
+    if (!milestone) {
+      const err = new Error("Milestone tidak ditemukan atau bukan milik thesis ini");
+      err.statusCode = 400;
+      throw err;
+    }
+    selectedMilestoneId = milestoneId;
+    milestoneName = milestone.title;
+
+    // Auto-update milestone status to in_progress if not started
+    if (milestone.status === "not_started") {
+      await prisma.thesisMilestone.update({
+        where: { id: milestoneId },
+        data: {
+          status: "in_progress",
+          startedAt: new Date(),
+        },
+      });
+    }
   }
   
   const supervisors = await getSupervisorsForThesis(thesis.id);
@@ -244,25 +298,31 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     thesisId: thesis.id,
     requestedDate: guidanceDate, // Schema baru
     supervisorId: selectedSupervisorId,
+    milestoneId: selectedMilestoneId, // Link to milestone
     studentNotes: studentNotes || `Request guidance on ${guidanceDate.toISOString()}`,
     supervisorFeedback: "",
     meetingUrl: meetingUrl || "",
+    documentUrl: documentUrl || null, // Link dokumen yang akan dibahas
     type: type || "online",
     duration: duration || 60,
     location: location || null,
     status: "requested",
   });
 
-  await logThesisActivity(thesis.id, userId, "request-guidance", `Requested at ${guidanceDate.toISOString()}`, "guidance");
+  const milestoneInfo = milestoneName ? ` untuk milestone "${milestoneName}"` : "";
+  await logThesisActivity(thesis.id, userId, "request-guidance", `Requested at ${guidanceDate.toISOString()}${milestoneInfo}`, "guidance");
 
   try {
     const supervisorsUserIds = supervisors.map((p) => p?.lecturer?.user?.id).filter(Boolean);
     const dateStr =
       formatDateTimeJakarta(guidanceDate, { withDay: true }) ||
       (guidanceDate instanceof Date ? guidanceDate.toISOString() : String(guidanceDate));
+    const notifMessage = milestoneName
+      ? `${studentName} mengajukan bimbingan untuk milestone "${milestoneName}". Jadwal: ${dateStr}`
+      : `${studentName} mengajukan bimbingan. Jadwal: ${dateStr}`;
     await createNotificationsForUsers(supervisorsUserIds, {
       title: "Permintaan bimbingan baru",
-      message: `${studentName} mengajukan bimbingan. Jadwal: ${dateStr}`,
+      message: notifMessage,
     });
   } catch (e) {
     console.warn("Notify (DB) failed (guidance request):", e?.message || e);
@@ -277,6 +337,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       role: "supervisor",
       guidanceId: String(created.id),
       thesisId: String(thesis.id),
+      milestoneId: selectedMilestoneId || "",
+      milestoneName: milestoneName || "",
       scheduledAt: created?.requestedDate ? new Date(created.requestedDate).toISOString() : "",
       scheduledAtFormatted: formatDateTimeJakarta(created?.requestedDate, { withDay: true }) || "",
       supervisorId: String(selectedSupervisorId),
@@ -298,7 +360,20 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     try {
       const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesis.id);
       await mkdir(uploadsRoot, { recursive: true });
-      const safeName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+      
+      // Delete old file and document if exists
+      if (thesis.documentId && thesis.document?.filePath) {
+        try {
+          const oldFilePath = path.join(process.cwd(), thesis.document.filePath);
+          await unlink(oldFilePath);
+          await prisma.document.delete({ where: { id: thesis.documentId } });
+        } catch (delErr) {
+          // Ignore if old file doesn't exist or deletion fails
+          console.warn("Could not delete old document:", delErr.message);
+        }
+      }
+      
+      const safeName = `thesis-document.pdf`; // Simple fixed name, always overwrite
       const filePath = path.join(uploadsRoot, safeName);
       await writeFile(filePath, file.buffer);
 
@@ -375,10 +450,7 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
     // Clear calendar event IDs
     await prisma.thesisGuidance.update({
       where: { id: guidanceId },
-      data: {
-        studentCalendarEventId: null,
-        supervisorCalendarEventId: null,
-      },
+      data: { studentCalendarEventId: null, supervisorCalendarEventId: null },
     });
   } catch (e) {
     console.error("Failed to delete old calendar events:", e?.message || e);

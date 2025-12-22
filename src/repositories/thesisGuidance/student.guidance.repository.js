@@ -14,6 +14,9 @@ export async function getActiveThesisForStudent(studentId) {
       { startDate: "desc" },
       { id: "desc" },
     ],
+    include: {
+      document: { select: { id: true, filePath: true, fileName: true } },
+    },
   });
   return thesis;
 }

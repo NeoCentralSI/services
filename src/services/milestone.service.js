@@ -106,6 +106,100 @@ export async function getTemplateCategories() {
   }));
 }
 
+/**
+ * Check if user is Sekretaris Departemen
+ */
+async function checkSekretarisDepartemen(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      userHasRoles: {
+        include: { role: true },
+      },
+    },
+  });
+
+  if (!user) {
+    throw notFound("User tidak ditemukan");
+  }
+
+  const isSekdep = user.userHasRoles.some(
+    (uhr) => uhr.role?.name === ROLES.SEKRETARIS_DEPARTEMEN
+  );
+
+  if (!isSekdep) {
+    throw forbidden("Hanya Sekretaris Departemen yang dapat mengelola template milestone");
+  }
+
+  return user;
+}
+
+/**
+ * Get template by ID (Sekretaris Departemen)
+ */
+export async function getTemplateById(templateId) {
+  const template = await milestoneRepo.findTemplateById(templateId);
+  if (!template) {
+    throw notFound("Template tidak ditemukan");
+  }
+  return template;
+}
+
+/**
+ * Create milestone template (Sekretaris Departemen only)
+ */
+export async function createTemplate(userId, data) {
+  await checkSekretarisDepartemen(userId);
+
+  const maxOrder = await milestoneRepo.getMaxTemplateOrderIndex(data.category);
+
+  const templateData = {
+    name: data.name,
+    description: data.description || null,
+    category: data.category || null,
+    orderIndex: data.orderIndex ?? maxOrder + 1,
+    isActive: data.isActive ?? true,
+  };
+
+  return milestoneRepo.createTemplate(templateData);
+}
+
+/**
+ * Update milestone template (Sekretaris Departemen only)
+ */
+export async function updateTemplate(userId, templateId, data) {
+  await checkSekretarisDepartemen(userId);
+
+  const existing = await milestoneRepo.findTemplateById(templateId);
+  if (!existing) {
+    throw notFound("Template tidak ditemukan");
+  }
+
+  const updateData = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.description !== undefined) updateData.description = data.description;
+  if (data.category !== undefined) updateData.category = data.category;
+  if (data.orderIndex !== undefined) updateData.orderIndex = data.orderIndex;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+
+  return milestoneRepo.updateTemplate(templateId, updateData);
+}
+
+/**
+ * Delete milestone template (Sekretaris Departemen only)
+ */
+export async function deleteTemplate(userId, templateId) {
+  await checkSekretarisDepartemen(userId);
+
+  const existing = await milestoneRepo.findTemplateById(templateId);
+  if (!existing) {
+    throw notFound("Template tidak ditemukan");
+  }
+
+  await milestoneRepo.deleteTemplate(templateId);
+  return { success: true, message: "Template berhasil dihapus" };
+}
+
 // ============================================
 // Milestone CRUD Services
 // ============================================

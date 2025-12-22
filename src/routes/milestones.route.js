@@ -22,6 +22,40 @@ router.get("/templates", authGuard, controller.getTemplates);
  */
 router.get("/templates/categories", authGuard, controller.getTemplateCategories);
 
+/**
+ * GET /api/milestones/templates/:templateId
+ * Get template by ID
+ */
+router.get("/templates/:templateId", authGuard, controller.getTemplateById);
+
+/**
+ * POST /api/milestones/templates
+ * Create new template (Sekretaris Departemen only)
+ */
+router.post(
+  "/templates",
+  authGuard,
+  validate(validator.createTemplateSchema),
+  controller.createTemplate
+);
+
+/**
+ * PUT /api/milestones/templates/:templateId
+ * Update template (Sekretaris Departemen only)
+ */
+router.put(
+  "/templates/:templateId",
+  authGuard,
+  validate(validator.updateTemplateSchema),
+  controller.updateTemplate
+);
+
+/**
+ * DELETE /api/milestones/templates/:templateId
+ * Delete template (Sekretaris Departemen only)
+ */
+router.delete("/templates/:templateId", authGuard, controller.deleteTemplate);
+
 // ============================================
 // Thesis Milestone Routes
 // All routes require authentication

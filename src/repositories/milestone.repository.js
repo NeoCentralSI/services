@@ -37,6 +37,46 @@ export function findTemplateById(id) {
   });
 }
 
+/**
+ * Create template
+ */
+export function createTemplate(data) {
+  return prisma.thesisMilestoneTemplate.create({
+    data,
+  });
+}
+
+/**
+ * Update template
+ */
+export function updateTemplate(id, data) {
+  return prisma.thesisMilestoneTemplate.update({
+    where: { id },
+    data,
+  });
+}
+
+/**
+ * Delete template
+ */
+export function deleteTemplate(id) {
+  return prisma.thesisMilestoneTemplate.delete({
+    where: { id },
+  });
+}
+
+/**
+ * Get max order index for templates
+ */
+export async function getMaxTemplateOrderIndex(category = null) {
+  const where = category ? { category } : {};
+  const result = await prisma.thesisMilestoneTemplate.aggregate({
+    where,
+    _max: { orderIndex: true },
+  });
+  return result._max.orderIndex ?? -1;
+}
+
 // ============================================
 // Thesis Milestone Repository
 // ============================================

@@ -394,3 +394,78 @@ export async function reorderMilestones(req, res, next) {
     next(err);
   }
 }
+
+// ============================================
+// Template CRUD Controllers (Sekretaris Departemen)
+// ============================================
+
+/**
+ * GET /templates/:templateId
+ * Get template by ID
+ */
+export async function getTemplateById(req, res, next) {
+  try {
+    const { templateId } = req.params;
+    const template = await milestoneService.getTemplateById(templateId);
+    res.json({
+      success: true,
+      data: template,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /templates
+ * Create new template (Sekretaris Departemen only)
+ */
+export async function createTemplate(req, res, next) {
+  try {
+    const data = req.validated ?? req.body;
+    const template = await milestoneService.createTemplate(req.user.sub, data);
+    res.status(201).json({
+      success: true,
+      message: "Template berhasil dibuat",
+      data: template,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PUT /templates/:templateId
+ * Update template (Sekretaris Departemen only)
+ */
+export async function updateTemplate(req, res, next) {
+  try {
+    const { templateId } = req.params;
+    const data = req.validated ?? req.body;
+    const template = await milestoneService.updateTemplate(req.user.sub, templateId, data);
+    res.json({
+      success: true,
+      message: "Template berhasil diperbarui",
+      data: template,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * DELETE /templates/:templateId
+ * Delete template (Sekretaris Departemen only)
+ */
+export async function deleteTemplate(req, res, next) {
+  try {
+    const { templateId } = req.params;
+    const result = await milestoneService.deleteTemplate(req.user.sub, templateId);
+    res.json({
+      success: true,
+      message: result.message,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
