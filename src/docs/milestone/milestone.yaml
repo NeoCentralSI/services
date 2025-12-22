@@ -1,0 +1,1013 @@
+# OpenAPI definitions for Milestone endpoints
+
+# ============================================
+# Template Endpoints
+# ============================================
+
+milestone_templates:
+  get:
+    tags: [Milestone]
+    summary: Get all milestone templates
+    description: Retrieve all available milestone templates. Optionally filter by category.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: query
+        name: category
+        required: false
+        schema:
+          type: string
+        description: Filter templates by category (e.g., "penelitian", "penulisan", "implementasi")
+    responses:
+      "200":
+        description: List of milestone templates
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: array
+                  items:
+                    $ref: "#/MilestoneTemplate"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+
+milestone_template_categories:
+  get:
+    tags: [Milestone]
+    summary: Get template categories
+    description: Get list of all template categories with count.
+    security: [{ bearerAuth: [] }]
+    responses:
+      "200":
+        description: List of categories
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      count:
+                        type: integer
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+
+# ============================================
+# Thesis Milestone Endpoints
+# ============================================
+
+thesis_milestones:
+  get:
+    tags: [Milestone]
+    summary: Get all milestones for a thesis
+    description: Retrieve all milestones for a specific thesis with progress summary.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Thesis ID
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum: [not_started, in_progress, pending_review, revision_needed, completed]
+        description: Filter by milestone status
+    responses:
+      "200":
+        description: List of milestones with progress
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: array
+                  items:
+                    $ref: "#/Milestone"
+                progress:
+                  $ref: "#/MilestoneProgress"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../openapi.yaml#/components/responses/NotFound"
+  post:
+    tags: [Milestone]
+    summary: Create new milestone
+    description: Create a new milestone for a thesis. Only thesis owner (student) can create.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/CreateMilestoneRequest"
+    responses:
+      "201":
+        description: Milestone created
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+thesis_milestones_from_templates:
+  post:
+    tags: [Milestone]
+    summary: Create milestones from templates
+    description: Bulk create milestones from selected templates. Only works if thesis has no existing milestones.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/CreateFromTemplatesRequest"
+    responses:
+      "201":
+        description: Milestones created from templates
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  type: array
+                  items:
+                    $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+thesis_milestones_progress:
+  get:
+    tags: [Milestone]
+    summary: Get thesis milestone progress
+    description: Get overall progress summary for all milestones in a thesis.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Progress summary
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  $ref: "#/MilestoneProgress"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+thesis_milestones_logs:
+  get:
+    tags: [Milestone]
+    summary: Get all milestone logs for thesis
+    description: Get recent activity logs across all milestones in a thesis.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          default: 50
+    responses:
+      "200":
+        description: Activity logs
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: array
+                  items:
+                    $ref: "#/MilestoneLog"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+
+thesis_milestones_reorder:
+  put:
+    tags: [Milestone]
+    summary: Reorder milestones
+    description: Reorder milestones by updating their orderIndex. Student only.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/ReorderMilestonesRequest"
+    responses:
+      "200":
+        description: Reorder successful
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+# ============================================
+# Single Milestone Endpoints
+# ============================================
+
+milestone_detail:
+  get:
+    tags: [Milestone]
+    summary: Get milestone detail
+    description: Get detailed information about a specific milestone.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Milestone detail
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  $ref: "#/MilestoneDetail"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "404":
+        $ref: "../openapi.yaml#/components/responses/NotFound"
+  put:
+    tags: [Milestone]
+    summary: Update milestone
+    description: Update milestone details. Student only.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/UpdateMilestoneRequest"
+    responses:
+      "200":
+        description: Milestone updated
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+  delete:
+    tags: [Milestone]
+    summary: Delete milestone
+    description: Delete a milestone. Student only, cannot delete validated milestones.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Milestone deleted
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+milestone_logs:
+  get:
+    tags: [Milestone]
+    summary: Get milestone activity logs
+    description: Get activity logs for a specific milestone.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          default: 20
+    responses:
+      "200":
+        description: Milestone logs
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: array
+                  items:
+                    $ref: "#/MilestoneLog"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+
+# ============================================
+# Status Management Endpoints
+# ============================================
+
+milestone_status:
+  patch:
+    tags: [Milestone]
+    summary: Update milestone status
+    description: |
+      Update milestone status. Student only.
+      Valid transitions:
+      - not_started → in_progress
+      - in_progress → pending_review, not_started
+      - pending_review → in_progress (withdraw from review)
+      - revision_needed → in_progress, pending_review
+      - completed → (cannot change, only set by supervisor)
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/UpdateStatusRequest"
+    responses:
+      "200":
+        description: Status updated
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+milestone_progress:
+  patch:
+    tags: [Milestone]
+    summary: Update milestone progress
+    description: Update milestone progress percentage (0-100). Student only.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/UpdateProgressRequest"
+    responses:
+      "200":
+        description: Progress updated
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+milestone_submit_review:
+  post:
+    tags: [Milestone]
+    summary: Submit milestone for review
+    description: Submit milestone for supervisor review. Student only.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: "#/SubmitForReviewRequest"
+    responses:
+      "200":
+        description: Submitted for review
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+# ============================================
+# Supervisor Action Endpoints
+# ============================================
+
+milestone_validate:
+  post:
+    tags: [Milestone]
+    summary: Validate milestone
+    description: Validate/approve a milestone. Supervisor only. Sets status to completed and progress to 100%.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: "#/ValidateMilestoneRequest"
+    responses:
+      "200":
+        description: Milestone validated
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+milestone_request_revision:
+  post:
+    tags: [Milestone]
+    summary: Request revision
+    description: Request revision on a milestone. Supervisor only.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/RequestRevisionRequest"
+    responses:
+      "200":
+        description: Revision requested
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+milestone_feedback:
+  post:
+    tags: [Milestone]
+    summary: Add supervisor feedback
+    description: Add feedback to a milestone without changing status. Supervisor only.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: milestoneId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/AddFeedbackRequest"
+    responses:
+      "200":
+        description: Feedback added
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/Milestone"
+      "400":
+        $ref: "../openapi.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+
+# ============================================
+# Schema Definitions
+# ============================================
+
+MilestoneTemplate:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    description:
+      type: string
+      nullable: true
+    category:
+      type: string
+      nullable: true
+    orderIndex:
+      type: integer
+    isActive:
+      type: boolean
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+Milestone:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    thesisId:
+      type: string
+      format: uuid
+    title:
+      type: string
+    description:
+      type: string
+      nullable: true
+    orderIndex:
+      type: integer
+    targetDate:
+      type: string
+      format: date-time
+      nullable: true
+    startedAt:
+      type: string
+      format: date-time
+      nullable: true
+    completedAt:
+      type: string
+      format: date-time
+      nullable: true
+    status:
+      type: string
+      enum: [not_started, in_progress, pending_review, revision_needed, completed]
+    progressPercentage:
+      type: integer
+      minimum: 0
+      maximum: 100
+    validatedBy:
+      type: string
+      format: uuid
+      nullable: true
+    validatedAt:
+      type: string
+      format: date-time
+      nullable: true
+    supervisorNotes:
+      type: string
+      nullable: true
+    evidenceUrl:
+      type: string
+      nullable: true
+    evidenceDescription:
+      type: string
+      nullable: true
+    studentNotes:
+      type: string
+      nullable: true
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+MilestoneDetail:
+  allOf:
+    - $ref: "#/Milestone"
+    - type: object
+      properties:
+        thesis:
+          type: object
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+            student:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                email:
+                  type: string
+        guidances:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+              requestedDate:
+                type: string
+                format: date-time
+              supervisor:
+                type: object
+                properties:
+                  fullName:
+                    type: string
+        activityLogs:
+          type: array
+          items:
+            $ref: "#/MilestoneLog"
+
+MilestoneProgress:
+  type: object
+  properties:
+    total:
+      type: integer
+    completed:
+      type: integer
+    inProgress:
+      type: integer
+    notStarted:
+      type: integer
+    pendingReview:
+      type: integer
+    revisionNeeded:
+      type: integer
+    averageProgress:
+      type: integer
+    percentComplete:
+      type: integer
+
+MilestoneLog:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    milestoneId:
+      type: string
+      format: uuid
+    action:
+      type: string
+    previousStatus:
+      type: string
+      nullable: true
+    newStatus:
+      type: string
+      nullable: true
+    previousProgress:
+      type: integer
+      nullable: true
+    newProgress:
+      type: integer
+      nullable: true
+    notes:
+      type: string
+      nullable: true
+    performedBy:
+      type: string
+      format: uuid
+    createdAt:
+      type: string
+      format: date-time
+
+# Request Schemas
+CreateMilestoneRequest:
+  type: object
+  required:
+    - title
+  properties:
+    title:
+      type: string
+      maxLength: 255
+    description:
+      type: string
+      nullable: true
+    targetDate:
+      type: string
+      format: date-time
+      nullable: true
+    orderIndex:
+      type: integer
+    studentNotes:
+      type: string
+      nullable: true
+
+UpdateMilestoneRequest:
+  type: object
+  properties:
+    title:
+      type: string
+      maxLength: 255
+    description:
+      type: string
+      nullable: true
+    targetDate:
+      type: string
+      format: date-time
+      nullable: true
+    orderIndex:
+      type: integer
+    studentNotes:
+      type: string
+      nullable: true
+    evidenceUrl:
+      type: string
+      format: uri
+      nullable: true
+    evidenceDescription:
+      type: string
+      nullable: true
+
+CreateFromTemplatesRequest:
+  type: object
+  required:
+    - templateIds
+  properties:
+    templateIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      minItems: 1
+    startDate:
+      type: string
+      format: date-time
+      nullable: true
+
+ReorderMilestonesRequest:
+  type: object
+  required:
+    - milestoneOrders
+  properties:
+    milestoneOrders:
+      type: array
+      items:
+        type: object
+        required:
+          - id
+          - orderIndex
+        properties:
+          id:
+            type: string
+            format: uuid
+          orderIndex:
+            type: integer
+            minimum: 0
+
+UpdateStatusRequest:
+  type: object
+  required:
+    - status
+  properties:
+    status:
+      type: string
+      enum: [not_started, in_progress, pending_review, revision_needed]
+    notes:
+      type: string
+      nullable: true
+
+UpdateProgressRequest:
+  type: object
+  required:
+    - progressPercentage
+  properties:
+    progressPercentage:
+      type: integer
+      minimum: 0
+      maximum: 100
+
+SubmitForReviewRequest:
+  type: object
+  properties:
+    evidenceUrl:
+      type: string
+      format: uri
+      nullable: true
+    studentNotes:
+      type: string
+      nullable: true
+
+ValidateMilestoneRequest:
+  type: object
+  properties:
+    supervisorNotes:
+      type: string
+      nullable: true
+
+RequestRevisionRequest:
+  type: object
+  required:
+    - revisionNotes
+  properties:
+    revisionNotes:
+      type: string
+
+AddFeedbackRequest:
+  type: object
+  required:
+    - feedback
+  properties:
+    feedback:
+      type: string

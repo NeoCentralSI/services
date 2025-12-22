@@ -30,6 +30,8 @@ tags:
     description: Lecturer-side thesis guidance endpoints
   - name: StudentThesisGuidance
     description: Student-side thesis guidance endpoints
+  - name: Milestone
+    description: Thesis milestone management endpoints
 
 paths:
   "/":
@@ -221,6 +223,55 @@ paths:
 
   "/thesisGuidance/student/supervisors":
     $ref: "./thesisGuidance/student.yaml#/student_supervisors"
+
+  # ============================================
+  # Milestone Endpoints
+  # ============================================
+
+  "/milestones/templates":
+    $ref: "./milestone/milestone.yaml#/milestone_templates"
+
+  "/milestones/templates/categories":
+    $ref: "./milestone/milestone.yaml#/milestone_template_categories"
+
+  "/milestones/thesis/{thesisId}":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones"
+
+  "/milestones/thesis/{thesisId}/progress":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_progress"
+
+  "/milestones/thesis/{thesisId}/logs":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_logs"
+
+  "/milestones/thesis/{thesisId}/from-templates":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_from_templates"
+
+  "/milestones/thesis/{thesisId}/reorder":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_reorder"
+
+  "/milestones/{milestoneId}":
+    $ref: "./milestone/milestone.yaml#/milestone_detail"
+
+  "/milestones/{milestoneId}/logs":
+    $ref: "./milestone/milestone.yaml#/milestone_logs"
+
+  "/milestones/{milestoneId}/status":
+    $ref: "./milestone/milestone.yaml#/milestone_status"
+
+  "/milestones/{milestoneId}/progress":
+    $ref: "./milestone/milestone.yaml#/milestone_progress"
+
+  "/milestones/{milestoneId}/submit-review":
+    $ref: "./milestone/milestone.yaml#/milestone_submit_review"
+
+  "/milestones/{milestoneId}/validate":
+    $ref: "./milestone/milestone.yaml#/milestone_validate"
+
+  "/milestones/{milestoneId}/request-revision":
+    $ref: "./milestone/milestone.yaml#/milestone_request_revision"
+
+  "/milestones/{milestoneId}/feedback":
+    $ref: "./milestone/milestone.yaml#/milestone_feedback"
 
 components:
   schemas:

@@ -187,7 +187,7 @@ model Thesis {
   document          Document? @relation(fields: [documentId], references: [id])
   thesisParticipants ThesisParticipant[]
   thesisExaminers   ThesisExaminer[]
-  thesisProgressCompletions ThesisProgressCompletion[]
+  thesisMilestones  ThesisMilestone[]
   thesisGuidances   ThesisGuidance[]
   thesisActivityLogs ThesisActivityLog[]
   thesisSeminars    ThesisSeminar[]
@@ -263,41 +263,87 @@ model ThesisProposal {
   @@map("thesis_proposal")
 }
 
-model ThesisProgressComponent {
+// Template milestone yang bisa digunakan sebagai referensi (opsional)
+model ThesisMilestoneTemplate {
   id          String   @id @default(uuid())
   name        String
   description String?  @db.Text
-  orderIndex  Int      @default(0) @map("order_index") // Urutan milestone
-  isMandatory Boolean  @default(true) @map("is_mandatory") // Wajib atau tidak
-  thesisProgressCompletions ThesisProgressCompletion[]
+  category    String?  // Kategori: "penelitian", "penulisan", "implementasi", dll
+  orderIndex  Int      @default(0) @map("order_index")
+  isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  @@map("thesis_progress_components")
+  @@map("thesis_milestone_templates")
 }
 
-model ThesisProgressCompletion {
-  id                        String   @id @default(uuid())
-  thesisId                  String   @map("thesis_id")
-  componentId               String   @map("component_id")
-  completedAt               DateTime? @map("completed_at")
-  validatedBySupervisor     Boolean  @default(false) @map("validated_by_supervisor")
-  validatedAt               DateTime? @map("validated_at")
-  notes                     String?  @db.Text // Catatan dari supervisor
-  evidenceUrl               String?  @map("evidence_url") // Link bukti/dokumen
-  thesis                    Thesis   @relation(fields: [thesisId], references: [id])
-  component                 ThesisProgressComponent @relation(fields: [componentId], references: [id])
-  createdAt                 DateTime @default(now()) @map("created_at")
-  updatedAt                 DateTime @updatedAt @map("updated_at")
+// Milestone custom per thesis yang dibuat oleh mahasiswa
+model ThesisMilestone {
+  id                    String   @id @default(uuid())
+  thesisId              String   @map("thesis_id")
+  
+  // Detail milestone
+  title                 String
+  description           String?  @db.Text
+  orderIndex            Int      @default(0) @map("order_index")
+  
+  // Target dan timeline
+  targetDate            DateTime? @map("target_date") // Deadline yang ditentukan mahasiswa
+  startedAt             DateTime? @map("started_at") // Kapan mulai dikerjakan
+  completedAt           DateTime? @map("completed_at") // Kapan selesai
+  
+  // Status dan validasi
+  status                MilestoneStatus @default(not_started)
+  progressPercentage    Int      @default(0) @map("progress_percentage") // 0-100
+  
+  // Review dari dosen pembimbing
+  validatedBy           String?  @map("validated_by") // ID dosen yang memvalidasi
+  validatedAt           DateTime? @map("validated_at")
+  supervisorNotes       String?  @db.Text @map("supervisor_notes") // Feedback dari dosen
+  
+  // Bukti/evidence
+  evidenceUrl           String?  @map("evidence_url") // Link file bukti
+  evidenceDescription   String?  @db.Text @map("evidence_description")
+  
+  // Student notes
+  studentNotes          String?  @db.Text @map("student_notes") // Catatan dari mahasiswa
+  
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  thesis                Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  guidances             ThesisGuidance[] // Bimbingan yang terkait dengan milestone ini
+  activityLogs          ThesisMilestoneLog[] // Log aktivitas milestone
 
-  @@unique([thesisId, componentId]) // Satu thesis hanya punya satu completion per component
-  @@map("thesis_progress_completions")
+  @@index([thesisId, status])
+  @@map("thesis_milestones")
+}
+
+// Log aktivitas untuk tracking perubahan milestone
+model ThesisMilestoneLog {
+  id              String   @id @default(uuid())
+  milestoneId     String   @map("milestone_id")
+  action          String   // "created", "updated", "status_changed", "validated", "revision_requested"
+  previousStatus  MilestoneStatus? @map("previous_status")
+  newStatus       MilestoneStatus? @map("new_status")
+  previousProgress Int?    @map("previous_progress")
+  newProgress     Int?     @map("new_progress")
+  notes           String?  @db.Text
+  performedBy     String   @map("performed_by") // User ID yang melakukan aksi
+  createdAt       DateTime @default(now()) @map("created_at")
+  
+  milestone       ThesisMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+  @@map("thesis_milestone_logs")
 }
 
 model ThesisGuidance {
   id                String   @id @default(uuid())
   thesisId          String   @map("thesis_id")
   supervisorId      String?  @map("supervisor_id")
+  milestoneId       String?  @map("milestone_id") // Milestone yang dibahas dalam bimbingan ini
   
   // Request details
   requestedDate     DateTime @map("requested_date") // Tanggal/waktu yang diminta mahasiswa
@@ -326,8 +372,10 @@ model ThesisGuidance {
   // Relations
   thesis            Thesis   @relation(fields: [thesisId], references: [id])
   supervisor        Lecturer? @relation(fields: [supervisorId], references: [id])
+  milestone         ThesisMilestone? @relation(fields: [milestoneId], references: [id])
   sessionLogs       ThesisGuidanceLog[] // Log untuk setiap sesi bimbingan
 
+  @@index([thesisId, milestoneId])
   @@map("thesis_guidances")
 }
 
@@ -896,6 +944,14 @@ enum ActivityType {
   defence          // Sidang
   status_change    // Perubahan status
   other            // Lainnya
+}
+
+enum MilestoneStatus {
+  not_started       // Belum dimulai
+  in_progress       // Sedang dikerjakan
+  pending_review    // Menunggu review dosen
+  revision_needed   // Perlu revisi
+  completed         // Selesai dan disetujui
 }
 
 enum SeminarStatus {

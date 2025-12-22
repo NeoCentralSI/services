@@ -195,42 +195,42 @@ async function seedAcademicYears() {
 }
 
 // ============================================================
-// 5. SEED THESIS PROGRESS COMPONENTS
+// 5. SEED THESIS MILESTONE TEMPLATES
 // ============================================================
-async function seedProgressComponents() {
+async function seedMilestoneTemplates() {
   console.log("\n" + "=".repeat(60));
-  console.log("📊 STEP 5: Seeding Thesis Progress Components...");
+  console.log("📊 STEP 5: Seeding Thesis Milestone Templates...");
   console.log("=".repeat(60));
 
-  const components = [
-    { name: "Pengajuan Judul", description: "Judul tugas akhir telah disetujui", orderIndex: 1, isMandatory: true },
-    { name: "BAB I - Pendahuluan", description: "Bab 1 telah disetujui pembimbing", orderIndex: 2, isMandatory: true },
-    { name: "BAB II - Tinjauan Pustaka", description: "Bab 2 telah disetujui pembimbing", orderIndex: 3, isMandatory: true },
-    { name: "BAB III - Metodologi", description: "Bab 3 telah disetujui pembimbing", orderIndex: 4, isMandatory: true },
-    { name: "Seminar Proposal", description: "Telah melaksanakan seminar proposal", orderIndex: 5, isMandatory: true },
-    { name: "BAB IV - Implementasi", description: "Bab 4 telah disetujui pembimbing", orderIndex: 6, isMandatory: true },
-    { name: "BAB V - Pengujian", description: "Bab 5 telah disetujui pembimbing", orderIndex: 7, isMandatory: true },
-    { name: "BAB VI - Kesimpulan", description: "Bab 6 telah disetujui pembimbing", orderIndex: 8, isMandatory: true },
-    { name: "Sidang Tugas Akhir", description: "Telah melaksanakan sidang tugas akhir", orderIndex: 9, isMandatory: true },
-    { name: "Revisi Final", description: "Revisi final telah disetujui", orderIndex: 10, isMandatory: true },
+  const templates = [
+    { name: "Pengajuan Judul", description: "Judul tugas akhir telah disetujui", category: "persiapan", orderIndex: 1 },
+    { name: "BAB I - Pendahuluan", description: "Bab 1 telah disetujui pembimbing", category: "penulisan", orderIndex: 2 },
+    { name: "BAB II - Tinjauan Pustaka", description: "Bab 2 telah disetujui pembimbing", category: "penulisan", orderIndex: 3 },
+    { name: "BAB III - Metodologi", description: "Bab 3 telah disetujui pembimbing", category: "penulisan", orderIndex: 4 },
+    { name: "Seminar Proposal", description: "Telah melaksanakan seminar proposal", category: "seminar", orderIndex: 5 },
+    { name: "BAB IV - Implementasi", description: "Bab 4 telah disetujui pembimbing", category: "implementasi", orderIndex: 6 },
+    { name: "BAB V - Pengujian", description: "Bab 5 telah disetujui pembimbing", category: "implementasi", orderIndex: 7 },
+    { name: "BAB VI - Kesimpulan", description: "Bab 6 telah disetujui pembimbing", category: "penulisan", orderIndex: 8 },
+    { name: "Sidang Tugas Akhir", description: "Telah melaksanakan sidang tugas akhir", category: "sidang", orderIndex: 9 },
+    { name: "Revisi Final", description: "Revisi final telah disetujui", category: "revisi", orderIndex: 10 },
   ];
 
-  const componentMap = new Map();
+  const templateMap = new Map();
 
-  for (const comp of components) {
-    let existing = await prisma.thesisProgressComponent.findFirst({
-      where: { name: comp.name },
+  for (const template of templates) {
+    let existing = await prisma.thesisMilestoneTemplate.findFirst({
+      where: { name: template.name },
     });
     if (!existing) {
-      existing = await prisma.thesisProgressComponent.create({ data: comp });
-      console.log(`  ✅ Created component: ${comp.name}`);
+      existing = await prisma.thesisMilestoneTemplate.create({ data: template });
+      console.log(`  ✅ Created template: ${template.name}`);
     } else {
-      console.log(`  ⏭️  Component exists: ${comp.name}`);
+      console.log(`  ⏭️  Template exists: ${template.name}`);
     }
-    componentMap.set(comp.name, existing);
+    templateMap.set(template.name, existing);
   }
 
-  return componentMap;
+  return templateMap;
 }
 
 // ============================================================
@@ -545,49 +545,106 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
 }
 
 // ============================================================
-// 8. SEED THESIS PROGRESS COMPLETIONS
+// 8. SEED THESIS MILESTONES (Custom per Thesis)
 // ============================================================
-async function seedProgressCompletions(thesisMap, componentMap) {
+async function seedThesisMilestones(thesisMap, userMap) {
   console.log("\n" + "=".repeat(60));
-  console.log("✅ STEP 8: Seeding Progress Completions...");
+  console.log("✅ STEP 8: Seeding Thesis Milestones...");
   console.log("=".repeat(60));
 
-  // For each thesis, mark some components as completed
+  const kadep = userMap.get("kadep@fti.unand.ac.id");
+
+  // For each thesis, create custom milestones
   for (const [studentId, thesis] of thesisMap) {
     if (!thesis) continue;
 
-    // Check if already has completions
-    const existingCount = await prisma.thesisProgressCompletion.count({
+    // Check if already has milestones
+    const existingCount = await prisma.thesisMilestone.count({
       where: { thesisId: thesis.id },
     });
 
     if (existingCount > 0) {
-      console.log(`  ⏭️  Completions exist for thesis: ${thesis.title?.slice(0, 30)}...`);
+      console.log(`  ⏭️  Milestones exist for thesis: ${thesis.title?.slice(0, 30)}...`);
       continue;
     }
 
-    // Complete first 3 components for all students
-    const completedComponents = [
-      "Pengajuan Judul",
-      "BAB I - Pendahuluan",
-      "BAB II - Tinjauan Pustaka",
+    // Create milestones for this thesis
+    const milestones = [
+      { 
+        title: "Pengajuan Judul", 
+        description: "Judul tugas akhir telah disetujui",
+        orderIndex: 1,
+        targetDate: new Date("2024-09-15"),
+        status: "completed",
+        progressPercentage: 100,
+        startedAt: new Date("2024-09-01"),
+        completedAt: new Date("2024-09-10"),
+        validatedBy: kadep?.id,
+        validatedAt: new Date("2024-09-10"),
+        supervisorNotes: "Judul sudah bagus dan fokus",
+      },
+      { 
+        title: "BAB I - Pendahuluan", 
+        description: "Latar belakang, rumusan masalah, tujuan penelitian",
+        orderIndex: 2,
+        targetDate: new Date("2024-10-01"),
+        status: "completed",
+        progressPercentage: 100,
+        startedAt: new Date("2024-09-11"),
+        completedAt: new Date("2024-09-28"),
+        validatedBy: kadep?.id,
+        validatedAt: new Date("2024-09-28"),
+        supervisorNotes: "BAB I sudah lengkap, lanjut ke BAB II",
+      },
+      { 
+        title: "BAB II - Tinjauan Pustaka", 
+        description: "Dasar teori dan penelitian terkait",
+        orderIndex: 3,
+        targetDate: new Date("2024-10-20"),
+        status: "completed",
+        progressPercentage: 100,
+        startedAt: new Date("2024-10-01"),
+        completedAt: new Date("2024-10-18"),
+        validatedBy: kadep?.id,
+        validatedAt: new Date("2024-10-18"),
+        supervisorNotes: "Referensi sudah cukup, tambahkan jurnal internasional",
+      },
+      { 
+        title: "BAB III - Metodologi", 
+        description: "Metodologi penelitian dan perancangan sistem",
+        orderIndex: 4,
+        targetDate: new Date("2024-11-15"),
+        status: "in_progress",
+        progressPercentage: 60,
+        startedAt: new Date("2024-10-20"),
+        studentNotes: "Sedang menyusun diagram alir dan use case",
+      },
+      { 
+        title: "BAB IV - Implementasi", 
+        description: "Implementasi sistem dan coding",
+        orderIndex: 5,
+        targetDate: new Date("2024-12-15"),
+        status: "not_started",
+        progressPercentage: 0,
+      },
+      { 
+        title: "BAB V - Pengujian", 
+        description: "Pengujian sistem dan analisis hasil",
+        orderIndex: 6,
+        targetDate: new Date("2025-01-15"),
+        status: "not_started",
+        progressPercentage: 0,
+      },
     ];
 
-    for (const compName of completedComponents) {
-      const component = componentMap.get(compName);
-      if (!component) continue;
-
-      await prisma.thesisProgressCompletion.create({
+    for (const milestone of milestones) {
+      await prisma.thesisMilestone.create({
         data: {
           thesisId: thesis.id,
-          componentId: component.id,
-          completedAt: new Date(),
-          validatedBySupervisor: true,
-          validatedAt: new Date(),
-          notes: "Disetujui oleh pembimbing",
+          ...milestone,
         },
       });
-      console.log(`  ✅ Completed: ${compName} for thesis ${thesis.id.slice(0, 8)}...`);
+      console.log(`  ✅ Created milestone: ${milestone.title} (${milestone.status})`);
     }
   }
 }
@@ -811,10 +868,10 @@ async function main() {
     const studentStatusMap = await seedStudentStatus();
     const thesisStatusMap = await seedThesisStatus();
     const academicYearMap = await seedAcademicYears();
-    const componentMap = await seedProgressComponents();
+    const templateMap = await seedMilestoneTemplates();
     const userMap = await seedUsers(roleMap, studentStatusMap);
     const thesisMap = await seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap);
-    await seedProgressCompletions(thesisMap, componentMap);
+    await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);
     await seedActivityLogs(thesisMap, userMap);
 
@@ -826,7 +883,8 @@ async function main() {
     console.log(`   🔐 Roles: ${Object.values(ROLES).length}`);
     console.log(`   👥 Users: 8 (5 lecturers, 1 admin, 2 students)`);
     console.log(`   📖 Thesis: 2 (with supervisors and examiners)`);
-    console.log(`   📊 Progress Components: 10`);
+    console.log(`   📊 Milestone Templates: 10`);
+    console.log(`   🎯 Thesis Milestones: Custom per thesis`);
     console.log(`   📆 Guidances: Multiple samples per thesis`);
 
     console.log("\n🔑 LOGIN CREDENTIALS:");
