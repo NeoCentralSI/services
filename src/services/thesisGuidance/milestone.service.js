@@ -1,6 +1,6 @@
-import * as milestoneRepo from "../repositories/milestone.repository.js";
-import prisma from "../config/prisma.js";
-import { ROLES, isSupervisorRole } from "../constants/roles.js";
+import * as milestoneRepo from "../../repositories/thesisGuidance/milestone.repository.js";
+import prisma from "../../config/prisma.js";
+import { ROLES, isSupervisorRole } from "../../constants/roles.js";
 
 // ============================================
 // Error Helpers

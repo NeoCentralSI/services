@@ -1,4 +1,4 @@
-import * as milestoneService from "../services/milestone.service.js";
+import * as milestoneService from "../../services/thesisGuidance/milestone.service.js";
 
 // ============================================
 // Template Controllers
