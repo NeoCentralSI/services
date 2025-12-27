@@ -387,9 +387,8 @@ export async function updateMilestoneStatus(milestoneId, userId, newStatus, note
   const currentStatus = milestone.status;
   const validTransitions = {
     not_started: ["in_progress"],
-    in_progress: ["pending_review", "not_started"],
-    pending_review: ["in_progress"], // student can withdraw from review
-    revision_needed: ["in_progress", "pending_review"],
+    in_progress: ["not_started"],
+    revision_needed: ["in_progress"],
     completed: [], // Cannot change from completed (only supervisor can set this)
   };
 
@@ -469,27 +468,20 @@ export async function submitForReview(milestoneId, userId, evidenceUrl = null, s
     throw forbidden("Hanya mahasiswa yang dapat mengajukan review milestone");
   }
 
-  if (milestone.status === "completed") {
-    throw createError("Milestone sudah selesai dan tervalidasi");
-  }
-
-  if (milestone.status === "pending_review") {
-    throw createError("Milestone sudah dalam status menunggu review");
-  }
-
   const updateData = {};
   if (evidenceUrl) updateData.evidenceUrl = evidenceUrl;
   if (studentNotes) updateData.studentNotes = studentNotes;
 
-  const updated = await milestoneRepo.updateStatusWithLog(
-    milestoneId,
-    "pending_review",
-    userId,
-    "Milestone diajukan untuk review",
-    updateData
-  );
+  const updated = await milestoneRepo.update(milestoneId, {
+    ...updateData,
+  });
 
-  // TODO: Send notification to supervisors
+  await milestoneRepo.createLog({
+    milestoneId,
+    action: "updated",
+    performedBy: userId,
+    notes: "Permintaan review diterima (status review dinonaktifkan, tetap in_progress/revision flow)",
+  });
 
   return updated;
 }

@@ -316,6 +316,7 @@ model ThesisMilestone {
   guidances             ThesisGuidance[] // Bimbingan yang terkait dengan milestone ini
   activityLogs          ThesisMilestoneLog[] // Log aktivitas milestone
 
+  @@index([thesisId, orderIndex])
   @@index([thesisId, status])
   @@map("thesis_milestones")
 }
