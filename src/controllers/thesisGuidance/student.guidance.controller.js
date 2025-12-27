@@ -34,14 +34,49 @@ export async function guidanceDetail(req, res, next) {
 
 export async function requestGuidance(req, res, next) {
   try {
-    const { guidanceDate, studentNotes, meetingUrl, supervisorId, milestoneId, documentUrl, type, duration, location } = (req.validated ?? req.body ?? {});
+    // DEBUG: Log req.body to see what's received
+    console.log("[requestGuidance] req.body:", JSON.stringify(req.body, null, 2));
+    console.log("[requestGuidance] req.body['milestoneIds[]']:", req.body?.["milestoneIds[]"]);
+    console.log("[requestGuidance] req.body.milestoneIds:", req.body?.milestoneIds);
+    console.log("[requestGuidance] req.validated:", JSON.stringify(req.validated, null, 2));
+    
+    const {
+      guidanceDate,
+      studentNotes,
+      meetingUrl,
+      supervisorId,
+      milestoneId,
+      milestoneIds,
+      documentUrl,
+      type,
+      duration,
+      location,
+    } = (req.validated ?? req.body ?? {});
+    // Collect milestoneIds from both milestoneIds and milestoneIds[] form fields
+    const rawMilestoneIds =
+      (req.body && (req.body["milestoneIds[]"] || req.body.milestoneIds)) || milestoneIds;
+    console.log("[requestGuidance] rawMilestoneIds:", rawMilestoneIds);
+    const normalizedMilestoneIds = Array.isArray(rawMilestoneIds)
+      ? rawMilestoneIds
+      : rawMilestoneIds
+        ? [rawMilestoneIds]
+        : undefined;
+    console.log("[requestGuidance] normalizedMilestoneIds:", normalizedMilestoneIds);
     const file = req.file || null;
     if (!file) {
       const err = new Error("Thesis file is required (field name: 'file')");
       err.statusCode = 400;
       throw err;
     }
-    const result = await requestGuidanceService(req.user.sub, guidanceDate, studentNotes, file, meetingUrl, supervisorId, { type, duration, location, milestoneId, documentUrl });
+    const result = await requestGuidanceService(
+      req.user.sub,
+      guidanceDate,
+      studentNotes,
+      file,
+      meetingUrl,
+      supervisorId,
+      { type, duration, location, milestoneId, milestoneIds: normalizedMilestoneIds, documentUrl }
+    );
     res.status(201).json({ success: true, ...result });
   } catch (err) {
     next(err);

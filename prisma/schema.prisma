@@ -345,6 +345,7 @@ model ThesisGuidance {
   thesisId          String   @map("thesis_id")
   supervisorId      String?  @map("supervisor_id")
   milestoneId       String?  @map("milestone_id") // Milestone yang dibahas dalam bimbingan ini
+  milestoneIds      Json?    @map("milestone_ids") // Daftar milestone yang dibahas (multi-select)
   
   // Request details
   requestedDate     DateTime @map("requested_date") // Tanggal/waktu yang diminta mahasiswa

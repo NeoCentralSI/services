@@ -159,6 +159,20 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     throw err;
   }
   // Schema baru: gunakan requestedDate/approvedDate
+  const milestoneIds = Array.isArray(guidance.milestoneIds) ? guidance.milestoneIds : [];
+  let milestoneTitles = [];
+  if (milestoneIds.length) {
+    const mids = milestoneIds.map(String);
+    const rows = await prisma.thesisMilestone.findMany({
+      where: { id: { in: mids }, thesisId: guidance.thesisId },
+      select: { id: true, title: true },
+    });
+    milestoneTitles = rows.map((r) => r.title);
+  } else if (guidance.milestoneId) {
+    const row = await prisma.thesisMilestone.findUnique({ where: { id: guidance.milestoneId }, select: { title: true } });
+    milestoneTitles = row?.title ? [row.title] : [];
+  }
+
   const flat = {
     id: guidance.id,
     status: guidance.status,
@@ -177,6 +191,8 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     notes: guidance.studentNotes || null,
     supervisorFeedback: guidance.supervisorFeedback || null,
     rejectionReason: guidance.rejectionReason || null,
+    milestoneIds,
+    milestoneTitles,
   };
   // attach thesis document
   try {
@@ -193,7 +209,20 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 }
 
 export async function requestGuidanceService(userId, guidanceDate, studentNotes, file, meetingUrl, supervisorId, options = {}) {
-  const { type = "online", duration = 60, location = null, milestoneId = null, documentUrl = null } = options;
+  const {
+    type = "online",
+    duration = 60,
+    location = null,
+    milestoneId = null,
+    milestoneIds = [],
+    documentUrl = null,
+  } = options;
+  
+  // DEBUG: Log received options
+  console.log("[requestGuidanceService] options received:", JSON.stringify(options, null, 2));
+  console.log("[requestGuidanceService] milestoneIds:", milestoneIds);
+  console.log("[requestGuidanceService] milestoneId:", milestoneId);
+  
   let { student, thesis } = await getActiveThesisOrThrow(userId);
   thesis = await ensureThesisAcademicYear(thesis);
   
@@ -240,38 +269,40 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   // Either:
   // 1. Must have at least one active milestone, OR
   // 2. Must specify a milestone to work on (which will become active)
-  if (activeOrPendingMilestones.length === 0 && !milestoneId) {
+  const requestedMilestoneIds = Array.from(
+    new Set([
+      ...(Array.isArray(milestoneIds) ? milestoneIds.filter(Boolean) : []),
+      milestoneId || null,
+    ].filter(Boolean))
+  );
+
+  if (activeOrPendingMilestones.length === 0 && requestedMilestoneIds.length === 0) {
     const err = new Error("Tidak ada milestone yang sedang dikerjakan. Pilih milestone yang akan dibahas untuk melanjutkan pengajuan bimbingan.");
     err.statusCode = 400;
     throw err;
   }
 
-  // Validate milestoneId if provided
-  let selectedMilestoneId = null;
-  let milestoneName = null;
-  if (milestoneId) {
-    const milestone = await prisma.thesisMilestone.findFirst({
-      where: { id: milestoneId, thesisId: thesis.id },
+  // Validate milestoneIds if provided
+  const validMilestones = [];
+  for (const mid of requestedMilestoneIds) {
+    const m = await prisma.thesisMilestone.findFirst({
+      where: { id: mid, thesisId: thesis.id },
     });
-    if (!milestone) {
+    if (!m) {
       const err = new Error("Milestone tidak ditemukan atau bukan milik thesis ini");
       err.statusCode = 400;
       throw err;
     }
-    selectedMilestoneId = milestoneId;
-    milestoneName = milestone.title;
-
-    // Auto-update milestone status to in_progress if not started
-    if (milestone.status === "not_started") {
+    validMilestones.push(m);
+    if (m.status === "not_started") {
       await prisma.thesisMilestone.update({
-        where: { id: milestoneId },
-        data: {
-          status: "in_progress",
-          startedAt: new Date(),
-        },
+        where: { id: mid },
+        data: { status: "in_progress", startedAt: m.startedAt || new Date() },
       });
     }
   }
+  const selectedMilestoneId = validMilestones[0]?.id || null; // keep legacy single link
+  const milestoneNames = validMilestones.map((m) => m.title);
   
   const supervisors = await getSupervisorsForThesis(thesis.id);
   const sup1 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_1);
@@ -298,7 +329,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     thesisId: thesis.id,
     requestedDate: guidanceDate, // Schema baru
     supervisorId: selectedSupervisorId,
-    milestoneId: selectedMilestoneId, // Link to milestone
+    milestoneId: selectedMilestoneId, // Link to milestone (legacy)
+    milestoneIds: validMilestones.length ? validMilestones.map((m) => m.id) : null,
     studentNotes: studentNotes || `Request guidance on ${guidanceDate.toISOString()}`,
     supervisorFeedback: "",
     meetingUrl: meetingUrl || "",
@@ -309,7 +341,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     status: "requested",
   });
 
-  const milestoneInfo = milestoneName ? ` untuk milestone "${milestoneName}"` : "";
+  const milestoneInfo = milestoneNames.length ? ` untuk milestone ${milestoneNames.map((n) => `"${n}"`).join(", ")}` : "";
   await logThesisActivity(thesis.id, userId, "request-guidance", `Requested at ${guidanceDate.toISOString()}${milestoneInfo}`, "guidance");
 
   try {
@@ -317,8 +349,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     const dateStr =
       formatDateTimeJakarta(guidanceDate, { withDay: true }) ||
       (guidanceDate instanceof Date ? guidanceDate.toISOString() : String(guidanceDate));
-    const notifMessage = milestoneName
-      ? `${studentName} mengajukan bimbingan untuk milestone "${milestoneName}". Jadwal: ${dateStr}`
+    const notifMessage = milestoneNames.length
+      ? `${studentName} mengajukan bimbingan untuk ${milestoneNames.length} milestone. Jadwal: ${dateStr}`
       : `${studentName} mengajukan bimbingan. Jadwal: ${dateStr}`;
     await createNotificationsForUsers(supervisorsUserIds, {
       title: "Permintaan bimbingan baru",
@@ -338,7 +370,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       guidanceId: String(created.id),
       thesisId: String(thesis.id),
       milestoneId: selectedMilestoneId || "",
-      milestoneName: milestoneName || "",
+      milestoneName: milestoneNames[0] || "",
       scheduledAt: created?.requestedDate ? new Date(created.requestedDate).toISOString() : "",
       scheduledAtFormatted: formatDateTimeJakarta(created?.requestedDate, { withDay: true }) || "",
       supervisorId: String(selectedSupervisorId),

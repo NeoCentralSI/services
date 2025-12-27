@@ -69,10 +69,28 @@ function toFlatGuidance(g) {
 		rejectionReason: g.rejectionReason || null,
 		// Milestone info
 		milestoneId: g.milestoneId || null,
-		milestone: g.milestone ? { id: g.milestone.id, title: g.milestone.title, status: g.milestone.status } : null,
-		milestoneName: g.milestone?.title || null,
-		milestoneStatus: g.milestone?.status || null,
+    milestone: g.milestone ? { id: g.milestone.id, title: g.milestone.title, status: g.milestone.status } : null,
+    milestoneName: g.milestone?.title || null,
+    milestoneStatus: g.milestone?.status || null,
+    milestoneIds: Array.isArray(g.milestoneIds) ? g.milestoneIds : g.milestoneId ? [g.milestoneId] : [],
+    milestoneTitles: g.milestoneTitles || (g.milestone?.title ? [g.milestone.title] : []),
   };
+}
+
+async function resolveMilestoneTitles(guidance) {
+  if (!guidance) return [];
+  const ids = Array.isArray(guidance.milestoneIds)
+    ? guidance.milestoneIds.map(String)
+    : guidance.milestoneId
+      ? [String(guidance.milestoneId)]
+      : [];
+  if (!ids.length) return [];
+  const rows = await prisma.thesisMilestone.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, title: true },
+  });
+  const map = new Map(rows.map((m) => [String(m.id), m.title]));
+  return ids.map((id) => map.get(id)).filter(Boolean);
 }
 
 export async function getMyStudentsService(userId, roles) {
@@ -103,7 +121,34 @@ export async function getRequestsService(userId, { page = 1, pageSize = 10 } = {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const { total, rows, page: p, pageSize: sz } = await findGuidanceRequests(lecturer.id, { page, pageSize });
-	const items = Array.isArray(rows) ? rows.map((g) => toFlatGuidance(g)) : [];
+  // Resolve milestone titles for multi-select
+  const allMilestoneIds = new Set();
+  rows?.forEach((g) => {
+    if (Array.isArray(g.milestoneIds)) {
+      g.milestoneIds.forEach((id) => allMilestoneIds.add(String(id)));
+    } else if (g.milestoneId) {
+      allMilestoneIds.add(String(g.milestoneId));
+    }
+  });
+  let milestoneTitleMap = new Map();
+  if (allMilestoneIds.size > 0) {
+    const rowsTitles = await prisma.thesisMilestone.findMany({
+      where: { id: { in: Array.from(allMilestoneIds) } },
+      select: { id: true, title: true },
+    });
+    milestoneTitleMap = new Map(rowsTitles.map((m) => [String(m.id), m.title]));
+  }
+  const items = Array.isArray(rows)
+    ? rows.map((g) => {
+        const ids = Array.isArray(g.milestoneIds)
+          ? g.milestoneIds.map(String)
+          : g.milestoneId
+            ? [String(g.milestoneId)]
+            : [];
+        const titles = ids.map((id) => milestoneTitleMap.get(id)).filter(Boolean);
+        return toFlatGuidance({ ...g, milestoneTitles: titles });
+      })
+    : [];
 	const totalPages = Math.max(1, Math.ceil(total / sz));
 	return { page: p, pageSize: sz, total, totalPages, requests: items };
 }
@@ -151,7 +196,8 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 	
 	// Re-read with includes for a complete, flat response
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
-	return { guidance: toFlatGuidance(fresh) };
+  const titles = await resolveMilestoneTitles(fresh);
+	return { guidance: toFlatGuidance({ ...fresh, milestoneTitles: titles }) };
 }
 
 export async function approveGuidanceService(userId, guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location } = {}) {
@@ -228,7 +274,7 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 			});
 			
 			await sendFcmToUsers([studentUserId], {
-				title: "Bimbingan Disetujui ✓",
+				title: "Bimbingan Disetujui",
 				body: `${lecturerName} menyetujui permintaan bimbingan${dateInfo}`,
 				data: {
 					type: "thesis-guidance:approved",
@@ -243,7 +289,8 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 	
 	// Re-read with includes for a complete, flat response
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
-	return { guidance: toFlatGuidance(fresh) };
+  const titles = await resolveMilestoneTitles(fresh);
+	return { guidance: toFlatGuidance({ ...fresh, milestoneTitles: titles }) };
 }
 
 export async function getAllProgressService(userId) {
@@ -335,7 +382,24 @@ export async function guidanceHistoryService(userId, studentId) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const rows = await listGuidanceHistory(studentId, lecturer.id);
-	const items = rows.map((g) => toFlatGuidance(g));
+  const titleMap = new Map();
+  const allIds = new Set();
+  rows.forEach((g) => {
+    if (Array.isArray(g.milestoneIds)) g.milestoneIds.forEach((id) => allIds.add(String(id)));
+    else if (g.milestoneId) allIds.add(String(g.milestoneId));
+  });
+  if (allIds.size) {
+    const ms = await prisma.thesisMilestone.findMany({
+      where: { id: { in: Array.from(allIds) } },
+      select: { id: true, title: true },
+    });
+    ms.forEach((m) => titleMap.set(String(m.id), m.title));
+  }
+	const items = rows.map((g) => {
+    const ids = Array.isArray(g.milestoneIds) ? g.milestoneIds.map(String) : g.milestoneId ? [String(g.milestoneId)] : [];
+    const titles = ids.map((id) => titleMap.get(id)).filter(Boolean);
+    return toFlatGuidance({ ...g, milestoneTitles: titles });
+  });
 	return { count: items.length, items };
 }
 
@@ -386,4 +450,5 @@ export async function failStudentThesisService(userId, studentId, { reason } = {
 	await logThesisActivity(thesis.id, userId, "THESIS_FAILED", reason || undefined, "milestone");
 	return { thesisId: thesis.id, status: "failed" };
 }
+
 

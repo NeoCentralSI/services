@@ -43,6 +43,14 @@ export const requestGuidanceSchema = z.object({
   milestoneId: z
     .preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().uuid("milestoneId must be a valid UUID"))
     .optional(),
+  // Optional multiple milestones (milestoneIds[] in multipart)
+  milestoneIds: z
+    .preprocess((v) => {
+      if (Array.isArray(v)) return v;
+      if (typeof v === "string" && v.trim() !== "") return [v];
+      return undefined;
+    }, z.array(z.string().uuid("milestoneIds must contain valid UUIDs")).optional())
+    .optional(),
   // Allow empty string from multipart forms -> treat as undefined
   meetingUrl: z
     .any()
