@@ -23,7 +23,7 @@ import { ROLE_CATEGORY, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
-import { createGuidanceCalendarEvents } from "../outlook-calendar.service.js";
+import { createGuidanceCalendarEvent } from "../outlook-calendar.service.js";
 import prisma from "../../config/prisma.js";
 
 function ensureLecturer(lecturer) {
@@ -212,50 +212,52 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 	const updated = await approveGuidanceById(guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location });
 	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_APPROVED", feedback || undefined, "approval");
 	
-	// Sync to Outlook Calendar - DISABLED during development
-	// TODO: Re-enable when Microsoft SSO is properly configured for all users
-	// try {
-	// 	const studentUser = updated.thesis?.student?.user;
-	// 	const supervisorUser = updated.supervisor?.user;
-	// 	
-	// 	if (studentUser && supervisorUser && updated.approvedDate) {
-	// 		const calendarEvents = await createGuidanceCalendarEvents(
-	// 			{
-	// 				approvedDate: updated.approvedDate,
-	// 				studentNotes: updated.studentNotes,
-	// 				meetingUrl: meetingUrl || updated.meetingUrl,
-	// 				duration: updated.duration,
-	// 				location: updated.location,
-	// 				type: updated.type,
-	// 			},
-	// 			{
-	// 				userId: studentUser.id,
-	// 				fullName: studentUser.fullName,
-	// 				email: studentUser.email,
-	// 			},
-	// 			{
-	// 				userId: supervisorUser.id,
-	// 				fullName: supervisorUser.fullName,
-	// 				email: supervisorUser.email,
-	// 			}
-	// 		);
-	// 		
-	// 		// Save calendar event IDs to database
-	// 		if (calendarEvents.studentEventId || calendarEvents.supervisorEventId) {
-	// 			await prisma.thesisGuidance.update({
-	// 				where: { id: guidanceId },
-	// 				data: {
-	// 					studentCalendarEventId: calendarEvents.studentEventId,
-	// 					supervisorCalendarEventId: calendarEvents.supervisorEventId,
-	// 				},
-	// 			});
-	// 			console.log("[Guidance] Calendar events synced:", calendarEvents);
-	// 		}
-	// 	}
-	// } catch (e) {
-	// 	console.error("Failed to sync calendar:", e?.message || e);
-	// 	// Don't fail the request if calendar sync fails
-	// }
+	// Sync to Outlook Calendar - Create events for both supervisor and student
+	try {
+		const studentUser = updated.thesis?.student?.user;
+		const supervisorUser = updated.supervisor?.user;
+		
+		// Use requestedDate (the date student requested) for the event schedule
+		const scheduledDate = updated.requestedDate;
+		
+		if (studentUser && supervisorUser && scheduledDate) {
+			const calendarEvents = await createGuidanceCalendarEvent(
+				{
+					scheduledDate: scheduledDate,
+					studentNotes: updated.studentNotes,
+					meetingUrl: meetingUrl || updated.meetingUrl,
+					duration: updated.duration,
+					location: updated.location,
+					type: updated.type,
+				},
+				{
+					userId: studentUser.id,
+					fullName: studentUser.fullName,
+					email: studentUser.email,
+				},
+				{
+					userId: supervisorUser.id,
+					fullName: supervisorUser.fullName,
+					email: supervisorUser.email,
+				}
+			);
+			
+			// Save calendar event IDs to database
+			if (calendarEvents.supervisorEventId || calendarEvents.studentEventId) {
+				await prisma.thesisGuidance.update({
+					where: { id: guidanceId },
+					data: {
+						supervisorCalendarEventId: calendarEvents.supervisorEventId,
+						studentCalendarEventId: calendarEvents.studentEventId,
+					},
+				});
+				console.log("[Guidance] Calendar events synced:", calendarEvents);
+			}
+		}
+	} catch (e) {
+		console.error("Failed to sync calendar:", e?.message || e);
+		// Don't fail the request if calendar sync fails
+	}
 	
 	// Send notification to student
 	try {
