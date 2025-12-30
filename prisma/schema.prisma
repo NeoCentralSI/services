@@ -94,6 +94,7 @@ model Student {
   
 
   @@map("students")
+  @@index([skscompleted], map: "idx_students_skscompleted")
 }
 
 model StudentStatus {

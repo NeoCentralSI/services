@@ -247,7 +247,7 @@ async function seedUsers(roleMap, studentStatusMap) {
   // User data with fixed NIP for reproducibility
   const usersData = [
     {
-      email: "kadep@fti.unand.ac.id",
+      email: "kadep_si@fti.unand.ac.id",
       fullName: "Dr. Ahmad Kadep, M.Kom",
       identityType: "NIP",
       identityNumber: "198501012010011001",
@@ -255,7 +255,7 @@ async function seedUsers(roleMap, studentStatusMap) {
       isLecturer: true,
     },
     {
-      email: "sekdep@fti.unand.ac.id",
+      email: "sekdep_si@fti.unand.ac.id",
       fullName: "Dr. Budi Sekdep, M.T",
       identityType: "NIP",
       identityNumber: "198602022011012002",
@@ -263,7 +263,7 @@ async function seedUsers(roleMap, studentStatusMap) {
       isLecturer: true,
     },
     {
-      email: "pembimbing@fti.unand.ac.id",
+      email: "pembimbing_si@fti.unand.ac.id",
       fullName: "Dr. Candra Pembimbing, M.Cs",
       identityType: "NIP",
       identityNumber: "198703032012013003",
@@ -271,7 +271,7 @@ async function seedUsers(roleMap, studentStatusMap) {
       isLecturer: true,
     },
     {
-      email: "penguji@fti.unand.ac.id",
+      email: "penguji_si@fti.unand.ac.id",
       fullName: "Dr. Diana Penguji, M.Sc",
       identityType: "NIP",
       identityNumber: "198804042013014004",
@@ -279,7 +279,7 @@ async function seedUsers(roleMap, studentStatusMap) {
       isLecturer: true,
     },
     {
-      email: "gkm@fti.unand.ac.id",
+      email: "gkm_si@fti.unand.ac.id",
       fullName: "Dr. Erik GKM, M.Eng",
       identityType: "NIP",
       identityNumber: "198905052014015005",
@@ -287,7 +287,7 @@ async function seedUsers(roleMap, studentStatusMap) {
       isLecturer: true,
     },
     {
-      email: "admin@fti.unand.ac.id",
+      email: "admin_si@fti.unand.ac.id",
       fullName: "Admin Sistem FTI",
       identityType: "OTHER",
       identityNumber: "ADMIN001",
@@ -296,21 +296,98 @@ async function seedUsers(roleMap, studentStatusMap) {
     },
     {
       email: "fariz_2211523034@fti.unand.ac.id",
-      fullName: "Fariz Ramadhan",
+      fullName: "Muhammad Fariz",
       identityType: "NIM",
       identityNumber: "2211523034",
       roles: [ROLES.MAHASISWA],
       isStudent: true,
       enrollmentYear: 2022,
+      sksCompleted: 122,
     },
     {
       email: "nabil_2211522018@fti.unand.ac.id",
-      fullName: "Nabil Putra",
+      fullName: "Nabil Rizki Navisa",
       identityType: "NIM",
       identityNumber: "2211522018",
       roles: [ROLES.MAHASISWA],
       isStudent: true,
       enrollmentYear: 2022,
+      sksCompleted: 118,
+    },
+    {
+      email: "alya_202101001@fti.unand.ac.id",
+      fullName: "Alya Prameswari",
+      identityType: "NIM",
+      identityNumber: "202101001",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2021,
+      sksCompleted: 112,
+    },
+    {
+      email: "bagas_202101014@fti.unand.ac.id",
+      fullName: "Bagas Wiratama",
+      identityType: "NIM",
+      identityNumber: "202101014",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2021,
+      sksCompleted: 98,
+    },
+    {
+      email: "chandra_202001111@fti.unand.ac.id",
+      fullName: "Chandra Mahardika",
+      identityType: "NIM",
+      identityNumber: "202001111",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2020,
+      sksCompleted: 126,
+    },
+    {
+      email: "siti_2211523001@fti.unand.ac.id",
+      fullName: "Siti Rahmawati",
+      identityType: "NIM",
+      identityNumber: "2211523001",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+    },
+    {
+      email: "andi_2211523002@fti.unand.ac.id",
+      fullName: "Andi Pratama",
+      identityType: "NIM",
+      identityNumber: "2211523002",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2023,
+    },
+    {
+      email: "laila_2211523003@fti.unand.ac.id",
+      fullName: "Laila Khairunnisa",
+      identityType: "NIM",
+      identityNumber: "2211523003",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2023,
+    },
+    {
+      email: "rafi_2211523004@fti.unand.ac.id",
+      fullName: "Rafi Nugraha",
+      identityType: "NIM",
+      identityNumber: "2211523004",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2024,
+    },
+    {
+      email: "maria_2211523005@fti.unand.ac.id",
+      fullName: "Maria Gabriella",
+      identityType: "NIM",
+      identityNumber: "2211523005",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2024,
     },
   ];
 
@@ -375,7 +452,7 @@ async function seedUsers(roleMap, studentStatusMap) {
             id: user.id,
             studentStatusId: activeStatus.id,
             enrollmentYear: userData.enrollmentYear || 2022,
-            skscompleted: 120,
+            skscompleted: userData.sksCompleted || 120,
           },
         });
         console.log(`    🎓 Created Student record`);
@@ -416,10 +493,10 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
   // Get users
   const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
   const nabil = userMap.get("nabil_2211522018@fti.unand.ac.id");
-  const kadep = userMap.get("kadep@fti.unand.ac.id");
-  const pembimbing = userMap.get("pembimbing@fti.unand.ac.id");
-  const penguji = userMap.get("penguji@fti.unand.ac.id");
-  const sekdep = userMap.get("sekdep@fti.unand.ac.id");
+  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
+  const pembimbing = userMap.get("pembimbing_si@fti.unand.ac.id");
+  const penguji = userMap.get("penguji_si@fti.unand.ac.id");
+  const sekdep = userMap.get("sekdep_si@fti.unand.ac.id");
 
   const thesisMap = new Map();
 
@@ -552,7 +629,7 @@ async function seedThesisMilestones(thesisMap, userMap) {
   console.log("✅ STEP 8: Seeding Thesis Milestones...");
   console.log("=".repeat(60));
 
-  const kadep = userMap.get("kadep@fti.unand.ac.id");
+  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
 
   // For each thesis, create custom milestones
   for (const [studentId, thesis] of thesisMap) {
@@ -659,9 +736,9 @@ async function seedGuidances(thesisMap, userMap) {
 
   const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
   const nabil = userMap.get("nabil_2211522018@fti.unand.ac.id");
-  const kadep = userMap.get("kadep@fti.unand.ac.id");
-  const pembimbing = userMap.get("pembimbing@fti.unand.ac.id");
-  const penguji = userMap.get("penguji@fti.unand.ac.id");
+  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
+  const pembimbing = userMap.get("pembimbing_si@fti.unand.ac.id");
+  const penguji = userMap.get("penguji_si@fti.unand.ac.id");
 
   // Get lecturer records
   const kadepLecturer = await prisma.lecturer.findUnique({ where: { id: kadep?.id } });
@@ -818,7 +895,7 @@ async function seedActivityLogs(thesisMap, userMap) {
   console.log("=".repeat(60));
 
   const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
-  const kadep = userMap.get("kadep@fti.unand.ac.id");
+  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
   const farizThesis = thesisMap.get(fariz?.id);
 
   if (farizThesis && fariz && kadep) {
@@ -881,8 +958,8 @@ async function main() {
 
     console.log("\n📋 SUMMARY:");
     console.log(`   🔐 Roles: ${Object.values(ROLES).length}`);
-    console.log(`   👥 Users: 8 (5 lecturers, 1 admin, 2 students)`);
-    console.log(`   📖 Thesis: 2 (with supervisors and examiners)`);
+    console.log(`   👥 Users: 16 (5 lecturers, 1 admin, 10 students)`);
+    console.log(`   📖 Thesis: 2 (with supervisors and examiners for Fariz & Nabil)`);
     console.log(`   📊 Milestone Templates: 10`);
     console.log(`   🎯 Thesis Milestones: Custom per thesis`);
     console.log(`   📆 Guidances: Multiple samples per thesis`);
@@ -890,16 +967,24 @@ async function main() {
     console.log("\n🔑 LOGIN CREDENTIALS:");
     console.log(`   Password for all users: ${DEFAULT_PASSWORD}`);
     console.log("\n   Lecturers:");
-    console.log("   - kadep@fti.unand.ac.id (Ketua Departemen)");
-    console.log("   - sekdep@fti.unand.ac.id (Sekretaris Departemen)");
-    console.log("   - pembimbing@fti.unand.ac.id (Pembimbing)");
-    console.log("   - penguji@fti.unand.ac.id (Penguji)");
-    console.log("   - gkm@fti.unand.ac.id (GKM)");
+    console.log("   - kadep_si@fti.unand.ac.id (Ketua Departemen)");
+    console.log("   - sekdep_si@fti.unand.ac.id (Sekretaris Departemen)");
+    console.log("   - pembimbing_si@fti.unand.ac.id (Pembimbing)");
+    console.log("   - penguji_si@fti.unand.ac.id (Penguji)");
+    console.log("   - gkm_si@fti.unand.ac.id (GKM)");
     console.log("\n   Admin:");
-    console.log("   - admin@fti.unand.ac.id");
+    console.log("   - admin_si@fti.unand.ac.id");
     console.log("\n   Students:");
     console.log("   - fariz_2211523034@fti.unand.ac.id");
     console.log("   - nabil_2211522018@fti.unand.ac.id");
+    console.log("   - alya_202101001@fti.unand.ac.id");
+    console.log("   - bagas_202101014@fti.unand.ac.id");
+    console.log("   - chandra_202001111@fti.unand.ac.id");
+    console.log("   - siti_2211523001@fti.unand.ac.id");
+    console.log("   - andi_2211523002@fti.unand.ac.id");
+    console.log("   - laila_2211523003@fti.unand.ac.id");
+    console.log("   - rafi_2211523004@fti.unand.ac.id");
+    console.log("   - maria_2211523005@fti.unand.ac.id");
 
   } catch (error) {
     console.error("\n❌ SEED FAILED:", error);
@@ -910,3 +995,4 @@ async function main() {
 }
 
 main();
+

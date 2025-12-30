@@ -421,3 +421,83 @@ admin_get_academic_years:
       "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
       "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
       "500": { $ref: "../openapi.yaml#/components/responses/InternalError" }
+
+admin_trigger_sia_sync:
+  post:
+    tags: [AdminFeatures]
+    summary: Admin - Trigger SIA data sync (fetch from SIA service and cache to Redis)
+    description: Jalankan sinkronisasi manual dari layanan SIA eksternal dan simpan snapshot ke Redis.
+    operationId: adminTriggerSiaSync
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: Sync triggered
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success: { type: boolean, example: true }
+                message: { type: string, example: "SIA sync triggered" }
+      "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
+      "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
+      "500": { $ref: "../openapi.yaml#/components/responses/InternalError" }
+
+admin_get_sia_sync_status:
+  get:
+    tags: [AdminFeatures]
+    summary: Admin - Get SIA sync status
+    description: Ambil ringkasan run terakhir (lastRun, fetched, updated, skipped, error, durationMs).
+    operationId: adminGetSiaSyncStatus
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: Status terakhir
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success: { type: boolean, example: true }
+                data:
+                  type: object
+                  additionalProperties: true
+                  example:
+                    lastRun: "2025-01-01T00:00:00.000Z"
+                    fetched: "120"
+                    updated: "118"
+                    skipped: "2"
+                    error: ""
+                    durationMs: "5234"
+      "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
+      "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
+      "500": { $ref: "../openapi.yaml#/components/responses/InternalError" }
+
+admin_get_sia_cached_students:
+  get:
+    tags: [AdminFeatures]
+    summary: Admin - Get cached students from SIA snapshot
+    description: Mengambil data mahasiswa yang sudah disinkron ke Redis.
+    operationId: adminGetSiaCachedStudents
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: Cached students
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success: { type: boolean, example: true }
+                count: { type: integer, example: 3 }
+                data:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+      "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
+      "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
+      "500": { $ref: "../openapi.yaml#/components/responses/InternalError" }

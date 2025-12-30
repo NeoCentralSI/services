@@ -43,6 +43,17 @@ export const ENV = {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
   REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET || "",
   REFRESH_TOKEN_EXPIRES_IN: process.env.REFRESH_TOKEN_EXPIRES_IN || "30d",
+  // Dummy academic token (local JSON service)
+  ACADEMIC_API_TOKEN: process.env.ACADEMIC_API_TOKEN || "dev-academic-token",
+
+  // ===============================
+  // External SIA fetch
+  // ===============================
+  SIA_BASE_URL: process.env.SIA_BASE_URL || "http://localhost:4000",
+  SIA_API_TOKEN: process.env.SIA_API_TOKEN || "",
+  SIA_FETCH_TIMEOUT: toNum(process.env.SIA_FETCH_TIMEOUT, 10000), // ms
+  SIA_CHUNK_SIZE: toNum(process.env.SIA_CHUNK_SIZE, 200),
+  ENABLE_SIA_CRON: toBool(process.env.ENABLE_SIA_CRON),
 
   // ===============================
   // 🕒 CRON JOBS

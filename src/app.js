@@ -21,16 +21,34 @@ const __dirname = path.dirname(__filename);
 
 try {
   const docsDir = path.join(__dirname, "docs");
+  const openapiJsonPath = path.join(docsDir, "openapi-schema.json");
+  let openapiDoc = null;
+  if (fs.existsSync(openapiJsonPath)) {
+    try {
+      openapiDoc = JSON.parse(fs.readFileSync(openapiJsonPath, "utf-8"));
+      if (!openapiDoc?.openapi && !openapiDoc?.swagger) {
+        // Not an OpenAPI document, ignore so we fallback to YAML
+        openapiDoc = null;
+      }
+    } catch (err) {
+      console.warn("Failed to parse openapi-schema.json, falling back to YAML:", err.message);
+    }
+  }
+
   app.use("/docs", express.static(docsDir));
   app.use(
     "/docs",
     swaggerUi.serve,
-    swaggerUi.setup(null, { swaggerOptions: { url: "/docs/openapi.yaml" } })
+    swaggerUi.setup(
+      openapiDoc || null,
+      openapiDoc ? {} : { swaggerOptions: { url: "/docs/openapi.yaml" } }
+    )
   );
-  console.log("📚 Swagger UI available at /docs");
+  console.log("Swagger UI available at /docs");
 } catch (err) {
-  console.warn("⚠️ Swagger UI disabled — failed to initialize Swagger UI:", err.message);
+  console.warn("Swagger UI disabled; failed to initialize Swagger UI:", err.message);
 }
+
 
 try {
   const uploadsDir = path.join(process.cwd(), "uploads");
@@ -74,6 +92,13 @@ try {
 
 app.get("/", (req, res) => {
   res.json({ message: "API is running 🚀" });
+});
+
+
+// Serve OpenAPI spec directly at root for Swagger UI/manual access
+app.get("/openapi.yaml", (req, res) => {
+  const specPath = path.join(__dirname, "docs", "openapi.yaml");
+  res.sendFile(specPath);
 });
 
 app.use((req, res, next) => {

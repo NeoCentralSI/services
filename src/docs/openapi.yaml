@@ -122,6 +122,15 @@ paths:
   "/adminfeatures/academic-years/{id}":
     $ref: "./admin/swagger-admin.yaml#/admin_update_academic_year"
 
+  "/sia/sync":
+    $ref: "./admin/swagger-admin.yaml#/admin_trigger_sia_sync"
+
+  "/sia/sync/status":
+    $ref: "./admin/swagger-admin.yaml#/admin_get_sia_sync_status"
+
+  "/sia/cached":
+    $ref: "./admin/swagger-admin.yaml#/admin_get_sia_cached_students"
+
   "/notification":
     $ref: "./notification/swagger-notification.yaml#/notification_get_all"
 
@@ -677,6 +686,12 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     Conflict:
       description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
       content:
         application/json:
           schema:

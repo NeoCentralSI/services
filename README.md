@@ -79,6 +79,12 @@ JWT_SECRET=replace_me                                   # required
 JWT_EXPIRES_IN=7d
 REFRESH_TOKEN_SECRET=replace_me                         # required
 REFRESH_TOKEN_EXPIRES_IN=30d
+ACADEMIC_API_TOKEN=dev-academic-token                  # simple token guard for academic info clone
+SIA_BASE_URL=http://localhost:4000                     # SIA dummy service base URL
+SIA_API_TOKEN=dev-sia-token                            # token header for SIA service
+SIA_FETCH_TIMEOUT=10000                                # ms
+SIA_CHUNK_SIZE=200                                     # per-batch processing size
+ENABLE_SIA_CRON=false                                  # enable scheduled SIA sync (if wired)
 
 # Cron / Jobs (scaffolded)
 CRON_TIME_NOTIFY=0 * * * *
