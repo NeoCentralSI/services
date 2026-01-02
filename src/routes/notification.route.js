@@ -6,6 +6,7 @@ import {
 	markNotificationRead,
 	markAllRead,
 	deleteNotification,
+	deleteAllNotifications,
 	registerFcm,
 	unregisterFcm,
 } from "../controllers/notification.controller.js";
@@ -23,6 +24,9 @@ router.get("/unread-count", getUnreadCountController);
 
 // PATCH /notification/read-all - Mark all as read
 router.patch("/read-all", markAllRead);
+
+// DELETE /notification/all - Delete all notifications (must be before /:id)
+router.delete("/all", deleteAllNotifications);
 
 // PATCH /notification/:id/read - Mark notification as read
 router.patch("/:id/read", markNotificationRead);

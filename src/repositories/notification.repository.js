@@ -86,3 +86,13 @@ export async function deleteNotification(notificationId, userId) {
 	});
 }
 
+/**
+ * Delete all notifications for a user
+ * @param {string} userId
+ */
+export async function deleteAllNotifications(userId) {
+	return await prisma.notification.deleteMany({
+		where: { userId },
+	});
+}
+

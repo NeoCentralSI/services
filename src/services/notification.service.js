@@ -6,6 +6,7 @@ import {
 	createNotification,
 	createNotificationsMany,
 	deleteNotification,
+	deleteAllNotifications,
 } from "../repositories/notification.repository.js";
 
 /**
@@ -93,5 +94,14 @@ export async function deleteNotificationService(notificationId, userId) {
 		throw err;
 	}
 	return { success: true };
+}
+
+/**
+ * Delete all notifications for a user
+ * @param {string} userId
+ */
+export async function deleteAllNotificationsService(userId) {
+	const result = await deleteAllNotifications(userId);
+	return { success: true, deleted: result.count };
 }
 

@@ -60,6 +60,44 @@ async function ensureThesisAcademicYear(thesis) {
   return thesis;
 }
 
+function addMinutes(date, minutes = 0) {
+  const d = new Date(date);
+  d.setMinutes(d.getMinutes() + (minutes || 0));
+  return d;
+}
+
+async function ensureSupervisorAvailability({ supervisorId, start, durationMinutes = 60, excludeGuidanceId } = {}) {
+  if (!supervisorId || !start) return;
+  const startDate = new Date(start);
+  const endDate = addMinutes(startDate, durationMinutes);
+
+  const conflicts = await prisma.thesisGuidance.findMany({
+    where: {
+      supervisorId,
+      status: { in: ["requested", "accepted"] },
+      ...(excludeGuidanceId ? { id: { not: excludeGuidanceId } } : {}),
+    },
+    include: {
+      thesis: { include: { student: { include: { user: { select: { fullName: true } } } } } },
+    },
+  });
+
+  // Use requestedDate as the scheduled slot time (not approvedDate which is the approval timestamp)
+  const hit = conflicts.find((g) => {
+    const slotStart = new Date(g.requestedDate);
+    const slotEnd = addMinutes(slotStart, g.duration || 60);
+    return startDate < slotEnd && endDate > slotStart;
+  });
+
+  if (hit) {
+    const studentName = hit.thesis?.student?.user?.fullName || "mahasiswa lain";
+    const conflictDate = formatDateTimeJakarta(hit.requestedDate, { withDay: true }) || "jadwal lain";
+    const err = new Error(`Jadwal bentrok dengan ${studentName} pada ${conflictDate}. Pilih waktu lain.`);
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 async function getOrCreateDocumentType(name = "Thesis") {
   let dt = await prisma.documentType.findFirst({ where: { name } });
   if (!dt) {
@@ -316,13 +354,21 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       throw err;
     }
   } else {
-    selectedSupervisorId = sup1?.lecturerId || sup2?.lecturerId || null;
+    // fallback order: Pembimbing 1 -> Pembimbing 2 -> first available supervisor
+    selectedSupervisorId = sup1?.lecturerId || sup2?.lecturerId || supervisors[0]?.lecturerId || null;
   }
   if (!selectedSupervisorId) {
     const err = new Error("No supervisor assigned to this thesis");
     err.statusCode = 400;
     throw err;
   }
+
+  // Prevent double booking with other students for the same supervisor
+  await ensureSupervisorAvailability({
+    supervisorId: selectedSupervisorId,
+    start: guidanceDate,
+    durationMinutes: duration,
+  });
 
   // Schema baru: tidak perlu createGuidanceSchedule, requestedDate langsung di ThesisGuidance
   const created = await createGuidance({
@@ -470,6 +516,19 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
     err.statusCode = 400;
     throw err;
   }
+
+  if (!guidance.supervisorId) {
+    const err = new Error("Supervisor belum ditetapkan untuk bimbingan ini");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  await ensureSupervisorAvailability({
+    supervisorId: guidance.supervisorId,
+    start: guidanceDate,
+    durationMinutes: duration || guidance.duration || 60,
+    excludeGuidanceId: guidance.id,
+  });
   
   // Delete old calendar events if they exist (will create new ones when approved)
   try {
@@ -736,4 +795,106 @@ export async function listSupervisorsService(userId) {
     role: p.role?.name || null,
   }));
   return { thesisId: thesis.id, supervisors };
+}
+
+export async function getSupervisorAvailabilityService(userId, supervisorId, rangeStart, rangeEnd) {
+  // Ensure caller is a valid student (same role check as other student endpoints)
+  await getActiveThesisOrThrow(userId);
+
+  if (!supervisorId) {
+    const err = new Error("supervisorId wajib diisi");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const start = rangeStart ? new Date(rangeStart) : new Date();
+  const end = rangeEnd ? new Date(rangeEnd) : addMinutes(new Date(), 14 * 24 * 60);
+
+  // Use only requestedDate for slot filtering (requestedDate is the scheduled time)
+  const items = await prisma.thesisGuidance.findMany({
+    where: {
+      supervisorId,
+      status: { in: ["requested", "accepted"] },
+      requestedDate: { gte: start, lte: end },
+    },
+    include: {
+      thesis: { include: { student: { include: { user: { select: { fullName: true } } } } } },
+    },
+    orderBy: [
+      { requestedDate: "asc" },
+    ],
+  });
+
+  // Use requestedDate as the slot time (not approvedDate which is approval timestamp)
+  const busySlots = items
+    .map((g) => {
+      const slotStart = new Date(g.requestedDate);
+      const duration = g.duration || 60;
+      const slotEnd = addMinutes(slotStart, duration);
+      return {
+        id: g.id,
+        start: slotStart.toISOString(),
+        end: slotEnd.toISOString(),
+        duration,
+        status: g.status,
+        studentName: g.thesis?.student?.user?.fullName || null,
+      };
+    })
+    .filter((s) => {
+      const sStart = new Date(s.start);
+      const sEnd = new Date(s.end);
+      return sStart <= end && sEnd >= start;
+    });
+
+  return { busySlots };
+}
+
+// Public variant (no auth). Use cautiously: expose busy slots only.
+export async function getSupervisorAvailabilityPublic(supervisorId, rangeStart, rangeEnd) {
+  if (!supervisorId) {
+    const err = new Error("supervisorId wajib diisi");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const start = rangeStart ? new Date(rangeStart) : new Date();
+  const end = rangeEnd ? new Date(rangeEnd) : addMinutes(new Date(), 14 * 24 * 60);
+
+  // Use only requestedDate for slot filtering (requestedDate is the scheduled time)
+  const items = await prisma.thesisGuidance.findMany({
+    where: {
+      supervisorId,
+      status: { in: ["requested", "accepted"] },
+      requestedDate: { gte: start, lte: end },
+    },
+    include: {
+      thesis: { include: { student: { include: { user: { select: { fullName: true } } } } } },
+    },
+    orderBy: [
+      { requestedDate: "asc" },
+    ],
+  });
+
+  // Use requestedDate as the slot time (not approvedDate which is approval timestamp)
+  const busySlots = items
+    .map((g) => {
+      const slotStart = new Date(g.requestedDate);
+      const duration = g.duration || 60;
+      const slotEnd = addMinutes(slotStart, duration);
+      return {
+        id: g.id,
+        start: slotStart.toISOString(),
+        end: slotEnd.toISOString(),
+        duration,
+        status: g.status,
+        studentName: g.thesis?.student?.user?.fullName || null,
+      };
+    })
+    .filter((s) => {
+      const sStart = new Date(s.start);
+      const sEnd = new Date(s.end);
+      return sStart <= end && sEnd >= start;
+    });
+
+  return { busySlots };
 }

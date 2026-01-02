@@ -10,6 +10,7 @@ import {
   guidanceHistoryService,
   activityLogService,
   listSupervisorsService,
+  getSupervisorAvailabilityService,
 } from "../../services/thesisGuidance/student.guidance.service.js";
 
 export async function listMyGuidances(req, res, next) {
@@ -156,6 +157,17 @@ export async function activityLog(req, res, next) {
 export async function listSupervisors(req, res, next) {
   try {
     const result = await listSupervisorsService(req.user.sub);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function supervisorAvailability(req, res, next) {
+  try {
+    const { supervisorId } = req.params;
+    const { start, end } = req.query || {};
+    const result = await getSupervisorAvailabilityService(req.user.sub, supervisorId, start, end);
     res.json({ success: true, ...result });
   } catch (err) {
     next(err);

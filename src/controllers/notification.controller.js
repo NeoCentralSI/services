@@ -4,6 +4,7 @@ import {
 	markAsRead,
 	markAllAsRead,
 	deleteNotificationService,
+	deleteAllNotificationsService,
 } from "../services/notification.service.js";
 import { registerFcmToken, unregisterFcmToken } from "../services/push.service.js";
 
@@ -78,6 +79,19 @@ export async function deleteNotification(req, res, next) {
 		const { id } = req.params;
 
 		const result = await deleteNotificationService(id, userId);
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/**
+ * DELETE /notification - Delete all notifications
+ */
+export async function deleteAllNotifications(req, res, next) {
+	try {
+		const userId = req.user.sub;
+		const result = await deleteAllNotificationsService(userId);
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

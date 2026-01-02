@@ -19,6 +19,7 @@ import {
 	guidanceHistory,
 	activityLog,
 	listSupervisors,
+	supervisorAvailability,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
 import { uploadThesisFile } from "../../middlewares/file.middleware.js";
 import { ROLES } from "../../constants/roles.js";
@@ -52,6 +53,7 @@ router.get("/activity-log", activityLog);
 
 // Supervisors info
 router.get("/supervisors", listSupervisors);
+router.get("/supervisors/:supervisorId/availability", supervisorAvailability);
 
 export default router;
 
