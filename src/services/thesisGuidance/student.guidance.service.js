@@ -9,9 +9,9 @@ import {
   updateGuidanceById,
   listActivityLogsByStudent,
   listGuidanceHistoryByStudent,
-  listProgressComponents,
-  getCompletionsForThesis,
-  upsertStudentCompletions,
+  listMilestones,
+  listMilestoneTemplates,
+  createMilestonesDirectly,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 
 import prisma from "../../config/prisma.js";
@@ -738,23 +738,51 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
 
 export async function getMyProgressService(userId) {
   const { thesis } = await getActiveThesisOrThrow(userId);
-  const components = await listProgressComponents();
-  const completions = await getCompletionsForThesis(thesis.id);
-  const byComponent = new Map(completions.map((c) => [c.componentId, c]));
-  const items = components.map((c) => ({
-    componentId: c.id,
-    name: c.name,
-    description: c.description,
-    completedAt: byComponent.get(c.id)?.completedAt || null,
-    validatedBySupervisor: Boolean(byComponent.get(c.id)?.validatedBySupervisor),
+
+  // 1. Get existing milestones
+  let milestones = await listMilestones(thesis.id);
+
+  // 2. If empty, seed from templates
+  if (milestones.length === 0) {
+    const templates = await listMilestoneTemplates();
+    if (templates.length > 0) {
+      await createMilestonesDirectly(thesis.id, templates);
+      milestones = await listMilestones(thesis.id);
+    }
+  }
+
+  // 3. Transform to legacy format for frontend compatibility
+  const items = milestones.map((m) => ({
+    componentId: m.id,
+    name: m.title,
+    description: m.description,
+    completedAt: m.status === "completed" ? m.completedAt || m.updatedAt : null,
+    validatedBySupervisor: Boolean(m.validatedBy),
+    status: m.status,
+    progressPercentage: m.progressPercentage,
   }));
+
   return { thesisId: thesis.id, components: items };
 }
 
 export async function completeProgressComponentsService(userId, componentIds, completedAt) {
   const { thesis } = await getActiveThesisOrThrow(userId);
-  const result = await upsertStudentCompletions(thesis.id, componentIds, completedAt);
-  return { thesisId: thesis.id, ...result };
+  const when = completedAt || new Date();
+
+  // Update status to completed for the given milestone IDs
+  const result = await prisma.thesisMilestone.updateMany({
+    where: {
+      id: { in: componentIds },
+      thesisId: thesis.id,
+    },
+    data: {
+      status: "completed",
+      completedAt: when,
+      progressPercentage: 100,
+    },
+  });
+
+  return { thesisId: thesis.id, updated: result.count };
 }
 
 export async function guidanceHistoryService(userId) {

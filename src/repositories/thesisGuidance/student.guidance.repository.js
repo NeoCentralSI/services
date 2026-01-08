@@ -92,42 +92,43 @@ export function listGuidanceHistoryByStudent(studentId) {
   });
 }
 
+export function listMilestones(thesisId) {
+  return prisma.thesisMilestone.findMany({
+    where: { thesisId },
+    orderBy: { orderIndex: "asc" },
+  });
+}
+
+export function listMilestoneTemplates() {
+  return prisma.thesisMilestoneTemplate.findMany({
+    where: { isActive: true },
+    orderBy: { orderIndex: "asc" },
+  });
+}
+
+export async function createMilestonesDirectly(thesisId, milestonesData) {
+  return prisma.thesisMilestone.createMany({
+    data: milestonesData.map((m) => ({
+      thesisId,
+      title: m.name,
+      description: m.description,
+      orderIndex: m.orderIndex,
+      status: "not_started",
+    })),
+  });
+}
+
+// Deprecated functions kept for reference but should not be used with new schema
 export function listProgressComponents() {
-  // Schema baru: orderBy orderIndex untuk urutan milestone
-  return prisma.thesisProgressComponent.findMany({ orderBy: { orderIndex: "asc" } });
+  return [];
 }
 
 export function getCompletionsForThesis(thesisId) {
-  return prisma.thesisProgressCompletion.findMany({ where: { thesisId } });
+  return [];
 }
 
 export async function upsertStudentCompletions(thesisId, componentIds = [], completedAt = undefined) {
-  if (!componentIds.length) return { updated: 0, created: 0 };
-  const existing = await prisma.thesisProgressCompletion.findMany({
-    where: { thesisId, componentId: { in: componentIds } },
-    select: { id: true, componentId: true },
-  });
-  const existingSet = new Set(existing.map((e) => e.componentId));
-
-  const toUpdateIds = existing.map((e) => e.id);
-  const toCreate = componentIds.filter((cid) => !existingSet.has(cid));
-
-  const when = completedAt || new Date();
-
-  const [updateRes, createRes] = await prisma.$transaction([
-    toUpdateIds.length
-      ? prisma.thesisProgressCompletion.updateMany({
-          where: { id: { in: toUpdateIds } },
-          data: { completedAt: when }, // keep validatedBySupervisor as-is
-        })
-      : Promise.resolve({ count: 0 }),
-    toCreate.length
-      ? prisma.thesisProgressCompletion.createMany({
-          data: toCreate.map((cid) => ({ thesisId, componentId: cid, completedAt: when })),
-          skipDuplicates: true,
-        })
-      : Promise.resolve({ count: 0 }),
-  ]);
-
-  return { updated: updateRes.count || 0, created: createRes.count || 0 };
+   // Implementation needs to be updated for ThesisMilestone if still needed
+   return { updated: 0, created: 0 };
 }
+
