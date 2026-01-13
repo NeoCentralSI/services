@@ -41,7 +41,7 @@ router.patch("/guidance/:guidanceId/reschedule", validate(rescheduleGuidanceSche
 router.patch("/guidance/:guidanceId/cancel", cancelGuidance);
 
 // Update student notes
-router.post("/guidance/:guidanceId/notes", validate(studentNotesSchema), updateStudentNotes);
+router.patch("/guidance/:guidanceId/notes", validate(studentNotesSchema), updateStudentNotes);
 
 // Progress
 router.get("/progress", myProgress);

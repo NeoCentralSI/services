@@ -167,8 +167,16 @@ model Room {
 }
 
 // Thesis Management
+enum ThesisRating {
+  ONGOING
+  SLOW
+  AT_RISK
+  FAILED
+}
+
 model Thesis {
   id                String   @id @default(uuid())
+  rating            ThesisRating @default(ONGOING)
   studentId         String   @map("student_id")
   thesisTopicId     String?  @map("thesis_topic_id")
   thesisProposalId  String?  @map("thesis_proposal_id")

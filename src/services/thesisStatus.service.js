@@ -1,97 +1,91 @@
 import prisma from "../config/prisma.js";
 
-const DAYS_30 = 30;
-const DAYS_90 = 90;
+const MONTH_2 = 60 * 24 * 60 * 60 * 1000;
+const MONTH_4 = 120 * 24 * 60 * 60 * 1000;
+const YEAR_1 = 365 * 24 * 60 * 60 * 1000;
 
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
+function decideStatus(thesis) {
+  const now = new Date();
+  const created = new Date(thesis.createdAt);
+  const age = now - created;
 
-function decideStatus({ completions30, completions90, thesisStart }) {
-  const d30 = daysAgo(DAYS_30);
-  const d90 = daysAgo(DAYS_90);
-
-  // Grace rules for no completions yet
-  if (!completions90 || completions90 === 0) {
-    if (thesisStart instanceof Date) {
-      if (thesisStart > d30) return "Ongoing"; // brand new
-      if (thesisStart > d90) return "Slow";    // some time but not too long
-    }
-    return "at_risk";
+  // 1. FAILED: Jika > 1 tahun (dan belum selesai - checked outside)
+  if (age > YEAR_1) {
+    return "FAILED";
   }
 
-  // Frequency-based categorization
-  if (completions90 >= 3) return "Ongoing";
-  if (completions30 >= 1 && completions90 >= 2) return "Ongoing";
-  // 1–2 in 90 days → Slow
-  return "Slow";
+  // Cari aktivitas milestone terakhir
+  // thesis.thesisMilestones is array of { updatedAt }
+  let lastActivity = created;
+  if (thesis.thesisMilestones && thesis.thesisMilestones.length > 0) {
+    // Assuming sorted desc by query
+    const lastMilestone = thesis.thesisMilestones[0];
+    const updateTime = new Date(lastMilestone.updatedAt);
+    if (updateTime > lastActivity) lastActivity = updateTime;
+  }
+
+  const timeSinceLastChange = now - lastActivity;
+
+  // 2. AT_RISK: > 4 bulan (120 hari) no change
+  if (timeSinceLastChange > MONTH_4) {
+    return "AT_RISK";
+  }
+
+  // 3. SLOW: > 2 bulan (60 hari) no change
+  if (timeSinceLastChange > MONTH_2) {
+    return "SLOW";
+  }
+
+  // 4. ONGOING
+  return "ONGOING";
 }
 
 export async function updateAllThesisStatuses({ pageSize = 200, logger = console } = {}) {
-  // Resolve ThesisStatus ids
-  const statuses = await prisma.thesisStatus.findMany({ select: { id: true, name: true } });
-  const map = new Map(statuses.map((s) => [String(s.name || "").toLowerCase(), s.id]));
-  const idOngoing = map.get("ongoing");
-  const idSlow = map.get("slow");
-  const idAtRisk = map.get("at_risk") || map.get("at-risk");
-
-  if (!idOngoing || !idSlow || !idAtRisk) {
-    throw new Error("Missing ThesisStatus rows: require 'Ongoing', 'Slow', 'at_risk'");
-  }
-
-  const since30 = daysAgo(DAYS_30);
-  const since90 = daysAgo(DAYS_90);
+  // 1. Get IDs of terminal statuses to skip
+  const terminalStatuses = await prisma.thesisStatus.findMany({
+    where: { name: { in: ["Selesai", "Gagal", "Lulus", "Drop Out"] } }, // Adjust names as per seed
+    select: { id: true }
+  });
+  const terminalIds = new Set(terminalStatuses.map(s => s.id));
 
   let page = 0;
-  const updated = { Ongoing: 0, Slow: 0, at_risk: 0 };
+  const updated = { ONGOING: 0, SLOW: 0, AT_RISK: 0, FAILED: 0 };
 
   for (;;) {
     const theses = await prisma.thesis.findMany({
       skip: page * pageSize,
       take: pageSize,
-      select: { id: true, thesisStatusId: true, startDate: true },
+      select: {
+        id: true,
+        rating: true,
+        createdAt: true,
+        thesisStatusId: true,
+        thesisMilestones: {
+          select: { updatedAt: true },
+          orderBy: { updatedAt: 'desc' },
+          take: 1
+        }
+      },
       orderBy: { id: "asc" },
     });
+    
     if (theses.length === 0) break;
-
-    const thesisIds = theses.map((t) => t.id);
-
-    // Completed guidances in last 90 days (by schedule.guidanceDate)
-    const completed90 = await prisma.thesisGuidance.findMany({
-      where: {
-        thesisId: { in: thesisIds },
-        status: "completed",
-        schedule: { guidanceDate: { gte: since90 } },
-      },
-      select: { thesisId: true },
-    });
-
-    // Completed guidances in last 30 days
-    const completed30 = await prisma.thesisGuidance.findMany({
-      where: {
-        thesisId: { in: thesisIds },
-        status: "completed",
-        schedule: { guidanceDate: { gte: since30 } },
-      },
-      select: { thesisId: true },
-    });
-
-    const counts90 = new Map();
-    for (const r of completed90) counts90.set(r.thesisId, (counts90.get(r.thesisId) || 0) + 1);
-    const counts30 = new Map();
-    for (const r of completed30) counts30.set(r.thesisId, (counts30.get(r.thesisId) || 0) + 1);
 
     await Promise.all(
       theses.map(async (t) => {
-        const c90 = counts90.get(t.id) || 0;
-        const c30 = counts30.get(t.id) || 0;
-        const target = decideStatus({ completions30: c30, completions90: c90, thesisStart: t.startDate });
-        const targetId = target === "Ongoing" ? idOngoing : target === "Slow" ? idSlow : idAtRisk;
-        if (targetId !== t.thesisStatusId) {
-          await prisma.thesis.update({ where: { id: t.id }, data: { thesisStatusId: targetId } });
-          updated[target] += 1;
+        // Skip if thesis is already in a terminal state (Selesai/Gagal)
+        if (t.thesisStatusId && terminalIds.has(t.thesisStatusId)) {
+          return;
+        }
+
+        const targetEnum = decideStatus(t);
+
+        if (targetEnum !== t.rating) {
+          await prisma.thesis.update({ 
+            where: { id: t.id }, 
+            data: { rating: targetEnum } 
+          });
+          if (updated[targetEnum] !== undefined) updated[targetEnum] += 1;
         }
       })
     );
@@ -100,7 +94,7 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
   }
 
   logger.log(
-    `[thesis-status] Updated: ongoing=${updated.Ongoing}, slow=${updated.Slow}, at_risk=${updated.at_risk}`
+    `[thesis-status] Updated: ONGOING=${updated.ONGOING}, SLOW=${updated.SLOW}, AT_RISK=${updated.AT_RISK}, FAILED=${updated.FAILED}`
   );
   return updated;
 }

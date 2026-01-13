@@ -18,6 +18,7 @@ import {
 	countGraduatedAsSupervisor2,
   getThesisStatusMap,
   updateThesisStatusById,
+  findThesisDetailForLecturer,
 } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
 import { ROLE_CATEGORY, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
@@ -111,10 +112,59 @@ export async function getMyStudentsService(userId, roles) {
 		identityNumber: s.studentUser?.identityNumber || null,
 		thesisId: s.thesisId,
 		thesisTitle: s.thesisTitle,
-		roles: s.role ? [s.role] : []
+		roles: s.role ? [s.role] : [],
+        thesisRating: s.thesisRating || "ONGOING",
+        latestMilestone: s.latestMilestone || "Belum mulai",
+        lastGuidanceDate: s.lastGuidanceDate ? formatDateTimeJakarta(s.lastGuidanceDate, { withDay: true }) : "Belum pernah",
+        deadlineDate: s.deadlineDate || null
 	}));
 	
 	return { count: students.length, students };
+}
+
+export async function getStudentDetailService(userId, thesisId) {
+    const lecturer = await getLecturerByUserId(userId);
+    ensureLecturer(lecturer);
+
+    const thesis = await findThesisDetailForLecturer(thesisId, lecturer.id);
+    if (!thesis) {
+        const err = new Error("Thesis not found or you are not a supervisor");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    return {
+        thesisId: thesis.id,
+        title: thesis.title,
+        status: thesis.thesisStatus?.name || "Unknown",
+        rating: thesis.rating,
+        startDate: thesis.startDate,
+        deadlineDate: thesis.deadlineDate,
+        student: {
+            id: thesis.student?.id,
+            fullName: thesis.student?.user?.fullName,
+            nim: thesis.student?.user?.identityNumber,
+            email: thesis.student?.user?.email,
+        },
+        document: thesis.document ? {
+            id: thesis.document.id,
+            fileName: thesis.document.fileName,
+            url: `/uploads/${thesis.document.filePath}` // Assuming public path or similar
+        } : null,
+        proposalDocument: thesis.thesisProposal?.document ? {
+            id: thesis.thesisProposal.document.id,
+            fileName: thesis.thesisProposal.document.fileName,
+            url: `/uploads/${thesis.thesisProposal.document.filePath}`
+        } : null,
+        milestones: thesis.thesisMilestones.map(m => ({
+            id: m.id,
+            title: m.title,
+            status: m.status,
+            updatedAt: m.updatedAt,
+            progressPercentage: m.progressPercentage || 0,
+            targetDate: m.targetDate
+        }))
+    };
 }
 
 export async function getRequestsService(userId, { page = 1, pageSize = 10 } = {}) {

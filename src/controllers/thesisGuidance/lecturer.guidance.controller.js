@@ -1,5 +1,6 @@
 import {
 	getMyStudentsService,
+    getStudentDetailService,
 	getRequestsService,
 	rejectGuidanceService,
 	approveGuidanceService,
@@ -34,6 +35,16 @@ export async function myStudents(req, res, next) {
 	} catch (err) {
 		next(err);
 	}
+}
+
+export async function studentDetail(req, res, next) {
+    try {
+        const { thesisId } = req.params;
+        const result = await getStudentDetailService(req.user.sub, thesisId);
+        res.json({ success: true, data: result });
+    } catch (err) {
+        next(err);
+    }
 }
 
 export async function listRequests(req, res, next) {

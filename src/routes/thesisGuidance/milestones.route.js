@@ -40,10 +40,10 @@ router.post(
 );
 
 /**
- * PUT /api/milestones/templates/:templateId
+ * PATCH /api/milestones/templates/:templateId
  * Update template (Sekretaris Departemen only)
  */
-router.put(
+router.patch(
   "/templates/:templateId",
   authGuard,
   validate(validator.updateTemplateSchema),
@@ -102,10 +102,10 @@ router.post(
 );
 
 /**
- * PUT /api/milestones/thesis/:thesisId/reorder
+ * PATCH /api/milestones/thesis/:thesisId/reorder
  * Reorder milestones (student only)
  */
-router.put(
+router.patch(
   "/thesis/:thesisId/reorder",
   authGuard,
   validate(validator.reorderMilestonesSchema),
@@ -129,10 +129,10 @@ router.get("/:milestoneId", authGuard, controller.getMilestoneDetail);
 router.get("/:milestoneId/logs", authGuard, controller.getMilestoneLogs);
 
 /**
- * PUT /api/milestones/:milestoneId
+ * PATCH /api/milestones/:milestoneId
  * Update milestone (student only)
  */
-router.put(
+router.patch(
   "/:milestoneId",
   authGuard,
   validate(validator.updateMilestoneSchema),

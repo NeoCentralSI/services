@@ -5,6 +5,7 @@ import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveCom
 import { ROLES } from "../../constants/roles.js";
 import {
 	myStudents,
+    studentDetail,
 	listRequests,
 	rejectGuidance,
 	approveGuidance,
@@ -27,6 +28,7 @@ const router = express.Router();
 router.use(authGuard, requireAnyRole([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]));
 
 router.get("/my-students", myStudents);
+router.get("/my-students/:thesisId", studentDetail);
 router.get("/requests", listRequests);
 router.patch("/requests/:guidanceId/reject", validate(rejectGuidanceSchema), rejectGuidance);
 router.patch("/requests/:guidanceId/approve", validate(approveGuidanceSchema), approveGuidance);
@@ -37,7 +39,7 @@ router.patch("/progress/:studentId/approve", validate(approveComponentsSchema), 
 router.patch("/progress/:studentId/final-approval", finalApproval);
 router.patch("/progress/:studentId/fail", validate(failThesisSchema), failStudentThesis);
 
-router.post("/feedback/:guidanceId", validate(feedbackSchema), postFeedback);
+router.patch("/feedback/:guidanceId", validate(feedbackSchema), postFeedback);
 
 // Optional
 router.get("/guidance-history/:studentId", guidanceHistory);

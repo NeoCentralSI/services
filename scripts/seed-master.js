@@ -162,7 +162,7 @@ async function seedAcademicYears() {
       year: 2025,
       startDate: new Date("2025-08-01"),
       endDate: new Date("2026-01-31"),
-      isActive: true, // Current active academic year
+      isActive: true, // Current active academic year (Start August 2025)
     },
   ];
 
@@ -507,16 +507,21 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
     });
 
     if (!thesis) {
+      const startDate = new Date("2025-08-01");
+      const deadlineDate = new Date(startDate);
+      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
+
       thesis = await prisma.thesis.create({
         data: {
           studentId: fariz.id,
           title: "Implementasi Sistem Informasi Manajemen Tugas Akhir Berbasis Web",
-          startDate: new Date("2024-09-01"),
+          startDate: startDate,
+          deadlineDate: deadlineDate,
           thesisStatusId: bimbinganStatus?.id,
           academicYearId: currentAcademicYear?.id,
         },
       });
-      console.log(`  ✅ Created thesis for Fariz`);
+      console.log(`  ✅ Created thesis for Fariz (Start: ${startDate.toISOString().split('T')[0]}, Deadline: ${deadlineDate.toISOString().split('T')[0]})`);
 
       // Add Pembimbing 1
       await prisma.thesisParticipant.create({
@@ -559,7 +564,18 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
       });
       console.log(`    🔍 Penguji Seminar: Dr. Budi Sekdep`);
     } else {
-      console.log(`  ⏭️  Thesis exists for Fariz`);
+      console.log(`  ⏭️  Thesis exists for Fariz - Updating Dates`);
+      const startDate = new Date("2025-08-01");
+      const deadlineDate = new Date(startDate);
+      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
+      
+      thesis = await prisma.thesis.update({
+        where: { id: thesis.id },
+        data: { 
+            startDate: startDate,
+            deadlineDate: deadlineDate 
+        }
+      });
     }
     thesisMap.set(fariz.id, thesis);
   }
@@ -571,16 +587,21 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
     });
 
     if (!thesis) {
+      const startDate = new Date("2025-08-01");
+      const deadlineDate = new Date(startDate);
+      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
+
       thesis = await prisma.thesis.create({
         data: {
           studentId: nabil.id,
           title: "Pengembangan Aplikasi Mobile untuk Monitoring Bimbingan Tugas Akhir",
-          startDate: new Date("2024-09-01"),
+          startDate: startDate,
+          deadlineDate: deadlineDate,
           thesisStatusId: bimbinganStatus?.id,
           academicYearId: currentAcademicYear?.id,
         },
       });
-      console.log(`  ✅ Created thesis for Nabil`);
+      console.log(`  ✅ Created thesis for Nabil (Start: ${startDate.toISOString().split('T')[0]}, Deadline: ${deadlineDate.toISOString().split('T')[0]})`);
 
       // Add Pembimbing 1
       await prisma.thesisParticipant.create({
@@ -613,7 +634,18 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
       });
       console.log(`    🔍 Penguji Seminar (Chair): Dr. Ahmad Kadep`);
     } else {
-      console.log(`  ⏭️  Thesis exists for Nabil`);
+      console.log(`  ⏭️  Thesis exists for Nabil - Updating Dates`);
+      const startDate = new Date("2025-08-01");
+      const deadlineDate = new Date(startDate);
+      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
+      
+      thesis = await prisma.thesis.update({
+        where: { id: thesis.id },
+        data: { 
+            startDate: startDate,
+            deadlineDate: deadlineDate 
+        }
+      });
     }
     thesisMap.set(nabil.id, thesis);
   }
@@ -651,56 +683,56 @@ async function seedThesisMilestones(thesisMap, userMap) {
         title: "Pengajuan Judul", 
         description: "Judul tugas akhir telah disetujui",
         orderIndex: 1,
-        targetDate: new Date("2024-09-15"),
+        targetDate: new Date("2025-08-15"),
         status: "completed",
         progressPercentage: 100,
-        startedAt: new Date("2024-09-01"),
-        completedAt: new Date("2024-09-10"),
+        startedAt: new Date("2025-08-01"),
+        completedAt: new Date("2025-08-10"),
         validatedBy: kadep?.id,
-        validatedAt: new Date("2024-09-10"),
+        validatedAt: new Date("2025-08-10"),
         supervisorNotes: "Judul sudah bagus dan fokus",
       },
       { 
         title: "BAB I - Pendahuluan", 
         description: "Latar belakang, rumusan masalah, tujuan penelitian",
         orderIndex: 2,
-        targetDate: new Date("2024-10-01"),
+        targetDate: new Date("2025-09-01"),
         status: "completed",
         progressPercentage: 100,
-        startedAt: new Date("2024-09-11"),
-        completedAt: new Date("2024-09-28"),
+        startedAt: new Date("2025-08-11"),
+        completedAt: new Date("2025-08-28"),
         validatedBy: kadep?.id,
-        validatedAt: new Date("2024-09-28"),
+        validatedAt: new Date("2025-08-28"),
         supervisorNotes: "BAB I sudah lengkap, lanjut ke BAB II",
       },
       { 
         title: "BAB II - Tinjauan Pustaka", 
         description: "Dasar teori dan penelitian terkait",
         orderIndex: 3,
-        targetDate: new Date("2024-10-20"),
+        targetDate: new Date("2025-09-20"),
         status: "completed",
         progressPercentage: 100,
-        startedAt: new Date("2024-10-01"),
-        completedAt: new Date("2024-10-18"),
+        startedAt: new Date("2025-09-01"),
+        completedAt: new Date("2025-09-18"),
         validatedBy: kadep?.id,
-        validatedAt: new Date("2024-10-18"),
+        validatedAt: new Date("2025-09-18"),
         supervisorNotes: "Referensi sudah cukup, tambahkan jurnal internasional",
       },
       { 
         title: "BAB III - Metodologi", 
         description: "Metodologi penelitian dan perancangan sistem",
         orderIndex: 4,
-        targetDate: new Date("2024-11-15"),
+        targetDate: new Date("2025-10-15"),
         status: "in_progress",
         progressPercentage: 60,
-        startedAt: new Date("2024-10-20"),
+        startedAt: new Date("2025-09-20"),
         studentNotes: "Sedang menyusun diagram alir dan use case",
       },
       { 
         title: "BAB IV - Implementasi", 
         description: "Implementasi sistem dan coding",
         orderIndex: 5,
-        targetDate: new Date("2024-12-15"),
+        targetDate: new Date("2025-11-15"),
         status: "not_started",
         progressPercentage: 0,
       },
@@ -708,7 +740,7 @@ async function seedThesisMilestones(thesisMap, userMap) {
         title: "BAB V - Pengujian", 
         description: "Pengujian sistem dan analisis hasil",
         orderIndex: 6,
-        targetDate: new Date("2025-01-15"),
+        targetDate: new Date("2025-12-15"),
         status: "not_started",
         progressPercentage: 0,
       },
@@ -761,15 +793,15 @@ async function seedGuidances(thesisMap, userMap) {
         data: {
           thesisId: farizThesis.id,
           supervisorId: kadepLecturer.id,
-          requestedDate: new Date("2024-10-01T10:00:00"),
-          approvedDate: new Date("2024-10-01T10:00:00"),
+          requestedDate: new Date("2025-09-01T10:00:00"),
+          approvedDate: new Date("2025-09-01T10:00:00"),
           duration: 60,
           type: "online",
           meetingUrl: "https://meet.google.com/abc-defg-hij",
           studentNotes: "Konsultasi BAB I - Latar belakang dan rumusan masalah",
           supervisorFeedback: "BAB I sudah baik, lanjut ke BAB II. Perbanyak referensi jurnal internasional.",
           status: "completed",
-          completedAt: new Date("2024-10-01T11:00:00"),
+          completedAt: new Date("2025-09-01T11:00:00"),
         },
       });
       console.log(`  ✅ Created completed guidance #1 for Fariz`);
@@ -778,15 +810,15 @@ async function seedGuidances(thesisMap, userMap) {
         data: {
           thesisId: farizThesis.id,
           supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2024-10-15T14:00:00"),
-          approvedDate: new Date("2024-10-15T14:00:00"),
+          requestedDate: new Date("2025-09-15T14:00:00"),
+          approvedDate: new Date("2025-09-15T14:00:00"),
           duration: 90,
           type: "offline",
           location: "Ruang Dosen Lt. 2",
           studentNotes: "Konsultasi BAB II - Tinjauan pustaka sistem informasi",
           supervisorFeedback: "Tambahkan referensi tentang REST API dan microservices",
           status: "completed",
-          completedAt: new Date("2024-10-15T15:30:00"),
+          completedAt: new Date("2025-09-15T15:30:00"),
         },
       });
       console.log(`  ✅ Created completed guidance #2 for Fariz`);
@@ -796,8 +828,8 @@ async function seedGuidances(thesisMap, userMap) {
         data: {
           thesisId: farizThesis.id,
           supervisorId: kadepLecturer.id,
-          requestedDate: new Date("2024-12-20T10:00:00"),
-          approvedDate: new Date("2024-12-20T10:00:00"),
+          requestedDate: new Date("2025-11-20T10:00:00"),
+          approvedDate: new Date("2025-11-20T10:00:00"),
           duration: 60,
           type: "online",
           meetingUrl: "https://meet.google.com/xyz-uvwx-yz",
@@ -812,7 +844,7 @@ async function seedGuidances(thesisMap, userMap) {
         data: {
           thesisId: farizThesis.id,
           supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2024-12-25T14:00:00"),
+          requestedDate: new Date("2025-11-25T14:00:00"),
           duration: 60,
           type: "online",
           studentNotes: "Ingin konsultasi progress BAB IV - Implementasi sistem",
@@ -837,15 +869,15 @@ async function seedGuidances(thesisMap, userMap) {
         data: {
           thesisId: nabilThesis.id,
           supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2024-10-05T09:00:00"),
-          approvedDate: new Date("2024-10-05T09:00:00"),
+          requestedDate: new Date("2025-09-05T09:00:00"),
+          approvedDate: new Date("2025-09-05T09:00:00"),
           duration: 60,
           type: "online",
           meetingUrl: "https://zoom.us/j/123456789",
           studentNotes: "Konsultasi judul dan outline proposal",
           supervisorFeedback: "Judul sudah bagus, fokus pada fitur monitoring real-time",
           status: "completed",
-          completedAt: new Date("2024-10-05T10:00:00"),
+          completedAt: new Date("2025-09-05T10:00:00"),
         },
       });
       console.log(`  ✅ Created completed guidance #1 for Nabil`);
@@ -855,8 +887,8 @@ async function seedGuidances(thesisMap, userMap) {
         data: {
           thesisId: nabilThesis.id,
           supervisorId: pengujiLecturer.id,
-          requestedDate: new Date("2024-12-22T13:00:00"),
-          approvedDate: new Date("2024-12-22T13:00:00"),
+          requestedDate: new Date("2025-11-22T13:00:00"),
+          approvedDate: new Date("2025-11-22T13:00:00"),
           duration: 45,
           type: "offline",
           location: "Lab Komputer",
@@ -871,7 +903,7 @@ async function seedGuidances(thesisMap, userMap) {
         data: {
           thesisId: nabilThesis.id,
           supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2024-11-10T08:00:00"),
+          requestedDate: new Date("2025-10-10T08:00:00"),
           duration: 60,
           type: "online",
           studentNotes: "Konsultasi BAB III",

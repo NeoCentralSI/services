@@ -25,6 +25,18 @@ export async function findMyStudents(lecturerId, roles) {
 							user: { select: { id: true, fullName: true, email: true, identityNumber: true } },
 						},
 					},
+                    // Include progress details for summary
+                    thesisMilestones: {
+                        orderBy: { updatedAt: 'desc' },
+                        take: 1,
+                        select: { title: true, status: true }
+                    },
+                    thesisGuidances: {
+                        where: { status: 'completed' },
+                        orderBy: { completedAt: 'desc' },
+                        take: 1,
+                        select: { completedAt: true }
+                    }
 				},
 			},
 		},
@@ -38,12 +50,21 @@ export async function findMyStudents(lecturerId, roles) {
 		const sid = p.thesis.student.id;
 		if (seen.has(sid)) continue;
 		seen.add(sid);
-			result.push({
+
+        // Get safe values
+        const lastMilestone = p.thesis.thesisMilestones?.[0] || null;
+        const lastGuidance = p.thesis.thesisGuidances?.[0] || null;
+
+		result.push({
 			thesisId: p.thesisId,
 			thesisTitle: p.thesis?.title ?? null,
+            thesisRating: p.thesis?.rating || "ONGOING", // Enum from Thesis model
 			studentId: sid,
 			studentUser: p.thesis.student.user,
-				role: p.role?.name || null,
+			role: p.role?.name || null,
+            latestMilestone: lastMilestone ? lastMilestone.title : "Belum mulai",
+            lastGuidanceDate: lastGuidance ? lastGuidance.completedAt : null,
+            deadlineDate: p.thesis?.deadlineDate ?? null,
 		});
 	}
 	return result;
@@ -299,4 +320,42 @@ export async function getThesisStatusMap() {
 export async function updateThesisStatusById(thesisId, thesisStatusId) {
 	return prisma.thesis.update({ where: { id: thesisId }, data: { thesisStatusId } });
 }
+
+export async function findThesisDetailForLecturer(thesisId, lecturerId) {
+	// Check if lecturer participates in this thesis
+	const participant = await prisma.thesisParticipant.findFirst({
+		where: {
+			thesisId,
+			lecturerId,
+		},
+	});
+	if (!participant) return null;
+
+	return await prisma.thesis.findUnique({
+		where: { id: thesisId },
+		include: {
+			student: {
+				include: {
+					user: {
+						select: {
+							id: true,
+							fullName: true,
+							identityNumber: true,
+							email: true,
+						}
+					}
+				}
+			},
+			thesisStatus: true,
+			document: true,
+			thesisProposal: {
+				include: { document: true }
+			},
+			thesisMilestones: {
+				orderBy: { updatedAt: "desc" }
+			}
+		}
+	});
+}
+
 
