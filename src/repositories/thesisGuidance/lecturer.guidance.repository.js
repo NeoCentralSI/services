@@ -123,9 +123,16 @@ export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 
 // Schema baru: set approvedDate saat approve, support optional fields
 export async function approveGuidanceById(guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location } = {}) {
+	// Get existing guidance to use requestedDate as fallback
+	const existing = await prisma.thesisGuidance.findUnique({
+		where: { id: guidanceId },
+		select: { requestedDate: true },
+	});
+	
 	const data = {
 		status: "accepted",
-		approvedDate: approvedDate ? new Date(approvedDate) : new Date(), // Use provided date or current time
+		// Use provided approvedDate, or fall back to requestedDate (the date student requested)
+		approvedDate: approvedDate ? new Date(approvedDate) : (existing?.requestedDate || new Date()),
 		supervisorFeedback: feedback ?? "APPROVED",
 	};
 	// Only set optional fields if provided
@@ -356,6 +363,128 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 			}
 		}
 	});
+}
+
+// ==================== SESSION SUMMARY APPROVAL ====================
+
+/**
+ * Find guidances pending summary approval for a lecturer
+ */
+export async function findGuidancesPendingApproval(lecturerId, { page = 1, pageSize = 10 } = {}) {
+	const take = Math.max(1, Math.min(50, Number(pageSize) || 10));
+	const currentPage = Math.max(1, Number(page) || 1);
+	const skip = (currentPage - 1) * take;
+
+	const where = {
+		supervisorId: lecturerId,
+		status: "summary_pending",
+	};
+
+	const [total, rows] = await prisma.$transaction([
+		prisma.thesisGuidance.count({ where }),
+		prisma.thesisGuidance.findMany({
+			where,
+			orderBy: [{ summarySubmittedAt: "desc" }, { id: "desc" }],
+			include: {
+				thesis: {
+					include: {
+						student: { include: { user: true } },
+					},
+				},
+				supervisor: { include: { user: true } },
+				milestone: { select: { id: true, title: true, status: true } },
+			},
+			skip,
+			take,
+		}),
+	]);
+
+	return { total, rows, page: currentPage, pageSize: take };
+}
+
+/**
+ * Approve session summary - minimal interaction, just 1 click
+ * Changes status from 'summary_pending' to 'completed'
+ */
+export async function approveSessionSummary(guidanceId) {
+	return prisma.thesisGuidance.update({
+		where: { id: guidanceId },
+		data: {
+			status: "completed",
+			completedAt: new Date(),
+		},
+		include: {
+			thesis: {
+				include: {
+					student: { include: { user: true } },
+				},
+			},
+			supervisor: { include: { user: true } },
+			milestone: { select: { id: true, title: true, status: true } },
+		},
+	});
+}
+
+/**
+ * Get guidance by ID for lecturer (with summary_pending status check)
+ */
+export async function findPendingGuidanceById(guidanceId, lecturerId) {
+	return prisma.thesisGuidance.findFirst({
+		where: {
+			id: guidanceId,
+			supervisorId: lecturerId,
+			status: "summary_pending",
+		},
+		include: {
+			thesis: {
+				include: {
+					student: { include: { user: true } },
+				},
+			},
+			supervisor: { include: { user: true } },
+			milestone: { select: { id: true, title: true, status: true } },
+		},
+	});
+}
+
+/**
+ * Find scheduled guidances (accepted or summary_pending) for a lecturer
+ */
+export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 10 } = {}) {
+	const take = Math.max(1, Math.min(50, Number(pageSize) || 10));
+	const currentPage = Math.max(1, Number(page) || 1);
+	const skip = (currentPage - 1) * take;
+
+	const where = {
+		supervisorId: lecturerId,
+		status: { in: ["accepted", "summary_pending"] },
+	};
+
+	const [total, rows] = await prisma.$transaction([
+		prisma.thesisGuidance.count({ where }),
+		prisma.thesisGuidance.findMany({
+			where,
+			orderBy: [
+				{ approvedDate: "asc" }, // Upcoming first
+				{ requestedDate: "asc" },
+				{ id: "desc" },
+			],
+			include: {
+				thesis: {
+					include: {
+						student: { include: { user: true } },
+						document: true,
+					},
+				},
+				supervisor: { include: { user: true } },
+				milestone: { select: { id: true, title: true, status: true } },
+			},
+			skip,
+			take,
+		}),
+	]);
+
+	return { total, rows, page: currentPage, pageSize: take };
 }
 
 

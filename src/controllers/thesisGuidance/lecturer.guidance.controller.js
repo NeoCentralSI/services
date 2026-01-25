@@ -2,6 +2,7 @@ import {
 	getMyStudentsService,
     getStudentDetailService,
 	getRequestsService,
+	getScheduledGuidancesService,
 	rejectGuidanceService,
 	approveGuidanceService,
 	getAllProgressService,
@@ -11,8 +12,11 @@ import {
 	finalApprovalService,
 	guidanceHistoryService,
 	activityLogService,
-		supervisorEligibilityService,
-		failStudentThesisService,
+	supervisorEligibilityService,
+	failStudentThesisService,
+	getPendingApprovalService,
+	approveSessionSummaryService,
+	getGuidanceDetailService,
 } from "../../services/thesisGuidance/lecturer.guidance.service.js";
 import { SUPERVISOR_ROLES } from "../../constants/roles.js";
 
@@ -52,6 +56,17 @@ export async function listRequests(req, res, next) {
 		const page = req.query?.page ? Number(req.query.page) : 1;
 		const pageSize = req.query?.pageSize ? Number(req.query.pageSize) : 10;
 		const result = await getRequestsService(req.user.sub, { page, pageSize });
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function listScheduledGuidances(req, res, next) {
+	try {
+		const page = req.query?.page ? Number(req.query.page) : 1;
+		const pageSize = req.query?.pageSize ? Number(req.query.pageSize) : 10;
+		const result = await getScheduledGuidancesService(req.user.sub, { page, pageSize });
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -178,6 +193,50 @@ export async function failStudentThesis(req, res, next) {
 		const { studentId } = req.params;
 		const { reason } = req.body || {};
 		const result = await failStudentThesisService(req.user.sub, studentId, { reason });
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+// ==================== SESSION SUMMARY APPROVAL ====================
+
+/**
+ * GET /thesis-guidance/pending-approval
+ * Get guidances pending summary approval (minimal list for 1-click approve)
+ */
+export async function pendingApproval(req, res, next) {
+	try {
+		const { page, pageSize } = req.query || {};
+		const result = await getPendingApprovalService(req.user.sub, { page, pageSize });
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/**
+ * PUT /thesis-guidance/:guidanceId/approve-summary
+ * Approve session summary - 1 click, minimal interaction
+ */
+export async function approveSummary(req, res, next) {
+	try {
+		const { guidanceId } = req.params;
+		const result = await approveSessionSummaryService(req.user.sub, guidanceId);
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/**
+ * GET /thesisGuidance/lecturer/guidance/:guidanceId
+ * Get detailed guidance info for session detail page
+ */
+export async function guidanceDetail(req, res, next) {
+	try {
+		const { guidanceId } = req.params;
+		const result = await getGuidanceDetailService(req.user.sub, guidanceId);
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

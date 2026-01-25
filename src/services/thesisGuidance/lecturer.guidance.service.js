@@ -19,12 +19,17 @@ import {
   getThesisStatusMap,
   updateThesisStatusById,
   findThesisDetailForLecturer,
+  findGuidancesPendingApproval,
+  approveSessionSummary,
+  findPendingGuidanceById,
+  findScheduledGuidances,
 } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
 import { ROLE_CATEGORY, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
 import { createGuidanceCalendarEvent } from "../outlook-calendar.service.js";
+import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 
 function ensureLecturer(lecturer) {
@@ -149,12 +154,16 @@ export async function getStudentDetailService(userId, thesisId) {
         document: thesis.document ? {
             id: thesis.document.id,
             fileName: thesis.document.fileName,
-            url: `/uploads/${thesis.document.filePath}` // Assuming public path or similar
+            url: thesis.document.filePath.startsWith('uploads/') 
+                ? `/${thesis.document.filePath}` 
+                : `/uploads/${thesis.document.filePath}`
         } : null,
         proposalDocument: thesis.thesisProposal?.document ? {
             id: thesis.thesisProposal.document.id,
             fileName: thesis.thesisProposal.document.fileName,
-            url: `/uploads/${thesis.thesisProposal.document.filePath}`
+            url: thesis.thesisProposal.document.filePath.startsWith('uploads/') 
+                ? `/${thesis.thesisProposal.document.filePath}` 
+                : `/uploads/${thesis.thesisProposal.document.filePath}`
         } : null,
         milestones: thesis.thesisMilestones.map(m => ({
             id: m.id,
@@ -201,6 +210,47 @@ export async function getRequestsService(userId, { page = 1, pageSize = 10 } = {
     : [];
 	const totalPages = Math.max(1, Math.ceil(total / sz));
 	return { page: p, pageSize: sz, total, totalPages, requests: items };
+}
+
+/**
+ * Get scheduled guidances (accepted or summary_pending) for lecturer
+ */
+export async function getScheduledGuidancesService(userId, { page = 1, pageSize = 10 } = {}) {
+	const lecturer = await getLecturerByUserId(userId);
+	ensureLecturer(lecturer);
+	const { total, rows, page: p, pageSize: sz } = await findScheduledGuidances(lecturer.id, { page, pageSize });
+	
+	// Resolve milestone titles
+	const allMilestoneIds = new Set();
+	rows?.forEach((g) => {
+		if (Array.isArray(g.milestoneIds)) {
+			g.milestoneIds.forEach((id) => allMilestoneIds.add(String(id)));
+		} else if (g.milestoneId) {
+			allMilestoneIds.add(String(g.milestoneId));
+		}
+	});
+	let milestoneTitleMap = new Map();
+	if (allMilestoneIds.size > 0) {
+		const rowsTitles = await prisma.thesisMilestone.findMany({
+			where: { id: { in: Array.from(allMilestoneIds) } },
+			select: { id: true, title: true },
+		});
+		milestoneTitleMap = new Map(rowsTitles.map((m) => [String(m.id), m.title]));
+	}
+	
+	const items = Array.isArray(rows)
+		? rows.map((g) => {
+				const ids = Array.isArray(g.milestoneIds)
+					? g.milestoneIds.map(String)
+					: g.milestoneId
+						? [String(g.milestoneId)]
+						: [];
+				const titles = ids.map((id) => milestoneTitleMap.get(id)).filter(Boolean);
+				return toFlatGuidance({ ...g, milestoneTitles: titles });
+			})
+		: [];
+	const totalPages = Math.max(1, Math.ceil(total / sz));
+	return { page: p, pageSize: sz, total, totalPages, guidances: items };
 }
 
 export async function rejectGuidanceService(userId, guidanceId, { feedback } = {}) {
@@ -501,6 +551,195 @@ export async function failStudentThesisService(userId, studentId, { reason } = {
 	await updateThesisStatusById(thesis.id, idFailed);
 	await logThesisActivity(thesis.id, userId, "THESIS_FAILED", reason || undefined, "milestone");
 	return { thesisId: thesis.id, status: "failed" };
+}
+
+// ==================== SESSION SUMMARY APPROVAL ====================
+
+/**
+ * Get guidances pending summary approval (minimal list for lecturer)
+ */
+export async function getPendingApprovalService(userId, { page = 1, pageSize = 10 } = {}) {
+	const lecturer = await getLecturerByUserId(userId);
+	ensureLecturer(lecturer);
+
+	const { total, rows, page: currentPage, pageSize: size } = await findGuidancesPendingApproval(lecturer.id, { page, pageSize });
+
+	const guidances = rows.map((g) => ({
+		id: g.id,
+		studentName: g.thesis?.student?.user?.fullName || null,
+		studentId: g.thesis?.student?.user?.identityNumber || null,
+		approvedDate: g.approvedDate,
+		approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
+		summarySubmittedAt: g.summarySubmittedAt,
+		summarySubmittedAtFormatted: g.summarySubmittedAt ? formatDateTimeJakarta(g.summarySubmittedAt, { withDay: true }) : null,
+		sessionSummary: g.sessionSummary,
+		actionItems: g.actionItems,
+		milestoneName: g.milestone?.title || null,
+	}));
+
+	return { total, guidances, page: currentPage, pageSize: size };
+}
+
+/**
+ * Approve session summary - 1 click, minimal interaction
+ */
+export async function approveSessionSummaryService(userId, guidanceId) {
+	const lecturer = await getLecturerByUserId(userId);
+	ensureLecturer(lecturer);
+
+	// Check guidance exists and is pending approval
+	const guidance = await findPendingGuidanceById(guidanceId, lecturer.id);
+	if (!guidance) {
+		const err = new Error("Guidance not found or not pending approval");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const updated = await approveSessionSummary(guidanceId);
+
+	// Log activity
+	await logThesisActivity(
+		updated.thesisId,
+		userId,
+		"GUIDANCE_COMPLETED",
+		`Bimbingan selesai dengan ${updated.thesis?.student?.user?.fullName || "mahasiswa"}`,
+		"guidance"
+	);
+
+	// Send notification to student
+	const studentUserId = updated.thesis?.student?.user?.id;
+	if (studentUserId) {
+		const lecturerName = toTitleCaseName(lecturer.user?.fullName || updated.supervisor?.user?.fullName || "Dosen");
+		
+		await createNotificationsForUsers(
+			[studentUserId],
+			{
+				title: "Catatan Bimbingan Disetujui",
+				message: `${lecturerName} telah menyetujui catatan bimbingan Anda`,
+			}
+		);
+		
+		sendFcmToUsers([studentUserId], {
+			title: "Catatan Bimbingan Disetujui",
+			body: `${lecturerName} telah menyetujui catatan bimbingan Anda. Bimbingan telah selesai.`,
+			data: {
+				type: "thesis-guidance:summary-approved",
+				role: "student",
+				guidanceId: String(guidanceId),
+				thesisId: String(updated.thesisId),
+				playSound: "true",
+			},
+			dataOnly: true,
+		}).catch((e) => console.warn("FCM notify failed (summary approved):", e?.message || e));
+	}
+
+	return {
+		guidance: {
+			id: updated.id,
+			status: updated.status,
+			completedAt: updated.completedAt,
+		},
+	};
+}
+
+/**
+ * Get detailed guidance info for lecturer (for session detail page)
+ */
+export async function getGuidanceDetailService(userId, guidanceId) {
+	const lecturer = await getLecturerByUserId(userId);
+	ensureLecturer(lecturer);
+	
+	// Find guidance with all related data
+	const guidance = await prisma.thesisGuidance.findFirst({
+		where: { id: guidanceId, supervisorId: lecturer.id },
+		include: {
+			thesis: {
+				include: {
+					student: { include: { user: true } },
+					document: true,
+				},
+			},
+			supervisor: { include: { user: true } },
+			milestone: { select: { id: true, title: true, status: true } },
+		},
+	});
+	
+	if (!guidance) {
+		const err = new Error("Guidance not found or not assigned to you");
+		err.statusCode = 404;
+		throw err;
+	}
+	
+	// Resolve milestone titles
+	const milestoneTitles = await resolveMilestoneTitles(guidance);
+	
+	const flat = {
+		id: guidance.id,
+		status: guidance.status,
+		studentId: guidance.thesis?.studentId || guidance.thesis?.student?.id || null,
+		studentName: guidance.thesis?.student?.user?.fullName || null,
+		studentNim: guidance.thesis?.student?.user?.identityNumber || null,
+		studentEmail: guidance.thesis?.student?.user?.email || null,
+		supervisorId: guidance.supervisorId,
+		supervisorName: guidance.supervisor?.user?.fullName || null,
+		thesisId: guidance.thesisId,
+		thesisTitle: guidance.thesis?.title || null,
+		// Dates
+		requestedDate: guidance.requestedDate || null,
+		requestedDateFormatted: guidance.requestedDate 
+			? formatDateTimeJakarta(guidance.requestedDate, { withDay: true }) 
+			: null,
+		approvedDate: guidance.approvedDate || null,
+		approvedDateFormatted: guidance.approvedDate 
+			? formatDateTimeJakarta(guidance.approvedDate, { withDay: true }) 
+			: null,
+		completedAt: guidance.completedAt || null,
+		completedAtFormatted: guidance.completedAt
+			? formatDateTimeJakarta(guidance.completedAt, { withDay: true })
+			: null,
+		// Session details
+		type: guidance.type || "online",
+		duration: guidance.duration || 60,
+		location: guidance.location || null,
+		meetingUrl: guidance.meetingUrl || null,
+		documentUrl: guidance.documentUrl || null,
+		// Notes
+		studentNotes: guidance.studentNotes || null,
+		supervisorFeedback: guidance.supervisorFeedback || null,
+		rejectionReason: guidance.rejectionReason || null,
+		// Session summary (filled by student)
+		sessionSummary: guidance.sessionSummary || null,
+		actionItems: guidance.actionItems || null,
+		summarySubmittedAt: guidance.summarySubmittedAt || null,
+		summarySubmittedAtFormatted: guidance.summarySubmittedAt
+			? formatDateTimeJakarta(guidance.summarySubmittedAt, { withDay: true })
+			: null,
+		// Milestones
+		milestoneId: guidance.milestoneId || null,
+		milestoneIds: Array.isArray(guidance.milestoneIds) 
+			? guidance.milestoneIds 
+			: guidance.milestoneId 
+				? [guidance.milestoneId] 
+				: [],
+		milestoneTitles,
+		milestoneName: milestoneTitles.length > 0 ? milestoneTitles[0] : null,
+		// Document
+		document: guidance.thesis?.document
+			? {
+					id: guidance.thesis.document.id,
+					fileName: guidance.thesis.document.fileName,
+					filePath: guidance.thesis.document.filePath,
+			  }
+			: null,
+		// Timestamps
+		createdAt: guidance.createdAt || null,
+		createdAtFormatted: guidance.createdAt 
+			? formatDateTimeJakarta(guidance.createdAt, { withDay: true }) 
+			: null,
+		updatedAt: guidance.updatedAt || null,
+	};
+	
+	return { guidance: flat };
 }
 
 

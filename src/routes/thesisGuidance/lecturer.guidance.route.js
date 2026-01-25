@@ -7,6 +7,7 @@ import {
 	myStudents,
     studentDetail,
 	listRequests,
+	listScheduledGuidances,
 	rejectGuidance,
 	approveGuidance,
 	listProgress,
@@ -16,8 +17,11 @@ import {
 	finalApproval,
 	guidanceHistory,
 	activityLog,
-		supervisorEligibility,
-		failStudentThesis,
+	supervisorEligibility,
+	failStudentThesis,
+	pendingApproval,
+	approveSummary,
+	guidanceDetail,
 } from "../../controllers/thesisGuidance/lecturer.guidance.controller.js";
 
 const router = express.Router();
@@ -30,6 +34,7 @@ router.use(authGuard, requireAnyRole([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]));
 router.get("/my-students", myStudents);
 router.get("/my-students/:thesisId", studentDetail);
 router.get("/requests", listRequests);
+router.get("/scheduled", listScheduledGuidances);
 router.patch("/requests/:guidanceId/reject", validate(rejectGuidanceSchema), rejectGuidance);
 router.patch("/requests/:guidanceId/approve", validate(approveGuidanceSchema), approveGuidance);
 
@@ -45,6 +50,13 @@ router.patch("/feedback/:guidanceId", validate(feedbackSchema), postFeedback);
 router.get("/guidance-history/:studentId", guidanceHistory);
 router.get("/activity-log/:studentId", activityLog);
 router.get("/supervisor/eligibility", supervisorEligibility);
+
+// Session Summary Approval (1-click approve)
+router.get("/pending-approval", pendingApproval);
+router.put("/guidance/:guidanceId/approve-summary", approveSummary);
+
+// Guidance detail for session page
+router.get("/guidance/:guidanceId", guidanceDetail);
 
 export default router;
 

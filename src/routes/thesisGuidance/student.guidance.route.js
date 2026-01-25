@@ -20,6 +20,11 @@ import {
 	activityLog,
 	listSupervisors,
 	supervisorAvailability,
+	needsSummary,
+	submitSummary,
+	completedHistory,
+	exportGuidance,
+	markSessionComplete,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
 import { uploadThesisFile } from "../../middlewares/file.middleware.js";
 import { ROLES } from "../../constants/roles.js";
@@ -50,6 +55,13 @@ router.patch("/progress/complete", validate(completeComponentsSchema), completeP
 // History & activity
 router.get("/history", guidanceHistory);
 router.get("/activity-log", activityLog);
+
+// Session Summary (after guidance)
+router.get("/needs-summary", needsSummary);
+router.post("/guidance/:guidanceId/submit-summary", submitSummary);
+router.post("/guidance/:guidanceId/complete", markSessionComplete); // Quick complete without lecturer approval
+router.get("/completed-history", completedHistory);
+router.get("/guidance/:guidanceId/export", exportGuidance);
 
 // Supervisors info
 router.get("/supervisors", listSupervisors);

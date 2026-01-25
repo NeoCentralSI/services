@@ -370,9 +370,14 @@ model ThesisGuidance {
   supervisorFeedback String? @db.Text @map("supervisor_feedback") // Feedback dari dosen
   rejectionReason   String?  @db.Text @map("rejection_reason") // Alasan penolakan
   
+  // Session summary (diisi mahasiswa setelah bimbingan)
+  sessionSummary    String?  @db.Text @map("session_summary") // Ringkasan pembahasan
+  actionItems       String?  @db.Text @map("action_items") // Tugas/action items
+  summarySubmittedAt DateTime? @map("summary_submitted_at") // Kapan summary disubmit
+  
   // Status
   status            GuidanceStatus @default(requested)
-  completedAt       DateTime? @map("completed_at") // Kapan bimbingan selesai
+  completedAt       DateTime? @map("completed_at") // Kapan bimbingan selesai (approved by lecturer)
   
   // Outlook Calendar sync fields
   studentCalendarEventId    String? @map("student_calendar_event_id")
@@ -932,6 +937,7 @@ enum GuidanceStatus {
   requested
   accepted
   rejected
+  summary_pending  // Mahasiswa sudah submit summary, menunggu approval dosen
   completed
   cancelled
 }

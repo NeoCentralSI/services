@@ -12,6 +12,10 @@ import {
   listMilestones,
   listMilestoneTemplates,
   createMilestonesDirectly,
+  submitSessionSummary,
+  getCompletedGuidanceHistory,
+  getGuidanceForExport,
+  getGuidancesNeedingSummary,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 
 import prisma from "../../config/prisma.js";
@@ -287,26 +291,13 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     throw err;
   }
 
-  // === VALIDASI MILESTONE - WAJIB UNTUK BIMBINGAN ===
-  // Check if thesis has milestones
+  // === MILESTONE SELECTION (OPTIONAL) ===
+  // Milestone is now optional - student can request guidance without specifying milestone
   const milestones = await prisma.thesisMilestone.findMany({
     where: { thesisId: thesis.id },
   });
 
-  if (milestones.length === 0) {
-    const err = new Error("Anda belum memiliki milestone. Buat milestone terlebih dahulu sebelum mengajukan bimbingan.");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  // Check for milestones with progress (in_progress or revision_needed)
-  const activeOrPendingMilestones = milestones.filter(
-    (m) => m.status === "in_progress" || m.status === "revision_needed" || m.status === "pending_review"
-  );
-
-  // Either:
-  // 1. Must have at least one active milestone, OR
-  // 2. Must specify a milestone to work on (which will become active)
+  // Collect requested milestone IDs (if any provided)
   const requestedMilestoneIds = Array.from(
     new Set([
       ...(Array.isArray(milestoneIds) ? milestoneIds.filter(Boolean) : []),
@@ -314,13 +305,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     ].filter(Boolean))
   );
 
-  if (activeOrPendingMilestones.length === 0 && requestedMilestoneIds.length === 0) {
-    const err = new Error("Tidak ada milestone yang sedang dikerjakan. Pilih milestone yang akan dibahas untuk melanjutkan pengajuan bimbingan.");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  // Validate milestoneIds if provided
+  // Validate milestoneIds if provided (optional)
   const validMilestones = [];
   for (const mid of requestedMilestoneIds) {
     const m = await prisma.thesisMilestone.findFirst({
@@ -332,6 +317,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       throw err;
     }
     validMilestones.push(m);
+    // Auto-start milestone if not started
     if (m.status === "not_started") {
       await prisma.thesisMilestone.update({
         where: { id: mid },
@@ -925,4 +911,285 @@ export async function getSupervisorAvailabilityPublic(supervisorId, rangeStart, 
     });
 
   return { busySlots };
+}
+
+// ==================== SESSION SUMMARY ====================
+
+/**
+ * Get guidances that need summary submission (accepted + past scheduled time)
+ */
+export async function getGuidancesNeedingSummaryService(userId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Student profile not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const guidances = await getGuidancesNeedingSummary(student.id);
+  return {
+    guidances: guidances.map((g) => ({
+      id: g.id,
+      supervisorName: g.supervisor?.user?.fullName || null,
+      approvedDate: g.approvedDate,
+      approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
+      type: g.type,
+      duration: g.duration,
+      location: g.location,
+      meetingUrl: g.meetingUrl,
+      studentNotes: g.studentNotes,
+      milestoneName: g.milestone?.title || null,
+    })),
+  };
+}
+
+/**
+ * Submit session summary after guidance
+ */
+export async function submitSessionSummaryService(userId, guidanceId, { sessionSummary, actionItems }) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Student profile not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Check guidance exists and belongs to student
+  const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
+  if (!guidance) {
+    const err = new Error("Guidance not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Can only submit summary for accepted guidance
+  if (guidance.status !== "accepted") {
+    const err = new Error("Guidance harus berstatus 'accepted' untuk mengisi catatan");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Validate required fields
+  if (!sessionSummary || sessionSummary.trim().length === 0) {
+    const err = new Error("Ringkasan bimbingan wajib diisi");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const updated = await submitSessionSummary(guidanceId, {
+    sessionSummary: sessionSummary.trim(),
+    actionItems: actionItems?.trim() || null,
+  });
+
+  // Send notification to supervisor
+  const supervisorUserId = guidance.supervisor?.user?.id;
+  if (supervisorUserId) {
+    const studentName = toTitleCaseName(student.user?.fullName || "Mahasiswa");
+    const dateFormatted = formatDateTimeJakarta(guidance.approvedDate || guidance.requestedDate, { withDay: true }) || "";
+    
+    await createNotificationsForUsers(
+      [supervisorUserId],
+      {
+        title: "Catatan Bimbingan Baru",
+        message: `${studentName} telah mengisi catatan bimbingan dan menunggu approval Anda`,
+      }
+    );
+    
+    sendFcmToUsers([supervisorUserId], {
+      title: "Catatan Bimbingan Baru",
+      body: `${studentName} telah mengisi catatan bimbingan`,
+      data: {
+        type: "thesis-guidance:summary-submitted",
+        role: "supervisor",
+        guidanceId: String(guidanceId),
+        thesisId: String(guidance.thesisId),
+        studentName,
+        scheduledAtFormatted: dateFormatted,
+        playSound: "true",
+      },
+      dataOnly: true,
+    }).catch((e) => console.warn("FCM notify failed (summary submitted):", e?.message || e));
+  }
+
+  return {
+    guidance: {
+      id: updated.id,
+      status: updated.status,
+      sessionSummary: updated.sessionSummary,
+      actionItems: updated.actionItems,
+      summarySubmittedAt: updated.summarySubmittedAt,
+    },
+  };
+}
+
+/**
+ * Mark guidance session as complete (student can directly complete without waiting for lecturer approval)
+ * This is a simplified flow where student marks session done after filling summary
+ */
+export async function markSessionCompleteService(userId, guidanceId, { sessionSummary, actionItems }) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Student profile not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Check guidance exists and belongs to student
+  const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
+  if (!guidance) {
+    const err = new Error("Guidance not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Can only complete for accepted or summary_pending guidance
+  if (!["accepted", "summary_pending"].includes(guidance.status)) {
+    const err = new Error("Hanya bimbingan dengan status 'accepted' atau 'summary_pending' yang dapat diselesaikan");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Validate required fields
+  if (!sessionSummary || sessionSummary.trim().length === 0) {
+    const err = new Error("Ringkasan bimbingan wajib diisi");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Directly mark as completed (skip summary_pending phase)
+  const updated = await prisma.thesisGuidance.update({
+    where: { id: guidanceId },
+    data: {
+      sessionSummary: sessionSummary.trim(),
+      actionItems: actionItems?.trim() || null,
+      summarySubmittedAt: new Date(),
+      status: "completed",
+      completedAt: new Date(),
+    },
+  });
+
+  await logThesisActivity(
+    guidance.thesisId,
+    userId,
+    "guidance-completed",
+    `Sesi bimbingan diselesaikan oleh mahasiswa`,
+    "guidance"
+  );
+
+  // Notify supervisor that session is completed
+  const supervisorUserId = guidance.supervisor?.user?.id;
+  if (supervisorUserId) {
+    const studentName = toTitleCaseName(student.user?.fullName || "Mahasiswa");
+    const dateFormatted = formatDateTimeJakarta(guidance.approvedDate || guidance.requestedDate, { withDay: true }) || "";
+    
+    await createNotificationsForUsers(
+      [supervisorUserId],
+      {
+        title: "Sesi Bimbingan Selesai",
+        message: `${studentName} telah menyelesaikan sesi bimbingan${dateFormatted ? ` pada ${dateFormatted}` : ""}`,
+      }
+    );
+    
+    sendFcmToUsers([supervisorUserId], {
+      title: "Sesi Bimbingan Selesai",
+      body: `${studentName} telah menyelesaikan sesi bimbingan`,
+      data: {
+        type: "thesis-guidance:completed",
+        role: "supervisor",
+        guidanceId: String(guidanceId),
+        thesisId: String(guidance.thesisId),
+        studentName,
+        playSound: "true",
+      },
+      dataOnly: true,
+    }).catch((e) => console.warn("FCM notify failed (session completed):", e?.message || e));
+  }
+
+  return {
+    guidance: {
+      id: updated.id,
+      status: updated.status,
+      sessionSummary: updated.sessionSummary,
+      actionItems: updated.actionItems,
+      completedAt: updated.completedAt,
+    },
+  };
+}
+
+/**
+ * Get completed guidance history for documentation
+ */
+export async function getCompletedGuidanceHistoryService(userId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Student profile not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const guidances = await getCompletedGuidanceHistory(student.id);
+  return {
+    guidances: guidances.map((g) => ({
+      id: g.id,
+      supervisorName: g.supervisor?.user?.fullName || null,
+      approvedDate: g.approvedDate,
+      approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
+      completedAt: g.completedAt,
+      completedAtFormatted: g.completedAt ? formatDateTimeJakarta(g.completedAt, { withDay: true }) : null,
+      type: g.type,
+      duration: g.duration,
+      location: g.location,
+      meetingUrl: g.meetingUrl,
+      studentNotes: g.studentNotes,
+      sessionSummary: g.sessionSummary,
+      actionItems: g.actionItems,
+      milestoneName: g.milestone?.title || null,
+      thesisTitle: g.thesis?.title || null,
+    })),
+  };
+}
+
+/**
+ * Get single guidance detail for export
+ */
+export async function getGuidanceForExportService(userId, guidanceId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Student profile not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const guidance = await getGuidanceForExport(guidanceId, student.id);
+  if (!guidance) {
+    const err = new Error("Guidance not found or not completed");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  return {
+    guidance: {
+      id: guidance.id,
+      // Student info
+      studentName: guidance.thesis?.student?.user?.fullName || null,
+      studentId: guidance.thesis?.student?.user?.identityNumber || null,
+      // Supervisor info
+      supervisorName: guidance.supervisor?.user?.fullName || null,
+      // Schedule info
+      approvedDate: guidance.approvedDate,
+      approvedDateFormatted: guidance.approvedDate ? formatDateTimeJakarta(guidance.approvedDate, { withDay: true }) : null,
+      completedAt: guidance.completedAt,
+      completedAtFormatted: guidance.completedAt ? formatDateTimeJakarta(guidance.completedAt, { withDay: true }) : null,
+      type: guidance.type,
+      duration: guidance.duration,
+      location: guidance.location,
+      // Content
+      studentNotes: guidance.studentNotes,
+      sessionSummary: guidance.sessionSummary,
+      actionItems: guidance.actionItems,
+      // Milestone & Thesis
+      milestoneName: guidance.milestone?.title || null,
+      thesisTitle: guidance.thesis?.title || null,
+    },
+  };
 }

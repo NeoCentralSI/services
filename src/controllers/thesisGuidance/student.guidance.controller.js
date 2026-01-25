@@ -11,6 +11,11 @@ import {
   activityLogService,
   listSupervisorsService,
   getSupervisorAvailabilityService,
+  getGuidancesNeedingSummaryService,
+  submitSessionSummaryService,
+  getCompletedGuidanceHistoryService,
+  getGuidanceForExportService,
+  markSessionCompleteService,
 } from "../../services/thesisGuidance/student.guidance.service.js";
 
 export async function listMyGuidances(req, res, next) {
@@ -168,6 +173,84 @@ export async function supervisorAvailability(req, res, next) {
     const { supervisorId } = req.params;
     const { start, end } = req.query || {};
     const result = await getSupervisorAvailabilityService(req.user.sub, supervisorId, start, end);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ==================== SESSION SUMMARY ====================
+
+/**
+ * GET /thesis-guidance/needs-summary
+ * Get guidances that need summary submission (accepted + past scheduled time)
+ */
+export async function needsSummary(req, res, next) {
+  try {
+    const result = await getGuidancesNeedingSummaryService(req.user.sub);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis-guidance/:guidanceId/submit-summary
+ * Submit session summary after guidance
+ */
+export async function submitSummary(req, res, next) {
+  try {
+    const { guidanceId } = req.params;
+    const { sessionSummary, actionItems } = req.body || {};
+    const result = await submitSessionSummaryService(req.user.sub, guidanceId, {
+      sessionSummary,
+      actionItems,
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesis-guidance/completed-history
+ * Get completed guidance history for documentation
+ */
+export async function completedHistory(req, res, next) {
+  try {
+    const result = await getCompletedGuidanceHistoryService(req.user.sub);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesis-guidance/:guidanceId/export
+ * Get single guidance detail for export/download
+ */
+export async function exportGuidance(req, res, next) {
+  try {
+    const { guidanceId } = req.params;
+    const result = await getGuidanceForExportService(req.user.sub, guidanceId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis-guidance/:guidanceId/complete
+ * Mark session as complete (student can directly complete without waiting for lecturer approval)
+ */
+export async function markSessionComplete(req, res, next) {
+  try {
+    const { guidanceId } = req.params;
+    const { sessionSummary, actionItems } = req.body || {};
+    const result = await markSessionCompleteService(req.user.sub, guidanceId, {
+      sessionSummary,
+      actionItems,
+    });
     res.json({ success: true, ...result });
   } catch (err) {
     next(err);

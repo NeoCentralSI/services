@@ -132,3 +132,97 @@ export async function upsertStudentCompletions(thesisId, componentIds = [], comp
    return { updated: 0, created: 0 };
 }
 
+// ==================== SESSION SUMMARY ====================
+
+/**
+ * Submit session summary by student
+ * Changes status from 'accepted' to 'summary_pending'
+ */
+export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }) {
+  return prisma.thesisGuidance.update({
+    where: { id: guidanceId },
+    data: {
+      sessionSummary,
+      actionItems,
+      summarySubmittedAt: new Date(),
+      status: "summary_pending",
+    },
+    include: {
+      supervisor: { include: { user: true } },
+      milestone: { select: { id: true, title: true, status: true } },
+    },
+  });
+}
+
+/**
+ * Get completed guidance history for student (for download/documentation)
+ */
+export function getCompletedGuidanceHistory(studentId) {
+  return prisma.thesisGuidance.findMany({
+    where: {
+      thesis: { studentId },
+      status: "completed",
+    },
+    include: {
+      supervisor: { include: { user: true } },
+      milestone: { select: { id: true, title: true } },
+      thesis: {
+        select: {
+          title: true,
+          student: {
+            select: {
+              user: { select: { fullName: true, identityNumber: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [{ completedAt: "desc" }, { id: "desc" }],
+  });
+}
+
+/**
+ * Get single guidance detail for export/download
+ */
+export function getGuidanceForExport(guidanceId, studentId) {
+  return prisma.thesisGuidance.findFirst({
+    where: {
+      id: guidanceId,
+      thesis: { studentId },
+      status: "completed",
+    },
+    include: {
+      supervisor: { include: { user: true } },
+      milestone: { select: { id: true, title: true } },
+      thesis: {
+        select: {
+          title: true,
+          student: {
+            select: {
+              user: { select: { fullName: true, identityNumber: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Get guidances that need summary submission (accepted + jadwal sudah lewat)
+ */
+export function getGuidancesNeedingSummary(studentId) {
+  return prisma.thesisGuidance.findMany({
+    where: {
+      thesis: { studentId },
+      status: "accepted",
+      approvedDate: { lte: new Date() }, // Jadwal sudah lewat
+    },
+    include: {
+      supervisor: { include: { user: true } },
+      milestone: { select: { id: true, title: true } },
+    },
+    orderBy: [{ approvedDate: "desc" }],
+  });
+}
+
