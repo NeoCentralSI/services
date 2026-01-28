@@ -186,6 +186,13 @@ model Thesis {
   title             String?
   startDate         DateTime? @map("start_date")
   deadlineDate      DateTime? @map("deadline_date")
+  
+  // Seminar Readiness Approval from Supervisors
+  seminarReadyApprovedBySupervisor1   Boolean?  @default(false) @map("seminar_ready_approved_by_supervisor1")
+  seminarReadyApprovedBySupervisor2   Boolean?  @default(false) @map("seminar_ready_approved_by_supervisor2")
+  seminarReadyApprovedAt              DateTime? @map("seminar_ready_approved_at")
+  seminarReadyNotes                   String?   @db.Text @map("seminar_ready_notes")
+  
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   student           Student  @relation(fields: [studentId], references: [id])

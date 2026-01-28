@@ -1,4 +1,16 @@
 import prisma from "../../config/prisma.js";
+import { normalize } from "../../constants/roles.js";
+
+// Helper functions for role matching
+function isPembimbing1(roleName) {
+  const n = normalize(roleName);
+  return n === "pembimbing 1" || n === "pembimbing1";
+}
+
+function isPembimbing2(roleName) {
+  const n = normalize(roleName);
+  return n === "pembimbing 2" || n === "pembimbing2";
+}
 
 // ============================================
 // Milestone Template Repository
@@ -256,11 +268,12 @@ export async function getThesisProgress(thesisId) {
   });
 
   const total = milestones.length;
-  if (total === 0) return { total: 0, completed: 0, averageProgress: 0 };
+  if (total === 0) return { total: 0, completed: 0, averageProgress: 0, percentComplete: 0, isComplete: false };
 
   const completed = milestones.filter((m) => m.status === "completed").length;
   const totalProgress = milestones.reduce((sum, m) => sum + m.progressPercentage, 0);
   const averageProgress = Math.round(totalProgress / total);
+  const percentComplete = Math.round((completed / total) * 100);
 
   return {
     total,
@@ -270,7 +283,8 @@ export async function getThesisProgress(thesisId) {
     pendingReview: milestones.filter((m) => m.status === "pending_review").length,
     revisionNeeded: milestones.filter((m) => m.status === "revision_needed").length,
     averageProgress,
-    percentComplete: Math.round((completed / total) * 100),
+    percentComplete,
+    isComplete: completed === total && total > 0,
   };
 }
 
@@ -479,5 +493,185 @@ export async function requestRevision(id, supervisorId, revisionNotes) {
     });
 
     return milestone;
+  });
+}
+
+// ============================================
+// Seminar Readiness Approval Repository
+// ============================================
+
+/**
+ * Get thesis seminar readiness status
+ */
+export function getThesisSeminarReadiness(thesisId) {
+  return prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      seminarReadyApprovedBySupervisor1: true,
+      seminarReadyApprovedBySupervisor2: true,
+      seminarReadyApprovedAt: true,
+      seminarReadyNotes: true,
+      student: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            },
+          },
+        },
+      },
+      thesisParticipants: {
+        select: {
+          id: true,
+          lecturerId: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          lecturer: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Approve seminar readiness by supervisor
+ * @param {string} thesisId
+ * @param {string} supervisorRole - "pembimbing1" or "pembimbing2"
+ * @param {string} notes - optional notes
+ */
+export async function approveSeminarReadiness(thesisId, supervisorRole, notes = null) {
+  const updateData = {
+    seminarReadyNotes: notes,
+  };
+
+  const isSupervisor1 = isPembimbing1(supervisorRole);
+  const isSupervisor2 = isPembimbing2(supervisorRole);
+
+  if (isSupervisor1) {
+    updateData.seminarReadyApprovedBySupervisor1 = true;
+  } else if (isSupervisor2) {
+    updateData.seminarReadyApprovedBySupervisor2 = true;
+  }
+
+  // Check if both are now approved
+  const current = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      seminarReadyApprovedBySupervisor1: true,
+      seminarReadyApprovedBySupervisor2: true,
+    },
+  });
+
+  // If this approval makes both supervisors approved, set the approval date
+  const willBothBeApproved =
+    (isSupervisor1 && current.seminarReadyApprovedBySupervisor2) ||
+    (isSupervisor2 && current.seminarReadyApprovedBySupervisor1);
+
+  if (willBothBeApproved) {
+    updateData.seminarReadyApprovedAt = new Date();
+  }
+
+  return prisma.thesis.update({
+    where: { id: thesisId },
+    data: updateData,
+    select: {
+      id: true,
+      title: true,
+      seminarReadyApprovedBySupervisor1: true,
+      seminarReadyApprovedBySupervisor2: true,
+      seminarReadyApprovedAt: true,
+      seminarReadyNotes: true,
+    },
+  });
+}
+
+/**
+ * Revoke seminar readiness approval by supervisor
+ */
+export async function revokeSeminarReadiness(thesisId, supervisorRole, notes = null) {
+  const updateData = {
+    seminarReadyApprovedAt: null,
+    seminarReadyNotes: notes,
+  };
+
+  if (isPembimbing1(supervisorRole)) {
+    updateData.seminarReadyApprovedBySupervisor1 = false;
+  } else if (isPembimbing2(supervisorRole)) {
+    updateData.seminarReadyApprovedBySupervisor2 = false;
+  }
+
+  return prisma.thesis.update({
+    where: { id: thesisId },
+    data: updateData,
+    select: {
+      id: true,
+      title: true,
+      seminarReadyApprovedBySupervisor1: true,
+      seminarReadyApprovedBySupervisor2: true,
+      seminarReadyApprovedAt: true,
+      seminarReadyNotes: true,
+    },
+  });
+}
+
+/**
+ * Get list of students ready for seminar (both supervisors approved)
+ */
+export function findStudentsReadyForSeminar() {
+  return prisma.thesis.findMany({
+    where: {
+      seminarReadyApprovedBySupervisor1: true,
+      seminarReadyApprovedBySupervisor2: true,
+      seminarReadyApprovedAt: { not: null },
+    },
+    select: {
+      id: true,
+      title: true,
+      seminarReadyApprovedAt: true,
+      seminarReadyNotes: true,
+      student: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            },
+          },
+        },
+      },
+      thesisParticipants: {
+        select: {
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { seminarReadyApprovedAt: "desc" },
   });
 }

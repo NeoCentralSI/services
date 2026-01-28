@@ -1,0 +1,271 @@
+paths:
+  /sia/sync:
+    post:
+      tags:
+        - SIA Sync
+      summary: Trigger manual SIA synchronization
+      description: |
+        Manually trigger a full synchronization with the external SIA (Academic Information System).
+        This will fetch all student data from SIA API, update Redis cache, and sync SKS to database.
+        
+        **Process:**
+        1. Fetch all students from SIA API with retry logic (3 attempts)
+        2. Hash each student data for change detection
+        3. Update Redis cache (only changed records)
+        4. Batch update student SKS in database
+        5. Clean up obsolete records
+        
+        **Note:** Automatic sync runs every 6 hours if `ENABLE_SIA_CRON=true`
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Sync triggered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "SIA sync triggered"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          description: Sync failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "SIA sync failed: Connection timeout"
+
+  /sia/sync/status:
+    get:
+      tags:
+        - SIA Sync
+      summary: Get SIA sync status
+      description: |
+        Retrieve the status of the last SIA synchronization including:
+        - Last run timestamp
+        - Number of records fetched, updated, skipped
+        - Database update count
+        - Cleaned obsolete records
+        - Sync duration and errors (if any)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Sync status retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/SiaSyncStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /sia/cached:
+    get:
+      tags:
+        - SIA Sync
+      summary: Get all cached student data
+      description: |
+        Retrieve all student data currently cached in Redis from the last successful sync.
+        This endpoint returns the raw student data including:
+        - Academic information (NIM, name, SKS completed)
+        - Prerequisite completion status
+        - Current semester courses
+        
+        **Note:** Data is cached for performance. Use `/sia/sync` to refresh data.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Cached data retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    description: Number of students in cache
+                    example: 150
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SiaStudent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  schemas:
+    SiaSyncStatus:
+      type: object
+      properties:
+        lastRun:
+          type: string
+          format: date-time
+          description: Timestamp of last sync execution
+          example: "2026-01-28T02:00:00.000Z"
+        fetched:
+          type: integer
+          description: Number of students fetched from SIA API
+          example: 150
+        updated:
+          type: integer
+          description: Number of records updated in cache
+          example: 45
+        skipped:
+          type: integer
+          description: Number of records skipped (no changes)
+          example: 105
+        dbUpdated:
+          type: integer
+          description: Number of student SKS updated in database
+          example: 45
+        cleaned:
+          type: integer
+          description: Number of obsolete records removed
+          example: 3
+        error:
+          type: string
+          description: Error message if sync failed (empty if successful)
+          example: ""
+        durationMs:
+          type: integer
+          description: Sync duration in milliseconds
+          example: 2543
+
+    SiaStudent:
+      type: object
+      description: Complete student data from SIA
+      properties:
+        nim:
+          type: string
+          description: Student ID number
+          example: "202101001"
+        name:
+          type: string
+          description: Full name
+          example: "Alya Prameswari"
+        sksCompleted:
+          type: integer
+          description: Total SKS completed
+          example: 112
+        mandatoryCoursesCompleted:
+          type: boolean
+          description: All mandatory courses completed
+          example: true
+        mkwuCompleted:
+          type: boolean
+          description: MKWU courses completed
+          example: true
+        internshipCompleted:
+          type: boolean
+          description: Internship completed
+          example: true
+        kknCompleted:
+          type: boolean
+          description: KKN completed
+          example: false
+        currentSemester:
+          type: integer
+          description: Current semester number
+          example: 7
+        currentSemesterCourses:
+          type: array
+          description: Courses enrolled in current semester
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+                example: "IF4010"
+              name:
+                type: string
+                example: "Sistem Terdistribusi"
+              credits:
+                type: integer
+                example: 3
+              class:
+                type: string
+                example: "A"
+              lecturer:
+                type: string
+                example: "Dr. Raka Himawan"
+              schedule:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    day:
+                      type: string
+                      example: "Senin"
+                    time:
+                      type: string
+                      example: "09:00-10:40"
+                    room:
+                      type: string
+                      example: "D201"
+              status:
+                type: string
+                enum: [ongoing, completed, dropped]
+                example: "ongoing"
+
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Unauthorized"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Internal server error"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login

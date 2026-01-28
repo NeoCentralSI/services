@@ -32,6 +32,10 @@ tags:
     description: Student-side thesis guidance endpoints
   - name: Milestone
     description: Thesis milestone management endpoints
+  - name: Thesis Monitoring
+    description: Thesis monitoring endpoints for Kadep/Sekdep/GKM
+  - name: SIA Sync
+    description: External SIA (Academic Information System) synchronization endpoints
 
 paths:
   "/":
@@ -95,6 +99,15 @@ paths:
   "/auth/microsoft/callback":
     $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_callback"
 
+  "/sia/sync":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync"
+
+  "/sia/sync/status":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync~1status"
+
+  "/sia/cached":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1cached"
+
   "/adminfeatures/students/import":
     $ref: "./admin/swagger-admin.yaml#/admin_import_students"
 
@@ -121,15 +134,6 @@ paths:
   
   "/adminfeatures/academic-years/{id}":
     $ref: "./admin/swagger-admin.yaml#/admin_update_academic_year"
-
-  "/sia/sync":
-    $ref: "./admin/swagger-admin.yaml#/admin_trigger_sia_sync"
-
-  "/sia/sync/status":
-    $ref: "./admin/swagger-admin.yaml#/admin_get_sia_sync_status"
-
-  "/sia/cached":
-    $ref: "./admin/swagger-admin.yaml#/admin_get_sia_cached_students"
 
   "/notification":
     $ref: "./notification/swagger-notification.yaml#/notification_get_all"
@@ -282,6 +286,29 @@ paths:
   "/milestones/{milestoneId}/feedback":
     $ref: "./milestone/milestone.yaml#/milestone_feedback"
 
+  # Seminar Readiness Approval
+  "/milestones/ready-for-seminar":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_list"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_status"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness/approve":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_approve"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness/revoke":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_revoke"
+  # Thesis Monitoring (Kadep/Sekdep/GKM)
+  "/thesis-guidance/monitoring/dashboard":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1dashboard"
+  "/thesis-guidance/monitoring/theses":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1theses"
+  "/thesis-guidance/monitoring/filters":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1filters"
+  "/thesis-guidance/monitoring/at-risk":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1at-risk"
+  "/thesis-guidance/monitoring/ready-seminar":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1ready-seminar"
 components:
   schemas:
     FailThesisBody:

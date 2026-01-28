@@ -469,3 +469,71 @@ export async function deleteTemplate(req, res, next) {
     next(err);
   }
 }
+
+// ============================================
+// Seminar Readiness Approval Controllers
+// ============================================
+
+/**
+ * GET /thesis/:thesisId/seminar-readiness
+ * Get thesis seminar readiness status
+ */
+export async function getThesisSeminarReadiness(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const result = await milestoneService.getThesisSeminarReadiness(thesisId, req.user.sub);
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis/:thesisId/seminar-readiness/approve
+ * Approve seminar readiness by supervisor
+ */
+export async function approveSeminarReadiness(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const { notes } = req.validated ?? req.body ?? {};
+    const result = await milestoneService.approveSeminarReadiness(thesisId, req.user.sub, notes);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis/:thesisId/seminar-readiness/revoke
+ * Revoke seminar readiness approval by supervisor
+ */
+export async function revokeSeminarReadiness(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const { notes } = req.validated ?? req.body ?? {};
+    const result = await milestoneService.revokeSeminarReadiness(thesisId, req.user.sub, notes);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesis/ready-for-seminar
+ * Get list of students ready for seminar registration
+ */
+export async function getStudentsReadyForSeminar(req, res, next) {
+  try {
+    const result = await milestoneService.getStudentsReadyForSeminar();
+    res.json({
+      success: true,
+      data: result,
+      count: result.length,
+    });
+  } catch (err) {
+    next(err);
+  }
+}

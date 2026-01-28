@@ -219,4 +219,42 @@ router.post(
   controller.addFeedback
 );
 
+// ============================================
+// Seminar Readiness Approval Routes
+// ============================================
+
+/**
+ * GET /api/milestones/ready-for-seminar
+ * Get list of students ready for seminar registration (sekdep/admin)
+ */
+router.get("/ready-for-seminar", authGuard, controller.getStudentsReadyForSeminar);
+
+/**
+ * GET /api/milestones/thesis/:thesisId/seminar-readiness
+ * Get thesis seminar readiness status
+ */
+router.get("/thesis/:thesisId/seminar-readiness", authGuard, controller.getThesisSeminarReadiness);
+
+/**
+ * POST /api/milestones/thesis/:thesisId/seminar-readiness/approve
+ * Approve seminar readiness by supervisor
+ */
+router.post(
+  "/thesis/:thesisId/seminar-readiness/approve",
+  authGuard,
+  validate(validator.seminarReadinessNotesSchema),
+  controller.approveSeminarReadiness
+);
+
+/**
+ * POST /api/milestones/thesis/:thesisId/seminar-readiness/revoke
+ * Revoke seminar readiness approval by supervisor
+ */
+router.post(
+  "/thesis/:thesisId/seminar-readiness/revoke",
+  authGuard,
+  validate(validator.seminarReadinessNotesSchema),
+  controller.revokeSeminarReadiness
+);
+
 export default router;

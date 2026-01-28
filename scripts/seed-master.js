@@ -109,6 +109,7 @@ async function seedThesisStatus() {
   const statuses = [
     "Pengajuan Judul",
     "Bimbingan",
+    "Acc Seminar",      // Milestone 100% + kedua pembimbing approve
     "Seminar Proposal",
     "Revisi Seminar",
     "Sidang",

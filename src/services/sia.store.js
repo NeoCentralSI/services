@@ -73,3 +73,28 @@ export async function getAllCachedStudents() {
     })
     .filter(Boolean);
 }
+
+/**
+ * Clean up obsolete student data from cache
+ * Removes students that no longer exist in current sync
+ */
+export async function cleanupObsoleteStudents(currentNims) {
+  const allNims = await redisClient.sMembers(indexKey);
+  const currentNimSet = new Set(currentNims);
+  const obsoleteNims = allNims.filter((nim) => !currentNimSet.has(nim));
+
+  if (obsoleteNims.length === 0) {
+    return { cleaned: 0 };
+  }
+
+  const multi = redisClient.multi();
+  for (const nim of obsoleteNims) {
+    multi.del(studentKey(nim));
+    multi.del(metaKey(nim));
+    multi.sRem(indexKey, nim);
+  }
+  await multi.exec();
+
+  console.log(`🧹 Cleaned up ${obsoleteNims.length} obsolete student records`);
+  return { cleaned: obsoleteNims.length, nims: obsoleteNims };
+}

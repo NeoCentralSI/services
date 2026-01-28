@@ -265,3 +265,15 @@ export const updateTemplateSchema = z.object({
   orderIndex: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
 });
+
+// ============================================
+// Seminar Readiness Approval Schemas
+// ============================================
+
+export const seminarReadinessNotesSchema = z.object({
+  notes: z
+    .string()
+    .max(2000, "Notes must be less than 2000 characters")
+    .optional()
+    .nullable(),
+});

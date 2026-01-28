@@ -1011,3 +1011,276 @@ AddFeedbackRequest:
   properties:
     feedback:
       type: string
+
+# ============================================
+# Seminar Readiness Approval Endpoints
+# ============================================
+
+seminar_readiness_list:
+  get:
+    tags: [Milestone, Seminar]
+    summary: Get students ready for seminar
+    description: Get list of all students that are ready for seminar registration (both supervisors approved).
+    security: [{ bearerAuth: [] }]
+    responses:
+      "200":
+        description: List of students ready for seminar
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: array
+                  items:
+                    $ref: "#/StudentReadyForSeminar"
+                count:
+                  type: integer
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+
+seminar_readiness_status:
+  get:
+    tags: [Milestone, Seminar]
+    summary: Get thesis seminar readiness status
+    description: Get detailed seminar readiness status for a thesis including milestone progress and supervisor approvals.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Seminar readiness status
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  $ref: "#/SeminarReadinessStatus"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "404":
+        $ref: "../openapi.yaml#/components/responses/NotFound"
+
+seminar_readiness_approve:
+  post:
+    tags: [Milestone, Seminar]
+    summary: Approve seminar readiness
+    description: Supervisor approves that the student is ready for seminar registration. Requires all milestones to be completed.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      content:
+        application/json:
+          schema:
+            $ref: "#/SeminarReadinessNotesRequest"
+    responses:
+      "200":
+        description: Approval successful
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/SeminarReadinessApprovalResult"
+      "400":
+        description: Bad request (milestones not complete)
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../openapi.yaml#/components/responses/NotFound"
+
+seminar_readiness_revoke:
+  post:
+    tags: [Milestone, Seminar]
+    summary: Revoke seminar readiness approval
+    description: Supervisor revokes their seminar readiness approval.
+    security: [{ bearerAuth: [] }]
+    parameters:
+      - in: path
+        name: thesisId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      content:
+        application/json:
+          schema:
+            $ref: "#/SeminarReadinessNotesRequest"
+    responses:
+      "200":
+        description: Revocation successful
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/SeminarReadinessApprovalResult"
+      "401":
+        $ref: "../openapi.yaml#/components/responses/Unauthorized"
+      "403":
+        $ref: "../openapi.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../openapi.yaml#/components/responses/NotFound"
+
+# ============================================
+# Seminar Readiness Schemas
+# ============================================
+
+SeminarReadinessNotesRequest:
+  type: object
+  properties:
+    notes:
+      type: string
+      maxLength: 2000
+      nullable: true
+
+SeminarReadinessStatus:
+  type: object
+  properties:
+    thesisId:
+      type: string
+      format: uuid
+    thesisTitle:
+      type: string
+    student:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        nim:
+          type: string
+        email:
+          type: string
+    milestoneProgress:
+      type: object
+      properties:
+        total:
+          type: integer
+        completed:
+          type: integer
+        percentComplete:
+          type: number
+        isComplete:
+          type: boolean
+    seminarReadiness:
+      type: object
+      properties:
+        approvedBySupervisor1:
+          type: boolean
+        approvedBySupervisor2:
+          type: boolean
+        isFullyApproved:
+          type: boolean
+        approvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+    supervisors:
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          name:
+            type: string
+          email:
+            type: string
+          role:
+            type: string
+          hasApproved:
+            type: boolean
+            nullable: true
+    canRegisterSeminar:
+      type: boolean
+
+SeminarReadinessApprovalResult:
+  type: object
+  properties:
+    thesisId:
+      type: string
+      format: uuid
+    thesisTitle:
+      type: string
+    approvedBySupervisor1:
+      type: boolean
+    approvedBySupervisor2:
+      type: boolean
+    isFullyApproved:
+      type: boolean
+    approvedAt:
+      type: string
+      format: date-time
+      nullable: true
+    notes:
+      type: string
+      nullable: true
+
+StudentReadyForSeminar:
+  type: object
+  properties:
+    thesisId:
+      type: string
+      format: uuid
+    thesisTitle:
+      type: string
+    student:
+      type: object
+      properties:
+        name:
+          type: string
+        nim:
+          type: string
+        email:
+          type: string
+    supervisors:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          role:
+            type: string
+    approvedAt:
+      type: string
+      format: date-time
+    notes:
+      type: string
+      nullable: true

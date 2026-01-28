@@ -1,0 +1,443 @@
+openapi: 3.0.3
+info:
+  title: Thesis Monitoring API
+  description: API endpoints for thesis monitoring (Kadep, Sekdep, GKM)
+  version: 1.0.0
+
+tags:
+  - name: Thesis Monitoring
+    description: Endpoints for monitoring all students' thesis progress
+
+paths:
+  /thesis-guidance/monitoring/dashboard:
+    get:
+      tags:
+        - Thesis Monitoring
+      summary: Get monitoring dashboard data
+      description: |
+        Returns comprehensive dashboard data including:
+        - Summary statistics (total active theses, average progress, etc.)
+        - Status distribution across all theses
+        - At-risk students (no activity > 2 months)
+        - Students ready for seminar
+        
+        **Roles:** Ketua Departemen, Sekretaris Departemen, GKM
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dashboard data retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/MonitoringDashboard'
+        '401':
+          description: Unauthorized - Invalid or missing token
+        '403':
+          description: Forbidden - Insufficient role
+
+  /thesis-guidance/monitoring/theses:
+    get:
+      tags:
+        - Thesis Monitoring
+      summary: Get thesis list with filters
+      description: |
+        Returns paginated list of all theses with progress, status, and supervisor information.
+        Supports filtering by status, supervisor, and academic year.
+        
+        **Roles:** Ketua Departemen, Sekretaris Departemen, GKM
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+          description: Filter by thesis status name (e.g., "Bimbingan", "Acc Seminar")
+        - in: query
+          name: lecturerId
+          schema:
+            type: string
+            format: uuid
+          description: Filter by supervisor lecturer ID
+        - in: query
+          name: academicYear
+          schema:
+            type: string
+            format: uuid
+          description: Filter by academic year ID
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+          description: Page number for pagination
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+          description: Number of items per page
+      responses:
+        '200':
+          description: Thesis list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ThesisListItem'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /thesis-guidance/monitoring/filters:
+    get:
+      tags:
+        - Thesis Monitoring
+      summary: Get filter options for dropdowns
+      description: |
+        Returns available filter options for the monitoring page, including:
+        - Status options with counts
+        - Supervisor options
+        
+        **Roles:** Ketua Departemen, Sekretaris Departemen, GKM
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Filter options retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/FilterOptions'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /thesis-guidance/monitoring/at-risk:
+    get:
+      tags:
+        - Thesis Monitoring
+      summary: Get at-risk students list
+      description: |
+        Returns list of students with no activity for more than 2 months.
+        Sorted by days since last activity (descending).
+        
+        **Roles:** Ketua Departemen, Sekretaris Departemen, GKM
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: At-risk students list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AtRiskStudent'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /thesis-guidance/monitoring/ready-seminar:
+    get:
+      tags:
+        - Thesis Monitoring
+      summary: Get students ready for seminar
+      description: |
+        Returns list of students who have been approved by both supervisors
+        and have "Acc Seminar" status. Ready to be scheduled for seminar.
+        
+        **Roles:** Ketua Departemen, Sekretaris Departemen, GKM
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ready for seminar students list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReadyForSeminarStudent'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    MonitoringDashboard:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/ProgressStats'
+        statusDistribution:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusDistribution'
+        atRiskStudents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtRiskStudent'
+        readyForSeminar:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReadyForSeminarStudent'
+
+    ProgressStats:
+      type: object
+      properties:
+        totalActiveTheses:
+          type: integer
+          description: Total number of active theses
+          example: 150
+        totalMilestones:
+          type: integer
+          description: Total milestones across all theses
+          example: 1200
+        completedMilestones:
+          type: integer
+          description: Total completed milestones
+          example: 800
+        averageProgress:
+          type: integer
+          description: Average progress percentage
+          example: 67
+        studentsComplete100:
+          type: integer
+          description: Students with 100% milestone completion
+          example: 45
+        studentsWithNoProgress:
+          type: integer
+          description: Students with zero progress
+          example: 12
+        totalReadyForSeminar:
+          type: integer
+          description: Total students ready for seminar
+          example: 8
+        totalAtRisk:
+          type: integer
+          description: Total at-risk students
+          example: 5
+
+    StatusDistribution:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "Bimbingan"
+        count:
+          type: integer
+          example: 75
+
+    AtRiskStudent:
+      type: object
+      properties:
+        thesisId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: "Sistem Informasi Akademik"
+        student:
+          type: object
+          properties:
+            name:
+              type: string
+              example: "John Doe"
+            nim:
+              type: string
+              example: "12345678"
+        status:
+          type: string
+          example: "Bimbingan"
+        lastActivity:
+          type: string
+          format: date-time
+        daysSinceActivity:
+          type: integer
+          example: 75
+        supervisors:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              role:
+                type: string
+
+    ReadyForSeminarStudent:
+      type: object
+      properties:
+        thesisId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        student:
+          type: object
+          properties:
+            name:
+              type: string
+            nim:
+              type: string
+            email:
+              type: string
+              format: email
+        supervisors:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              role:
+                type: string
+        approvedAt:
+          type: string
+          format: date-time
+
+    ThesisListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        student:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            name:
+              type: string
+            nim:
+              type: string
+            email:
+              type: string
+        status:
+          type: string
+        academicYear:
+          type: string
+        progress:
+          type: object
+          properties:
+            completed:
+              type: integer
+            total:
+              type: integer
+            percent:
+              type: integer
+        supervisors:
+          type: object
+          properties:
+            pembimbing1:
+              type: string
+              nullable: true
+            pembimbing2:
+              type: string
+              nullable: true
+        seminarApproval:
+          type: object
+          properties:
+            supervisor1:
+              type: boolean
+            supervisor2:
+              type: boolean
+            isFullyApproved:
+              type: boolean
+        lastActivity:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    FilterOptions:
+      type: object
+      properties:
+        statuses:
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+              label:
+                type: string
+              count:
+                type: integer
+        supervisors:
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+                format: uuid
+              label:
+                type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer

@@ -2,6 +2,7 @@ import pkg from "bullmq";
 const { Queue, Worker } = pkg;
 import { ENV } from "../config/env.js";
 import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
+import { runSiaSync } from "../services/sia.sync.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -58,6 +59,50 @@ export async function scheduleDailyThesisStatus() {
   }
 }
 
+/**
+ * Schedule automatic SIA sync job
+ * Default: every 6 hours. Override via ENV.SIA_SYNC_CRON
+ */
+export async function scheduleSiaSync() {
+  // Check if SIA sync cron is enabled
+  if (ENV.ENABLE_SIA_CRON === false || ENV.ENABLE_SIA_CRON === "false") {
+    console.log("⏸️  SIA sync cron is disabled (ENABLE_SIA_CRON=false)");
+    return;
+  }
+
+  // Default: every 6 hours at minute 0. Override via ENV.SIA_SYNC_CRON
+  const pattern = ENV.SIA_SYNC_CRON || "0 */6 * * *";
+  const tz = ENV.SIA_SYNC_TZ || "Asia/Jakarta";
+  
+  await maintenanceQueue.add(
+    "sia-sync",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: 50,
+      removeOnFail: 100,
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 2000,
+      },
+    }
+  );
+  console.log(`🔄 Scheduled repeatable SIA sync job with cron: "${pattern}" tz="${tz}"`);
+
+  try {
+    const repeats = await maintenanceQueue.getRepeatableJobs();
+    const jobInfo = repeats.find((r) => r.name === "sia-sync");
+    if (jobInfo) {
+      const nextIso = jobInfo.next ? new Date(jobInfo.next).toISOString() : "unknown";
+      const nextLocal = jobInfo.next ? new Date(jobInfo.next).toLocaleString() : "unknown";
+      console.log(`📌 SIA sync next run: ${nextIso} (local ${nextLocal}) key=${jobInfo.key || "n/a"}`);
+    }
+  } catch (e) {
+    // non-fatal
+  }
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -65,6 +110,9 @@ export const maintenanceWorker = new Worker(
     switch (job.name) {
       case "thesis-status":
         await runThesisStatusJob();
+        break;
+      case "sia-sync":
+        await runSiaSync();
         break;
       default:
         // no-op
