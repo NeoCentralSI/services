@@ -169,8 +169,6 @@ export async function listMyGuidancesService(userId, status) {
     requestedDate: g.requestedDate || null,
     approvedDate: g.approvedDate || null,
     duration: g.duration || 60,
-    type: g.type || "online",
-    location: g.location || null,
     supervisorId: g.supervisorId || null,
     supervisorName: g?.supervisor?.user?.fullName || null,
   }));
@@ -225,11 +223,8 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     requestedDate: guidance.requestedDate || null,
     approvedDate: guidance.approvedDate || null,
     duration: guidance.duration || 60,
-    type: guidance.type || "online",
-    location: guidance.location || null,
     supervisorId: guidance.supervisorId || null,
     supervisorName: guidance?.supervisor?.user?.fullName || null,
-    meetingUrl: guidance.meetingUrl || null,
     notes: guidance.studentNotes || null,
     supervisorFeedback: guidance.supervisorFeedback || null,
     rejectionReason: guidance.rejectionReason || null,
@@ -250,11 +245,9 @@ export async function getGuidanceDetailService(userId, guidanceId) {
   return { guidance: flat };
 }
 
-export async function requestGuidanceService(userId, guidanceDate, studentNotes, file, meetingUrl, supervisorId, options = {}) {
+export async function requestGuidanceService(userId, guidanceDate, studentNotes, file, supervisorId, options = {}) {
   const {
-    type = "online",
     duration = 60,
-    location = null,
     milestoneId = null,
     milestoneIds = [],
     documentUrl = null,
@@ -363,13 +356,10 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     supervisorId: selectedSupervisorId,
     milestoneId: selectedMilestoneId, // Link to milestone (legacy)
     milestoneIds: validMilestones.length ? validMilestones.map((m) => m.id) : null,
-    studentNotes: studentNotes || `Request guidance on ${guidanceDate.toISOString()}`,
+    studentNotes: studentNotes || "",
     supervisorFeedback: "",
-    meetingUrl: meetingUrl || "",
     documentUrl: documentUrl || null, // Link dokumen yang akan dibahas
-    type: type || "online",
     duration: duration || 60,
-    location: location || null,
     status: "requested",
   });
 
@@ -472,10 +462,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     requestedDate: created?.requestedDate || null,
     approvedDate: created?.approvedDate || null,
     duration: created?.duration || 60,
-    type: created?.type || "online",
     supervisorId: created.supervisorId || null,
     supervisorName: sup?.lecturer?.user?.fullName || null,
-    meetingUrl: created.meetingUrl || null,
     notes: created.studentNotes || null,
     supervisorFeedback: created.supervisorFeedback || null,
   };
@@ -483,7 +471,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
 }
 
 export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate, studentNotes, options = {}) {
-  const { type, duration, location } = options;
+  const { duration } = options;
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
   
@@ -541,9 +529,7 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
     approvedDate: null, // reset approved date
   };
   // Only update optional fields if provided
-  if (type !== undefined) updateData.type = type;
   if (duration !== undefined) updateData.duration = duration;
-  if (location !== undefined) updateData.location = location;
   
   const updated = await updateGuidanceById(guidance.id, updateData);
   await logThesisActivity(guidance.thesisId, userId, "reschedule-guidance", `New date ${guidanceDate.toISOString()}`, "guidance");
@@ -594,12 +580,9 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
     approvedDateFormatted: updated.approvedDate ? formatDateTimeJakarta(updated.approvedDate, { withDay: true }) : null,
     supervisorId: updated.supervisorId || null,
     supervisorName: null,
-    meetingUrl: updated.meetingUrl || null,
     notes: updated.studentNotes || null,
     supervisorFeedback: updated.supervisorFeedback || null,
-    type: updated.type || null,
     duration: updated.duration || null,
-    location: updated.location || null,
   };
   return { guidance: flat };
 }
@@ -637,8 +620,47 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
   
   // Log activity before deleting
   await logThesisActivity(guidance.thesisId, userId, "delete-guidance-request", reason || "", "guidance");
-  
-  // Delete the guidance record (no notifications needed)
+
+  // Get student name for notifications
+  const studentUser = await prisma.user.findUnique({ where: { id: userId } });
+  const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
+
+  // Send FCM notification to supervisor
+  try {
+    if (guidance.supervisor?.user?.id) {
+      const supervisorUserId = guidance.supervisor.user.id;
+      const dateStr = guidance.requestedDate
+        ? formatDateTimeJakarta(new Date(guidance.requestedDate), { withDay: true })
+        : "belum ditentukan";
+      
+      // Persist notification
+      await createNotificationsForUsers([supervisorUserId], {
+        title: "Pengajuan bimbingan dibatalkan",
+        message: `${studentName} membatalkan pengajuan bimbingan untuk ${dateStr}${reason ? `. Alasan: ${reason}` : ""}`,
+      });
+      
+      // Send FCM
+      const data = {
+        type: "thesis-guidance:cancelled",
+        role: ROLE_CATEGORY.LECTURER,
+        thesisId: String(guidance.thesisId),
+        studentName: String(studentName),
+        scheduledAt: guidance.requestedDate ? new Date(guidance.requestedDate).toISOString() : "",
+        reason: reason || "",
+        playSound: "true",
+      };
+      await sendFcmToUsers([supervisorUserId], {
+        title: "Pengajuan bimbingan dibatalkan",
+        body: `${studentName} membatalkan pengajuan untuk ${dateStr}`,
+        data,
+        dataOnly: true,
+      });
+    }
+  } catch (e) {
+    console.warn("FCM notify failed (guidance cancelled):", e?.message || e);
+  }
+
+  // Delete the guidance record
   await prisma.thesisGuidance.delete({
     where: { id: guidance.id }
   });
@@ -712,12 +734,9 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
     approvedDateFormatted: updated.approvedDate ? formatDateTimeJakarta(updated.approvedDate, { withDay: true }) : null,
     supervisorId: updated.supervisorId || null,
     supervisorName: null,
-    meetingUrl: updated.meetingUrl || null,
     notes: updated.studentNotes || null,
     supervisorFeedback: updated.supervisorFeedback || null,
-    type: updated.type || null,
     duration: updated.duration || null,
-    location: updated.location || null,
   };
   return { guidance: flat };
 }
@@ -784,9 +803,7 @@ export async function guidanceHistoryService(userId) {
     approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
     supervisorId: g.supervisorId || null,
     supervisorName: g?.supervisor?.user?.fullName || null,
-    type: g.type || null,
     duration: g.duration || null,
-    location: g.location || null,
     completedAt: g.completedAt || null,
   }));
   return { count: items.length, items };
@@ -933,10 +950,7 @@ export async function getGuidancesNeedingSummaryService(userId) {
       supervisorName: g.supervisor?.user?.fullName || null,
       approvedDate: g.approvedDate,
       approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
-      type: g.type,
       duration: g.duration,
-      location: g.location,
-      meetingUrl: g.meetingUrl,
       studentNotes: g.studentNotes,
       milestoneName: g.milestone?.title || null,
     })),
@@ -1136,10 +1150,7 @@ export async function getCompletedGuidanceHistoryService(userId) {
       approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
       completedAt: g.completedAt,
       completedAtFormatted: g.completedAt ? formatDateTimeJakarta(g.completedAt, { withDay: true }) : null,
-      type: g.type,
       duration: g.duration,
-      location: g.location,
-      meetingUrl: g.meetingUrl,
       studentNotes: g.studentNotes,
       sessionSummary: g.sessionSummary,
       actionItems: g.actionItems,
@@ -1180,9 +1191,7 @@ export async function getGuidanceForExportService(userId, guidanceId) {
       approvedDateFormatted: guidance.approvedDate ? formatDateTimeJakarta(guidance.approvedDate, { withDay: true }) : null,
       completedAt: guidance.completedAt,
       completedAtFormatted: guidance.completedAt ? formatDateTimeJakarta(guidance.completedAt, { withDay: true }) : null,
-      type: guidance.type,
       duration: guidance.duration,
-      location: guidance.location,
       // Content
       studentNotes: guidance.studentNotes,
       sessionSummary: guidance.sessionSummary,

@@ -853,6 +853,320 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 	};
 }
 
+// Get Student detail by ID
+export async function getStudentDetail(userId) {
+	if (!userId) {
+		const err = new Error("User ID is required");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		include: {
+			student: {
+				include: {
+					studentStatus: true,
+					thesis: {
+						include: {
+							thesisStatus: true,
+							thesisTopic: true,
+							thesisParticipants: {
+								include: {
+									lecturer: {
+										include: {
+											user: {
+												select: { id: true, fullName: true, email: true },
+											},
+										},
+									},
+									role: true,
+								},
+							},
+							thesisMilestones: {
+								orderBy: { createdAt: "asc" },
+								select: {
+									id: true,
+									title: true,
+									status: true,
+									targetDate: true,
+									completedAt: true,
+								},
+							},
+							thesisGuidances: {
+								orderBy: { createdAt: "desc" },
+								take: 10,
+								select: {
+									id: true,
+									status: true,
+									approvedDate: true,
+									completedAt: true,
+								},
+							},
+							thesisSeminars: {
+								include: {
+									schedule: {
+										include: {
+											room: true,
+										},
+									},
+									result: true,
+								},
+							},
+							thesisDefences: {
+								include: {
+									schedule: {
+										include: {
+											room: true,
+										},
+									},
+									status: true,
+									scores: true,
+								},
+							},
+						},
+					},
+				},
+			},
+			userHasRoles: {
+				include: {
+					role: true,
+				},
+			},
+		},
+	});
+
+	if (!user || !user.student) {
+		const err = new Error("Mahasiswa tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Transform thesis data
+	const theses = user.student.thesis.map((thesis) => {
+		const supervisors = thesis.thesisParticipants
+			.filter((tp) => isSupervisorRole(tp.role.name))
+			.map((tp) => ({
+				id: tp.lecturer.user.id,
+				role: tp.role.name,
+				fullName: tp.lecturer.user.fullName,
+				email: tp.lecturer.user.email,
+			}));
+
+		const examiners = thesis.thesisParticipants
+			.filter((tp) => tp.role.name.toLowerCase().includes("penguji"))
+			.map((tp) => ({
+				id: tp.lecturer.user.id,
+				role: tp.role.name,
+				fullName: tp.lecturer.user.fullName,
+				email: tp.lecturer.user.email,
+			}));
+
+		const completedMilestones = thesis.thesisMilestones.filter((m) => m.status === "completed").length;
+		const totalMilestones = thesis.thesisMilestones.length;
+		const milestoneProgress = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
+
+		const completedGuidances = thesis.thesisGuidances.filter((g) => g.status === "completed").length;
+		const totalGuidances = thesis.thesisGuidances.length;
+
+		return {
+			id: thesis.id,
+			title: thesis.title,
+			status: thesis.thesisStatus?.name || null,
+			topic: thesis.thesisTopic?.name || null,
+			startDate: thesis.startDate,
+			deadlineDate: thesis.deadlineDate,
+			supervisors,
+			examiners,
+			milestones: {
+				completed: completedMilestones,
+				total: totalMilestones,
+				progress: milestoneProgress,
+				items: thesis.thesisMilestones,
+			},
+			guidances: {
+				completed: completedGuidances,
+				total: totalGuidances,
+				recent: thesis.thesisGuidances,
+			},
+			seminars: thesis.thesisSeminars.map((s) => ({
+				id: s.id,
+				type: s.type,
+				status: s.status,
+				scheduledAt: s.schedule?.scheduledAt || null,
+				result: s.result?.status || null,
+				score: s.result?.score || null,
+			})),
+			defences: thesis.thesisDefences.map((d) => ({
+				id: d.id,
+				status: d.status,
+				scheduledAt: d.schedule?.scheduledAt || null,
+				result: d.result?.status || null,
+				score: d.result?.score || null,
+			})),
+		};
+	});
+
+	return {
+		id: user.id,
+		fullName: user.fullName,
+		email: user.email,
+		identityNumber: user.identityNumber,
+		identityType: user.identityType,
+		phoneNumber: user.phoneNumber,
+		isVerified: user.isVerified,
+		createdAt: user.createdAt,
+		student: {
+			enrollmentYear: user.student.enrollmentYear,
+			sksCompleted: user.student.skscompleted,
+			status: user.student.studentStatus?.name || null,
+		},
+		roles: user.userHasRoles.map((ur) => ({
+			id: ur.role.id,
+			name: ur.role.name,
+			status: ur.status,
+		})),
+		theses,
+	};
+}
+
+// Get Lecturer detail by ID
+export async function getLecturerDetail(userId) {
+	if (!userId) {
+		const err = new Error("User ID is required");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		include: {
+			lecturer: {
+				include: {
+					scienceGroup: true,
+					thesisParticipants: {
+						include: {
+							role: true,
+							thesis: {
+								include: {
+									thesisStatus: true,
+									student: {
+										include: {
+											user: {
+												select: { id: true, fullName: true, identityNumber: true },
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					thesisGuidances: {
+						where: { status: "accepted" },
+						orderBy: { approvedDate: "desc" },
+						take: 10,
+						include: {
+							thesis: {
+								include: {
+									student: {
+										include: {
+											user: {
+												select: { fullName: true, identityNumber: true },
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			userHasRoles: {
+				include: {
+					role: true,
+				},
+			},
+		},
+	});
+
+	if (!user || !user.lecturer) {
+		const err = new Error("Dosen tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Group thesis participations by role
+	const supervising = user.lecturer.thesisParticipants
+		.filter((tp) => isSupervisorRole(tp.role.name))
+		.map((tp) => ({
+			thesisId: tp.thesis.id,
+			title: tp.thesis.title,
+			status: tp.thesis.thesisStatus?.name || null,
+			role: tp.role.name,
+			student: {
+				id: tp.thesis.student.user.id,
+				fullName: tp.thesis.student.user.fullName,
+				nim: tp.thesis.student.user.identityNumber,
+			},
+		}));
+
+	const examining = user.lecturer.thesisParticipants
+		.filter((tp) => tp.role.name.toLowerCase().includes("penguji"))
+		.map((tp) => ({
+			thesisId: tp.thesis.id,
+			title: tp.thesis.title,
+			status: tp.thesis.thesisStatus?.name || null,
+			role: tp.role.name,
+			student: {
+				id: tp.thesis.student.user.id,
+				fullName: tp.thesis.student.user.fullName,
+				nim: tp.thesis.student.user.identityNumber,
+			},
+		}));
+
+	// Active vs completed supervising
+	const activeSupervising = supervising.filter((s) => !["Selesai", "Dibatalkan"].includes(s.status));
+	const completedSupervising = supervising.filter((s) => s.status === "Selesai");
+
+	// Recent guidances
+	const recentGuidances = user.lecturer.thesisGuidances.map((g) => ({
+		id: g.id,
+		approvedDate: g.approvedDate,
+		studentName: g.thesis?.student?.user?.fullName || null,
+		studentNim: g.thesis?.student?.user?.identityNumber || null,
+		thesisTitle: g.thesis?.title || null,
+	}));
+
+	return {
+		id: user.id,
+		fullName: user.fullName,
+		email: user.email,
+		identityNumber: user.identityNumber,
+		identityType: user.identityType,
+		phoneNumber: user.phoneNumber,
+		isVerified: user.isVerified,
+		createdAt: user.createdAt,
+		lecturer: {
+			scienceGroup: user.lecturer.scienceGroup?.name || null,
+		},
+		roles: user.userHasRoles.map((ur) => ({
+			id: ur.role.id,
+			name: ur.role.name,
+			status: ur.status,
+		})),
+		statistics: {
+			activeSupervising: activeSupervising.length,
+			completedSupervising: completedSupervising.length,
+			totalSupervising: supervising.length,
+			examining: examining.length,
+		},
+		supervising: activeSupervising,
+		completedSupervising,
+		examining,
+		recentGuidances,
+	};
+}
+
 
 
 

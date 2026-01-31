@@ -3,6 +3,7 @@ const { Queue, Worker } = pkg;
 import { ENV } from "../config/env.js";
 import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
+import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -103,6 +104,40 @@ export async function scheduleSiaSync() {
   }
 }
 
+/**
+ * Schedule daily guidance reminder job
+ * Default: every day at 07:00 WIB. Override via ENV.GUIDANCE_REMINDER_CRON
+ * Sends FCM notifications to students and lecturers who have guidance scheduled for today
+ */
+export async function scheduleGuidanceReminder() {
+  // Default: every day at 07:00 WIB
+  const pattern = ENV.GUIDANCE_REMINDER_CRON || "0 7 * * *";
+  const tz = ENV.GUIDANCE_REMINDER_TZ || "Asia/Jakarta";
+  
+  await maintenanceQueue.add(
+    "guidance-reminder",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: 50,
+      removeOnFail: 100,
+    }
+  );
+  console.log(`📅 Scheduled repeatable guidance reminder job with cron: "${pattern}" tz="${tz}"`);
+
+  try {
+    const repeats = await maintenanceQueue.getRepeatableJobs();
+    const jobInfo = repeats.find((r) => r.name === "guidance-reminder");
+    if (jobInfo) {
+      const nextIso = jobInfo.next ? new Date(jobInfo.next).toISOString() : "unknown";
+      const nextLocal = jobInfo.next ? new Date(jobInfo.next).toLocaleString() : "unknown";
+      console.log(`📌 Guidance reminder next run: ${nextIso} (local ${nextLocal}) key=${jobInfo.key || "n/a"}`);
+    }
+  } catch (e) {
+    // non-fatal
+  }
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -113,6 +148,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "sia-sync":
         await runSiaSync();
+        break;
+      case "guidance-reminder":
+        await runGuidanceReminderJob();
         break;
       default:
         // no-op

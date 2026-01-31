@@ -51,21 +51,6 @@ export const requestGuidanceSchema = z.object({
       return undefined;
     }, z.array(z.string().uuid("milestoneIds must contain valid UUIDs")).optional())
     .optional(),
-  // Allow empty string from multipart forms -> treat as undefined
-  meetingUrl: z
-    .any()
-    .transform((v) => {
-      if (typeof v !== "string") return undefined;
-      const raw = v.trim();
-      if (!raw) return undefined; // treat empty as undefined
-      // If the user omits protocol, assume https://
-      const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-      return withProtocol;
-    })
-    .refine((v) => v === undefined || isValidAbsoluteUrl(v), {
-      message: "meetingUrl must be a valid URL",
-    })
-    .optional(),
   // Optional document URL (Google Docs, Overleaf, Notion, etc.)
   documentUrl: z
     .any()

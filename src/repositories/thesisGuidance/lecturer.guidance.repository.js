@@ -122,7 +122,7 @@ export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 }
 
 // Schema baru: set approvedDate saat approve, support optional fields
-export async function approveGuidanceById(guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location } = {}) {
+export async function approveGuidanceById(guidanceId, { feedback, approvedDate, duration } = {}) {
 	// Get existing guidance to use requestedDate as fallback
 	const existing = await prisma.thesisGuidance.findUnique({
 		where: { id: guidanceId },
@@ -136,10 +136,7 @@ export async function approveGuidanceById(guidanceId, { feedback, meetingUrl, ap
 		supervisorFeedback: feedback ?? "APPROVED",
 	};
 	// Only set optional fields if provided
-	if (meetingUrl !== undefined) data.meetingUrl = meetingUrl;
-	if (type !== undefined) data.type = type;
 	if (duration !== undefined) data.duration = duration;
-	if (location !== undefined) data.location = location;
 	
 	return prisma.thesisGuidance.update({
 		where: { id: guidanceId },

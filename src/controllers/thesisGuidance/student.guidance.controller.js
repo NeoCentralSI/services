@@ -49,14 +49,11 @@ export async function requestGuidance(req, res, next) {
     const {
       guidanceDate,
       studentNotes,
-      meetingUrl,
       supervisorId,
       milestoneId,
       milestoneIds,
       documentUrl,
-      type,
       duration,
-      location,
     } = (req.validated ?? req.body ?? {});
     // Collect milestoneIds from both milestoneIds and milestoneIds[] form fields
     const rawMilestoneIds =
@@ -69,19 +66,14 @@ export async function requestGuidance(req, res, next) {
         : undefined;
     console.log("[requestGuidance] normalizedMilestoneIds:", normalizedMilestoneIds);
     const file = req.file || null;
-    if (!file) {
-      const err = new Error("Thesis file is required (field name: 'file')");
-      err.statusCode = 400;
-      throw err;
-    }
+    // File is optional - student can use previously uploaded file
     const result = await requestGuidanceService(
       req.user.sub,
       guidanceDate,
       studentNotes,
       file,
-      meetingUrl,
       supervisorId,
-      { type, duration, location, milestoneId, milestoneIds: normalizedMilestoneIds, documentUrl }
+      { duration, milestoneId, milestoneIds: normalizedMilestoneIds, documentUrl }
     );
     res.status(201).json({ success: true, ...result });
   } catch (err) {

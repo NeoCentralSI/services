@@ -19,24 +19,29 @@ function isPembimbing2(roleName) {
 /**
  * Get all milestone templates
  */
-export function findAllTemplates(isActive = true) {
+export function findAllTemplates(isActive = true, topicId = null) {
   const where = {};
   if (isActive !== null) {
     where.isActive = isActive;
   }
+  if (topicId) {
+    where.topicId = topicId;
+  }
   return prisma.thesisMilestoneTemplate.findMany({
     where,
     orderBy: { orderIndex: "asc" },
+    include: { topic: true },
   });
 }
 
 /**
- * Get templates by category
+ * Get templates by topic
  */
-export function findTemplatesByCategory(category, isActive = true) {
+export function findTemplatesByTopic(topicId, isActive = true) {
   return prisma.thesisMilestoneTemplate.findMany({
-    where: { category, isActive },
+    where: { topicId, isActive },
     orderBy: { orderIndex: "asc" },
+    include: { topic: true },
   });
 }
 
@@ -46,6 +51,7 @@ export function findTemplatesByCategory(category, isActive = true) {
 export function findTemplateById(id) {
   return prisma.thesisMilestoneTemplate.findUnique({
     where: { id },
+    include: { topic: true },
   });
 }
 
@@ -78,15 +84,33 @@ export function deleteTemplate(id) {
 }
 
 /**
+ * Bulk delete templates
+ */
+export function deleteTemplatesMany(ids) {
+  return prisma.thesisMilestoneTemplate.deleteMany({
+    where: { id: { in: ids } },
+  });
+}
+
+/**
  * Get max order index for templates
  */
-export async function getMaxTemplateOrderIndex(category = null) {
-  const where = category ? { category } : {};
+export async function getMaxTemplateOrderIndex(topicId = null) {
+  const where = topicId ? { topicId } : {};
   const result = await prisma.thesisMilestoneTemplate.aggregate({
     where,
     _max: { orderIndex: true },
   });
   return result._max.orderIndex ?? -1;
+}
+
+/**
+ * Get all thesis topics
+ */
+export function findAllTopics() {
+  return prisma.thesisTopic.findMany({
+    orderBy: { name: "asc" },
+  });
 }
 
 // ============================================

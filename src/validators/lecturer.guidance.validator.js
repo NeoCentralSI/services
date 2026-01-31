@@ -11,7 +11,6 @@ export const rejectGuidanceSchema = z.object({
 
 export const approveGuidanceSchema = z.object({
   feedback: z.string().optional(),
-  meetingUrl: z.string().url().optional().or(z.literal("")),
 });
 
 export const approveComponentsSchema = z.object({

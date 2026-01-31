@@ -89,8 +89,8 @@ export async function rejectGuidance(req, res, next) {
 export async function approveGuidance(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
-		const { feedback, meetingUrl, approvedDate, type, duration, location } = req.body || {};
-		const result = await approveGuidanceService(req.user.sub, guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location });
+		const { feedback, approvedDate, duration } = req.body || {};
+		const result = await approveGuidanceService(req.user.sub, guidanceId, { feedback, approvedDate, duration });
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -242,4 +242,6 @@ export async function guidanceDetail(req, res, next) {
 		next(err);
 	}
 }
+
+
 

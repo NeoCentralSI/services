@@ -98,10 +98,50 @@ export const updateMilestoneSchema = z.object({
 // Create from Templates Schema
 // ============================================
 
+// ============================================
+// Create Milestone by Supervisor Schema
+// ============================================
+
+export const createMilestoneBySupervisorSchema = z.object({
+  title: z
+    .string()
+    .min(1, "Title is required")
+    .max(255, "Title must be less than 255 characters"),
+  description: z
+    .string()
+    .max(5000, "Description must be less than 5000 characters")
+    .optional()
+    .nullable(),
+  targetDate: z
+    .any()
+    .transform((v) => {
+      if (!v) return null;
+      if (v instanceof Date) return v;
+      if (typeof v === "string" || typeof v === "number") {
+        const d = new Date(v);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    })
+    .optional()
+    .nullable(),
+  orderIndex: z.number().int().min(0).optional(),
+  supervisorNotes: z
+    .string()
+    .max(5000, "Supervisor notes must be less than 5000 characters")
+    .optional()
+    .nullable(),
+});
+
 export const createFromTemplatesSchema = z.object({
   templateIds: z
     .array(z.string().uuid("Template ID must be a valid UUID"))
     .min(1, "At least one template ID is required"),
+  topicId: z
+    .string()
+    .uuid("Topic ID must be a valid UUID")
+    .optional()
+    .nullable(),
   startDate: z
     .any()
     .transform((v) => {
@@ -237,9 +277,9 @@ export const createTemplateSchema = z.object({
     .max(5000, "Description must be less than 5000 characters")
     .optional()
     .nullable(),
-  category: z
+  topicId: z
     .string()
-    .max(100, "Category must be less than 100 characters")
+    .uuid("Topic ID must be a valid UUID")
     .optional()
     .nullable(),
   orderIndex: z.number().int().min(0).optional(),
@@ -257,13 +297,19 @@ export const updateTemplateSchema = z.object({
     .max(5000, "Description must be less than 5000 characters")
     .optional()
     .nullable(),
-  category: z
+  topicId: z
     .string()
-    .max(100, "Category must be less than 100 characters")
+    .uuid("Topic ID must be a valid UUID")
     .optional()
     .nullable(),
   orderIndex: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
+});
+
+export const bulkDeleteTemplatesSchema = z.object({
+  templateIds: z
+    .array(z.string().uuid("Template ID must be a valid UUID"))
+    .min(1, "Pilih minimal satu template untuk dihapus"),
 });
 
 // ============================================

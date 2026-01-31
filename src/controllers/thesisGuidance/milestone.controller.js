@@ -10,8 +10,8 @@ import * as milestoneService from "../../services/thesisGuidance/milestone.servi
  */
 export async function getTemplates(req, res, next) {
   try {
-    const { category } = req.query;
-    const templates = await milestoneService.getTemplates(category);
+    const { topicId } = req.query;
+    const templates = await milestoneService.getTemplates(topicId);
     res.json({
       success: true,
       data: templates,
@@ -22,15 +22,31 @@ export async function getTemplates(req, res, next) {
 }
 
 /**
+ * GET /milestone-templates/topics
+ * Get thesis topics for template filtering
+ */
+export async function getTopics(req, res, next) {
+  try {
+    const topics = await milestoneService.getTopics();
+    res.json({
+      success: true,
+      data: topics,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /milestone-templates/categories
- * Get template categories
+ * Get template topics with count
  */
 export async function getTemplateCategories(req, res, next) {
   try {
-    const categories = await milestoneService.getTemplateCategories();
+    const topics = await milestoneService.getTemplateTopics();
     res.json({
       success: true,
-      data: categories,
+      data: topics,
     });
   } catch (err) {
     next(err);
@@ -97,17 +113,37 @@ export async function createMilestone(req, res, next) {
 }
 
 /**
+ * POST /thesis/:thesisId/milestones/by-supervisor
+ * Create new milestone by supervisor for student
+ */
+export async function createMilestoneBySupervisor(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const data = req.validated ?? req.body;
+    const milestone = await milestoneService.createMilestoneBySupervisor(thesisId, req.user.sub, data);
+    res.status(201).json({
+      success: true,
+      message: "Milestone berhasil dibuat untuk mahasiswa",
+      data: milestone,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * POST /thesis/:thesisId/milestones/from-templates
  * Create milestones from templates (bulk)
  */
 export async function createFromTemplates(req, res, next) {
   try {
     const { thesisId } = req.params;
-    const { templateIds, startDate } = req.validated ?? req.body;
+    const { templateIds, topicId, startDate } = req.validated ?? req.body;
     const result = await milestoneService.createMilestonesFromTemplates(
       thesisId,
       req.user.sub,
       templateIds,
+      topicId,
       startDate
     );
     res.status(201).json({
@@ -464,6 +500,24 @@ export async function deleteTemplate(req, res, next) {
     res.json({
       success: true,
       message: result.message,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * DELETE /templates/bulk
+ * Bulk delete templates (Sekretaris Departemen only)
+ */
+export async function bulkDeleteTemplates(req, res, next) {
+  try {
+    const { templateIds } = req.body;
+    const result = await milestoneService.bulkDeleteTemplates(req.user.sub, templateIds);
+    res.json({
+      success: true,
+      message: result.message,
+      count: result.count,
     });
   } catch (err) {
     next(err);

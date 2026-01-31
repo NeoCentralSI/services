@@ -250,6 +250,7 @@ model ThesisTopic {
   id              String   @id @default(uuid())
   name            String
   thesis          Thesis[]
+  milestoneTemplates ThesisMilestoneTemplate[]
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -284,11 +285,14 @@ model ThesisMilestoneTemplate {
   id          String   @id @default(uuid())
   name        String
   description String?  @db.Text
-  category    String?  // Kategori: "penelitian", "penulisan", "implementasi", dll
+  topicId     String?  @map("topic_id") // Relasi ke ThesisTopic
   orderIndex  Int      @default(0) @map("order_index")
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  topic       ThesisTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
   @@map("thesis_milestone_templates")
 }
@@ -367,9 +371,6 @@ model ThesisGuidance {
   requestedDate     DateTime @map("requested_date") // Tanggal/waktu yang diminta mahasiswa
   approvedDate      DateTime? @map("approved_date") // Tanggal/waktu yang disetujui dosen
   duration          Int      @default(60) // Durasi dalam menit
-  type              GuidanceType @default(online) // online/offline
-  location          String?  // Lokasi jika offline
-  meetingUrl        String?  @map("meeting_url") // Link meeting jika online
   documentUrl       String?  @map("document_url") // Link dokumen yang akan dibahas (Google Docs, Overleaf, dll)
   
   // Notes & feedback
@@ -947,11 +948,6 @@ enum GuidanceStatus {
   summary_pending  // Mahasiswa sudah submit summary, menunggu approval dosen
   completed
   cancelled
-}
-
-enum GuidanceType {
-  online
-  offline
 }
 
 enum ExaminerEventType {

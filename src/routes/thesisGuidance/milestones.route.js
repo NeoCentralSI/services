@@ -17,8 +17,14 @@ const router = express.Router();
 router.get("/templates", authGuard, controller.getTemplates);
 
 /**
+ * GET /api/milestones/templates/topics
+ * Get thesis topics for template filtering
+ */
+router.get("/templates/topics", authGuard, controller.getTopics);
+
+/**
  * GET /api/milestone-templates/categories
- * Get template categories
+ * Get template topics with count (legacy endpoint name)
  */
 router.get("/templates/categories", authGuard, controller.getTemplateCategories);
 
@@ -48,6 +54,17 @@ router.patch(
   authGuard,
   validate(validator.updateTemplateSchema),
   controller.updateTemplate
+);
+
+/**
+ * DELETE /api/milestones/templates/bulk
+ * Bulk delete templates (Sekretaris Departemen only)
+ */
+router.delete(
+  "/templates/bulk",
+  authGuard,
+  validate(validator.bulkDeleteTemplatesSchema),
+  controller.bulkDeleteTemplates
 );
 
 /**
@@ -88,6 +105,17 @@ router.post(
   authGuard,
   validate(validator.createMilestoneSchema),
   controller.createMilestone
+);
+
+/**
+ * POST /api/milestones/thesis/:thesisId/by-supervisor
+ * Create milestone for student (supervisor only)
+ */
+router.post(
+  "/thesis/:thesisId/by-supervisor",
+  authGuard,
+  validate(validator.createMilestoneBySupervisorSchema),
+  controller.createMilestoneBySupervisor
 );
 
 /**

@@ -7,6 +7,7 @@ import {
   getFilterOptions,
   getAtRiskStudents,
   getStudentsReadyForSeminar,
+  getThesisDetail,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
 
 const router = express.Router();
@@ -30,5 +31,8 @@ router.get("/at-risk", getAtRiskStudents);
 
 // Students ready for seminar
 router.get("/ready-seminar", getStudentsReadyForSeminar);
+
+// Thesis detail by ID
+router.get("/theses/:thesisId", getThesisDetail);
 
 export default router;

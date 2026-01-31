@@ -1,4 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers } from "../services/adminfeatures.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail } from "../services/adminfeatures.service.js";
 
 export async function importStudentsCsv(req, res, next) {
 	try {
@@ -117,6 +117,26 @@ export async function getLecturersController(req, res, next) {
 		const search = req.query.search || "";
 		const result = await getLecturers({ page, pageSize, search });
 		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getStudentDetailController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const result = await getStudentDetail(id);
+		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getLecturerDetailController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const result = await getLecturerDetail(id);
+		res.status(200).json({ success: true, data: result });
 	} catch (err) {
 		next(err);
 	}

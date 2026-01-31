@@ -452,7 +452,6 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
     guidance: {
       scheduledDate: guidance.scheduledDate,
       duration: guidance.duration,
-      type: guidance.type,
     },
     student: { userId: student.userId, fullName: student.fullName, email: student.email },
     supervisor: { userId: supervisor.userId, fullName: supervisor.fullName, email: supervisor.email },
@@ -490,24 +489,12 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
   if (guidance.studentNotes) {
     supervisorBody.push(`Agenda: ${guidance.studentNotes}`);
   }
-  if (guidance.meetingUrl) {
-    supervisorBody.push(`Link: ${guidance.meetingUrl}`);
-  }
-  if (guidance.location) {
-    supervisorBody.push(`Lokasi: ${guidance.location}`);
-  }
 
   // Build clean event description for student
   let studentBody = [];
   studentBody.push(`Pembimbing: ${supervisor.fullName}`);
   if (guidance.studentNotes) {
     studentBody.push(`Agenda: ${guidance.studentNotes}`);
-  }
-  if (guidance.meetingUrl) {
-    studentBody.push(`Link: ${guidance.meetingUrl}`);
-  }
-  if (guidance.location) {
-    studentBody.push(`Lokasi: ${guidance.location}`);
   }
 
   // Create event for SUPERVISOR (if connected to Microsoft)
@@ -521,7 +508,7 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
         body: supervisorBody.join('\n'),
         startTime,
         endTime,
-        location: guidance.location || null,
+        location: null,
         attendees: [],
       });
       results.supervisorEventId = supervisorEvent.eventId;
@@ -542,7 +529,7 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
         body: studentBody.join('\n'),
         startTime,
         endTime,
-        location: guidance.location || null,
+        location: null,
         attendees: [],
       });
       results.studentEventId = studentEvent.eventId;
@@ -575,7 +562,6 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
       approvedDate: guidance.approvedDate,
       requestedDate: guidance.requestedDate,
       duration: guidance.duration,
-      type: guidance.type,
     },
     student: { userId: student.userId, fullName: student.fullName, email: student.email },
     supervisor: { userId: supervisor.userId, fullName: supervisor.fullName, email: supervisor.email },
@@ -609,15 +595,11 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
       <p>Mahasiswa: ${student.fullName}</p>
       <p>Pembimbing: ${supervisor.fullName}</p>
       ${guidance.studentNotes ? `<p>Catatan: ${guidance.studentNotes}</p>` : ""}
-      ${guidance.meetingUrl ? `<p>Link Meeting: <a href="${guidance.meetingUrl}">${guidance.meetingUrl}</a></p>` : ""}
-      ${guidance.location ? `<p>Lokasi: ${guidance.location}</p>` : ""}
-      ${guidance.type ? `<p>Tipe: ${guidance.type === 'online' ? 'Online' : 'Offline'}</p>` : ""}
     `,
     startTime,
     endTime,
-    meetingUrl: guidance.meetingUrl,
-    isOnlineMeeting: !!guidance.meetingUrl || guidance.type === 'online',
-    location: guidance.location,
+    isOnlineMeeting: false,
+    location: null,
   };
 
   // Create event for supervisor (if connected to Microsoft)

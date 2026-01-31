@@ -1,7 +1,7 @@
 import app from "./app.js";
 import { ENV } from "./config/env.js";
 import { initConnections } from "./config/db.js";
-import { scheduleDailyThesisStatus, scheduleSiaSync } from "./queues/maintenance.queue.js";
+import { scheduleDailyThesisStatus, scheduleSiaSync, scheduleGuidanceReminder } from "./queues/maintenance.queue.js";
 // removed password queue worker; using user-initiated account activation instead
 
 const PORT = ENV.PORT || 3000;
@@ -13,6 +13,8 @@ async function startServer() {
     await scheduleDailyThesisStatus();
     // Schedule SIA sync job (if enabled)
     await scheduleSiaSync();
+    // Schedule daily guidance reminder
+    await scheduleGuidanceReminder();
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running at http://localhost:${PORT}`);
     });

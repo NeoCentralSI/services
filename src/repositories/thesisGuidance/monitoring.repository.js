@@ -374,3 +374,115 @@ export async function getAllSupervisors() {
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Get detailed thesis information by thesis ID for monitoring
+ */
+export async function getThesisDetailById(thesisId) {
+  return prisma.thesis.findUnique({
+    where: { id: thesisId },
+    include: {
+      student: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              identityNumber: true,
+              phoneNumber: true,
+            },
+          },
+        },
+      },
+      thesisStatus: true,
+      thesisTopic: true,
+      academicYear: true,
+      thesisParticipants: {
+        include: {
+          lecturer: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          role: true,
+        },
+      },
+      thesisMilestones: {
+        orderBy: { targetDate: "asc" },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          progressPercentage: true,
+          targetDate: true,
+          completedAt: true,
+          updatedAt: true,
+        },
+      },
+      thesisGuidances: {
+        orderBy: { createdAt: "desc" },
+        take: 15,
+        select: {
+          id: true,
+          status: true,
+          studentNotes: true,
+          approvedDate: true,
+          completedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      thesisSeminars: {
+        include: {
+          schedule: {
+            include: {
+              room: true,
+            },
+          },
+          result: true,
+          scores: {
+            include: {
+              scorer: {
+                include: {
+                  user: {
+                    select: { fullName: true },
+                  },
+                },
+              },
+              rubricDetail: true,
+            },
+          },
+        },
+      },
+      thesisDefences: {
+        include: {
+          schedule: {
+            include: {
+              room: true,
+            },
+          },
+          status: true,
+          scores: {
+            include: {
+              scorer: {
+                include: {
+                  user: {
+                    select: { fullName: true },
+                  },
+                },
+              },
+              rubricDetail: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}

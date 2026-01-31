@@ -102,22 +102,31 @@ async function getMilestoneWithAccess(milestoneId, userId) {
 /**
  * Get all milestone templates
  */
-export async function getTemplates(category = null) {
-  if (category) {
-    return milestoneRepo.findTemplatesByCategory(category, true);
+export async function getTemplates(topicId = null) {
+  if (topicId) {
+    return milestoneRepo.findTemplatesByTopic(topicId, true);
   }
   return milestoneRepo.findAllTemplates(true);
 }
 
 /**
- * Get template categories
+ * Get all thesis topics for template filtering
  */
-export async function getTemplateCategories() {
+export async function getTopics() {
+  return milestoneRepo.findAllTopics();
+}
+
+/**
+ * Get template topics (with count)
+ */
+export async function getTemplateTopics() {
   const templates = await milestoneRepo.findAllTemplates(true);
-  const categories = [...new Set(templates.map((t) => t.category).filter(Boolean))];
-  return categories.map((cat) => ({
-    name: cat,
-    count: templates.filter((t) => t.category === cat).length,
+  const topics = await milestoneRepo.findAllTopics();
+  
+  return topics.map((topic) => ({
+    id: topic.id,
+    name: topic.name,
+    count: templates.filter((t) => t.topicId === topic.id).length,
   }));
 }
 
@@ -166,12 +175,12 @@ export async function getTemplateById(templateId) {
 export async function createTemplate(userId, data) {
   await checkSekretarisDepartemen(userId);
 
-  const maxOrder = await milestoneRepo.getMaxTemplateOrderIndex(data.category);
+  const maxOrder = await milestoneRepo.getMaxTemplateOrderIndex(data.topicId);
 
   const templateData = {
     name: data.name,
     description: data.description || null,
-    category: data.category || null,
+    topicId: data.topicId || null,
     orderIndex: data.orderIndex ?? maxOrder + 1,
     isActive: data.isActive ?? true,
   };
@@ -193,7 +202,7 @@ export async function updateTemplate(userId, templateId, data) {
   const updateData = {};
   if (data.name !== undefined) updateData.name = data.name;
   if (data.description !== undefined) updateData.description = data.description;
-  if (data.category !== undefined) updateData.category = data.category;
+  if (data.topicId !== undefined) updateData.topicId = data.topicId;
   if (data.orderIndex !== undefined) updateData.orderIndex = data.orderIndex;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
@@ -213,6 +222,24 @@ export async function deleteTemplate(userId, templateId) {
 
   await milestoneRepo.deleteTemplate(templateId);
   return { success: true, message: "Template berhasil dihapus" };
+}
+
+/**
+ * Bulk delete milestone templates (Sekretaris Departemen only)
+ */
+export async function bulkDeleteTemplates(userId, templateIds) {
+  await checkSekretarisDepartemen(userId);
+
+  if (!Array.isArray(templateIds) || templateIds.length === 0) {
+    throw createError("Pilih minimal satu template untuk dihapus");
+  }
+
+  const result = await milestoneRepo.deleteTemplatesMany(templateIds);
+  return { 
+    success: true, 
+    count: result.count,
+    message: `${result.count} template berhasil dihapus` 
+  };
 }
 
 // ============================================
@@ -268,9 +295,57 @@ export async function createMilestone(thesisId, userId, data) {
 }
 
 /**
+ * Create new milestone by supervisor for student
+ */
+export async function createMilestoneBySupervisor(thesisId, userId, data) {
+  const { thesis, isSupervisor } = await getThesisWithAccess(thesisId, userId, false);
+
+  if (!isSupervisor) {
+    throw forbidden("Hanya dosen pembimbing yang dapat membuat milestone untuk mahasiswa");
+  }
+
+  // Get next order index
+  const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId);
+
+  const milestoneData = {
+    thesisId,
+    title: data.title,
+    description: data.description || null,
+    orderIndex: data.orderIndex ?? maxOrder + 1,
+    targetDate: data.targetDate ? new Date(data.targetDate) : null,
+    status: "not_started",
+    progressPercentage: 0,
+    supervisorNotes: data.supervisorNotes || null,
+  };
+
+  const milestone = await milestoneRepo.createWithLog(milestoneData, userId);
+
+  // Send FCM notification to student
+  const studentUserId = thesis.student?.user?.id;
+  const supervisorName = thesis.thesisParticipants.find(
+    (p) => p.lecturer?.user?.id === userId
+  )?.lecturer?.user?.fullName || "Dosen Pembimbing";
+
+  if (studentUserId) {
+    await sendFcmToUsers([studentUserId], {
+      title: "Milestone Baru dari Pembimbing",
+      body: `${supervisorName} menambahkan milestone baru: "${data.title}"`,
+    });
+
+    await createNotification({
+      userId: studentUserId,
+      title: "Milestone Baru dari Pembimbing",
+      message: `${supervisorName} menambahkan milestone baru: "${data.title}"`,
+    });
+  }
+
+  return milestone;
+}
+
+/**
  * Create milestones from templates (bulk create)
  */
-export async function createMilestonesFromTemplates(thesisId, userId, templateIds, startDate = null) {
+export async function createMilestonesFromTemplates(thesisId, userId, templateIds, topicId = null, startDate = null) {
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
 
   // Check if thesis already has milestones
@@ -287,6 +362,20 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   const validTemplates = templates.filter(Boolean);
   if (validTemplates.length === 0) {
     throw createError("Tidak ada template valid yang ditemukan");
+  }
+
+  // If topicId provided, update thesis topic
+  if (topicId) {
+    // Verify topic exists
+    const topic = await prisma.thesisTopic.findUnique({ where: { id: topicId } });
+    if (!topic) {
+      throw createError("Topic tugas akhir tidak ditemukan");
+    }
+    // Update thesis topic
+    await prisma.thesis.update({
+      where: { id: thesisId },
+      data: { thesisTopicId: topicId },
+    });
   }
 
   // Sort by orderIndex
@@ -469,6 +558,37 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     performedBy: userId,
     notes: `Progress diperbarui dari ${previousProgress}% ke ${progressPercentage}%`,
   });
+
+  // Send FCM notification to supervisors when progress reaches 100%
+  if (progressPercentage === 100 && previousProgress < 100) {
+    const { thesis } = await getMilestoneWithAccess(milestoneId, userId);
+    const supervisors = thesis.thesisParticipants.filter((p) =>
+      isSupervisorRole(p.role?.name)
+    );
+    const supervisorUserIds = supervisors
+      .map((p) => p.lecturer?.user?.id)
+      .filter(Boolean);
+
+    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+    const milestoneTitle = updated.title || "Milestone";
+
+    if (supervisorUserIds.length > 0) {
+      // Send FCM notification
+      await sendFcmToUsers(supervisorUserIds, {
+        title: "Milestone Selesai 100%",
+        body: `${studentName} telah menyelesaikan milestone "${milestoneTitle}"`,
+      });
+
+      // Create in-app notifications
+      for (const supervisorUserId of supervisorUserIds) {
+        await createNotification({
+          userId: supervisorUserId,
+          title: "Milestone Selesai 100%",
+          message: `${studentName} telah menyelesaikan milestone "${milestoneTitle}"`,
+        });
+      }
+    }
+  }
 
   return { ...updated, statusUpdated: statusUpdate };
 }

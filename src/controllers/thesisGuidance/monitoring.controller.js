@@ -93,3 +93,20 @@ export async function getStudentsReadyForSeminar(req, res, next) {
     next(error);
   }
 }
+
+/**
+ * Get thesis detail by ID
+ * @route GET /api/thesis-guidance/monitoring/theses/:thesisId
+ */
+export async function getThesisDetail(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const data = await monitoringService.getThesisDetail(thesisId);
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}

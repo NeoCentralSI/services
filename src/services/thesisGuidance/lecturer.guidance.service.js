@@ -28,7 +28,7 @@ import { ROLE_CATEGORY, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
-import { createGuidanceCalendarEvent } from "../outlook-calendar.service.js";
+import { createGuidanceCalendarEvent, deleteCalendarEvent } from "../outlook-calendar.service.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 
@@ -54,7 +54,6 @@ function toFlatGuidance(g) {
 		requestedDateFormatted: g.requestedDate ? formatDateTimeJakarta(g.requestedDate, { withDay: true }) : null,
 		approvedDate: g.approvedDate || null,
 		approvedDateFormatted: g.approvedDate ? formatDateTimeJakarta(g.approvedDate, { withDay: true }) : null,
-		meetingUrl: g.meetingUrl || null,
 		documentUrl: g.documentUrl || null, // Link dokumen yang akan dibahas
 		notes: g.studentNotes || null,
 		studentNotes: g.studentNotes || null, // Alias for clarity
@@ -68,9 +67,7 @@ function toFlatGuidance(g) {
 		// alias for UI compatibility
 		requestedAt: g.createdAt || null,
 		// New fields
-		type: g.type || null,
 		duration: g.duration || null,
-		location: g.location || null,
 		completedAt: g.completedAt || null,
 		rejectionReason: g.rejectionReason || null,
 		// Milestone info
@@ -300,7 +297,7 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 	return { guidance: toFlatGuidance({ ...fresh, milestoneTitles: titles }) };
 }
 
-export async function approveGuidanceService(userId, guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location } = {}) {
+export async function approveGuidanceService(userId, guidanceId, { feedback, approvedDate, duration } = {}) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
@@ -309,7 +306,7 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 		err.statusCode = 404;
 		throw err;
 	}
-	const updated = await approveGuidanceById(guidanceId, { feedback, meetingUrl, approvedDate, type, duration, location });
+	const updated = await approveGuidanceById(guidanceId, { feedback, approvedDate, duration });
 	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_APPROVED", feedback || undefined, "approval");
 	
 	// Sync to Outlook Calendar - Create events for both supervisor and student
@@ -325,10 +322,7 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 				{
 					scheduledDate: scheduledDate,
 					studentNotes: updated.studentNotes,
-					meetingUrl: meetingUrl || updated.meetingUrl,
 					duration: updated.duration,
-					location: updated.location,
-					type: updated.type,
 				},
 				{
 					userId: studentUser.id,
@@ -368,11 +362,10 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, mee
 				? formatDateTimeJakarta(new Date(updated.approvedDate), { withDay: true })
 				: "";
 			const dateInfo = scheduleDateStr ? ` pada ${scheduleDateStr}` : "";
-			const meetingInfo = meetingUrl ? `\nLink Meeting: ${meetingUrl}` : "";
 			
 			await createNotificationsForUsers([studentUserId], {
 				title: "Bimbingan Disetujui",
-				message: `${lecturerName} menyetujui permintaan bimbingan${dateInfo}${meetingInfo}`,
+				message: `${lecturerName} menyetujui permintaan bimbingan${dateInfo}`,
 			});
 			
 			await sendFcmToUsers([studentUserId], {
@@ -597,6 +590,28 @@ export async function approveSessionSummaryService(userId, guidanceId) {
 
 	const updated = await approveSessionSummary(guidanceId);
 
+	// Delete calendar events for both student and lecturer
+	const studentUserId = updated.thesis?.student?.user?.id;
+	const supervisorUserId = updated.supervisor?.user?.id;
+
+	// Delete student's calendar event
+	if (studentUserId && updated.studentCalendarEventId) {
+		try {
+			await deleteCalendarEvent(studentUserId, updated.studentCalendarEventId);
+		} catch (e) {
+			console.warn("Failed to delete student calendar event:", e?.message || e);
+		}
+	}
+
+	// Delete supervisor's calendar event
+	if (supervisorUserId && updated.supervisorCalendarEventId) {
+		try {
+			await deleteCalendarEvent(supervisorUserId, updated.supervisorCalendarEventId);
+		} catch (e) {
+			console.warn("Failed to delete supervisor calendar event:", e?.message || e);
+		}
+	}
+
 	// Log activity
 	await logThesisActivity(
 		updated.thesisId,
@@ -607,7 +622,6 @@ export async function approveSessionSummaryService(userId, guidanceId) {
 	);
 
 	// Send notification to student
-	const studentUserId = updated.thesis?.student?.user?.id;
 	if (studentUserId) {
 		const lecturerName = toTitleCaseName(lecturer.user?.fullName || updated.supervisor?.user?.fullName || "Dosen");
 		
@@ -698,10 +712,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 			? formatDateTimeJakarta(guidance.completedAt, { withDay: true })
 			: null,
 		// Session details
-		type: guidance.type || "online",
 		duration: guidance.duration || 60,
-		location: guidance.location || null,
-		meetingUrl: guidance.meetingUrl || null,
 		documentUrl: guidance.documentUrl || null,
 		// Notes
 		studentNotes: guidance.studentNotes || null,

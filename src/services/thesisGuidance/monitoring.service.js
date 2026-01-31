@@ -159,3 +159,148 @@ export async function getStudentsReadyForSeminarFull(academicYear) {
     approvedAt: t.seminarReadyApprovedAt,
   }));
 }
+
+/**
+ * Get detailed thesis information by thesis ID for monitoring
+ */
+export async function getThesisDetail(thesisId) {
+  const thesis = await monitoringRepository.getThesisDetailById(thesisId);
+
+  if (!thesis) {
+    const err = new Error("Tugas akhir tidak ditemukan");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Calculate milestone progress
+  const milestones = thesis.thesisMilestones || [];
+  const completedMilestones = milestones.filter((m) => m.status === "completed").length;
+  const totalMilestones = milestones.length;
+  const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
+
+  // Get last activity
+  let lastActivity = thesis.createdAt;
+  if (milestones.length > 0) {
+    const sortedMilestones = [...milestones].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    lastActivity = sortedMilestones[0].updatedAt;
+  }
+
+  // Separate supervisors and examiners
+  const supervisors = thesis.thesisParticipants
+    .filter((p) => p.role?.name?.includes("Pembimbing"))
+    .map((p) => ({
+      id: p.lecturer?.user?.id,
+      name: p.lecturer?.user?.fullName,
+      email: p.lecturer?.user?.email,
+      role: p.role?.name,
+    }));
+
+  const examiners = thesis.thesisParticipants
+    .filter((p) => p.role?.name?.toLowerCase().includes("penguji"))
+    .map((p) => ({
+      id: p.lecturer?.user?.id,
+      name: p.lecturer?.user?.fullName,
+      email: p.lecturer?.user?.email,
+      role: p.role?.name,
+    }));
+
+  // Format seminars
+  const seminars = thesis.thesisSeminars.map((s) => ({
+    id: s.id,
+    status: s.status,
+    result: s.result?.name || null,
+    scheduledAt: s.schedule?.startTime || null,
+    endTime: s.schedule?.endTime || null,
+    room: s.schedule?.room?.name || null,
+    scores: s.scores.map((sc) => ({
+      scorerName: sc.scorer?.user?.fullName,
+      rubric: sc.rubricDetail?.name || null,
+      score: sc.score,
+    })),
+    averageScore: s.scores.length > 0 
+      ? Math.round(s.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / s.scores.length) 
+      : null,
+  }));
+
+  // Format defences
+  const defences = thesis.thesisDefences.map((d) => ({
+    id: d.id,
+    status: d.status?.name || null,
+    scheduledAt: d.schedule?.startTime || null,
+    endTime: d.schedule?.endTime || null,
+    room: d.schedule?.room?.name || null,
+    scores: d.scores.map((sc) => ({
+      scorerName: sc.scorer?.user?.fullName,
+      rubric: sc.rubricDetail?.name || null,
+      score: sc.score,
+    })),
+    averageScore: d.scores.length > 0 
+      ? Math.round(d.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / d.scores.length) 
+      : null,
+  }));
+
+  // Format guidances
+  const guidances = thesis.thesisGuidances.map((g) => ({
+    id: g.id,
+    status: g.status,
+    topic: g.studentNotes,
+    approvedDate: g.approvedDate,
+    completedAt: g.completedAt,
+    createdAt: g.createdAt,
+  }));
+
+  // Calculate guidance stats
+  const completedGuidances = guidances.filter((g) => g.status === "completed").length;
+  const pendingGuidances = guidances.filter((g) => g.status === "approved" || g.status === "pending").length;
+
+  return {
+    id: thesis.id,
+    title: thesis.title,
+    status: thesis.thesisStatus?.name || null,
+    topic: thesis.thesisTopic?.name || null,
+    academicYear: thesis.academicYear
+      ? `${thesis.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${thesis.academicYear.year}`
+      : null,
+    startDate: thesis.startDate,
+    deadlineDate: thesis.deadlineDate,
+    createdAt: thesis.createdAt,
+    lastActivity,
+    seminarApproval: {
+      supervisor1: thesis.seminarReadyApprovedBySupervisor1 || false,
+      supervisor2: thesis.seminarReadyApprovedBySupervisor2 || false,
+      isFullyApproved: thesis.seminarReadyApprovedBySupervisor1 && thesis.seminarReadyApprovedBySupervisor2,
+      approvedAt: thesis.seminarReadyApprovedAt,
+    },
+    student: {
+      id: thesis.student?.id,
+      userId: thesis.student?.user?.id,
+      name: thesis.student?.user?.fullName,
+      nim: thesis.student?.user?.identityNumber,
+      email: thesis.student?.user?.email,
+      phone: thesis.student?.user?.phoneNumber,
+    },
+    supervisors,
+    examiners,
+    progress: {
+      completed: completedMilestones,
+      total: totalMilestones,
+      percent: progressPercent,
+    },
+    milestones: milestones.map((m) => ({
+      id: m.id,
+      title: m.title,
+      status: m.status,
+      progressPercentage: m.progressPercentage,
+      targetDate: m.targetDate,
+      completedAt: m.completedAt,
+    })),
+    guidances: {
+      items: guidances,
+      total: guidances.length,
+      completed: completedGuidances,
+      pending: pendingGuidances,
+    },
+    seminars,
+    defences,
+  };
+}
