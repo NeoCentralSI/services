@@ -110,3 +110,18 @@ export async function getThesisDetail(req, res, next) {
     next(error);
   }
 }
+
+/**
+ * Send warning notification to student
+ * @route POST /api/thesis-guidance/monitoring/theses/:thesisId/send-warning
+ */
+export async function sendWarningNotification(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const { warningType } = req.body;
+    const result = await monitoringService.sendWarningNotificationService(req.user.sub, thesisId, warningType);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}

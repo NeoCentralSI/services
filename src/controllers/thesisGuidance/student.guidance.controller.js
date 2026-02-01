@@ -8,7 +8,6 @@ import {
   getMyProgressService,
   completeProgressComponentsService,
   guidanceHistoryService,
-  activityLogService,
   listSupervisorsService,
   getSupervisorAvailabilityService,
   getGuidancesNeedingSummaryService,
@@ -16,6 +15,8 @@ import {
   getCompletedGuidanceHistoryService,
   getGuidanceForExportService,
   markSessionCompleteService,
+  getMyThesisDetailService,
+  updateMyThesisTitleService,
 } from "../../services/thesisGuidance/student.guidance.service.js";
 
 export async function listMyGuidances(req, res, next) {
@@ -142,15 +143,6 @@ export async function guidanceHistory(req, res, next) {
   }
 }
 
-export async function activityLog(req, res, next) {
-  try {
-    const result = await activityLogService(req.user.sub);
-    res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
-}
-
 export async function listSupervisors(req, res, next) {
   try {
     const result = await listSupervisorsService(req.user.sub);
@@ -244,6 +236,33 @@ export async function markSessionComplete(req, res, next) {
       actionItems,
     });
     res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesis-guidance/student/my-thesis
+ * Get current student's thesis detail
+ */
+export async function getMyThesis(req, res, next) {
+  try {
+    const result = await getMyThesisDetailService(req.user.sub);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PATCH /thesis-guidance/student/my-thesis/title
+ * Update current student's thesis title
+ */
+export async function updateMyThesisTitle(req, res, next) {
+  try {
+    const { title } = req.body || {};
+    const result = await updateMyThesisTitleService(req.user.sub, title);
+    res.json({ success: true, message: "Judul tugas akhir berhasil diperbarui", ...result });
   } catch (err) {
     next(err);
   }

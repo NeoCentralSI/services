@@ -11,12 +11,12 @@ import {
 	postGuidanceFeedbackService,
 	finalApprovalService,
 	guidanceHistoryService,
-	activityLogService,
 	supervisorEligibilityService,
 	failStudentThesisService,
 	getPendingApprovalService,
 	approveSessionSummaryService,
 	getGuidanceDetailService,
+	sendWarningNotificationService,
 } from "../../services/thesisGuidance/lecturer.guidance.service.js";
 import { SUPERVISOR_ROLES } from "../../constants/roles.js";
 
@@ -168,16 +168,6 @@ export async function guidanceHistory(req, res, next) {
 	}
 }
 
-export async function activityLog(req, res, next) {
-	try {
-		const { studentId } = req.params;
-		const result = await activityLogService(req.user.sub, studentId);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
 export async function supervisorEligibility(req, res, next) {
 	try {
 		const threshold = req.query?.threshold ? Number(req.query.threshold) : undefined;
@@ -237,6 +227,21 @@ export async function guidanceDetail(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
 		const result = await getGuidanceDetailService(req.user.sub, guidanceId);
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/**
+ * POST /thesisGuidance/lecturer/my-students/:thesisId/send-warning
+ * Send warning notification to student about thesis progress
+ */
+export async function sendWarningNotification(req, res, next) {
+	try {
+		const { thesisId } = req.params;
+		const { warningType } = req.body;
+		const result = await sendWarningNotificationService(req.user.sub, thesisId, warningType);
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

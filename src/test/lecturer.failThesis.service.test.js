@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => {
       getStudentActiveThesis: vi.fn(),
       getThesisStatusMap: vi.fn(),
       updateThesisStatusById: vi.fn(),
-      logThesisActivity: vi.fn(),
       countGraduatedAsSupervisor2: vi.fn(),
     },
   };
@@ -20,7 +19,6 @@ vi.mock("../repositories/thesisGuidance/lecturer.guidance.repository.js", () => 
     getStudentActiveThesis: mocks.repo.getStudentActiveThesis,
     getThesisStatusMap: mocks.repo.getThesisStatusMap,
     updateThesisStatusById: mocks.repo.updateThesisStatusById,
-    logThesisActivity: mocks.repo.logThesisActivity,
     countGraduatedAsSupervisor2: mocks.repo.countGraduatedAsSupervisor2,
     // other exports not used in this test can be no-ops
   };
@@ -45,13 +43,11 @@ describe("failStudentThesisService", () => {
     mocks.repo.getStudentActiveThesis.mockResolvedValueOnce(THESIS);
     mocks.repo.getThesisStatusMap.mockResolvedValueOnce(STATUS_MAP);
     mocks.repo.updateThesisStatusById.mockResolvedValueOnce({ id: THESIS.id, thesisStatusId: "status-failed" });
-    mocks.repo.logThesisActivity.mockResolvedValueOnce({ id: "log-1" });
 
     const res = await failStudentThesisService("user-1", "student-1", { reason: "no progress" });
     expect(res).toEqual({ thesisId: THESIS.id, status: "failed" });
 
     expect(mocks.repo.updateThesisStatusById).toHaveBeenCalledWith(THESIS.id, "status-failed");
-    expect(mocks.repo.logThesisActivity).toHaveBeenCalled();
   });
 
   it("throws 400 if thesis not at_risk", async () => {

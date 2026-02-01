@@ -289,7 +289,7 @@ export async function createMilestone(thesisId, userId, data) {
     studentNotes: data.studentNotes || null,
   };
 
-  const milestone = await milestoneRepo.createWithLog(milestoneData, userId);
+  const milestone = await milestoneRepo.create(milestoneData);
 
   return milestone;
 }
@@ -318,7 +318,7 @@ export async function createMilestoneBySupervisor(thesisId, userId, data) {
     supervisorNotes: data.supervisorNotes || null,
   };
 
-  const milestone = await milestoneRepo.createWithLog(milestoneData, userId);
+  const milestone = await milestoneRepo.create(milestoneData);
 
   // Send FCM notification to student
   const studentUserId = thesis.student?.user?.id;
@@ -507,11 +507,9 @@ export async function updateMilestoneStatus(milestoneId, userId, newStatus, note
     additionalData.startedAt = new Date();
   }
 
-  const updated = await milestoneRepo.updateStatusWithLog(
+  const updated = await milestoneRepo.updateMilestoneStatus(
     milestoneId,
     newStatus,
-    userId,
-    notes,
     additionalData
   );
 
@@ -709,22 +707,6 @@ export async function addSupervisorFeedback(milestoneId, userId, feedback) {
 export async function getThesisProgress(thesisId, userId) {
   await getThesisWithAccess(thesisId, userId);
   return milestoneRepo.getThesisProgress(thesisId);
-}
-
-/**
- * Get milestone activity logs
- */
-export async function getMilestoneLogs(milestoneId, userId, limit = 20) {
-  await getMilestoneWithAccess(milestoneId, userId);
-  return milestoneRepo.findLogsByMilestoneId(milestoneId, limit);
-}
-
-/**
- * Get recent activity logs for entire thesis
- */
-export async function getThesisMilestoneLogs(thesisId, userId, limit = 50) {
-  await getThesisWithAccess(thesisId, userId);
-  return milestoneRepo.findRecentLogsByThesisId(thesisId, limit);
 }
 
 // ============================================
@@ -1016,4 +998,398 @@ export async function getStudentsReadyForSeminar() {
     approvedAt: t.seminarReadyApprovedAt,
     notes: t.seminarReadyNotes,
   }));
+}
+
+// ============================================
+// Defence Readiness Approval Services
+// ============================================
+
+// Valid thesis statuses for defence request
+const DEFENCE_ELIGIBLE_STATUSES = ["revisi seminar", "selesai seminar"];
+
+/**
+ * Check if thesis status is eligible for defence request
+ */
+function isDefenceEligibleStatus(statusName) {
+  if (!statusName) return false;
+  return DEFENCE_ELIGIBLE_STATUSES.includes(statusName.toLowerCase());
+}
+
+/**
+ * Get thesis defence readiness status
+ */
+export async function getThesisDefenceReadiness(thesisId, userId) {
+  await getThesisWithAccess(thesisId, userId);
+
+  const thesis = await milestoneRepo.getThesisDefenceReadiness(thesisId);
+  if (!thesis) {
+    throw notFound("Thesis tidak ditemukan");
+  }
+
+  const statusName = thesis.thesisStatus?.name?.toLowerCase() || "";
+  const isEligibleStatus = isDefenceEligibleStatus(statusName);
+  const hasFinalDocument = !!thesis.finalThesisDocumentId;
+  const hasRequestedDefence = !!thesis.defenceRequestedAt;
+
+  // Determine supervisor roles
+  const supervisors = thesis.thesisParticipants.map((p) => ({
+    id: p.lecturerId,
+    name: p.lecturer?.user?.fullName,
+    email: p.lecturer?.user?.email,
+    role: p.role?.name,
+    hasApproved:
+      isPembimbing1(p.role?.name)
+        ? thesis.defenceReadyApprovedBySupervisor1
+        : isPembimbing2(p.role?.name)
+        ? thesis.defenceReadyApprovedBySupervisor2
+        : null,
+  }));
+
+  // Determine current user's role as supervisor
+  const currentUserParticipant = thesis.thesisParticipants.find(
+    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
+  );
+  const currentUserRole = currentUserParticipant?.role?.name || null;
+  const currentUserHasApproved = isPembimbing1(currentUserRole)
+    ? thesis.defenceReadyApprovedBySupervisor1
+    : isPembimbing2(currentUserRole)
+    ? thesis.defenceReadyApprovedBySupervisor2
+    : null;
+
+  return {
+    thesisId: thesis.id,
+    thesisTitle: thesis.title,
+    student: {
+      id: thesis.student?.id,
+      userId: thesis.student?.user?.id,
+      name: thesis.student?.user?.fullName,
+      nim: thesis.student?.user?.identityNumber,
+      email: thesis.student?.user?.email,
+    },
+    thesisStatus: {
+      id: thesis.thesisStatus?.id,
+      name: thesis.thesisStatus?.name,
+      isEligible: isEligibleStatus,
+    },
+    finalDocument: thesis.finalThesisDocument ? {
+      id: thesis.finalThesisDocument.id,
+      fileName: thesis.finalThesisDocument.fileName,
+      filePath: thesis.finalThesisDocument.filePath,
+      uploadedAt: thesis.finalThesisDocument.createdAt,
+    } : null,
+    defenceReadiness: {
+      hasRequestedDefence,
+      requestedAt: thesis.defenceRequestedAt,
+      approvedBySupervisor1: thesis.defenceReadyApprovedBySupervisor1 || false,
+      approvedBySupervisor2: thesis.defenceReadyApprovedBySupervisor2 || false,
+      isFullyApproved: !!(thesis.defenceReadyApprovedBySupervisor1 && thesis.defenceReadyApprovedBySupervisor2),
+      approvedAt: thesis.defenceReadyApprovedAt,
+      notes: thesis.defenceReadyNotes,
+    },
+    supervisors,
+    currentUserRole,
+    currentUserHasApproved,
+    canRegisterDefence:
+      isEligibleStatus &&
+      hasFinalDocument &&
+      hasRequestedDefence &&
+      thesis.defenceReadyApprovedBySupervisor1 &&
+      thesis.defenceReadyApprovedBySupervisor2,
+  };
+}
+
+/**
+ * Approve defence readiness by supervisor
+ */
+export async function approveDefenceReadiness(thesisId, userId, notes = null) {
+  const { thesis, isSupervisor } = await getThesisWithAccess(thesisId, userId);
+
+  if (!isSupervisor) {
+    throw forbidden("Hanya dosen pembimbing yang dapat memberikan approval");
+  }
+
+  // Check thesis status eligibility
+  const thesisWithStatus = await milestoneRepo.getThesisDefenceReadiness(thesisId);
+  const statusName = thesisWithStatus?.thesisStatus?.name?.toLowerCase() || "";
+  if (!isDefenceEligibleStatus(statusName)) {
+    throw createError(
+      `Status thesis "${thesisWithStatus?.thesisStatus?.name || "Unknown"}" tidak memenuhi syarat untuk sidang. ` +
+      `Status harus "Revisi Seminar" atau "Selesai Seminar".`
+    );
+  }
+
+  // Check if student has uploaded final document
+  if (!thesisWithStatus?.finalThesisDocumentId) {
+    throw createError("Mahasiswa belum mengupload dokumen thesis final. Minta mahasiswa untuk mengupload terlebih dahulu.");
+  }
+
+  // Check if student has requested defence
+  if (!thesisWithStatus?.defenceRequestedAt) {
+    throw createError("Mahasiswa belum mengajukan permintaan sidang.");
+  }
+
+  // Determine which supervisor role the current user has
+  const supervisorParticipant = thesis.thesisParticipants.find(
+    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
+  );
+
+  if (!supervisorParticipant) {
+    throw forbidden("Anda bukan pembimbing dari thesis ini");
+  }
+
+  const supervisorRole = supervisorParticipant.role?.name;
+  const isSupervisor1 = isPembimbing1(supervisorRole);
+  const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
+
+  const updated = await milestoneRepo.approveDefenceReadiness(thesisId, supervisorRole, notes);
+
+  // Get student userId for notification
+  const studentUserId = thesis.student?.user?.id;
+  const isFullyApproved = !!(updated.defenceReadyApprovedBySupervisor1 && updated.defenceReadyApprovedBySupervisor2);
+
+  // Update thesis status to "Acc Sidang" when fully approved
+  if (isFullyApproved) {
+    try {
+      const statusMap = await getThesisStatusMap();
+      const accSidangStatusId = statusMap.get("acc sidang");
+      if (accSidangStatusId) {
+        await updateThesisStatusById(thesisId, accSidangStatusId);
+        console.log(`[Defence] Thesis ${thesisId} status updated to Acc Sidang`);
+      } else {
+        console.warn("[Defence] ThesisStatus 'Acc Sidang' not found in database");
+      }
+    } catch (err) {
+      console.error("[Defence] Failed to update thesis status:", err);
+    }
+  }
+
+  // Send notification to student
+  if (studentUserId) {
+    const notifTitle = isFullyApproved
+      ? "🎉 Kesiapan Sidang Disetujui Penuh!"
+      : `✅ Persetujuan Sidang dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"}`;
+    const notifMessage = isFullyApproved
+      ? `Selamat! Kedua pembimbing telah menyetujui kesiapan sidang Anda. Anda sekarang dapat mendaftar sidang.`
+      : `${supervisorName} telah menyetujui kesiapan sidang Anda. Menunggu persetujuan dari pembimbing lainnya.`;
+
+    // Create in-app notification
+    await createNotification({
+      userId: studentUserId,
+      title: notifTitle,
+      message: notifMessage,
+    });
+
+    // Send FCM push notification
+    sendFcmToUsers([studentUserId], {
+      title: notifTitle,
+      body: notifMessage,
+      data: {
+        type: "defence_readiness_approved",
+        thesisId,
+        isFullyApproved: String(isFullyApproved),
+      },
+    }).catch((err) => console.error("[FCM] Error sending defence approval notification:", err));
+  }
+
+  return {
+    success: true,
+    message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil diberikan`,
+    data: {
+      thesisId: updated.id,
+      thesisTitle: updated.title,
+      approvedBySupervisor1: updated.defenceReadyApprovedBySupervisor1,
+      approvedBySupervisor2: updated.defenceReadyApprovedBySupervisor2,
+      isFullyApproved,
+      approvedAt: updated.defenceReadyApprovedAt,
+      notes: updated.defenceReadyNotes,
+    },
+  };
+}
+
+/**
+ * Revoke defence readiness approval by supervisor
+ */
+export async function revokeDefenceReadiness(thesisId, userId, notes = null) {
+  const { thesis, isSupervisor } = await getThesisWithAccess(thesisId, userId);
+
+  if (!isSupervisor) {
+    throw forbidden("Hanya dosen pembimbing yang dapat mencabut approval");
+  }
+
+  // Determine which supervisor role the current user has
+  const supervisorParticipant = thesis.thesisParticipants.find(
+    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
+  );
+
+  if (!supervisorParticipant) {
+    throw forbidden("Anda bukan pembimbing dari thesis ini");
+  }
+
+  const supervisorRole = supervisorParticipant.role?.name;
+  const isSupervisor1 = isPembimbing1(supervisorRole);
+  const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
+
+  const updated = await milestoneRepo.revokeDefenceReadiness(thesisId, supervisorRole, notes);
+
+  // Get student userId for notification
+  const studentUserId = thesis.student?.user?.id;
+
+  // Send notification to student
+  if (studentUserId) {
+    const notifTitle = `⚠️ Persetujuan Sidang Dicabut`;
+    const notifMessage = `${supervisorName} telah mencabut persetujuan kesiapan sidang Anda.${notes ? ` Alasan: ${notes}` : ""}`;
+
+    // Create in-app notification
+    await createNotification({
+      userId: studentUserId,
+      title: notifTitle,
+      message: notifMessage,
+    });
+
+    // Send FCM push notification
+    sendFcmToUsers([studentUserId], {
+      title: notifTitle,
+      body: notifMessage,
+      data: {
+        type: "defence_readiness_revoked",
+        thesisId,
+      },
+    }).catch((err) => console.error("[FCM] Error sending defence revoke notification:", err));
+  }
+
+  return {
+    success: true,
+    message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil dicabut`,
+    data: {
+      thesisId: updated.id,
+      thesisTitle: updated.title,
+      approvedBySupervisor1: updated.defenceReadyApprovedBySupervisor1,
+      approvedBySupervisor2: updated.defenceReadyApprovedBySupervisor2,
+      isFullyApproved: false,
+      approvedAt: null,
+      notes: updated.defenceReadyNotes,
+    },
+  };
+}
+
+/**
+ * Get list of students ready for defence registration
+ */
+export async function getStudentsReadyForDefence() {
+  const theses = await milestoneRepo.findStudentsReadyForDefence();
+
+  return theses.map((t) => ({
+    thesisId: t.id,
+    thesisTitle: t.title,
+    student: {
+      name: t.student?.user?.fullName,
+      nim: t.student?.user?.identityNumber,
+      email: t.student?.user?.email,
+    },
+    supervisors: t.thesisParticipants.map((p) => ({
+      name: p.lecturer?.user?.fullName,
+      role: p.role?.name,
+    })),
+    finalDocument: t.finalThesisDocument ? {
+      fileName: t.finalThesisDocument.fileName,
+      filePath: t.finalThesisDocument.filePath,
+    } : null,
+    approvedAt: t.defenceReadyApprovedAt,
+    notes: t.defenceReadyNotes,
+  }));
+}
+
+/**
+ * Request defence (student uploads final thesis and requests defence)
+ */
+export async function requestDefence(thesisId, userId, documentId) {
+  // Validate thesis access for student
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    include: {
+      student: {
+        select: { id: true, user: { select: { id: true, fullName: true } } },
+      },
+      thesisStatus: { select: { id: true, name: true } },
+      thesisParticipants: {
+        include: {
+          lecturer: { select: { id: true, user: { select: { id: true, fullName: true } } } },
+          role: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+
+  if (!thesis) {
+    throw notFound("Thesis tidak ditemukan");
+  }
+
+  // Check if user is the student owner
+  if (thesis.student?.user?.id !== userId) {
+    throw forbidden("Anda tidak memiliki akses ke thesis ini");
+  }
+
+  // Check thesis status eligibility
+  const statusName = thesis.thesisStatus?.name?.toLowerCase() || "";
+  if (!isDefenceEligibleStatus(statusName)) {
+    throw createError(
+      `Status thesis "${thesis.thesisStatus?.name || "Unknown"}" tidak memenuhi syarat untuk sidang. ` +
+      `Status harus "Revisi Seminar" atau "Selesai Seminar".`
+    );
+  }
+
+  // Check if document exists
+  const document = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: { id: true, userId: true, fileName: true },
+  });
+
+  if (!document) {
+    throw notFound("Dokumen tidak ditemukan");
+  }
+
+  // Update thesis with final document
+  const updated = await milestoneRepo.updateThesisDefenceRequest(thesisId, documentId);
+
+  // Notify supervisors
+  const supervisorUserIds = thesis.thesisParticipants
+    .filter((p) => isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
+    .map((p) => p.lecturer?.user?.id)
+    .filter(Boolean);
+
+  if (supervisorUserIds.length > 0) {
+    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+    const notifTitle = "📄 Permintaan Persetujuan Sidang";
+    const notifMessage = `${studentName} telah mengupload dokumen thesis final dan mengajukan permintaan sidang.`;
+
+    // Create in-app notifications
+    for (const supervisorUserId of supervisorUserIds) {
+      await createNotification({
+        userId: supervisorUserId,
+        title: notifTitle,
+        message: notifMessage,
+      });
+    }
+
+    // Send FCM push notification
+    sendFcmToUsers(supervisorUserIds, {
+      title: notifTitle,
+      body: notifMessage,
+      data: {
+        type: "defence_request",
+        thesisId,
+      },
+    }).catch((err) => console.error("[FCM] Error sending defence request notification:", err));
+  }
+
+  return {
+    success: true,
+    message: "Permintaan sidang berhasil diajukan",
+    data: {
+      thesisId: updated.id,
+      thesisTitle: updated.title,
+      finalDocument: updated.finalThesisDocument,
+      requestedAt: updated.defenceRequestedAt,
+    },
+  };
 }

@@ -7,7 +7,6 @@ import {
   createGuidance,
   updateGuidanceRequestedDate,
   updateGuidanceById,
-  listActivityLogsByStudent,
   listGuidanceHistoryByStudent,
   listMilestones,
   listMilestoneTemplates,
@@ -108,23 +107,6 @@ async function getOrCreateDocumentType(name = "Thesis") {
     dt = await prisma.documentType.create({ data: { name } });
   }
   return dt;
-}
-
-// Schema baru: tambah activityType untuk ThesisActivityLog
-async function logThesisActivity(thesisId, userId, activity, notes, activityType = "other") {
-  try {
-    await prisma.thesisActivityLog.create({
-      data: {
-        thesisId,
-        userId,
-        activity,
-        activityType,
-        notes: notes || "",
-      },
-    });
-  } catch (e) {
-    console.error("Failed to create thesis activity log:", e?.message || e);
-  }
 }
 
 function ensureStudent(student) {
@@ -363,9 +345,6 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     status: "requested",
   });
 
-  const milestoneInfo = milestoneNames.length ? ` untuk milestone ${milestoneNames.map((n) => `"${n}"`).join(", ")}` : "";
-  await logThesisActivity(thesis.id, userId, "request-guidance", `Requested at ${guidanceDate.toISOString()}${milestoneInfo}`, "guidance");
-
   try {
     const supervisorsUserIds = supervisors.map((p) => p?.lecturer?.user?.id).filter(Boolean);
     const dateStr =
@@ -444,8 +423,6 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       });
 
       await prisma.thesis.update({ where: { id: thesis.id }, data: { documentId: doc.id } });
-
-      await logThesisActivity(thesis.id, userId, "upload-thesis-document", `Uploaded ${file.originalname}`, "submission");
     } catch (err) {
       console.error("Failed to store uploaded thesis file:", err.message || err);
     }
@@ -532,7 +509,6 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
   if (duration !== undefined) updateData.duration = duration;
   
   const updated = await updateGuidanceById(guidance.id, updateData);
-  await logThesisActivity(guidance.thesisId, userId, "reschedule-guidance", `New date ${guidanceDate.toISOString()}`, "guidance");
   // Persist notifications
   try {
     const supervisors = await getSupervisorsForThesis(guidance.thesisId);
@@ -617,9 +593,6 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     console.error("Failed to delete calendar events:", e?.message || e);
     // Don't fail if calendar deletion fails
   }
-  
-  // Log activity before deleting
-  await logThesisActivity(guidance.thesisId, userId, "delete-guidance-request", reason || "", "guidance");
 
   // Get student name for notifications
   const studentUser = await prisma.user.findUnique({ where: { id: userId } });
@@ -683,7 +656,6 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
     throw err;
   }
   const updated = await updateGuidanceById(guidance.id, { studentNotes: studentNotes || "" });
-  await logThesisActivity(guidance.thesisId, userId, "update-student-notes", studentNotes || "", "guidance");
   // Persist notifications
   try {
     const supervisors = await getSupervisorsForThesis(guidance.thesisId);
@@ -806,13 +778,6 @@ export async function guidanceHistoryService(userId) {
     duration: g.duration || null,
     completedAt: g.completedAt || null,
   }));
-  return { count: items.length, items };
-}
-
-export async function activityLogService(userId) {
-  const student = await getStudentByUserId(userId);
-  ensureStudent(student);
-  const items = await listActivityLogsByStudent(student.id);
   return { count: items.length, items };
 }
 
@@ -1082,14 +1047,6 @@ export async function markSessionCompleteService(userId, guidanceId, { sessionSu
     },
   });
 
-  await logThesisActivity(
-    guidance.thesisId,
-    userId,
-    "guidance-completed",
-    `Sesi bimbingan diselesaikan oleh mahasiswa`,
-    "guidance"
-  );
-
   // Notify supervisor that session is completed
   const supervisorUserId = guidance.supervisor?.user?.id;
   if (supervisorUserId) {
@@ -1200,5 +1157,191 @@ export async function getGuidanceForExportService(userId, guidanceId) {
       milestoneName: guidance.milestone?.title || null,
       thesisTitle: guidance.thesis?.title || null,
     },
+  };
+}
+
+/**
+ * Get thesis detail for student
+ * @param {string} userId
+ * @returns {Promise<{thesis: object}>}
+ */
+export async function getMyThesisDetailService(userId) {
+  const { student, thesis } = await getActiveThesisOrThrow(userId);
+  
+  // Get thesis with all related data
+  const fullThesis = await prisma.thesis.findUnique({
+    where: { id: thesis.id },
+    include: {
+      student: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              identityNumber: true,
+            }
+          }
+        }
+      },
+      thesisTopic: true,
+      thesisStatus: true,
+      academicYear: true,
+      document: true,
+      thesisParticipants: {
+        include: {
+          lecturer: {
+            include: {
+              user: {
+                select: {
+                  fullName: true,
+                  email: true,
+                }
+              }
+            }
+          },
+          role: true,
+        }
+      },
+      _count: {
+        select: {
+          thesisGuidances: true,
+          thesisMilestones: true,
+        }
+      }
+    }
+  });
+
+  if (!fullThesis) {
+    const err = new Error("Thesis not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Calculate milestone progress
+  const milestones = await prisma.thesisMilestone.findMany({
+    where: { thesisId: thesis.id },
+    select: { status: true, progressPercentage: true, targetDate: true }
+  });
+  
+  const totalMilestones = milestones.length;
+  const completedMilestones = milestones.filter(m => m.status === 'completed').length;
+  const inProgressMilestones = milestones.filter(m => m.status === 'in_progress').length;
+  const overdueMilestones = milestones.filter(m => {
+    if (m.status === 'completed') return false;
+    if (!m.targetDate) return false;
+    return new Date(m.targetDate) < new Date();
+  }).length;
+  const milestoneProgress = totalMilestones > 0 
+    ? Math.round((completedMilestones / totalMilestones) * 100) 
+    : 0;
+
+  // Format supervisors
+  const supervisors = fullThesis.thesisParticipants
+    .filter(p => p.role?.name?.toLowerCase().includes('pembimbing'))
+    .map(p => ({
+      id: p.lecturerId,
+      name: p.lecturer?.user?.fullName || null,
+      email: p.lecturer?.user?.email || null,
+      role: p.role?.name || null,
+    }));
+
+  // Format examiners
+  const examiners = fullThesis.thesisParticipants
+    .filter(p => p.role?.name?.toLowerCase().includes('penguji'))
+    .map(p => ({
+      id: p.lecturerId,
+      name: p.lecturer?.user?.fullName || null,
+      email: p.lecturer?.user?.email || null,
+      role: p.role?.name || null,
+    }));
+
+  return {
+    thesis: {
+      id: fullThesis.id,
+      title: fullThesis.title,
+      status: fullThesis.thesisStatus?.name || 'aktif',
+      rating: fullThesis.rating || null,
+      createdAt: fullThesis.createdAt,
+      updatedAt: fullThesis.updatedAt,
+      // Student info
+      student: {
+        id: fullThesis.student?.id,
+        name: fullThesis.student?.user?.fullName || null,
+        nim: fullThesis.student?.user?.identityNumber || null,
+        email: fullThesis.student?.user?.email || null,
+      },
+      // Topic
+      topic: fullThesis.thesisTopic ? {
+        id: fullThesis.thesisTopic.id,
+        name: fullThesis.thesisTopic.name,
+      } : null,
+      // Academic year
+      academicYear: fullThesis.academicYear ? {
+        id: fullThesis.academicYear.id,
+        name: fullThesis.academicYear.name,
+        year: fullThesis.academicYear.year,
+        semester: fullThesis.academicYear.semester,
+        isActive: fullThesis.academicYear.isActive,
+      } : null,
+      // Document
+      document: fullThesis.document ? {
+        id: fullThesis.document.id,
+        fileName: fullThesis.document.fileName,
+        filePath: fullThesis.document.filePath,
+      } : null,
+      // Participants
+      supervisors,
+      examiners,
+      // Progress stats
+      stats: {
+        totalGuidances: fullThesis._count.thesisGuidances,
+        totalSessions: fullThesis._count.thesisGuidances,
+        totalMilestones: totalMilestones,
+        completedMilestones: completedMilestones,
+        inProgressMilestones: inProgressMilestones,
+        overdueMilestones: overdueMilestones,
+        milestoneProgress: milestoneProgress,
+      },
+      // Seminar approval status
+      seminarApproval: {
+        pembimbing1: fullThesis.seminarReadyApprovedBySupervisor1 || false,
+        pembimbing2: fullThesis.seminarReadyApprovedBySupervisor2 || false,
+      },
+    }
+  };
+}
+
+/**
+ * Update thesis title (student can update their own thesis title)
+ * @param {string} userId
+ * @param {string} newTitle
+ * @returns {Promise<{thesis: object}>}
+ */
+export async function updateMyThesisTitleService(userId, newTitle) {
+  const { thesis } = await getActiveThesisOrThrow(userId);
+
+  if (!newTitle || newTitle.trim().length < 10) {
+    const err = new Error("Judul tugas akhir minimal 10 karakter");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const updated = await prisma.thesis.update({
+    where: { id: thesis.id },
+    data: { title: newTitle.trim() },
+    select: {
+      id: true,
+      title: true,
+      updatedAt: true,
+    }
+  });
+
+  return {
+    thesis: {
+      id: updated.id,
+      title: updated.title,
+      updatedAt: updated.updatedAt,
+    }
   };
 }

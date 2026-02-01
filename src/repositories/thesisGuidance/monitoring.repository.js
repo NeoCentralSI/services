@@ -52,6 +52,7 @@ export async function getThesesOverview(filters = {}) {
       select: {
         id: true,
         title: true,
+        rating: true,
         createdAt: true,
         seminarReadyApprovedBySupervisor1: true,
         seminarReadyApprovedBySupervisor2: true,
@@ -127,6 +128,47 @@ export async function getStatusDistribution(academicYear) {
     name: s.name,
     count: s._count.thesis,
   }));
+}
+
+/**
+ * Get thesis rating distribution summary (ONGOING, SLOW, AT_RISK, FAILED)
+ */
+export async function getRatingDistribution(academicYear) {
+  const where = {
+    thesisStatus: {
+      name: { notIn: ["Selesai", "Gagal"] },
+    },
+  };
+  
+  if (academicYear) {
+    where.academicYearId = academicYear;
+  }
+
+  const ratings = await prisma.thesis.groupBy({
+    by: ['rating'],
+    where,
+    _count: {
+      rating: true,
+    },
+  });
+
+  // Map to friendly names
+  const ratingLabels = {
+    ONGOING: 'Ongoing',
+    SLOW: 'Slow',
+    AT_RISK: 'At Risk',
+    FAILED: 'Gagal',
+  };
+
+  return ['ONGOING', 'SLOW', 'AT_RISK', 'FAILED'].map((rating) => {
+    const found = ratings.find((r) => r.rating === rating);
+    return {
+      id: rating,
+      name: ratingLabels[rating],
+      value: rating,
+      count: found?._count?.rating || 0,
+    };
+  });
 }
 
 /**

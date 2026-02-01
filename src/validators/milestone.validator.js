@@ -323,3 +323,22 @@ export const seminarReadinessNotesSchema = z.object({
     .optional()
     .nullable(),
 });
+
+// ============================================
+// Defence Readiness Approval Schemas
+// ============================================
+
+export const defenceReadinessNotesSchema = z.object({
+  notes: z
+    .string()
+    .max(2000, "Notes must be less than 2000 characters")
+    .optional()
+    .nullable(),
+});
+
+export const requestDefenceSchema = z.object({
+  documentId: z
+    .string()
+    .uuid("Document ID must be a valid UUID")
+    .min(1, "Document ID is required"),
+});

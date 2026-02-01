@@ -136,9 +136,6 @@ export function findByThesisId(thesisId, status = null) {
           completedAt: true,
         },
       },
-      _count: {
-        select: { activityLogs: true },
-      },
     },
     orderBy: { orderIndex: "asc" },
   });
@@ -176,10 +173,6 @@ export function findById(id) {
         orderBy: { requestedDate: "desc" },
         take: 5,
       },
-      activityLogs: {
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      },
     },
   });
 }
@@ -202,11 +195,6 @@ export function findByIdAndThesisId(id, thesisId) {
 export function create(data) {
   return prisma.thesisMilestone.create({
     data,
-    include: {
-      _count: {
-        select: { activityLogs: true },
-      },
-    },
   });
 }
 
@@ -227,11 +215,6 @@ export function update(id, data) {
   return prisma.thesisMilestone.update({
     where: { id },
     data,
-    include: {
-      _count: {
-        select: { activityLogs: true },
-      },
-    },
   });
 }
 
@@ -313,48 +296,6 @@ export async function getThesisProgress(thesisId) {
 }
 
 // ============================================
-// Milestone Log Repository
-// ============================================
-
-/**
- * Create milestone activity log
- */
-export function createLog(data) {
-  return prisma.thesisMilestoneLog.create({
-    data,
-  });
-}
-
-/**
- * Get logs for a milestone
- */
-export function findLogsByMilestoneId(milestoneId, limit = 20) {
-  return prisma.thesisMilestoneLog.findMany({
-    where: { milestoneId },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-  });
-}
-
-/**
- * Get recent logs for a thesis (all milestones)
- */
-export function findRecentLogsByThesisId(thesisId, limit = 50) {
-  return prisma.thesisMilestoneLog.findMany({
-    where: {
-      milestone: { thesisId },
-    },
-    include: {
-      milestone: {
-        select: { id: true, title: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-  });
-}
-
-// ============================================
 // Helper functions
 // ============================================
 
@@ -384,63 +325,15 @@ export async function reorderMilestones(thesisId, milestoneOrders) {
 }
 
 /**
- * Create milestone with log in transaction
+ * Update milestone status
  */
-export async function createWithLog(milestoneData, userId) {
-  return prisma.$transaction(async (tx) => {
-    const milestone = await tx.thesisMilestone.create({
-      data: milestoneData,
-    });
-
-    await tx.thesisMilestoneLog.create({
-      data: {
-        milestoneId: milestone.id,
-        action: "created",
-        newStatus: milestone.status,
-        newProgress: milestone.progressPercentage,
-        performedBy: userId,
-        notes: `Milestone "${milestone.title}" dibuat`,
-      },
-    });
-
-    return milestone;
-  });
-}
-
-/**
- * Update milestone status with log
- */
-export async function updateStatusWithLog(id, newStatus, userId, notes = null, additionalData = {}) {
-  return prisma.$transaction(async (tx) => {
-    const current = await tx.thesisMilestone.findUnique({
-      where: { id },
-      select: { status: true, progressPercentage: true, title: true },
-    });
-
-    if (!current) throw new Error("Milestone not found");
-
-    const milestone = await tx.thesisMilestone.update({
-      where: { id },
-      data: {
-        status: newStatus,
-        ...additionalData,
-      },
-    });
-
-    await tx.thesisMilestoneLog.create({
-      data: {
-        milestoneId: id,
-        action: "status_changed",
-        previousStatus: current.status,
-        newStatus: newStatus,
-        previousProgress: current.progressPercentage,
-        newProgress: milestone.progressPercentage,
-        performedBy: userId,
-        notes: notes || `Status berubah dari ${current.status} ke ${newStatus}`,
-      },
-    });
-
-    return milestone;
+export async function updateMilestoneStatus(id, newStatus, additionalData = {}) {
+  return prisma.thesisMilestone.update({
+    where: { id },
+    data: {
+      status: newStatus,
+      ...additionalData,
+    },
   });
 }
 
@@ -448,40 +341,16 @@ export async function updateStatusWithLog(id, newStatus, userId, notes = null, a
  * Validate milestone by supervisor
  */
 export async function validateMilestone(id, validatorId, supervisorNotes = null) {
-  return prisma.$transaction(async (tx) => {
-    const current = await tx.thesisMilestone.findUnique({
-      where: { id },
-      select: { status: true, progressPercentage: true, title: true },
-    });
-
-    if (!current) throw new Error("Milestone not found");
-
-    const milestone = await tx.thesisMilestone.update({
-      where: { id },
-      data: {
-        status: "completed",
-        progressPercentage: 100,
-        validatedBy: validatorId,
-        validatedAt: new Date(),
-        supervisorNotes,
-        completedAt: new Date(),
-      },
-    });
-
-    await tx.thesisMilestoneLog.create({
-      data: {
-        milestoneId: id,
-        action: "validated",
-        previousStatus: current.status,
-        newStatus: "completed",
-        previousProgress: current.progressPercentage,
-        newProgress: 100,
-        performedBy: validatorId,
-        notes: supervisorNotes || `Milestone "${current.title}" divalidasi oleh dosen pembimbing`,
-      },
-    });
-
-    return milestone;
+  return prisma.thesisMilestone.update({
+    where: { id },
+    data: {
+      status: "completed",
+      progressPercentage: 100,
+      validatedBy: validatorId,
+      validatedAt: new Date(),
+      supervisorNotes,
+      completedAt: new Date(),
+    },
   });
 }
 
@@ -489,34 +358,12 @@ export async function validateMilestone(id, validatorId, supervisorNotes = null)
  * Request revision on milestone
  */
 export async function requestRevision(id, supervisorId, revisionNotes) {
-  return prisma.$transaction(async (tx) => {
-    const current = await tx.thesisMilestone.findUnique({
-      where: { id },
-      select: { status: true, progressPercentage: true, title: true },
-    });
-
-    if (!current) throw new Error("Milestone not found");
-
-    const milestone = await tx.thesisMilestone.update({
-      where: { id },
-      data: {
-        status: "revision_needed",
-        supervisorNotes: revisionNotes,
-      },
-    });
-
-    await tx.thesisMilestoneLog.create({
-      data: {
-        milestoneId: id,
-        action: "revision_requested",
-        previousStatus: current.status,
-        newStatus: "revision_needed",
-        performedBy: supervisorId,
-        notes: revisionNotes || `Revisi diminta untuk milestone "${current.title}"`,
-      },
-    });
-
-    return milestone;
+  return prisma.thesisMilestone.update({
+    where: { id },
+    data: {
+      status: "revision_needed",
+      supervisorNotes: revisionNotes,
+    },
   });
 }
 
@@ -697,5 +544,234 @@ export function findStudentsReadyForSeminar() {
       },
     },
     orderBy: { seminarReadyApprovedAt: "desc" },
+  });
+}
+
+// ============================================
+// Defence Readiness Repository
+// ============================================
+
+/**
+ * Get thesis defence readiness status
+ */
+export function getThesisDefenceReadiness(thesisId) {
+  return prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      defenceReadyApprovedBySupervisor1: true,
+      defenceReadyApprovedBySupervisor2: true,
+      defenceReadyApprovedAt: true,
+      defenceReadyNotes: true,
+      finalThesisDocumentId: true,
+      defenceRequestedAt: true,
+      thesisStatus: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      finalThesisDocument: {
+        select: {
+          id: true,
+          fileName: true,
+          filePath: true,
+          createdAt: true,
+        },
+      },
+      student: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            },
+          },
+        },
+      },
+      thesisParticipants: {
+        select: {
+          id: true,
+          lecturerId: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          lecturer: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Approve defence readiness by supervisor
+ * @param {string} thesisId
+ * @param {string} supervisorRole - "pembimbing1" or "pembimbing2"
+ * @param {string} notes - optional notes
+ */
+export async function approveDefenceReadiness(thesisId, supervisorRole, notes = null) {
+  const updateData = {
+    defenceReadyNotes: notes,
+  };
+
+  const isSupervisor1 = isPembimbing1(supervisorRole);
+  const isSupervisor2 = isPembimbing2(supervisorRole);
+
+  if (isSupervisor1) {
+    updateData.defenceReadyApprovedBySupervisor1 = true;
+  } else if (isSupervisor2) {
+    updateData.defenceReadyApprovedBySupervisor2 = true;
+  }
+
+  // Check if both are now approved
+  const current = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      defenceReadyApprovedBySupervisor1: true,
+      defenceReadyApprovedBySupervisor2: true,
+    },
+  });
+
+  // If this approval makes both supervisors approved, set the approval date
+  const willBothBeApproved =
+    (isSupervisor1 && current.defenceReadyApprovedBySupervisor2) ||
+    (isSupervisor2 && current.defenceReadyApprovedBySupervisor1);
+
+  if (willBothBeApproved) {
+    updateData.defenceReadyApprovedAt = new Date();
+  }
+
+  return prisma.thesis.update({
+    where: { id: thesisId },
+    data: updateData,
+    select: {
+      id: true,
+      title: true,
+      defenceReadyApprovedBySupervisor1: true,
+      defenceReadyApprovedBySupervisor2: true,
+      defenceReadyApprovedAt: true,
+      defenceReadyNotes: true,
+    },
+  });
+}
+
+/**
+ * Revoke defence readiness approval by supervisor
+ */
+export async function revokeDefenceReadiness(thesisId, supervisorRole, notes = null) {
+  const updateData = {
+    defenceReadyApprovedAt: null,
+    defenceReadyNotes: notes,
+  };
+
+  if (isPembimbing1(supervisorRole)) {
+    updateData.defenceReadyApprovedBySupervisor1 = false;
+  } else if (isPembimbing2(supervisorRole)) {
+    updateData.defenceReadyApprovedBySupervisor2 = false;
+  }
+
+  return prisma.thesis.update({
+    where: { id: thesisId },
+    data: updateData,
+    select: {
+      id: true,
+      title: true,
+      defenceReadyApprovedBySupervisor1: true,
+      defenceReadyApprovedBySupervisor2: true,
+      defenceReadyApprovedAt: true,
+      defenceReadyNotes: true,
+    },
+  });
+}
+
+/**
+ * Update thesis with final document and request defence
+ */
+export function updateThesisDefenceRequest(thesisId, documentId) {
+  return prisma.thesis.update({
+    where: { id: thesisId },
+    data: {
+      finalThesisDocumentId: documentId,
+      defenceRequestedAt: new Date(),
+    },
+    select: {
+      id: true,
+      title: true,
+      finalThesisDocumentId: true,
+      defenceRequestedAt: true,
+      finalThesisDocument: {
+        select: {
+          id: true,
+          fileName: true,
+          filePath: true,
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Get list of students ready for defence (both supervisors approved)
+ */
+export function findStudentsReadyForDefence() {
+  return prisma.thesis.findMany({
+    where: {
+      defenceReadyApprovedBySupervisor1: true,
+      defenceReadyApprovedBySupervisor2: true,
+      defenceReadyApprovedAt: { not: null },
+    },
+    select: {
+      id: true,
+      title: true,
+      defenceReadyApprovedAt: true,
+      defenceReadyNotes: true,
+      finalThesisDocument: {
+        select: {
+          id: true,
+          fileName: true,
+          filePath: true,
+        },
+      },
+      student: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            },
+          },
+        },
+      },
+      thesisParticipants: {
+        select: {
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { defenceReadyApprovedAt: "desc" },
   });
 }

@@ -361,50 +361,6 @@ export async function getProgress(req, res, next) {
   }
 }
 
-/**
- * GET /thesis/:thesisId/milestones/:milestoneId/logs
- * Get milestone activity logs
- */
-export async function getMilestoneLogs(req, res, next) {
-  try {
-    const { milestoneId } = req.params;
-    const { limit } = req.query;
-    const logs = await milestoneService.getMilestoneLogs(
-      milestoneId,
-      req.user.sub,
-      limit ? parseInt(limit, 10) : 20
-    );
-    res.json({
-      success: true,
-      data: logs,
-    });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
- * GET /thesis/:thesisId/milestones/logs
- * Get all milestone logs for thesis
- */
-export async function getThesisMilestoneLogs(req, res, next) {
-  try {
-    const { thesisId } = req.params;
-    const { limit } = req.query;
-    const logs = await milestoneService.getThesisMilestoneLogs(
-      thesisId,
-      req.user.sub,
-      limit ? parseInt(limit, 10) : 50
-    );
-    res.json({
-      success: true,
-      data: logs,
-    });
-  } catch (err) {
-    next(err);
-  }
-}
-
 // ============================================
 // Reorder Controller
 // ============================================
@@ -591,3 +547,87 @@ export async function getStudentsReadyForSeminar(req, res, next) {
     next(err);
   }
 }
+
+// ============================================
+// Defence Readiness Approval Controllers
+// ============================================
+
+/**
+ * GET /thesis/:thesisId/defence-readiness
+ * Get thesis defence readiness status
+ */
+export async function getThesisDefenceReadiness(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const result = await milestoneService.getThesisDefenceReadiness(thesisId, req.user.sub);
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis/:thesisId/defence-readiness/approve
+ * Approve defence readiness by supervisor
+ */
+export async function approveDefenceReadiness(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const { notes } = req.validated ?? req.body ?? {};
+    const result = await milestoneService.approveDefenceReadiness(thesisId, req.user.sub, notes);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis/:thesisId/defence-readiness/revoke
+ * Revoke defence readiness approval by supervisor
+ */
+export async function revokeDefenceReadiness(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const { notes } = req.validated ?? req.body ?? {};
+    const result = await milestoneService.revokeDefenceReadiness(thesisId, req.user.sub, notes);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesis/ready-for-defence
+ * Get list of students ready for defence registration
+ */
+export async function getStudentsReadyForDefence(req, res, next) {
+  try {
+    const result = await milestoneService.getStudentsReadyForDefence();
+    res.json({
+      success: true,
+      data: result,
+      count: result.length,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis/:thesisId/request-defence
+ * Student requests defence by uploading final thesis
+ */
+export async function requestDefence(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const { documentId } = req.validated ?? req.body ?? {};
+    const result = await milestoneService.requestDefence(thesisId, req.user.sub, documentId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+

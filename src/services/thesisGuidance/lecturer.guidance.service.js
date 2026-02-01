@@ -12,9 +12,7 @@ import {
 	getAllProgressComponents,
 	getCompletionsForThesis,
 	upsertCompletionsValidated,
-	logThesisActivity,
 	listGuidanceHistory,
-	listActivityLogs,
 	countGraduatedAsSupervisor2,
   getThesisStatusMap,
   updateThesisStatusById,
@@ -114,11 +112,19 @@ export async function getMyStudentsService(userId, roles) {
 		identityNumber: s.studentUser?.identityNumber || null,
 		thesisId: s.thesisId,
 		thesisTitle: s.thesisTitle,
+		thesisStatus: s.thesisStatus || "Ongoing",
 		roles: s.role ? [s.role] : [],
         thesisRating: s.thesisRating || "ONGOING",
         latestMilestone: s.latestMilestone || "Belum mulai",
-        lastGuidanceDate: s.lastGuidanceDate ? formatDateTimeJakarta(s.lastGuidanceDate, { withDay: true }) : "Belum pernah",
-        deadlineDate: s.deadlineDate || null
+        // Milestone progress info
+        totalMilestones: s.totalMilestones || 0,
+        completedMilestones: s.completedMilestones || 0,
+        milestoneProgress: s.milestoneProgress || 0,
+        // Guidance info
+        completedGuidanceCount: s.completedGuidanceCount || 0,
+        lastGuidanceDate: s.lastGuidanceDate ? formatDateTimeJakarta(s.lastGuidanceDate, { withDay: true }) : null,
+        deadlineDate: s.deadlineDate || null,
+        startDate: s.startDate || null
 	}));
 	
 	return { count: students.length, students };
@@ -260,7 +266,6 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 		throw err;
 	}
 	const updated = await rejectGuidanceById(guidanceId, { feedback });
-	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_REJECTED", feedback || undefined, "guidance");
 	
 	// Send notification to student
 	try {
@@ -307,7 +312,6 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, app
 		throw err;
 	}
 	const updated = await approveGuidanceById(guidanceId, { feedback, approvedDate, duration });
-	await logThesisActivity(updated.thesisId, userId, "GUIDANCE_APPROVED", feedback || undefined, "approval");
 	
 	// Sync to Outlook Calendar - Create events for both supervisor and student
 	try {
@@ -432,7 +436,6 @@ export async function approveStudentProgressComponentsService(userId, studentId,
 		throw err;
 	}
 	const result = await upsertCompletionsValidated(thesis.id, componentIds);
-	await logThesisActivity(thesis.id, userId, "PROGRESS_COMPONENTS_VALIDATED", `components=${componentIds.length}`, "milestone");
 	return { thesisId: thesis.id, ...result };
 }
 
@@ -447,7 +450,6 @@ export async function postGuidanceFeedbackService(userId, guidanceId, { feedback
 	}
 	await approveGuidanceById(guidanceId, { feedback });
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
-	await logThesisActivity(fresh.thesisId, userId, "GUIDANCE_FEEDBACK", feedback || undefined, "guidance");
 	return { guidance: toFlatGuidance(fresh) };
 }
 
@@ -469,7 +471,6 @@ export async function finalApprovalService(userId, studentId) {
 		err.statusCode = 400;
 		throw err;
 	}
-	await logThesisActivity(thesis.id, userId, "FINAL_PROGRESS_APPROVED", undefined, "approval");
 	return { thesisId: thesis.id, approved: true };
 }
 
@@ -495,13 +496,6 @@ export async function guidanceHistoryService(userId, studentId) {
     const titles = ids.map((id) => titleMap.get(id)).filter(Boolean);
     return toFlatGuidance({ ...g, milestoneTitles: titles });
   });
-	return { count: items.length, items };
-}
-
-export async function activityLogService(userId, studentId) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-	const items = await listActivityLogs(studentId);
 	return { count: items.length, items };
 }
 
@@ -542,7 +536,6 @@ export async function failStudentThesisService(userId, studentId, { reason } = {
 	}
 
 	await updateThesisStatusById(thesis.id, idFailed);
-	await logThesisActivity(thesis.id, userId, "THESIS_FAILED", reason || undefined, "milestone");
 	return { thesisId: thesis.id, status: "failed" };
 }
 
@@ -611,15 +604,6 @@ export async function approveSessionSummaryService(userId, guidanceId) {
 			console.warn("Failed to delete supervisor calendar event:", e?.message || e);
 		}
 	}
-
-	// Log activity
-	await logThesisActivity(
-		updated.thesisId,
-		userId,
-		"GUIDANCE_COMPLETED",
-		`Bimbingan selesai dengan ${updated.thesis?.student?.user?.fullName || "mahasiswa"}`,
-		"guidance"
-	);
 
 	// Send notification to student
 	if (studentUserId) {
@@ -751,6 +735,100 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 	};
 	
 	return { guidance: flat };
+}
+
+/**
+ * Send warning notification to student about thesis progress
+ */
+export async function sendWarningNotificationService(userId, thesisId, warningType) {
+	const lecturer = await getLecturerByUserId(userId);
+	ensureLecturer(lecturer);
+
+	// Get thesis with student info
+	const thesis = await prisma.thesis.findUnique({
+		where: { id: thesisId },
+		include: {
+			student: {
+				include: {
+					user: { select: { id: true, fullName: true } }
+				}
+			},
+			thesisParticipants: {
+				where: { lecturerId: lecturer.id },
+				include: {
+					role: { select: { name: true } }
+				}
+			}
+		}
+	});
+
+	if (!thesis) {
+		const err = new Error("Thesis not found");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Check if lecturer is supervisor of this thesis
+	if (!thesis.thesisParticipants.length) {
+		const err = new Error("You are not a supervisor of this thesis");
+		err.statusCode = 403;
+		throw err;
+	}
+
+	const studentUserId = thesis.student?.user?.id;
+	const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+	const lecturerName = toTitleCaseName((await prisma.user.findUnique({ where: { id: userId } }))?.fullName || "Dosen");
+
+	if (!studentUserId) {
+		const err = new Error("Student not found for this thesis");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Define warning messages based on type
+	const warningMessages = {
+		SLOW: {
+			title: "⚠️ Peringatan Progress Tugas Akhir",
+			body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
+			notifBody: `Progress tugas akhir Anda terdeteksi lambat. Dosen pembimbing ${lecturerName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`
+		},
+		AT_RISK: {
+			title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+			body: `Halo ${toTitleCaseName(studentName)}, status tugas akhir Anda dalam kondisi BERISIKO. Segera hubungi dosen pembimbing untuk menghindari kegagalan.`,
+			notifBody: `Status tugas akhir Anda dalam kondisi BERISIKO. Dosen pembimbing ${lecturerName} meminta Anda segera menghubungi beliau.`
+		},
+		FAILED: {
+			title: "❌ Pemberitahuan Status Tugas Akhir",
+			body: `Halo ${toTitleCaseName(studentName)}, tugas akhir Anda telah melampaui batas waktu. Segera hubungi dosen pembimbing untuk langkah selanjutnya.`,
+			notifBody: `Tugas akhir Anda telah melampaui batas waktu. Silakan hubungi dosen pembimbing ${lecturerName}.`
+		}
+	};
+
+	const message = warningMessages[warningType] || warningMessages.SLOW;
+
+	// Send FCM notification
+	await sendFcmToUsers([studentUserId], {
+		title: message.title,
+		body: message.body,
+		data: {
+			type: "thesis_warning",
+			thesisId: thesis.id,
+			warningType
+		}
+	});
+
+	// Create in-app notification
+	await createNotificationsForUsers([studentUserId], {
+		title: message.title,
+		message: message.notifBody,
+		type: "thesis_warning",
+		referenceId: thesis.id
+	});
+
+	return { 
+		success: true, 
+		message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}` 
+	};
 }
 
 

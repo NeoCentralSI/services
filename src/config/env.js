@@ -66,6 +66,9 @@ export const ENV = {
   // Guidance reminder cron controls
   GUIDANCE_REMINDER_CRON: process.env.GUIDANCE_REMINDER_CRON || "0 7 * * *", // 07:00 every day
   GUIDANCE_REMINDER_TZ: process.env.GUIDANCE_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
+  // Daily thesis reminder cron controls (for active thesis students)
+  DAILY_THESIS_REMINDER_CRON: process.env.DAILY_THESIS_REMINDER_CRON || "0 9 * * *", // 09:00 every day
+  DAILY_THESIS_REMINDER_TZ: process.env.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
 
   // ===============================
   // 🧰 LOGGING

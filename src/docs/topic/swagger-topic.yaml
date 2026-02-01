@@ -1,0 +1,337 @@
+paths:
+  "/topics":
+    get:
+      tags: [Topic]
+      summary: Get all thesis topics
+      description: Retrieve all thesis topics with related counts (thesis and templates)
+      operationId: getTopics
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of thesis topics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Topic"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [Topic]
+      summary: Create new topic
+      description: Create a new thesis topic (Sekretaris Departemen only)
+      operationId: createTopic
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTopicDto"
+      responses:
+        "201":
+          description: Topic created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Topik berhasil dibuat"
+                  data:
+                    $ref: "#/components/schemas/Topic"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Topic name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                success: false
+                status: 409
+                message: "Topik dengan nama tersebut sudah ada"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  "/topics/{id}":
+    get:
+      tags: [Topic]
+      summary: Get topic by ID
+      description: Retrieve a specific thesis topic by its ID
+      operationId: getTopicById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Topic ID
+      responses:
+        "200":
+          description: Topic details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/Topic"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      tags: [Topic]
+      summary: Update topic
+      description: Update a thesis topic (Sekretaris Departemen only)
+      operationId: updateTopic
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Topic ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTopicDto"
+      responses:
+        "200":
+          description: Topic updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Topik berhasil diperbarui"
+                  data:
+                    $ref: "#/components/schemas/Topic"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Topic name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                success: false
+                status: 409
+                message: "Topik dengan nama tersebut sudah ada"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [Topic]
+      summary: Delete topic
+      description: Delete a thesis topic (Sekretaris Departemen only). Topic must not be in use.
+      operationId: deleteTopic
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Topic ID
+      responses:
+        "200":
+          description: Topic deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Topik berhasil dihapus"
+        "400":
+          description: Topic is in use and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                success: false
+                status: 400
+                message: "Topik tidak dapat dihapus karena masih digunakan oleh tugas akhir atau template milestone"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  "/topics/bulk":
+    delete:
+      tags: [Topic]
+      summary: Bulk delete topics
+      description: Delete multiple thesis topics at once (Sekretaris Departemen only). Topics in use will be skipped.
+      operationId: bulkDeleteTopics
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+                  description: Array of topic IDs to delete
+      responses:
+        "200":
+          description: Bulk delete result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "3 topik berhasil dihapus. 1 topik gagal dihapus karena masih digunakan."
+                  data:
+                    type: object
+                    properties:
+                      deleted:
+                        type: integer
+                        example: 3
+                      failed:
+                        type: integer
+                        example: 1
+                      failedNames:
+                        type: array
+                        items:
+                          type: string
+                        example: ["Machine Learning"]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  schemas:
+    Topic:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Topic unique identifier
+        name:
+          type: string
+          description: Topic name
+        createdAt:
+          type: string
+          format: date-time
+          description: Topic creation timestamp
+        updatedAt:
+          type: string
+          format: date-time
+          description: Topic last update timestamp
+        thesisCount:
+          type: integer
+          description: Number of thesis using this topic
+        templateCount:
+          type: integer
+          description: Number of milestone templates associated with this topic
+      example:
+        id: "123e4567-e89b-12d3-a456-426614174000"
+        name: "Machine Learning"
+        createdAt: "2024-01-15T10:30:00Z"
+        updatedAt: "2024-01-15T10:30:00Z"
+        thesisCount: 5
+        templateCount: 3
+
+    CreateTopicDto:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Topic name
+      example:
+        name: "Machine Learning"
+
+    UpdateTopicDto:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Topic name
+      example:
+        name: "Deep Learning"

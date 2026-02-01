@@ -25,18 +25,20 @@ export async function findMyStudents(lecturerId, roles) {
 							user: { select: { id: true, fullName: true, email: true, identityNumber: true } },
 						},
 					},
-                    // Include progress details for summary
+                    // Include ALL milestones to calculate progress
                     thesisMilestones: {
-                        orderBy: { updatedAt: 'desc' },
-                        take: 1,
-                        select: { title: true, status: true }
+                        select: { id: true, title: true, status: true, progressPercentage: true }
                     },
+                    // Get completed guidances count
                     thesisGuidances: {
                         where: { status: 'completed' },
                         orderBy: { completedAt: 'desc' },
-                        take: 1,
-                        select: { completedAt: true }
-                    }
+                        select: { id: true, completedAt: true }
+                    },
+					// Include thesis status
+					thesisStatus: {
+						select: { id: true, name: true }
+					}
 				},
 			},
 		},
@@ -52,19 +54,40 @@ export async function findMyStudents(lecturerId, roles) {
 		seen.add(sid);
 
         // Get safe values
-        const lastMilestone = p.thesis.thesisMilestones?.[0] || null;
-        const lastGuidance = p.thesis.thesisGuidances?.[0] || null;
+        const milestones = p.thesis.thesisMilestones || [];
+        const guidances = p.thesis.thesisGuidances || [];
+        
+        // Calculate milestone progress
+        const totalMilestones = milestones.length;
+        const completedMilestones = milestones.filter(m => m.status === 'completed').length;
+        const milestoneProgress = totalMilestones > 0 
+            ? Math.round((completedMilestones / totalMilestones) * 100) 
+            : 0;
+        
+        // Get latest milestone (most recently updated or first incomplete)
+        const latestMilestone = milestones.find(m => m.status !== 'completed') || milestones[0];
+        
+        // Calculate completed guidances count
+        const completedGuidanceCount = guidances.length;
+        const lastGuidanceDate = guidances[0]?.completedAt || null;
 
 		result.push({
 			thesisId: p.thesisId,
 			thesisTitle: p.thesis?.title ?? null,
             thesisRating: p.thesis?.rating || "ONGOING", // Enum from Thesis model
+			thesisStatus: p.thesis?.thesisStatus?.name || "Ongoing",
 			studentId: sid,
 			studentUser: p.thesis.student.user,
 			role: p.role?.name || null,
-            latestMilestone: lastMilestone ? lastMilestone.title : "Belum mulai",
-            lastGuidanceDate: lastGuidance ? lastGuidance.completedAt : null,
+            latestMilestone: latestMilestone ? latestMilestone.title : "Belum mulai",
+            // New fields for progress info
+            totalMilestones,
+            completedMilestones,
+            milestoneProgress, // percentage 0-100
+            completedGuidanceCount,
+            lastGuidanceDate,
             deadlineDate: p.thesis?.deadlineDate ?? null,
+            startDate: p.thesis?.startDate ?? null,
 		});
 	}
 	return result;
@@ -266,13 +289,6 @@ export async function upsertCompletionsValidated(thesisId, componentIds = []) {
 	return { updated: updateRes.count || 0, created: createRes.count || 0 };
 }
 
-// Schema baru: tambah activityType untuk ThesisActivityLog
-export async function logThesisActivity(thesisId, userId, activity, notes = null, activityType = "other") {
-	return prisma.thesisActivityLog.create({ 
-		data: { thesisId, userId, activity, notes, activityType } 
-	});
-}
-
 export async function listGuidanceHistory(studentId, lecturerId) {
 	return prisma.thesisGuidance.findMany({
 		where: {
@@ -281,13 +297,6 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 		},
 		include: { supervisor: { include: { user: true } } },
 		orderBy: { requestedDate: "asc" },
-	});
-}
-
-export async function listActivityLogs(studentId) {
-	return prisma.thesisActivityLog.findMany({
-		where: { thesis: { studentId } },
-		orderBy: { createdAt: "desc" },
 	});
 }
 

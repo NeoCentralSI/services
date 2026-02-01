@@ -269,27 +269,6 @@ student_history:
       "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
       "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
 
-student_activity_log:
-  get:
-    tags: [StudentThesisGuidance]
-    summary: Student - Activity log
-    security: [{ bearerAuth: [] }]
-    responses:
-      "200":
-        description: Logs
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                success: { type: boolean }
-                count: { type: integer }
-                items:
-                  type: array
-                  items: { $ref: "../openapi.yaml#/components/schemas/ActivityLogItem" }
-      "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
-      "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
-
 student_supervisors:
   get:
     tags: [StudentThesisGuidance]

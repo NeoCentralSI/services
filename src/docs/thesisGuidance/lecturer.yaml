@@ -318,32 +318,6 @@ lecturer_guidance_history:
       "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
       "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
 
-lecturer_activity_log:
-  get:
-    tags: [LecturerThesisGuidance]
-    summary: Lecturer - Activity log (optional)
-    security: [{ bearerAuth: [] }]
-    parameters:
-      - in: path
-        name: studentId
-        required: true
-        schema: { type: string }
-    responses:
-      "200":
-        description: Logs
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                success: { type: boolean }
-                count: { type: integer }
-                items:
-                  type: array
-                  items: { $ref: "../openapi.yaml#/components/schemas/ActivityLogItem" }
-      "401": { $ref: "../openapi.yaml#/components/responses/Unauthorized" }
-      "403": { $ref: "../openapi.yaml#/components/responses/Forbidden" }
-
 lecturer_supervisor_eligibility:
   get:
     tags: [LecturerThesisGuidance]

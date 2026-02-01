@@ -91,12 +91,6 @@ router.get("/thesis/:thesisId", authGuard, controller.getMilestones);
 router.get("/thesis/:thesisId/progress", authGuard, controller.getProgress);
 
 /**
- * GET /api/milestones/thesis/:thesisId/logs
- * Get all milestone logs for thesis
- */
-router.get("/thesis/:thesisId/logs", authGuard, controller.getThesisMilestoneLogs);
-
-/**
  * POST /api/milestones/thesis/:thesisId
  * Create new milestone (student only)
  */
@@ -149,12 +143,6 @@ router.patch(
  * Get milestone detail
  */
 router.get("/:milestoneId", authGuard, controller.getMilestoneDetail);
-
-/**
- * GET /api/milestones/:milestoneId/logs
- * Get milestone activity logs
- */
-router.get("/:milestoneId/logs", authGuard, controller.getMilestoneLogs);
 
 /**
  * PATCH /api/milestones/:milestoneId
@@ -283,6 +271,55 @@ router.post(
   authGuard,
   validate(validator.seminarReadinessNotesSchema),
   controller.revokeSeminarReadiness
+);
+
+// ============================================
+// Defence Readiness Routes
+// ============================================
+
+/**
+ * GET /api/milestones/ready-for-defence
+ * Get list of students ready for defence registration (sekdep/admin)
+ */
+router.get("/ready-for-defence", authGuard, controller.getStudentsReadyForDefence);
+
+/**
+ * GET /api/milestones/thesis/:thesisId/defence-readiness
+ * Get thesis defence readiness status
+ */
+router.get("/thesis/:thesisId/defence-readiness", authGuard, controller.getThesisDefenceReadiness);
+
+/**
+ * POST /api/milestones/thesis/:thesisId/defence-readiness/approve
+ * Approve defence readiness by supervisor
+ */
+router.post(
+  "/thesis/:thesisId/defence-readiness/approve",
+  authGuard,
+  validate(validator.defenceReadinessNotesSchema),
+  controller.approveDefenceReadiness
+);
+
+/**
+ * POST /api/milestones/thesis/:thesisId/defence-readiness/revoke
+ * Revoke defence readiness approval by supervisor
+ */
+router.post(
+  "/thesis/:thesisId/defence-readiness/revoke",
+  authGuard,
+  validate(validator.defenceReadinessNotesSchema),
+  controller.revokeDefenceReadiness
+);
+
+/**
+ * POST /api/milestones/thesis/:thesisId/request-defence
+ * Student requests defence by uploading final thesis document
+ */
+router.post(
+  "/thesis/:thesisId/request-defence",
+  authGuard,
+  validate(validator.requestDefenceSchema),
+  controller.requestDefence
 );
 
 export default router;

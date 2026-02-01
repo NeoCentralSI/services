@@ -195,44 +195,7 @@ async function seedAcademicYears() {
   return yearMap;
 }
 
-// ============================================================
-// 5. SEED THESIS MILESTONE TEMPLATES
-// ============================================================
-async function seedMilestoneTemplates() {
-  console.log("\n" + "=".repeat(60));
-  console.log("📊 STEP 5: Seeding Thesis Milestone Templates...");
-  console.log("=".repeat(60));
 
-  const templates = [
-    { name: "Pengajuan Judul", description: "Judul tugas akhir telah disetujui", category: "persiapan", orderIndex: 1 },
-    { name: "BAB I - Pendahuluan", description: "Bab 1 telah disetujui pembimbing", category: "penulisan", orderIndex: 2 },
-    { name: "BAB II - Tinjauan Pustaka", description: "Bab 2 telah disetujui pembimbing", category: "penulisan", orderIndex: 3 },
-    { name: "BAB III - Metodologi", description: "Bab 3 telah disetujui pembimbing", category: "penulisan", orderIndex: 4 },
-    { name: "Seminar Proposal", description: "Telah melaksanakan seminar proposal", category: "seminar", orderIndex: 5 },
-    { name: "BAB IV - Implementasi", description: "Bab 4 telah disetujui pembimbing", category: "implementasi", orderIndex: 6 },
-    { name: "BAB V - Pengujian", description: "Bab 5 telah disetujui pembimbing", category: "implementasi", orderIndex: 7 },
-    { name: "BAB VI - Kesimpulan", description: "Bab 6 telah disetujui pembimbing", category: "penulisan", orderIndex: 8 },
-    { name: "Sidang Tugas Akhir", description: "Telah melaksanakan sidang tugas akhir", category: "sidang", orderIndex: 9 },
-    { name: "Revisi Final", description: "Revisi final telah disetujui", category: "revisi", orderIndex: 10 },
-  ];
-
-  const templateMap = new Map();
-
-  for (const template of templates) {
-    let existing = await prisma.thesisMilestoneTemplate.findFirst({
-      where: { name: template.name },
-    });
-    if (!existing) {
-      existing = await prisma.thesisMilestoneTemplate.create({ data: template });
-      console.log(`  ✅ Created template: ${template.name}`);
-    } else {
-      console.log(`  ⏭️  Template exists: ${template.name}`);
-    }
-    templateMap.set(template.name, existing);
-  }
-
-  return templateMap;
-}
 
 // ============================================================
 // 6. SEED USERS (Lecturers & Students)
@@ -249,49 +212,49 @@ async function seedUsers(roleMap, studentStatusMap) {
   const usersData = [
     {
       email: "kadep_si@fti.unand.ac.id",
-      fullName: "Dr. Ahmad Kadep, M.Kom",
+      fullName: "Ricky Akbar M.Kom",
       identityType: "NIP",
-      identityNumber: "198501012010011001",
+      identityNumber: "198410062012121001",
       roles: [ROLES.KETUA_DEPARTEMEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
       email: "sekdep_si@fti.unand.ac.id",
-      fullName: "Dr. Budi Sekdep, M.T",
+      fullName: "Afriyanti Dwi Kartika, M.T",
       identityType: "NIP",
-      identityNumber: "198602022011012002",
+      identityNumber: "198904212019032024",
       roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
       email: "pembimbing_si@fti.unand.ac.id",
-      fullName: "Dr. Candra Pembimbing, M.Cs",
+      fullName: "Husnil Kamil, MT",
       identityType: "NIP",
-      identityNumber: "198703032012013003",
+      identityNumber: "198201182008121002",
       roles: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
       email: "penguji_si@fti.unand.ac.id",
-      fullName: "Dr. Diana Penguji, M.Sc",
+      fullName: "Aina Hubby Aziira, M.Eng",
       identityType: "NIP",
-      identityNumber: "198804042013014004",
+      identityNumber: "199504302022032013",
       roles: [ROLES.PENGUJI, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
       email: "gkm_si@fti.unand.ac.id",
-      fullName: "Dr. Erik GKM, M.Eng",
+      fullName: "Ullya Mega Wahyuni, M.Kom",
       identityType: "NIP",
-      identityNumber: "198905052014015005",
+      identityNumber: "199011032019032008",
       roles: [ROLES.GKM, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
       email: "admin_si@fti.unand.ac.id",
-      fullName: "Admin Sistem FTI",
+      fullName: "Nindy Malisha, SE",
       identityType: "OTHER",
-      identityNumber: "ADMIN001",
+      identityNumber: "220199206201501201",
       roles: [ROLES.ADMIN],
       isLecturer: false,
     },
@@ -313,82 +276,87 @@ async function seedUsers(roleMap, studentStatusMap) {
       roles: [ROLES.MAHASISWA],
       isStudent: true,
       enrollmentYear: 2022,
-      sksCompleted: 118,
+      sksCompleted: 137,
     },
     {
-      email: "alya_202101001@fti.unand.ac.id",
-      fullName: "Alya Prameswari",
+      email: "khalied_2211523030@fti.unand.ac.id",
+      fullName: "Khalied Nauly Maturino",
       identityType: "NIM",
-      identityNumber: "202101001",
-      roles: [ROLES.MAHASISWA],
-      isStudent: true,
-      enrollmentYear: 2021,
-      sksCompleted: 112,
-    },
-    {
-      email: "bagas_202101014@fti.unand.ac.id",
-      fullName: "Bagas Wiratama",
-      identityType: "NIM",
-      identityNumber: "202101014",
-      roles: [ROLES.MAHASISWA],
-      isStudent: true,
-      enrollmentYear: 2021,
-      sksCompleted: 98,
-    },
-    {
-      email: "chandra_202001111@fti.unand.ac.id",
-      fullName: "Chandra Mahardika",
-      identityType: "NIM",
-      identityNumber: "202001111",
-      roles: [ROLES.MAHASISWA],
-      isStudent: true,
-      enrollmentYear: 2020,
-      sksCompleted: 126,
-    },
-    {
-      email: "siti_2211523001@fti.unand.ac.id",
-      fullName: "Siti Rahmawati",
-      identityType: "NIM",
-      identityNumber: "2211523001",
+      identityNumber: "2211523030",
       roles: [ROLES.MAHASISWA],
       isStudent: true,
       enrollmentYear: 2022,
+      sksCompleted: 141,
     },
     {
-      email: "andi_2211523002@fti.unand.ac.id",
-      fullName: "Andi Pratama",
+      email: "mustafa_2211522036@fti.unand.ac.id",
+      fullName: "Mustafa Fathur Rahman",
       identityType: "NIM",
-      identityNumber: "2211523002",
+      identityNumber: "2211522036",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 137,
+    },
+    {
+      email: "muhammad_2211521020@fti.unand.ac.id",
+      fullName: "Muhammad Nouval Habibie",
+      identityType: "NIM",
+      identityNumber: "2211521020",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 137,
+    },
+    {
+      email: "daffa_2211523022@fti.unand.ac.id",
+      fullName: "Daffa Agustian Saadi",
+      identityType: "NIM",
+      identityNumber: "2211523022",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 137,
+    },
+    {
+      email: "ilham_2211522028@fti.unand.ac.id",
+      fullName: "Ilham",
+      identityType: "NIM",
+      identityNumber: "2211522028",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 137,
+    },
+    {
+      email: "syauqi_2211523012@fti.unand.ac.id",
+      fullName: "Syauqi",
+      identityType: "NIM",
+      identityNumber: "2211523012",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 125,
+    },
+    {
+      email: "dimas_2311523026@fti.unand.ac.id",
+      fullName: "Dimas",
+      identityType: "NIM",
+      identityNumber: "2311523026",
       roles: [ROLES.MAHASISWA],
       isStudent: true,
       enrollmentYear: 2023,
+      sksCompleted: 99,
     },
     {
-      email: "laila_2211523003@fti.unand.ac.id",
-      fullName: "Laila Khairunnisa",
+      email: "john_2411522001@fti.unand.ac.id",
+      fullName: "John",
       identityType: "NIM",
-      identityNumber: "2211523003",
-      roles: [ROLES.MAHASISWA],
-      isStudent: true,
-      enrollmentYear: 2023,
-    },
-    {
-      email: "rafi_2211523004@fti.unand.ac.id",
-      fullName: "Rafi Nugraha",
-      identityType: "NIM",
-      identityNumber: "2211523004",
+      identityNumber: "2411522001",
       roles: [ROLES.MAHASISWA],
       isStudent: true,
       enrollmentYear: 2024,
-    },
-    {
-      email: "maria_2211523005@fti.unand.ac.id",
-      fullName: "Maria Gabriella",
-      identityType: "NIM",
-      identityNumber: "2211523005",
-      roles: [ROLES.MAHASISWA],
-      isStudent: true,
-      enrollmentYear: 2024,
+      sksCompleted: 60,
     },
   ];
 
@@ -453,10 +421,10 @@ async function seedUsers(roleMap, studentStatusMap) {
             id: user.id,
             studentStatusId: activeStatus.id,
             enrollmentYear: userData.enrollmentYear || 2022,
-            skscompleted: userData.sksCompleted || 120,
+            skscompleted: userData.sksCompleted,
           },
         });
-        console.log(`    🎓 Created Student record`);
+        console.log(`    🎓 Created Student record (SKS: ${userData.sksCompleted})`);
       }
     }
 
@@ -491,20 +459,42 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
   const pembimbing1Role = roleMap.get(ROLES.PEMBIMBING_1);
   const pembimbing2Role = roleMap.get(ROLES.PEMBIMBING_2);
 
-  // Get users
-  const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
+  // Get thesis topic "Pengembangan Sistem (Enterprise Application)"
+  let thesisTopic = await prisma.thesisTopic.findFirst({
+    where: { name: "Pengembangan Sistem (Enterprise Application)" },
+  });
+  
+  if (!thesisTopic) {
+    // Create if not exists
+    thesisTopic = await prisma.thesisTopic.create({
+      data: { name: "Pengembangan Sistem (Enterprise Application)" },
+    });
+    console.log(`  ✅ Created thesis topic: Pengembangan Sistem (Enterprise Application)`);
+  }
+
+  // Get all users
   const nabil = userMap.get("nabil_2211522018@fti.unand.ac.id");
-  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
-  const pembimbing = userMap.get("pembimbing_si@fti.unand.ac.id");
-  const penguji = userMap.get("penguji_si@fti.unand.ac.id");
-  const sekdep = userMap.get("sekdep_si@fti.unand.ac.id");
+  const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
+  const khalied = userMap.get("khalied_2211523030@fti.unand.ac.id");
+  const fathur = userMap.get("mustafa_2211522036@fti.unand.ac.id");
+  const nouval = userMap.get("muhammad_2211521020@fti.unand.ac.id");
+  const daffa = userMap.get("daffa_2211523022@fti.unand.ac.id");
+  const ilham = userMap.get("ilham_2211522028@fti.unand.ac.id");
+  
+  const husnil = userMap.get("pembimbing_si@fti.unand.ac.id");
+  const afriyanti = userMap.get("sekdep_si@fti.unand.ac.id");
 
   const thesisMap = new Map();
 
-  // Thesis for Fariz
-  if (fariz && kadep && pembimbing && penguji) {
+  // Helper function to create thesis
+  async function createThesis(student, title, pembimbing1User, pembimbing2User = null, withTopic = false) {
+    if (!student || !pembimbing1User) {
+      console.log(`  ⚠️  Skipping thesis - Missing student or pembimbing1`);
+      return null;
+    }
+
     let thesis = await prisma.thesis.findFirst({
-      where: { studentId: fariz.id },
+      where: { studentId: student.id },
     });
 
     if (!thesis) {
@@ -514,142 +504,112 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
 
       thesis = await prisma.thesis.create({
         data: {
-          studentId: fariz.id,
-          title: "Implementasi Sistem Informasi Manajemen Tugas Akhir Berbasis Web",
+          studentId: student.id,
+          title: title,
+          thesisTopicId: withTopic ? thesisTopic.id : null,
           startDate: startDate,
           deadlineDate: deadlineDate,
           thesisStatusId: bimbinganStatus?.id,
           academicYearId: currentAcademicYear?.id,
         },
       });
-      console.log(`  ✅ Created thesis for Fariz (Start: ${startDate.toISOString().split('T')[0]}, Deadline: ${deadlineDate.toISOString().split('T')[0]})`);
+      console.log(`  ✅ Created thesis for ${student.fullName}`);
+      console.log(`     Title: ${title}`);
+      if (withTopic) {
+        console.log(`     Topic: Pengembangan Sistem (Enterprise Application)`);
+      }
 
       // Add Pembimbing 1
       await prisma.thesisParticipant.create({
         data: {
           thesisId: thesis.id,
-          lecturerId: kadep.id,
+          lecturerId: pembimbing1User.id,
           roleId: pembimbing1Role.id,
         },
       });
-      console.log(`    📌 Pembimbing 1: Dr. Ahmad Kadep`);
+      console.log(`    📌 Pembimbing 1: ${pembimbing1User.fullName}`);
 
-      // Add Pembimbing 2
-      await prisma.thesisParticipant.create({
-        data: {
-          thesisId: thesis.id,
-          lecturerId: pembimbing.id,
-          roleId: pembimbing2Role.id,
-        },
-      });
-      console.log(`    📌 Pembimbing 2: Dr. Candra Pembimbing`);
-
-      // Add Penguji for seminar
-      await prisma.thesisExaminer.create({
-        data: {
-          thesisId: thesis.id,
-          lecturerId: penguji.id,
-          eventType: "seminar",
-          isChair: true,
-        },
-      });
-      console.log(`    🔍 Penguji Seminar (Chair): Dr. Diana Penguji`);
-
-      await prisma.thesisExaminer.create({
-        data: {
-          thesisId: thesis.id,
-          lecturerId: sekdep.id,
-          eventType: "seminar",
-          isChair: false,
-        },
-      });
-      console.log(`    🔍 Penguji Seminar: Dr. Budi Sekdep`);
+      // Add Pembimbing 2 if exists
+      if (pembimbing2User) {
+        await prisma.thesisParticipant.create({
+          data: {
+            thesisId: thesis.id,
+            lecturerId: pembimbing2User.id,
+            roleId: pembimbing2Role.id,
+          },
+        });
+        console.log(`    📌 Pembimbing 2: ${pembimbing2User.fullName}`);
+      }
     } else {
-      console.log(`  ⏭️  Thesis exists for Fariz - Updating Dates`);
-      const startDate = new Date("2025-08-01");
-      const deadlineDate = new Date(startDate);
-      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
-      
-      thesis = await prisma.thesis.update({
-        where: { id: thesis.id },
-        data: { 
-            startDate: startDate,
-            deadlineDate: deadlineDate 
-        }
-      });
+      console.log(`  ⏭️  Thesis exists for ${student.fullName}`);
     }
-    thesisMap.set(fariz.id, thesis);
+
+    thesisMap.set(student.id, thesis);
+    return thesis;
   }
 
-  // Thesis for Nabil
-  if (nabil && pembimbing && penguji && sekdep) {
-    let thesis = await prisma.thesis.findFirst({
-      where: { studentId: nabil.id },
-    });
+  // 1. Nabil - sistem monitoring tugas akhir di dsi (WITH topic & milestone)
+  await createThesis(
+    nabil,
+    "Sistem Monitoring Tugas Akhir di DSI",
+    husnil,
+    afriyanti,
+    true // with topic
+  );
 
-    if (!thesis) {
-      const startDate = new Date("2025-08-01");
-      const deadlineDate = new Date(startDate);
-      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
+  // 2. Fariz - sistem kerja praktek di dsi (WITH topic & milestone)
+  await createThesis(
+    fariz,
+    "Sistem Kerja Praktek di DSI",
+    husnil,
+    afriyanti,
+    true // with topic
+  );
 
-      thesis = await prisma.thesis.create({
-        data: {
-          studentId: nabil.id,
-          title: "Pengembangan Aplikasi Mobile untuk Monitoring Bimbingan Tugas Akhir",
-          startDate: startDate,
-          deadlineDate: deadlineDate,
-          thesisStatusId: bimbinganStatus?.id,
-          academicYearId: currentAcademicYear?.id,
-        },
-      });
-      console.log(`  ✅ Created thesis for Nabil (Start: ${startDate.toISOString().split('T')[0]}, Deadline: ${deadlineDate.toISOString().split('T')[0]})`);
+  // 3. Khalied - sistem informasi beasiswa non apbn (NO topic, NO milestone)
+  await createThesis(
+    khalied,
+    "Sistem Informasi Beasiswa Non APBN",
+    husnil,
+    null,
+    false // no topic
+  );
 
-      // Add Pembimbing 1
-      await prisma.thesisParticipant.create({
-        data: {
-          thesisId: thesis.id,
-          lecturerId: pembimbing.id,
-          roleId: pembimbing1Role.id,
-        },
-      });
-      console.log(`    📌 Pembimbing 1: Dr. Candra Pembimbing`);
+  // 4. Fathur - sistem informasi manajemen seminar sidang dan yudisium di dsi (WITH topic & milestone)
+  await createThesis(
+    fathur,
+    "Sistem Informasi Manajemen Seminar Sidang dan Yudisium di DSI",
+    husnil,
+    afriyanti,
+    true // with topic
+  );
 
-      // Add Pembimbing 2
-      await prisma.thesisParticipant.create({
-        data: {
-          thesisId: thesis.id,
-          lecturerId: penguji.id,
-          roleId: pembimbing2Role.id,
-        },
-      });
-      console.log(`    📌 Pembimbing 2: Dr. Diana Penguji`);
+  // 5. Nouval - sistem informasi management kelompok keilmuan di dsi (NO topic, NO milestone)
+  await createThesis(
+    nouval,
+    "Sistem Informasi Management Kelompok Keilmuan di DSI",
+    husnil,
+    null,
+    false // no topic
+  );
 
-      // Add Penguji for seminar
-      await prisma.thesisExaminer.create({
-        data: {
-          thesisId: thesis.id,
-          lecturerId: kadep.id,
-          eventType: "seminar",
-          isChair: true,
-        },
-      });
-      console.log(`    🔍 Penguji Seminar (Chair): Dr. Ahmad Kadep`);
-    } else {
-      console.log(`  ⏭️  Thesis exists for Nabil - Updating Dates`);
-      const startDate = new Date("2025-08-01");
-      const deadlineDate = new Date(startDate);
-      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
-      
-      thesis = await prisma.thesis.update({
-        where: { id: thesis.id },
-        data: { 
-            startDate: startDate,
-            deadlineDate: deadlineDate 
-        }
-      });
-    }
-    thesisMap.set(nabil.id, thesis);
-  }
+  // 6. Daffa Agustian - sistem informasi generate report di dinas radio kota padang (NO topic, NO milestone)
+  await createThesis(
+    daffa,
+    "Sistem Informasi Generate Report di Dinas Radio Kota Padang",
+    afriyanti,
+    null,
+    false // no topic
+  );
+
+  // 7. Ilham - sistem informasi pengelolaan proposal TA di dsi (NO topic, NO milestone)
+  await createThesis(
+    ilham,
+    "Sistem Informasi Pengelolaan Proposal TA di DSI",
+    husnil,
+    afriyanti,
+    false // no topic
+  );
 
   return thesisMap;
 }
@@ -662,11 +622,69 @@ async function seedThesisMilestones(thesisMap, userMap) {
   console.log("✅ STEP 8: Seeding Thesis Milestones...");
   console.log("=".repeat(60));
 
-  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
+  const husnil = userMap.get("pembimbing_si@fti.unand.ac.id");
+  const nabil = userMap.get("nabil_2211522018@fti.unand.ac.id");
+  const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
+  const fathur = userMap.get("mustafa_2211522036@fti.unand.ac.id");
 
-  // For each thesis, create custom milestones
+  // Milestone configurations per student
+  // Nabil: 80%, Fariz: 40%, Fathur: 60%
+  // Khalied, Nouval, Daffa, Ilham: 0% (kosong)
+  const milestoneConfig = {
+    [nabil?.id]: { completionPercentage: 80, name: "Nabil" },
+    [fariz?.id]: { completionPercentage: 40, name: "Fariz" },
+    [fathur?.id]: { completionPercentage: 60, name: "Fathur" },
+  };
+
+  // Base milestones template (5 milestones, each worth 20%)
+  const baseMilestones = [
+    { 
+      title: "Pengajuan Judul & BAB I", 
+      description: "Judul tugas akhir dan pendahuluan (latar belakang, rumusan masalah, tujuan)",
+      orderIndex: 1,
+      targetDate: new Date("2025-09-01"),
+      weight: 20,
+    },
+    { 
+      title: "BAB II - Tinjauan Pustaka", 
+      description: "Dasar teori dan penelitian terkait",
+      orderIndex: 2,
+      targetDate: new Date("2025-10-01"),
+      weight: 20,
+    },
+    { 
+      title: "BAB III - Metodologi", 
+      description: "Metodologi penelitian dan perancangan sistem",
+      orderIndex: 3,
+      targetDate: new Date("2025-11-01"),
+      weight: 20,
+    },
+    { 
+      title: "BAB IV - Implementasi", 
+      description: "Implementasi sistem dan coding",
+      orderIndex: 4,
+      targetDate: new Date("2025-12-15"),
+      weight: 20,
+    },
+    { 
+      title: "BAB V - Pengujian & Kesimpulan", 
+      description: "Pengujian sistem, analisis hasil, dan kesimpulan",
+      orderIndex: 5,
+      targetDate: new Date("2026-01-31"),
+      weight: 20,
+    },
+  ];
+
   for (const [studentId, thesis] of thesisMap) {
     if (!thesis) continue;
+
+    const config = milestoneConfig[studentId];
+    
+    // Skip if no config (Khalied, Nouval, Daffa, Ilham - no milestones)
+    if (!config) {
+      console.log(`  ⏭️  Skipping milestones for thesis: ${thesis.title?.slice(0, 40)}... (no milestone data)`);
+      continue;
+    }
 
     // Check if already has milestones
     const existingCount = await prisma.thesisMilestone.count({
@@ -674,87 +692,57 @@ async function seedThesisMilestones(thesisMap, userMap) {
     });
 
     if (existingCount > 0) {
-      console.log(`  ⏭️  Milestones exist for thesis: ${thesis.title?.slice(0, 30)}...`);
+      console.log(`  ⏭️  Milestones exist for ${config.name}`);
       continue;
     }
 
-    // Create milestones for this thesis
-    const milestones = [
-      { 
-        title: "Pengajuan Judul", 
-        description: "Judul tugas akhir telah disetujui",
-        orderIndex: 1,
-        targetDate: new Date("2025-08-15"),
-        status: "completed",
-        progressPercentage: 100,
-        startedAt: new Date("2025-08-01"),
-        completedAt: new Date("2025-08-10"),
-        validatedBy: kadep?.id,
-        validatedAt: new Date("2025-08-10"),
-        supervisorNotes: "Judul sudah bagus dan fokus",
-      },
-      { 
-        title: "BAB I - Pendahuluan", 
-        description: "Latar belakang, rumusan masalah, tujuan penelitian",
-        orderIndex: 2,
-        targetDate: new Date("2025-09-01"),
-        status: "completed",
-        progressPercentage: 100,
-        startedAt: new Date("2025-08-11"),
-        completedAt: new Date("2025-08-28"),
-        validatedBy: kadep?.id,
-        validatedAt: new Date("2025-08-28"),
-        supervisorNotes: "BAB I sudah lengkap, lanjut ke BAB II",
-      },
-      { 
-        title: "BAB II - Tinjauan Pustaka", 
-        description: "Dasar teori dan penelitian terkait",
-        orderIndex: 3,
-        targetDate: new Date("2025-09-20"),
-        status: "completed",
-        progressPercentage: 100,
-        startedAt: new Date("2025-09-01"),
-        completedAt: new Date("2025-09-18"),
-        validatedBy: kadep?.id,
-        validatedAt: new Date("2025-09-18"),
-        supervisorNotes: "Referensi sudah cukup, tambahkan jurnal internasional",
-      },
-      { 
-        title: "BAB III - Metodologi", 
-        description: "Metodologi penelitian dan perancangan sistem",
-        orderIndex: 4,
-        targetDate: new Date("2025-10-15"),
-        status: "in_progress",
-        progressPercentage: 60,
-        startedAt: new Date("2025-09-20"),
-        studentNotes: "Sedang menyusun diagram alir dan use case",
-      },
-      { 
-        title: "BAB IV - Implementasi", 
-        description: "Implementasi sistem dan coding",
-        orderIndex: 5,
-        targetDate: new Date("2025-11-15"),
-        status: "not_started",
-        progressPercentage: 0,
-      },
-      { 
-        title: "BAB V - Pengujian", 
-        description: "Pengujian sistem dan analisis hasil",
-        orderIndex: 6,
-        targetDate: new Date("2025-12-15"),
-        status: "not_started",
-        progressPercentage: 0,
-      },
-    ];
+    console.log(`  📋 Creating milestones for ${config.name} (Target: ${config.completionPercentage}%)`);
 
-    for (const milestone of milestones) {
+    let accumulatedPercentage = 0;
+    
+    for (const milestone of baseMilestones) {
+      accumulatedPercentage += milestone.weight;
+      
+      let status, progressPercentage, startedAt, completedAt, validatedBy, validatedAt, supervisorNotes;
+      
+      if (accumulatedPercentage <= config.completionPercentage) {
+        // Completed milestone
+        status = "completed";
+        progressPercentage = 100;
+        startedAt = new Date(milestone.targetDate.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days before target
+        completedAt = new Date(milestone.targetDate.getTime() - 5 * 24 * 60 * 60 * 1000); // 5 days before target
+        validatedBy = husnil?.id;
+        validatedAt = completedAt;
+        supervisorNotes = "Milestone sudah selesai dengan baik";
+      } else if (accumulatedPercentage - milestone.weight < config.completionPercentage) {
+        // Partially completed milestone (in progress)
+        status = "in_progress";
+        const remaining = config.completionPercentage - (accumulatedPercentage - milestone.weight);
+        progressPercentage = Math.round((remaining / milestone.weight) * 100);
+        startedAt = new Date(milestone.targetDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else {
+        // Not started
+        status = "not_started";
+        progressPercentage = 0;
+      }
+
       await prisma.thesisMilestone.create({
         data: {
           thesisId: thesis.id,
-          ...milestone,
+          title: milestone.title,
+          description: milestone.description,
+          orderIndex: milestone.orderIndex,
+          targetDate: milestone.targetDate,
+          status,
+          progressPercentage,
+          startedAt,
+          completedAt,
+          validatedBy,
+          validatedAt,
+          supervisorNotes,
         },
       });
-      console.log(`  ✅ Created milestone: ${milestone.title} (${milestone.status})`);
+      console.log(`    ✅ ${milestone.title}: ${status} (${progressPercentage}%)`);
     }
   }
 }
@@ -767,189 +755,108 @@ async function seedGuidances(thesisMap, userMap) {
   console.log("📆 STEP 9: Seeding Thesis Guidances (Bimbingan)...");
   console.log("=".repeat(60));
 
-  const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
+  // Get users
   const nabil = userMap.get("nabil_2211522018@fti.unand.ac.id");
-  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
-  const pembimbing = userMap.get("pembimbing_si@fti.unand.ac.id");
-  const penguji = userMap.get("penguji_si@fti.unand.ac.id");
+  const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
+  const fathur = userMap.get("mustafa_2211522036@fti.unand.ac.id");
+  const husnil = userMap.get("pembimbing_si@fti.unand.ac.id");
+  const afriyanti = userMap.get("sekdep_si@fti.unand.ac.id");
 
   // Get lecturer records
-  const kadepLecturer = await prisma.lecturer.findUnique({ where: { id: kadep?.id } });
-  const pembimbingLecturer = await prisma.lecturer.findUnique({ where: { id: pembimbing?.id } });
-  const pengujiLecturer = await prisma.lecturer.findUnique({ where: { id: penguji?.id } });
+  const husnilLecturer = await prisma.lecturer.findUnique({ where: { id: husnil?.id } });
+  const afriyantiLecturer = await prisma.lecturer.findUnique({ where: { id: afriyanti?.id } });
 
-  // Thesis data
-  const farizThesis = thesisMap.get(fariz?.id);
-  const nabilThesis = thesisMap.get(nabil?.id);
+  // Guidance configuration:
+  // Nabil: 5 bimbingan, Fathur: 5 bimbingan, Fariz: 4 bimbingan
+  // Timeline: August 2025 - Feb 2026, interval 2-3 weeks
+  
+  const guidanceSchedules = {
+    nabil: {
+      thesis: thesisMap.get(nabil?.id),
+      name: "Nabil",
+      count: 5,
+      sessions: [
+        { date: "2025-08-18", topic: "Konsultasi judul dan outline proposal", supervisor: husnilLecturer },
+        { date: "2025-09-08", topic: "Review BAB I - Pendahuluan", supervisor: afriyantiLecturer },
+        { date: "2025-10-01", topic: "Konsultasi BAB II - Tinjauan Pustaka", supervisor: husnilLecturer },
+        { date: "2025-10-22", topic: "Review referensi dan literatur", supervisor: afriyantiLecturer },
+        { date: "2025-11-12", topic: "Konsultasi BAB III - Metodologi", supervisor: husnilLecturer },
+      ],
+    },
+    fathur: {
+      thesis: thesisMap.get(fathur?.id),
+      name: "Fathur",
+      count: 5,
+      sessions: [
+        { date: "2025-08-20", topic: "Konsultasi judul sistem seminar sidang yudisium", supervisor: husnilLecturer },
+        { date: "2025-09-10", topic: "Review BAB I - Latar belakang masalah", supervisor: afriyantiLecturer },
+        { date: "2025-10-03", topic: "Konsultasi BAB II - Dasar teori", supervisor: husnilLecturer },
+        { date: "2025-10-24", topic: "Review diagram sistem", supervisor: afriyantiLecturer },
+        { date: "2025-11-14", topic: "Konsultasi progress BAB III", supervisor: husnilLecturer },
+      ],
+    },
+    fariz: {
+      thesis: thesisMap.get(fariz?.id),
+      name: "Fariz",
+      count: 4,
+      sessions: [
+        { date: "2025-08-25", topic: "Konsultasi judul sistem kerja praktek", supervisor: husnilLecturer },
+        { date: "2025-09-15", topic: "Review BAB I - Pendahuluan", supervisor: afriyantiLecturer },
+        { date: "2025-10-08", topic: "Konsultasi BAB II - Tinjauan Pustaka", supervisor: husnilLecturer },
+        { date: "2025-10-29", topic: "Review progress BAB II", supervisor: afriyantiLecturer },
+      ],
+    },
+  };
 
-  // Sample guidances for Fariz
-  if (farizThesis && kadepLecturer && pembimbingLecturer) {
+  const feedbackTemplates = [
+    "Sudah baik, lanjutkan ke tahap berikutnya. Perhatikan konsistensi penulisan.",
+    "Progress bagus. Tambahkan referensi jurnal internasional minimal 5 paper.",
+    "Sudah sesuai dengan arahan. Perbaiki format penulisan sesuai pedoman.",
+    "Bagus, metodologi sudah jelas. Pastikan diagram alir lengkap.",
+    "Sudah on track. Fokus pada implementasi fitur utama terlebih dahulu.",
+  ];
+
+  for (const [key, config] of Object.entries(guidanceSchedules)) {
+    if (!config.thesis) {
+      console.log(`  ⚠️  Thesis not found for ${config.name}, skipping...`);
+      continue;
+    }
+
     const existingCount = await prisma.thesisGuidance.count({
-      where: { thesisId: farizThesis.id },
+      where: { thesisId: config.thesis.id },
     });
 
-    if (existingCount === 0) {
-      // Completed guidance
+    if (existingCount > 0) {
+      console.log(`  ⏭️  Guidances exist for ${config.name}`);
+      continue;
+    }
+
+    console.log(`  📋 Creating ${config.count} guidances for ${config.name}`);
+
+    for (let i = 0; i < config.sessions.length; i++) {
+      const session = config.sessions[i];
+      const requestedDate = new Date(`${session.date}T10:00:00`);
+      const completedAt = new Date(`${session.date}T11:00:00`);
+
       await prisma.thesisGuidance.create({
         data: {
-          thesisId: farizThesis.id,
-          supervisorId: kadepLecturer.id,
-          requestedDate: new Date("2025-09-01T10:00:00"),
-          approvedDate: new Date("2025-09-01T10:00:00"),
+          thesisId: config.thesis.id,
+          supervisorId: session.supervisor.id,
+          requestedDate: requestedDate,
+          approvedDate: requestedDate,
           duration: 60,
-          studentNotes: "Konsultasi BAB I - Latar belakang dan rumusan masalah",
-          supervisorFeedback: "BAB I sudah baik, lanjut ke BAB II. Perbanyak referensi jurnal internasional.",
+          studentNotes: session.topic,
+          supervisorFeedback: feedbackTemplates[i % feedbackTemplates.length],
           status: "completed",
-          completedAt: new Date("2025-09-01T11:00:00"),
+          completedAt: completedAt,
         },
       });
-      console.log(`  ✅ Created completed guidance #1 for Fariz`);
-
-      await prisma.thesisGuidance.create({
-        data: {
-          thesisId: farizThesis.id,
-          supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2025-09-15T14:00:00"),
-          approvedDate: new Date("2025-09-15T14:00:00"),
-          duration: 90,
-          studentNotes: "Konsultasi BAB II - Tinjauan pustaka sistem informasi",
-          supervisorFeedback: "Tambahkan referensi tentang REST API dan microservices",
-          status: "completed",
-          completedAt: new Date("2025-09-15T15:30:00"),
-        },
-      });
-      console.log(`  ✅ Created completed guidance #2 for Fariz`);
-
-      // Accepted guidance (upcoming)
-      await prisma.thesisGuidance.create({
-        data: {
-          thesisId: farizThesis.id,
-          supervisorId: kadepLecturer.id,
-          requestedDate: new Date("2025-11-20T10:00:00"),
-          approvedDate: new Date("2025-11-20T10:00:00"),
-          duration: 60,
-          studentNotes: "Konsultasi BAB III - Metodologi penelitian",
-          status: "accepted",
-        },
-      });
-      console.log(`  ✅ Created accepted guidance #3 for Fariz`);
-
-      // Requested guidance (pending)
-      await prisma.thesisGuidance.create({
-        data: {
-          thesisId: farizThesis.id,
-          supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2025-11-25T14:00:00"),
-          duration: 60,
-          studentNotes: "Ingin konsultasi progress BAB IV - Implementasi sistem",
-          status: "requested",
-        },
-      });
-      console.log(`  ✅ Created requested guidance #4 for Fariz`);
-    } else {
-      console.log(`  ⏭️  Guidances exist for Fariz`);
+      console.log(`    ✅ Bimbingan #${i + 1}: ${session.date} - ${session.topic.slice(0, 40)}...`);
     }
   }
 
-  // Sample guidances for Nabil
-  if (nabilThesis && pembimbingLecturer && pengujiLecturer) {
-    const existingCount = await prisma.thesisGuidance.count({
-      where: { thesisId: nabilThesis.id },
-    });
-
-    if (existingCount === 0) {
-      // Completed guidance
-      await prisma.thesisGuidance.create({
-        data: {
-          thesisId: nabilThesis.id,
-          supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2025-09-05T09:00:00"),
-          approvedDate: new Date("2025-09-05T09:00:00"),
-          duration: 60,
-          studentNotes: "Konsultasi judul dan outline proposal",
-          supervisorFeedback: "Judul sudah bagus, fokus pada fitur monitoring real-time",
-          status: "completed",
-          completedAt: new Date("2025-09-05T10:00:00"),
-        },
-      });
-      console.log(`  ✅ Created completed guidance #1 for Nabil`);
-
-      // Accepted guidance
-      await prisma.thesisGuidance.create({
-        data: {
-          thesisId: nabilThesis.id,
-          supervisorId: pengujiLecturer.id,
-          requestedDate: new Date("2025-11-22T13:00:00"),
-          approvedDate: new Date("2025-11-22T13:00:00"),
-          duration: 45,
-          studentNotes: "Demo progress aplikasi mobile",
-          status: "accepted",
-        },
-      });
-      console.log(`  ✅ Created accepted guidance #2 for Nabil`);
-
-      // Rejected guidance (example)
-      await prisma.thesisGuidance.create({
-        data: {
-          thesisId: nabilThesis.id,
-          supervisorId: pembimbingLecturer.id,
-          requestedDate: new Date("2025-10-10T08:00:00"),
-          duration: 60,
-          type: "online",
-          studentNotes: "Konsultasi BAB III",
-          status: "rejected",
-          rejectionReason: "Jadwal bentrok dengan seminar, silakan ajukan ulang untuk minggu depan",
-        },
-      });
-      console.log(`  ✅ Created rejected guidance #3 for Nabil`);
-    } else {
-      console.log(`  ⏭️  Guidances exist for Nabil`);
-    }
-  }
-}
-
-// ============================================================
-// 10. SEED ACTIVITY LOGS
-// ============================================================
-async function seedActivityLogs(thesisMap, userMap) {
-  console.log("\n" + "=".repeat(60));
-  console.log("📜 STEP 10: Seeding Activity Logs...");
-  console.log("=".repeat(60));
-
-  const fariz = userMap.get("fariz_2211523034@fti.unand.ac.id");
-  const kadep = userMap.get("kadep_si@fti.unand.ac.id");
-  const farizThesis = thesisMap.get(fariz?.id);
-
-  if (farizThesis && fariz && kadep) {
-    const existingCount = await prisma.thesisActivityLog.count({
-      where: { thesisId: farizThesis.id },
-    });
-
-    if (existingCount === 0) {
-      const logs = [
-        { userId: fariz.id, activityType: "submission", activity: "Mengajukan judul tugas akhir" },
-        { userId: kadep.id, activityType: "approval", activity: "Menyetujui judul tugas akhir" },
-        { userId: fariz.id, activityType: "guidance", activity: "Mengajukan bimbingan BAB I" },
-        { userId: kadep.id, activityType: "guidance", activity: "Menyetujui bimbingan BAB I" },
-        { userId: fariz.id, activityType: "revision", activity: "Mengupload revisi BAB I" },
-        { userId: kadep.id, activityType: "approval", activity: "Menyetujui BAB I" },
-      ];
-
-      for (const log of logs) {
-        await prisma.thesisActivityLog.create({
-          data: {
-            thesisId: farizThesis.id,
-            userId: log.userId,
-            activityType: log.activityType,
-            activity: log.activity,
-          },
-        });
-      }
-      console.log(`  ✅ Created ${logs.length} activity logs for Fariz's thesis`);
-    } else {
-      console.log(`  ⏭️  Activity logs exist for Fariz's thesis`);
-    }
-  }
+  // Students without guidances: Khalied, Nouval, Daffa, Ilham
+  console.log(`  ℹ️  Khalied, Nouval, Daffa, Ilham: No guidance records (as specified)`);
 }
 
 // ============================================================
@@ -967,12 +874,10 @@ async function main() {
     const studentStatusMap = await seedStudentStatus();
     const thesisStatusMap = await seedThesisStatus();
     const academicYearMap = await seedAcademicYears();
-    const templateMap = await seedMilestoneTemplates();
     const userMap = await seedUsers(roleMap, studentStatusMap);
     const thesisMap = await seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap);
     await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);
-    await seedActivityLogs(thesisMap, userMap);
 
     console.log("\n" + "=".repeat(60));
     console.log("✨ MASTER SEED COMPLETED SUCCESSFULLY!");
@@ -981,32 +886,37 @@ async function main() {
     console.log("\n📋 SUMMARY:");
     console.log(`   🔐 Roles: ${Object.values(ROLES).length}`);
     console.log(`   👥 Users: 16 (5 lecturers, 1 admin, 10 students)`);
-    console.log(`   📖 Thesis: 2 (with supervisors and examiners for Fariz & Nabil)`);
-    console.log(`   📊 Milestone Templates: 10`);
-    console.log(`   🎯 Thesis Milestones: Custom per thesis`);
-    console.log(`   📆 Guidances: Multiple samples per thesis`);
+    console.log(`   📖 Thesis: 7 mahasiswa dengan judul TA`);
+    console.log(`     - Topic: Pengembangan Sistem (Enterprise Application)`);
+    console.log(`   🎯 Thesis Milestones:`);
+    console.log(`     - Nabil: 80% | Fathur: 60% | Fariz: 40%`);
+    console.log(`     - Khalied, Nouval, Daffa, Ilham: 0%`);
+    console.log(`   📆 Guidances:`);
+    console.log(`     - Nabil: 5x | Fathur: 5x | Fariz: 4x`);
+    console.log(`     - Khalied, Nouval, Daffa, Ilham: 0x`);
 
     console.log("\n🔑 LOGIN CREDENTIALS:");
     console.log(`   Password for all users: ${DEFAULT_PASSWORD}`);
     console.log("\n   Lecturers:");
     console.log("   - kadep_si@fti.unand.ac.id (Ketua Departemen)");
-    console.log("   - sekdep_si@fti.unand.ac.id (Sekretaris Departemen)");
-    console.log("   - pembimbing_si@fti.unand.ac.id (Pembimbing)");
+    console.log("   - sekdep_si@fti.unand.ac.id (Sekretaris Departemen - Afriyanti)");
+    console.log("   - pembimbing_si@fti.unand.ac.id (Pembimbing - Husnil)");
     console.log("   - penguji_si@fti.unand.ac.id (Penguji)");
     console.log("   - gkm_si@fti.unand.ac.id (GKM)");
     console.log("\n   Admin:");
     console.log("   - admin_si@fti.unand.ac.id");
-    console.log("\n   Students:");
-    console.log("   - fariz_2211523034@fti.unand.ac.id");
-    console.log("   - nabil_2211522018@fti.unand.ac.id");
-    console.log("   - alya_202101001@fti.unand.ac.id");
-    console.log("   - bagas_202101014@fti.unand.ac.id");
-    console.log("   - chandra_202001111@fti.unand.ac.id");
-    console.log("   - siti_2211523001@fti.unand.ac.id");
-    console.log("   - andi_2211523002@fti.unand.ac.id");
-    console.log("   - laila_2211523003@fti.unand.ac.id");
-    console.log("   - rafi_2211523004@fti.unand.ac.id");
-    console.log("   - maria_2211523005@fti.unand.ac.id");
+    console.log("\n   Students (with thesis):");
+    console.log("   - nabil_2211522018@fti.unand.ac.id (80% milestone, 5 bimbingan)");
+    console.log("   - fariz_2211523034@fti.unand.ac.id (40% milestone, 4 bimbingan)");
+    console.log("   - khalied_2211523030@fti.unand.ac.id (0% milestone)");
+    console.log("   - mustafa_2211522036@fti.unand.ac.id (Fathur - 60% milestone, 5 bimbingan)");
+    console.log("   - muhammad_2211521020@fti.unand.ac.id (Nouval - 0% milestone)");
+    console.log("   - daffa_2211523022@fti.unand.ac.id (0% milestone)");
+    console.log("   - ilham_2211522028@fti.unand.ac.id (0% milestone)");
+    console.log("\n   Students (without thesis):");
+    console.log("   - syauqi_2211523012@fti.unand.ac.id");
+    console.log("   - dimas_2311523026@fti.unand.ac.id");
+    console.log("   - john_2411522001@fti.unand.ac.id");
 
   } catch (error) {
     console.error("\n❌ SEED FAILED:", error);

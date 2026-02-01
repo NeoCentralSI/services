@@ -4,6 +4,7 @@ import { ENV } from "../config/env.js";
 import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
+import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -138,6 +139,40 @@ export async function scheduleGuidanceReminder() {
   }
 }
 
+/**
+ * Schedule daily thesis reminder job for all active thesis students
+ * Default: every day at 09:00 WIB. Override via ENV.DAILY_THESIS_REMINDER_CRON
+ * Sends FCM notifications to students who are currently working on their thesis
+ */
+export async function scheduleDailyThesisReminder() {
+  // Default: every day at 09:00 WIB
+  const pattern = ENV.DAILY_THESIS_REMINDER_CRON || "0 9 * * *";
+  const tz = ENV.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta";
+  
+  await maintenanceQueue.add(
+    "daily-thesis-reminder",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: 50,
+      removeOnFail: 100,
+    }
+  );
+  console.log(`🎓 Scheduled repeatable daily thesis reminder job with cron: "${pattern}" tz="${tz}"`);
+
+  try {
+    const repeats = await maintenanceQueue.getRepeatableJobs();
+    const jobInfo = repeats.find((r) => r.name === "daily-thesis-reminder");
+    if (jobInfo) {
+      const nextIso = jobInfo.next ? new Date(jobInfo.next).toISOString() : "unknown";
+      const nextLocal = jobInfo.next ? new Date(jobInfo.next).toLocaleString() : "unknown";
+      console.log(`📌 Daily thesis reminder next run: ${nextIso} (local ${nextLocal}) key=${jobInfo.key || "n/a"}`);
+    }
+  } catch (e) {
+    // non-fatal
+  }
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -151,6 +186,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "guidance-reminder":
         await runGuidanceReminderJob();
+        break;
+      case "daily-thesis-reminder":
+        await runDailyThesisReminderJob();
         break;
       default:
         // no-op

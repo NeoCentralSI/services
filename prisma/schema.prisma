@@ -39,9 +39,7 @@ model User {
   student         Student?
   lecturer        Lecturer?
   documents       Document[]
-  canvasFiles     CanvasFile[]
   notifications   Notification[]
-  thesisActivityLogs ThesisActivityLog[]
   thesisSeminarAudiences ThesisSeminarAudience[]
   thesisSeminarRubric ThesisSeminarRubric[]
   thesisDefenceRubrics ThesisDefenceRubric[]
@@ -193,6 +191,14 @@ model Thesis {
   seminarReadyApprovedAt              DateTime? @map("seminar_ready_approved_at")
   seminarReadyNotes                   String?   @db.Text @map("seminar_ready_notes")
   
+  // Defence Readiness Approval from Supervisors
+  defenceReadyApprovedBySupervisor1   Boolean?  @default(false) @map("defence_ready_approved_by_supervisor1")
+  defenceReadyApprovedBySupervisor2   Boolean?  @default(false) @map("defence_ready_approved_by_supervisor2")
+  defenceReadyApprovedAt              DateTime? @map("defence_ready_approved_at")
+  defenceReadyNotes                   String?   @db.Text @map("defence_ready_notes")
+  finalThesisDocumentId               String?   @map("final_thesis_document_id")
+  defenceRequestedAt                  DateTime? @map("defence_requested_at")
+  
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   student           Student  @relation(fields: [studentId], references: [id])
@@ -201,11 +207,11 @@ model Thesis {
   thesisStatus      ThesisStatus? @relation(fields: [thesisStatusId], references: [id])
   academicYear      AcademicYear? @relation(fields: [academicYearId], references: [id])
   document          Document? @relation(fields: [documentId], references: [id])
+  finalThesisDocument Document? @relation("FinalThesisDocument", fields: [finalThesisDocumentId], references: [id])
   thesisParticipants ThesisParticipant[]
   thesisExaminers   ThesisExaminer[]
   thesisMilestones  ThesisMilestone[]
   thesisGuidances   ThesisGuidance[]
-  thesisActivityLogs ThesisActivityLog[]
   thesisSeminars    ThesisSeminar[]
   thesisDefences    ThesisDefence[]
 
@@ -334,30 +340,10 @@ model ThesisMilestone {
   // Relations
   thesis                Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
   guidances             ThesisGuidance[] // Bimbingan yang terkait dengan milestone ini
-  activityLogs          ThesisMilestoneLog[] // Log aktivitas milestone
 
   @@index([thesisId, orderIndex])
   @@index([thesisId, status])
   @@map("thesis_milestones")
-}
-
-// Log aktivitas untuk tracking perubahan milestone
-model ThesisMilestoneLog {
-  id              String   @id @default(uuid())
-  milestoneId     String   @map("milestone_id")
-  action          String   // "created", "updated", "status_changed", "validated", "revision_requested"
-  previousStatus  MilestoneStatus? @map("previous_status")
-  newStatus       MilestoneStatus? @map("new_status")
-  previousProgress Int?    @map("previous_progress")
-  newProgress     Int?     @map("new_progress")
-  notes           String?  @db.Text
-  performedBy     String   @map("performed_by") // User ID yang melakukan aksi
-  createdAt       DateTime @default(now()) @map("created_at")
-  
-  milestone       ThesisMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-
-  @@index([milestoneId])
-  @@map("thesis_milestone_logs")
 }
 
 model ThesisGuidance {
@@ -419,22 +405,6 @@ model ThesisGuidanceLog {
   guidance        ThesisGuidance @relation(fields: [guidanceId], references: [id], onDelete: Cascade)
 
   @@map("thesis_guidance_logs")
-}
-
-model ThesisActivityLog {
-  id            String   @id @default(uuid())
-  thesisId      String   @map("thesis_id")
-  userId        String   @map("user_id")
-  activityType  ActivityType @default(other) @map("activity_type") // Tipe aktivitas
-  activity      String   // Deskripsi singkat
-  notes         String?  @db.Text // Detail catatan
-  metadata      Json?    // Data tambahan dalam JSON
-  createdAt     DateTime @default(now()) @map("created_at")
-  thesis        Thesis   @relation(fields: [thesisId], references: [id])
-  user          User     @relation(fields: [userId], references: [id])
-
-  @@index([thesisId, activityType])
-  @@map("thesis_activity_logs")
 }
 
 // Thesis Seminar Management
@@ -691,8 +661,8 @@ model Document {
   updatedAt       DateTime @updatedAt @map("updated_at")
   user            User?    @relation(fields: [userId], references: [id])
   documentType    DocumentType? @relation(fields: [documentTypeId], references: [id])
-  canvasFiles     CanvasFile[]
   thesis          Thesis[]
+  thesisFinalDocument Thesis[] @relation("FinalThesisDocument")
   thesisProposal  ThesisProposal[]
   internships     Internship[] @relation("InternshipReportDocument")
   internshipProposals Internship[] @relation("InternshipProposalDocument")
@@ -710,30 +680,6 @@ model DocumentType {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("document_types")
-}
-
-model DocumentTemplate {
-  id        String   @id @default(uuid())
-  name      String?
-  filePath  String?  @map("file_path")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("document_templates")
-}
-
-model CanvasFile {
-  id          String   @id @default(uuid())
-  documentId  String?  @map("document_id")
-  userId      String?  @map("user_id")
-  annotations Json?
-  version     Int?
-  document    Document? @relation(fields: [documentId], references: [id])
-  user        User?    @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  @@map("canvas_files")
 }
 
 // Notification Management
@@ -953,18 +899,6 @@ enum GuidanceStatus {
 enum ExaminerEventType {
   seminar   // Penguji seminar
   defence   // Penguji sidang
-}
-
-enum ActivityType {
-  guidance         // Bimbingan
-  submission       // Pengumpulan dokumen
-  revision         // Revisi
-  approval         // Persetujuan
-  milestone        // Pencapaian milestone
-  seminar          // Seminar
-  defence          // Sidang
-  status_change    // Perubahan status
-  other            // Lainnya
 }
 
 enum MilestoneStatus {

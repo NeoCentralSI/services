@@ -1,11 +1,24 @@
 import * as monitoringRepository from "../../repositories/thesisGuidance/monitoring.repository.js";
+import { sendFcmToUsers } from "../push.service.js";
+import { createNotificationsForUsers } from "../notification.service.js";
+import prisma from "../../config/prisma.js";
+
+function toTitleCaseName(str) {
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 /**
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [statusDistribution, progressStats, atRiskStudents, readyForSeminar] = await Promise.all([
+  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
+    monitoringRepository.getRatingDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
     monitoringRepository.getAtRiskStudents(5, academicYear),
     monitoringRepository.getStudentsReadyForSeminar(academicYear),
@@ -18,6 +31,7 @@ export async function getMonitoringDashboard(academicYear) {
       totalAtRisk: atRiskStudents.length,
     },
     statusDistribution,
+    ratingDistribution,
     atRiskStudents,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({
       thesisId: t.id,
@@ -62,6 +76,7 @@ export async function getThesesList(filters) {
     return {
       id: t.id,
       title: t.title,
+      rating: t.rating || 'ONGOING',
       student: {
         id: t.student?.id,
         userId: t.student?.user?.id,
@@ -78,7 +93,9 @@ export async function getThesesList(filters) {
       },
       supervisors: {
         pembimbing1: pembimbing1?.lecturer?.user?.fullName || null,
+        pembimbing1Id: pembimbing1?.lecturerId || null,
         pembimbing2: pembimbing2?.lecturer?.user?.fullName || null,
+        pembimbing2Id: pembimbing2?.lecturerId || null,
       },
       seminarApproval: {
         supervisor1: t.seminarReadyApprovedBySupervisor1 || false,
@@ -302,5 +319,89 @@ export async function getThesisDetail(thesisId) {
     },
     seminars,
     defences,
+  };
+}
+
+/**
+ * Send warning notification to student about thesis progress (for department roles: Kadep, Sekdep, GKM)
+ */
+export async function sendWarningNotificationService(userId, thesisId, warningType) {
+  // Get user info for sender name
+  const sender = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { fullName: true }
+  });
+  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+
+  // Get thesis with student info
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    include: {
+      student: {
+        include: {
+          user: { select: { id: true, fullName: true } }
+        }
+      }
+    }
+  });
+
+  if (!thesis) {
+    const err = new Error("Thesis not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const studentUserId = thesis.student?.user?.id;
+  const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+
+  if (!studentUserId) {
+    const err = new Error("Student not found for this thesis");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Define warning messages based on type
+  const warningMessages = {
+    SLOW: {
+      title: "⚠️ Peringatan Progress Tugas Akhir",
+      body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
+      notifBody: `Progress tugas akhir Anda terdeteksi lambat. ${senderName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`
+    },
+    AT_RISK: {
+      title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+      body: `Halo ${toTitleCaseName(studentName)}, status tugas akhir Anda dalam kondisi BERISIKO. Segera hubungi dosen pembimbing untuk menghindari kegagalan.`,
+      notifBody: `Status tugas akhir Anda dalam kondisi BERISIKO. ${senderName} meminta Anda segera menghubungi dosen pembimbing.`
+    },
+    FAILED: {
+      title: "❌ Pemberitahuan Status Tugas Akhir",
+      body: `Halo ${toTitleCaseName(studentName)}, tugas akhir Anda telah melampaui batas waktu. Segera hubungi dosen pembimbing untuk langkah selanjutnya.`,
+      notifBody: `Tugas akhir Anda telah melampaui batas waktu. Silakan hubungi dosen pembimbing atau ${senderName}.`
+    }
+  };
+
+  const message = warningMessages[warningType] || warningMessages.SLOW;
+
+  // Send FCM notification
+  await sendFcmToUsers([studentUserId], {
+    title: message.title,
+    body: message.body,
+    data: {
+      type: "thesis_warning",
+      thesisId: thesis.id,
+      warningType
+    }
+  });
+
+  // Create in-app notification
+  await createNotificationsForUsers([studentUserId], {
+    title: message.title,
+    message: message.notifBody,
+    type: "thesis_warning",
+    referenceId: thesis.id
+  });
+
+  return { 
+    success: true, 
+    message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}` 
   };
 }

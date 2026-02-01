@@ -17,7 +17,6 @@ import {
 	myProgress,
 	completeProgressComponents,
 	guidanceHistory,
-	activityLog,
 	listSupervisors,
 	supervisorAvailability,
 	needsSummary,
@@ -25,6 +24,8 @@ import {
 	completedHistory,
 	exportGuidance,
 	markSessionComplete,
+	getMyThesis,
+	updateMyThesisTitle,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
 import { uploadThesisFile } from "../../middlewares/file.middleware.js";
 import { ROLES } from "../../constants/roles.js";
@@ -52,9 +53,8 @@ router.patch("/guidance/:guidanceId/notes", validate(studentNotesSchema), update
 router.get("/progress", myProgress);
 router.patch("/progress/complete", validate(completeComponentsSchema), completeProgressComponents);
 
-// History & activity
+// History
 router.get("/history", guidanceHistory);
-router.get("/activity-log", activityLog);
 
 // Session Summary (after guidance)
 router.get("/needs-summary", needsSummary);
@@ -66,6 +66,10 @@ router.get("/guidance/:guidanceId/export", exportGuidance);
 // Supervisors info
 router.get("/supervisors", listSupervisors);
 router.get("/supervisors/:supervisorId/availability", supervisorAvailability);
+
+// My Thesis (get detail & update title)
+router.get("/my-thesis", getMyThesis);
+router.patch("/my-thesis/title", updateMyThesisTitle);
 
 export default router;
 

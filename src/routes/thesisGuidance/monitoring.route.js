@@ -8,6 +8,7 @@ import {
   getAtRiskStudents,
   getStudentsReadyForSeminar,
   getThesisDetail,
+  sendWarningNotification,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
 
 const router = express.Router();
@@ -34,5 +35,8 @@ router.get("/ready-seminar", getStudentsReadyForSeminar);
 
 // Thesis detail by ID
 router.get("/theses/:thesisId", getThesisDetail);
+
+// Send warning notification to student
+router.post("/theses/:thesisId/send-warning", sendWarningNotification);
 
 export default router;

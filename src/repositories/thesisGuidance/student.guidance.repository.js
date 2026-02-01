@@ -77,10 +77,6 @@ export function updateGuidanceById(id, data) {
   });
 }
 
-export function listActivityLogsByStudent(studentId) {
-  return prisma.thesisActivityLog.findMany({ where: { thesis: { studentId } }, orderBy: { createdAt: "desc" } });
-}
-
 export function listGuidanceHistoryByStudent(studentId) {
   return prisma.thesisGuidance.findMany({
     where: { thesis: { studentId } },

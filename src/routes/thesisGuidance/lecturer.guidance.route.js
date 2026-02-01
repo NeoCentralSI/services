@@ -16,12 +16,12 @@ import {
 	postFeedback,
 	finalApproval,
 	guidanceHistory,
-	activityLog,
 	supervisorEligibility,
 	failStudentThesis,
 	pendingApproval,
 	approveSummary,
 	guidanceDetail,
+	sendWarningNotification,
 } from "../../controllers/thesisGuidance/lecturer.guidance.controller.js";
 
 const router = express.Router();
@@ -33,6 +33,7 @@ router.use(authGuard, requireAnyRole([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]));
 
 router.get("/my-students", myStudents);
 router.get("/my-students/:thesisId", studentDetail);
+router.post("/my-students/:thesisId/send-warning", sendWarningNotification);
 router.get("/requests", listRequests);
 router.get("/scheduled", listScheduledGuidances);
 router.patch("/requests/:guidanceId/reject", validate(rejectGuidanceSchema), rejectGuidance);
@@ -48,7 +49,6 @@ router.patch("/feedback/:guidanceId", validate(feedbackSchema), postFeedback);
 
 // Optional
 router.get("/guidance-history/:studentId", guidanceHistory);
-router.get("/activity-log/:studentId", activityLog);
 router.get("/supervisor/eligibility", supervisorEligibility);
 
 // Session Summary Approval (1-click approve)
