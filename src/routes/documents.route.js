@@ -1,5 +1,4 @@
 import express from "express";
-import crypto from "crypto";
 import { uploadThesisFile } from "../middlewares/file.middleware.js";
 import { authGuard } from "../middlewares/auth.middleware.js";
 import prisma from "../config/prisma.js";
@@ -11,12 +10,16 @@ const router = express.Router();
 /**
  * POST /documents/upload
  * Upload a document (PDF for thesis)
+ * Query params:
+ *   - thesisId: optional, if provided will save to /uploads/thesis/{thesisId}/
+ * Body params:
+ *   - documentType: type of document (e.g., "Final Thesis")
  */
 router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
   try {
     const userId = req.user.sub;
     const file = req.file;
-    const { documentType } = req.body;
+    const { documentType, thesisId } = req.body;
 
     if (!file) {
       return res.status(400).json({
@@ -25,16 +28,69 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
       });
     }
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(process.cwd(), "uploads", "thesis");
+    let uploadsDir;
+    let relativeFilePath;
+    let fileName;
+
+    if (thesisId) {
+      // If thesisId provided, verify it belongs to this user (student)
+      const thesis = await prisma.thesis.findFirst({
+        where: {
+          id: thesisId,
+          student: {
+            user: { id: userId },
+          },
+        },
+      });
+
+      if (!thesis) {
+        return res.status(403).json({
+          success: false,
+          message: "Anda tidak memiliki akses ke thesis ini",
+        });
+      }
+
+      // Save to /uploads/thesis/{thesisId}/ folder
+      uploadsDir = path.join(process.cwd(), "uploads", "thesis", thesisId);
+      fileName = "final-thesis.pdf"; // Fixed name for final thesis
+      relativeFilePath = `uploads/thesis/${thesisId}/${fileName}`;
+    } else {
+      // Fallback: Get student's active thesis
+      const student = await prisma.student.findFirst({
+        where: { userId },
+        include: {
+          thesis: {
+            take: 1,
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      });
+
+      if (student?.thesis?.[0]) {
+        const activeThesisId = student.thesis[0].id;
+        uploadsDir = path.join(process.cwd(), "uploads", "thesis", activeThesisId);
+        fileName = "final-thesis.pdf";
+        relativeFilePath = `uploads/thesis/${activeThesisId}/${fileName}`;
+      } else {
+        // No thesis found, use generic path
+        uploadsDir = path.join(process.cwd(), "uploads", "thesis", "general");
+        const uniqueId = Date.now().toString(36);
+        fileName = `${uniqueId}-${file.originalname}`;
+        relativeFilePath = `uploads/thesis/general/${fileName}`;
+      }
+    }
+
+    // Create directory if not exists
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
 
-    // Generate unique filename
-    const fileExt = path.extname(file.originalname);
-    const uniqueFileName = `${crypto.randomUUID()}${fileExt}`;
-    const filePath = path.join(uploadsDir, uniqueFileName);
+    const filePath = path.join(uploadsDir, fileName);
+
+    // Delete old file if exists (for overwriting)
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
 
     // Write file to disk
     fs.writeFileSync(filePath, file.buffer);
@@ -60,7 +116,7 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
         userId,
         documentTypeId: documentTypeRecord?.id || null,
         fileName: file.originalname,
-        filePath: `/uploads/thesis/${uniqueFileName}`,
+        filePath: relativeFilePath,
       },
       select: {
         id: true,

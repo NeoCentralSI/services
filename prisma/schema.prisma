@@ -84,6 +84,7 @@ model Student {
   skscompleted      Int
   thesis            Thesis[]
   thesisProposal    ThesisProposal[]
+  thesisChangeRequests ThesisChangeRequest[]
   researchMethodGrades ResearchMethodGrade[]
   internships       Internship[]
   yudisiumApplicants YudisiumApplicant[]
@@ -117,6 +118,8 @@ model Lecturer {
   thesisDefenceScores   ThesisDefenceScore[]
   internshipSupervisors InternshipSupervisor[]
   internshipGuidanceSchedules InternshipGuidanceSchedule[]
+  thesisChangeRequestsReviewed ThesisChangeRequest[]
+  thesisChangeRequestApprovals ThesisChangeRequestApproval[]
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
@@ -214,8 +217,47 @@ model Thesis {
   thesisGuidances   ThesisGuidance[]
   thesisSeminars    ThesisSeminar[]
   thesisDefences    ThesisDefence[]
+  thesisChangeRequests ThesisChangeRequest[]
 
   @@map("thesis")
+}
+
+// Request pergantian topik/pembimbing dari mahasiswa
+model ThesisChangeRequest {
+  id            String   @id @default(uuid())
+  studentId     String   @map("student_id")
+  thesisId      String?  @map("thesis_id")
+  requestType   ThesisChangeRequestType @map("request_type")
+  reason        String   @db.Text
+  status        ThesisChangeRequestStatus @default(pending)
+  reviewedBy    String?  @map("reviewed_by")
+  reviewNotes   String?  @db.Text @map("review_notes")
+  reviewedAt    DateTime? @map("reviewed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  student       Student  @relation(fields: [studentId], references: [id])
+  thesis        Thesis?  @relation(fields: [thesisId], references: [id], onDelete: SetNull)
+  reviewer      Lecturer? @relation(fields: [reviewedBy], references: [id])
+  approvals     ThesisChangeRequestApproval[]
+
+  @@map("thesis_change_requests")
+}
+
+model ThesisChangeRequestApproval {
+  id            String   @id @default(uuid())
+  requestId     String   @map("request_id")
+  lecturerId    String   @map("lecturer_id")
+  status        ApprovalStatus @default(pending)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  request       ThesisChangeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  lecturer      Lecturer @relation(fields: [lecturerId], references: [id])
+
+  @@unique([requestId, lecturerId])
+  @@map("thesis_change_request_approvals")
 }
 
 // Penguji Thesis - untuk seminar dan sidang
@@ -880,6 +922,17 @@ enum Semester {
   genap
 }
 
+enum ThesisChangeRequestType {
+  topic       // Pergantian topik
+  supervisor  // Pergantian pembimbing
+  both        // Pergantian topik dan pembimbing
+}
+
+enum ThesisChangeRequestStatus {
+  pending     // Menunggu review Kadep
+  approved    // Disetujui, data TA dihapus
+  rejected    // Ditolak
+}
 
 enum ProposalStatus {
   submitted

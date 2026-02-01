@@ -96,3 +96,22 @@ export async function deleteAllNotifications(userId) {
 	});
 }
 
+/**
+ * Check if user has a recent thesis deletion notification
+ * @param {string} userId
+ * @returns {Promise<{hasDeletedThesis: boolean, notification: object|null}>}
+ */
+export async function findThesisDeletionNotification(userId) {
+	const notification = await prisma.notification.findFirst({
+		where: {
+			userId,
+			title: { contains: 'Tugas Akhir Anda Dihapus' },
+		},
+		orderBy: { createdAt: 'desc' },
+	});
+
+	return {
+		hasDeletedThesis: !!notification,
+		notification,
+	};
+}

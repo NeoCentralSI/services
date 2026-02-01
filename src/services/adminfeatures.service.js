@@ -1,5 +1,7 @@
 import csv from "csv-parser";
 import { Readable } from "stream";
+import path from "path";
+import fs from "fs";
 import prisma from "../config/prisma.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
@@ -8,6 +10,8 @@ import { sendMail } from "../config/mailer.js";
 import redisClient from "../config/redis.js";
 import { accountInviteTemplate } from "../utils/emailTemplate.js";
 import { generatePassword } from "../utils/password.util.js";
+import { sendFcmToUsers } from "./push.service.js";
+import { createNotificationsForUsers } from "./notification.service.js";
 import {
 	ROLES,
 	SUPERVISOR_ROLES,
@@ -1168,5 +1172,233 @@ export async function getLecturerDetail(userId) {
 }
 
 
+/**
+ * Delete a thesis and all related data (hard delete)
+ * Used for topic/supervisor change scenarios
+ * @param {string} thesisId - The thesis ID to delete
+ * @param {string} reason - Reason for deletion (for logging)
+ * @returns {Object} Summary of deleted data
+ */
+export async function deleteThesis(thesisId, reason = null) {
+	if (!thesisId) {
+		const err = new Error("Thesis ID is required");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// Fetch thesis with all relations to verify it exists and get info for logging
+	const thesis = await prisma.thesis.findUnique({
+		where: { id: thesisId },
+		include: {
+			student: {
+				include: { user: { select: { fullName: true, identityNumber: true } } },
+			},
+			thesisTopic: { select: { name: true } },
+			thesisStatus: { select: { name: true } },
+			thesisParticipants: {
+				include: { lecturer: { include: { user: { select: { fullName: true } } } }, role: true },
+			},
+			thesisMilestones: true,
+			thesisGuidances: true,
+			thesisSeminars: true,
+			thesisDefences: true,
+			document: true,
+			finalThesisDocument: true,
+		},
+	});
+
+	if (!thesis) {
+		const err = new Error("Thesis not found");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Log info before deletion
+	const logInfo = {
+		thesisId: thesis.id,
+		studentName: thesis.student?.user?.fullName,
+		studentNim: thesis.student?.user?.identityNumber,
+		title: thesis.title,
+		topic: thesis.thesisTopic?.name,
+		status: thesis.thesisStatus?.name,
+		supervisors: thesis.thesisParticipants.map((p) => ({
+			name: p.lecturer?.user?.fullName,
+			role: p.role?.name,
+		})),
+		deletedAt: new Date().toISOString(),
+		reason,
+	};
+
+	console.log("🗑️ Deleting thesis:", JSON.stringify(logInfo, null, 2));
+
+	// Delete in transaction with proper order (child first, parent last)
+	const result = await prisma.$transaction(async (tx) => {
+		const deletedCounts = {};
+
+		// 1. Delete thesis defence related
+		deletedCounts.thesisDefenceScores = (await tx.thesisDefenceScore.deleteMany({ where: { defence: { thesisId } } })).count;
+		deletedCounts.thesisDefences = (await tx.thesisDefence.deleteMany({ where: { thesisId } })).count;
+
+		// 2. Delete thesis seminar related
+		deletedCounts.thesisSeminarScores = (await tx.thesisSeminarScore.deleteMany({ where: { seminar: { thesisId } } })).count;
+		deletedCounts.thesisSeminarAudiences = (await tx.thesisSeminarAudience.deleteMany({ where: { seminar: { thesisId } } })).count;
+		deletedCounts.thesisSeminars = (await tx.thesisSeminar.deleteMany({ where: { thesisId } })).count;
+
+		// 3. Delete guidance related
+		deletedCounts.thesisGuidanceLogs = (await tx.thesisGuidanceLog.deleteMany({ where: { guidance: { thesisId } } })).count;
+		deletedCounts.thesisGuidances = (await tx.thesisGuidance.deleteMany({ where: { thesisId } })).count;
+
+		// 4. Delete milestone related
+		deletedCounts.thesisMilestones = (await tx.thesisMilestone.deleteMany({ where: { thesisId } })).count;
+
+		// 5. Delete examiners and participants
+		deletedCounts.thesisExaminers = (await tx.thesisExaminer.deleteMany({ where: { thesisId } })).count;
+		deletedCounts.thesisParticipants = (await tx.thesisParticipant.deleteMany({ where: { thesisId } })).count;
+
+		// 6. Finally delete the thesis itself
+		await tx.thesis.delete({ where: { id: thesisId } });
+		deletedCounts.thesis = 1;
+
+		// 7. Delete orphaned documents (if any)
+		if (thesis.documentId) {
+			try {
+				await tx.document.delete({ where: { id: thesis.documentId } });
+				deletedCounts.documents = (deletedCounts.documents || 0) + 1;
+			} catch (e) {
+				// Document might be referenced elsewhere, ignore
+			}
+		}
+		if (thesis.finalThesisDocumentId) {
+			try {
+				await tx.document.delete({ where: { id: thesis.finalThesisDocumentId } });
+				deletedCounts.documents = (deletedCounts.documents || 0) + 1;
+			} catch (e) {
+				// Document might be referenced elsewhere, ignore
+			}
+		}
+
+		return deletedCounts;
+	});
+
+	// Delete thesis folder from disk
+	try {
+		const thesisFolder = path.join(process.cwd(), "uploads", "thesis", thesisId);
+		if (fs.existsSync(thesisFolder)) {
+			fs.rmSync(thesisFolder, { recursive: true, force: true });
+			console.log("🗑️ Deleted thesis folder:", thesisFolder);
+		}
+	} catch (fsErr) {
+		console.warn("Could not delete thesis folder:", fsErr.message);
+	}
+
+	// Notify student that their thesis has been deleted and they need to re-register
+	try {
+		const studentUserId = thesis.student?.id;
+		if (studentUserId) {
+			const isFailedReason = reason && reason.toLowerCase().includes('failed');
+			const title = isFailedReason 
+				? '⚠️ Tugas Akhir Anda Dihapus (Batas Waktu Terlampaui)'
+				: '📋 Tugas Akhir Anda Dihapus';
+			const message = isFailedReason
+				? `Tugas Akhir "${thesis.title || 'Untitled'}" telah dihapus karena melampaui batas waktu 1 tahun. Silakan daftar tugas akhir kembali dari awal dengan memilih topik baru.`
+				: `Tugas Akhir "${thesis.title || 'Untitled'}" telah dihapus. ${reason ? `Alasan: ${reason}` : ''} Silakan daftar tugas akhir kembali jika diperlukan.`;
+
+			// Create in-app notification
+			await createNotificationsForUsers([studentUserId], { title, message });
+
+			// Send FCM push notification
+			await sendFcmToUsers([studentUserId], {
+				title,
+				body: message,
+				data: {
+					type: 'thesis_deleted',
+					reason: reason || '',
+					requiresReRegistration: 'true',
+				},
+			});
+
+			console.log("📬 Notification sent to student:", studentUserId);
+		}
+	} catch (notifErr) {
+		console.warn("Could not send notification to student:", notifErr.message);
+	}
+
+	console.log("✅ Thesis deleted successfully:", result);
+
+	return {
+		success: true,
+		message: `Thesis "${thesis.title || "Untitled"}" berhasil dihapus`,
+		deletedThesis: logInfo,
+		deletedCounts: result,
+	};
+}
+
+
+/**
+ * Get thesis list for admin (with filters)
+ */
+export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = "", status = null } = {}) {
+	const where = {};
+
+	if (search) {
+		where.OR = [
+			{ title: { contains: search } },
+			{ student: { user: { fullName: { contains: search } } } },
+			{ student: { user: { identityNumber: { contains: search } } } },
+		];
+	}
+
+	if (status) {
+		where.thesisStatus = { name: status };
+	}
+
+	const [thesis, total] = await Promise.all([
+		prisma.thesis.findMany({
+			where,
+			skip: (page - 1) * pageSize,
+			take: pageSize,
+			orderBy: { createdAt: "desc" },
+			include: {
+				student: {
+					include: { user: { select: { fullName: true, identityNumber: true, email: true } } },
+				},
+				thesisTopic: { select: { name: true } },
+				thesisStatus: { select: { id: true, name: true } },
+				thesisParticipants: {
+					include: {
+						lecturer: { include: { user: { select: { fullName: true } } } },
+						role: { select: { name: true } },
+					},
+				},
+			},
+		}),
+		prisma.thesis.count({ where }),
+	]);
+
+	return {
+		thesis: thesis.map((t) => ({
+			id: t.id,
+			title: t.title,
+			status: t.thesisStatus?.name || null,
+			topic: t.thesisTopic?.name || null,
+			student: {
+				id: t.student?.id,
+				fullName: t.student?.user?.fullName,
+				nim: t.student?.user?.identityNumber,
+				email: t.student?.user?.email,
+			},
+			supervisors: t.thesisParticipants.map((p) => ({
+				name: p.lecturer?.user?.fullName,
+				role: p.role?.name,
+			})),
+			createdAt: t.createdAt,
+			updatedAt: t.updatedAt,
+		})),
+		total,
+		page,
+		pageSize,
+		totalPages: Math.ceil(total / pageSize),
+	};
+}
 
 

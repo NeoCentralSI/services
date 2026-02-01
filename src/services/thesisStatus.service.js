@@ -1,4 +1,7 @@
 import prisma from "../config/prisma.js";
+import { sendFcmToUsers } from "./push.service.js";
+import { createNotificationsForUsers } from "./notification.service.js";
+import { ROLES } from "../constants/roles.js";
 
 const MONTH_2 = 60 * 24 * 60 * 60 * 1000;
 const MONTH_4 = 120 * 24 * 60 * 60 * 1000;
@@ -40,6 +43,48 @@ function decideStatus(thesis) {
   return "ONGOING";
 }
 
+/**
+ * Notify Kadep when thesis becomes FAILED
+ */
+async function notifyKadepForFailedThesis(thesisWithStudent) {
+  try {
+    const kadepUsers = await prisma.user.findMany({
+      where: {
+        userHasRoles: {
+          some: {
+            role: { name: ROLES.KETUA_DEPARTEMEN },
+            status: 'active',
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (kadepUsers.length === 0) return;
+
+    const kadepUserIds = kadepUsers.map((u) => u.id);
+    const title = '⚠️ Tugas Akhir GAGAL';
+    const message = `Mahasiswa ${thesisWithStudent.student?.user?.fullName || 'Unknown'} (${thesisWithStudent.student?.user?.identityNumber || '-'}) telah melampaui batas waktu 1 tahun tanpa menyelesaikan tugas akhir.`;
+
+    // Create in-app notifications
+    await createNotificationsForUsers(kadepUserIds, { title, message });
+
+    // Send FCM push notification
+    await sendFcmToUsers(kadepUserIds, {
+      title,
+      body: message,
+      data: {
+        type: 'thesis_failed',
+        thesisId: thesisWithStudent.id,
+        studentName: thesisWithStudent.student?.user?.fullName || '',
+        studentNim: thesisWithStudent.student?.user?.identityNumber || '',
+      },
+    });
+  } catch (error) {
+    console.error('[thesis-status] Failed to notify kadep for FAILED thesis:', error);
+  }
+}
+
 export async function updateAllThesisStatuses({ pageSize = 200, logger = console } = {}) {
   // 1. Get IDs of terminal statuses to skip
   const terminalStatuses = await prisma.thesisStatus.findMany({
@@ -50,6 +95,7 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
 
   let page = 0;
   const updated = { ONGOING: 0, SLOW: 0, AT_RISK: 0, FAILED: 0 };
+  const newlyFailedTheses = []; // Track thesis that just became FAILED
 
   for (;;) {
     const theses = await prisma.thesis.findMany({
@@ -64,6 +110,16 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
           select: { updatedAt: true },
           orderBy: { updatedAt: 'desc' },
           take: 1
+        },
+        student: {
+          select: {
+            user: {
+              select: {
+                fullName: true,
+                identityNumber: true,
+              }
+            }
+          }
         }
       },
       orderBy: { id: "asc" },
@@ -86,6 +142,11 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
             data: { rating: targetEnum } 
           });
           if (updated[targetEnum] !== undefined) updated[targetEnum] += 1;
+
+          // Track newly FAILED thesis for notification
+          if (targetEnum === 'FAILED' && t.rating !== 'FAILED') {
+            newlyFailedTheses.push(t);
+          }
         }
       })
     );
@@ -93,8 +154,53 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
     page += 1;
   }
 
+  // Send notifications to Kadep for newly FAILED theses
+  if (newlyFailedTheses.length > 0) {
+    logger.log(`[thesis-status] Notifying Kadep for ${newlyFailedTheses.length} newly FAILED thesis(es)`);
+    for (const thesis of newlyFailedTheses) {
+      await notifyKadepForFailedThesis(thesis);
+    }
+  }
+
   logger.log(
     `[thesis-status] Updated: ONGOING=${updated.ONGOING}, SLOW=${updated.SLOW}, AT_RISK=${updated.AT_RISK}, FAILED=${updated.FAILED}`
   );
   return updated;
+}
+
+/**
+ * Get count of FAILED theses
+ */
+export async function getFailedThesesCount() {
+  return await prisma.thesis.count({
+    where: { rating: 'FAILED' }
+  });
+}
+
+/**
+ * Get list of FAILED theses with student info
+ */
+export async function getFailedTheses() {
+  return await prisma.thesis.findMany({
+    where: { rating: 'FAILED' },
+    select: {
+      id: true,
+      title: true,
+      rating: true,
+      createdAt: true,
+      student: {
+        select: {
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            }
+          }
+        }
+      }
+    },
+    orderBy: { createdAt: 'asc' }
+  });
 }

@@ -7,6 +7,7 @@ import {
 	createNotificationsMany,
 	deleteNotification,
 	deleteAllNotifications,
+	findThesisDeletionNotification,
 } from "../repositories/notification.repository.js";
 
 /**
@@ -103,5 +104,15 @@ export async function deleteNotificationService(notificationId, userId) {
 export async function deleteAllNotificationsService(userId) {
 	const result = await deleteAllNotifications(userId);
 	return { success: true, deleted: result.count };
+}
+
+/**
+ * Check if student has a thesis deletion notification
+ * Used to show "please re-register" message on frontend
+ * @param {string} userId
+ */
+export async function checkThesisDeletionNotification(userId) {
+	const result = await findThesisDeletionNotification(userId);
+	return result;
 }
 

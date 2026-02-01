@@ -9,6 +9,7 @@ import {
 	deleteAllNotifications,
 	registerFcm,
 	unregisterFcm,
+	checkThesisDeletionController,
 } from "../controllers/notification.controller.js";
 
 const router = express.Router();
@@ -21,6 +22,9 @@ router.get("/", getNotifications);
 
 // GET /notification/unread-count - Get unread count
 router.get("/unread-count", getUnreadCountController);
+
+// GET /notification/check-thesis-deleted - Check if student has thesis deletion notification
+router.get("/check-thesis-deleted", checkThesisDeletionController);
 
 // PATCH /notification/read-all - Mark all as read
 router.patch("/read-all", markAllRead);

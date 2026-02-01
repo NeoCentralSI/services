@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireRole } from "../middlewares/auth.middleware.js";
 import { uploadCsv } from "../middlewares/file.middleware.js";
-import { importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController } from "../controllers/adminfeatures.controller.js";
+import { importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getThesisListController, deleteThesisController, getKadepQuickActionsController, getFailedThesesController } from "../controllers/adminfeatures.controller.js";
 import { updateUserSchema, createUserSchema } from "../validators/user.validator.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
@@ -22,6 +22,14 @@ router.get("/academic-years", authGuard, requireRole(ROLES.ADMIN), getAcademicYe
 router.get("/academic-years/active", authGuard, getActiveAcademicYearController);
 router.post("/academic-years", authGuard, requireRole(ROLES.ADMIN), validate(createAcademicYearSchema), createAcademicYearController);
 router.patch("/academic-years/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateAcademicYearSchema), updateAcademicYearController);
+
+// Kadep quick actions
+router.get("/kadep/quick-actions", authGuard, requireRole(ROLES.KETUA_DEPARTEMEN), getKadepQuickActionsController);
+router.get("/kadep/failed-theses", authGuard, requireRole(ROLES.KETUA_DEPARTEMEN), getFailedThesesController);
+
+// Thesis management (Kadep only)
+router.get("/thesis", authGuard, requireRole(ROLES.KETUA_DEPARTEMEN), getThesisListController);
+router.delete("/thesis/:id", authGuard, requireRole(ROLES.KETUA_DEPARTEMEN), deleteThesisController);
 
 
 export default router;

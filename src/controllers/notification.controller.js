@@ -5,6 +5,7 @@ import {
 	markAllAsRead,
 	deleteNotificationService,
 	deleteAllNotificationsService,
+	checkThesisDeletionNotification,
 } from "../services/notification.service.js";
 import { registerFcmToken, unregisterFcmToken } from "../services/push.service.js";
 
@@ -135,6 +136,20 @@ export async function unregisterFcm(req, res, next) {
 		console.log(`[FCM] unregister token user=${userId} token=${masked}`);
 		const result = await unregisterFcmToken(userId, token);
 		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/**
+ * GET /notification/check-thesis-deleted - Check if student has thesis deletion notification
+ * Used to show "please re-register" message on frontend
+ */
+export async function checkThesisDeletionController(req, res, next) {
+	try {
+		const userId = req.user.sub;
+		const result = await checkThesisDeletionNotification(userId);
+		res.json({ success: true, data: result });
 	} catch (err) {
 		next(err);
 	}

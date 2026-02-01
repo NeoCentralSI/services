@@ -1,4 +1,6 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail } from "../services/adminfeatures.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin } from "../services/adminfeatures.service.js";
+import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
+import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
 export async function importStudentsCsv(req, res, next) {
 	try {
@@ -137,6 +139,79 @@ export async function getLecturerDetailController(req, res, next) {
 		const { id } = req.params;
 		const result = await getLecturerDetail(id);
 		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getThesisListController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const pageSize = parseInt(req.query.pageSize) || 10;
+		const search = req.query.search || "";
+		const status = req.query.status || null;
+		const result = await getThesisListForAdmin({ page, pageSize, search, status });
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function deleteThesisController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const { reason } = req.body || {};
+		const result = await deleteThesis(id, reason);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}
+
+/**
+ * Get quick actions stats for Kadep dashboard
+ */
+export async function getKadepQuickActionsController(req, res, next) {
+	try {
+		const [failedCount, pendingChangeRequestsCount] = await Promise.all([
+			getFailedThesesCount(),
+			getPendingCount(),
+		]);
+		
+		res.status(200).json({
+			success: true,
+			data: {
+				failedThesesCount: failedCount,
+				pendingChangeRequestsCount: pendingChangeRequestsCount,
+			},
+		});
+	} catch (err) {
+		next(err);
+	}
+}
+
+/**
+ * Get list of FAILED theses
+ */
+export async function getFailedThesesController(req, res, next) {
+	try {
+		const theses = await getFailedTheses();
+		res.status(200).json({
+			success: true,
+			data: theses.map((t) => ({
+				id: t.id,
+				title: t.title,
+				rating: t.rating,
+				createdAt: t.createdAt,
+				student: {
+					id: t.student?.user?.id,
+					fullName: t.student?.user?.fullName,
+					nim: t.student?.user?.identityNumber,
+					email: t.student?.user?.email,
+				},
+			})),
+			total: theses.length,
+		});
 	} catch (err) {
 		next(err);
 	}

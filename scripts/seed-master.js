@@ -358,6 +358,40 @@ async function seedUsers(roleMap, studentStatusMap) {
       enrollmentYear: 2024,
       sksCompleted: 60,
     },
+    // Test accounts for thesis change request feature
+    // Test 1: Student with thesis (for submitting new change request)
+    {
+      email: "test_changetopic@fti.unand.ac.id",
+      fullName: "Test Ganti Topik",
+      identityType: "NIM",
+      identityNumber: "2211522101",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 130,
+    },
+    // Test 2: Student with thesis (for approved change request simulation)
+    {
+      email: "test_changesupervisor@fti.unand.ac.id",
+      fullName: "Test Ganti Dospem",
+      identityType: "NIM",
+      identityNumber: "2211522102",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 130,
+    },
+    // Test 3: Student without thesis (to test approved state display)
+    {
+      email: "test_nothesis@fti.unand.ac.id",
+      fullName: "Test Tanpa Thesis",
+      identityType: "NIM",
+      identityNumber: "2211522103",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2022,
+      sksCompleted: 130,
+    },
   ];
 
   const userMap = new Map();
@@ -480,6 +514,11 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
   const nouval = userMap.get("muhammad_2211521020@fti.unand.ac.id");
   const daffa = userMap.get("daffa_2211523022@fti.unand.ac.id");
   const ilham = userMap.get("ilham_2211522028@fti.unand.ac.id");
+  
+  // Test users for change request feature
+  const testChangeTopic = userMap.get("test_changetopic@fti.unand.ac.id");
+  const testChangeSupervisor = userMap.get("test_changesupervisor@fti.unand.ac.id");
+  // Note: test_nothesis@fti.unand.ac.id doesn't get a thesis (for approved state testing)
   
   const husnil = userMap.get("pembimbing_si@fti.unand.ac.id");
   const afriyanti = userMap.get("sekdep_si@fti.unand.ac.id");
@@ -609,6 +648,24 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
     husnil,
     afriyanti,
     false // no topic
+  );
+
+  // 8. Test Ganti Topik - untuk test fitur pergantian topik (WITH topic)
+  await createThesis(
+    testChangeTopic,
+    "Sistem E-Commerce Toko Online XYZ",
+    afriyanti,
+    husnil,
+    true // with topic
+  );
+
+  // 9. Test Ganti Dospem - untuk test fitur pergantian pembimbing (WITH topic)
+  await createThesis(
+    testChangeSupervisor,
+    "Sistem Reservasi Hotel ABC",
+    husnil,
+    afriyanti,
+    true // with topic
   );
 
   return thesisMap;
