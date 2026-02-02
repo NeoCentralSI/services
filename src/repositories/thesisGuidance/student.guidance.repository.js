@@ -1,5 +1,4 @@
 import prisma from "../../config/prisma.js";
-import { ROLES } from "../../constants/roles.js";
 
 export function getStudentByUserId(userId) {
   // Schema baru: Student.id adalah foreign key ke User.id
@@ -22,14 +21,14 @@ export async function getActiveThesisForStudent(studentId) {
 }
 
 export async function getSupervisorsForThesis(thesisId) {
-  const parts = await prisma.thesisParticipant.findMany({
-    where: { thesisId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
+  const supervisors = await prisma.thesisParticipant.findMany({
+    where: { thesisId },
     include: {
-      lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
       role: { select: { id: true, name: true } },
+      lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
     },
   });
-  return parts;
+  return supervisors;
 }
 
 export function listGuidancesForThesis(thesisId, status) {

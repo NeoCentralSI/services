@@ -224,14 +224,12 @@ export const findAllPending = async ({ page = 1, pageSize = 10, search = '' }) =
   const where = {
     status: 'pending',
     ...(search && {
-      thesis: {
-        student: {
-          user: {
-            OR: [
-              { fullName: { contains: search } },
-              { identityNumber: { contains: search } },
-            ],
-          },
+      student: {
+        user: {
+          OR: [
+            { fullName: { contains: search } },
+            { identityNumber: { contains: search } },
+          ],
         },
       },
     }),
@@ -244,20 +242,21 @@ export const findAllPending = async ({ page = 1, pageSize = 10, search = '' }) =
       take: pageSize,
       orderBy: { createdAt: 'asc' },
       include: {
-        thesis: {
+        // Direct student relation (persists even after thesis deleted)
+        student: {
           include: {
-            student: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    fullName: true,
-                    identityNumber: true,
-                    email: true,
-                  },
-                },
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                identityNumber: true,
+                email: true,
               },
             },
+          },
+        },
+        thesis: {
+          include: {
             thesisTopic: true,
             thesisParticipants: {
               include: {
@@ -312,14 +311,12 @@ export const findAll = async ({ page = 1, pageSize = 10, search = '', status = '
   const where = {
     ...(status && { status }),
     ...(search && {
-      thesis: {
-        student: {
-          user: {
-            OR: [
-              { fullName: { contains: search } },
-              { identityNumber: { contains: search } },
-            ],
-          },
+      student: {
+        user: {
+          OR: [
+            { fullName: { contains: search } },
+            { identityNumber: { contains: search } },
+          ],
         },
       },
     }),
@@ -332,21 +329,37 @@ export const findAll = async ({ page = 1, pageSize = 10, search = '', status = '
       take: pageSize,
       orderBy: { createdAt: 'desc' },
       include: {
-        thesis: {
+        // Direct student relation (persists even after thesis deleted)
+        student: {
           include: {
-            student: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    fullName: true,
-                    identityNumber: true,
-                    email: true,
-                  },
-                },
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                identityNumber: true,
+                email: true,
               },
             },
+          },
+        },
+        thesis: {
+          include: {
             thesisTopic: true,
+            thesisParticipants: {
+              include: {
+                lecturer: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        fullName: true,
+                      },
+                    },
+                  },
+                },
+                role: true,
+              },
+            },
           },
         },
         reviewer: {
