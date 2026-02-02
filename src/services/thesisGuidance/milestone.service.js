@@ -398,18 +398,8 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   // Bulk create
   await milestoneRepo.createMany(milestonesData);
 
-  // Create logs for each
+  // Get created milestones
   const createdMilestones = await milestoneRepo.findByThesisId(thesisId);
-  for (const milestone of createdMilestones) {
-    await milestoneRepo.createLog({
-      milestoneId: milestone.id,
-      action: "created",
-      newStatus: milestone.status,
-      newProgress: milestone.progressPercentage,
-      performedBy: userId,
-      notes: `Milestone "${milestone.title}" dibuat dari template`,
-    });
-  }
 
   return {
     count: createdMilestones.length,
@@ -442,14 +432,6 @@ export async function updateMilestone(milestoneId, userId, data) {
   if (data.orderIndex !== undefined) updateData.orderIndex = data.orderIndex;
 
   const updated = await milestoneRepo.update(milestoneId, updateData);
-
-  // Create log
-  await milestoneRepo.createLog({
-    milestoneId,
-    action: "updated",
-    performedBy: userId,
-    notes: `Milestone "${updated.title}" diperbarui`,
-  });
 
   return updated;
 }
@@ -547,16 +529,6 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     });
   }
 
-  // Create log
-  await milestoneRepo.createLog({
-    milestoneId,
-    action: "updated",
-    previousProgress,
-    newProgress: progressPercentage,
-    performedBy: userId,
-    notes: `Progress diperbarui dari ${previousProgress}% ke ${progressPercentage}%`,
-  });
-
   // Send FCM notification to supervisors when progress reaches 100%
   if (progressPercentage === 100 && previousProgress < 100) {
     const { thesis } = await getMilestoneWithAccess(milestoneId, userId);
@@ -609,13 +581,6 @@ export async function submitForReview(milestoneId, userId, evidenceUrl = null, s
     ...updateData,
   });
 
-  await milestoneRepo.createLog({
-    milestoneId,
-    action: "updated",
-    performedBy: userId,
-    notes: "Permintaan review diterima (status review dinonaktifkan, tetap in_progress/revision flow)",
-  });
-
   return updated;
 }
 
@@ -627,7 +592,7 @@ export async function submitForReview(milestoneId, userId, evidenceUrl = null, s
  * Validate/approve milestone (supervisor only)
  */
 export async function validateMilestone(milestoneId, userId, supervisorNotes = null) {
-  const { milestone, isSupervisor } = await getMilestoneWithAccess(milestoneId, userId);
+  const { milestone, thesis, isSupervisor } = await getMilestoneWithAccess(milestoneId, userId);
 
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat memvalidasi milestone");
@@ -643,7 +608,25 @@ export async function validateMilestone(milestoneId, userId, supervisorNotes = n
     supervisorNotes
   );
 
-  // TODO: Send notification to student
+  // Send FCM notification to student
+  const studentUserId = thesis.student?.user?.id;
+  const supervisorName = thesis.thesisParticipants.find(
+    (p) => p.lecturer?.user?.id === userId
+  )?.lecturer?.user?.fullName || "Dosen Pembimbing";
+  const milestoneTitle = updated.title || "Milestone";
+
+  if (studentUserId) {
+    await sendFcmToUsers([studentUserId], {
+      title: "Milestone Disetujui",
+      body: `${supervisorName} telah menyetujui milestone "${milestoneTitle}"`,
+    });
+
+    await createNotification({
+      userId: studentUserId,
+      title: "Milestone Disetujui",
+      message: `${supervisorName} telah menyetujui milestone "${milestoneTitle}"`,
+    });
+  }
 
   return updated;
 }
@@ -652,7 +635,7 @@ export async function validateMilestone(milestoneId, userId, supervisorNotes = n
  * Request revision on milestone (supervisor only)
  */
 export async function requestRevision(milestoneId, userId, revisionNotes) {
-  const { milestone, isSupervisor } = await getMilestoneWithAccess(milestoneId, userId);
+  const { milestone, thesis, isSupervisor } = await getMilestoneWithAccess(milestoneId, userId);
 
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat meminta revisi");
@@ -668,7 +651,25 @@ export async function requestRevision(milestoneId, userId, revisionNotes) {
 
   const updated = await milestoneRepo.requestRevision(milestoneId, userId, revisionNotes);
 
-  // TODO: Send notification to student
+  // Send FCM notification to student
+  const studentUserId = thesis.student?.user?.id;
+  const supervisorName = thesis.thesisParticipants.find(
+    (p) => p.lecturer?.user?.id === userId
+  )?.lecturer?.user?.fullName || "Dosen Pembimbing";
+  const milestoneTitle = updated.title || "Milestone";
+
+  if (studentUserId) {
+    await sendFcmToUsers([studentUserId], {
+      title: "Revisi Milestone",
+      body: `${supervisorName} meminta revisi pada milestone "${milestoneTitle}"`,
+    });
+
+    await createNotification({
+      userId: studentUserId,
+      title: "Revisi Milestone",
+      message: `${supervisorName} meminta revisi pada milestone "${milestoneTitle}". Catatan: ${revisionNotes}`,
+    });
+  }
 
   return updated;
 }
@@ -685,13 +686,6 @@ export async function addSupervisorFeedback(milestoneId, userId, feedback) {
 
   const updated = await milestoneRepo.update(milestoneId, {
     supervisorNotes: feedback,
-  });
-
-  await milestoneRepo.createLog({
-    milestoneId,
-    action: "updated",
-    performedBy: userId,
-    notes: `Dosen pembimbing memberikan feedback`,
   });
 
   return updated;

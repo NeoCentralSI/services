@@ -426,27 +426,9 @@ model ThesisGuidance {
   thesis            Thesis   @relation(fields: [thesisId], references: [id])
   supervisor        Lecturer? @relation(fields: [supervisorId], references: [id])
   milestone         ThesisMilestone? @relation(fields: [milestoneId], references: [id])
-  sessionLogs       ThesisGuidanceLog[] // Log untuk setiap sesi bimbingan
 
   @@index([thesisId, milestoneId])
   @@map("thesis_guidances")
-}
-
-// Log detail untuk setiap sesi bimbingan
-model ThesisGuidanceLog {
-  id              String   @id @default(uuid())
-  guidanceId      String   @map("guidance_id")
-  topic           String   // Topik yang dibahas
-  discussion      String?  @db.Text // Isi diskusi
-  actionItems     String?  @db.Text @map("action_items") // Tugas/action items untuk mahasiswa
-  attachmentUrl   String?  @map("attachment_url") // Lampiran (file bimbingan)
-  progressNotes   String?  @db.Text @map("progress_notes") // Catatan progress
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  
-  guidance        ThesisGuidance @relation(fields: [guidanceId], references: [id], onDelete: Cascade)
-
-  @@map("thesis_guidance_logs")
 }
 
 // Thesis Seminar Management

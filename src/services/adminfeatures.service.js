@@ -1245,7 +1245,6 @@ export async function deleteThesis(thesisId, reason = null) {
 		deletedCounts.thesisSeminars = (await tx.thesisSeminar.deleteMany({ where: { thesisId } })).count;
 
 		// 3. Delete guidance related
-		deletedCounts.thesisGuidanceLogs = (await tx.thesisGuidanceLog.deleteMany({ where: { guidance: { thesisId } } })).count;
 		deletedCounts.thesisGuidances = (await tx.thesisGuidance.deleteMany({ where: { thesisId } })).count;
 
 		// 4. Delete milestone related

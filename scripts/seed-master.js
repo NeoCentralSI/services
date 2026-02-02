@@ -904,10 +904,12 @@ async function seedGuidances(thesisMap, userMap) {
           duration: 60,
           studentNotes: session.topic,
           supervisorFeedback: feedbackTemplates[i % feedbackTemplates.length],
+          sessionSummary: `Bimbingan membahas ${session.topic.toLowerCase()}. Progress sesuai jadwal.`,
           status: "completed",
           completedAt: completedAt,
         },
       });
+
       console.log(`    ✅ Bimbingan #${i + 1}: ${session.date} - ${session.topic.slice(0, 40)}...`);
     }
   }

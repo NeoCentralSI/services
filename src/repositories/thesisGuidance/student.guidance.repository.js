@@ -150,7 +150,7 @@ export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }
 }
 
 /**
- * Get completed guidance history for student (for download/documentation)
+ * Get completed guidance history for student
  */
 export function getCompletedGuidanceHistory(studentId) {
   return prisma.thesisGuidance.findMany({
