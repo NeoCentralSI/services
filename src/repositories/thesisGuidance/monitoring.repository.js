@@ -528,3 +528,81 @@ export async function getThesisDetailById(thesisId) {
     },
   });
 }
+
+/**
+ * Get comprehensive thesis data for semester progress report
+ * @param {string} academicYearId - Academic year ID for filtering
+ */
+export async function getThesesForReport(academicYearId) {
+  const where = {};
+  
+  if (academicYearId) {
+    where.academicYearId = academicYearId;
+  }
+
+  const theses = await prisma.thesis.findMany({
+    where,
+    include: {
+      student: {
+        include: {
+          user: {
+            select: {
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            },
+          },
+          studentStatus: true,
+        },
+      },
+      thesisStatus: true,
+      thesisTopic: true,
+      academicYear: true,
+      thesisParticipants: {
+        where: {
+          role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
+        },
+        include: {
+          lecturer: {
+            include: {
+              user: { select: { fullName: true } },
+            },
+          },
+          role: true,
+        },
+      },
+      thesisMilestones: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          progressPercentage: true,
+          targetDate: true,
+          completedAt: true,
+        },
+      },
+      thesisGuidances: {
+        select: {
+          id: true,
+          status: true,
+          completedAt: true,
+          createdAt: true,
+        },
+      },
+    },
+    orderBy: [
+      { student: { user: { fullName: "asc" } } },
+    ],
+  });
+
+  return theses;
+}
+
+/**
+ * Get academic year by ID
+ */
+export async function getAcademicYearById(academicYearId) {
+  return prisma.academicYear.findUnique({
+    where: { id: academicYearId },
+  });
+}

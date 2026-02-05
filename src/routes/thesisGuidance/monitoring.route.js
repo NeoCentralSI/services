@@ -9,6 +9,7 @@ import {
   getStudentsReadyForSeminar,
   getThesisDetail,
   sendWarningNotification,
+  getProgressReport,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
 
 const router = express.Router();
@@ -26,6 +27,9 @@ router.get("/theses", getThesesList);
 
 // Filter options (for dropdowns)
 router.get("/filters", getFilterOptions);
+
+// Progress report for PDF generation
+router.get("/report", getProgressReport);
 
 // At-risk students list
 router.get("/at-risk", getAtRiskStudents);

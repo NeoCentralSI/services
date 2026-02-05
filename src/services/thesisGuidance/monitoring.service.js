@@ -405,3 +405,96 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}` 
   };
 }
+
+/**
+ * Get comprehensive progress report data for PDF generation
+ * @param {string} academicYearId - Academic year ID
+ */
+export async function getProgressReportService(academicYearId) {
+  // Get academic year info
+  const academicYear = academicYearId 
+    ? await monitoringRepository.getAcademicYearById(academicYearId)
+    : null;
+  
+  // Get all theses for the academic year
+  const theses = await monitoringRepository.getThesesForReport(academicYearId);
+  
+  // Get statistics
+  const [statusDistribution, ratingDistribution] = await Promise.all([
+    monitoringRepository.getStatusDistribution(academicYearId),
+    monitoringRepository.getRatingDistribution(academicYearId),
+  ]);
+  
+  // Calculate summary statistics
+  let totalGuidances = 0;
+  let completedGuidances = 0;
+  let totalMilestones = 0;
+  let completedMilestones = 0;
+  
+  // Format thesis data for report
+  const reportData = theses.map((t, index) => {
+    const milestones = t.thesisMilestones || [];
+    const guidances = t.thesisGuidances || [];
+    
+    const completedMilestoneCount = milestones.filter(m => m.status === "completed").length;
+    const completedGuidanceCount = guidances.filter(g => g.status === "completed").length;
+    const progressPercent = milestones.length > 0 
+      ? Math.round((completedMilestoneCount / milestones.length) * 100) 
+      : 0;
+    
+    // Add to totals
+    totalGuidances += guidances.length;
+    completedGuidances += completedGuidanceCount;
+    totalMilestones += milestones.length;
+    completedMilestones += completedMilestoneCount;
+    
+    // Get supervisors
+    const pembimbing1 = t.thesisParticipants?.find(p => p.role?.name === "Pembimbing 1");
+    const pembimbing2 = t.thesisParticipants?.find(p => p.role?.name === "Pembimbing 2");
+    
+    return {
+      no: index + 1,
+      nim: t.student?.user?.identityNumber || "-",
+      name: toTitleCaseName(t.student?.user?.fullName || "-"),
+      title: t.title || "-",
+      topic: t.thesisTopic?.name || "-",
+      status: t.thesisStatus?.name || "-",
+      rating: t.rating || "ONGOING",
+      pembimbing1: toTitleCaseName(pembimbing1?.lecturer?.user?.fullName || "-"),
+      pembimbing2: toTitleCaseName(pembimbing2?.lecturer?.user?.fullName || "-"),
+      guidanceTotal: guidances.length,
+      guidanceCompleted: completedGuidanceCount,
+      milestoneTotal: milestones.length,
+      milestoneCompleted: completedMilestoneCount,
+      progressPercent,
+      startDate: t.startDate,
+      createdAt: t.createdAt,
+    };
+  });
+  
+  // Calculate overall statistics
+  const summary = {
+    totalTheses: theses.length,
+    totalGuidances,
+    completedGuidances,
+    totalMilestones,
+    completedMilestones,
+    averageMilestoneProgress: totalMilestones > 0 
+      ? Math.round((completedMilestones / totalMilestones) * 100) 
+      : 0,
+    averageGuidanceCompletion: totalGuidances > 0 
+      ? Math.round((completedGuidances / totalGuidances) * 100) 
+      : 0,
+  };
+  
+  return {
+    academicYear: academicYear 
+      ? `${academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${academicYear.year}`
+      : "Semua Tahun Ajaran",
+    generatedAt: new Date().toISOString(),
+    summary,
+    statusDistribution,
+    ratingDistribution,
+    theses: reportData,
+  };
+}

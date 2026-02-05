@@ -125,3 +125,20 @@ export async function sendWarningNotification(req, res, next) {
     next(error);
   }
 }
+
+/**
+ * Get progress report data for PDF generation
+ * @route GET /api/thesis-guidance/monitoring/report
+ */
+export async function getProgressReport(req, res, next) {
+  try {
+    const { academicYear } = req.query;
+    const data = await monitoringService.getProgressReportService(academicYear);
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
