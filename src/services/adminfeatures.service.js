@@ -42,6 +42,7 @@ import {
 	getUserRolesWithIds,
 	upsertUserRole,
 	findStudentByUserId,
+	deleteUserRolesByIds,
 } from "../repositories/adminfeatures.repository.js";
 
 function clean(v) {
@@ -136,18 +137,35 @@ export async function adminUpdateUser(id, payload = {}) {
 				.map((x) => ({ name: x.name.trim().toLowerCase(), status: x.status }))
 				.filter((x) => x.name && normalize(x.name) !== normalize(ROLES.ADMIN));
 
-			// Map role names -> role ids, then upsert with status if provided
+			// Get existing roles
 			const existing = await getUserRolesWithIds(id);
 			const existingByRoleId = new Map(existing.map((ur) => [ur.roleId, ur]));
-			const existingByName = new Map(existing.map((ur) => [String(ur.role?.name || "").toLowerCase(), ur]));
+			const existingByName = new Map(existing.map((ur) => [normalize(ur.role?.name || ""), ur]));
 
+			// Build set of desired role IDs
+			const desiredRoleIds = new Set();
 			for (const item of desiredClean) {
 				let role = await findRoleByName(item.name);
 				if (!role) role = await getOrCreateRole(item.name);
+				desiredRoleIds.add(role.id);
 				const current = existingByRoleId.get(role.id) || existingByName.get(item.name);
 				const status = item.status || current?.status || "active";
-				// Upsert and update status when provided. Non-destructive for other roles.
+				// Upsert and update status when provided
 				await upsertUserRole(id, role.id, status);
+			}
+
+			// Remove roles that are no longer desired (except Admin role)
+			const rolesToRemove = [];
+			for (const ur of existing) {
+				const roleName = ur.role?.name || "";
+				// Never remove Admin role via this endpoint
+				if (normalize(roleName) === normalize(ROLES.ADMIN)) continue;
+				if (!desiredRoleIds.has(ur.roleId)) {
+					rolesToRemove.push(ur.roleId);
+				}
+			}
+			if (rolesToRemove.length > 0) {
+				await deleteUserRolesByIds(id, rolesToRemove);
 			}
 	}
 

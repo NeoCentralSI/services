@@ -91,6 +91,32 @@ export function findStudentByUserId(userId) {
 	return prisma.student.findUnique({ where: { id: userId } });
 }
 export function findRoleByName(name) {
-	return prisma.userRole.findFirst({ where: { name } });
+	// Search for role name (try exact match first, then case variations)
+	const n = String(name || "").trim();
+	if (!n) return null;
+	return prisma.userRole.findFirst({ 
+		where: { 
+			OR: [
+				{ name: n },
+				{ name: n.toLowerCase() },
+				{ name: n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() },
+				// Title case each word
+				{ name: n.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') },
+			]
+		} 
+	});
+}
+
+export function deleteUserRole(userId, roleId) {
+	return prisma.userHasRole.delete({
+		where: { userId_roleId: { userId, roleId } },
+	}).catch(() => null); // Ignore if not found
+}
+
+export function deleteUserRolesByIds(userId, roleIds) {
+	if (!roleIds.length) return Promise.resolve({ count: 0 });
+	return prisma.userHasRole.deleteMany({
+		where: { userId, roleId: { in: roleIds } },
+	});
 }
 
