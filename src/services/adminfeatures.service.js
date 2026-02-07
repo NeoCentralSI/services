@@ -818,13 +818,8 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 					include: {
 						_count: {
 							select: {
-								thesisGuidances: {
-									where: { 
-										status: "accepted",
-									},
-								},
-								thesisSeminarScores: true,
-								thesisDefenceScores: true,
+								thesisGuidances: true,
+								thesisParticipants: true,
 							},
 						},
 					},
@@ -853,8 +848,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 			? {
 					id: user.lecturer.id,
 					activeGuidances: user.lecturer._count?.thesisGuidances || 0,
-					seminarJuries: user.lecturer._count?.thesisSeminarScores || 0,
-					defenceJuries: user.lecturer._count?.thesisDefenceScores || 0,
+					participations: user.lecturer._count?.thesisParticipants || 0,
 			  }
 			: null,
 		roles: user.userHasRoles.map((ur) => ({
@@ -926,24 +920,16 @@ export async function getStudentDetail(userId) {
 								},
 							},
 							thesisSeminars: {
-								include: {
-									schedule: {
-										include: {
-											room: true,
-										},
-									},
-									result: true,
+								select: {
+									id: true,
+									status: true,
+									createdAt: true,
 								},
 							},
 							thesisDefences: {
-								include: {
-									schedule: {
-										include: {
-											room: true,
-										},
-									},
-									status: true,
-									scores: true,
+								select: {
+									id: true,
+									createdAt: true,
 								},
 							},
 						},
@@ -1013,18 +999,12 @@ export async function getStudentDetail(userId) {
 			},
 			seminars: thesis.thesisSeminars.map((s) => ({
 				id: s.id,
-				type: s.type,
 				status: s.status,
-				scheduledAt: s.schedule?.scheduledAt || null,
-				result: s.result?.status || null,
-				score: s.result?.score || null,
+				createdAt: s.createdAt,
 			})),
 			defences: thesis.thesisDefences.map((d) => ({
 				id: d.id,
-				status: d.status,
-				scheduledAt: d.schedule?.scheduledAt || null,
-				result: d.result?.status || null,
-				score: d.result?.score || null,
+				createdAt: d.createdAt,
 			})),
 		};
 	});
@@ -1379,12 +1359,12 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 				student: {
 					include: { user: { select: { fullName: true, identityNumber: true, email: true } } },
 				},
-				thesisTopic: { select: { name: true } },
+				thesisTopic: { select: { id: true, name: true } },
 				thesisStatus: { select: { id: true, name: true } },
 				thesisParticipants: {
 					include: {
 						lecturer: { include: { user: { select: { fullName: true } } } },
-						role: { select: { name: true } },
+						role: { select: { id: true, name: true } },
 					},
 				},
 			},
@@ -1397,7 +1377,9 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 			id: t.id,
 			title: t.title,
 			status: t.thesisStatus?.name || null,
+			statusId: t.thesisStatus?.id || null,
 			topic: t.thesisTopic?.name || null,
+			topicId: t.thesisTopicId || null,
 			student: {
 				id: t.student?.id,
 				fullName: t.student?.user?.fullName,
@@ -1405,8 +1387,11 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 				email: t.student?.user?.email,
 			},
 			supervisors: t.thesisParticipants.map((p) => ({
-				name: p.lecturer?.user?.fullName,
+				id: p.id,
+				lecturerId: p.lecturerId,
+				fullName: p.lecturer?.user?.fullName,
 				role: p.role?.name,
+				roleId: p.role?.id || p.roleId,
 			})),
 			createdAt: t.createdAt,
 			updatedAt: t.updatedAt,
@@ -1418,4 +1403,262 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 	};
 }
 
+/**
+ * Create thesis manually (Admin)
+ */
+export async function createThesisManually({ studentId, title, thesisTopicId, supervisors }) {
+	if (!studentId) {
+		const err = new Error("Mahasiswa wajib dipilih");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	if (!title || title.trim() === "") {
+		const err = new Error("Judul tugas akhir wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	if (title.trim().length < 10) {
+		const err = new Error("Judul minimal 10 karakter");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// Check if student already has active thesis
+	const existingThesis = await prisma.thesis.findFirst({
+		where: {
+			studentId,
+			thesisStatus: {
+				name: { notIn: ["selesai", "gagal"] },
+			},
+		},
+	});
+
+	if (existingThesis) {
+		const err = new Error("Mahasiswa sudah memiliki tugas akhir aktif");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// Get default status
+	const defaultStatus = await prisma.thesisStatus.findFirst({
+		where: { name: "bimbingan" },
+	});
+
+	// Get active academic year
+	const activeYear = await prisma.academicYear.findFirst({
+		where: { isActive: true },
+	});
+
+	const thesis = await prisma.$transaction(async (tx) => {
+		const newThesis = await tx.thesis.create({
+			data: {
+				studentId,
+				title: title.trim(),
+				thesisTopicId: thesisTopicId || null,
+				thesisStatusId: defaultStatus?.id || null,
+				academicYearId: activeYear?.id || null,
+				startDate: new Date(),
+			},
+		});
+
+		// Add supervisors
+		if (supervisors && supervisors.length > 0) {
+			await tx.thesisParticipant.createMany({
+				data: supervisors.map((sup) => ({
+					thesisId: newThesis.id,
+					lecturerId: sup.lecturerId,
+					roleId: sup.roleId,
+				})),
+			});
+		}
+
+		return newThesis;
+	});
+
+	return getThesisById(thesis.id);
+}
+
+/**
+ * Get thesis by ID
+ */
+export async function getThesisById(id) {
+	const thesis = await prisma.thesis.findUnique({
+		where: { id },
+		include: {
+			student: {
+				include: { user: { select: { id: true, fullName: true, identityNumber: true, email: true } } },
+			},
+			thesisTopic: { select: { id: true, name: true } },
+			thesisStatus: { select: { id: true, name: true } },
+			thesisParticipants: {
+				include: {
+					lecturer: { include: { user: { select: { id: true, fullName: true } } } },
+					role: { select: { id: true, name: true } },
+				},
+			},
+		},
+	});
+
+	if (!thesis) {
+		const err = new Error("Tugas akhir tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	return transformThesis(thesis);
+}
+
+/**
+ * Update thesis (Admin)
+ */
+export async function updateThesisManually(id, { title, thesisTopicId, supervisors }) {
+	if (!id) {
+		const err = new Error("ID tugas akhir wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const existing = await prisma.thesis.findUnique({ where: { id } });
+	if (!existing) {
+		const err = new Error("Tugas akhir tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	await prisma.$transaction(async (tx) => {
+		await tx.thesis.update({
+			where: { id },
+			data: {
+				title: title?.trim() || existing.title,
+				thesisTopicId: thesisTopicId !== undefined ? thesisTopicId : existing.thesisTopicId,
+			},
+		});
+
+		if (supervisors !== undefined) {
+			const supervisorRoles = await tx.userRole.findMany({
+				where: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
+			});
+			const supervisorRoleIds = supervisorRoles.map((r) => r.id);
+
+			await tx.thesisParticipant.deleteMany({
+				where: { thesisId: id, roleId: { in: supervisorRoleIds } },
+			});
+
+			if (supervisors.length > 0) {
+				await tx.thesisParticipant.createMany({
+					data: supervisors.map((sup) => ({
+						thesisId: id,
+						lecturerId: sup.lecturerId,
+						roleId: sup.roleId,
+					})),
+				});
+			}
+		}
+	});
+
+	return getThesisById(id);
+}
+
+/**
+ * Get students without active thesis
+ */
+export async function getAvailableStudents() {
+	const students = await prisma.student.findMany({
+		where: {
+			thesis: {
+				none: {
+					thesisStatus: {
+						name: { notIn: ["selesai", "gagal"] },
+					},
+				},
+			},
+		},
+		include: {
+			user: { select: { id: true, fullName: true, identityNumber: true, email: true } },
+		},
+		orderBy: { user: { fullName: "asc" } },
+	});
+
+	return students.map((s) => ({
+		id: s.id,
+		userId: s.user.id,
+		fullName: s.user.fullName,
+		nim: s.user.identityNumber,
+		email: s.user.email,
+	}));
+}
+
+/**
+ * Get all lecturers for supervisor dropdown
+ */
+export async function getAllLecturersForDropdown() {
+	const lecturers = await prisma.lecturer.findMany({
+		include: {
+			user: { select: { id: true, fullName: true, identityNumber: true } },
+		},
+		orderBy: { user: { fullName: "asc" } },
+	});
+
+	return lecturers.map((l) => ({
+		id: l.id,
+		fullName: l.user.fullName,
+		nip: l.user.identityNumber,
+	}));
+}
+
+/**
+ * Get supervisor roles
+ */
+export async function getSupervisorRoles() {
+	return prisma.userRole.findMany({
+		where: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
+	});
+}
+
+/**
+ * Get thesis statuses
+ */
+export async function getThesisStatuses() {
+	return prisma.thesisStatus.findMany({ orderBy: { name: "asc" } });
+}
+
+/**
+ * Transform thesis for API response
+ */
+function transformThesis(thesis) {
+	if (!thesis) return null;
+
+	const supervisors = thesis.thesisParticipants
+		?.filter((p) => p.role?.name?.startsWith("pembimbing"))
+		?.map((p) => ({
+			id: p.id,
+			lecturerId: p.lecturerId,
+			fullName: p.lecturer?.user?.fullName,
+			role: p.role?.name,
+			roleId: p.role?.id,
+		})) || [];
+
+	return {
+		id: thesis.id,
+		title: thesis.title,
+		status: thesis.thesisStatus?.name || null,
+		statusId: thesis.thesisStatus?.id || null,
+		topic: thesis.thesisTopic?.name || null,
+		topicId: thesis.thesisTopic?.id || null,
+		student: {
+			id: thesis.student?.id,
+			userId: thesis.student?.user?.id,
+			fullName: thesis.student?.user?.fullName,
+			nim: thesis.student?.user?.identityNumber,
+			email: thesis.student?.user?.email,
+		},
+		supervisors,
+		startDate: thesis.startDate,
+		deadlineDate: thesis.deadlineDate,
+		createdAt: thesis.createdAt,
+		updatedAt: thesis.updatedAt,
+	};
+}
 

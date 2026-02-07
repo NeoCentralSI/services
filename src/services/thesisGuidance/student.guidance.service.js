@@ -346,45 +346,53 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   });
 
   try {
-    const supervisorsUserIds = supervisors.map((p) => p?.lecturer?.user?.id).filter(Boolean);
-    const dateStr =
-      formatDateTimeJakarta(guidanceDate, { withDay: true }) ||
-      (guidanceDate instanceof Date ? guidanceDate.toISOString() : String(guidanceDate));
-    const notifMessage = milestoneNames.length
-      ? `${studentName} mengajukan bimbingan untuk ${milestoneNames.length} milestone. Jadwal: ${dateStr}`
-      : `${studentName} mengajukan bimbingan. Jadwal: ${dateStr}`;
-    await createNotificationsForUsers(supervisorsUserIds, {
-      title: "Permintaan bimbingan baru",
-      message: notifMessage,
-    });
+    // Only notify the selected supervisor, not all supervisors
+    const selectedSupervisor = supervisors.find((p) => p.lecturerId === selectedSupervisorId);
+    const supervisorUserId = selectedSupervisor?.lecturer?.user?.id;
+    if (supervisorUserId) {
+      const dateStr =
+        formatDateTimeJakarta(guidanceDate, { withDay: true }) ||
+        (guidanceDate instanceof Date ? guidanceDate.toISOString() : String(guidanceDate));
+      const notifMessage = milestoneNames.length
+        ? `${studentName} mengajukan bimbingan untuk ${milestoneNames.length} milestone. Jadwal: ${dateStr}`
+        : `${studentName} mengajukan bimbingan. Jadwal: ${dateStr}`;
+      await createNotificationsForUsers([supervisorUserId], {
+        title: "Permintaan bimbingan baru",
+        message: notifMessage,
+      });
+    }
   } catch (e) {
     console.warn("Notify (DB) failed (guidance request):", e?.message || e);
   }
 
   try {
-    const supUserIds = supervisors.map((p) => p?.lecturer?.user?.id).filter(Boolean);
-    console.log(`[Guidance] Sending FCM requested -> supervisors=${supUserIds.join(',')} guidanceId=${created.id}`);
-    // Schema baru: gunakan requestedDate
-    const data = {
-      type: "thesis-guidance:requested",
-      role: "supervisor",
-      guidanceId: String(created.id),
-      thesisId: String(thesis.id),
-      milestoneId: selectedMilestoneId || "",
-      milestoneName: milestoneNames[0] || "",
-      scheduledAt: created?.requestedDate ? new Date(created.requestedDate).toISOString() : "",
-      scheduledAtFormatted: formatDateTimeJakarta(created?.requestedDate, { withDay: true }) || "",
-      supervisorId: String(selectedSupervisorId),
-      playSound: "true",
-    };
-    await sendFcmToUsers(supUserIds, {
-      title: "Permintaan bimbingan baru",
-      body: `${studentName} mengajukan bimbingan. Jadwal: ${
-        data.scheduledAtFormatted || formatDateTimeJakarta(guidanceDate, { withDay: true }) || "-"
-      }`,
-      data,
-      dataOnly: true,
-    });
+    // Only send FCM to the selected supervisor
+    const selectedSupervisor = supervisors.find((p) => p.lecturerId === selectedSupervisorId);
+    const supUserId = selectedSupervisor?.lecturer?.user?.id;
+    if (supUserId) {
+      console.log(`[Guidance] Sending FCM requested -> supervisor=${supUserId} guidanceId=${created.id}`);
+      // Schema baru: gunakan requestedDate
+      const data = {
+        type: "thesis-guidance:requested",
+        role: "supervisor",
+        guidanceId: String(created.id),
+        thesisId: String(thesis.id),
+        milestoneId: selectedMilestoneId || "",
+        milestoneName: milestoneNames[0] || "",
+        scheduledAt: created?.requestedDate ? new Date(created.requestedDate).toISOString() : "",
+        scheduledAtFormatted: formatDateTimeJakarta(created?.requestedDate, { withDay: true }) || "",
+        supervisorId: String(selectedSupervisorId),
+        playSound: "true",
+      };
+      await sendFcmToUsers([supUserId], {
+        title: "Permintaan bimbingan baru",
+        body: `${studentName} mengajukan bimbingan. Jadwal: ${
+          data.scheduledAtFormatted || formatDateTimeJakarta(guidanceDate, { withDay: true }) || "-"
+        }`,
+        data,
+        dataOnly: true,
+      });
+    }
   } catch (e) {
     console.warn("FCM notify failed (guidance request):", e?.message || e);
   }

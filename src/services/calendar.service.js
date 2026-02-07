@@ -112,6 +112,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       });
 
       // Get thesis seminar events
+      // Note: ThesisSeminar model doesn't have schedule relation - using createdAt for reference
       const seminars = await prisma.thesisSeminar.findMany({
         where: {
           thesis: {
@@ -119,49 +120,42 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           },
           ...(startDate &&
             endDate && {
-              schedule: {
-                startTime: {
-                  gte: new Date(startDate),
-                  lte: new Date(endDate),
-                },
+              createdAt: {
+                gte: new Date(startDate),
+                lte: new Date(endDate),
               },
             }),
         },
         include: {
-          schedule: {
-            include: {
-              room: true,
-            },
-          },
+          thesis: true,
         },
       });
 
       seminars.forEach((seminar) => {
-        if (seminar.schedule) {
-          events.push({
-            id: `seminar-${seminar.id}`,
-            title: "Seminar Tugas Akhir",
-            description: "Presentasi dan diskusi hasil penelitian",
-            type: "seminar_scheduled",
-            status: seminar.status,
-            startDate: seminar.schedule.startTime,
-            endDate: seminar.schedule.endTime,
-            userId,
-            userRole,
-            relatedId: seminar.id,
-            relatedType: "thesis_seminar",
-            participants: [],
-            location: seminar.schedule.room?.name,
-            meetingLink: null,
-            reminderMinutes: 60,
-            notificationSent: false,
-            color: "#8b5cf6",
-            backgroundColor: "#8b5cf6",
-          });
-        }
+        events.push({
+          id: `seminar-${seminar.id}`,
+          title: "Seminar Tugas Akhir",
+          description: "Presentasi dan diskusi hasil penelitian",
+          type: "seminar_scheduled",
+          status: seminar.status,
+          startDate: seminar.createdAt,
+          endDate: seminar.createdAt,
+          userId,
+          userRole,
+          relatedId: seminar.id,
+          relatedType: "thesis_seminar",
+          participants: [],
+          location: null,
+          meetingLink: null,
+          reminderMinutes: 60,
+          notificationSent: false,
+          color: "#8b5cf6",
+          backgroundColor: "#8b5cf6",
+        });
       });
 
       // Get thesis defence events
+      // Note: ThesisDefence model doesn't have schedule relation - using createdAt for reference
       const defences = await prisma.thesisDefence.findMany({
         where: {
           thesis: {
@@ -169,46 +163,38 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           },
           ...(startDate &&
             endDate && {
-              schedule: {
-                startTime: {
-                  gte: new Date(startDate),
-                  lte: new Date(endDate),
-                },
+              createdAt: {
+                gte: new Date(startDate),
+                lte: new Date(endDate),
               },
             }),
         },
         include: {
-          schedule: {
-            include: {
-              room: true,
-            },
-          },
+          thesis: true,
         },
       });
 
       defences.forEach((defence) => {
-        if (defence.schedule) {
-          events.push({
-            id: `defence-${defence.id}`,
-            title: "Sidang Tugas Akhir",
-            description: "Ujian sidang tugas akhir",
-            type: "defense_scheduled",
-            status: "scheduled",
-            startDate: defence.schedule.startTime,
-            endDate: defence.schedule.endTime,
-            userId,
-            userRole,
-            relatedId: defence.id,
-            relatedType: "thesis_defence",
-            participants: [],
-            location: defence.schedule.room?.name,
-            meetingLink: null,
-            reminderMinutes: 60,
-            notificationSent: false,
-            color: "#f59e0b",
-            backgroundColor: "#f59e0b",
-          });
-        }
+        events.push({
+          id: `defence-${defence.id}`,
+          title: "Sidang Tugas Akhir",
+          description: "Ujian sidang tugas akhir",
+          type: "defense_scheduled",
+          status: "scheduled",
+          startDate: defence.createdAt,
+          endDate: defence.createdAt,
+          userId,
+          userRole,
+          relatedId: defence.id,
+          relatedType: "thesis_defence",
+          participants: [],
+          location: null,
+          meetingLink: null,
+          reminderMinutes: 60,
+          notificationSent: false,
+          color: "#f59e0b",
+          backgroundColor: "#f59e0b",
+        });
       });
     }
 
@@ -305,6 +291,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       });
 
       // Seminars as examiner
+      // Note: ThesisSeminar model doesn't have schedule relation
       const seminarAudiences = await prisma.thesisSeminarAudience.findMany({
         where: {
           validator: {
@@ -313,11 +300,9 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           ...(startDate &&
             endDate && {
               seminar: {
-                schedule: {
-                  startTime: {
-                    gte: new Date(startDate),
-                    lte: new Date(endDate),
-                  },
+                createdAt: {
+                  gte: new Date(startDate),
+                  lte: new Date(endDate),
                 },
               },
             }),
@@ -325,11 +310,6 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
         include: {
           seminar: {
             include: {
-              schedule: {
-                include: {
-                  room: true,
-                },
-              },
               thesis: {
                 include: {
                   student: {
@@ -345,15 +325,15 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       });
 
       seminarAudiences.forEach((audience) => {
-        if (audience.seminar?.schedule) {
+        if (audience.seminar) {
           events.push({
             id: `seminar-examiner-${audience.seminar.id}`,
             title: `Seminar - ${audience.seminar.thesis.student.user.fullName}`,
             description: "Sebagai penguji seminar",
             type: "seminar_as_examiner",
             status: audience.seminar.status,
-            startDate: audience.seminar.schedule.startTime,
-            endDate: audience.seminar.schedule.endTime,
+            startDate: audience.seminar.createdAt,
+            endDate: audience.seminar.createdAt,
             userId,
             userRole,
             relatedId: audience.seminar.id,
@@ -365,7 +345,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
                 role: ROLE_CATEGORY.STUDENT,
               },
             ],
-            location: audience.seminar.schedule.room?.name,
+            location: null,
             meetingLink: null,
             reminderMinutes: 60,
             notificationSent: false,
