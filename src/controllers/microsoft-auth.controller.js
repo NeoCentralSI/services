@@ -64,6 +64,11 @@ export async function handleCallback(req, res, next) {
     
     res.redirect(`${frontendUrl}?tokens=${encodedTokens}`);
   } catch (error) {
+    // If account not verified (403), redirect to account-inactive page
+    if (error.statusCode === 403) {
+      const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/account-inactive`;
+      return res.redirect(frontendUrl);
+    }
     // Redirect ke login dengan error message
     const errorMsg = error.message || 'Authentication failed';
     const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=${encodeURIComponent(errorMsg)}`;

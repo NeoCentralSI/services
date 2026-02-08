@@ -90,6 +90,7 @@ export async function updateProfileHandler(req, res, next) {
 			identityType: updatedUser.identityType,
 			phoneNumber: updatedUser.phoneNumber,
 			isVerified: updatedUser.isVerified,
+			avatarUrl: updatedUser.avatarUrl || null,
 			roles: updatedUser.userHasRoles.map((uhr) => ({
 				id: uhr.role.id,
 				name: uhr.role.name,
@@ -110,6 +111,7 @@ export async function updateProfileHandler(req, res, next) {
 			response.lecturer = {
 				id: updatedUser.lecturer.id,
 				scienceGroup: updatedUser.lecturer.scienceGroup?.name || null,
+				data: updatedUser.lecturer.data || null,
 			};
 		}
 
@@ -194,8 +196,8 @@ export async function verifyAccount(req, res, next) {
 			return res.redirect(frontendUrl);
 		}
 		const result = await verifyAccountToken(token);
-		// Redirect ke frontend dengan success
-		const frontendUrl = `${ENV.FRONTEND_URL}/login?verified=success&message=${encodeURIComponent('Akun berhasil diaktivasi! Silakan login dengan password yang dikirim ke email Anda.')}`;
+		// Redirect ke frontend activation success page
+		const frontendUrl = `${ENV.FRONTEND_URL}/activation-success`;
 		res.redirect(frontendUrl);
 	} catch (err) {
 		// Redirect ke frontend dengan error

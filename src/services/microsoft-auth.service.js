@@ -216,7 +216,6 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
     data: {
       oauthProvider: "microsoft",
       oauthId,
-      oauthAccessToken: accessToken,
       oauthRefreshToken: refreshToken,
       // Password TETAP ADA (tidak dihapus) untuk fallback/development
       // fullName dan identityNumber tidak diupdate (preserve existing data)
@@ -309,7 +308,6 @@ export async function refreshMicrosoftToken(userId) {
     await prisma.user.update({
       where: { id: userId },
       data: {
-        oauthAccessToken: response.accessToken,
         oauthRefreshToken: response.refreshToken || user.oauthRefreshToken,
       },
     });

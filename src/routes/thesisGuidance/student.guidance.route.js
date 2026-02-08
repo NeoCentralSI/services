@@ -27,6 +27,12 @@ import {
 	getMyThesis,
 	updateMyThesisTitle,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
+import {
+	getAvailableSupervisor2,
+	requestSupervisor2,
+	getPendingSupervisor2Request,
+	cancelSupervisor2Request,
+} from "../../controllers/thesisGuidance/supervisor2.controller.js";
 import { uploadThesisFile } from "../../middlewares/file.middleware.js";
 import { ROLES } from "../../constants/roles.js";
 
@@ -70,6 +76,12 @@ router.get("/supervisors/:supervisorId/availability", supervisorAvailability);
 // My Thesis (get detail & update title)
 router.get("/my-thesis", getMyThesis);
 router.patch("/my-thesis/title", updateMyThesisTitle);
+
+// Pembimbing 2 request
+router.get("/available-supervisors-2", getAvailableSupervisor2);
+router.post("/request-supervisor-2", requestSupervisor2);
+router.get("/pending-supervisor-2-request", getPendingSupervisor2Request);
+router.delete("/cancel-supervisor-2-request", cancelSupervisor2Request);
 
 export default router;
 

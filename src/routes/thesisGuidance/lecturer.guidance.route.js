@@ -23,6 +23,11 @@ import {
 	guidanceDetail,
 	sendWarningNotification,
 } from "../../controllers/thesisGuidance/lecturer.guidance.controller.js";
+import {
+	getSupervisor2Requests,
+	approveSupervisor2Request,
+	rejectSupervisor2Request,
+} from "../../controllers/thesisGuidance/supervisor2.controller.js";
 
 const router = express.Router();
 
@@ -57,6 +62,11 @@ router.put("/guidance/:guidanceId/approve-summary", approveSummary);
 
 // Guidance detail for session page
 router.get("/guidance/:guidanceId", guidanceDetail);
+
+// Pembimbing 2 requests
+router.get("/supervisor2-requests", getSupervisor2Requests);
+router.patch("/supervisor2-requests/:requestId/approve", approveSupervisor2Request);
+router.patch("/supervisor2-requests/:requestId/reject", rejectSupervisor2Request);
 
 export default router;
 

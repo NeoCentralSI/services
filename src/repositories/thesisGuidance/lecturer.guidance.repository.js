@@ -331,7 +331,33 @@ export async function getThesisStatusMap() {
 
 // Update thesis status by id
 export async function updateThesisStatusById(thesisId, thesisStatusId) {
-	return prisma.thesis.update({ where: { id: thesisId }, data: { thesisStatusId } });
+	const result = await prisma.thesis.update({ where: { id: thesisId }, data: { thesisStatusId } });
+
+	// Check if the new status is "Selesai" and trigger auto-promote
+	try {
+		const status = await prisma.thesisStatus.findUnique({
+			where: { id: thesisStatusId },
+			select: { name: true },
+		});
+		if (status?.name === "Selesai") {
+			// Dynamically import to avoid circular dependency
+			const { checkPromotionForThesisSupervisors } = await import(
+				"../../services/thesisGuidance/supervisor2.service.js"
+			);
+			const promotionResults = await checkPromotionForThesisSupervisors(thesisId);
+			const promoted = promotionResults.filter((r) => r.promoted);
+			if (promoted.length > 0) {
+				console.log(
+					`[Auto-Promote] ${promoted.length} lecturer(s) promoted to Pembimbing 1 after thesis ${thesisId} completed`
+				);
+			}
+		}
+	} catch (err) {
+		// Don't fail the status update if promotion check fails
+		console.error("[Auto-Promote] Error checking promotion:", err);
+	}
+
+	return result;
 }
 
 export async function findThesisDetailForLecturer(thesisId, lecturerId) {

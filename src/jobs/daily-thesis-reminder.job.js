@@ -40,10 +40,10 @@ export async function runDailyThesisReminderJob() {
         thesisStatus: {
           select: { name: true }
         },
-        supervisors: {
+        thesisParticipants: {
           where: {
             role: {
-              name: { in: ["Pembimbing 1", "Pembimbing 2", "pembimbing1", "pembimbing2"] }
+              name: { in: ["Pembimbing 1", "Pembimbing 2"] }
             }
           },
           include: {
@@ -57,7 +57,7 @@ export async function runDailyThesisReminderJob() {
           }
         },
         // Get latest guidance to check activity
-        guidances: {
+        thesisGuidances: {
           orderBy: { createdAt: "desc" },
           take: 1,
           select: {
@@ -66,7 +66,7 @@ export async function runDailyThesisReminderJob() {
           }
         },
         // Get milestones progress
-        milestones: {
+        thesisMilestones: {
           select: {
             status: true
           }
@@ -87,7 +87,7 @@ export async function runDailyThesisReminderJob() {
         if (!studentUserId) continue;
 
         // Calculate days since last guidance activity
-        const lastGuidance = thesis.guidances[0];
+        const lastGuidance = thesis.thesisGuidances[0];
         let daysSinceLastActivity = null;
         let activityMessage = "";
         
@@ -104,14 +104,14 @@ export async function runDailyThesisReminderJob() {
         }
 
         // Calculate milestone progress
-        const totalMilestones = thesis.milestones.length;
-        const completedMilestones = thesis.milestones.filter(m => m.status === "completed").length;
+        const totalMilestones = thesis.thesisMilestones.length;
+        const completedMilestones = thesis.thesisMilestones.filter(m => m.status === "completed").length;
         const progressPercent = totalMilestones > 0 
           ? Math.round((completedMilestones / totalMilestones) * 100) 
           : 0;
 
         // Get supervisor names
-        const supervisorNames = thesis.supervisors
+        const supervisorNames = thesis.thesisParticipants
           .map(s => s.lecturer?.user?.fullName)
           .filter(Boolean)
           .join(", ");

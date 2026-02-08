@@ -21,8 +21,8 @@ model User {
   refreshToken                       String?                    @map("refresh_token") @db.Text
   oauthProvider                      String?                    @map("oauth_provider")
   oauthId                            String?                    @map("oauth_id")
-  oauthAccessToken                   String?                    @map("oauth_access_token") @db.Text
   oauthRefreshToken                  String?                    @map("oauth_refresh_token") @db.Text
+  avatarUrl                          String?
   createdAt                          DateTime                   @default(now())
   updatedAt                          DateTime                   @updatedAt
   documents                          Document[]
@@ -90,6 +90,7 @@ model StudentStatus {
 model Lecturer {
   id                           String                        @id @map("user_id")
   scienceGroupId               String?                       @map("science_group_id")
+  data                         Json?
   createdAt                    DateTime                      @default(now()) @map("created_at")
   updatedAt                    DateTime                      @updatedAt @map("updated_at")
   internshipGuidanceSchedules  InternshipGuidanceSchedule[]

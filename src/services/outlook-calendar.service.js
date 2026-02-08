@@ -61,7 +61,6 @@ async function getValidAccessToken(userId) {
     where: { id: userId },
     select: {
       oauthProvider: true,
-      oauthAccessToken: true,
       oauthRefreshToken: true,
     },
   });
@@ -70,41 +69,24 @@ async function getValidAccessToken(userId) {
     throw new Error("User is not connected to Microsoft account");
   }
 
-  if (!user.oauthAccessToken) {
-    throw new Error("Microsoft OAuth access token not found. Please reconnect your account.");
+  if (!user.oauthRefreshToken) {
+    throw new Error("Microsoft OAuth refresh token not found. Please reconnect your account.");
   }
 
-  // Try to use existing token first
-  try {
-    // Test if token is valid by making a simple request
-    await axios.get(`${GRAPH_API_BASE}/me`, {
-      headers: { Authorization: `Bearer ${user.oauthAccessToken}` },
+  // Always get a fresh access token via refresh token
+  const newTokens = await refreshMicrosoftToken(user.oauthRefreshToken);
+
+  // Update refresh token in database if rotated
+  if (newTokens.refreshToken !== user.oauthRefreshToken) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        oauthRefreshToken: newTokens.refreshToken,
+      },
     });
-    return user.oauthAccessToken;
-  } catch (error) {
-    if (error.response?.status === 401) {
-      // Token expired
-      if (!user.oauthRefreshToken) {
-        throw new Error("Access token expired and no refresh token available. Please login again with Microsoft.");
-      }
-      
-      // Try to refresh the token
-      console.log("[OutlookCalendar] Access token expired, refreshing...");
-      const newTokens = await refreshMicrosoftToken(user.oauthRefreshToken);
-
-      // Update tokens in database
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          oauthAccessToken: newTokens.accessToken,
-          oauthRefreshToken: newTokens.refreshToken,
-        },
-      });
-
-      return newTokens.accessToken;
-    }
-    throw error;
   }
+
+  return newTokens.accessToken;
 }
 
 /**
@@ -388,53 +370,39 @@ export async function hasCalendarAccess(userId) {
     where: { id: userId },
     select: {
       oauthProvider: true,
-      oauthAccessToken: true,
       oauthRefreshToken: true,
     },
   });
 
-  // User has calendar access if they're connected to Microsoft and have an access token
-  // The actual calendar permission was checked during login
-  if (user?.oauthProvider !== "microsoft" || !user?.oauthAccessToken) {
+  if (user?.oauthProvider !== "microsoft" || !user?.oauthRefreshToken) {
     console.log("[OutlookCalendar] hasCalendarAccess: No Microsoft connection for user", userId);
     return false;
   }
 
-  // Try to verify the token is still valid by testing calendar access
+  // Try to get a fresh token and verify calendar access
   try {
+    const newTokens = await refreshMicrosoftToken(user.oauthRefreshToken);
+
     await axios.get(`${GRAPH_API_BASE}/me/calendars`, {
       headers: {
-        Authorization: `Bearer ${user.oauthAccessToken}`,
+        Authorization: `Bearer ${newTokens.accessToken}`,
       },
     });
+
+    // Update refresh token if rotated
+    if (newTokens.refreshToken !== user.oauthRefreshToken) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          oauthRefreshToken: newTokens.refreshToken,
+        },
+      });
+    }
+
     console.log("[OutlookCalendar] hasCalendarAccess: Token valid for user", userId);
     return true;
   } catch (error) {
-    console.log("[OutlookCalendar] Calendar access check failed:", error.response?.status, "for user", userId);
-    
-    // Try to refresh token if expired
-    if (error.response?.status === 401 && user.oauthRefreshToken) {
-      try {
-        console.log("[OutlookCalendar] Attempting token refresh for calendar access check...");
-        const newTokens = await refreshMicrosoftToken(user.oauthRefreshToken);
-        
-        // Update tokens in database
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            oauthAccessToken: newTokens.accessToken,
-            oauthRefreshToken: newTokens.refreshToken,
-          },
-        });
-        
-        console.log("[OutlookCalendar] Token refreshed successfully for user", userId);
-        return true;
-      } catch (refreshError) {
-        console.error("[OutlookCalendar] Failed to refresh token:", refreshError.message);
-        return false;
-      }
-    }
-    
+    console.error("[OutlookCalendar] Calendar access check failed:", error.message);
     return false;
   }
 }

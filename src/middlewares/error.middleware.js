@@ -20,6 +20,9 @@ export default function errorHandler(err, req, res, next) {
     timestamp: new Date().toISOString(),
     path: req.originalUrl,
   };
+  if (err.code) {
+    payload.code = err.code;
+  }
   if (statusCode === 400 && err.details) {
     payload.details = err.details;
   }

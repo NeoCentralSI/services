@@ -33,6 +33,14 @@ export async function loginWithEmailPassword(email, password) {
 		throw err;
 	}
 
+	// Check if account is verified/activated
+	if (!user.isVerified) {
+		const err = new Error("Akun belum diaktivasi. Silakan aktivasi akun terlebih dahulu.");
+		err.statusCode = 403;
+		err.code = "NOT_VERIFIED";
+		throw err;
+	}
+
 	const payload = { sub: user.id, email: user.email };
 	const accessToken = signAccessToken(payload);
 	const refreshToken = signRefreshToken(payload);
@@ -267,6 +275,7 @@ export async function getUserProfile(userId) {
 		identityType: user.identityType,
 		phoneNumber: user.phoneNumber,
 		isVerified: user.isVerified,
+		avatarUrl: user.avatarUrl || null,
 		roles,
 		createdAt: user.createdAt,
 		updatedAt: user.updatedAt,
@@ -287,6 +296,7 @@ export async function getUserProfile(userId) {
 		profile.lecturer = {
 			id: user.lecturer.id,
 			scienceGroup: user.lecturer.scienceGroup?.name || null,
+			data: user.lecturer.data || null,
 		};
 	}
 
