@@ -250,11 +250,10 @@ export async function updateProgress(req, res, next) {
 export async function submitForReview(req, res, next) {
   try {
     const { milestoneId } = req.params;
-    const { evidenceUrl, studentNotes } = req.validated ?? req.body ?? {};
+    const { studentNotes } = req.validated ?? req.body ?? {};
     const milestone = await milestoneService.submitForReview(
       milestoneId,
       req.user.sub,
-      evidenceUrl,
       studentNotes
     );
     res.json({

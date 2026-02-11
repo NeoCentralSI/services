@@ -21,7 +21,7 @@ export async function getActiveThesisForStudent(studentId) {
 }
 
 export async function getSupervisorsForThesis(thesisId) {
-  const supervisors = await prisma.thesisParticipant.findMany({
+  const supervisors = await prisma.ThesisSupervisors.findMany({
     where: { thesisId },
     include: {
       role: { select: { id: true, name: true } },
@@ -48,7 +48,10 @@ export function listGuidancesForThesis(thesisId, status) {
 export function getGuidanceByIdForStudent(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
     where: { id: guidanceId, thesis: { studentId } },
-    include: { supervisor: { include: { user: true } } },
+    include: {
+      supervisor: { include: { user: true } },
+      milestones: { include: { milestone: { select: { id: true, title: true } } } },
+    },
   });
 }
 
@@ -144,7 +147,7 @@ export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }
     },
     include: {
       supervisor: { include: { user: true } },
-      milestone: { select: { id: true, title: true, status: true } },
+      milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
     },
   });
 }
@@ -160,7 +163,7 @@ export function getCompletedGuidanceHistory(studentId) {
     },
     include: {
       supervisor: { include: { user: true } },
-      milestone: { select: { id: true, title: true } },
+      milestones: { include: { milestone: { select: { id: true, title: true } } } },
       thesis: {
         select: {
           title: true,
@@ -188,7 +191,7 @@ export function getGuidanceForExport(guidanceId, studentId) {
     },
     include: {
       supervisor: { include: { user: true } },
-      milestone: { select: { id: true, title: true } },
+      milestones: { include: { milestone: { select: { id: true, title: true } } } },
       thesis: {
         select: {
           title: true,
@@ -215,7 +218,7 @@ export function getGuidancesNeedingSummary(studentId) {
     },
     include: {
       supervisor: { include: { user: true } },
-      milestone: { select: { id: true, title: true } },
+      milestones: { include: { milestone: { select: { id: true, title: true } } } },
     },
     orderBy: [{ approvedDate: "desc" }],
   });

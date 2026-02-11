@@ -40,7 +40,7 @@ export async function runDailyThesisReminderJob() {
         thesisStatus: {
           select: { name: true }
         },
-        thesisParticipants: {
+        thesisSupervisors: {
           where: {
             role: {
               name: { in: ["Pembimbing 1", "Pembimbing 2"] }
@@ -111,7 +111,7 @@ export async function runDailyThesisReminderJob() {
           : 0;
 
         // Get supervisor names
-        const supervisorNames = thesis.thesisParticipants
+        const supervisorNames = thesis.thesisSupervisors
           .map(s => s.lecturer?.user?.fullName)
           .filter(Boolean)
           .join(", ");

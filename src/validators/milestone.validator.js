@@ -82,16 +82,6 @@ export const updateMilestoneSchema = z.object({
     .max(5000, "Student notes must be less than 5000 characters")
     .optional()
     .nullable(),
-  evidenceUrl: z
-    .string()
-    .url("Evidence URL must be a valid URL")
-    .optional()
-    .nullable(),
-  evidenceDescription: z
-    .string()
-    .max(2000, "Evidence description must be less than 2000 characters")
-    .optional()
-    .nullable(),
 });
 
 // ============================================
@@ -190,11 +180,6 @@ export const updateProgressSchema = z.object({
 // ============================================
 
 export const submitForReviewSchema = z.object({
-  evidenceUrl: z
-    .string()
-    .url("Evidence URL must be a valid URL")
-    .optional()
-    .nullable(),
   studentNotes: z
     .string()
     .max(5000, "Student notes must be less than 5000 characters")

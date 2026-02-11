@@ -129,11 +129,15 @@ export function findByThesisId(thesisId, status = null) {
     where,
     include: {
       guidances: {
-        select: {
-          id: true,
-          status: true,
-          requestedDate: true,
-          completedAt: true,
+        include: {
+          guidance: {
+            select: {
+              id: true,
+              status: true,
+              requestedDate: true,
+              completedAt: true,
+            },
+          },
         },
       },
     },
@@ -164,14 +168,16 @@ export function findById(id) {
       },
       guidances: {
         include: {
-          supervisor: {
+          guidance: {
             include: {
-              user: { select: { id: true, fullName: true, email: true } },
+              supervisor: {
+                include: {
+                  user: { select: { id: true, fullName: true, email: true } },
+                },
+              },
             },
           },
         },
-        orderBy: { requestedDate: "desc" },
-        take: 5,
       },
     },
   });
@@ -380,10 +386,6 @@ export function getThesisSeminarReadiness(thesisId) {
     select: {
       id: true,
       title: true,
-      seminarReadyApprovedBySupervisor1: true,
-      seminarReadyApprovedBySupervisor2: true,
-      seminarReadyApprovedAt: true,
-      seminarReadyNotes: true,
       student: {
         select: {
           id: true,
@@ -397,10 +399,11 @@ export function getThesisSeminarReadiness(thesisId) {
           },
         },
       },
-      thesisParticipants: {
+      thesisSupervisors: {
         select: {
           id: true,
           lecturerId: true,
+          seminarReady: true,
           role: {
             select: {
               id: true,
@@ -426,52 +429,45 @@ export function getThesisSeminarReadiness(thesisId) {
 
 /**
  * Approve seminar readiness by supervisor
+ * Updates the seminarReady field on the ThesisSupervisors record
  * @param {string} thesisId
- * @param {string} supervisorRole - "pembimbing1" or "pembimbing2"
- * @param {string} notes - optional notes
+ * @param {string} lecturerId - the lecturer's ID
  */
-export async function approveSeminarReadiness(thesisId, supervisorRole, notes = null) {
-  const updateData = {
-    seminarReadyNotes: notes,
-  };
-
-  const isSupervisor1 = isPembimbing1(supervisorRole);
-  const isSupervisor2 = isPembimbing2(supervisorRole);
-
-  if (isSupervisor1) {
-    updateData.seminarReadyApprovedBySupervisor1 = true;
-  } else if (isSupervisor2) {
-    updateData.seminarReadyApprovedBySupervisor2 = true;
-  }
-
-  // Check if both are now approved
-  const current = await prisma.thesis.findUnique({
-    where: { id: thesisId },
-    select: {
-      seminarReadyApprovedBySupervisor1: true,
-      seminarReadyApprovedBySupervisor2: true,
-    },
+export async function approveSeminarReadiness(thesisId, lecturerId) {
+  // Find the supervisor record for this lecturer on this thesis
+  const supervisor = await prisma.thesisSupervisors.findFirst({
+    where: { thesisId, lecturerId },
   });
 
-  // If this approval makes both supervisors approved, set the approval date
-  const willBothBeApproved =
-    (isSupervisor1 && current.seminarReadyApprovedBySupervisor2) ||
-    (isSupervisor2 && current.seminarReadyApprovedBySupervisor1);
-
-  if (willBothBeApproved) {
-    updateData.seminarReadyApprovedAt = new Date();
+  if (!supervisor) {
+    throw new Error("Supervisor record not found");
   }
 
-  return prisma.thesis.update({
+  // Update seminarReady to true
+  await prisma.thesisSupervisors.update({
+    where: { id: supervisor.id },
+    data: { seminarReady: true },
+  });
+
+  // Return the thesis with updated supervisors
+  return prisma.thesis.findUnique({
     where: { id: thesisId },
-    data: updateData,
     select: {
       id: true,
       title: true,
-      seminarReadyApprovedBySupervisor1: true,
-      seminarReadyApprovedBySupervisor2: true,
-      seminarReadyApprovedAt: true,
-      seminarReadyNotes: true,
+      thesisSupervisors: {
+        select: {
+          id: true,
+          lecturerId: true,
+          seminarReady: true,
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              user: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+      },
     },
   });
 }
@@ -479,47 +475,61 @@ export async function approveSeminarReadiness(thesisId, supervisorRole, notes = 
 /**
  * Revoke seminar readiness approval by supervisor
  */
-export async function revokeSeminarReadiness(thesisId, supervisorRole, notes = null) {
-  const updateData = {
-    seminarReadyApprovedAt: null,
-    seminarReadyNotes: notes,
-  };
+export async function revokeSeminarReadiness(thesisId, lecturerId) {
+  // Find the supervisor record
+  const supervisor = await prisma.thesisSupervisors.findFirst({
+    where: { thesisId, lecturerId },
+  });
 
-  if (isPembimbing1(supervisorRole)) {
-    updateData.seminarReadyApprovedBySupervisor1 = false;
-  } else if (isPembimbing2(supervisorRole)) {
-    updateData.seminarReadyApprovedBySupervisor2 = false;
+  if (!supervisor) {
+    throw new Error("Supervisor record not found");
   }
 
-  return prisma.thesis.update({
+  // Update seminarReady to false
+  await prisma.thesisSupervisors.update({
+    where: { id: supervisor.id },
+    data: { seminarReady: false },
+  });
+
+  // Return the thesis with updated supervisors
+  return prisma.thesis.findUnique({
     where: { id: thesisId },
-    data: updateData,
     select: {
       id: true,
       title: true,
-      seminarReadyApprovedBySupervisor1: true,
-      seminarReadyApprovedBySupervisor2: true,
-      seminarReadyApprovedAt: true,
-      seminarReadyNotes: true,
+      thesisSupervisors: {
+        select: {
+          id: true,
+          lecturerId: true,
+          seminarReady: true,
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              user: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+      },
     },
   });
 }
 
 /**
- * Get list of students ready for seminar (both supervisors approved)
+ * Get list of students ready for seminar (all supervisors approved)
  */
 export function findStudentsReadyForSeminar() {
   return prisma.thesis.findMany({
     where: {
-      seminarReadyApprovedBySupervisor1: true,
-      seminarReadyApprovedBySupervisor2: true,
-      seminarReadyApprovedAt: { not: null },
+      thesisSupervisors: {
+        every: {
+          seminarReady: true,
+        },
+      },
     },
     select: {
       id: true,
       title: true,
-      seminarReadyApprovedAt: true,
-      seminarReadyNotes: true,
+      updatedAt: true,
       student: {
         select: {
           id: true,
@@ -532,8 +542,9 @@ export function findStudentsReadyForSeminar() {
           },
         },
       },
-      thesisParticipants: {
+      thesisSupervisors: {
         select: {
+          seminarReady: true,
           role: { select: { name: true } },
           lecturer: {
             select: {
@@ -543,7 +554,7 @@ export function findStudentsReadyForSeminar() {
         },
       },
     },
-    orderBy: { seminarReadyApprovedAt: "desc" },
+    orderBy: { updatedAt: "desc" },
   });
 }
 
@@ -560,10 +571,6 @@ export function getThesisDefenceReadiness(thesisId) {
     select: {
       id: true,
       title: true,
-      defenceReadyApprovedBySupervisor1: true,
-      defenceReadyApprovedBySupervisor2: true,
-      defenceReadyApprovedAt: true,
-      defenceReadyNotes: true,
       finalThesisDocumentId: true,
       defenceRequestedAt: true,
       thesisStatus: {
@@ -593,10 +600,11 @@ export function getThesisDefenceReadiness(thesisId) {
           },
         },
       },
-      thesisParticipants: {
+      thesisSupervisors: {
         select: {
           id: true,
           lecturerId: true,
+          defenceReady: true,
           role: {
             select: {
               id: true,
@@ -626,79 +634,51 @@ export function getThesisDefenceReadiness(thesisId) {
  * @param {string} supervisorRole - "pembimbing1" or "pembimbing2"
  * @param {string} notes - optional notes
  */
-export async function approveDefenceReadiness(thesisId, supervisorRole, notes = null) {
-  const updateData = {
-    defenceReadyNotes: notes,
-  };
-
-  const isSupervisor1 = isPembimbing1(supervisorRole);
-  const isSupervisor2 = isPembimbing2(supervisorRole);
-
-  if (isSupervisor1) {
-    updateData.defenceReadyApprovedBySupervisor1 = true;
-  } else if (isSupervisor2) {
-    updateData.defenceReadyApprovedBySupervisor2 = true;
-  }
-
-  // Check if both are now approved
-  const current = await prisma.thesis.findUnique({
-    where: { id: thesisId },
-    select: {
-      defenceReadyApprovedBySupervisor1: true,
-      defenceReadyApprovedBySupervisor2: true,
-    },
-  });
-
-  // If this approval makes both supervisors approved, set the approval date
-  const willBothBeApproved =
-    (isSupervisor1 && current.defenceReadyApprovedBySupervisor2) ||
-    (isSupervisor2 && current.defenceReadyApprovedBySupervisor1);
-
-  if (willBothBeApproved) {
-    updateData.defenceReadyApprovedAt = new Date();
-  }
-
-  return prisma.thesis.update({
-    where: { id: thesisId },
-    data: updateData,
-    select: {
-      id: true,
-      title: true,
-      defenceReadyApprovedBySupervisor1: true,
-      defenceReadyApprovedBySupervisor2: true,
-      defenceReadyApprovedAt: true,
-      defenceReadyNotes: true,
-    },
-  });
+export async function approveDefenceReadiness(thesisId, lecturerId) {
+  return prisma.thesisSupervisors.updateMany({
+    where: { thesisId, lecturerId },
+    data: { defenceReady: true },
+  }).then(() =>
+    prisma.thesis.findUnique({
+      where: { id: thesisId },
+      select: {
+        id: true,
+        title: true,
+        thesisSupervisors: {
+          select: {
+            lecturerId: true,
+            defenceReady: true,
+            role: { select: { name: true } },
+          },
+        },
+      },
+    })
+  );
 }
 
 /**
  * Revoke defence readiness approval by supervisor
  */
-export async function revokeDefenceReadiness(thesisId, supervisorRole, notes = null) {
-  const updateData = {
-    defenceReadyApprovedAt: null,
-    defenceReadyNotes: notes,
-  };
-
-  if (isPembimbing1(supervisorRole)) {
-    updateData.defenceReadyApprovedBySupervisor1 = false;
-  } else if (isPembimbing2(supervisorRole)) {
-    updateData.defenceReadyApprovedBySupervisor2 = false;
-  }
-
-  return prisma.thesis.update({
-    where: { id: thesisId },
-    data: updateData,
-    select: {
-      id: true,
-      title: true,
-      defenceReadyApprovedBySupervisor1: true,
-      defenceReadyApprovedBySupervisor2: true,
-      defenceReadyApprovedAt: true,
-      defenceReadyNotes: true,
-    },
-  });
+export async function revokeDefenceReadiness(thesisId, lecturerId) {
+  return prisma.thesisSupervisors.updateMany({
+    where: { thesisId, lecturerId },
+    data: { defenceReady: false },
+  }).then(() =>
+    prisma.thesis.findUnique({
+      where: { id: thesisId },
+      select: {
+        id: true,
+        title: true,
+        thesisSupervisors: {
+          select: {
+            lecturerId: true,
+            defenceReady: true,
+            role: { select: { name: true } },
+          },
+        },
+      },
+    })
+  );
 }
 
 /**
@@ -733,15 +713,15 @@ export function updateThesisDefenceRequest(thesisId, documentId) {
 export function findStudentsReadyForDefence() {
   return prisma.thesis.findMany({
     where: {
-      defenceReadyApprovedBySupervisor1: true,
-      defenceReadyApprovedBySupervisor2: true,
-      defenceReadyApprovedAt: { not: null },
+      defenceRequestedAt: { not: null },
+      thesisSupervisors: {
+        every: { defenceReady: true },
+      },
     },
     select: {
       id: true,
       title: true,
-      defenceReadyApprovedAt: true,
-      defenceReadyNotes: true,
+      defenceRequestedAt: true,
       finalThesisDocument: {
         select: {
           id: true,
@@ -761,8 +741,9 @@ export function findStudentsReadyForDefence() {
           },
         },
       },
-      thesisParticipants: {
+      thesisSupervisors: {
         select: {
+          defenceReady: true,
           role: { select: { name: true } },
           lecturer: {
             select: {
@@ -772,6 +753,6 @@ export function findStudentsReadyForDefence() {
         },
       },
     },
-    orderBy: { defenceReadyApprovedAt: "desc" },
+    orderBy: { defenceRequestedAt: "desc" },
   });
 }

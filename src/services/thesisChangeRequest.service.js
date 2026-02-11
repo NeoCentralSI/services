@@ -40,7 +40,7 @@ export const submitRequest = async (userId, data) => {
         },
       },
       thesisTopic: true,
-      thesisParticipants: {
+      thesisSupervisors: {
         include: {
           lecturer: {
             include: { user: { select: { id: true, fullName: true } } },
@@ -62,7 +62,7 @@ export const submitRequest = async (userId, data) => {
   }
 
   // Find supervisors (Pembimbing 1 & 2)
-  const supervisors = thesis.thesisParticipants
+  const supervisors = thesis.thesisSupervisors
     .filter(p => SUPERVISOR_ROLES.includes(p.role.name))
     .map(p => ({
       lecturerId: p.lecturer.id,
@@ -71,7 +71,6 @@ export const submitRequest = async (userId, data) => {
 
   // Create the request with approvals
   const request = await thesisChangeRequestRepository.create({
-    studentId: userId, // Store student ID for tracking after thesis deletion
     thesisId: thesis.id,
     requestType,
     reason,

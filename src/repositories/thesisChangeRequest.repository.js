@@ -22,7 +22,7 @@ export const create = async (data) => {
             },
           },
           thesisTopic: true,
-          thesisParticipants: {
+          thesisSupervisors: {
             include: {
               lecturer: {
                 include: {
@@ -76,7 +76,7 @@ export const findById = async (id) => {
             },
           },
           thesisTopic: true,
-          thesisParticipants: {
+          thesisSupervisors: {
             include: {
               lecturer: {
                 include: {
@@ -152,11 +152,17 @@ export const findByThesisId = async (thesisId) => {
 };
 
 /**
- * Find change requests by student ID (persists even after thesis deleted)
+ * Find change requests by student's user ID (via thesis relation)
  */
-export const findByStudentId = async (studentId) => {
+export const findByStudentId = async (userId) => {
   return await prisma.thesisChangeRequest.findMany({
-    where: { studentId },
+    where: {
+      thesis: {
+        student: {
+          user: { id: userId },
+        },
+      },
+    },
     orderBy: { createdAt: 'desc' },
     include: {
       thesis: {
@@ -190,17 +196,15 @@ export const findByStudentId = async (studentId) => {
 };
 
 /**
- * Find approved change request for student where thesis was deleted
+ * Find approved change request for student where thesis was deleted.
+ * Note: Since studentId was removed from the model, this queries via thesis relation.
+ * Requests with thesisId=null (deleted thesis) cannot be traced back to a student.
  */
-export const findApprovedWithDeletedThesis = async (studentId) => {
-  return await prisma.thesisChangeRequest.findFirst({
-    where: {
-      studentId,
-      status: 'approved',
-      thesisId: null, // Thesis was deleted
-    },
-    orderBy: { reviewedAt: 'desc' },
-  });
+export const findApprovedWithDeletedThesis = async (userId) => {
+  // First find approved requests with null thesisId is not possible without studentId.
+  // Instead, check for approved change_topic/change_supervisor requests where thesis still exists
+  // but was soft-linked. Since orphaned requests can't be found, return null.
+  return null;
 };
 
 /**
@@ -258,7 +262,7 @@ export const findAllPending = async ({ page = 1, pageSize = 10, search = '' }) =
         thesis: {
           include: {
             thesisTopic: true,
-            thesisParticipants: {
+            thesisSupervisors: {
               include: {
                 lecturer: {
                   include: {
@@ -345,7 +349,7 @@ export const findAll = async ({ page = 1, pageSize = 10, search = '', status = '
         thesis: {
           include: {
             thesisTopic: true,
-            thesisParticipants: {
+            thesisSupervisors: {
               include: {
                 lecturer: {
                   include: {

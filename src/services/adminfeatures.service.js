@@ -28,8 +28,6 @@ import {
 	findUserByEmailOrIdentity,
 	createUser,
 	addRolesToUser,
-	findStudentStatusByName,
-	createStudentStatus,
 	createStudentForUser,
 	findLecturerByUserId,
 	createLecturerForUser,
@@ -264,12 +262,10 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 
 	// If role 'Mahasiswa' is assigned, ensure Student record exists
 	if (uniqueRoles.some((r) => isStudentRole(r))) {
-		let status = await findStudentStatusByName("Aktif");
-		if (!status) status = await createStudentStatus("Aktif");
 		const existingStudent = await prisma.student.findUnique({ where: { id: user.id } });
 		if (!existingStudent) {
 			const enrollmentYear = identityNumber ? deriveEnrollmentYearFromNIM(identityNumber) : null;
-			await createStudentForUser({ userId: user.id, studentStatusId: status.id, enrollmentYear, skscompleted: 0 });
+			await createStudentForUser({ userId: user.id, status: "active", enrollmentYear, skscompleted: 0 });
 		}
 	}
 
@@ -717,7 +713,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 								},
 							},
 							include: {
-								thesisParticipants: {
+								thesisSupervisors: {
 									include: {
 										lecturer: {
 											include: {
@@ -762,7 +758,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 					status: user.student.studentStatus?.name || null,
 					activeTheses: user.student.thesis.map((thesis) => ({
 						title: thesis.title,
-						supervisors: thesis.thesisParticipants
+						supervisors: thesis.thesisSupervisors
 							.filter((tp) => isSupervisorRole(tp.role.name))
 							.map((tp) => ({
 								role: tp.role.name,
@@ -819,7 +815,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 						_count: {
 							select: {
 								thesisGuidances: true,
-								thesisParticipants: true,
+								thesisSupervisors: true,
 							},
 						},
 					},
@@ -848,7 +844,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 			? {
 					id: user.lecturer.id,
 					activeGuidances: user.lecturer._count?.thesisGuidances || 0,
-					participations: user.lecturer._count?.thesisParticipants || 0,
+					participations: user.lecturer._count?.thesisSupervisors || 0,
 			  }
 			: null,
 		roles: user.userHasRoles.map((ur) => ({
@@ -887,7 +883,7 @@ export async function getStudentDetail(userId) {
 						include: {
 							thesisStatus: true,
 							thesisTopic: true,
-							thesisParticipants: {
+							thesisSupervisors: {
 								include: {
 									lecturer: {
 										include: {
@@ -952,7 +948,7 @@ export async function getStudentDetail(userId) {
 
 	// Transform thesis data
 	const theses = user.student.thesis.map((thesis) => {
-		const supervisors = thesis.thesisParticipants
+		const supervisors = thesis.thesisSupervisors
 			.filter((tp) => isSupervisorRole(tp.role.name))
 			.map((tp) => ({
 				id: tp.lecturer.user.id,
@@ -961,7 +957,7 @@ export async function getStudentDetail(userId) {
 				email: tp.lecturer.user.email,
 			}));
 
-		const examiners = thesis.thesisParticipants
+		const examiners = thesis.thesisSupervisors
 			.filter((tp) => tp.role.name.toLowerCase().includes("penguji"))
 			.map((tp) => ({
 				id: tp.lecturer.user.id,
@@ -1046,7 +1042,7 @@ export async function getLecturerDetail(userId) {
 			lecturer: {
 				include: {
 					scienceGroup: true,
-					thesisParticipants: {
+					thesisSupervisors: {
 						include: {
 							role: true,
 							thesis: {
@@ -1098,7 +1094,7 @@ export async function getLecturerDetail(userId) {
 	}
 
 	// Group thesis participations by role
-	const supervising = user.lecturer.thesisParticipants
+	const supervising = user.lecturer.thesisSupervisors
 		.filter((tp) => isSupervisorRole(tp.role.name))
 		.map((tp) => ({
 			thesisId: tp.thesis.id,
@@ -1112,7 +1108,7 @@ export async function getLecturerDetail(userId) {
 			},
 		}));
 
-	const examining = user.lecturer.thesisParticipants
+	const examining = user.lecturer.thesisSupervisors
 		.filter((tp) => tp.role.name.toLowerCase().includes("penguji"))
 		.map((tp) => ({
 			thesisId: tp.thesis.id,
@@ -1193,7 +1189,7 @@ export async function deleteThesis(thesisId, reason = null) {
 			},
 			thesisTopic: { select: { name: true } },
 			thesisStatus: { select: { name: true } },
-			thesisParticipants: {
+			thesisSupervisors: {
 				include: { lecturer: { include: { user: { select: { fullName: true } } } }, role: true },
 			},
 			thesisMilestones: true,
@@ -1219,7 +1215,7 @@ export async function deleteThesis(thesisId, reason = null) {
 		title: thesis.title,
 		topic: thesis.thesisTopic?.name,
 		status: thesis.thesisStatus?.name,
-		supervisors: thesis.thesisParticipants.map((p) => ({
+		supervisors: thesis.thesisSupervisors.map((p) => ({
 			name: p.lecturer?.user?.fullName,
 			role: p.role?.name,
 		})),
@@ -1250,7 +1246,7 @@ export async function deleteThesis(thesisId, reason = null) {
 
 		// 5. Delete examiners and participants
 		deletedCounts.thesisExaminers = (await tx.thesisExaminer.deleteMany({ where: { thesisId } })).count;
-		deletedCounts.thesisParticipants = (await tx.thesisParticipant.deleteMany({ where: { thesisId } })).count;
+		deletedCounts.thesisSupervisors = (await tx.ThesisSupervisors.deleteMany({ where: { thesisId } })).count;
 
 		// 6. Finally delete the thesis itself
 		await tx.thesis.delete({ where: { id: thesisId } });
@@ -1361,7 +1357,7 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 				},
 				thesisTopic: { select: { id: true, name: true } },
 				thesisStatus: { select: { id: true, name: true } },
-				thesisParticipants: {
+				thesisSupervisors: {
 					include: {
 						lecturer: { include: { user: { select: { fullName: true } } } },
 						role: { select: { id: true, name: true } },
@@ -1386,7 +1382,7 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 				nim: t.student?.user?.identityNumber,
 				email: t.student?.user?.email,
 			},
-			supervisors: t.thesisParticipants.map((p) => ({
+			supervisors: t.thesisSupervisors.map((p) => ({
 				id: p.id,
 				lecturerId: p.lecturerId,
 				fullName: p.lecturer?.user?.fullName,
@@ -1465,7 +1461,7 @@ export async function createThesisManually({ studentId, title, thesisTopicId, su
 
 		// Add supervisors
 		if (supervisors && supervisors.length > 0) {
-			await tx.thesisParticipant.createMany({
+			await tx.ThesisSupervisors.createMany({
 				data: supervisors.map((sup) => ({
 					thesisId: newThesis.id,
 					lecturerId: sup.lecturerId,
@@ -1492,7 +1488,7 @@ export async function getThesisById(id) {
 			},
 			thesisTopic: { select: { id: true, name: true } },
 			thesisStatus: { select: { id: true, name: true } },
-			thesisParticipants: {
+			thesisSupervisors: {
 				include: {
 					lecturer: { include: { user: { select: { id: true, fullName: true } } } },
 					role: { select: { id: true, name: true } },
@@ -1542,12 +1538,12 @@ export async function updateThesisManually(id, { title, thesisTopicId, superviso
 			});
 			const supervisorRoleIds = supervisorRoles.map((r) => r.id);
 
-			await tx.thesisParticipant.deleteMany({
+			await tx.ThesisSupervisors.deleteMany({
 				where: { thesisId: id, roleId: { in: supervisorRoleIds } },
 			});
 
 			if (supervisors.length > 0) {
-				await tx.thesisParticipant.createMany({
+				await tx.ThesisSupervisors.createMany({
 					data: supervisors.map((sup) => ({
 						thesisId: id,
 						lecturerId: sup.lecturerId,
@@ -1630,7 +1626,7 @@ export async function getThesisStatuses() {
 function transformThesis(thesis) {
 	if (!thesis) return null;
 
-	const supervisors = thesis.thesisParticipants
+	const supervisors = thesis.thesisSupervisors
 		?.filter((p) => p.role?.name?.startsWith("pembimbing"))
 		?.map((p) => ({
 			id: p.id,

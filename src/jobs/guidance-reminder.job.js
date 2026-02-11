@@ -45,8 +45,12 @@ export async function runGuidanceReminderJob() {
             },
           },
         },
-        milestone: {
-          select: { title: true },
+        milestones: {
+          include: {
+            milestone: {
+              select: { title: true },
+            },
+          },
         },
       },
     });
@@ -62,7 +66,7 @@ export async function runGuidanceReminderJob() {
         const supervisorUserId = guidance.supervisor?.id;
         const studentName = guidance.thesis?.student?.user?.fullName || "Mahasiswa";
         const supervisorName = guidance.supervisor?.user?.fullName || "Dosen";
-        const milestoneName = guidance.milestone?.title || "bimbingan";
+        const milestoneName = guidance.milestones?.[0]?.milestone?.title || "bimbingan";
         
         // Format time for notification
         const approvedTime = guidance.approvedDate 

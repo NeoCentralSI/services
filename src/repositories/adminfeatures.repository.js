@@ -46,17 +46,10 @@ export function ensureUserRole(userId, roleId) {
 	});
 }
 
-export function findStudentStatusByName(name) {
-	return prisma.studentStatus.findFirst({ where: { name } });
-}
-export function createStudentStatus(name) {
-	return prisma.studentStatus.create({ data: { name } });
-}
-
-export function createStudentForUser({ userId, studentStatusId, enrollmentYear, skscompleted }) {
+export function createStudentForUser({ userId, status, enrollmentYear, skscompleted }) {
 	const sks = Number.isInteger(skscompleted) && skscompleted >= 0 ? skscompleted : 0;
 	return prisma.student.create({
-		data: { id: userId, studentStatusId: studentStatusId || null, enrollmentYear: enrollmentYear ?? null, skscompleted: sks },
+		data: { id: userId, status: status || "active", enrollmentYear: enrollmentYear ?? null, skscompleted: sks },
 	});
 }
 

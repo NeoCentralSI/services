@@ -180,20 +180,9 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     err.statusCode = 404;
     throw err;
   }
-  // Schema baru: gunakan requestedDate/approvedDate
-  const milestoneIds = Array.isArray(guidance.milestoneIds) ? guidance.milestoneIds : [];
-  let milestoneTitles = [];
-  if (milestoneIds.length) {
-    const mids = milestoneIds.map(String);
-    const rows = await prisma.thesisMilestone.findMany({
-      where: { id: { in: mids }, thesisId: guidance.thesisId },
-      select: { id: true, title: true },
-    });
-    milestoneTitles = rows.map((r) => r.title);
-  } else if (guidance.milestoneId) {
-    const row = await prisma.thesisMilestone.findUnique({ where: { id: guidance.milestoneId }, select: { title: true } });
-    milestoneTitles = row?.title ? [row.title] : [];
-  }
+  // Derive milestone IDs and titles from junction table
+  const milestoneIds = (guidance.milestones || []).map((m) => m.milestoneId);
+  const milestoneTitles = (guidance.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
 
   const flat = {
     id: guidance.id,
@@ -300,7 +289,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       });
     }
   }
-  const selectedMilestoneId = validMilestones[0]?.id || null; // keep legacy single link
+  const selectedMilestoneId = validMilestones[0]?.id || null; // for notification data
   const milestoneNames = validMilestones.map((m) => m.title);
   
   const supervisors = await getSupervisorsForThesis(thesis.id);
@@ -332,18 +321,23 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   });
 
   // Schema baru: tidak perlu createGuidanceSchedule, requestedDate langsung di ThesisGuidance
-  const created = await createGuidance({
+  const guidanceData = {
     thesisId: thesis.id,
     requestedDate: guidanceDate, // Schema baru
     supervisorId: selectedSupervisorId,
-    milestoneId: selectedMilestoneId, // Link to milestone (legacy)
-    milestoneIds: validMilestones.length ? validMilestones.map((m) => m.id) : null,
     studentNotes: studentNotes || "",
     supervisorFeedback: "",
     documentUrl: documentUrl || null, // Link dokumen yang akan dibahas
     duration: duration || 60,
     status: "requested",
-  });
+  };
+  // Link milestones through junction table
+  if (validMilestones.length > 0) {
+    guidanceData.milestones = {
+      create: validMilestones.map((m) => ({ milestoneId: m.id })),
+    };
+  }
+  const created = await createGuidance(guidanceData);
 
   try {
     // Only notify the selected supervisor, not all supervisors
@@ -1196,7 +1190,7 @@ export async function getMyThesisDetailService(userId) {
       thesisStatus: true,
       academicYear: true,
       document: true,
-      thesisParticipants: {
+      thesisSupervisors: {
         include: {
           lecturer: {
             include: {
@@ -1245,7 +1239,7 @@ export async function getMyThesisDetailService(userId) {
     : 0;
 
   // Format supervisors
-  const supervisors = fullThesis.thesisParticipants
+  const supervisors = fullThesis.thesisSupervisors
     .filter(p => p.role?.name?.toLowerCase().includes('pembimbing'))
     .map(p => ({
       id: p.lecturerId,
@@ -1255,7 +1249,7 @@ export async function getMyThesisDetailService(userId) {
     }));
 
   // Format examiners
-  const examiners = fullThesis.thesisParticipants
+  const examiners = fullThesis.thesisSupervisors
     .filter(p => p.role?.name?.toLowerCase().includes('penguji'))
     .map(p => ({
       id: p.lecturerId,
@@ -1312,10 +1306,14 @@ export async function getMyThesisDetailService(userId) {
         milestoneProgress: milestoneProgress,
       },
       // Seminar approval status
-      seminarApproval: {
-        pembimbing1: fullThesis.seminarReadyApprovedBySupervisor1 || false,
-        pembimbing2: fullThesis.seminarReadyApprovedBySupervisor2 || false,
-      },
+      seminarApproval: (() => {
+        const sup1 = fullThesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
+        const sup2 = fullThesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
+        return {
+          pembimbing1: sup1?.seminarReady || false,
+          pembimbing2: sup2?.seminarReady || false,
+        };
+      })(),
     }
   };
 }

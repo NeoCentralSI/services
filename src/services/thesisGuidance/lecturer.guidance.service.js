@@ -68,30 +68,20 @@ function toFlatGuidance(g) {
 		duration: g.duration || null,
 		completedAt: g.completedAt || null,
 		rejectionReason: g.rejectionReason || null,
-		// Milestone info
-		milestoneId: g.milestoneId || null,
-    milestone: g.milestone ? { id: g.milestone.id, title: g.milestone.title, status: g.milestone.status } : null,
-    milestoneName: g.milestone?.title || null,
-    milestoneStatus: g.milestone?.status || null,
-    milestoneIds: Array.isArray(g.milestoneIds) ? g.milestoneIds : g.milestoneId ? [g.milestoneId] : [],
-    milestoneTitles: g.milestoneTitles || (g.milestone?.title ? [g.milestone.title] : []),
+		// Milestone info (from junction table)
+		milestoneId: g.milestones?.[0]?.milestoneId || null,
+    milestone: g.milestones?.[0]?.milestone ? { id: g.milestones[0].milestone.id, title: g.milestones[0].milestone.title, status: g.milestones[0].milestone.status } : null,
+    milestoneName: g.milestones?.[0]?.milestone?.title || null,
+    milestoneStatus: g.milestones?.[0]?.milestone?.status || null,
+    milestoneIds: (g.milestones || []).map((m) => m.milestoneId),
+    milestoneTitles: g.milestoneTitles || (g.milestones || []).map((m) => m.milestone?.title).filter(Boolean),
   };
 }
 
 async function resolveMilestoneTitles(guidance) {
   if (!guidance) return [];
-  const ids = Array.isArray(guidance.milestoneIds)
-    ? guidance.milestoneIds.map(String)
-    : guidance.milestoneId
-      ? [String(guidance.milestoneId)]
-      : [];
-  if (!ids.length) return [];
-  const rows = await prisma.thesisMilestone.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, title: true },
-  });
-  const map = new Map(rows.map((m) => [String(m.id), m.title]));
-  return ids.map((id) => map.get(id)).filter(Boolean);
+  // Derive from junction table milestones
+  return (guidance.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
 }
 
 export async function getMyStudentsService(userId, roles) {
@@ -183,31 +173,10 @@ export async function getRequestsService(userId, { page = 1, pageSize = 10 } = {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const { total, rows, page: p, pageSize: sz } = await findGuidanceRequests(lecturer.id, { page, pageSize });
-  // Resolve milestone titles for multi-select
-  const allMilestoneIds = new Set();
-  rows?.forEach((g) => {
-    if (Array.isArray(g.milestoneIds)) {
-      g.milestoneIds.forEach((id) => allMilestoneIds.add(String(id)));
-    } else if (g.milestoneId) {
-      allMilestoneIds.add(String(g.milestoneId));
-    }
-  });
-  let milestoneTitleMap = new Map();
-  if (allMilestoneIds.size > 0) {
-    const rowsTitles = await prisma.thesisMilestone.findMany({
-      where: { id: { in: Array.from(allMilestoneIds) } },
-      select: { id: true, title: true },
-    });
-    milestoneTitleMap = new Map(rowsTitles.map((m) => [String(m.id), m.title]));
-  }
+  // Milestone titles are now included via junction table
   const items = Array.isArray(rows)
     ? rows.map((g) => {
-        const ids = Array.isArray(g.milestoneIds)
-          ? g.milestoneIds.map(String)
-          : g.milestoneId
-            ? [String(g.milestoneId)]
-            : [];
-        const titles = ids.map((id) => milestoneTitleMap.get(id)).filter(Boolean);
+        const titles = (g.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
         return toFlatGuidance({ ...g, milestoneTitles: titles });
       })
     : [];
@@ -223,32 +192,10 @@ export async function getScheduledGuidancesService(userId, { page = 1, pageSize 
 	ensureLecturer(lecturer);
 	const { total, rows, page: p, pageSize: sz } = await findScheduledGuidances(lecturer.id, { page, pageSize });
 	
-	// Resolve milestone titles
-	const allMilestoneIds = new Set();
-	rows?.forEach((g) => {
-		if (Array.isArray(g.milestoneIds)) {
-			g.milestoneIds.forEach((id) => allMilestoneIds.add(String(id)));
-		} else if (g.milestoneId) {
-			allMilestoneIds.add(String(g.milestoneId));
-		}
-	});
-	let milestoneTitleMap = new Map();
-	if (allMilestoneIds.size > 0) {
-		const rowsTitles = await prisma.thesisMilestone.findMany({
-			where: { id: { in: Array.from(allMilestoneIds) } },
-			select: { id: true, title: true },
-		});
-		milestoneTitleMap = new Map(rowsTitles.map((m) => [String(m.id), m.title]));
-	}
-	
+	// Milestone titles are now included via junction table
 	const items = Array.isArray(rows)
 		? rows.map((g) => {
-				const ids = Array.isArray(g.milestoneIds)
-					? g.milestoneIds.map(String)
-					: g.milestoneId
-						? [String(g.milestoneId)]
-						: [];
-				const titles = ids.map((id) => milestoneTitleMap.get(id)).filter(Boolean);
+				const titles = (g.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
 				return toFlatGuidance({ ...g, milestoneTitles: titles });
 			})
 		: [];
@@ -478,22 +425,8 @@ export async function guidanceHistoryService(userId, studentId) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const rows = await listGuidanceHistory(studentId, lecturer.id);
-  const titleMap = new Map();
-  const allIds = new Set();
-  rows.forEach((g) => {
-    if (Array.isArray(g.milestoneIds)) g.milestoneIds.forEach((id) => allIds.add(String(id)));
-    else if (g.milestoneId) allIds.add(String(g.milestoneId));
-  });
-  if (allIds.size) {
-    const ms = await prisma.thesisMilestone.findMany({
-      where: { id: { in: Array.from(allIds) } },
-      select: { id: true, title: true },
-    });
-    ms.forEach((m) => titleMap.set(String(m.id), m.title));
-  }
 	const items = rows.map((g) => {
-    const ids = Array.isArray(g.milestoneIds) ? g.milestoneIds.map(String) : g.milestoneId ? [String(g.milestoneId)] : [];
-    const titles = ids.map((id) => titleMap.get(id)).filter(Boolean);
+    const titles = (g.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
     return toFlatGuidance({ ...g, milestoneTitles: titles });
   });
 	return { count: items.length, items };
@@ -560,7 +493,7 @@ export async function getPendingApprovalService(userId, { page = 1, pageSize = 1
 		summarySubmittedAtFormatted: g.summarySubmittedAt ? formatDateTimeJakarta(g.summarySubmittedAt, { withDay: true }) : null,
 		sessionSummary: g.sessionSummary,
 		actionItems: g.actionItems,
-		milestoneName: g.milestone?.title || null,
+		milestoneName: g.milestones?.[0]?.milestone?.title || null,
 	}));
 
 	return { total, guidances, page: currentPage, pageSize: size };
@@ -658,7 +591,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 				},
 			},
 			supervisor: { include: { user: true } },
-			milestone: { select: { id: true, title: true, status: true } },
+			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 		},
 	});
 	
@@ -710,12 +643,8 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 			? formatDateTimeJakarta(guidance.summarySubmittedAt, { withDay: true })
 			: null,
 		// Milestones
-		milestoneId: guidance.milestoneId || null,
-		milestoneIds: Array.isArray(guidance.milestoneIds) 
-			? guidance.milestoneIds 
-			: guidance.milestoneId 
-				? [guidance.milestoneId] 
-				: [],
+		milestoneId: guidance.milestones?.[0]?.milestoneId || null,
+		milestoneIds: (guidance.milestones || []).map((m) => m.milestoneId),
 		milestoneTitles,
 		milestoneName: milestoneTitles.length > 0 ? milestoneTitles[0] : null,
 		// Document
@@ -753,7 +682,7 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 					user: { select: { id: true, fullName: true } }
 				}
 			},
-			thesisParticipants: {
+			thesisSupervisors: {
 				where: { lecturerId: lecturer.id },
 				include: {
 					role: { select: { name: true } }
@@ -769,7 +698,7 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 	}
 
 	// Check if lecturer is supervisor of this thesis
-	if (!thesis.thesisParticipants.length) {
+	if (!thesis.thesisSupervisors.length) {
 		const err = new Error("You are not a supervisor of this thesis");
 		err.statusCode = 403;
 		throw err;

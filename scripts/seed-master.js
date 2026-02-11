@@ -72,31 +72,8 @@ async function seedRoles() {
 }
 
 // ============================================================
-// 2. SEED STUDENT STATUS
+// 2. SEED STUDENT STATUS (REMOVED - now uses enum on Student model)
 // ============================================================
-async function seedStudentStatus() {
-  console.log("\n" + "=".repeat(60));
-  console.log("📚 STEP 2: Seeding Student Status...");
-  console.log("=".repeat(60));
-
-  const statuses = ["Aktif", "Cuti", "Lulus", "Drop Out", "Mengundurkan Diri"];
-  const statusMap = new Map();
-
-  for (const name of statuses) {
-    let status = await prisma.studentStatus.findFirst({
-      where: { name },
-    });
-    if (!status) {
-      status = await prisma.studentStatus.create({ data: { name } });
-      console.log(`  ✅ Created status: ${name}`);
-    } else {
-      console.log(`  ⏭️  Status exists: ${name}`);
-    }
-    statusMap.set(name, status);
-  }
-
-  return statusMap;
-}
 
 // ============================================================
 // 3. SEED THESIS STATUS
@@ -200,13 +177,12 @@ async function seedAcademicYears() {
 // ============================================================
 // 6. SEED USERS (Lecturers & Students)
 // ============================================================
-async function seedUsers(roleMap, studentStatusMap) {
+async function seedUsers(roleMap) {
   console.log("\n" + "=".repeat(60));
   console.log("👥 STEP 6: Seeding Users...");
   console.log("=".repeat(60));
 
   const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, 10);
-  const activeStatus = studentStatusMap.get("Aktif");
 
   // User data with fixed NIP for reproducibility
   const usersData = [
@@ -453,7 +429,7 @@ async function seedUsers(roleMap, studentStatusMap) {
         await prisma.student.create({
           data: {
             id: user.id,
-            studentStatusId: activeStatus.id,
+            status: "active",
             enrollmentYear: userData.enrollmentYear || 2022,
             skscompleted: userData.sksCompleted,
           },
@@ -559,7 +535,7 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
       }
 
       // Add Pembimbing 1
-      await prisma.thesisParticipant.create({
+      await prisma.ThesisSupervisors.create({
         data: {
           thesisId: thesis.id,
           lecturerId: pembimbing1User.id,
@@ -570,7 +546,7 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
 
       // Add Pembimbing 2 if exists
       if (pembimbing2User) {
-        await prisma.thesisParticipant.create({
+        await prisma.ThesisSupervisors.create({
           data: {
             thesisId: thesis.id,
             lecturerId: pembimbing2User.id,
@@ -930,10 +906,9 @@ async function main() {
   try {
     // Run all seeds in order
     const roleMap = await seedRoles();
-    const studentStatusMap = await seedStudentStatus();
     const thesisStatusMap = await seedThesisStatus();
     const academicYearMap = await seedAcademicYears();
-    const userMap = await seedUsers(roleMap, studentStatusMap);
+    const userMap = await seedUsers(roleMap);
     const thesisMap = await seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap);
     await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);

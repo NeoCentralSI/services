@@ -49,7 +49,7 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
       student: {
         select: { id: true, user: { select: { id: true, fullName: true } } },
       },
-      thesisParticipants: {
+      thesisSupervisors: {
         include: {
           lecturer: { select: { id: true, user: { select: { id: true, fullName: true } } } },
           role: { select: { id: true, name: true } },
@@ -63,7 +63,7 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
   }
 
   const isOwner = thesis.student?.user?.id === userId || thesis.studentId === userId;
-  const isSupervisor = thesis.thesisParticipants.some(
+  const isSupervisor = thesis.thesisSupervisors.some(
     (p) => p.lecturer?.user?.id === userId && isSupervisorRole(p.role?.name)
   );
 
@@ -322,7 +322,7 @@ export async function createMilestoneBySupervisor(thesisId, userId, data) {
 
   // Send FCM notification to student
   const studentUserId = thesis.student?.user?.id;
-  const supervisorName = thesis.thesisParticipants.find(
+  const supervisorName = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId
   )?.lecturer?.user?.fullName || "Dosen Pembimbing";
 
@@ -427,8 +427,6 @@ export async function updateMilestone(milestoneId, userId, data) {
   if (data.description !== undefined) updateData.description = data.description;
   if (data.targetDate !== undefined) updateData.targetDate = data.targetDate ? new Date(data.targetDate) : null;
   if (data.studentNotes !== undefined) updateData.studentNotes = data.studentNotes;
-  if (data.evidenceUrl !== undefined) updateData.evidenceUrl = data.evidenceUrl;
-  if (data.evidenceDescription !== undefined) updateData.evidenceDescription = data.evidenceDescription;
   if (data.orderIndex !== undefined) updateData.orderIndex = data.orderIndex;
 
   const updated = await milestoneRepo.update(milestoneId, updateData);
@@ -532,7 +530,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
   // Send FCM notification to supervisors when progress reaches 100%
   if (progressPercentage === 100 && previousProgress < 100) {
     const { thesis } = await getMilestoneWithAccess(milestoneId, userId);
-    const supervisors = thesis.thesisParticipants.filter((p) =>
+    const supervisors = thesis.thesisSupervisors.filter((p) =>
       isSupervisorRole(p.role?.name)
     );
     const supervisorUserIds = supervisors
@@ -566,7 +564,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
 /**
  * Submit milestone for review (student)
  */
-export async function submitForReview(milestoneId, userId, evidenceUrl = null, studentNotes = null) {
+export async function submitForReview(milestoneId, userId, studentNotes = null) {
   const { milestone, isOwner } = await getMilestoneWithAccess(milestoneId, userId);
 
   if (!isOwner) {
@@ -574,7 +572,6 @@ export async function submitForReview(milestoneId, userId, evidenceUrl = null, s
   }
 
   const updateData = {};
-  if (evidenceUrl) updateData.evidenceUrl = evidenceUrl;
   if (studentNotes) updateData.studentNotes = studentNotes;
 
   const updated = await milestoneRepo.update(milestoneId, {
@@ -610,7 +607,7 @@ export async function validateMilestone(milestoneId, userId, supervisorNotes = n
 
   // Send FCM notification to student
   const studentUserId = thesis.student?.user?.id;
-  const supervisorName = thesis.thesisParticipants.find(
+  const supervisorName = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId
   )?.lecturer?.user?.fullName || "Dosen Pembimbing";
   const milestoneTitle = updated.title || "Milestone";
@@ -653,7 +650,7 @@ export async function requestRevision(milestoneId, userId, revisionNotes) {
 
   // Send FCM notification to student
   const studentUserId = thesis.student?.user?.id;
-  const supervisorName = thesis.thesisParticipants.find(
+  const supervisorName = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId
   )?.lecturer?.user?.fullName || "Dosen Pembimbing";
   const milestoneTitle = updated.title || "Milestone";
@@ -750,30 +747,27 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
   // Get milestone completion status
   const progress = await milestoneRepo.getThesisProgress(thesisId);
 
-  // Determine supervisor roles
-  const supervisors = thesis.thesisParticipants.map((p) => ({
+  // Derive per-supervisor approval from thesisSupervisors
+  const sup1 = thesis.thesisSupervisors.find((p) => isPembimbing1(p.role?.name));
+  const sup2 = thesis.thesisSupervisors.find((p) => isPembimbing2(p.role?.name));
+  const approvedBySupervisor1 = sup1?.seminarReady || false;
+  const approvedBySupervisor2 = sup2?.seminarReady || false;
+  const isFullyApproved = approvedBySupervisor1 && approvedBySupervisor2;
+
+  const supervisors = thesis.thesisSupervisors.map((p) => ({
     id: p.lecturerId,
     name: p.lecturer?.user?.fullName,
     email: p.lecturer?.user?.email,
     role: p.role?.name,
-    hasApproved:
-      isPembimbing1(p.role?.name)
-        ? thesis.seminarReadyApprovedBySupervisor1
-        : isPembimbing2(p.role?.name)
-        ? thesis.seminarReadyApprovedBySupervisor2
-        : null,
+    hasApproved: p.seminarReady || false,
   }));
 
   // Determine current user's role as supervisor
-  const currentUserParticipant = thesis.thesisParticipants.find(
+  const currentUserParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
   );
   const currentUserRole = currentUserParticipant?.role?.name || null;
-  const currentUserHasApproved = isPembimbing1(currentUserRole)
-    ? thesis.seminarReadyApprovedBySupervisor1
-    : isPembimbing2(currentUserRole)
-    ? thesis.seminarReadyApprovedBySupervisor2
-    : null;
+  const currentUserHasApproved = currentUserParticipant?.seminarReady || false;
 
   return {
     thesisId: thesis.id,
@@ -792,19 +786,14 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
       isComplete: progress.isComplete,
     },
     seminarReadiness: {
-      approvedBySupervisor1: thesis.seminarReadyApprovedBySupervisor1 || false,
-      approvedBySupervisor2: thesis.seminarReadyApprovedBySupervisor2 || false,
-      isFullyApproved: !!(thesis.seminarReadyApprovedBySupervisor1 && thesis.seminarReadyApprovedBySupervisor2),
-      approvedAt: thesis.seminarReadyApprovedAt,
-      notes: thesis.seminarReadyNotes,
+      approvedBySupervisor1,
+      approvedBySupervisor2,
+      isFullyApproved,
     },
     supervisors,
     currentUserRole,
     currentUserHasApproved,
-    canRegisterSeminar:
-      progress.isComplete &&
-      thesis.seminarReadyApprovedBySupervisor1 &&
-      thesis.seminarReadyApprovedBySupervisor2,
+    canRegisterSeminar: progress.isComplete && isFullyApproved,
   };
 }
 
@@ -819,7 +808,7 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
   }
 
   // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisParticipants.find(
+  const supervisorParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
   );
 
@@ -829,6 +818,7 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
 
   const supervisorRole = supervisorParticipant.role?.name;
   const isSupervisor1 = isPembimbing1(supervisorRole);
+  const lecturerId = supervisorParticipant.lecturerId;
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
   // Check milestone completion
@@ -840,11 +830,13 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
     );
   }
 
-  const updated = await milestoneRepo.approveSeminarReadiness(thesisId, supervisorRole, notes);
+  const updated = await milestoneRepo.approveSeminarReadiness(thesisId, lecturerId);
+
+  // Derive fully approved from all supervisors
+  const isFullyApproved = updated.thesisSupervisors.every((s) => s.seminarReady);
 
   // Get student userId for notification
   const studentUserId = thesis.student?.user?.id;
-  const isFullyApproved = !!(updated.seminarReadyApprovedBySupervisor1 && updated.seminarReadyApprovedBySupervisor2);
 
   // Update thesis status to "Acc Seminar" when fully approved
   if (isFullyApproved) {
@@ -890,17 +882,19 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
     }).catch((err) => console.error("[FCM] Error sending seminar approval notification:", err));
   }
 
+  // Derive per-role approval from updated supervisors
+  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name));
+  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name));
+
   return {
     success: true,
     message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil diberikan`,
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.seminarReadyApprovedBySupervisor1,
-      approvedBySupervisor2: updated.seminarReadyApprovedBySupervisor2,
+      approvedBySupervisor1: sup1?.seminarReady || false,
+      approvedBySupervisor2: sup2?.seminarReady || false,
       isFullyApproved,
-      approvedAt: updated.seminarReadyApprovedAt,
-      notes: updated.seminarReadyNotes,
     },
   };
 }
@@ -916,7 +910,7 @@ export async function revokeSeminarReadiness(thesisId, userId, notes = null) {
   }
 
   // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisParticipants.find(
+  const supervisorParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
   );
 
@@ -926,9 +920,10 @@ export async function revokeSeminarReadiness(thesisId, userId, notes = null) {
 
   const supervisorRole = supervisorParticipant.role?.name;
   const isSupervisor1 = isPembimbing1(supervisorRole);
+  const lecturerId = supervisorParticipant.lecturerId;
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
-  const updated = await milestoneRepo.revokeSeminarReadiness(thesisId, supervisorRole, notes);
+  const updated = await milestoneRepo.revokeSeminarReadiness(thesisId, lecturerId);
 
   // Get student userId for notification
   const studentUserId = thesis.student?.user?.id;
@@ -956,17 +951,19 @@ export async function revokeSeminarReadiness(thesisId, userId, notes = null) {
     }).catch((err) => console.error("[FCM] Error sending seminar revoke notification:", err));
   }
 
+  // Derive per-role approval from updated supervisors
+  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name));
+  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name));
+
   return {
     success: true,
     message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil dicabut`,
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.seminarReadyApprovedBySupervisor1,
-      approvedBySupervisor2: updated.seminarReadyApprovedBySupervisor2,
+      approvedBySupervisor1: sup1?.seminarReady || false,
+      approvedBySupervisor2: sup2?.seminarReady || false,
       isFullyApproved: false,
-      approvedAt: null,
-      notes: updated.seminarReadyNotes,
     },
   };
 }
@@ -985,12 +982,11 @@ export async function getStudentsReadyForSeminar() {
       nim: t.student?.user?.identityNumber,
       email: t.student?.user?.email,
     },
-    supervisors: t.thesisParticipants.map((p) => ({
+    supervisors: t.thesisSupervisors.map((p) => ({
       name: p.lecturer?.user?.fullName,
       role: p.role?.name,
+      seminarReady: p.seminarReady || false,
     })),
-    approvedAt: t.seminarReadyApprovedAt,
-    notes: t.seminarReadyNotes,
   }));
 }
 
@@ -1026,29 +1022,24 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
   const hasRequestedDefence = !!thesis.defenceRequestedAt;
 
   // Determine supervisor roles
-  const supervisors = thesis.thesisParticipants.map((p) => ({
+  const supervisors = thesis.thesisSupervisors.map((p) => ({
     id: p.lecturerId,
     name: p.lecturer?.user?.fullName,
     email: p.lecturer?.user?.email,
     role: p.role?.name,
-    hasApproved:
-      isPembimbing1(p.role?.name)
-        ? thesis.defenceReadyApprovedBySupervisor1
-        : isPembimbing2(p.role?.name)
-        ? thesis.defenceReadyApprovedBySupervisor2
-        : null,
+    hasApproved: p.defenceReady,
   }));
 
   // Determine current user's role as supervisor
-  const currentUserParticipant = thesis.thesisParticipants.find(
+  const currentUserParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
   );
   const currentUserRole = currentUserParticipant?.role?.name || null;
-  const currentUserHasApproved = isPembimbing1(currentUserRole)
-    ? thesis.defenceReadyApprovedBySupervisor1
-    : isPembimbing2(currentUserRole)
-    ? thesis.defenceReadyApprovedBySupervisor2
-    : null;
+  const currentUserHasApproved = currentUserParticipant?.defenceReady || false;
+
+  const approvedBySupervisor1 = thesis.thesisSupervisors.find((p) => isPembimbing1(p.role?.name))?.defenceReady || false;
+  const approvedBySupervisor2 = thesis.thesisSupervisors.find((p) => isPembimbing2(p.role?.name))?.defenceReady || false;
+  const isFullyApproved = approvedBySupervisor1 && approvedBySupervisor2;
 
   return {
     thesisId: thesis.id,
@@ -1074,11 +1065,9 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
     defenceReadiness: {
       hasRequestedDefence,
       requestedAt: thesis.defenceRequestedAt,
-      approvedBySupervisor1: thesis.defenceReadyApprovedBySupervisor1 || false,
-      approvedBySupervisor2: thesis.defenceReadyApprovedBySupervisor2 || false,
-      isFullyApproved: !!(thesis.defenceReadyApprovedBySupervisor1 && thesis.defenceReadyApprovedBySupervisor2),
-      approvedAt: thesis.defenceReadyApprovedAt,
-      notes: thesis.defenceReadyNotes,
+      approvedBySupervisor1,
+      approvedBySupervisor2,
+      isFullyApproved,
     },
     supervisors,
     currentUserRole,
@@ -1087,8 +1076,7 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
       isEligibleStatus &&
       hasFinalDocument &&
       hasRequestedDefence &&
-      thesis.defenceReadyApprovedBySupervisor1 &&
-      thesis.defenceReadyApprovedBySupervisor2,
+      isFullyApproved,
   };
 }
 
@@ -1123,7 +1111,7 @@ export async function approveDefenceReadiness(thesisId, userId, notes = null) {
   }
 
   // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisParticipants.find(
+  const supervisorParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
   );
 
@@ -1135,11 +1123,11 @@ export async function approveDefenceReadiness(thesisId, userId, notes = null) {
   const isSupervisor1 = isPembimbing1(supervisorRole);
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
-  const updated = await milestoneRepo.approveDefenceReadiness(thesisId, supervisorRole, notes);
+  const updated = await milestoneRepo.approveDefenceReadiness(thesisId, supervisorParticipant.lecturerId);
 
   // Get student userId for notification
   const studentUserId = thesis.student?.user?.id;
-  const isFullyApproved = !!(updated.defenceReadyApprovedBySupervisor1 && updated.defenceReadyApprovedBySupervisor2);
+  const isFullyApproved = updated.thesisSupervisors.every((s) => s.defenceReady);
 
   // Update thesis status to "Acc Sidang" when fully approved
   if (isFullyApproved) {
@@ -1191,11 +1179,9 @@ export async function approveDefenceReadiness(thesisId, userId, notes = null) {
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.defenceReadyApprovedBySupervisor1,
-      approvedBySupervisor2: updated.defenceReadyApprovedBySupervisor2,
+      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name))?.defenceReady || false,
+      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name))?.defenceReady || false,
       isFullyApproved,
-      approvedAt: updated.defenceReadyApprovedAt,
-      notes: updated.defenceReadyNotes,
     },
   };
 }
@@ -1211,7 +1197,7 @@ export async function revokeDefenceReadiness(thesisId, userId, notes = null) {
   }
 
   // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisParticipants.find(
+  const supervisorParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
   );
 
@@ -1223,7 +1209,7 @@ export async function revokeDefenceReadiness(thesisId, userId, notes = null) {
   const isSupervisor1 = isPembimbing1(supervisorRole);
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
-  const updated = await milestoneRepo.revokeDefenceReadiness(thesisId, supervisorRole, notes);
+  const updated = await milestoneRepo.revokeDefenceReadiness(thesisId, supervisorParticipant.lecturerId);
 
   // Get student userId for notification
   const studentUserId = thesis.student?.user?.id;
@@ -1257,11 +1243,9 @@ export async function revokeDefenceReadiness(thesisId, userId, notes = null) {
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.defenceReadyApprovedBySupervisor1,
-      approvedBySupervisor2: updated.defenceReadyApprovedBySupervisor2,
+      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name))?.defenceReady || false,
+      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name))?.defenceReady || false,
       isFullyApproved: false,
-      approvedAt: null,
-      notes: updated.defenceReadyNotes,
     },
   };
 }
@@ -1280,7 +1264,7 @@ export async function getStudentsReadyForDefence() {
       nim: t.student?.user?.identityNumber,
       email: t.student?.user?.email,
     },
-    supervisors: t.thesisParticipants.map((p) => ({
+    supervisors: t.thesisSupervisors.map((p) => ({
       name: p.lecturer?.user?.fullName,
       role: p.role?.name,
     })),
@@ -1288,8 +1272,7 @@ export async function getStudentsReadyForDefence() {
       fileName: t.finalThesisDocument.fileName,
       filePath: t.finalThesisDocument.filePath,
     } : null,
-    approvedAt: t.defenceReadyApprovedAt,
-    notes: t.defenceReadyNotes,
+    requestedAt: t.defenceRequestedAt,
   }));
 }
 
@@ -1305,7 +1288,7 @@ export async function requestDefence(thesisId, userId, documentId) {
         select: { id: true, user: { select: { id: true, fullName: true } } },
       },
       thesisStatus: { select: { id: true, name: true } },
-      thesisParticipants: {
+      thesisSupervisors: {
         include: {
           lecturer: { select: { id: true, user: { select: { id: true, fullName: true } } } },
           role: { select: { id: true, name: true } },
@@ -1346,7 +1329,7 @@ export async function requestDefence(thesisId, userId, documentId) {
   const updated = await milestoneRepo.updateThesisDefenceRequest(thesisId, documentId);
 
   // Notify supervisors
-  const supervisorUserIds = thesis.thesisParticipants
+  const supervisorUserIds = thesis.thesisSupervisors
     .filter((p) => isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
     .map((p) => p.lecturer?.user?.id)
     .filter(Boolean);

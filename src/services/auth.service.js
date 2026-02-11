@@ -240,11 +240,7 @@ export async function getUserProfile(userId) {
 					role: true,
 				},
 			},
-			student: {
-				include: {
-					studentStatus: true,
-				},
-			},
+			student: true,
 			lecturer: {
 				include: {
 					scienceGroup: true,
@@ -287,7 +283,7 @@ export async function getUserProfile(userId) {
 			id: user.student.id,
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.skscompleted,
-			status: user.student.studentStatus?.name || null,
+			status: user.student.status || null,
 		};
 	}
 

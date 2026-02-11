@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS `thesis_change_request_approvals` (
 );
 
 
-CREATE TABLE IF NOT EXISTS `thesis_participants` (
+CREATE TABLE IF NOT EXISTS `thesis_supervisors` (
 	`id` VARCHAR(191) NOT NULL,
 	`thesis_id` VARCHAR(191) NOT NULL,
 	`lecturer_id` VARCHAR(191) NOT NULL,
@@ -894,13 +894,13 @@ ON UPDATE CASCADE ON DELETE CASCADE;
 ALTER TABLE `thesis_change_request_approvals`
 ADD FOREIGN KEY(`lecturer_id`) REFERENCES `lecturers`(`user_id`)
 ON UPDATE CASCADE ON DELETE RESTRICT;
-ALTER TABLE `thesis_participants`
+ALTER TABLE `thesis_supervisors`
 ADD FOREIGN KEY(`thesis_id`) REFERENCES `thesis`(`id`)
 ON UPDATE CASCADE ON DELETE RESTRICT;
-ALTER TABLE `thesis_participants`
+ALTER TABLE `thesis_supervisors`
 ADD FOREIGN KEY(`lecturer_id`) REFERENCES `lecturers`(`user_id`)
 ON UPDATE CASCADE ON DELETE RESTRICT;
-ALTER TABLE `thesis_participants`
+ALTER TABLE `thesis_supervisors`
 ADD FOREIGN KEY(`role_id`) REFERENCES `user_roles`(`id`)
 ON UPDATE CASCADE ON DELETE RESTRICT;
 ALTER TABLE `thesis_proposal`
@@ -1104,7 +1104,7 @@ ON UPDATE NO ACTION ON DELETE NO ACTION;
 ALTER TABLE `academic_years`
 ADD FOREIGN KEY(`id`) REFERENCES `thesis_seminars`(`academic_year_id`)
 ON UPDATE NO ACTION ON DELETE NO ACTION;
-ALTER TABLE `thesis_participants`
+ALTER TABLE `thesis_supervisors`
 ADD FOREIGN KEY(`id`) REFERENCES `thesis_seminar_audiences`(`validated_by`)
 ON UPDATE NO ACTION ON DELETE NO ACTION;
 ALTER TABLE `students`

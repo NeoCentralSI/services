@@ -22,7 +22,7 @@ export async function getThesesOverview(filters = {}) {
 
   // Filter by supervisor
   if (lecturerId) {
-    where.thesisParticipants = {
+    where.thesisSupervisors = {
       some: {
         lecturerId,
         role: {
@@ -54,9 +54,6 @@ export async function getThesesOverview(filters = {}) {
         title: true,
         rating: true,
         createdAt: true,
-        seminarReadyApprovedBySupervisor1: true,
-        seminarReadyApprovedBySupervisor2: true,
-        seminarReadyApprovedAt: true,
         student: {
           include: {
             user: {
@@ -71,7 +68,7 @@ export async function getThesesOverview(filters = {}) {
         },
         thesisStatus: true,
         academicYear: true,
-        thesisParticipants: {
+        thesisSupervisors: {
           include: {
             lecturer: {
               include: {
@@ -195,8 +192,12 @@ export async function getProgressStatistics(academicYear) {
           status: true,
         },
       },
-      seminarReadyApprovedBySupervisor1: true,
-      seminarReadyApprovedBySupervisor2: true,
+      thesisSupervisors: {
+        select: {
+          seminarReady: true,
+          role: { select: { name: true } },
+        },
+      },
     },
   });
 
@@ -269,7 +270,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
           updatedAt: true,
         },
       },
-      thesisParticipants: {
+      thesisSupervisors: {
         where: {
           role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
         },
@@ -302,7 +303,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
         status: t.thesisStatus?.name,
         lastActivity,
         daysSinceActivity,
-        supervisors: t.thesisParticipants.map((p) => ({
+        supervisors: t.thesisSupervisors.map((p) => ({
           name: p.lecturer?.user?.fullName,
           role: p.role?.name,
         })),
@@ -320,10 +321,13 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
  */
 export async function getStudentsReadyForSeminar(academicYear) {
   const where = {
-    seminarReadyApprovedBySupervisor1: true,
-    seminarReadyApprovedBySupervisor2: true,
     thesisStatus: {
       name: "Acc Seminar",
+    },
+    thesisSupervisors: {
+      every: {
+        seminarReady: true,
+      },
     },
   };
   
@@ -345,7 +349,7 @@ export async function getStudentsReadyForSeminar(academicYear) {
           },
         },
       },
-      thesisParticipants: {
+      thesisSupervisors: {
         where: {
           role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
         },
@@ -359,7 +363,7 @@ export async function getStudentsReadyForSeminar(academicYear) {
         },
       },
     },
-    orderBy: { seminarReadyApprovedAt: "desc" },
+    orderBy: { updatedAt: "desc" },
   });
 }
 
@@ -390,7 +394,7 @@ export async function getAllAcademicYears() {
 /** * Get all supervisors for filter dropdown
  */
 export async function getAllSupervisors() {
-  const participants = await prisma.thesisParticipant.findMany({
+  const participants = await prisma.ThesisSupervisors.findMany({
     where: {
       role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
     },
@@ -440,7 +444,7 @@ export async function getThesisDetailById(thesisId) {
       thesisStatus: true,
       thesisTopic: true,
       academicYear: true,
-      thesisParticipants: {
+      thesisSupervisors: {
         include: {
           lecturer: {
             include: {
@@ -558,7 +562,7 @@ export async function getThesesForReport(academicYearId) {
       thesisStatus: true,
       thesisTopic: true,
       academicYear: true,
-      thesisParticipants: {
+      thesisSupervisors: {
         where: {
           role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
         },

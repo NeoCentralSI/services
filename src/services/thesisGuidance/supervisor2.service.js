@@ -5,7 +5,7 @@ import {
 	createSupervisor2Request,
 	findSupervisor2RequestById,
 	markSupervisor2RequestProcessed,
-	createThesisParticipant,
+	createThesisSupervisors,
 	findPendingSupervisor2RequestsForLecturer,
 	countCompletedAsSupervisor2,
 	hasPembimbing1Role,
@@ -246,8 +246,8 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 		throw err;
 	}
 
-	// 4. Create ThesisParticipant
-	await createThesisParticipant(thesisId, lecturerId);
+	// 4. Create ThesisSupervisors
+	await createThesisSupervisors(thesisId, lecturerId);
 
 	// 5. Mark request as processed
 	await markSupervisor2RequestProcessed(requestId);
@@ -372,7 +372,7 @@ export async function checkPromotionForThesisSupervisors(thesisId) {
 	if (!pembimbing2Role) return [];
 
 	// Get all Pembimbing 2 on this thesis
-	const participants = await prisma.thesisParticipant.findMany({
+	const participants = await prisma.ThesisSupervisors.findMany({
 		where: { thesisId, roleId: pembimbing2Role.id },
 		select: { lecturerId: true },
 	});

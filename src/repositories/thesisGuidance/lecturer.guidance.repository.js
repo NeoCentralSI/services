@@ -7,14 +7,14 @@ export async function getLecturerByUserId(userId) {
 	return prisma.lecturer.findUnique({ where: { id: userId } });
 }
 
-// List students supervised by the lecturer via ThesisParticipant (SUPERVISOR_1/2)
+// List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
 export async function findMyStudents(lecturerId, roles) {
 	const where = { lecturerId };
 	if (Array.isArray(roles) && roles.length) {
 		// Filter by role.name from UserRole
 		where.role = { name: { in: roles } };
 	}
-	const participants = await prisma.thesisParticipant.findMany({
+	const participants = await prisma.ThesisSupervisors.findMany({
 		where,
 		include: {
 			role: { select: { id: true, name: true } },
@@ -123,7 +123,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 					},
 				},
 				supervisor: { include: { user: true } },
-				milestone: { select: { id: true, title: true, status: true } },
+				milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 			},
 			skip,
 			take,
@@ -139,7 +139,7 @@ export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 		include: {
 			thesis: { include: { student: { include: { user: true } }, document: true } },
 			supervisor: { include: { user: true } },
-			milestone: { select: { id: true, title: true, status: true } },
+			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 		},
 	});
 }
@@ -211,7 +211,7 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 }
 
 export async function getLecturerTheses(lecturerId) {
-	const parts = await prisma.thesisParticipant.findMany({
+	const parts = await prisma.ThesisSupervisors.findMany({
 		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
 		select: { thesisId: true },
 	});
@@ -236,7 +236,7 @@ export async function getStudentActiveThesis(studentId, lecturerId) {
 	return prisma.thesis.findFirst({
 		where: {
 			studentId,
-			thesisParticipants: { some: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } } },
+			thesisSupervisors: { some: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } } },
 		},
 		include: { thesisProgressCompletions: true },
 	});
@@ -295,7 +295,10 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 			thesis: { studentId },
 			supervisorId: lecturerId,
 		},
-		include: { supervisor: { include: { user: true } } },
+		include: {
+			supervisor: { include: { user: true } },
+			milestones: { include: { milestone: { select: { id: true, title: true } } } },
+		},
 		orderBy: { requestedDate: "asc" },
 	});
 }
@@ -303,7 +306,7 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 // Count number of unique students where this lecturer served as SUPERVISOR_2 and the student has completed Yudisium
 export async function countGraduatedAsSupervisor2(lecturerId) {
 	// Get studentIds supervised as SUPERVISOR_2
-	const parts = await prisma.thesisParticipant.findMany({
+	const parts = await prisma.ThesisSupervisors.findMany({
 		where: { lecturerId, role: { name: ROLES.PEMBIMBING_2 } },
 		select: { thesis: { select: { studentId: true } } },
 	});
@@ -362,7 +365,7 @@ export async function updateThesisStatusById(thesisId, thesisStatusId) {
 
 export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 	// Check if lecturer participates in this thesis
-	const participant = await prisma.thesisParticipant.findFirst({
+	const participant = await prisma.ThesisSupervisors.findFirst({
 		where: {
 			thesisId,
 			lecturerId,
@@ -424,7 +427,7 @@ export async function findGuidancesPendingApproval(lecturerId, { page = 1, pageS
 					},
 				},
 				supervisor: { include: { user: true } },
-				milestone: { select: { id: true, title: true, status: true } },
+				milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 			},
 			skip,
 			take,
@@ -452,7 +455,7 @@ export async function approveSessionSummary(guidanceId) {
 				},
 			},
 			supervisor: { include: { user: true } },
-			milestone: { select: { id: true, title: true, status: true } },
+			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 		},
 	});
 }
@@ -474,7 +477,7 @@ export async function findPendingGuidanceById(guidanceId, lecturerId) {
 				},
 			},
 			supervisor: { include: { user: true } },
-			milestone: { select: { id: true, title: true, status: true } },
+			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 		},
 	});
 }
@@ -509,7 +512,7 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 					},
 				},
 				supervisor: { include: { user: true } },
-				milestone: { select: { id: true, title: true, status: true } },
+				milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 			},
 			skip,
 			take,

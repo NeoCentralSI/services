@@ -6,7 +6,7 @@ import { ROLES } from "../../constants/roles.js";
  */
 export async function findAvailableSupervisor2Lecturers(thesisId) {
 	// Get current thesis participants (supervisors already assigned)
-	const currentParticipants = await prisma.thesisParticipant.findMany({
+	const currentParticipants = await prisma.ThesisSupervisors.findMany({
 		where: { thesisId },
 		select: { lecturerId: true },
 	});
@@ -59,7 +59,7 @@ export async function hasPembimbing2(thesisId) {
 	});
 	if (!pembimbing2Role) return false;
 
-	const existing = await prisma.thesisParticipant.findFirst({
+	const existing = await prisma.ThesisSupervisors.findFirst({
 		where: { thesisId, roleId: pembimbing2Role.id },
 	});
 	return !!existing;
@@ -119,9 +119,9 @@ export async function markSupervisor2RequestProcessed(requestId) {
 }
 
 /**
- * Create ThesisParticipant record for Pembimbing 2
+ * Create ThesisSupervisors record for Pembimbing 2
  */
-export async function createThesisParticipant(thesisId, lecturerId) {
+export async function createThesisSupervisors(thesisId, lecturerId) {
 	const pembimbing2Role = await prisma.userRole.findFirst({
 		where: { name: ROLES.PEMBIMBING_2 },
 		select: { id: true },
@@ -132,7 +132,7 @@ export async function createThesisParticipant(thesisId, lecturerId) {
 		throw err;
 	}
 
-	return prisma.thesisParticipant.create({
+	return prisma.ThesisSupervisors.create({
 		data: {
 			thesisId,
 			lecturerId,
@@ -171,7 +171,7 @@ export async function countCompletedAsSupervisor2(lecturerId) {
 	});
 	if (!selesaiStatus) return 0;
 
-	const count = await prisma.thesisParticipant.count({
+	const count = await prisma.ThesisSupervisors.count({
 		where: {
 			lecturerId,
 			roleId: pembimbing2Role.id,

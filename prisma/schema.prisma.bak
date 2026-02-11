@@ -55,7 +55,7 @@ model UserRole {
   name        String
   userHasRoles UserHasRole[]
   // Back-relations for role_id references
-  thesisParticipants     ThesisParticipant[]
+  thesisSupervisors     ThesisSupervisors[]
   internshipSupervisors  InternshipSupervisor[]
   internshipAssessments  InternshipAssessment[]
   internshipApprovals    InternshipApproval[]
@@ -110,7 +110,7 @@ model Lecturer {
   scienceGroupId        String?  @map("science_group_id")
   user                  User     @relation(fields: [id], references: [id], onDelete: Cascade)
   scienceGroup          ScienceGroup? @relation(fields: [scienceGroupId], references: [id])
-  thesisParticipants    ThesisParticipant[]
+  thesisSupervisors    ThesisSupervisors[]
   thesisExaminers       ThesisExaminer[]
   thesisGuidances       ThesisGuidance[]
   thesisSeminarAudiences ThesisSeminarAudience[]
@@ -211,7 +211,7 @@ model Thesis {
   academicYear      AcademicYear? @relation(fields: [academicYearId], references: [id])
   document          Document? @relation(fields: [documentId], references: [id])
   finalThesisDocument Document? @relation("FinalThesisDocument", fields: [finalThesisDocumentId], references: [id])
-  thesisParticipants ThesisParticipant[]
+  thesisSupervisors ThesisSupervisors[]
   thesisExaminers   ThesisExaminer[]
   thesisMilestones  ThesisMilestone[]
   thesisGuidances   ThesisGuidance[]
@@ -280,7 +280,7 @@ model ThesisExaminer {
   @@map("thesis_examiners")
 }
 
-model ThesisParticipant {
+model ThesisSupervisors {
   id         String   @id @default(uuid())
   thesisId   String   @map("thesis_id")
   lecturerId String   @map("lecturer_id")
@@ -291,7 +291,7 @@ model ThesisParticipant {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  @@map("thesis_participants")
+  @@map("thesis_supervisors")
 }
 
 model ThesisTopic {

@@ -41,11 +41,10 @@ export async function getMonitoringDashboard(academicYear) {
         nim: t.student?.user?.identityNumber,
         email: t.student?.user?.email,
       },
-      supervisors: t.thesisParticipants.map((p) => ({
+      supervisors: t.thesisSupervisors.map((p) => ({
         name: p.lecturer?.user?.fullName,
         role: p.role?.name,
       })),
-      approvedAt: t.seminarReadyApprovedAt,
     })),
   };
 }
@@ -70,8 +69,8 @@ export async function getThesesList(filters) {
     }
 
     // Get supervisors
-    const pembimbing1 = t.thesisParticipants?.find((p) => p.role?.name === "Pembimbing 1");
-    const pembimbing2 = t.thesisParticipants?.find((p) => p.role?.name === "Pembimbing 2");
+    const pembimbing1 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
+    const pembimbing2 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
 
     return {
       id: t.id,
@@ -97,11 +96,13 @@ export async function getThesesList(filters) {
         pembimbing2: pembimbing2?.lecturer?.user?.fullName || null,
         pembimbing2Id: pembimbing2?.lecturerId || null,
       },
-      seminarApproval: {
-        supervisor1: t.seminarReadyApprovedBySupervisor1 || false,
-        supervisor2: t.seminarReadyApprovedBySupervisor2 || false,
-        isFullyApproved: t.seminarReadyApprovedBySupervisor1 && t.seminarReadyApprovedBySupervisor2,
-      },
+      seminarApproval: (() => {
+        const sup1 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
+        const sup2 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
+        const s1 = sup1?.seminarReady || false;
+        const s2 = sup2?.seminarReady || false;
+        return { supervisor1: s1, supervisor2: s2, isFullyApproved: s1 && s2 };
+      })(),
       lastActivity,
       createdAt: t.createdAt,
     };
@@ -169,11 +170,10 @@ export async function getStudentsReadyForSeminarFull(academicYear) {
       nim: t.student?.user?.identityNumber,
       email: t.student?.user?.email,
     },
-    supervisors: t.thesisParticipants.map((p) => ({
+    supervisors: t.thesisSupervisors.map((p) => ({
       name: p.lecturer?.user?.fullName,
       role: p.role?.name,
     })),
-    approvedAt: t.seminarReadyApprovedAt,
   }));
 }
 
@@ -203,7 +203,7 @@ export async function getThesisDetail(thesisId) {
   }
 
   // Separate supervisors and examiners
-  const supervisors = thesis.thesisParticipants
+  const supervisors = thesis.thesisSupervisors
     .filter((p) => p.role?.name?.includes("Pembimbing"))
     .map((p) => ({
       id: p.lecturer?.user?.id,
@@ -212,7 +212,7 @@ export async function getThesisDetail(thesisId) {
       role: p.role?.name,
     }));
 
-  const examiners = thesis.thesisParticipants
+  const examiners = thesis.thesisSupervisors
     .filter((p) => p.role?.name?.toLowerCase().includes("penguji"))
     .map((p) => ({
       id: p.lecturer?.user?.id,
@@ -282,12 +282,13 @@ export async function getThesisDetail(thesisId) {
     deadlineDate: thesis.deadlineDate,
     createdAt: thesis.createdAt,
     lastActivity,
-    seminarApproval: {
-      supervisor1: thesis.seminarReadyApprovedBySupervisor1 || false,
-      supervisor2: thesis.seminarReadyApprovedBySupervisor2 || false,
-      isFullyApproved: thesis.seminarReadyApprovedBySupervisor1 && thesis.seminarReadyApprovedBySupervisor2,
-      approvedAt: thesis.seminarReadyApprovedAt,
-    },
+    seminarApproval: (() => {
+      const sup1 = thesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
+      const sup2 = thesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
+      const s1 = sup1?.seminarReady || false;
+      const s2 = sup2?.seminarReady || false;
+      return { supervisor1: s1, supervisor2: s2, isFullyApproved: s1 && s2 };
+    })(),
     student: {
       id: thesis.student?.id,
       userId: thesis.student?.user?.id,
@@ -449,8 +450,8 @@ export async function getProgressReportService(academicYearId) {
     completedMilestones += completedMilestoneCount;
     
     // Get supervisors
-    const pembimbing1 = t.thesisParticipants?.find(p => p.role?.name === "Pembimbing 1");
-    const pembimbing2 = t.thesisParticipants?.find(p => p.role?.name === "Pembimbing 2");
+    const pembimbing1 = t.thesisSupervisors?.find(p => p.role?.name === "Pembimbing 1");
+    const pembimbing2 = t.thesisSupervisors?.find(p => p.role?.name === "Pembimbing 2");
     
     return {
       no: index + 1,
