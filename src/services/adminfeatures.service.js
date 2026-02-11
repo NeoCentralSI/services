@@ -701,10 +701,9 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 			take,
 			orderBy: { createdAt: "desc" },
 			include: {
-				student: {
-					include: {
-						studentStatus: true,
-						thesis: {
+				   student: {
+					   include: {
+						   thesis: {
 							where: {
 								thesisStatus: {
 									name: {
@@ -755,7 +754,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 					id: user.student.id,
 					enrollmentYear: user.student.enrollmentYear,
 					sksCompleted: user.student.skscompleted,
-					status: user.student.studentStatus?.name || null,
+					   status: user.student.status || null,
 					activeTheses: user.student.thesis.map((thesis) => ({
 						title: thesis.title,
 						supervisors: thesis.thesisSupervisors
@@ -876,10 +875,9 @@ export async function getStudentDetail(userId) {
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		include: {
-			student: {
-				include: {
-					studentStatus: true,
-					thesis: {
+			   student: {
+				   include: {
+					   thesis: {
 						include: {
 							thesisStatus: true,
 							thesisTopic: true,
@@ -1017,7 +1015,7 @@ export async function getStudentDetail(userId) {
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.skscompleted,
-			status: user.student.studentStatus?.name || null,
+			   status: user.student.status || null,
 		},
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,
