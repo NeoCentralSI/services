@@ -1463,6 +1463,8 @@ enum InternshipProposalStatus {
 
 enum InternshipMemberStatus {
   PENDING
+  ACCEPTED
+  REJECTED
   ACCEPTED_BY_COMPANY
   REJECTED_BY_COMPANY
 }
