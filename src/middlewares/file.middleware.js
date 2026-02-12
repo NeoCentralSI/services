@@ -26,6 +26,7 @@ const thesisUpload = multer({ storage, fileFilter: thesisFileFilter, limits: { f
 
 export const uploadCsv = upload.single("file");
 export const uploadThesisFile = thesisUpload.single("file");
+export const uploadInternshipFile = thesisUpload.single("file");
 
 export default upload;
 

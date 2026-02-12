@@ -9,17 +9,17 @@ const router = express.Router();
 
 /**
  * POST /documents/upload
- * Upload a document (PDF for thesis)
- * Query params:
- *   - thesisId: optional, if provided will save to /uploads/thesis/{thesisId}/
- * Body params:
- *   - documentType: type of document (e.g., "Final Thesis")
+ * Upload a document
+ * Query/Body params:
+ *   - module: "thesis" (default) or "internship"
+ *   - thesisId: optional (for thesis module)
+ *   - documentType: name of the document type
  */
 router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
   try {
     const userId = req.user.sub;
     const file = req.file;
-    const { documentType, thesisId } = req.body;
+    const { documentType, thesisId, module = "thesis" } = req.body;
 
     if (!file) {
       return res.status(400).json({
@@ -32,51 +32,60 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
     let relativeFilePath;
     let fileName;
 
-    if (thesisId) {
-      // If thesisId provided, verify it belongs to this user (student)
-      const thesis = await prisma.thesis.findFirst({
-        where: {
-          id: thesisId,
-          student: {
-            user: { id: userId },
-          },
-        },
-      });
-
-      if (!thesis) {
-        return res.status(403).json({
-          success: false,
-          message: "Anda tidak memiliki akses ke thesis ini",
-        });
-      }
-
-      // Save to /uploads/thesis/{thesisId}/ folder
-      uploadsDir = path.join(process.cwd(), "uploads", "thesis", thesisId);
-      fileName = "final-thesis.pdf"; // Fixed name for final thesis
-      relativeFilePath = `uploads/thesis/${thesisId}/${fileName}`;
+    if (module === "internship") {
+      // Logic for Internship Upload
+      uploadsDir = path.join(process.cwd(), "uploads", "internship", userId);
+      const uniqueId = Date.now().toString(36);
+      fileName = `${uniqueId}-${file.originalname}`;
+      relativeFilePath = `uploads/internship/${userId}/${fileName}`;
     } else {
-      // Fallback: Get student's active thesis
-      const student = await prisma.student.findFirst({
-        where: { userId },
-        include: {
-          thesis: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
+      // Logic for Thesis Upload (Default)
+      if (thesisId) {
+        // If thesisId provided, verify it belongs to this user (student)
+        const thesis = await prisma.thesis.findFirst({
+          where: {
+            id: thesisId,
+            student: {
+              id: userId,
+            },
           },
-        },
-      });
+        });
 
-      if (student?.thesis?.[0]) {
-        const activeThesisId = student.thesis[0].id;
-        uploadsDir = path.join(process.cwd(), "uploads", "thesis", activeThesisId);
-        fileName = "final-thesis.pdf";
-        relativeFilePath = `uploads/thesis/${activeThesisId}/${fileName}`;
+        if (!thesis) {
+          return res.status(403).json({
+            success: false,
+            message: "Anda tidak memiliki akses ke thesis ini",
+          });
+        }
+
+        // Save to /uploads/thesis/{thesisId}/ folder
+        uploadsDir = path.join(process.cwd(), "uploads", "thesis", thesisId);
+        fileName = "final-thesis.pdf"; // Fixed name for final thesis
+        relativeFilePath = `uploads/thesis/${thesisId}/${fileName}`;
       } else {
-        // No thesis found, use generic path
-        uploadsDir = path.join(process.cwd(), "uploads", "thesis", "general");
-        const uniqueId = Date.now().toString(36);
-        fileName = `${uniqueId}-${file.originalname}`;
-        relativeFilePath = `uploads/thesis/general/${fileName}`;
+        // Fallback: Get student's active thesis
+        const student = await prisma.student.findFirst({
+          where: { id: userId },
+          include: {
+            thesis: {
+              take: 1,
+              orderBy: { createdAt: "desc" },
+            },
+          },
+        });
+
+        if (student?.thesis?.[0]) {
+          const activeThesisId = student.thesis[0].id;
+          uploadsDir = path.join(process.cwd(), "uploads", "thesis", activeThesisId);
+          fileName = "final-thesis.pdf";
+          relativeFilePath = `uploads/thesis/${activeThesisId}/${fileName}`;
+        } else {
+          // No thesis found, use generic path
+          uploadsDir = path.join(process.cwd(), "uploads", "thesis", "general");
+          const uniqueId = Date.now().toString(36);
+          fileName = `${uniqueId}-${file.originalname}`;
+          relativeFilePath = `uploads/thesis/general/${fileName}`;
+        }
       }
     }
 
@@ -87,8 +96,8 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
 
     const filePath = path.join(uploadsDir, fileName);
 
-    // Delete old file if exists (for overwriting)
-    if (fs.existsSync(filePath)) {
+    // Delete old file if exists (for overwriting in thesis)
+    if (module === 'thesis' && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
 
@@ -101,7 +110,7 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
       documentTypeRecord = await prisma.documentType.findFirst({
         where: { name: documentType },
       });
-      
+
       if (!documentTypeRecord) {
         // Create if not exists
         documentTypeRecord = await prisma.documentType.create({
@@ -134,7 +143,7 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: "Dokumen berhasil diupload",
+      message: `Dokumen berhasil diupload ke module ${module}`,
       data: document,
     });
   } catch (error) {
