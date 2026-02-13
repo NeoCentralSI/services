@@ -44,4 +44,10 @@ router.put("/companies/:id", sekdepController.updateCompany);
  */
 router.delete("/companies/:id", sekdepController.deleteCompany);
 
+/**
+ * @route POST /insternship/sekdep/proposals/:id/respond
+ * @desc Respond to an internship proposal
+ */
+router.post("/proposals/:id/respond", sekdepController.respondToProposal);
+
 export default router;

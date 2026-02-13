@@ -112,3 +112,23 @@ export async function deleteCompany(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Controller to respond to an internship proposal.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function respondToProposal(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { response, notes } = req.body;
+        await sekdepService.respondToProposal(id, response, notes);
+        res.status(200).json({
+            success: true,
+            message: `Proposal berhasil ${response === 'APPROVED_BY_SEKDEP' ? 'disetujui' : 'ditolak'}.`
+        });
+    } catch (error) {
+        next(error);
+    }
+}
