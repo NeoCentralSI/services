@@ -1,7 +1,10 @@
 import * as sekdepRepository from "../../repositories/insternship/sekdep.repository.js";
+import * as adminRepository from "../../repositories/insternship/admin.repository.js";
+import * as notificationRepository from "../../repositories/notification.repository.js";
 
 /**
  * List all internship proposals ready for Sekdep review.
+ * A proposal is ready if no members have a PENDING status.
  * @returns {Promise<Array>}
  */
 export async function listProposals() {
@@ -9,14 +12,26 @@ export async function listProposals() {
 
     // Map to a consistent format for the frontend
     return proposals.map(proposal => {
+        const appLetter = proposal.applicationLetters?.[0];
+
         return {
             id: proposal.id,
             coordinatorName: proposal.coordinator?.user?.fullName || "Unknown",
             coordinatorNim: proposal.coordinator?.user?.identityNumber || "N/A",
             companyName: proposal.targetCompany?.companyName || "N/A",
             status: proposal.status,
-            memberCount: proposal.members.length,
-            createdAt: proposal.createdAt
+            memberCount: proposal.members.length + 1,
+            createdAt: proposal.createdAt,
+            dokumenProposal: proposal.proposalDocument ? {
+                id: proposal.proposalDocument.id,
+                fileName: proposal.proposalDocument.fileName,
+                filePath: proposal.proposalDocument.filePath,
+            } : null,
+            dokumenSuratPermohonan: appLetter?.document ? {
+                id: appLetter.document.id,
+                fileName: appLetter.document.fileName,
+                filePath: appLetter.document.filePath,
+            } : null,
         };
     });
 }
@@ -34,6 +49,87 @@ export async function getProposalDetail(id) {
         throw error;
     }
     return proposal;
+}
+
+/**
+ * Respond to an internship proposal.
+ * @param {string} id 
+ * @param {'APPROVED_BY_SEKDEP' | 'REJECTED_BY_SEKDEP'} status 
+ * @param {string} [notes]
+ * @returns {Promise<Object>}
+ */
+export async function respondToProposal(id, status, notes) {
+    if (!['APPROVED_BY_SEKDEP', 'REJECTED_BY_SEKDEP'].includes(status)) {
+        const error = new Error("Status respon tidak valid.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const proposal = await sekdepRepository.findProposalDetail(id);
+    if (!proposal) {
+        const error = new Error("Proposal tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    const updatedProposal = await sekdepRepository.updateProposalStatus(id, status, notes);
+
+    // Create notifications for coordinator and members
+    try {
+        const statusLabel = status === 'APPROVED_BY_SEKDEP' ? 'DISETUJUI' : 'DITOLAK';
+        const title = `Proposal Internship ${statusLabel}`;
+        let message = `Proposal Internship Anda ke ${proposal.targetCompany.companyName} telah ${statusLabel.toLowerCase()} oleh Sekdep.`;
+
+        if (status === 'REJECTED_BY_SEKDEP' && notes) {
+            message += ` Catatan: ${notes}`;
+        }
+
+        const notificationData = [];
+
+        // Coordinator
+        if (proposal.coordinator?.id) {
+            notificationData.push({
+                userId: proposal.coordinator.id,
+                title,
+                message
+            });
+        }
+
+        // Members
+        proposal.members.forEach(member => {
+            if (member.student?.id) {
+                notificationData.push({
+                    userId: member.student.id,
+                    title,
+                    message
+                });
+            }
+        });
+
+        // Admin (Only if status is approved)
+        if (status === 'APPROVED_BY_SEKDEP') {
+            const admins = await adminRepository.findAdmins();
+            const adminTitle = "Pengajuan Internship Baru (Approved)";
+            const adminMessage = `Proposal Internship ke ${proposal.targetCompany.companyName} telah disetujui Sekdep dan siap diproses Surat Pengantarnya.`;
+
+            admins.forEach(admin => {
+                notificationData.push({
+                    userId: admin.id,
+                    title: adminTitle,
+                    message: adminMessage
+                });
+            });
+        }
+
+        if (notificationData.length > 0) {
+            await notificationRepository.createNotificationsMany(notificationData);
+        }
+    } catch (notifError) {
+        console.error("Gagal mengirim notifikasi:", notifError);
+        // We don't throw here to ensure the proposal response is still returned
+    }
+
+    return updatedProposal;
 }
 
 /**

@@ -551,14 +551,14 @@ model InternshipApplicationLetter {
   dateIssued       DateTime           @map("date_issued") @db.Date
   startDatePlanned DateTime           @map("start_date_planned") @db.Date
   endDatePlanned   DateTime           @map("end_date_planned") @db.Date
-  documentId       String             @map("document_id")
-  signedById       String             @map("signed_by_id")
-  signedAsRoleId   String             @map("signed_as_role_id")
+  documentId       String?            @map("document_id")
+  signedById       String?            @map("signed_by_id")
+  signedAsRoleId   String?            @map("signed_as_role_id")
   createdAt        DateTime           @default(now()) @map("created_at")
   proposal         InternshipProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  document         Document           @relation("InternshipAppLetterDocument", fields: [documentId], references: [id])
-  signedBy         Lecturer           @relation("InternshipAppLetterSigner", fields: [signedById], references: [id])
-  signedAsRole     UserRole           @relation("InternshipAppLetterRole", fields: [signedAsRoleId], references: [id])
+  document         Document?          @relation("InternshipAppLetterDocument", fields: [documentId], references: [id])
+  signedBy         Lecturer?          @relation("InternshipAppLetterSigner", fields: [signedById], references: [id])
+  signedAsRole     UserRole?          @relation("InternshipAppLetterRole", fields: [signedAsRoleId], references: [id])
 
   @@index([proposalId], map: "internship_application_letters_proposal_id_fkey")
   @@index([documentId], map: "internship_application_letters_document_id_fkey")

@@ -33,7 +33,12 @@ export async function findProposalsReadyForSekdep() {
                 }
             },
             targetCompany: true,
-            proposalDocument: true
+            proposalDocument: true,
+            applicationLetters: {
+                include: {
+                    document: true
+                }
+            }
         },
         orderBy: {
             createdAt: 'desc'
@@ -75,6 +80,23 @@ export async function findProposalDetail(id) {
                     document: true
                 }
             }
+        }
+    });
+}
+
+/**
+ * Update an internship proposal status.
+ * @param {string} id 
+ * @param {string} status 
+ * @param {string} [notes]
+ * @returns {Promise<Object>}
+ */
+export async function updateProposalStatus(id, status, notes) {
+    return prisma.internshipProposal.update({
+        where: { id },
+        data: {
+            status,
+            sekdepNotes: notes
         }
     });
 }
