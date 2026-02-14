@@ -17,6 +17,7 @@ import {
   markSessionCompleteService,
   getMyThesisDetailService,
   updateMyThesisTitleService,
+  getThesisHistoryService,
 } from "../../services/thesisGuidance/student.guidance.service.js";
 
 export async function listMyGuidances(req, res, next) {
@@ -46,7 +47,7 @@ export async function requestGuidance(req, res, next) {
     console.log("[requestGuidance] req.body['milestoneIds[]']:", req.body?.["milestoneIds[]"]);
     console.log("[requestGuidance] req.body.milestoneIds:", req.body?.milestoneIds);
     console.log("[requestGuidance] req.validated:", JSON.stringify(req.validated, null, 2));
-    
+
     const {
       guidanceDate,
       studentNotes,
@@ -263,6 +264,19 @@ export async function updateMyThesisTitle(req, res, next) {
     const { title } = req.body || {};
     const result = await updateMyThesisTitleService(req.user.sub, title);
     res.json({ success: true, message: "Judul tugas akhir berhasil diperbarui", ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesis-guidance/history/theses
+ * Get all theses for student (archive/history)
+ */
+export async function thesisHistory(req, res, next) {
+  try {
+    const result = await getThesisHistoryService(req.user.sub);
+    res.json({ success: true, ...result });
   } catch (err) {
     next(err);
   }

@@ -15,6 +15,7 @@ import {
   getCompletedGuidanceHistory,
   getGuidanceForExport,
   getGuidancesNeedingSummary,
+  getThesisHistory,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 
 import prisma from "../../config/prisma.js";
@@ -34,10 +35,10 @@ const unlink = promisify(fs.unlink);
 
 async function ensureThesisAcademicYear(thesis) {
   if (thesis.academicYearId) return thesis;
-  
+
   // First, try to use the active academic year
   let current = await getActiveAcademicYear();
-  
+
   // Fallback to date-based lookup if no active year is set
   if (!current) {
     const now = new Date();
@@ -55,7 +56,7 @@ async function ensureThesisAcademicYear(thesis) {
       ],
     });
   }
-  
+
   if (current) {
     await prisma.thesis.update({ where: { id: thesis.id }, data: { academicYearId: current.id } });
     return { ...thesis, academicYearId: current.id };
@@ -109,6 +110,7 @@ async function getOrCreateDocumentType(name = "Thesis") {
   return dt;
 }
 
+
 function ensureStudent(student) {
   if (!student) {
     const err = new Error("Student profile not found for this user");
@@ -116,6 +118,16 @@ function ensureStudent(student) {
     throw err;
   }
 }
+
+function ensureThesisActive(thesis) {
+  const status = thesis?.thesisStatus?.name;
+  if (status === "Dibatalkan" || status === "Gagal") {
+    const err = new Error("Tugas akhir ini tidak aktif. Silakan daftar judul baru.");
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 
 async function getActiveThesisOrThrow(userId) {
   const student = await getStudentByUserId(userId);
@@ -132,6 +144,7 @@ async function getActiveThesisOrThrow(userId) {
 // Schema baru: gunakan requestedDate/approvedDate langsung, bukan schedule relation
 export async function listMyGuidancesService(userId, status) {
   const { thesis } = await getActiveThesisOrThrow(userId);
+  // List guidances even if thesis is archived/cancelled (for history view)
   const rows = await listGuidancesForThesis(thesis.id, status);
   rows.sort((a, b) => {
     // Schema baru: gunakan requestedDate bukan schedule.guidanceDate
@@ -145,8 +158,8 @@ export async function listMyGuidancesService(userId, status) {
     status: g.status,
     // Schema baru: gunakan requestedDate/approvedDate
     scheduledAt: g.approvedDate || g.requestedDate || null,
-    scheduledAtFormatted: (g.approvedDate || g.requestedDate) 
-      ? formatDateTimeJakarta(g.approvedDate || g.requestedDate, { withDay: true }) 
+    scheduledAtFormatted: (g.approvedDate || g.requestedDate)
+      ? formatDateTimeJakarta(g.approvedDate || g.requestedDate, { withDay: true })
       : null,
     requestedDate: g.requestedDate || null,
     approvedDate: g.approvedDate || null,
@@ -188,8 +201,8 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     id: guidance.id,
     status: guidance.status,
     scheduledAt: guidance.approvedDate || guidance.requestedDate || null,
-    scheduledAtFormatted: (guidance.approvedDate || guidance.requestedDate) 
-      ? formatDateTimeJakarta(guidance.approvedDate || guidance.requestedDate, { withDay: true }) 
+    scheduledAtFormatted: (guidance.approvedDate || guidance.requestedDate)
+      ? formatDateTimeJakarta(guidance.approvedDate || guidance.requestedDate, { withDay: true })
       : null,
     requestedDate: guidance.requestedDate || null,
     approvedDate: guidance.approvedDate || null,
@@ -212,7 +225,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
         filePath: t.document.filePath,
       };
     }
-  } catch {}
+  } catch { }
   return { guidance: flat };
 }
 
@@ -223,19 +236,20 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     milestoneIds = [],
     documentUrl = null,
   } = options;
-  
+
   // DEBUG: Log received options
   console.log("[requestGuidanceService] options received:", JSON.stringify(options, null, 2));
   console.log("[requestGuidanceService] milestoneIds:", milestoneIds);
   console.log("[requestGuidanceService] milestoneId:", milestoneId);
-  
+
   let { student, thesis } = await getActiveThesisOrThrow(userId);
+  ensureThesisActive(thesis);
   thesis = await ensureThesisAcademicYear(thesis);
-  
+
   // Get student name for notifications - convert to Title Case
   const studentUser = await prisma.user.findUnique({ where: { id: userId } });
   const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
-  
+
   // Check if there's any pending request (status: requested)
   // Schema baru: tidak ada schedule relation
   const pendingRequest = await prisma.thesisGuidance.findFirst({
@@ -244,10 +258,10 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       status: "requested",
     },
   });
-  
+
   if (pendingRequest) {
     // Schema baru: gunakan requestedDate langsung
-    const dateStr = pendingRequest?.requestedDate 
+    const dateStr = pendingRequest?.requestedDate
       ? formatDateTimeJakarta(new Date(pendingRequest.requestedDate), { withDay: true })
       : "belum ditentukan";
     const err = new Error(`Anda masih memiliki pengajuan bimbingan yang belum direspon oleh dosen (jadwal: ${dateStr}). Tunggu hingga dosen menyetujui atau menolak pengajuan sebelumnya.`);
@@ -291,7 +305,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   }
   const selectedMilestoneId = validMilestones[0]?.id || null; // for notification data
   const milestoneNames = validMilestones.map((m) => m.title);
-  
+
   const supervisors = await getSupervisorsForThesis(thesis.id);
   const sup1 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_1);
   const sup2 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_2);
@@ -304,7 +318,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       throw err;
     }
   } else {
-    // fallback order: Pembimbing 1 -> Pembimbing 2 -> first available supervisor
+    // Placeholder - verified in next step - verified in next step: Pembimbing 1 -> Pembimbing 2 -> first available supervisor
     selectedSupervisorId = sup1?.lecturerId || sup2?.lecturerId || supervisors[0]?.lecturerId || null;
   }
   if (!selectedSupervisorId) {
@@ -380,9 +394,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       };
       await sendFcmToUsers([supUserId], {
         title: "Permintaan bimbingan baru",
-        body: `${studentName} mengajukan bimbingan. Jadwal: ${
-          data.scheduledAtFormatted || formatDateTimeJakarta(guidanceDate, { withDay: true }) || "-"
-        }`,
+        body: `${studentName} mengajukan bimbingan. Jadwal: ${data.scheduledAtFormatted || formatDateTimeJakarta(guidanceDate, { withDay: true }) || "-"
+          }`,
         data,
         dataOnly: true,
       });
@@ -395,7 +408,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
     try {
       const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesis.id);
       await mkdir(uploadsRoot, { recursive: true });
-      
+
       // Delete old file and document if exists
       if (thesis.documentId && thesis.document?.filePath) {
         try {
@@ -407,7 +420,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
           console.warn("Could not delete old document:", delErr.message);
         }
       }
-      
+
       const safeName = `thesis-document.pdf`; // Simple fixed name, always overwrite
       const filePath = path.join(uploadsRoot, safeName);
       await writeFile(filePath, file.buffer);
@@ -453,17 +466,25 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
   const { duration } = options;
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
-  
+
   // Get student name for notifications - convert to Title Case
   const studentUser = await prisma.user.findUnique({ where: { id: userId } });
   const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
-  
+
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
     const err = new Error("Guidance not found for this student");
     err.statusCode = 404;
     throw err;
   }
+
+  // Check if thesis is active
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: guidance.thesisId },
+    include: { thesisStatus: true }
+  });
+  ensureThesisActive(thesis);
+
   if (guidance.status === "accepted" || guidance.status === "rejected") {
     const err = new Error("Cannot reschedule an accepted or rejected guidance");
     err.statusCode = 400;
@@ -482,7 +503,7 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
     durationMinutes: duration || guidance.duration || 60,
     excludeGuidanceId: guidance.id,
   });
-  
+
   // Delete old calendar events if they exist (will create new ones when approved)
   try {
     if (guidance.studentCalendarEventId) {
@@ -499,7 +520,7 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
   } catch (e) {
     console.error("Failed to delete old calendar events:", e?.message || e);
   }
-  
+
   // Update requested date and reset feedback
   const updateData = {
     requestedDate: guidanceDate,
@@ -509,7 +530,7 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
   };
   // Only update optional fields if provided
   if (duration !== undefined) updateData.duration = duration;
-  
+
   const updated = await updateGuidanceById(guidance.id, updateData);
   // Persist notifications
   try {
@@ -540,10 +561,10 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
       scheduledAt: new Date(guidanceDate).toISOString(),
       scheduledAtFormatted: dateFormatted,
     };
-    await sendFcmToUsers(supUserIds, { 
-      title: "Jadwal bimbingan dijadwalkan ulang", 
-      body: `${studentName} menjadwalkan ulang bimbingan ke ${dateFormatted}`, 
-      data 
+    await sendFcmToUsers(supUserIds, {
+      title: "Jadwal bimbingan dijadwalkan ulang",
+      body: `${studentName} menjadwalkan ulang bimbingan ke ${dateFormatted}`,
+      data
     });
     // Student notification removed - frontend shows local toast instead
   } catch (e) {
@@ -568,21 +589,21 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
 export async function cancelGuidanceService(userId, guidanceId, reason) {
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
-  
+
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
     const err = new Error("Guidance not found for this student");
     err.statusCode = 404;
     throw err;
   }
-  
+
   // Only allow canceling "requested" status
   if (guidance.status !== "requested") {
     const err = new Error("Can only cancel pending guidance requests");
     err.statusCode = 400;
     throw err;
   }
-  
+
   // Delete calendar events if they exist
   try {
     if (guidance.studentCalendarEventId) {
@@ -607,13 +628,13 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
       const dateStr = guidance.requestedDate
         ? formatDateTimeJakarta(new Date(guidance.requestedDate), { withDay: true })
         : "belum ditentukan";
-      
+
       // Persist notification
       await createNotificationsForUsers([supervisorUserId], {
         title: "Pengajuan bimbingan dibatalkan",
         message: `${studentName} membatalkan pengajuan bimbingan untuk ${dateStr}${reason ? `. Alasan: ${reason}` : ""}`,
       });
-      
+
       // Send FCM
       const data = {
         type: "thesis-guidance:cancelled",
@@ -639,18 +660,18 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
   await prisma.thesisGuidance.delete({
     where: { id: guidance.id }
   });
-  
+
   return { success: true, message: "Guidance request deleted successfully" };
 }
 
 export async function updateStudentNotesService(userId, guidanceId, studentNotes) {
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
-  
+
   // Get student name for notifications - convert to Title Case
   const studentUser = await prisma.user.findUnique({ where: { id: userId } });
   const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
-  
+
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
     const err = new Error("Guidance not found for this student");
@@ -686,15 +707,15 @@ export async function updateStudentNotesService(userId, guidanceId, studentNotes
       thesisId: String(guidance.thesisId),
       notes: String(studentNotes || ""),
     };
-    await sendFcmToUsers(supUserIds, { 
-      title: "Catatan mahasiswa diperbarui", 
-      body: preview ? `${studentName}: ${preview}${studentNotes.length > 100 ? '...' : ''}` : `${studentName} memperbarui catatan`, 
-      data 
+    await sendFcmToUsers(supUserIds, {
+      title: "Catatan mahasiswa diperbarui",
+      body: preview ? `${studentName}: ${preview}${studentNotes.length > 100 ? '...' : ''}` : `${studentName} memperbarui catatan`,
+      data
     });
-    await sendFcmToUsers([userId], { 
-      title: "Catatan diperbarui", 
-      body: preview ? `${preview}${studentNotes.length > 100 ? '...' : ''}` : "Catatan berhasil diperbarui", 
-      data: { ...data, role: ROLE_CATEGORY.STUDENT } 
+    await sendFcmToUsers([userId], {
+      title: "Catatan diperbarui",
+      body: preview ? `${preview}${studentNotes.length > 100 ? '...' : ''}` : "Catatan berhasil diperbarui",
+      data: { ...data, role: ROLE_CATEGORY.STUDENT }
     });
   } catch (e) {
     console.warn("FCM notify failed (notes updated):", e?.message || e);
@@ -721,9 +742,9 @@ export async function getMyProgressService(userId) {
   // 1. Get existing milestones
   let milestones = await listMilestones(thesis.id);
 
-  // 2. If empty, seed from templates
-  if (milestones.length === 0) {
-    const templates = await listMilestoneTemplates();
+  // 2. If empty AND thesis has a topic, seed from topic-specific templates
+  if (milestones.length === 0 && thesis.thesisTopicId) {
+    const templates = await listMilestoneTemplates(thesis.thesisTopicId);
     if (templates.length > 0) {
       await createMilestonesDirectly(thesis.id, templates);
       milestones = await listMilestones(thesis.id);
@@ -746,6 +767,7 @@ export async function getMyProgressService(userId) {
 
 export async function completeProgressComponentsService(userId, componentIds, completedAt) {
   const { thesis } = await getActiveThesisOrThrow(userId);
+  ensureThesisActive(thesis);
   const when = completedAt || new Date();
 
   // Update status to completed for the given milestone IDs
@@ -792,6 +814,15 @@ export async function listSupervisorsService(userId) {
     email: p.lecturer?.user?.email || null,
     role: p.role?.name || null,
   }));
+
+  // Sort by role: Pembimbing 1 first
+  const roleOrder = { [ROLES.PEMBIMBING_1]: 1, [ROLES.PEMBIMBING_2]: 2 };
+  supervisors.sort((a, b) => {
+    const orderA = roleOrder[a.role] || 99;
+    const orderB = roleOrder[b.role] || 99;
+    return orderA - orderB;
+  });
+
   return { thesisId: thesis.id, supervisors };
 }
 
@@ -967,7 +998,7 @@ export async function submitSessionSummaryService(userId, guidanceId, { sessionS
   if (supervisorUserId) {
     const studentName = toTitleCaseName(student.user?.fullName || "Mahasiswa");
     const dateFormatted = formatDateTimeJakarta(guidance.approvedDate || guidance.requestedDate, { withDay: true }) || "";
-    
+
     await createNotificationsForUsers(
       [supervisorUserId],
       {
@@ -975,7 +1006,7 @@ export async function submitSessionSummaryService(userId, guidanceId, { sessionS
         message: `${studentName} telah mengisi catatan bimbingan dan menunggu approval Anda`,
       }
     );
-    
+
     sendFcmToUsers([supervisorUserId], {
       title: "Catatan Bimbingan Baru",
       body: `${studentName} telah mengisi catatan bimbingan`,
@@ -1054,7 +1085,7 @@ export async function markSessionCompleteService(userId, guidanceId, { sessionSu
   if (supervisorUserId) {
     const studentName = toTitleCaseName(student.user?.fullName || "Mahasiswa");
     const dateFormatted = formatDateTimeJakarta(guidance.approvedDate || guidance.requestedDate, { withDay: true }) || "";
-    
+
     await createNotificationsForUsers(
       [supervisorUserId],
       {
@@ -1062,7 +1093,7 @@ export async function markSessionCompleteService(userId, guidanceId, { sessionSu
         message: `${studentName} telah menyelesaikan sesi bimbingan${dateFormatted ? ` pada ${dateFormatted}` : ""}`,
       }
     );
-    
+
     sendFcmToUsers([supervisorUserId], {
       title: "Sesi Bimbingan Selesai",
       body: `${studentName} telah menyelesaikan sesi bimbingan`,
@@ -1169,7 +1200,7 @@ export async function getGuidanceForExportService(userId, guidanceId) {
  */
 export async function getMyThesisDetailService(userId) {
   const { student, thesis } = await getActiveThesisOrThrow(userId);
-  
+
   // Get thesis with all related data
   const fullThesis = await prisma.thesis.findUnique({
     where: { id: thesis.id },
@@ -1225,7 +1256,7 @@ export async function getMyThesisDetailService(userId) {
     where: { thesisId: thesis.id },
     select: { status: true, progressPercentage: true, targetDate: true }
   });
-  
+
   const totalMilestones = milestones.length;
   const completedMilestones = milestones.filter(m => m.status === 'completed').length;
   const inProgressMilestones = milestones.filter(m => m.status === 'in_progress').length;
@@ -1234,8 +1265,8 @@ export async function getMyThesisDetailService(userId) {
     if (!m.targetDate) return false;
     return new Date(m.targetDate) < new Date();
   }).length;
-  const milestoneProgress = totalMilestones > 0 
-    ? Math.round((completedMilestones / totalMilestones) * 100) 
+  const milestoneProgress = totalMilestones > 0
+    ? Math.round((completedMilestones / totalMilestones) * 100)
     : 0;
 
   // Format supervisors
@@ -1245,6 +1276,7 @@ export async function getMyThesisDetailService(userId) {
       id: p.lecturerId,
       name: p.lecturer?.user?.fullName || null,
       email: p.lecturer?.user?.email || null,
+      identityNumber: p.lecturer?.user?.identityNumber || null,
       role: p.role?.name || null,
     }));
 
@@ -1309,9 +1341,13 @@ export async function getMyThesisDetailService(userId) {
       seminarApproval: (() => {
         const sup1 = fullThesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
         const sup2 = fullThesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
+        const s1 = sup1?.seminarReady || false;
+        const s2 = sup2?.seminarReady || false;
         return {
-          pembimbing1: sup1?.seminarReady || false,
-          pembimbing2: sup2?.seminarReady || false,
+          pembimbing1: s1,
+          pembimbing2: s2,
+          hasPembimbing2: !!sup2,
+          isFullyApproved: (sup1 ? s1 : true) && (sup2 ? s2 : true),
         };
       })(),
     }
@@ -1349,5 +1385,39 @@ export async function updateMyThesisTitleService(userId, newTitle) {
       title: updated.title,
       updatedAt: updated.updatedAt,
     }
+  };
+}
+
+/**
+ * Get thesis history for student
+ * @param {string} userId
+ */
+export async function getThesisHistoryService(userId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Student profile not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const theses = await getThesisHistory(student.id);
+
+  return {
+    theses: theses.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.thesisStatus?.name || "Unknown",
+      topic: t.thesisTopic?.name || "-",
+      academicYear: t.academicYear
+        ? `${t.academicYear.year}/${t.academicYear.year + 1} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
+        : "-",
+      createdAt: t.createdAt,
+      stats: {
+        guidances: t._count.thesisGuidances,
+        completedMilestones: ["Dibatalkan", "Gagal"].includes(t.thesisStatus?.name)
+          ? `0/${t._count.thesisMilestones}`
+          : t._count.thesisMilestones,
+      },
+    })),
   };
 }

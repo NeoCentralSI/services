@@ -70,7 +70,7 @@ export async function updateProfileHandler(req, res, next) {
 				},
 				student: {
 					include: {
-						studentStatus: true,
+						// studentStatus removed (now enum)
 					},
 				},
 				lecturer: {
@@ -103,7 +103,7 @@ export async function updateProfileHandler(req, res, next) {
 				id: updatedUser.student.id,
 				enrollmentYear: updatedUser.student.enrollmentYear,
 				sksCompleted: updatedUser.student.skscompleted,
-				status: updatedUser.student.studentStatus?.name || null,
+				status: updatedUser.student.status || null,
 			};
 		}
 

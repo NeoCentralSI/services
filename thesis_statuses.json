@@ -1,0 +1,38 @@
+[
+  {
+    "id": "0768036e-59cf-47d2-a5f2-55787375beae",
+    "name": "Sidang"
+  },
+  {
+    "id": "19615ed1-9424-47ec-9977-24f6c230330c",
+    "name": "Acc Seminar"
+  },
+  {
+    "id": "59e4c3cb-1573-45aa-bb6e-e5020777517b",
+    "name": "Pengajuan Judul"
+  },
+  {
+    "id": "99a6fe15-9c4c-465b-915f-6f3d4fea5b96",
+    "name": "Revisi Seminar"
+  },
+  {
+    "id": "add4d5b0-7be4-42c3-be8c-2aa31a3825e7",
+    "name": "Selesai"
+  },
+  {
+    "id": "c8c06ea9-0de7-4567-b78e-37c01c58da19",
+    "name": "Gagal"
+  },
+  {
+    "id": "ce0bf6f6-61e2-4b4e-b436-324a92037948",
+    "name": "Seminar Proposal"
+  },
+  {
+    "id": "d8e53430-cf42-4dcc-872b-412f351a6caf",
+    "name": "Bimbingan"
+  },
+  {
+    "id": "fa4e9eb8-7cc7-4924-a02e-43756e399a7a",
+    "name": "Revisi Sidang"
+  }
+]

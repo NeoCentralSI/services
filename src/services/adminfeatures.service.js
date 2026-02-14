@@ -74,7 +74,7 @@ export async function adminUpdateUser(id, payload = {}) {
 	// Validate: if identityType is NIM (current or new), role must be student only
 	const currentIdentityType = String(user.identityType || "").toUpperCase();
 	const newIdentityType = String(identityType || currentIdentityType || "").toUpperCase();
-	
+
 	if (newIdentityType === "NIM" && Array.isArray(roles)) {
 		const hasNonStudentRole = roles.some((r) => {
 			const roleName = typeof r === "string" ? r : r?.name;
@@ -124,47 +124,47 @@ export async function adminUpdateUser(id, payload = {}) {
 
 	// Update roles if provided (manage only non-admin roles)
 	if (Array.isArray(roles)) {
-			// roles can be string[] or {name, status}[]
-			const desired = [];
-			for (const r of roles) {
-				if (typeof r === "string") desired.push({ name: r, status: undefined });
-				else if (r && typeof r.name === "string") desired.push({ name: r.name, status: r.status });
-			}
-			// Normalize
-			const desiredClean = desired
-				.map((x) => ({ name: x.name.trim().toLowerCase(), status: x.status }))
-				.filter((x) => x.name && normalize(x.name) !== normalize(ROLES.ADMIN));
+		// roles can be string[] or {name, status}[]
+		const desired = [];
+		for (const r of roles) {
+			if (typeof r === "string") desired.push({ name: r, status: undefined });
+			else if (r && typeof r.name === "string") desired.push({ name: r.name, status: r.status });
+		}
+		// Normalize
+		const desiredClean = desired
+			.map((x) => ({ name: x.name.trim().toLowerCase(), status: x.status }))
+			.filter((x) => x.name && normalize(x.name) !== normalize(ROLES.ADMIN));
 
-			// Get existing roles
-			const existing = await getUserRolesWithIds(id);
-			const existingByRoleId = new Map(existing.map((ur) => [ur.roleId, ur]));
-			const existingByName = new Map(existing.map((ur) => [normalize(ur.role?.name || ""), ur]));
+		// Get existing roles
+		const existing = await getUserRolesWithIds(id);
+		const existingByRoleId = new Map(existing.map((ur) => [ur.roleId, ur]));
+		const existingByName = new Map(existing.map((ur) => [normalize(ur.role?.name || ""), ur]));
 
-			// Build set of desired role IDs
-			const desiredRoleIds = new Set();
-			for (const item of desiredClean) {
-				let role = await findRoleByName(item.name);
-				if (!role) role = await getOrCreateRole(item.name);
-				desiredRoleIds.add(role.id);
-				const current = existingByRoleId.get(role.id) || existingByName.get(item.name);
-				const status = item.status || current?.status || "active";
-				// Upsert and update status when provided
-				await upsertUserRole(id, role.id, status);
-			}
+		// Build set of desired role IDs
+		const desiredRoleIds = new Set();
+		for (const item of desiredClean) {
+			let role = await findRoleByName(item.name);
+			if (!role) role = await getOrCreateRole(item.name);
+			desiredRoleIds.add(role.id);
+			const current = existingByRoleId.get(role.id) || existingByName.get(item.name);
+			const status = item.status || current?.status || "active";
+			// Upsert and update status when provided
+			await upsertUserRole(id, role.id, status);
+		}
 
-			// Remove roles that are no longer desired (except Admin role)
-			const rolesToRemove = [];
-			for (const ur of existing) {
-				const roleName = ur.role?.name || "";
-				// Never remove Admin role via this endpoint
-				if (normalize(roleName) === normalize(ROLES.ADMIN)) continue;
-				if (!desiredRoleIds.has(ur.roleId)) {
-					rolesToRemove.push(ur.roleId);
-				}
+		// Remove roles that are no longer desired (except Admin role)
+		const rolesToRemove = [];
+		for (const ur of existing) {
+			const roleName = ur.role?.name || "";
+			// Never remove Admin role via this endpoint
+			if (normalize(roleName) === normalize(ROLES.ADMIN)) continue;
+			if (!desiredRoleIds.has(ur.roleId)) {
+				rolesToRemove.push(ur.roleId);
 			}
-			if (rolesToRemove.length > 0) {
-				await deleteUserRolesByIds(id, rolesToRemove);
-			}
+		}
+		if (rolesToRemove.length > 0) {
+			await deleteUserRolesByIds(id, rolesToRemove);
+		}
 	}
 
 	// Ensure Student/Lecturer records when relevant
@@ -320,7 +320,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 
 	const sep = detectSeparator(fileBuffer);
 
-		const rows = await new Promise((resolve, reject) => {
+	const rows = await new Promise((resolve, reject) => {
 		const out = [];
 		const stream = Readable.from(fileBuffer);
 		stream
@@ -332,11 +332,11 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 					const nk = String(k).replace(/^\ufeff/, "").trim().toLowerCase();
 					norm[nk] = data[k];
 				}
-						out.push({
+				out.push({
 					nim: clean(norm.nim || ""),
 					nama: clean(norm.nama || norm.name || ""),
-							email: clean(norm.email || "").toLowerCase(),
-							sks_completed: clean(norm.sks_completed || norm["sks_completed"] || norm.sks || ""),
+					email: clean(norm.email || "").toLowerCase(),
+					sks_completed: clean(norm.sks_completed || norm["sks_completed"] || norm.sks || ""),
 				});
 			})
 			.on("end", () => resolve(out))
@@ -510,14 +510,14 @@ export async function updateAcademicYear(id, { semester, year, startDate, endDat
 	const now = new Date();
 	const wibOffset = 7 * 60; // WIB = UTC+7
 	const nowWIB = new Date(now.getTime() + (wibOffset + now.getTimezoneOffset()) * 60 * 1000);
-	
+
 	let isCurrentlyActive = false;
 	if (existing.startDate && existing.endDate) {
 		const endDate = new Date(existing.endDate);
 		endDate.setHours(23, 59, 59, 999);
 		isCurrentlyActive = nowWIB >= existing.startDate && nowWIB <= endDate;
 	}
-	
+
 	if (!isCurrentlyActive) {
 		const err = new Error("Tahun ajaran yang tidak aktif tidak dapat diedit");
 		err.statusCode = 400;
@@ -558,11 +558,11 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 
 	const where = search
 		? {
-				OR: [
-					{ year: !isNaN(parseInt(search)) ? parseInt(search) : undefined },
-					{ semester: { contains: search, mode: "insensitive" } },
-				].filter((condition) => condition.year !== undefined || condition.semester !== undefined),
-		  }
+			OR: [
+				{ year: !isNaN(parseInt(search)) ? parseInt(search) : undefined },
+				{ semester: { contains: search, mode: "insensitive" } },
+			].filter((condition) => condition.year !== undefined || condition.semester !== undefined),
+		}
 		: {};
 
 	const [academicYears, total] = await Promise.all([
@@ -685,12 +685,12 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 		student: { isNot: null }, // Only users with student record
 		...(search
 			? {
-					OR: [
-						{ fullName: { contains: search, mode: "insensitive" } },
-						{ email: { contains: search, mode: "insensitive" } },
-						{ identityNumber: { contains: search, mode: "insensitive" } },
-					],
-			  }
+				OR: [
+					{ fullName: { contains: search, mode: "insensitive" } },
+					{ email: { contains: search, mode: "insensitive" } },
+					{ identityNumber: { contains: search, mode: "insensitive" } },
+				],
+			}
 			: {}),
 	};
 
@@ -701,13 +701,13 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 			take,
 			orderBy: { createdAt: "desc" },
 			include: {
-				   student: {
-					   include: {
-						   thesis: {
+				student: {
+					include: {
+						thesis: {
 							where: {
 								thesisStatus: {
 									name: {
-										notIn: ["Selesai", "Dibatalkan"],
+										notIn: ["Selesai", "Dibatalkan", "Gagal", "selesai", "dibatalkan", "gagal"],
 									},
 								},
 							},
@@ -751,20 +751,20 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 		createdAt: user.createdAt,
 		student: user.student
 			? {
-					id: user.student.id,
-					enrollmentYear: user.student.enrollmentYear,
-					sksCompleted: user.student.skscompleted,
-					   status: user.student.status || null,
-					activeTheses: user.student.thesis.map((thesis) => ({
-						title: thesis.title,
-						supervisors: thesis.thesisSupervisors
-							.filter((tp) => isSupervisorRole(tp.role.name))
-							.map((tp) => ({
-								role: tp.role.name,
-								fullName: tp.lecturer.user.fullName,
-							})),
-					})),
-			  }
+				id: user.student.id,
+				enrollmentYear: user.student.enrollmentYear,
+				sksCompleted: user.student.skscompleted,
+				status: user.student.status || null,
+				activeTheses: user.student.thesis.map((thesis) => ({
+					title: thesis.title,
+					supervisors: thesis.thesisSupervisors
+						.filter((tp) => isSupervisorRole(tp.role.name))
+						.map((tp) => ({
+							role: tp.role.name,
+							fullName: tp.lecturer.user.fullName,
+						})),
+				})),
+			}
 			: null,
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,
@@ -793,12 +793,12 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 		lecturer: { isNot: null }, // Only users with lecturer record
 		...(search
 			? {
-					OR: [
-						{ fullName: { contains: search, mode: "insensitive" } },
-						{ email: { contains: search, mode: "insensitive" } },
-						{ identityNumber: { contains: search, mode: "insensitive" } },
-					],
-			  }
+				OR: [
+					{ fullName: { contains: search, mode: "insensitive" } },
+					{ email: { contains: search, mode: "insensitive" } },
+					{ identityNumber: { contains: search, mode: "insensitive" } },
+				],
+			}
 			: {}),
 	};
 
@@ -841,10 +841,10 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 		createdAt: user.createdAt,
 		lecturer: user.lecturer
 			? {
-					id: user.lecturer.id,
-					activeGuidances: user.lecturer._count?.thesisGuidances || 0,
-					participations: user.lecturer._count?.thesisSupervisors || 0,
-			  }
+				id: user.lecturer.id,
+				activeGuidances: user.lecturer._count?.thesisGuidances || 0,
+				participations: user.lecturer._count?.thesisSupervisors || 0,
+			}
 			: null,
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,
@@ -875,9 +875,9 @@ export async function getStudentDetail(userId) {
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		include: {
-			   student: {
-				   include: {
-					   thesis: {
+			student: {
+				include: {
+					thesis: {
 						include: {
 							thesisStatus: true,
 							thesisTopic: true,
@@ -1015,7 +1015,7 @@ export async function getStudentDetail(userId) {
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.skscompleted,
-			   status: user.student.status || null,
+			status: user.student.status || null,
 		},
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,
@@ -1205,7 +1205,7 @@ export async function deleteThesis(thesisId, reason = null) {
 		throw err;
 	}
 
-	// Log info before deletion
+	// Log info before archiving
 	const logInfo = {
 		thesisId: thesis.id,
 		studentName: thesis.student?.user?.fullName,
@@ -1213,86 +1213,57 @@ export async function deleteThesis(thesisId, reason = null) {
 		title: thesis.title,
 		topic: thesis.thesisTopic?.name,
 		status: thesis.thesisStatus?.name,
-		supervisors: thesis.thesisSupervisors.map((p) => ({
-			name: p.lecturer?.user?.fullName,
-			role: p.role?.name,
-		})),
-		deletedAt: new Date().toISOString(),
+		action: 'ARCHIVED', // Changed from DELETED
+		archivedAt: new Date().toISOString(),
 		reason,
 	};
 
-	console.log("🗑️ Deleting thesis:", JSON.stringify(logInfo, null, 2));
+	console.log("📦 Archiving thesis:", JSON.stringify(logInfo, null, 2));
 
-	// Delete in transaction with proper order (child first, parent last)
-	const result = await prisma.$transaction(async (tx) => {
-		const deletedCounts = {};
-
-		// 1. Delete thesis defence related
-		deletedCounts.thesisDefenceScores = (await tx.thesisDefenceScore.deleteMany({ where: { defence: { thesisId } } })).count;
-		deletedCounts.thesisDefences = (await tx.thesisDefence.deleteMany({ where: { thesisId } })).count;
-
-		// 2. Delete thesis seminar related
-		deletedCounts.thesisSeminarScores = (await tx.thesisSeminarScore.deleteMany({ where: { seminar: { thesisId } } })).count;
-		deletedCounts.thesisSeminarAudiences = (await tx.thesisSeminarAudience.deleteMany({ where: { seminar: { thesisId } } })).count;
-		deletedCounts.thesisSeminars = (await tx.thesisSeminar.deleteMany({ where: { thesisId } })).count;
-
-		// 3. Delete guidance related
-		deletedCounts.thesisGuidances = (await tx.thesisGuidance.deleteMany({ where: { thesisId } })).count;
-
-		// 4. Delete milestone related
-		deletedCounts.thesisMilestones = (await tx.thesisMilestone.deleteMany({ where: { thesisId } })).count;
-
-		// 5. Delete examiners and participants
-		deletedCounts.thesisExaminers = (await tx.thesisExaminer.deleteMany({ where: { thesisId } })).count;
-		deletedCounts.thesisSupervisors = (await tx.ThesisSupervisors.deleteMany({ where: { thesisId } })).count;
-
-		// 6. Finally delete the thesis itself
-		await tx.thesis.delete({ where: { id: thesisId } });
-		deletedCounts.thesis = 1;
-
-		// 7. Delete orphaned documents (if any)
-		if (thesis.documentId) {
-			try {
-				await tx.document.delete({ where: { id: thesis.documentId } });
-				deletedCounts.documents = (deletedCounts.documents || 0) + 1;
-			} catch (e) {
-				// Document might be referenced elsewhere, ignore
-			}
-		}
-		if (thesis.finalThesisDocumentId) {
-			try {
-				await tx.document.delete({ where: { id: thesis.finalThesisDocumentId } });
-				deletedCounts.documents = (deletedCounts.documents || 0) + 1;
-			} catch (e) {
-				// Document might be referenced elsewhere, ignore
-			}
-		}
-
-		return deletedCounts;
+	// Find 'Dibatalkan' status
+	const dibatalkanStatus = await prisma.thesisStatus.findFirst({
+		where: { name: "Dibatalkan" },
 	});
 
-	// Delete thesis folder from disk
-	try {
-		const thesisFolder = path.join(process.cwd(), "uploads", "thesis", thesisId);
-		if (fs.existsSync(thesisFolder)) {
-			fs.rmSync(thesisFolder, { recursive: true, force: true });
-			console.log("🗑️ Deleted thesis folder:", thesisFolder);
-		}
-	} catch (fsErr) {
-		console.warn("Could not delete thesis folder:", fsErr.message);
+	let targetStatusId = dibatalkanStatus?.id;
+
+	if (!targetStatusId) {
+		// Fallback to 'Gagal' if 'Dibatalkan' doesn't exist
+		const gagalStatus = await prisma.thesisStatus.findFirst({
+			where: { name: "Gagal" },
+		});
+		targetStatusId = gagalStatus?.id;
 	}
 
-	// Notify student that their thesis has been deleted and they need to re-register
+	if (!targetStatusId) {
+		const err = new Error("Status 'Dibatalkan' or 'Gagal' not found. Cannot archive thesis.");
+		err.statusCode = 500;
+		throw err;
+	}
+
+	// Soft delete / Archive: Update status instead of deleting
+	const result = await prisma.thesis.update({
+		where: { id: thesisId },
+		data: {
+			thesisStatusId: targetStatusId,
+			// Optional: append (Dibatalkan) to title to distinguish it, though status is usually enough.
+			// Keeping title clean might be better for history, but appending helps if unique constraints exist on title (unlikely here but possible).
+			// Let's NOT modify title unless necessary, or maybe just append Dibatalkan for clarity in lists.
+			title: `${thesis.title} (Dibatalkan)`,
+		},
+	});
+
+	// Notify student that their thesis has been archived/cancelled and they need to re-register
 	try {
-		const studentUserId = thesis.student?.id;
+		const studentUserId = thesis.student?.user?.id; // Fixed path: student.user.id
 		if (studentUserId) {
 			const isFailedReason = reason && reason.toLowerCase().includes('failed');
-			const title = isFailedReason 
-				? '⚠️ Tugas Akhir Anda Dihapus (Batas Waktu Terlampaui)'
-				: '📋 Tugas Akhir Anda Dihapus';
+			const title = isFailedReason
+				? '⚠️ Tugas Akhir Anda Dibatalkan (Batas Waktu Terlampaui)'
+				: '📋 Tugas Akhir Anda Dibatalkan';
 			const message = isFailedReason
-				? `Tugas Akhir "${thesis.title || 'Untitled'}" telah dihapus karena melampaui batas waktu 1 tahun. Silakan daftar tugas akhir kembali dari awal dengan memilih topik baru.`
-				: `Tugas Akhir "${thesis.title || 'Untitled'}" telah dihapus. ${reason ? `Alasan: ${reason}` : ''} Silakan daftar tugas akhir kembali jika diperlukan.`;
+				? `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan karena melampaui batas waktu 1 tahun. Silakan daftar tugas akhir kembali dari awal.`
+				: `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan. ${reason ? `Alasan: ${reason}` : ''} Silakan daftar tugas akhir kembali jika diperlukan.`;
 
 			// Create in-app notification
 			await createNotificationsForUsers([studentUserId], { title, message });
@@ -1302,7 +1273,7 @@ export async function deleteThesis(thesisId, reason = null) {
 				title,
 				body: message,
 				data: {
-					type: 'thesis_deleted',
+					type: 'thesis_archived', // Changed from thesis_deleted
 					reason: reason || '',
 					requiresReRegistration: 'true',
 				},
@@ -1314,13 +1285,12 @@ export async function deleteThesis(thesisId, reason = null) {
 		console.warn("Could not send notification to student:", notifErr.message);
 	}
 
-	console.log("✅ Thesis deleted successfully:", result);
+	console.log("✅ Thesis archived successfully:", result.id);
 
 	return {
 		success: true,
-		message: `Thesis "${thesis.title || "Untitled"}" berhasil dihapus`,
-		deletedThesis: logInfo,
-		deletedCounts: result,
+		message: `Thesis "${thesis.title || "Untitled"}" berhasil diarsipkan (Dibatalkan)`,
+		archivedThesis: logInfo,
 	};
 }
 
@@ -1424,7 +1394,7 @@ export async function createThesisManually({ studentId, title, thesisTopicId, su
 		where: {
 			studentId,
 			thesisStatus: {
-				name: { notIn: ["selesai", "gagal"] },
+				name: { notIn: ["Selesai", "Dibatalkan", "Gagal", "selesai", "dibatalkan", "gagal"] },
 			},
 		},
 	});
@@ -1505,6 +1475,56 @@ export async function getThesisById(id) {
 }
 
 /**
+ * Soft Delete thesis (Admin)
+ * Sets status to 'Dibatalkan' and soft deletes related data
+ */
+export async function deleteThesis(id) {
+	const thesis = await prisma.thesis.findUnique({
+		where: { id },
+		include: { thesisStatus: true }
+	});
+
+	if (!thesis) {
+		const err = new Error("Tugas akhir tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Find 'Dibatalkan' status
+	const dibatalkanStatus = await prisma.thesisStatus.findFirst({
+		where: { name: "Dibatalkan" }
+	});
+
+	if (!dibatalkanStatus) {
+		const err = new Error("Status 'Dibatalkan' not found in database");
+		err.statusCode = 500;
+		throw err;
+	}
+
+	// Update thesis status
+	await prisma.thesis.update({
+		where: { id },
+		data: {
+			thesisStatusId: dibatalkanStatus.id,
+			title: `${thesis.title} (Dibatalkan)`,
+		}
+	});
+
+	// Soft delete guidances
+	await prisma.thesisGuidance.updateMany({
+		where: { thesisId: id },
+		data: { status: "deleted" }
+	});
+
+	// Soft delete milestones
+	await prisma.thesisMilestone.updateMany({
+		where: { thesisId: id },
+		data: { status: "deleted" }
+	});
+
+	return { message: "Tugas akhir berhasil dibatalkan (soft delete)" };
+}
+/**
  * Update thesis (Admin)
  */
 export async function updateThesisManually(id, { title, thesisTopicId, supervisors }) {
@@ -1564,7 +1584,7 @@ export async function getAvailableStudents() {
 			thesis: {
 				none: {
 					thesisStatus: {
-						name: { notIn: ["selesai", "gagal"] },
+						name: { notIn: ["Selesai", "Dibatalkan", "Gagal", "selesai", "dibatalkan", "gagal"] },
 					},
 				},
 			},
