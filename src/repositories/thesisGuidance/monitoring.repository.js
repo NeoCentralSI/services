@@ -106,11 +106,11 @@ export async function getThesesOverview(filters = {}) {
  */
 export async function getStatusDistribution(academicYear) {
   const where = academicYear ? { academicYearId: academicYear } : {};
-  
+
   const statuses = await prisma.thesisStatus.findMany({
     include: {
       _count: {
-        select: { 
+        select: {
           thesis: {
             where,
           },
@@ -136,7 +136,7 @@ export async function getRatingDistribution(academicYear) {
       name: { notIn: ["Selesai", "Gagal"] },
     },
   };
-  
+
   if (academicYear) {
     where.academicYearId = academicYear;
   }
@@ -178,11 +178,11 @@ export async function getProgressStatistics(academicYear) {
       name: { notIn: ["Selesai", "Gagal"] },
     },
   };
-  
+
   if (academicYear) {
     where.academicYearId = academicYear;
   }
-  
+
   // Get all theses with milestones
   const theses = await prisma.thesis.findMany({
     where,
@@ -244,7 +244,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
       name: { notIn: ["Selesai", "Gagal", "Acc Seminar"] },
     },
   };
-  
+
   if (academicYear) {
     where.academicYearId = academicYear;
   }
@@ -330,11 +330,11 @@ export async function getStudentsReadyForSeminar(academicYear) {
       },
     },
   };
-  
+
   if (academicYear) {
     where.academicYearId = academicYear;
   }
-  
+
   return prisma.thesis.findMany({
     where,
     include: {
@@ -486,48 +486,10 @@ export async function getThesisDetailById(thesisId) {
         },
       },
       thesisSeminars: {
-        include: {
-          schedule: {
-            include: {
-              room: true,
-            },
-          },
-          result: true,
-          scores: {
-            include: {
-              scorer: {
-                include: {
-                  user: {
-                    select: { fullName: true },
-                  },
-                },
-              },
-              rubricDetail: true,
-            },
-          },
-        },
+        orderBy: { createdAt: "desc" },
       },
       thesisDefences: {
-        include: {
-          schedule: {
-            include: {
-              room: true,
-            },
-          },
-          status: true,
-          scores: {
-            include: {
-              scorer: {
-                include: {
-                  user: {
-                    select: { fullName: true },
-                  },
-                },
-              },
-              rubricDetail: true,
-            },
-          },
-        },
+        orderBy: { createdAt: "desc" },
       },
     },
   });
@@ -539,7 +501,7 @@ export async function getThesisDetailById(thesisId) {
  */
 export async function getThesesForReport(academicYearId) {
   const where = {};
-  
+
   if (academicYearId) {
     where.academicYearId = academicYearId;
   }
@@ -556,7 +518,7 @@ export async function getThesesForReport(academicYearId) {
               email: true,
             },
           },
-          studentStatus: true,
+          // studentStatus removed (now enum)
         },
       },
       thesisStatus: true,

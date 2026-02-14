@@ -15,9 +15,30 @@ export async function getActiveThesisForStudent(studentId) {
     ],
     include: {
       document: { select: { id: true, filePath: true, fileName: true } },
+      thesisStatus: { select: { id: true, name: true } },
     },
   });
   return thesis;
+}
+
+export async function getThesisHistory(studentId) {
+  const theses = await prisma.thesis.findMany({
+    where: { studentId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      thesisStatus: { select: { id: true, name: true } },
+      thesisTopic: { select: { id: true, name: true } },
+      academicYear: { select: { id: true, year: true, semester: true } },
+      document: { select: { id: true, filePath: true, fileName: true } },
+      _count: {
+        select: {
+          thesisGuidances: { where: { status: "completed" } },
+          thesisMilestones: { where: { status: { not: "deleted" } } }
+        }
+      }
+    },
+  });
+  return theses;
 }
 
 export async function getSupervisorsForThesis(thesisId) {
@@ -33,7 +54,12 @@ export async function getSupervisorsForThesis(thesisId) {
 
 export function listGuidancesForThesis(thesisId, status) {
   const where = { thesisId };
-  if (status) where.status = status;
+  if (status) {
+    where.status = status;
+  } else {
+    // Default: exclude deleted
+    where.status = { not: "deleted" };
+  }
   // Schema baru: tidak ada schedule relation, gunakan requestedDate/approvedDate langsung
   return prisma.thesisGuidance.findMany({
     where,
@@ -57,7 +83,7 @@ export function getGuidanceByIdForStudent(guidanceId, studentId) {
 
 // Schema baru: tidak ada ThesisGuidanceSchedule, requestedDate langsung di ThesisGuidance
 export function createGuidance(data) {
-  return prisma.thesisGuidance.create({ 
+  return prisma.thesisGuidance.create({
     data,
     include: { supervisor: { include: { user: true } } }
   });
@@ -65,23 +91,26 @@ export function createGuidance(data) {
 
 // Schema baru: update requestedDate langsung di ThesisGuidance
 export function updateGuidanceRequestedDate(guidanceId, requestedDate) {
-  return prisma.thesisGuidance.update({ 
-    where: { id: guidanceId }, 
-    data: { requestedDate } 
+  return prisma.thesisGuidance.update({
+    where: { id: guidanceId },
+    data: { requestedDate }
   });
 }
 
 export function updateGuidanceById(id, data) {
-  return prisma.thesisGuidance.update({ 
-    where: { id }, 
-    data, 
-    include: { supervisor: { include: { user: true } } } 
+  return prisma.thesisGuidance.update({
+    where: { id },
+    data,
+    include: { supervisor: { include: { user: true } } }
   });
 }
 
 export function listGuidanceHistoryByStudent(studentId) {
   return prisma.thesisGuidance.findMany({
-    where: { thesis: { studentId } },
+    where: {
+      thesis: { studentId },
+      status: { not: "deleted" }
+    },
     include: { supervisor: { include: { user: true } } },
     orderBy: [
       { requestedDate: "desc" },
@@ -92,14 +121,21 @@ export function listGuidanceHistoryByStudent(studentId) {
 
 export function listMilestones(thesisId) {
   return prisma.thesisMilestone.findMany({
-    where: { thesisId },
+    where: {
+      thesisId,
+      status: { not: "deleted" }
+    },
     orderBy: { orderIndex: "asc" },
   });
 }
 
-export function listMilestoneTemplates() {
+export function listMilestoneTemplates(topicId) {
+  const where = { isActive: true };
+  if (topicId) {
+    where.topicId = topicId;
+  }
   return prisma.thesisMilestoneTemplate.findMany({
-    where: { isActive: true },
+    where,
     orderBy: { orderIndex: "asc" },
   });
 }
@@ -126,8 +162,8 @@ export function getCompletionsForThesis(thesisId) {
 }
 
 export async function upsertStudentCompletions(thesisId, componentIds = [], completedAt = undefined) {
-   // Implementation needs to be updated for ThesisMilestone if still needed
-   return { updated: 0, created: 0 };
+  // Implementation needs to be updated for ThesisMilestone if still needed
+  return { updated: 0, created: 0 };
 }
 
 // ==================== SESSION SUMMARY ====================
@@ -223,4 +259,5 @@ export function getGuidancesNeedingSummary(studentId) {
     orderBy: [{ approvedDate: "desc" }],
   });
 }
+
 

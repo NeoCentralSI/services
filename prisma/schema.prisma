@@ -1357,6 +1357,7 @@ enum GuidanceStatus {
   summary_pending
   completed
   cancelled
+  deleted
 }
 
 enum MilestoneStatus {
@@ -1365,6 +1366,7 @@ enum MilestoneStatus {
   pending_review
   revision_needed
   completed
+  deleted
 }
 
 enum SeminarStatus {

@@ -1,6 +1,6 @@
 import * as thesisChangeRequestRepository from '../repositories/thesisChangeRequest.repository.js';
 import prisma from '../config/prisma.js';
-import { deleteThesis } from './adminfeatures.service.js';
+
 import { createNotificationsForUsers } from './notification.service.js';
 import { sendFcmToUsers } from './push.service.js';
 import { ROLES, SUPERVISOR_ROLES } from '../constants/roles.js';
@@ -25,6 +25,10 @@ class BadRequestError extends Error {
  */
 export const submitRequest = async (userId, data) => {
   const { requestType, reason } = data;
+
+  if (requestType !== 'topic') {
+    throw new BadRequestError('Hanya pergantian topik yang diperbolehkan');
+  }
 
   // Get student's thesis
   const thesis = await prisma.thesis.findFirst({
@@ -87,7 +91,7 @@ export const submitRequest = async (userId, data) => {
     const supervisorUserIds = supervisors.map(s => s.userId);
     const notifTitle = 'Permintaan Pergantian Topik/Pembimbing';
     const notifMessage = `${thesis.student.user.fullName} mengajukan permintaan pergantian ${getRequestTypeLabel(requestType)}. Mohon tinjau permintaan ini.`;
-    
+
     await createNotificationsForUsers(
       supervisorUserIds,
       {
@@ -98,7 +102,7 @@ export const submitRequest = async (userId, data) => {
         link: `/tugas-akhir/change-requests/${request.id}` // Lecturer link
       }
     );
-    
+
     // Send FCM push notification
     await sendFcmToUsers(supervisorUserIds, {
       title: notifTitle,
@@ -110,7 +114,17 @@ export const submitRequest = async (userId, data) => {
   // Notify Kadep (Informational)
   await notifyKadepNewRequest(request);
 
-  return request;
+  return flattenRequest(request); // Flatten for return
+};
+
+const flattenRequest = (req) => {
+  if (req && req.thesis && req.thesis.student) {
+    return {
+      ...req,
+      student: req.thesis.student
+    };
+  }
+  return req;
 };
 
 /**
@@ -125,21 +139,30 @@ export const getMyRequests = async (userId) => {
     return [];
   }
 
-  return await thesisChangeRequestRepository.findByThesisId(thesis.id);
+  const requests = await thesisChangeRequestRepository.findByThesisId(thesis.id);
+  return requests.map(flattenRequest);
 };
 
 /**
  * Get pending requests (for Kadep)
  */
 export const getPendingRequests = async (query) => {
-  return await thesisChangeRequestRepository.findAllPending(query);
+  const result = await thesisChangeRequestRepository.findAllPending(query);
+  if (result.data) {
+    result.data = result.data.map(flattenRequest);
+  }
+  return result;
 };
 
 /**
  * Get all requests with filters (for Kadep)
  */
 export const getAllRequests = async (query) => {
-  return await thesisChangeRequestRepository.findAll(query);
+  const result = await thesisChangeRequestRepository.findAll(query);
+  if (result.data) {
+    result.data = result.data.map(flattenRequest);
+  }
+  return result;
 };
 
 /**
@@ -150,7 +173,7 @@ export const getRequestById = async (id) => {
   if (!request) {
     throw new NotFoundError('Permintaan tidak ditemukan');
   }
-  return request;
+  return flattenRequest(request);
 };
 
 /**
@@ -179,15 +202,61 @@ export const approveRequest = async (requestId, reviewerId, reviewNotes = null) 
     reviewedAt: new Date(),
   });
 
-  // Delete the thesis
-  const deleteReason = `Pergantian ${getRequestTypeLabel(request.requestType)} disetujui oleh Kadep. Alasan mahasiswa: ${request.reason}${reviewNotes ? `. Catatan Kadep: ${reviewNotes}` : ''}`;
-  
-  await deleteThesis(request.thesisId, deleteReason);
+  // Archive the thesis instead of deleting
+  const dibatalkanStatus = await prisma.thesisStatus.findFirst({
+    where: { name: 'Dibatalkan' }
+  });
+
+  const archiveStatusId = dibatalkanStatus?.id;
+
+  if (archiveStatusId) {
+    await prisma.thesis.update({
+      where: { id: request.thesisId },
+      data: {
+        thesisStatusId: archiveStatusId,
+        title: `${request.thesis.title} (Dibatalkan)`, // Optional: append status to title
+      }
+    });
+
+    // SOFT DELETE GUIDANCES & MILESTONES
+    // Set status 'deleted' for all related guidances
+    await prisma.thesisGuidance.updateMany({
+      where: { thesisId: request.thesisId },
+      data: { status: 'deleted' }
+    });
+
+    // Set status 'deleted' for all related milestones
+    await prisma.thesisMilestone.updateMany({
+      where: { thesisId: request.thesisId },
+      data: { status: 'deleted' }
+    });
+
+  } else {
+    // Fallback if status not found (should not happen if seeded)
+    // Maybe log error or use 'Gagal'
+    const gagalStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Gagal' } });
+    if (gagalStatus) {
+      await prisma.thesis.update({
+        where: { id: request.thesisId },
+        data: { thesisStatusId: gagalStatus.id }
+      });
+
+      // SOFT DELETE GUIDANCES & MILESTONES (Fallback case too)
+      await prisma.thesisGuidance.updateMany({
+        where: { thesisId: request.thesisId },
+        data: { status: 'deleted' }
+      });
+      await prisma.thesisMilestone.updateMany({
+        where: { thesisId: request.thesisId },
+        data: { status: 'deleted' }
+      });
+    }
+  }
 
   // Notify student
   await notifyStudentApproval(updatedRequest);
 
-  return updatedRequest;
+  return flattenRequest(updatedRequest);
 };
 
 /**
@@ -217,7 +286,7 @@ export const rejectRequest = async (requestId, reviewerId, reviewNotes) => {
   // Notify student
   await notifyStudentRejection(updatedRequest);
 
-  return updatedRequest;
+  return flattenRequest(updatedRequest);
 };
 
 /**
@@ -261,7 +330,7 @@ const notifyKadepNewRequest = async (request) => {
         title: notifTitle,
         message: notifMessage,
       });
-      
+
       // Send FCM push notification
       await sendFcmToUsers(kadepUserIds, {
         title: notifTitle,
@@ -287,7 +356,7 @@ const notifyStudentApproval = async (request) => {
       title: notifTitle,
       message: notifMessage,
     });
-    
+
     // Send FCM push notification
     await sendFcmToUsers([studentUserId], {
       title: notifTitle,
@@ -312,7 +381,7 @@ const notifyStudentRejection = async (request) => {
       title: notifTitle,
       message: notifMessage,
     });
-    
+
     // Send FCM push notification
     await sendFcmToUsers([studentUserId], {
       title: notifTitle,
@@ -354,7 +423,7 @@ export const reviewRequestByLecturer = async (requestId, lecturerId, status, not
     const allApprovals = await prisma.thesisChangeRequestApproval.findMany({
       where: { requestId }
     });
-    
+
     const allApproved = allApprovals.every(a => a.status === 'approved');
     if (allApproved) {
       // Notify Kadep (READY for Final Review)
@@ -362,10 +431,10 @@ export const reviewRequestByLecturer = async (requestId, lecturerId, status, not
         where: { userHasRoles: { some: { role: { name: ROLES.KETUA_DEPARTEMEN }, status: 'active' } } }
       });
       const kadepUserIds = kadepUsers.map(u => u.id);
-      
+
       const notifTitle = 'Permintaan Pergantian TA Siap Direview';
       const notifMessage = `Semua dosen pembimbing telah menyetujui permintaan pergantian ${getRequestTypeLabel(request.requestType)} dari ${request.thesis.student.user.fullName}. Silakan review final.`;
-      
+
       if (kadepUserIds.length > 0) {
         await createNotificationsForUsers(kadepUserIds, {
           title: notifTitle,
@@ -374,7 +443,7 @@ export const reviewRequestByLecturer = async (requestId, lecturerId, status, not
           referenceId: request.id,
           link: `/tugas-akhir/admin/requests/${request.id}`
         });
-        
+
         // Send FCM push notification
         await sendFcmToUsers(kadepUserIds, {
           title: notifTitle,
@@ -398,7 +467,7 @@ export const reviewRequestByLecturer = async (requestId, lecturerId, status, not
     const studentUserId = request.thesis.student.user.id;
     const notifTitle = 'Permintaan Pergantian TA Ditolak';
     const notifMessage = `Permintaan pergantian Anda ditolak oleh dosen pembimbing. Alasan: ${notes}`;
-    
+
     // Notify Student
     if (studentUserId) {
       await createNotificationsForUsers([studentUserId], {
@@ -407,7 +476,7 @@ export const reviewRequestByLecturer = async (requestId, lecturerId, status, not
         type: 'THESIS_CHANGE_REQUEST_REJECTED',
         referenceId: request.id
       });
-      
+
       // Send FCM push notification
       await sendFcmToUsers([studentUserId], {
         title: notifTitle,

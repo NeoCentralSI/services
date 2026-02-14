@@ -97,7 +97,7 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
   const updated = { ONGOING: 0, SLOW: 0, AT_RISK: 0, FAILED: 0 };
   const newlyFailedTheses = []; // Track thesis that just became FAILED
 
-  for (;;) {
+  for (; ;) {
     const theses = await prisma.thesis.findMany({
       skip: page * pageSize,
       take: pageSize,
@@ -124,7 +124,7 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
       },
       orderBy: { id: "asc" },
     });
-    
+
     if (theses.length === 0) break;
 
     await Promise.all(
@@ -137,9 +137,19 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
         const targetEnum = decideStatus(t);
 
         if (targetEnum !== t.rating) {
-          await prisma.thesis.update({ 
-            where: { id: t.id }, 
-            data: { rating: targetEnum } 
+          const updateData = { rating: targetEnum };
+
+          // If status becomes FAILED, also update the thesisStatusId to 'Gagal'
+          if (targetEnum === 'FAILED') {
+            const gagalStatus = terminalStatuses.find(s => s.name === 'Gagal');
+            if (gagalStatus) {
+              updateData.thesisStatusId = gagalStatus.id;
+            }
+          }
+
+          await prisma.thesis.update({
+            where: { id: t.id },
+            data: updateData
           });
           if (updated[targetEnum] !== undefined) updated[targetEnum] += 1;
 

@@ -17,6 +17,7 @@ import {
 	myProgress,
 	completeProgressComponents,
 	guidanceHistory,
+	thesisHistory,
 	listSupervisors,
 	supervisorAvailability,
 	needsSummary,
@@ -61,6 +62,7 @@ router.patch("/progress/complete", validate(completeComponentsSchema), completeP
 
 // History
 router.get("/history", guidanceHistory);
+router.get("/history/theses", thesisHistory);
 
 // Session Summary (after guidance)
 router.get("/needs-summary", needsSummary);

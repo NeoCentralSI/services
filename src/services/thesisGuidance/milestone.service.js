@@ -122,7 +122,7 @@ export async function getTopics() {
 export async function getTemplateTopics() {
   const templates = await milestoneRepo.findAllTemplates(true);
   const topics = await milestoneRepo.findAllTopics();
-  
+
   return topics.map((topic) => ({
     id: topic.id,
     name: topic.name,
@@ -235,10 +235,10 @@ export async function bulkDeleteTemplates(userId, templateIds) {
   }
 
   const result = await milestoneRepo.deleteTemplatesMany(templateIds);
-  return { 
-    success: true, 
+  return {
+    success: true,
     count: result.count,
-    message: `${result.count} template berhasil dihapus` 
+    message: `${result.count} template berhasil dihapus`
   };
 }
 
@@ -752,7 +752,8 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
   const sup2 = thesis.thesisSupervisors.find((p) => isPembimbing2(p.role?.name));
   const approvedBySupervisor1 = sup1?.seminarReady || false;
   const approvedBySupervisor2 = sup2?.seminarReady || false;
-  const isFullyApproved = approvedBySupervisor1 && approvedBySupervisor2;
+  // If only 1 supervisor exists, only their approval is needed
+  const isFullyApproved = (sup1 ? approvedBySupervisor1 : true) && (sup2 ? approvedBySupervisor2 : true);
 
   const supervisors = thesis.thesisSupervisors.map((p) => ({
     id: p.lecturerId,
@@ -826,7 +827,7 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
   if (!progress.isComplete) {
     throw createError(
       `Mahasiswa belum menyelesaikan semua milestone (${progress.completed}/${progress.total}). ` +
-        "Pastikan semua milestone sudah tervalidasi sebelum memberikan approval."
+      "Pastikan semua milestone sudah tervalidasi sebelum memberikan approval."
     );
   }
 
@@ -860,7 +861,7 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
       ? "🎉 Kesiapan Seminar Disetujui Penuh!"
       : `✅ Persetujuan Seminar dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"}`;
     const notifMessage = isFullyApproved
-      ? `Selamat! Kedua pembimbing telah menyetujui kesiapan seminar Anda. Anda sekarang dapat mendaftar seminar.`
+      ? `Selamat! Semua pembimbing telah menyetujui kesiapan seminar Anda. Anda sekarang dapat mendaftar seminar.`
       : `${supervisorName} telah menyetujui kesiapan seminar Anda. Menunggu persetujuan dari pembimbing lainnya.`;
 
     // Create in-app notification
@@ -1037,9 +1038,12 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
   const currentUserRole = currentUserParticipant?.role?.name || null;
   const currentUserHasApproved = currentUserParticipant?.defenceReady || false;
 
-  const approvedBySupervisor1 = thesis.thesisSupervisors.find((p) => isPembimbing1(p.role?.name))?.defenceReady || false;
-  const approvedBySupervisor2 = thesis.thesisSupervisors.find((p) => isPembimbing2(p.role?.name))?.defenceReady || false;
-  const isFullyApproved = approvedBySupervisor1 && approvedBySupervisor2;
+  const sup1Defence = thesis.thesisSupervisors.find((p) => isPembimbing1(p.role?.name));
+  const sup2Defence = thesis.thesisSupervisors.find((p) => isPembimbing2(p.role?.name));
+  const approvedBySupervisor1 = sup1Defence?.defenceReady || false;
+  const approvedBySupervisor2 = sup2Defence?.defenceReady || false;
+  // If only 1 supervisor exists, only their approval is needed
+  const isFullyApproved = (sup1Defence ? approvedBySupervisor1 : true) && (sup2Defence ? approvedBySupervisor2 : true);
 
   return {
     thesisId: thesis.id,

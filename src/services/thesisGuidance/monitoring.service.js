@@ -101,7 +101,12 @@ export async function getThesesList(filters) {
         const sup2 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
         const s1 = sup1?.seminarReady || false;
         const s2 = sup2?.seminarReady || false;
-        return { supervisor1: s1, supervisor2: s2, isFullyApproved: s1 && s2 };
+        return {
+          supervisor1: s1,
+          supervisor2: s2,
+          hasPembimbing2: !!sup2,
+          isFullyApproved: (sup1 ? s1 : true) && (sup2 ? s2 : true),
+        };
       })(),
       lastActivity,
       createdAt: t.createdAt,
@@ -226,16 +231,16 @@ export async function getThesisDetail(thesisId) {
     id: s.id,
     status: s.status,
     result: s.result?.name || null,
-    scheduledAt: s.schedule?.startTime || null,
-    endTime: s.schedule?.endTime || null,
-    room: s.schedule?.room?.name || null,
+    // scheduledAt: s.schedule?.startTime || null, // Removed
+    // endTime: s.schedule?.endTime || null, // Removed
+    // room: s.schedule?.room?.name || null, // Removed
     scores: s.scores.map((sc) => ({
       scorerName: sc.scorer?.user?.fullName,
       rubric: sc.rubricDetail?.name || null,
       score: sc.score,
     })),
-    averageScore: s.scores.length > 0 
-      ? Math.round(s.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / s.scores.length) 
+    averageScore: s.scores.length > 0
+      ? Math.round(s.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / s.scores.length)
       : null,
   }));
 
@@ -243,16 +248,16 @@ export async function getThesisDetail(thesisId) {
   const defences = thesis.thesisDefences.map((d) => ({
     id: d.id,
     status: d.status?.name || null,
-    scheduledAt: d.schedule?.startTime || null,
-    endTime: d.schedule?.endTime || null,
-    room: d.schedule?.room?.name || null,
+    // scheduledAt: d.schedule?.startTime || null, // Removed
+    // endTime: d.schedule?.endTime || null, // Removed
+    // room: d.schedule?.room?.name || null, // Removed
     scores: d.scores.map((sc) => ({
       scorerName: sc.scorer?.user?.fullName,
       rubric: sc.rubricDetail?.name || null,
       score: sc.score,
     })),
-    averageScore: d.scores.length > 0 
-      ? Math.round(d.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / d.scores.length) 
+    averageScore: d.scores.length > 0
+      ? Math.round(d.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / d.scores.length)
       : null,
   }));
 
@@ -287,7 +292,12 @@ export async function getThesisDetail(thesisId) {
       const sup2 = thesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
       const s1 = sup1?.seminarReady || false;
       const s2 = sup2?.seminarReady || false;
-      return { supervisor1: s1, supervisor2: s2, isFullyApproved: s1 && s2 };
+      return {
+        supervisor1: s1,
+        supervisor2: s2,
+        hasPembimbing2: !!sup2,
+        isFullyApproved: (sup1 ? s1 : true) && (sup2 ? s2 : true),
+      };
     })(),
     student: {
       id: thesis.student?.id,
@@ -401,9 +411,9 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     referenceId: thesis.id
   });
 
-  return { 
-    success: true, 
-    message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}` 
+  return {
+    success: true,
+    message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`
   };
 }
 
@@ -413,46 +423,46 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
  */
 export async function getProgressReportService(academicYearId) {
   // Get academic year info
-  const academicYear = academicYearId 
+  const academicYear = academicYearId
     ? await monitoringRepository.getAcademicYearById(academicYearId)
     : null;
-  
+
   // Get all theses for the academic year
   const theses = await monitoringRepository.getThesesForReport(academicYearId);
-  
+
   // Get statistics
   const [statusDistribution, ratingDistribution] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYearId),
     monitoringRepository.getRatingDistribution(academicYearId),
   ]);
-  
+
   // Calculate summary statistics
   let totalGuidances = 0;
   let completedGuidances = 0;
   let totalMilestones = 0;
   let completedMilestones = 0;
-  
+
   // Format thesis data for report
   const reportData = theses.map((t, index) => {
     const milestones = t.thesisMilestones || [];
     const guidances = t.thesisGuidances || [];
-    
+
     const completedMilestoneCount = milestones.filter(m => m.status === "completed").length;
     const completedGuidanceCount = guidances.filter(g => g.status === "completed").length;
-    const progressPercent = milestones.length > 0 
-      ? Math.round((completedMilestoneCount / milestones.length) * 100) 
+    const progressPercent = milestones.length > 0
+      ? Math.round((completedMilestoneCount / milestones.length) * 100)
       : 0;
-    
+
     // Add to totals
     totalGuidances += guidances.length;
     completedGuidances += completedGuidanceCount;
     totalMilestones += milestones.length;
     completedMilestones += completedMilestoneCount;
-    
+
     // Get supervisors
     const pembimbing1 = t.thesisSupervisors?.find(p => p.role?.name === "Pembimbing 1");
     const pembimbing2 = t.thesisSupervisors?.find(p => p.role?.name === "Pembimbing 2");
-    
+
     return {
       no: index + 1,
       nim: t.student?.user?.identityNumber || "-",
@@ -472,7 +482,7 @@ export async function getProgressReportService(academicYearId) {
       createdAt: t.createdAt,
     };
   });
-  
+
   // Calculate overall statistics
   const summary = {
     totalTheses: theses.length,
@@ -480,16 +490,16 @@ export async function getProgressReportService(academicYearId) {
     completedGuidances,
     totalMilestones,
     completedMilestones,
-    averageMilestoneProgress: totalMilestones > 0 
-      ? Math.round((completedMilestones / totalMilestones) * 100) 
+    averageMilestoneProgress: totalMilestones > 0
+      ? Math.round((completedMilestones / totalMilestones) * 100)
       : 0,
-    averageGuidanceCompletion: totalGuidances > 0 
-      ? Math.round((completedGuidances / totalGuidances) * 100) 
+    averageGuidanceCompletion: totalGuidances > 0
+      ? Math.round((completedGuidances / totalGuidances) * 100)
       : 0,
   };
-  
+
   return {
-    academicYear: academicYear 
+    academicYear: academicYear
       ? `${academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${academicYear.year}`
       : "Semua Tahun Ajaran",
     generatedAt: new Date().toISOString(),
