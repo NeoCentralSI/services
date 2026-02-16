@@ -25,6 +25,7 @@ export const ENV = {
   // 🧠 REDIS CONFIG
   // ===============================
   REDIS_URL: process.env.REDIS_URL || "redis://localhost:6379",
+  GOTENBERG_URL: process.env.GOTENBERG_URL || "http://localhost:3001",
 
   // ===============================
   // 📧 SMTP / EMAIL CONFIG

@@ -1,5 +1,6 @@
 import * as registrationRepository from "../../repositories/insternship/registration.repository.js";
 import * as notificationService from "../notification.service.js";
+import { sendFcmToUsers } from "../push.service.js";
 import { ROLES } from "../../constants/roles.js";
 
 /**
@@ -141,11 +142,26 @@ export async function submitProposal(data) {
 
     // 4. Send Notifications
     try {
+        const proposalCompany = companyName || proposal.targetCompany?.companyName || "perusahaan";
+
         // A. Notify Members (if any)
         if (memberIds.length > 0) {
+            const memberTitle = "Undangan Grup Kerja Praktik";
+            const memberMessage = `Anda telah ditambahkan sebagai anggota untuk pengajuan KP di ${proposalCompany}.`;
+
             await notificationService.createNotificationsForUsers(memberIds, {
-                title: "Undangan Grup Kerja Praktik",
-                message: `Anda telah ditambahkan sebagai anggota untuk pengajuan KP di ${companyName || proposal.targetCompany?.companyName}.`
+                title: memberTitle,
+                message: memberMessage
+            });
+
+            // Send Push Notifications to members
+            await sendFcmToUsers(memberIds, {
+                title: memberTitle,
+                body: memberMessage,
+                data: {
+                    type: 'internship_invitation',
+                    proposalId: proposal.id
+                }
             });
         }
 
@@ -154,9 +170,22 @@ export async function submitProposal(data) {
         const sekdepIds = sekdeps.map(s => s.id);
 
         if (sekdepIds.length > 0) {
+            const sekdepTitle = "Pengajuan KP Baru";
+            const sekdepMessage = `Ada pengajuan KP baru untuk ${proposalCompany} yang memerlukan review.`;
+
             await notificationService.createNotificationsForUsers(sekdepIds, {
-                title: "Pengajuan KP Baru",
-                message: `Ada pengajuan KP baru untuk ${companyName || proposal.targetCompany?.companyName} yang memerlukan review.`
+                title: sekdepTitle,
+                message: sekdepMessage
+            });
+
+            // Send Push Notifications to Sekdep
+            await sendFcmToUsers(sekdepIds, {
+                title: sekdepTitle,
+                body: sekdepMessage,
+                data: {
+                    type: 'internship_new_proposal',
+                    proposalId: proposal.id
+                }
             });
         }
     } catch (notifyError) {
@@ -210,9 +239,23 @@ export async function respondToInvitation(studentId, proposalId, response) {
         const companyName = updatedMember.proposal.targetCompany?.companyName || "perusahaan";
         const actionLabel = response === 'ACCEPTED' ? 'menyetujui' : 'menolak';
 
+        const title = `Respon Undangan KP: ${actionLabel}`;
+        const message = `${studentName} telah ${actionLabel} undangan untuk bergabung dalam grup KP di ${companyName}.`;
+
         await notificationService.createNotificationsForUsers([coordinatorId], {
-            title: `Respon Undangan KP: ${actionLabel}`,
-            message: `${studentName} telah ${actionLabel} undangan untuk bergabung dalam grup KP di ${companyName}.`
+            title,
+            message
+        });
+
+        // Send Push Notification to Coordinator
+        await sendFcmToUsers([coordinatorId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_invitation_response',
+                proposalId: proposalId,
+                response: response
+            }
         });
     } catch (err) {
         console.error("Failed to notify coordinator:", err);

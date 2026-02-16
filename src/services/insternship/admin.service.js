@@ -1,6 +1,10 @@
 import * as adminRepository from "../../repositories/insternship/admin.repository.js";
 import * as sekdepRepository from "../../repositories/insternship/sekdep.repository.js";
 import * as documentService from "../document.service.js";
+import prisma from "../../config/prisma.js";
+import { sendFcmToUsers } from "../push.service.js";
+import { createNotificationsForUsers } from "../notification.service.js";
+import { ROLES } from "../../constants/roles.js";
 
 /**
  * Get all internship proposals that need "Surat Pengantar" (Approved by Sekdep).
@@ -42,6 +46,7 @@ export async function getApprovedProposals() {
                 start: latestLetter.startDatePlanned,
                 end: latestLetter.endDatePlanned
             } : null,
+            isSigned: !!latestLetter?.signedById,
             updatedAt: p.updatedAt
         };
     });
@@ -110,7 +115,13 @@ export async function getProposalLetterDetail(id) {
         period: latestLetter ? {
             start: latestLetter.startDatePlanned,
             end: latestLetter.endDatePlanned
-        } : null
+        } : null,
+        letterFile: latestLetter?.document ? {
+            id: latestLetter.document.id,
+            fileName: latestLetter.document.fileName,
+            filePath: latestLetter.document.filePath
+        } : null,
+        isSigned: !!latestLetter?.signedById
     };
 }
 
@@ -121,13 +132,19 @@ export async function getProposalLetterDetail(id) {
  * @returns {Promise<Object>}
  */
 export async function saveApplicationLetter(id, data) {
-    // 1. Save/Update stats
-    const letter = await adminRepository.updateApplicationLetter(id, data);
-
-    // 2. Fetch full data for document generation
+    // 1. Fetch full data for document generation & check if already signed
     const proposal = await adminRepository.findProposalForLetter(id);
+    if (!proposal) {
+        throw new Error("Pengajuan tidak ditemukan.");
+    }
 
-    // 3. Prepare data
+    const latestLetter = proposal.applicationLetters?.[0];
+    if (latestLetter?.signedById) {
+        throw new Error("Dokumen sudah ditandatangani. Data tidak dapat diubah kembali.");
+    }
+
+    // 2. Save/Update letter record
+    const letter = await adminRepository.updateApplicationLetter(id, data);
     const genData = {
         documentNumber: data.documentNumber,
         dateIssued: letter.dateIssued || new Date(),
@@ -154,5 +171,52 @@ export async function saveApplicationLetter(id, data) {
     // 5. Update letter with documentId
     await adminRepository.updateLetterDocumentId(letter.id, documentId);
 
+    // 6. Notify Kadep
+    await notifyKadepForLetterGeneration(proposal, data.documentNumber);
+
     return letter;
+}
+
+/**
+ * Notify Kadep (Ketua Departemen) when a letter is generated.
+ * @param {Object} proposal 
+ * @param {string} documentNumber 
+ */
+async function notifyKadepForLetterGeneration(proposal, documentNumber) {
+    try {
+        const kadepUsers = await prisma.user.findMany({
+            where: {
+                userHasRoles: {
+                    some: {
+                        role: { name: ROLES.KETUA_DEPARTEMEN },
+                        status: 'active',
+                    },
+                },
+            },
+            select: { id: true },
+        });
+
+        if (kadepUsers.length === 0) return;
+
+        const kadepUserIds = kadepUsers.map((u) => u.id);
+        const title = "Surat Permohonan KP Baru";
+        const message = `Admin telah men-generate Surat Permohonan KP (${documentNumber}) untuk proposal ke ${proposal.targetCompany?.companyName || "—"}. Silakan periksa untuk tanda tangan.`;
+
+        // Create in-app notifications
+        await createNotificationsForUsers(kadepUserIds, { title, message });
+
+        // Send FCM push notification
+        await sendFcmToUsers(kadepUserIds, {
+            title,
+            body: message,
+            data: {
+                type: 'internship_letter_generated',
+                proposalId: proposal.id,
+                companyName: proposal.targetCompany?.companyName || '',
+                documentNumber: documentNumber
+            },
+        });
+    } catch (error) {
+        console.error('[admin-service] Failed to notify kadep for letter generation:', error);
+    }
 }
