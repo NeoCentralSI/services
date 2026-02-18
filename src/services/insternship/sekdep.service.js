@@ -1,6 +1,7 @@
 import * as sekdepRepository from "../../repositories/insternship/sekdep.repository.js";
 import * as adminRepository from "../../repositories/insternship/admin.repository.js";
 import * as notificationRepository from "../../repositories/notification.repository.js";
+import { sendFcmToUsers } from "../push.service.js";
 
 /**
  * List all internship proposals ready for Sekdep review.
@@ -85,6 +86,7 @@ export async function respondToProposal(id, status, notes) {
         }
 
         const notificationData = [];
+        const recipientIds = [];
 
         // Coordinator
         if (proposal.coordinator?.id) {
@@ -93,6 +95,7 @@ export async function respondToProposal(id, status, notes) {
                 title,
                 message
             });
+            recipientIds.push(proposal.coordinator.id);
         }
 
         // Members
@@ -103,26 +106,52 @@ export async function respondToProposal(id, status, notes) {
                     title,
                     message
                 });
+                recipientIds.push(member.student.id);
             }
         });
+
+        // Save in-app notifications
+        if (notificationData.length > 0) {
+            await notificationRepository.createNotificationsMany(notificationData);
+
+            // Send Push Notifications to students
+            await sendFcmToUsers(recipientIds, {
+                title,
+                body: message,
+                data: {
+                    type: 'internship_proposal_response',
+                    status,
+                    proposalId: id
+                }
+            });
+        }
 
         // Admin (Only if status is approved)
         if (status === 'APPROVED_BY_SEKDEP') {
             const admins = await adminRepository.findAdmins();
             const adminTitle = "Pengajuan Internship Baru (Approved)";
             const adminMessage = `Proposal Internship ke ${proposal.targetCompany.companyName} telah disetujui Sekdep dan siap diproses Surat Pengantarnya.`;
+            const adminUserIds = admins.map(a => a.id);
 
-            admins.forEach(admin => {
-                notificationData.push({
-                    userId: admin.id,
+            const adminNotifications = admins.map(admin => ({
+                userId: admin.id,
+                title: adminTitle,
+                message: adminMessage
+            }));
+
+            if (adminNotifications.length > 0) {
+                await notificationRepository.createNotificationsMany(adminNotifications);
+
+                // Send Push Notifications to admins
+                await sendFcmToUsers(adminUserIds, {
                     title: adminTitle,
-                    message: adminMessage
+                    body: adminMessage,
+                    data: {
+                        type: 'internship_proposal_approved_admin',
+                        proposalId: id
+                    }
                 });
-            });
-        }
-
-        if (notificationData.length > 0) {
-            await notificationRepository.createNotificationsMany(notificationData);
+            }
         }
     } catch (notifError) {
         console.error("Gagal mengirim notifikasi:", notifError);

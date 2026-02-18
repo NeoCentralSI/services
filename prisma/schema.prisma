@@ -465,6 +465,18 @@ model DocumentType {
   @@map("document_types")
 }
 
+model DocumentTemplate {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  type      String   @default("HTML") // HTML or DOCX
+  content   String?  @db.LongText
+  filePath  String?  @map("file_path") @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("document_templates")
+}
+
 model Notification {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
@@ -536,6 +548,7 @@ model InternshipProposalMember {
   studentId  String                 @map("student_id")
   status     InternshipMemberStatus @default(PENDING)
   createdAt  DateTime               @default(now()) @map("created_at")
+  updatedAt  DateTime               @default(now()) @updatedAt @map("updated_at")
   proposal   InternshipProposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   student    Student                @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
@@ -555,6 +568,7 @@ model InternshipApplicationLetter {
   signedById       String?            @map("signed_by_id")
   signedAsRoleId   String?            @map("signed_as_role_id")
   createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @default(now()) @updatedAt @map("updated_at")
   proposal         InternshipProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   document         Document?          @relation("InternshipAppLetterDocument", fields: [documentId], references: [id])
   signedBy         Lecturer?          @relation("InternshipAppLetterSigner", fields: [signedById], references: [id])
@@ -592,15 +606,16 @@ model InternshipAssignmentLetter {
   dateIssued      DateTime                  @map("date_issued") @db.Date
   startDateActual DateTime                  @map("start_date_actual") @db.Date
   endDateActual   DateTime                  @map("end_date_actual") @db.Date
-  documentId      String                    @map("document_id")
-  signedById      String                    @map("signed_by_id")
-  signedAsRoleId  String                    @map("signed_as_role_id")
+  documentId      String?                   @map("document_id")
+  signedById      String?                   @map("signed_by_id")
+  signedAsRoleId  String?                   @map("signed_as_role_id")
   createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @default(now()) @updatedAt @map("updated_at")
   proposal        InternshipProposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   response        InternshipCompanyResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
-  document        Document                  @relation("InternshipAssignLetterDocument", fields: [documentId], references: [id])
-  signedBy        Lecturer                  @relation("InternshipAssignLetterSigner", fields: [signedById], references: [id])
-  signedAsRole    UserRole                  @relation("InternshipAssignLetterRole", fields: [signedAsRoleId], references: [id])
+  document        Document?                 @relation("InternshipAssignLetterDocument", fields: [documentId], references: [id])
+  signedBy        Lecturer?                 @relation("InternshipAssignLetterSigner", fields: [signedById], references: [id])
+  signedAsRole    UserRole?                 @relation("InternshipAssignLetterRole", fields: [signedAsRoleId], references: [id])
   internships     Internship[]
 
   @@index([proposalId], map: "internship_assignment_letters_proposal_id_fkey")
@@ -621,6 +636,7 @@ model InternshipSupervisorLetter {
   signedById     String       @map("signed_by_id")
   signedAsRoleId String       @map("signed_as_role_id")
   createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at")
   document       Document     @relation("InternshipSupLetterDocument", fields: [documentId], references: [id])
   signedBy       Lecturer     @relation("InternshipSupLetterSigner", fields: [signedById], references: [id])
   signedAsRole   UserRole     @relation("InternshipSupLetterRole", fields: [signedAsRoleId], references: [id])
@@ -678,6 +694,7 @@ model InternshipLogbook {
   activityDate        DateTime   @map("activity_date") @db.Date
   activityDescription String     @map("activity_description") @db.Text
   createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at")
   internship          Internship @relation(fields: [internshipId], references: [id], onDelete: Cascade)
 
   @@index([internshipId], map: "internship_logbooks_internship_id_fkey")
@@ -691,6 +708,8 @@ model InternshipGuidanceQuestion {
   weekNumber     Int                               @map("week_number")
   questionText   String                            @map("question_text") @db.Text
   orderIndex     Int?                              @default(0) @map("order_index")
+  createdAt      DateTime                          @default(now()) @map("created_at")
+  updatedAt      DateTime                          @default(now()) @updatedAt @map("updated_at")
   studentAnswers InternshipGuidanceStudentAnswer[]
 
   @@map("internship_guidance_questions")
@@ -701,6 +720,8 @@ model InternshipGuidanceLecturerCriteria {
   criteriaName    String                             @map("criteria_name")
   inputType       InternshipGuidanceInputType        @map("input_type")
   orderIndex      Int?                               @default(0) @map("order_index")
+  createdAt       DateTime                           @default(now()) @map("created_at")
+  updatedAt       DateTime                           @default(now()) @updatedAt @map("updated_at")
   lecturerAnswers InternshipGuidanceLecturerAnswer[]
 
   @@map("internship_guidance_lecturer_criteria")
@@ -731,6 +752,8 @@ model InternshipGuidanceStudentAnswer {
   guidanceSessionId String                     @map("guidance_session_id")
   questionId        String                     @map("question_id")
   answerText        String                     @map("answer_text") @db.Text
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @default(now()) @updatedAt @map("updated_at")
   guidanceSession   InternshipGuidanceSession  @relation(fields: [guidanceSessionId], references: [id], onDelete: Cascade)
   question          InternshipGuidanceQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
@@ -745,6 +768,8 @@ model InternshipGuidanceLecturerAnswer {
   criteriaId        String                             @map("criteria_id")
   evaluationValue   InternshipGuidanceEvaluation?      @map("evaluation_value")
   answerText        String?                            @map("answer_text") @db.Text
+  createdAt         DateTime                           @default(now()) @map("created_at")
+  updatedAt         DateTime                           @default(now()) @updatedAt @map("updated_at")
   guidanceSession   InternshipGuidanceSession          @relation(fields: [guidanceSessionId], references: [id], onDelete: Cascade)
   criteria          InternshipGuidanceLecturerCriteria @relation(fields: [criteriaId], references: [id], onDelete: Cascade)
 
@@ -791,6 +816,7 @@ model InternshipSeminarAudience {
   status      InternshipSeminarAudienceStatus @default(PENDING)
   validatedAt DateTime?                       @map("validated_at")
   createdAt   DateTime                        @default(now()) @map("created_at")
+  updatedAt   DateTime                        @default(now()) @updatedAt @map("updated_at")
   seminar     InternshipSeminar               @relation(fields: [seminarId], references: [id], onDelete: Cascade)
   student     Student                         @relation("InternshipSeminarAudience", fields: [studentId], references: [id], onDelete: Cascade)
 
@@ -808,6 +834,7 @@ model InternshipCpmk {
   weight       Float
   assessorType InternshipAssessorType       @map("assessor_type")
   createdAt    DateTime                     @default(now()) @map("created_at")
+  updatedAt    DateTime                     @default(now()) @updatedAt @map("updated_at")
   rubrics      InternshipAssessmentRubric[]
   scores       InternshipCpmkScore[]
 
@@ -821,6 +848,7 @@ model InternshipAssessmentRubric {
   minScore               Float                 @map("min_score")
   maxScore               Float                 @map("max_score")
   createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @default(now()) @updatedAt @map("updated_at")
   cpmk                   InternshipCpmk        @relation(fields: [cpmkId], references: [id], onDelete: Cascade)
   cpmkScores             InternshipCpmkScore[]
 
@@ -854,6 +882,8 @@ model InternshipCpmkScore {
   cpmkId         String                     @map("cpmk_id")
   chosenRubricId String                     @map("chosen_rubric_id")
   score          Float
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @default(now()) @updatedAt @map("updated_at")
   assessment     InternshipAssessment       @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   cpmk           InternshipCpmk             @relation(fields: [cpmkId], references: [id], onDelete: Cascade)
   chosenRubric   InternshipAssessmentRubric @relation(fields: [chosenRubricId], references: [id], onDelete: Cascade)

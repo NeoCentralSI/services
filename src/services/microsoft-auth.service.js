@@ -53,7 +53,7 @@ export async function exchangeCodeForTokens(code) {
   try {
     console.log('🔄 Attempting to exchange code for tokens (direct HTTP)...');
     console.log('📍 Redirect URI:', ENV.REDIRECT_URI);
-    
+
     // Use direct HTTP request to get tokens (this guarantees refresh_token)
     const tokenResponse = await axios.post(
       MICROSOFT_TOKEN_URL,
@@ -73,17 +73,17 @@ export async function exchangeCodeForTokens(code) {
     );
 
     const { access_token, refresh_token, id_token } = tokenResponse.data;
-    
+
     console.log('✅ Token exchange successful');
     console.log('🔑 Has access token:', !!access_token);
     console.log('🔄 Has refresh token:', !!refresh_token);
     console.log('🔄 Fetching user profile from Microsoft Graph...');
-    
+
     // Get user profile from Microsoft Graph
     const userProfile = await getMicrosoftUserProfile(access_token);
-    
+
     console.log('✅ User profile fetched successfully');
-    
+
     // Check calendar access
     const calendarAccess = await checkCalendarAccessWithToken(access_token);
     console.log('📅 Calendar access:', calendarAccess ? 'Yes' : 'No');
@@ -99,12 +99,12 @@ export async function exchangeCodeForTokens(code) {
     console.error("❌ Error exchanging code for tokens:");
     console.error("Error type:", error.constructor.name);
     console.error("Error message:", error.message);
-    
+
     if (error.response) {
       console.error("Response status:", error.response.status);
       console.error("Response data:", error.response.data);
     }
-    
+
     const err = new Error(`Failed to authenticate with Microsoft: ${error.response?.data?.error_description || error.message || 'Unknown error'}`);
     err.statusCode = 401;
     throw err;
@@ -163,7 +163,7 @@ async function checkCalendarAccessWithToken(accessToken) {
  */
 export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken, refreshToken = null, hasCalendarAccess = false) {
   const { id: oauthId, mail, userPrincipalName, displayName } = microsoftProfile;
-  
+
   // ✅ DEBUG: Log semua email info dari Microsoft
   console.log('🔍 Microsoft Profile Debug:');
   console.log('  - OAuth ID:', oauthId);
@@ -171,7 +171,7 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
   console.log('  - userPrincipalName:', userPrincipalName);
   console.log('  - displayName:', displayName);
   console.log('  - Full profile:', JSON.stringify(microsoftProfile, null, 2));
-  
+
   const email = mail || userPrincipalName;
 
   if (!email) {
@@ -264,8 +264,17 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
       name: ur.role.name,
       status: ur.status,
     })),
-    student: user.student,
-    lecturer: user.lecturer,
+    student: user.student ? {
+      id: user.student.id,
+      enrollmentYear: user.student.enrollmentYear,
+      sksCompleted: user.student.skscompleted,
+      status: user.student.status,
+    } : null,
+    lecturer: user.lecturer ? {
+      id: user.lecturer.id,
+      scienceGroup: user.lecturer.scienceGroup?.name || null,
+      data: user.lecturer.data,
+    } : null,
   };
 
   return {
