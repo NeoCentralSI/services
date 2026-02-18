@@ -23,6 +23,7 @@ import {
 	normalize,
 } from "../constants/roles.js";
 import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
+
 import {
 	getOrCreateRole,
 	findUserByEmailOrIdentity,
@@ -1165,6 +1166,149 @@ export async function getLecturerDetail(userId) {
 
 
 /**
+ * Delete a thesis and all related data (hard delete)
+ * Used for topic/supervisor change scenarios
+ * @param {string} thesisId - The thesis ID to delete
+ * @param {string} reason - Reason for deletion (for logging)
+ * @returns {Object} Summary of deleted data
+ */
+export async function deleteThesis(thesisId, reason = null) {
+	if (!thesisId) {
+		const err = new Error("Thesis ID is required");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// Fetch thesis with all relations to verify it exists and get info for logging
+	const thesis = await prisma.thesis.findUnique({
+		where: { id: thesisId },
+		include: {
+			student: {
+				include: { user: { select: { fullName: true, identityNumber: true } } },
+			},
+			thesisTopic: { select: { name: true } },
+			thesisStatus: { select: { name: true } },
+			thesisSupervisors: {
+				include: { lecturer: { include: { user: { select: { fullName: true } } } }, role: true },
+			},
+			thesisMilestones: true,
+			thesisGuidances: true,
+			thesisSeminars: true,
+			thesisDefences: true,
+			document: true,
+			finalThesisDocument: true,
+		},
+	});
+
+	if (!thesis) {
+		const err = new Error("Thesis not found");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Log info before archiving
+	const logInfo = {
+		thesisId: thesis.id,
+		studentName: thesis.student?.user?.fullName,
+		studentNim: thesis.student?.user?.identityNumber,
+		title: thesis.title,
+		topic: thesis.thesisTopic?.name,
+		status: thesis.thesisStatus?.name,
+		action: 'ARCHIVED', // Changed from DELETED
+		archivedAt: new Date().toISOString(),
+		reason,
+	};
+
+	console.log("📦 Archiving thesis:", JSON.stringify(logInfo, null, 2));
+
+	// Find 'Dibatalkan' status
+	const dibatalkanStatus = await prisma.thesisStatus.findFirst({
+		where: { name: "Dibatalkan" },
+	});
+
+	let targetStatusId = dibatalkanStatus?.id;
+
+	if (!targetStatusId) {
+		// Fallback to 'Gagal' if 'Dibatalkan' doesn't exist
+		const gagalStatus = await prisma.thesisStatus.findFirst({
+			where: { name: "Gagal" },
+		});
+		targetStatusId = gagalStatus?.id;
+	}
+
+	if (!targetStatusId) {
+		const err = new Error("Status 'Dibatalkan' or 'Gagal' not found. Cannot archive thesis.");
+		err.statusCode = 500;
+		throw err;
+	}
+
+	// Soft delete / Archive: Update status instead of deleting
+	const result = await prisma.thesis.update({
+		where: { id: thesisId },
+		data: {
+			thesisStatusId: targetStatusId,
+			// Optional: append (Dibatalkan) to title to distinguish it, though status is usually enough.
+			// Keeping title clean might be better for history, but appending helps if unique constraints exist on title (unlikely here but possible).
+			// Let's NOT modify title unless necessary, or maybe just append Dibatalkan for clarity in lists.
+			title: `${thesis.title} (Dibatalkan)`,
+		},
+	});
+
+	// Soft delete guidances
+	await prisma.thesisGuidance.updateMany({
+		where: { thesisId: thesisId },
+		data: { status: "deleted" }
+	});
+
+	// Soft delete milestones
+	await prisma.thesisMilestone.updateMany({
+		where: { thesisId: thesisId },
+		data: { status: "deleted" }
+	});
+
+	// Notify student that their thesis has been archived/cancelled and they need to re-register
+	try {
+		const studentUserId = thesis.student?.user?.id; // Fixed path: student.user.id
+		if (studentUserId) {
+			const isFailedReason = reason && reason.toLowerCase().includes('failed');
+			const title = isFailedReason
+				? '⚠️ Tugas Akhir Anda Dibatalkan (Batas Waktu Terlampaui)'
+				: '📋 Tugas Akhir Anda Dibatalkan';
+			const message = isFailedReason
+				? `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan karena melampaui batas waktu 1 tahun. Silakan daftar tugas akhir kembali dari awal.`
+				: `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan. ${reason ? `Alasan: ${reason}` : ''} Silakan daftar tugas akhir kembali jika diperlukan.`;
+
+			// Create in-app notification
+			await createNotificationsForUsers([studentUserId], { title, message });
+
+			// Send FCM push notification
+			await sendFcmToUsers([studentUserId], {
+				title,
+				body: message,
+				data: {
+					type: 'thesis_archived', // Changed from thesis_deleted
+					reason: reason || '',
+					requiresReRegistration: 'true',
+				},
+			});
+
+			console.log("📬 Notification sent to student:", studentUserId);
+		}
+	} catch (notifErr) {
+		console.warn("Could not send notification to student:", notifErr.message);
+	}
+
+	console.log("✅ Thesis archived successfully:", result.id);
+
+	return {
+		success: true,
+		message: `Thesis "${thesis.title || "Untitled"}" berhasil diarsipkan (Dibatalkan)`,
+		archivedThesis: logInfo,
+	};
+}
+
+
+/**
  * Get thesis list for admin (with filters)
  */
 export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = "", status = null } = {}) {
@@ -1343,103 +1487,7 @@ export async function getThesisById(id) {
 	return transformThesis(thesis);
 }
 
-/**
- * Soft Delete thesis (Admin)
- * Sets status to 'Dibatalkan', archives related data, and notifies student
- * @param {string} id - The thesis ID to delete
- * @param {string} reason - Reason for deletion (for logging/notification)
- */
-export async function deleteThesis(id, reason = null) {
-	const thesis = await prisma.thesis.findUnique({
-		where: { id },
-		include: {
-			student: {
-				include: { user: { select: { id: true, fullName: true, identityNumber: true } } },
-			},
-			thesisTopic: { select: { name: true } },
-			thesisStatus: { select: { name: true } },
-		}
-	});
 
-	if (!thesis) {
-		const err = new Error("Tugas akhir tidak ditemukan");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	// Find 'Dibatalkan' status
-	const dibatalkanStatus = await prisma.thesisStatus.findFirst({
-		where: { name: "Dibatalkan" }
-	});
-
-	let targetStatusId = dibatalkanStatus?.id;
-	if (!targetStatusId) {
-		const gagalStatus = await prisma.thesisStatus.findFirst({
-			where: { name: "Gagal" },
-		});
-		targetStatusId = gagalStatus?.id;
-	}
-
-	if (!targetStatusId) {
-		const err = new Error("Status 'Dibatalkan' or 'Gagal' not found in database");
-		err.statusCode = 500;
-		throw err;
-	}
-
-	// 1. Update thesis status and title
-	await prisma.thesis.update({
-		where: { id },
-		data: {
-			thesisStatusId: targetStatusId,
-			title: `${thesis.title} (Dibatalkan)`,
-		}
-	});
-
-	// 2. Soft delete guidances
-	await prisma.thesisGuidance.updateMany({
-		where: { thesisId: id },
-		data: { status: "deleted" }
-	});
-
-	// 3. Soft delete milestones
-	await prisma.thesisMilestone.updateMany({
-		where: { thesisId: id },
-		data: { status: "deleted" }
-	});
-
-	// 4. Notify student
-	try {
-		const studentUserId = thesis.student?.user?.id;
-		if (studentUserId) {
-			const isFailedReason = reason && reason.toLowerCase().includes('failed');
-			const title = isFailedReason
-				? '⚠️ Tugas Akhir Anda Dibatalkan (Batas Waktu Terlampaui)'
-				: '📋 Tugas Akhir Anda Dibatalkan';
-			const message = isFailedReason
-				? `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan karena melampaui batas waktu 1 tahun. Silakan daftar tugas akhir kembali dari awal.`
-				: `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan. ${reason ? `Alasan: ${reason}` : ''} Silakan daftar tugas akhir kembali jika diperlukan.`;
-
-			await createNotificationsForUsers([studentUserId], { title, message });
-			await sendFcmToUsers([studentUserId], {
-				title,
-				body: message,
-				data: {
-					type: 'thesis_archived',
-					reason: reason || '',
-					requiresReRegistration: 'true',
-				},
-			});
-		}
-	} catch (notifErr) {
-		console.warn("Could not send notification to student:", notifErr.message);
-	}
-
-	return {
-		success: true,
-		message: `Tugas akhir "${thesis.title}" berhasil dibatalkan (soft delete)`,
-		archivedAt: new Date().toISOString()
-	};
-}
 /**
  * Update thesis (Admin)
  */
