@@ -23,6 +23,7 @@ import {
 	normalize,
 } from "../constants/roles.js";
 import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
+
 import {
 	getOrCreateRole,
 	findUserByEmailOrIdentity,
@@ -1253,6 +1254,18 @@ export async function deleteThesis(thesisId, reason = null) {
 		},
 	});
 
+	// Soft delete guidances
+	await prisma.thesisGuidance.updateMany({
+		where: { thesisId: thesisId },
+		data: { status: "deleted" }
+	});
+
+	// Soft delete milestones
+	await prisma.thesisMilestone.updateMany({
+		where: { thesisId: thesisId },
+		data: { status: "deleted" }
+	});
+
 	// Notify student that their thesis has been archived/cancelled and they need to re-register
 	try {
 		const studentUserId = thesis.student?.user?.id; // Fixed path: student.user.id
@@ -1474,56 +1487,7 @@ export async function getThesisById(id) {
 	return transformThesis(thesis);
 }
 
-/**
- * Soft Delete thesis (Admin)
- * Sets status to 'Dibatalkan' and soft deletes related data
- */
-export async function deleteThesis(id) {
-	const thesis = await prisma.thesis.findUnique({
-		where: { id },
-		include: { thesisStatus: true }
-	});
 
-	if (!thesis) {
-		const err = new Error("Tugas akhir tidak ditemukan");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	// Find 'Dibatalkan' status
-	const dibatalkanStatus = await prisma.thesisStatus.findFirst({
-		where: { name: "Dibatalkan" }
-	});
-
-	if (!dibatalkanStatus) {
-		const err = new Error("Status 'Dibatalkan' not found in database");
-		err.statusCode = 500;
-		throw err;
-	}
-
-	// Update thesis status
-	await prisma.thesis.update({
-		where: { id },
-		data: {
-			thesisStatusId: dibatalkanStatus.id,
-			title: `${thesis.title} (Dibatalkan)`,
-		}
-	});
-
-	// Soft delete guidances
-	await prisma.thesisGuidance.updateMany({
-		where: { thesisId: id },
-		data: { status: "deleted" }
-	});
-
-	// Soft delete milestones
-	await prisma.thesisMilestone.updateMany({
-		where: { thesisId: id },
-		data: { status: "deleted" }
-	});
-
-	return { message: "Tugas akhir berhasil dibatalkan (soft delete)" };
-}
 /**
  * Update thesis (Admin)
  */
