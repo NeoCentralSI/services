@@ -49,7 +49,20 @@ export async function getStudentProposals(studentId) {
                 fileName: appLetterDoc.fileName,
                 filePath: appLetterDoc.filePath
             } : null,
+            dokumenSuratBalasan: proposal.companyResponses?.[0]?.document ? {
+                id: proposal.companyResponses[0].document.id,
+                fileName: proposal.companyResponses[0].document.fileName,
+                filePath: proposal.companyResponses[0].document.filePath
+            } : null,
+            dokumenSuratTugas: (proposal.assignmentLetters?.[0]?.document && proposal.assignmentLetters?.[0]?.signedById) ? {
+                id: proposal.assignmentLetters[0].document.id,
+                fileName: proposal.assignmentLetters[0].document.fileName,
+                filePath: proposal.assignmentLetters[0].document.filePath
+            } : null,
             status: proposal.status,
+            responseStatus: proposal.companyResponses?.[0]?.status || 'PENDING',
+            isSigned: !!appLetter?.signedById,
+            isAssignmentSigned: !!proposal.assignmentLetters?.[0]?.signedById,
             memberStatus: isCoordinator ? 'ACCEPTED' : (proposal.members.find(m => m.studentId === studentId)?.status || 'PENDING')
         };
     }).filter(p => p.memberStatus !== 'REJECTED');
@@ -209,11 +222,16 @@ export async function getProposalDetail(id) {
         throw error;
     }
 
-    // Reuse formatting logic or create specialized one if needed
-    // For now, returning the raw data with relations is often better for a "Detail" page
-    // but we can format it to be consistent with getStudentProposals if desired.
+    const appLetter = proposal.applicationLetters?.[0];
 
-    return proposal;
+    return {
+        ...proposal,
+        isSigned: !!appLetter?.signedById,
+        companyResponses: proposal.companyResponses?.map(res => ({
+            ...res,
+            updatedAt: res.updatedAt
+        }))
+    };
 }
 
 /**
@@ -262,4 +280,70 @@ export async function respondToInvitation(studentId, proposalId, response) {
     }
 
     return updatedMember;
+}
+
+/**
+ * Submit a company response letter for a proposal.
+ * @param {string} proposalId 
+ * @param {string} documentId 
+ * @param {string} studentId 
+ * @param {string[]} acceptedMemberIds
+ * @returns {Promise<Object>}
+ */
+export async function submitCompanyResponse(proposalId, documentId, studentId, acceptedMemberIds = []) {
+    // 1. Get proposal to verify members
+    const proposal = await registrationRepository.findProposalById(proposalId);
+    if (!proposal) {
+        const error = new Error("Proposal tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    // 2. Prepare member updates
+    const memberUpdates = [];
+    if (proposal.members && proposal.members.length > 0) {
+        for (const member of proposal.members) {
+            const isAccepted = acceptedMemberIds.includes(member.studentId);
+            memberUpdates.push({
+                studentId: member.studentId,
+                status: isAccepted ? 'ACCEPTED_BY_COMPANY' : 'REJECTED_BY_COMPANY'
+            });
+        }
+    }
+
+    // 3. Create response and update members transactionally
+    const response = await registrationRepository.createCompanyResponseTransaction({
+        proposalId,
+        documentId,
+        status: 'PENDING'
+    }, memberUpdates);
+
+    // Notify Sekdep
+    try {
+        const sekdeps = await registrationRepository.findUsersByRole(ROLES.SEKRETARIS_DEPARTEMEN);
+        const sekdepIds = sekdeps.map(s => s.id);
+
+        if (sekdepIds.length > 0) {
+            const title = "Surat Balasan Perusahaan Baru";
+            const message = `Seorang mahasiswa telah mengunggah surat balasan perusahaan untuk pengajuan KP.`;
+
+            await notificationService.createNotificationsForUsers(sekdepIds, {
+                title,
+                message
+            });
+
+            await sendFcmToUsers(sekdepIds, {
+                title,
+                body: message,
+                data: {
+                    type: 'internship_company_response',
+                    proposalId: proposalId
+                }
+            });
+        }
+    } catch (err) {
+        console.error("Failed to notify sekdep about company response:", err);
+    }
+
+    return response;
 }

@@ -50,4 +50,16 @@ router.delete("/companies/:id", sekdepController.deleteCompany);
  */
 router.post("/proposals/:id/respond", sekdepController.respondToProposal);
 
+/**
+ * @route GET /insternship/sekdep/company-responses
+ * @desc Get all internship proposals with uploaded company responses
+ */
+router.get("/company-responses", sekdepController.getCompanyResponses);
+
+/**
+ * @route POST /insternship/sekdep/company-responses/:id/verify
+ * @desc Verify a company response
+ */
+router.post("/company-responses/:id/verify", sekdepController.verifyCompanyResponse);
+
 export default router;

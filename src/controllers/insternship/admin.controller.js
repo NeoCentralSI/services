@@ -74,3 +74,51 @@ export async function updateProposalLetter(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Controller to get proposals that need "Surat Tugas" for Admin.
+ */
+export async function getAssignmentProposals(req, res, next) {
+    try {
+        const data = await adminService.getProposalsForAssignment();
+        res.status(200).json({
+            success: true,
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to get assignment letter detail.
+ */
+export async function getAssignmentLetterDetail(req, res, next) {
+    try {
+        const { id } = req.params;
+        const data = await adminService.getAssignmentLetterDetail(id);
+        res.status(200).json({
+            success: true,
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to update assignment letter details.
+ */
+export async function updateAssignmentLetter(req, res, next) {
+    try {
+        const { id } = req.params;
+        const data = await adminService.saveAssignmentLetter(id, req.body);
+        res.status(200).json({
+            success: true,
+            message: "Data surat tugas berhasil diperbarui.",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
