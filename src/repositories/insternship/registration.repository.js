@@ -40,6 +40,16 @@ export async function getProposalsByStudentId(studentId) {
                 include: {
                     document: true
                 }
+            },
+            companyResponses: {
+                include: {
+                    document: true
+                }
+            },
+            assignmentLetters: {
+                include: {
+                    document: true
+                }
             }
         },
         orderBy: {
@@ -348,5 +358,66 @@ export async function updateMemberStatus(proposalId, studentId, status) {
                 }
             }
         }
+    });
+}
+
+/**
+ * Create a new company response record.
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function createCompanyResponse(data) {
+    return prisma.internshipCompanyResponse.create({
+        data,
+        include: {
+            proposal: {
+                include: {
+                    targetCompany: true
+                }
+            },
+            document: true
+        }
+    });
+}
+
+/**
+ * Create company response and update member statuses transactionally.
+ * @param {Object} responseData 
+ * @param {Array<{studentId: string, status: string}>} memberUpdates 
+ * @returns {Promise<Object>}
+ */
+export async function createCompanyResponseTransaction(responseData, memberUpdates) {
+    return prisma.$transaction(async (tx) => {
+        // 1. Create company response
+        const response = await tx.internshipCompanyResponse.create({
+            data: responseData,
+            include: {
+                proposal: {
+                    include: {
+                        targetCompany: true
+                    }
+                },
+                document: true
+            }
+        });
+
+        // 2. Update member statuses
+        if (memberUpdates && memberUpdates.length > 0) {
+            for (const update of memberUpdates) {
+                await tx.internshipProposalMember.update({
+                    where: {
+                        proposalId_studentId: {
+                            proposalId: responseData.proposalId,
+                            studentId: update.studentId
+                        }
+                    },
+                    data: {
+                        status: update.status
+                    }
+                });
+            }
+        }
+
+        return response;
     });
 }

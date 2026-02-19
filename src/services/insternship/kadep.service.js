@@ -24,11 +24,17 @@ export async function getPendingLetters() {
         documentNumber: l.documentNumber,
         coordinatorName: l.proposal.coordinator?.user?.fullName,
         coordinatorNim: l.proposal.coordinator?.user?.identityNumber,
+        coordinatorStudentId: l.proposal.coordinatorId,
+        coordinatorStatus: l.proposal.members.find(m => m.studentId === l.proposal.coordinatorId)?.status || 'ACCEPTED',
         companyName: l.proposal.targetCompany?.companyName || "—",
-        members: l.proposal.members.map(m => ({
-            name: m.student?.user?.fullName,
-            nim: m.student?.user?.identityNumber
-        })),
+        members: l.proposal.members
+            .filter(m => m.studentId !== l.proposal.coordinatorId) // Exclude coordinator from members list to avoid double counting
+            .map(m => ({
+                studentId: m.studentId,
+                name: m.student?.user?.fullName,
+                nim: m.student?.user?.identityNumber,
+                status: m.status
+            })),
         createdAt: l.createdAt,
         signedById: l.signedById,
         document: l.document ? {

@@ -59,8 +59,8 @@ export async function generateApplicationLetter(proposalId, data) {
             alamat_perusahaan: data.companyAddress,
             tanggal_mulai: formatDate(data.startDate),
             tanggal_selesai: formatDate(data.endDate),
-            // Pass array for loops {@mahasiswa} is not needed, just {#mahasiswa}
-            mahasiswa: data.members.map((m, i) => ({
+            // Alias for shorter tags
+            m: data.members.map((m, i) => ({
                 no: i + 1,
                 nim: m.nim,
                 nama: m.name,
@@ -207,3 +207,154 @@ export async function generateApplicationLetter(proposalId, data) {
     }
 }
 
+export async function generateAssignmentLetter(proposalId, data) {
+    try {
+        const TEMPLATE_NAME = "INTERNSHIP_ASSIGNMENT_LETTER";
+        const dbTemplate = await prisma.documentTemplate.findUnique({
+            where: { name: TEMPLATE_NAME }
+        });
+
+        const formatDate = (date) => {
+            if (!date) return "";
+            return new Date(date).toLocaleDateString("id-ID", {
+                day: "numeric",
+                month: "long",
+                year: "numeric"
+            });
+        };
+
+        const templateData = {
+            nomor_surat: data.documentNumber,
+            tanggal_surat: formatDate(data.dateIssued),
+            nama_perusahaan: data.companyName,
+            alamat_perusahaan: data.companyAddress,
+            tanggal_mulai: formatDate(data.startDate),
+            tanggal_selesai: formatDate(data.endDate),
+            // Alias for shorter tags
+            m: data.members.map((m, i) => ({
+                no: i + 1,
+                nim: m.nim,
+                nama: m.name,
+                prodi: "Sistem Informasi"
+            })),
+            mahasiswa_list: data.members.map(m => `<li>${m.name} (${m.nim})</li>`).join(""),
+            mahasiswa_table: `
+                <table border="1" style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr style="background-color: #f2f2f2;">
+                            <th style="padding: 8px; border: 1px solid black; text-align: center; width: 40px;">No</th>
+                            <th style="padding: 8px; border: 1px solid black; text-align: center; width: 120px;">NIM</th>
+                            <th style="padding: 8px; border: 1px solid black; text-align: center;">Nama</th>
+                            <th style="padding: 8px; border: 1px solid black; text-align: center;">Program Studi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.members.map((m, i) => `
+                            <tr>
+                                <td style="padding: 8px; border: 1px solid black; text-align: center;">${i + 1}</td>
+                                <td style="padding: 8px; border: 1px solid black; text-align: center;">${m.nim}</td>
+                                <td style="padding: 8px; border: 1px solid black;">${m.name}</td>
+                                <td style="padding: 8px; border: 1px solid black;">Sistem Informasi</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            `
+        };
+
+        let buf;
+
+        if (dbTemplate && dbTemplate.type === "DOCX" && dbTemplate.filePath) {
+            try {
+                const templatePath = path.resolve(dbTemplate.filePath);
+                const content = await fs.readFile(templatePath);
+                const zip = new PizZip(content);
+                const doc = new Docxtemplater(zip, {
+                    paragraphLoop: true,
+                    linebreaks: true,
+                });
+
+                const bodyXML = htmlToOOXML(dbTemplate.content);
+
+                const docxData = {
+                    ...templateData,
+                    isi_surat: bodyXML
+                };
+
+                try {
+                    doc.render(docxData);
+                } catch (templaterError) {
+                    // Extract specific error details
+                    const errors = templaterError.properties && templaterError.properties.errors;
+                    if (errors && errors.length > 0) {
+                        const firstError = errors[0];
+                        if (firstError.properties && firstError.properties.id === 'unclosed_loop') {
+                            throw new Error(`Template Error: Terdapat loop yang tidak ditutup pada tag "${firstError.properties.xtag}". Pastikan Anda menggunakan {#${firstError.properties.xtag}} untuk membuka dan {/${firstError.properties.xtag}} untuk menutup.`);
+                        }
+                    }
+                    throw templaterError;
+                }
+
+                buf = doc.getZip().generate({
+                    type: "nodebuffer",
+                    compression: "DEFLATE",
+                });
+            } catch (error) {
+                console.error("Docxtemplater error:", error);
+                throw new Error("Gagal generate dokumen dari template DOCX: " + error.message);
+            }
+        } else if (dbTemplate) {
+            let htmlContent = dbTemplate.content;
+
+            htmlContent = htmlContent.replace(/\{nomor_surat\}/g, templateData.nomor_surat);
+            htmlContent = htmlContent.replace(/\{tanggal_surat\}/g, templateData.tanggal_surat);
+            htmlContent = htmlContent.replace(/\{nama_perusahaan\}/g, templateData.nama_perusahaan);
+            htmlContent = htmlContent.replace(/\{alamat_perusahaan\}/g, templateData.alamat_perusahaan);
+            htmlContent = htmlContent.replace(/\{tanggal_mulai\}/g, templateData.tanggal_mulai);
+            htmlContent = htmlContent.replace(/\{tanggal_selesai\}/g, templateData.tanggal_selesai);
+
+            htmlContent = htmlContent.replace(/\{mahasiswa\}/g, `<ul>${templateData.mahasiswa_list}</ul>`);
+            htmlContent = htmlContent.replace(/\{mahasiswa_table\}/g, templateData.mahasiswa_table);
+
+            buf = await HTMLToDOCX(htmlContent, null, {
+                table: { row: { cantSplit: true } },
+                footer: true,
+                pageNumber: true,
+            });
+        } else {
+            // Fallback for Assignment Letter template
+            buf = await HTMLToDOCX("<p>Template Surat Tugas belum dikonfigurasi.</p>");
+        }
+
+        const pdfBuffer = await convertDocxToPdf(buf, `Surat Tugas_${data.companyName}.docx`);
+
+        const uploadsDir = path.join(process.cwd(), "uploads", "internship", "generated");
+        await fs.mkdir(uploadsDir, { recursive: true });
+
+        const fileName = `Surat Tugas_${data.companyName.replace(/[\/\\?%*:|"<>]/g, "-")}_${Date.now()}.pdf`;
+        const filePath = path.join(uploadsDir, fileName);
+        const relativeFilePath = `uploads/internship/generated/${fileName}`;
+
+        await fs.writeFile(filePath, pdfBuffer);
+
+        let docType = await prisma.documentType.findFirst({ where: { name: "Surat Tugas KP" } });
+        if (!docType) {
+            docType = await prisma.documentType.create({ data: { name: "Surat Tugas KP" } });
+        }
+
+        const document = await prisma.document.create({
+            data: {
+                fileName: fileName,
+                filePath: relativeFilePath,
+                documentTypeId: docType.id,
+                userId: data.coordinatorId
+            }
+        });
+
+        return document.id;
+
+    } catch (error) {
+        console.error("Error generating assignment document:", error);
+        throw new Error("Gagal membuat dokumen surat tugas: " + error.message);
+    }
+}

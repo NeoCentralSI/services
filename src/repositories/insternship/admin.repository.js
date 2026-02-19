@@ -7,7 +7,14 @@ import prisma from "../../config/prisma.js";
 export async function findApprovedProposals() {
     return prisma.internshipProposal.findMany({
         where: {
-            status: 'APPROVED_BY_SEKDEP'
+            OR: [
+                { status: 'APPROVED_BY_SEKDEP' },
+                {
+                    applicationLetters: {
+                        some: {}
+                    }
+                }
+            ]
         },
         include: {
             coordinator: {
@@ -22,7 +29,7 @@ export async function findApprovedProposals() {
             },
             members: {
                 where: {
-                    status: 'ACCEPTED'
+                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY', 'REJECTED_BY_COMPANY'] }
                 },
                 include: {
                     student: {
@@ -96,7 +103,7 @@ export async function findProposalForLetter(id) {
             },
             members: {
                 where: {
-                    status: 'ACCEPTED'
+                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY', 'REJECTED_BY_COMPANY'] }
                 },
                 include: {
                     student: {
@@ -171,6 +178,214 @@ export async function updateApplicationLetter(proposalId, data) {
  */
 export async function updateLetterDocumentId(letterId, documentId) {
     return prisma.internshipApplicationLetter.update({
+        where: { id: letterId },
+        data: {
+            documentId: documentId
+        }
+    });
+}
+
+/**
+ * Find internship proposals that have an approved company response.
+ * @returns {Promise<Array>}
+ */
+export async function findProposalsForAssignment() {
+    return prisma.internshipProposal.findMany({
+        where: {
+            OR: [
+                {
+                    companyResponses: {
+                        some: {
+                            status: 'APPROVED_BY_SEKDEP'
+                        }
+                    }
+                },
+                {
+                    assignmentLetters: {
+                        some: {}
+                    }
+                }
+            ]
+        },
+        include: {
+            coordinator: {
+                include: {
+                    user: {
+                        select: {
+                            fullName: true,
+                            identityNumber: true
+                        }
+                    }
+                }
+            },
+            members: {
+                where: {
+                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
+                },
+                include: {
+                    student: {
+                        include: {
+                            user: {
+                                select: {
+                                    fullName: true,
+                                    identityNumber: true
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            targetCompany: true,
+            assignmentLetters: {
+                include: {
+                    document: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                },
+                take: 1
+            },
+            companyResponses: {
+                where: {
+                    OR: [
+                        { status: 'APPROVED_BY_SEKDEP' },
+                        {
+                            assignmentLetters: {
+                                some: {}
+                            }
+                        }
+                    ]
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                },
+                take: 1
+            }
+        },
+        orderBy: {
+            updatedAt: 'desc'
+        }
+    });
+}
+
+/**
+ * Find single proposal for assignment letter management.
+ * @param {string} id 
+ * @returns {Promise<Object|null>}
+ */
+export async function findProposalForAssignment(id) {
+    return prisma.internshipProposal.findUnique({
+        where: { id },
+        include: {
+            coordinator: {
+                include: {
+                    user: {
+                        select: {
+                            fullName: true,
+                            identityNumber: true
+                        }
+                    }
+                }
+            },
+            members: {
+                where: {
+                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
+                },
+                include: {
+                    student: {
+                        include: {
+                            user: {
+                                select: {
+                                    fullName: true,
+                                    identityNumber: true
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            targetCompany: true,
+            companyResponses: {
+                where: {
+                    OR: [
+                        { status: 'APPROVED_BY_SEKDEP' },
+                        {
+                            assignmentLetters: {
+                                some: {}
+                            }
+                        }
+                    ]
+                },
+                include: {
+                    document: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                },
+                take: 1
+            },
+            assignmentLetters: {
+                include: {
+                    document: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                },
+                take: 1
+            }
+        }
+    });
+}
+
+/**
+ * Upsert assignment letter details for a proposal.
+ * @param {string} proposalId 
+ * @param {string} responseId
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function updateAssignmentLetter(proposalId, responseId, data) {
+    const { documentNumber, startDateActual, endDateActual } = data;
+
+    // Find existing latest assignment letter for this proposal
+    const latestLetter = await prisma.internshipAssignmentLetter.findFirst({
+        where: { proposalId },
+        orderBy: { createdAt: 'desc' }
+    });
+
+    if (latestLetter) {
+        return prisma.internshipAssignmentLetter.update({
+            where: { id: latestLetter.id },
+            data: {
+                documentNumber,
+                responseId,
+                dateIssued: new Date(),
+                startDateActual: startDateActual ? new Date(startDateActual) : null,
+                endDateActual: endDateActual ? new Date(endDateActual) : null
+            }
+        });
+    }
+
+    return prisma.internshipAssignmentLetter.create({
+        data: {
+            proposal: { connect: { id: proposalId } },
+            response: { connect: { id: responseId } },
+            documentNumber,
+            dateIssued: new Date(),
+            startDateActual: startDateActual ? new Date(startDateActual) : null,
+            endDateActual: endDateActual ? new Date(endDateActual) : null
+        }
+    });
+}
+
+/**
+ * Update the document ID of an assignment letter.
+ * @param {string} letterId 
+ * @param {string} documentId 
+ * @returns {Promise<Object>}
+ */
+export async function updateAssignmentLetterDocumentId(letterId, documentId) {
+    return prisma.internshipAssignmentLetter.update({
         where: { id: letterId },
         data: {
             documentId: documentId

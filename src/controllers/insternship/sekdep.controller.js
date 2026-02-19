@@ -132,3 +132,41 @@ export async function respondToProposal(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Controller to get all internship proposals with uploaded company responses for Sekdep.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getCompanyResponses(req, res, next) {
+    try {
+        const data = await sekdepService.listCompanyResponses();
+        res.status(200).json({
+            success: true,
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to verify a company response.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function verifyCompanyResponse(req, res, next) {
+    try {
+        const { id: responseId } = req.params;
+        const { status, notes, acceptedMemberIds } = req.body;
+        await sekdepService.verifyCompanyResponse(responseId, status, notes, acceptedMemberIds);
+        res.status(200).json({
+            success: true,
+            message: `Surat balasan berhasil ${status === 'APPROVED_BY_SEKDEP' ? 'diverifikasi' : 'ditolak'}.`
+        });
+    } catch (error) {
+        next(error);
+    }
+}

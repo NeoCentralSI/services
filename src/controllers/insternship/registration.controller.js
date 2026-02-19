@@ -143,3 +143,32 @@ export async function respondToInvitation(req, res, next) {
         next(error);
     }
 }
+/**
+ * Controller to submit a company response letter.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function submitCompanyResponse(req, res, next) {
+    try {
+        const { id: proposalId } = req.params;
+        const { documentId, acceptedMemberIds } = req.body;
+        const studentId = req.user.sub;
+
+        if (!documentId) {
+            const err = new Error("ID Dokumen harus disertakan.");
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const data = await registrationService.submitCompanyResponse(proposalId, documentId, studentId, acceptedMemberIds);
+
+        res.status(200).json({
+            success: true,
+            message: "Surat balasan berhasil diunggah.",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}

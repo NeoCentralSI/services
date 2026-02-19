@@ -21,7 +21,7 @@ export async function findPendingApplicationLetters() {
                                 include: {
                                     user: true
                                 }
-                            }
+                            },
                         }
                     },
                     targetCompany: true
@@ -56,7 +56,7 @@ export async function findPendingAssignmentLetters() {
                                 include: {
                                     user: true
                                 }
-                            }
+                            },
                         }
                     },
                     targetCompany: true

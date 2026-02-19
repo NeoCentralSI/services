@@ -11,5 +11,9 @@ router.use(requireRole(ROLES.KETUA_DEPARTEMEN));
 
 router.get("/pending-letters", kadepController.getPendingLetters);
 router.post("/approve-letter", kadepController.approveLetter);
+router.get("/companies/stats", kadepController.getCompaniesWithStats);
+router.post("/companies", kadepController.createCompany);
+router.put("/companies/:id", kadepController.updateCompany);
+router.delete("/companies/:id", kadepController.deleteCompany);
 
 export default router;
