@@ -43,14 +43,13 @@ export const requestGuidanceSchema = z.object({
   milestoneId: z
     .preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().uuid("milestoneId must be a valid UUID"))
     .optional(),
-  // Optional multiple milestones (milestoneIds[] in multipart)
+  // Required: multiple milestones (milestoneIds[] in multipart), min 1
   milestoneIds: z
     .preprocess((v) => {
       if (Array.isArray(v)) return v;
       if (typeof v === "string" && v.trim() !== "") return [v];
       return undefined;
-    }, z.array(z.string().uuid("milestoneIds must contain valid UUIDs")).optional())
-    .optional(),
+    }, z.array(z.string().uuid("milestoneIds must contain valid UUIDs")).min(1, "Minimal 1 milestone harus dipilih")),
   // Optional document URL (Google Docs, Overleaf, Notion, etc.)
   documentUrl: z
     .any()

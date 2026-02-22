@@ -6,7 +6,7 @@ import prisma from "../config/prisma.js";
  * @param {object} options - { limit, offset, onlyUnread }
  */
 export async function findNotificationsByUserId(userId, { limit = 20, offset = 0, onlyUnread = false } = {}) {
-	const where = { userId };
+	const where = { userId, title: { not: "[TRANSFER_REQUEST]" } };
 	if (onlyUnread) {
 		where.isRead = false;
 	}
@@ -25,7 +25,7 @@ export async function findNotificationsByUserId(userId, { limit = 20, offset = 0
  */
 export async function countUnreadNotifications(userId) {
 	return await prisma.notification.count({
-		where: { userId, isRead: false },
+		where: { userId, isRead: false, title: { not: "[TRANSFER_REQUEST]" } },
 	});
 }
 

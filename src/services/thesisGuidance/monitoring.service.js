@@ -279,6 +279,7 @@ export async function getThesisDetail(thesisId) {
     id: thesis.id,
     title: thesis.title,
     status: thesis.thesisStatus?.name || null,
+    rating: thesis.rating || 'ONGOING',
     topic: thesis.thesisTopic?.name || null,
     academicYear: thesis.academicYear
       ? `${thesis.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${thesis.academicYear.year}`

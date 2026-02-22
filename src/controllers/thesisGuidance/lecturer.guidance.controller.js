@@ -1,6 +1,6 @@
 import {
 	getMyStudentsService,
-    getStudentDetailService,
+	getStudentDetailService,
 	getRequestsService,
 	getScheduledGuidancesService,
 	rejectGuidanceService,
@@ -17,6 +17,13 @@ import {
 	approveSessionSummaryService,
 	getGuidanceDetailService,
 	sendWarningNotificationService,
+	approveThesisProposalService,
+	// Transfer
+	getEligibleTransferLecturersService,
+	requestStudentTransferService,
+	getIncomingTransferRequestsService,
+	approveTransferRequestService,
+	rejectTransferRequestService,
 } from "../../services/thesisGuidance/lecturer.guidance.service.js";
 import { SUPERVISOR_ROLES } from "../../constants/roles.js";
 
@@ -25,7 +32,7 @@ export async function myStudents(req, res, next) {
 		// Get roles from query params or use default supervisor roles
 		const rolesParam = req.query?.roles;
 		let roles;
-		
+
 		if (rolesParam) {
 			// Support comma-separated roles from query
 			roles = Array.isArray(rolesParam) ? rolesParam : rolesParam.split(',').map(r => r.trim());
@@ -33,7 +40,7 @@ export async function myStudents(req, res, next) {
 			// Default to supervisor roles
 			roles = SUPERVISOR_ROLES;
 		}
-		
+
 		const result = await getMyStudentsService(req.user.sub, roles);
 		res.json({ success: true, ...result });
 	} catch (err) {
@@ -42,13 +49,13 @@ export async function myStudents(req, res, next) {
 }
 
 export async function studentDetail(req, res, next) {
-    try {
-        const { thesisId } = req.params;
-        const result = await getStudentDetailService(req.user.sub, thesisId);
-        res.json({ success: true, data: result });
-    } catch (err) {
-        next(err);
-    }
+	try {
+		const { thesisId } = req.params;
+		const result = await getStudentDetailService(req.user.sub, thesisId);
+		res.json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
 }
 
 export async function listRequests(req, res, next) {
@@ -248,5 +255,67 @@ export async function sendWarningNotification(req, res, next) {
 	}
 }
 
+/**
+ * POST /thesis-guidance/lecturer/approve-proposal/:thesisId
+ * Approve a student's thesis proposal
+ */
+export async function approveThesisProposal(req, res, next) {
+	try {
+		const { thesisId } = req.params;
+		const result = await approveThesisProposalService(req.user.sub, thesisId);
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
 
+// ==================== STUDENT TRANSFER ====================
 
+export async function getTransferLecturers(req, res, next) {
+	try {
+		const result = await getEligibleTransferLecturersService(req.user.sub);
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function requestTransfer(req, res, next) {
+	try {
+		const { thesisIds, targetLecturerId, reason } = req.body;
+		const result = await requestStudentTransferService(req.user.sub, { thesisIds, targetLecturerId, reason });
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getIncomingTransfers(req, res, next) {
+	try {
+		const result = await getIncomingTransferRequestsService(req.user.sub);
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function approveTransfer(req, res, next) {
+	try {
+		const { notificationId } = req.params;
+		const result = await approveTransferRequestService(req.user.sub, notificationId);
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function rejectTransfer(req, res, next) {
+	try {
+		const { notificationId } = req.params;
+		const { reason } = req.body || {};
+		const result = await rejectTransferRequestService(req.user.sub, notificationId, { reason });
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}

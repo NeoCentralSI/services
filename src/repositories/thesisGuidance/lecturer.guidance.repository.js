@@ -25,16 +25,16 @@ export async function findMyStudents(lecturerId, roles) {
 							user: { select: { id: true, fullName: true, email: true, identityNumber: true } },
 						},
 					},
-                    // Include ALL milestones to calculate progress
-                    thesisMilestones: {
-                        select: { id: true, title: true, status: true, progressPercentage: true }
-                    },
-                    // Get completed guidances count
-                    thesisGuidances: {
-                        where: { status: 'completed' },
-                        orderBy: { completedAt: 'desc' },
-                        select: { id: true, completedAt: true }
-                    },
+					// Include ALL milestones to calculate progress
+					thesisMilestones: {
+						select: { id: true, title: true, status: true, progressPercentage: true }
+					},
+					// Get completed guidances count
+					thesisGuidances: {
+						where: { status: 'completed' },
+						orderBy: { completedAt: 'desc' },
+						select: { id: true, completedAt: true }
+					},
 					// Include thesis status
 					thesisStatus: {
 						select: { id: true, name: true }
@@ -53,41 +53,41 @@ export async function findMyStudents(lecturerId, roles) {
 		if (seen.has(sid)) continue;
 		seen.add(sid);
 
-        // Get safe values
-        const milestones = p.thesis.thesisMilestones || [];
-        const guidances = p.thesis.thesisGuidances || [];
-        
-        // Calculate milestone progress
-        const totalMilestones = milestones.length;
-        const completedMilestones = milestones.filter(m => m.status === 'completed').length;
-        const milestoneProgress = totalMilestones > 0 
-            ? Math.round((completedMilestones / totalMilestones) * 100) 
-            : 0;
-        
-        // Get latest milestone (most recently updated or first incomplete)
-        const latestMilestone = milestones.find(m => m.status !== 'completed') || milestones[0];
-        
-        // Calculate completed guidances count
-        const completedGuidanceCount = guidances.length;
-        const lastGuidanceDate = guidances[0]?.completedAt || null;
+		// Get safe values
+		const milestones = p.thesis.thesisMilestones || [];
+		const guidances = p.thesis.thesisGuidances || [];
+
+		// Calculate milestone progress
+		const totalMilestones = milestones.length;
+		const completedMilestones = milestones.filter(m => m.status === 'completed').length;
+		const milestoneProgress = totalMilestones > 0
+			? Math.round((completedMilestones / totalMilestones) * 100)
+			: 0;
+
+		// Get latest milestone (most recently updated or first incomplete)
+		const latestMilestone = milestones.find(m => m.status !== 'completed') || milestones[0];
+
+		// Calculate completed guidances count
+		const completedGuidanceCount = guidances.length;
+		const lastGuidanceDate = guidances[0]?.completedAt || null;
 
 		result.push({
 			thesisId: p.thesisId,
 			thesisTitle: p.thesis?.title ?? null,
-            thesisRating: p.thesis?.rating || "ONGOING", // Enum from Thesis model
+			thesisRating: p.thesis?.rating || "ONGOING", // Enum from Thesis model
 			thesisStatus: p.thesis?.thesisStatus?.name || "Ongoing",
 			studentId: sid,
 			studentUser: p.thesis.student.user,
 			role: p.role?.name || null,
-            latestMilestone: latestMilestone ? latestMilestone.title : "Belum mulai",
-            // New fields for progress info
-            totalMilestones,
-            completedMilestones,
-            milestoneProgress, // percentage 0-100
-            completedGuidanceCount,
-            lastGuidanceDate,
-            deadlineDate: p.thesis?.deadlineDate ?? null,
-            startDate: p.thesis?.startDate ?? null,
+			latestMilestone: latestMilestone ? latestMilestone.title : "Belum mulai",
+			// New fields for progress info
+			totalMilestones,
+			completedMilestones,
+			milestoneProgress, // percentage 0-100
+			completedGuidanceCount,
+			lastGuidanceDate,
+			deadlineDate: p.thesis?.deadlineDate ?? null,
+			startDate: p.thesis?.startDate ?? null,
 		});
 	}
 	return result;
@@ -151,7 +151,7 @@ export async function approveGuidanceById(guidanceId, { feedback, approvedDate, 
 		where: { id: guidanceId },
 		select: { requestedDate: true },
 	});
-	
+
 	const data = {
 		status: "accepted",
 		// Use provided approvedDate, or fall back to requestedDate (the date student requested)
@@ -160,24 +160,24 @@ export async function approveGuidanceById(guidanceId, { feedback, approvedDate, 
 	};
 	// Only set optional fields if provided
 	if (duration !== undefined) data.duration = duration;
-	
+
 	return prisma.thesisGuidance.update({
 		where: { id: guidanceId },
 		data,
-		include: { 
-			thesis: { 
-				include: { 
-					student: { 
-						include: { 
-							user: true 
-						} 
-					} 
-				} 
+		include: {
+			thesis: {
+				include: {
+					student: {
+						include: {
+							user: true
+						}
+					}
+				}
 			},
-			supervisor: { 
-				include: { 
-					user: true 
-				} 
+			supervisor: {
+				include: {
+					user: true
+				}
 			}
 		},
 	});
@@ -191,20 +191,20 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 			rejectionReason: feedback ?? "REJECTED",
 			supervisorFeedback: feedback ?? "REJECTED",
 		},
-		include: { 
-			thesis: { 
-				include: { 
-					student: { 
-						include: { 
-							user: true 
-						} 
-					} 
-				} 
+		include: {
+			thesis: {
+				include: {
+					student: {
+						include: {
+							user: true
+						}
+					}
+				}
 			},
-			supervisor: { 
-				include: { 
-					user: true 
-				} 
+			supervisor: {
+				include: {
+					user: true
+				}
 			}
 		},
 	});
@@ -268,21 +268,21 @@ export async function upsertCompletionsValidated(thesisId, componentIds = []) {
 	const [updateRes, createRes] = await prisma.$transaction([
 		toUpdateIds.length
 			? prisma.thesisProgressCompletion.updateMany({
-					where: { id: { in: toUpdateIds } },
-					data: { validatedBySupervisor: true, validatedAt: now, completedAt: now },
-				})
+				where: { id: { in: toUpdateIds } },
+				data: { validatedBySupervisor: true, validatedAt: now, completedAt: now },
+			})
 			: Promise.resolve({ count: 0 }),
 		toCreateComponentIds.length
 			? prisma.thesisProgressCompletion.createMany({
-					data: toCreateComponentIds.map((cid) => ({ 
-						thesisId, 
-						componentId: cid, 
-						validatedBySupervisor: true, 
-						validatedAt: now,
-						completedAt: now 
-					})),
-					skipDuplicates: true,
-				})
+				data: toCreateComponentIds.map((cid) => ({
+					thesisId,
+					componentId: cid,
+					validatedBySupervisor: true,
+					validatedAt: now,
+					completedAt: now
+				})),
+				skipDuplicates: true,
+			})
 			: Promise.resolve({ count: 0 }),
 	]);
 
@@ -522,4 +522,164 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 	return { total, rows, page: currentPage, pageSize: take };
 }
 
+// ==================== STUDENT TRANSFER ====================
 
+/**
+ * Find lecturers eligible to receive student transfers (have active "Pembimbing 1" role)
+ */
+export async function findEligibleTransferLecturers(excludeLecturerId) {
+	const pembimbing1Lecturers = await prisma.userHasRole.findMany({
+		where: {
+			role: { name: ROLES.PEMBIMBING_1 },
+			status: "active",
+			userId: { not: excludeLecturerId },
+		},
+		include: {
+			user: {
+				select: {
+					id: true, fullName: true, identityNumber: true,
+					lecturer: {
+						select: {
+							id: true,
+							thesisSupervisors: {
+								where: { role: { name: ROLES.PEMBIMBING_1 } },
+								select: { id: true },
+							},
+						},
+					},
+				},
+			},
+		},
+	});
+
+	return pembimbing1Lecturers
+		.filter((uhr) => uhr.user?.lecturer)
+		.map((uhr) => ({
+			id: uhr.user.id,
+			fullName: uhr.user.fullName,
+			identityNumber: uhr.user.identityNumber,
+			currentStudentCount: uhr.user.lecturer?.thesisSupervisors?.length || 0,
+		}));
+}
+
+/**
+ * Find ThesisSupervisors records for given thesisIds belonging to a specific lecturer
+ */
+export async function findSupervisorRecords(thesisIds, lecturerId) {
+	return prisma.ThesisSupervisors.findMany({
+		where: {
+			thesisId: { in: thesisIds },
+			lecturerId,
+		},
+		include: {
+			role: { select: { id: true, name: true } },
+			thesis: {
+				include: {
+					student: { include: { user: { select: { id: true, fullName: true, identityNumber: true } } } },
+					thesisSupervisors: {
+						include: {
+							role: { select: { id: true, name: true } },
+							lecturer: { include: { user: { select: { id: true, fullName: true } } } },
+						},
+					},
+				},
+			},
+		},
+	});
+}
+
+/**
+ * Transfer a ThesisSupervisors record to a new lecturer
+ */
+export async function transferSupervisor(thesisSupervisorId, newLecturerId) {
+	return prisma.ThesisSupervisors.update({
+		where: { id: thesisSupervisorId },
+		data: { lecturerId: newLecturerId },
+	});
+}
+
+/**
+ * Change the roleId on a ThesisSupervisors record (e.g. P2→P1 promotion)
+ */
+export async function updateSupervisorRole(thesisSupervisorId, newRoleId) {
+	return prisma.ThesisSupervisors.update({
+		where: { id: thesisSupervisorId },
+		data: { roleId: newRoleId },
+	});
+}
+
+/**
+ * Get the UserRole id for a role by name
+ */
+export async function getRoleIdByName(roleName) {
+	const role = await prisma.userRole.findFirst({ where: { name: roleName } });
+	return role?.id || null;
+}
+
+/**
+ * Check if a lecturer has a specific active role (via UserHasRole)
+ */
+export async function lecturerHasRole(lecturerId, roleName) {
+	const record = await prisma.userHasRole.findFirst({
+		where: {
+			userId: lecturerId,
+			role: { name: roleName },
+			status: "active",
+		},
+	});
+	return !!record;
+}
+
+/**
+ * Create a transfer notification (stored as Notification with JSON payload in message)
+ */
+export async function createTransferNotification(targetLecturerId, message) {
+	return prisma.notification.create({
+		data: {
+			userId: targetLecturerId,
+			title: "[TRANSFER_REQUEST]",
+			message,
+			isRead: false,
+		},
+	});
+}
+
+/**
+ * Find pending (unread) transfer notifications for a lecturer
+ */
+export async function findPendingTransferNotifications(lecturerId) {
+	return prisma.notification.findMany({
+		where: {
+			userId: lecturerId,
+			title: "[TRANSFER_REQUEST]",
+			isRead: false,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+}
+
+/**
+ * Get a transfer notification by id
+ */
+export async function findTransferNotificationById(notificationId) {
+	return prisma.notification.findUnique({ where: { id: notificationId } });
+}
+
+/**
+ * Mark a notification as read
+ */
+export async function markNotificationRead(notificationId) {
+	return prisma.notification.update({
+		where: { id: notificationId },
+		data: { isRead: true },
+	});
+}
+
+/**
+ * Create a simple info notification
+ */
+export async function createInfoNotification(userId, title, message) {
+	return prisma.notification.create({
+		data: { userId, title, message, isRead: false },
+	});
+}
