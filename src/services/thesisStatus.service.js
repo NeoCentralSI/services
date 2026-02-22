@@ -85,11 +85,63 @@ async function notifyKadepForFailedThesis(thesisWithStudent) {
   }
 }
 
+/**
+ * Notify the student when their thesis becomes FAILED
+ */
+async function notifyStudentForFailedThesis(thesisWithStudent) {
+  try {
+    const studentUserId = thesisWithStudent.student?.user?.id;
+    if (!studentUserId) return;
+
+    const title = '⚠️ Tugas Akhir Gagal';
+    const message = 'Tugas akhir Anda telah melewati deadline 1 tahun. Silakan ke departemen untuk mendaftar ulang tugas akhir dengan pembimbing dan topik baru.';
+
+    await createNotificationsForUsers([studentUserId], { title, message });
+
+    await sendFcmToUsers([studentUserId], {
+      title,
+      body: message,
+      data: {
+        type: 'thesis_failed',
+        thesisId: thesisWithStudent.id,
+      },
+    });
+  } catch (error) {
+    console.error('[thesis-status] Failed to notify student for FAILED thesis:', error);
+  }
+}
+
+/**
+ * Auto-cleanup when thesis becomes FAILED:
+ * - Cancel all pending/accepted guidances
+ * (mirrors the pattern used when thesis is cancelled/topic changed)
+ */
+async function cleanupFailedThesis(thesisId) {
+  try {
+    // Cancel all pending/accepted guidances
+    const result = await prisma.thesisGuidance.updateMany({
+      where: {
+        thesisId,
+        status: { in: ['requested', 'accepted'] },
+      },
+      data: {
+        status: 'cancelled',
+      },
+    });
+
+    if (result.count > 0) {
+      console.log(`[thesis-status] Cancelled ${result.count} pending guidances for failed thesis ${thesisId}`);
+    }
+  } catch (error) {
+    console.error('[thesis-status] Failed to cleanup failed thesis:', error);
+  }
+}
+
 export async function updateAllThesisStatuses({ pageSize = 200, logger = console } = {}) {
   // 1. Get IDs of terminal statuses to skip
   const terminalStatuses = await prisma.thesisStatus.findMany({
-    where: { name: { in: ["Selesai", "Gagal", "Lulus", "Drop Out"] } }, // Adjust names as per seed
-    select: { id: true }
+    where: { name: { in: ["Selesai", "Gagal", "Lulus", "Drop Out", "Dibatalkan"] } }, // Adjust names as per seed
+    select: { id: true, name: true }
   });
   const terminalIds = new Set(terminalStatuses.map(s => s.id));
 
@@ -115,6 +167,7 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
           select: {
             user: {
               select: {
+                id: true,
                 fullName: true,
                 identityNumber: true,
               }
@@ -164,11 +217,16 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
     page += 1;
   }
 
-  // Send notifications to Kadep for newly FAILED theses
+  // Send notifications and cleanup for newly FAILED theses
   if (newlyFailedTheses.length > 0) {
-    logger.log(`[thesis-status] Notifying Kadep for ${newlyFailedTheses.length} newly FAILED thesis(es)`);
+    logger.log(`[thesis-status] Processing ${newlyFailedTheses.length} newly FAILED thesis(es)`);
     for (const thesis of newlyFailedTheses) {
+      // 1. Notify Kadep
       await notifyKadepForFailedThesis(thesis);
+      // 2. Notify Student
+      await notifyStudentForFailedThesis(thesis);
+      // 3. Cancel pending guidances (cleanup like cancellation flow)
+      await cleanupFailedThesis(thesis.id);
     }
   }
 

@@ -8,6 +8,13 @@ export const submitRequestSchema = z.object({
     .string()
     .min(20, 'Alasan minimal 20 karakter')
     .max(1000, 'Alasan maksimal 1000 karakter'),
+  newTitle: z
+    .string()
+    .min(5, 'Judul baru minimal 5 karakter')
+    .max(500, 'Judul baru maksimal 500 karakter'),
+  newTopicId: z
+    .string()
+    .min(1, 'Topik baru harus dipilih'),
 });
 
 export const reviewRequestSchema = z.object({

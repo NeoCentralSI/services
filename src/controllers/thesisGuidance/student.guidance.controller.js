@@ -18,6 +18,7 @@ import {
   getMyThesisDetailService,
   updateMyThesisTitleService,
   getThesisHistoryService,
+  proposeThesisService,
 } from "../../services/thesisGuidance/student.guidance.service.js";
 
 export async function listMyGuidances(req, res, next) {
@@ -277,6 +278,20 @@ export async function thesisHistory(req, res, next) {
   try {
     const result = await getThesisHistoryService(req.user.sub);
     res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis-guidance/student/propose
+ * Propose new thesis (with auto-assigned supervisors from previous thesis)
+ */
+export async function proposeThesis(req, res, next) {
+  try {
+    const { title, topicId } = req.body || {};
+    const result = await proposeThesisService(req.user.sub, { title, topicId });
+    res.status(201).json({ success: true, ...result });
   } catch (err) {
     next(err);
   }

@@ -6,9 +6,14 @@ export function getStudentByUserId(userId) {
 }
 
 export async function getActiveThesisForStudent(studentId) {
-  // Pick the most recent by startDate desc (fallback by id desc)
+  // Pick the most recent ACTIVE thesis (exclude cancelled/failed/completed)
   const thesis = await prisma.thesis.findFirst({
-    where: { studentId },
+    where: {
+      studentId,
+      thesisStatus: {
+        name: { notIn: ['Dibatalkan', 'Gagal', 'Selesai', 'Lulus', 'Drop Out'] },
+      },
+    },
     orderBy: [
       { startDate: "desc" },
       { id: "desc" },
@@ -30,6 +35,12 @@ export async function getThesisHistory(studentId) {
       thesisTopic: { select: { id: true, name: true } },
       academicYear: { select: { id: true, year: true, semester: true } },
       document: { select: { id: true, filePath: true, fileName: true } },
+      thesisSupervisors: {
+        include: {
+          role: { select: { id: true, name: true } },
+          lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
+        }
+      },
       _count: {
         select: {
           thesisGuidances: { where: { status: "completed" } },

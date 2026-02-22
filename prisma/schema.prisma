@@ -911,6 +911,7 @@ enum ThesisRating {
   SLOW
   AT_RISK
   FAILED
+  CANCELLED
 }
 
 // ==================== Company ====================

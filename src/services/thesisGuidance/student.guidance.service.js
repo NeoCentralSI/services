@@ -806,7 +806,28 @@ export async function guidanceHistoryService(userId) {
 }
 
 export async function listSupervisorsService(userId) {
-  const { thesis } = await getActiveThesisOrThrow(userId);
+  const student = await getStudentByUserId(userId);
+  ensureStudent(student);
+
+  // Try active thesis first
+  let thesis = await getActiveThesisForStudent(student.id);
+
+  // Fall back to most recent thesis (including Gagal/Dibatalkan) for overview display
+  if (!thesis) {
+    thesis = await prisma.thesis.findFirst({
+      where: { studentId: student.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        thesisStatus: { select: { id: true, name: true } },
+      },
+    });
+    if (!thesis) {
+      const err = new Error("Active thesis not found for this student");
+      err.statusCode = 404;
+      throw err;
+    }
+  }
+
   const parts = await getSupervisorsForThesis(thesis.id);
   const supervisors = parts.map((p) => ({
     id: p.lecturerId,
@@ -1131,7 +1152,34 @@ export async function getCompletedGuidanceHistoryService(userId) {
     throw err;
   }
 
-  const guidances = await getCompletedGuidanceHistory(student.id);
+  // Only show completed guidances for the active thesis
+  const thesis = await getActiveThesisForStudent(student.id);
+  if (!thesis) {
+    return { guidances: [] };
+  }
+
+  const guidances = await prisma.thesisGuidance.findMany({
+    where: {
+      thesisId: thesis.id,
+      status: "completed",
+    },
+    include: {
+      supervisor: { include: { user: true } },
+      milestones: { include: { milestone: { select: { id: true, title: true } } } },
+      thesis: {
+        select: {
+          title: true,
+          student: {
+            select: {
+              user: { select: { fullName: true, identityNumber: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [{ completedAt: "desc" }, { id: "desc" }],
+  });
+
   return {
     guidances: guidances.map((g) => ({
       id: g.id,
@@ -1199,7 +1247,29 @@ export async function getGuidanceForExportService(userId, guidanceId) {
  * @returns {Promise<{thesis: object}>}
  */
 export async function getMyThesisDetailService(userId) {
-  const { student, thesis } = await getActiveThesisOrThrow(userId);
+  const student = await getStudentByUserId(userId);
+  ensureStudent(student);
+
+  // Try to find active thesis first
+  let thesis = await getActiveThesisForStudent(student.id);
+
+  // If no active thesis, fall back to the most recent thesis (including Gagal/Dibatalkan)
+  // so the frontend can display the appropriate status message
+  if (!thesis) {
+    thesis = await prisma.thesis.findFirst({
+      where: { studentId: student.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        document: { select: { id: true, filePath: true, fileName: true } },
+        thesisStatus: { select: { id: true, name: true } },
+      },
+    });
+    if (!thesis) {
+      const err = new Error("Active thesis not found for this student");
+      err.statusCode = 404;
+      throw err;
+    }
+  }
 
   // Get thesis with all related data
   const fullThesis = await prisma.thesis.findUnique({
@@ -1296,6 +1366,8 @@ export async function getMyThesisDetailService(userId) {
       title: fullThesis.title,
       status: fullThesis.thesisStatus?.name || 'aktif',
       rating: fullThesis.rating || null,
+      startDate: fullThesis.startDate || null,
+      deadlineDate: fullThesis.deadlineDate || null,
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,
       // Student info
@@ -1407,6 +1479,7 @@ export async function getThesisHistoryService(userId) {
       id: t.id,
       title: t.title,
       status: t.thesisStatus?.name || "Unknown",
+      rating: t.rating || "ONGOING",
       topic: t.thesisTopic?.name || "-",
       academicYear: t.academicYear
         ? `${t.academicYear.year}/${t.academicYear.year + 1} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
@@ -1418,6 +1491,115 @@ export async function getThesisHistoryService(userId) {
           ? `0/${t._count.thesisMilestones}`
           : t._count.thesisMilestones,
       },
+      supervisors: (t.thesisSupervisors || []).map(s => ({
+        id: s.lecturerId,
+        name: s.lecturer?.user?.fullName || null,
+        role: s.role?.name || null
+      }))
     })),
+  };
+}
+
+/**
+ * Propose new thesis (with auto-assigned supervisors from previous thesis)
+ * @param {string} userId
+ * @param {object} data
+ */
+export async function proposeThesisService(userId, { title, topicId }) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Student profile not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // 1. Check if student already has an active thesis
+  const existingThesis = await getActiveThesisForStudent(student.id);
+  const terminalStatuses = ["Dibatalkan", "Gagal", "Selesai", "Lulus", "Drop Out"];
+  const isTerminal = existingThesis?.thesisStatus?.name && terminalStatuses.includes(existingThesis.thesisStatus.name);
+  if (existingThesis && !isTerminal) {
+    const err = new Error("Anda sudah memiliki tugas akhir aktif. Tidak dapat mengajukan baru.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // 1b. Block re-registration for students with FAILED thesis
+  // They must go to the department in person to re-register
+  const latestThesis = await prisma.thesis.findFirst({
+    where: { studentId: student.id },
+    orderBy: { createdAt: 'desc' },
+    include: { thesisStatus: { select: { name: true } } },
+  });
+  if (latestThesis?.thesisStatus?.name === "Gagal") {
+    const err = new Error("Tugas akhir Anda telah gagal. Silakan ke departemen untuk mendaftar ulang dengan pembimbing dan topik baru.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  // 2. Initial status: "Diajukan" (Proposed)
+  // Ensure "Diajukan" status exists
+  let status = await prisma.thesisStatus.findFirst({ where: { name: "Diajukan" } });
+  if (!status) {
+    // Fallback: create if not found
+    status = await prisma.thesisStatus.create({ data: { name: "Diajukan", description: "Diajukan oleh mahasiswa" } });
+  }
+
+  // 3. Get supervisors from previous thesis (if any)
+  // We need to look at the MAJOR previous thesis (the one that was cancelled/failed most recently)
+  const previousTheses = await prisma.thesis.findMany({
+    where: { studentId: student.id },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    include: {
+      thesisSupervisors: {
+        include: { role: true }
+      }
+    }
+  });
+
+  const previousThesis = previousTheses[0];
+  let previousSupervisors = [];
+  if (previousThesis) {
+    previousSupervisors = previousThesis.thesisSupervisors;
+  }
+
+  // 4. Create new thesis
+  // Need academic year
+  const academicYear = await getActiveAcademicYear();
+
+  const newThesis = await prisma.thesis.create({
+    data: {
+      title,
+      studentId: student.id,
+      thesisTopicId: topicId,
+      thesisStatusId: status.id,
+      academicYearId: academicYear?.id,
+      // Default abstract/etc empty?
+    }
+  });
+
+  // 5. Copy supervisors
+  if (previousSupervisors.length > 0) {
+    const supervisorData = previousSupervisors.map(s => ({
+      thesisId: newThesis.id,
+      lecturerId: s.lecturerId,
+      thesisRoleId: s.thesisRoleId,
+      status: "assigned", // Directly assigned since they were already supervisors
+    }));
+
+    if (supervisorData.length > 0) {
+      await prisma.thesisSupervisors.createMany({
+        data: supervisorData
+      });
+    }
+  }
+
+  return {
+    thesis: {
+      id: newThesis.id,
+      title: newThesis.title,
+      status: status.name,
+      message: "Proposal berhasil diajukan. Menunggu persetujuan Koordinator/Dosen."
+    }
   };
 }

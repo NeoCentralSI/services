@@ -1,11 +1,11 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { validate } from "../../middlewares/validation.middleware.js";
-import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema } from "../../validators/lecturer.guidance.validator.js";
+import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, transferStudentsSchema, rejectTransferSchema } from "../../validators/lecturer.guidance.validator.js";
 import { ROLES } from "../../constants/roles.js";
 import {
 	myStudents,
-    studentDetail,
+	studentDetail,
 	listRequests,
 	listScheduledGuidances,
 	rejectGuidance,
@@ -22,6 +22,13 @@ import {
 	approveSummary,
 	guidanceDetail,
 	sendWarningNotification,
+	approveThesisProposal,
+	// Transfer
+	getTransferLecturers,
+	requestTransfer,
+	getIncomingTransfers,
+	approveTransfer,
+	rejectTransfer,
 } from "../../controllers/thesisGuidance/lecturer.guidance.controller.js";
 import {
 	getSupervisor2Requests,
@@ -39,6 +46,7 @@ router.use(authGuard, requireAnyRole([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]));
 router.get("/my-students", myStudents);
 router.get("/my-students/:thesisId", studentDetail);
 router.post("/my-students/:thesisId/send-warning", sendWarningNotification);
+router.post("/my-students/:thesisId/approve-proposal", approveThesisProposal);
 router.get("/requests", listRequests);
 router.get("/scheduled", listScheduledGuidances);
 router.patch("/requests/:guidanceId/reject", validate(rejectGuidanceSchema), rejectGuidance);
@@ -68,5 +76,11 @@ router.get("/supervisor2-requests", getSupervisor2Requests);
 router.patch("/supervisor2-requests/:requestId/approve", approveSupervisor2Request);
 router.patch("/supervisor2-requests/:requestId/reject", rejectSupervisor2Request);
 
-export default router;
+// Student Transfer
+router.get("/transfer/eligible-lecturers", getTransferLecturers);
+router.post("/transfer/request", validate(transferStudentsSchema), requestTransfer);
+router.get("/transfer/incoming", getIncomingTransfers);
+router.patch("/transfer/:notificationId/approve", approveTransfer);
+router.patch("/transfer/:notificationId/reject", validate(rejectTransferSchema), rejectTransfer);
 
+export default router;

@@ -20,3 +20,15 @@ export const approveComponentsSchema = z.object({
 export const failThesisSchema = z.object({
   reason: z.string().min(1).optional(),
 });
+
+// ==================== STUDENT TRANSFER ====================
+
+export const transferStudentsSchema = z.object({
+  thesisIds: z.array(z.string().uuid("Each thesisId must be a valid UUID")).min(1, "Select at least 1 student"),
+  targetLecturerId: z.string().uuid("targetLecturerId must be a valid UUID"),
+  reason: z.string().min(10, "Alasan transfer minimal 10 karakter"),
+});
+
+export const rejectTransferSchema = z.object({
+  reason: z.string().optional(),
+});

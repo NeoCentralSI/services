@@ -27,6 +27,7 @@ import {
 	markSessionComplete,
 	getMyThesis,
 	updateMyThesisTitle,
+	proposeThesis,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
 import {
 	getAvailableSupervisor2,
@@ -78,6 +79,8 @@ router.get("/supervisors/:supervisorId/availability", supervisorAvailability);
 // My Thesis (get detail & update title)
 router.get("/my-thesis", getMyThesis);
 router.patch("/my-thesis/title", updateMyThesisTitle);
+// Propose New Thesis
+router.post("/propose", proposeThesis);
 
 // Pembimbing 2 request
 router.get("/available-supervisors-2", getAvailableSupervisor2);

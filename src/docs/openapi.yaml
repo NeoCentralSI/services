@@ -313,6 +313,14 @@ paths:
     $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1at-risk"
   "/thesis-guidance/monitoring/ready-seminar":
     $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1ready-seminar"
+
+  # Master Data Tugas Akhir (Admin/Kadep/Sekdep)
+  "/master-data-ta":
+    $ref: "./masterDataTa/swagger-masterDataTa.yaml#/paths/~1api~1v1~1master-data-ta"
+    
+  "/master-data-ta/{id}":
+    $ref: "./masterDataTa/swagger-masterDataTa.yaml#/paths/~1api~1v1~1master-data-ta~1{id}"
+
 components:
   schemas:
     FailThesisBody:

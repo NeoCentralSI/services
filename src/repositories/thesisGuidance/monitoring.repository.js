@@ -133,7 +133,7 @@ export async function getStatusDistribution(academicYear) {
 export async function getRatingDistribution(academicYear) {
   const where = {
     thesisStatus: {
-      name: { notIn: ["Selesai", "Gagal"] },
+      name: { notIn: ["Selesai"] },
     },
   };
 
@@ -155,9 +155,10 @@ export async function getRatingDistribution(academicYear) {
     SLOW: 'Slow',
     AT_RISK: 'At Risk',
     FAILED: 'Gagal',
+    CANCELLED: 'Dibatalkan',
   };
 
-  return ['ONGOING', 'SLOW', 'AT_RISK', 'FAILED'].map((rating) => {
+  return ['ONGOING', 'SLOW', 'AT_RISK', 'FAILED', 'CANCELLED'].map((rating) => {
     const found = ratings.find((r) => r.rating === rating);
     return {
       id: rating,
