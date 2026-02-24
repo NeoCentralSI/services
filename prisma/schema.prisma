@@ -30,8 +30,18 @@ model User {
   lecturer                   Lecturer?
   notifications              Notification[]
   student                    Student?
-  thesisSeminarAudiences     ThesisSeminarAudience[]
   userHasRoles               UserHasRole[]
+
+  cplScoresInputBy                   StudentCplScore[]             @relation("CplScoreInputBy")
+  cplScoresVerifiedBy                StudentCplScore[]             @relation("CplScoreVerifiedBy")
+  yudisiumReqVerifications           YudisiumParticipantRequirement[] @relation("YudisiumReqVerifiedBy")
+  yudisiumCplRecsCreated             YudisiumCplRecommendation[]   @relation("YudisiumCplRecCreatedBy")
+  yudisiumCplRecsResolved            YudisiumCplRecommendation[]   @relation("YudisiumCplRecResolvedBy")
+  yudisiumDecreeUploads              Yudisium[]                    @relation("YudisiumDecreeUploader")
+  seminarExaminerAssignments         ThesisSeminarExaminer[]        @relation("SeminarExaminerAssignedBy")
+  seminarDocVerifications            ThesisSeminarDocument[]        @relation("SeminarDocVerifiedBy")
+  defenceExaminerAssignments         ThesisDefenceExaminer[]        @relation("DefenceExaminerAssignedBy")
+  defenceDocVerifications            ThesisDefenceDocument[]        @relation("DefenceDocVerifiedBy")
 
   @@map("users")
 }
@@ -77,9 +87,33 @@ model Student {
   user                           User                        @relation(fields: [id], references: [id], onDelete: Cascade)
   thesis                         Thesis[]
   thesisProposal                 ThesisProposal[]
+  thesisSeminarAudiences         ThesisSeminarAudience[]
 
   @@index([skscompleted], map: "idx_students_skscompleted")
   @@map("students")
+}
+
+model StudentCplScore {
+  studentId   String         @map("student_id") @db.VarChar(199)
+  cplId       String         @map("cpl_id") @db.VarChar(255)
+  inputBy     String?        @map("input_by") @db.VarChar(255)
+  verifiedBy  String?        @map("verified_by") @db.VarChar(255)
+  inputAt     DateTime?      @map("input_at")
+  score       Int
+  source      CplScoreSource @default(SIA)
+  status      CplScoreStatus @default(calculated)
+  verifiedAt  DateTime?      @map("verified_at")
+  finalizedAt DateTime?      @map("finalized_at")
+
+  cpl        Cpl   @relation(fields: [cplId], references: [id])
+  inputUser  User? @relation("CplScoreInputBy", fields: [inputBy], references: [id])
+  verifier   User? @relation("CplScoreVerifiedBy", fields: [verifiedBy], references: [id])
+
+  @@id([studentId, cplId])
+  @@index([cplId], map: "student_cpl_scores_cpl_id_fkey")
+  @@index([inputBy], map: "student_cpl_scores_input_by_fkey")
+  @@index([verifiedBy], map: "student_cpl_scores_verified_by_fkey")
+  @@map("student_cpl_scores")
 }
 
 model Lecturer {
@@ -100,10 +134,24 @@ model Lecturer {
   thesisChangeRequestsReviewed  ThesisChangeRequest[]
   thesisGuidances               ThesisGuidance[]
   thesisSupervisors             ThesisSupervisors[]
-  thesisSeminarAudiences        ThesisSeminarAudience[]
 
   @@index([scienceGroupId], map: "lecturers_science_group_id_fkey")
   @@map("lecturers")
+}
+
+model LecturerAvailability {
+  id         String    @id @default(uuid()) @db.VarChar(255)
+  lecturerId String    @map("lecturer_id") @db.VarChar(255)
+  day        DayOfWeek
+  startTime  DateTime  @map("start_time") @db.Time(0)
+  endTime    DateTime  @map("end_time") @db.Time(0)
+  validFrom  DateTime  @map("valid_from") @db.Date
+  validUntil DateTime  @map("valid_until") @db.Date
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@map("lecturer_availabilities")
 }
 
 model ScienceGroup {
@@ -137,8 +185,123 @@ model Room {
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   internshipSeminars InternshipSeminar[]
+  yudisiums          Yudisium[]
+  thesisSeminars     ThesisSeminar[]
+  thesisDefences     ThesisDefence[]
 
   @@map("rooms")
+}
+
+model Cpl {
+  id           String   @id @default(uuid())
+  code         String?  @db.VarChar(255)
+  description  String   @db.VarChar(255)
+  minimalScore Int      @map("minimal_score")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  studentCplScores           StudentCplScore[]
+  yudisiumCplRecommendations YudisiumCplRecommendation[]
+
+  @@map("cpls")
+}
+
+model Cpmk {
+  id             String   @id @default(uuid()) @db.VarChar(255)
+  code           String   @db.VarChar(255)
+  description    String   @db.VarChar(255)
+  proposalWeight Int?     @map("proposal_weight")
+  seminarWeight  Int?     @map("seminar_weight")
+  defenceWeight  Int?     @map("defence_weight")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  assessmentCriterias AssessmentCriteria[]
+
+  @@map("cpmks")
+}
+
+model AssessmentCriteria {
+  id        String              @id @default(uuid()) @db.VarChar(255)
+  cpmkId    String              @map("cpmk_id") @db.VarChar(255)
+  code      String              @db.VarChar(255)
+  name      String              @db.VarChar(255)
+  appliesTo AssessmentAppliesTo @map("applies_to")
+  maxWeight Int                 @map("max_weight")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  cpmk              Cpmk               @relation(fields: [cpmkId], references: [id])
+  assessmentRubrics AssessmentRubric[]
+
+  @@index([cpmkId], map: "assessment_criterias_cpmk_id_fkey")
+  @@map("assessment_criterias")
+}
+
+model AssessmentRubric {
+  id                   String   @id @default(uuid()) @db.VarChar(255)
+  assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(255)
+  code                 String   @db.VarChar(255)
+  description          String   @db.VarChar(255)
+  maxWeight            Int      @map("max_weight")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  assessmentCriteria                       AssessmentCriteria                        @relation(fields: [assessmentCriteriaId], references: [id])
+  thesisSeminarExaminerAssessmentDetails    ThesisSeminarExaminerAssessmentDetail[]
+  thesisDefenceExaminerAssessmentDetails   ThesisDefenceExaminerAssessmentDetail[]
+  thesisDefenceSupervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
+  researchMethodScoreDetails               ResearchMethodScoreDetail[]
+
+  @@index([assessmentCriteriaId], map: "assessment_rubrics_assessment_criteria_id_fkey")
+  @@map("assessment_rubrics")
+}
+
+model ExitSurveyForm {
+  id          String   @id @default(uuid()) @db.VarChar(255)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  questions  ExitSurveyQuestion[]
+  yudisiums  Yudisium[]
+
+  @@map("exit_survey_forms")
+}
+
+model ExitSurveyQuestion {
+  id               String                 @id @default(uuid()) @db.VarChar(255)
+  exitSurveyFormId String                 @map("exit_survey_form_id") @db.VarChar(255)
+  question         String                 @db.Text
+  questionType     ExitSurveyQuestionType @map("question_type")
+  isRequired       Boolean                @default(false) @map("is_required")
+  orderNumber      Int                    @map("order_number")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  form    ExitSurveyForm     @relation(fields: [exitSurveyFormId], references: [id], onDelete: Cascade)
+  options                  ExitSurveyOption[]
+  studentExitSurveyAnswers StudentExitSurveyAnswer[]
+
+  @@index([exitSurveyFormId], map: "exit_survey_questions_exit_survey_form_id_fkey")
+  @@map("exit_survey_questions")
+}
+
+model ExitSurveyOption {
+  id                   String   @id @default(uuid()) @db.VarChar(255)
+  exitSurveyQuestionId String   @map("exit_survey_question_id") @db.VarChar(255)
+  optionText           String   @map("option_text") @db.VarChar(255)
+  orderNumber          Int      @map("order_number")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  question                 ExitSurveyQuestion      @relation(fields: [exitSurveyQuestionId], references: [id], onDelete: Cascade)
+  studentExitSurveyAnswers StudentExitSurveyAnswer[]
+
+  @@index([exitSurveyQuestionId], map: "exit_survey_options_exit_survey_question_id_fkey")
+  @@map("exit_survey_options")
 }
 
 model Thesis {
@@ -170,6 +333,8 @@ model Thesis {
   thesisMilestones      ThesisMilestone[]
   thesisSupervisors     ThesisSupervisors[]
   thesisSeminars        ThesisSeminar[]
+  yudisiumParticipants  YudisiumParticipant[]
+  studentExitSurveyResponses StudentExitSurveyResponse[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
   @@index([documentId], map: "thesis_document_id_fkey")
@@ -229,6 +394,9 @@ model ThesisSupervisors {
   lecturer     Lecturer @relation(fields: [lecturerId], references: [id])
   role         UserRole @relation(fields: [roleId], references: [id])
   thesis       Thesis   @relation(fields: [thesisId], references: [id])
+  thesisSeminarAudienceApprovals ThesisSeminarAudience[]
+  thesisSeminarRevisionApprovals ThesisSeminarRevision[]
+  thesisDefenceRevisionApprovals ThesisDefenceRevision[]
 
   @@index([lecturerId], map: "thesis_participants_lecturer_id_fkey")
   @@index([roleId], map: "thesis_participants_role_id_fkey")
@@ -366,67 +534,409 @@ model ThesisGuidance {
 }
 
 model ThesisSeminar {
-  id        String                  @id @default(uuid())
-  thesisId  String                  @map("thesis_id")
-  status    SeminarStatus           @default(scheduled)
-  createdAt DateTime                @default(now()) @map("created_at")
-  updatedAt DateTime                @updatedAt @map("updated_at")
+  id                 String              @id @default(uuid())
+  thesisId           String              @map("thesis_id")
+  roomId             String?             @map("room_id")
+  registeredAt       DateTime?           @map("registered_at")
+  date               DateTime?           @db.Date
+  startTime          DateTime?           @map("start_time") @db.Time(0)
+  endTime            DateTime?           @map("end_time") @db.Time(0)
+  meetingLink        String?             @map("meeting_link") @db.VarChar(255)
+  status             ThesisSeminarStatus @default(registered)
+  finalScore         Float?              @map("final_score")
+  grade              String?             @db.VarChar(10)
+  resultFinalizedAt  DateTime?           @map("result_finalized_at")
+  cancelledReason    String?             @map("cancelled_reason") @db.Text
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  thesis    Thesis                 @relation(fields: [thesisId], references: [id])
+  room      Room?                  @relation(fields: [roomId], references: [id])
   audiences ThesisSeminarAudience[]
-  thesis    Thesis                  @relation(fields: [thesisId], references: [id])
+  examiners ThesisSeminarExaminer[]
+  documents ThesisSeminarDocument[]
 
   @@index([thesisId], map: "thesis_seminars_thesis_id_fkey")
+  @@index([roomId], map: "thesis_seminars_room_id_fkey")
   @@map("thesis_seminars")
 }
 
-model ThesisSeminarAudience {
-  id          String        @id @default(uuid())
-  seminarId   String        @map("seminar_id")
-  userId      String        @map("user_id")
-  validatedBy String?       @map("validated_by")
-  validatedAt DateTime?     @map("validated_at")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-  seminar     ThesisSeminar @relation(fields: [seminarId], references: [id])
-  user        User          @relation(fields: [userId], references: [id])
-  validator   Lecturer?     @relation(fields: [validatedBy], references: [id])
+model ThesisSeminarDocument {
+  thesisSeminarId String               @map("thesis_seminar_id") @db.VarChar(255)
+  documentTypeId  String               @map("document_type_id") @db.VarChar(255)
+  documentId      String               @map("document_id") @db.VarChar(255)
+  verifiedBy      String?              @map("verified_by") @db.VarChar(255)
+  submittedAt     DateTime             @map("submitted_at")
+  status          DocumentSubmitStatus @default(submitted)
+  notes           String?              @db.Text
+  verifiedAt      DateTime?            @map("verified_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
 
-  @@index([seminarId], map: "thesis_seminar_audiences_seminar_id_fkey")
-  @@index([userId], map: "thesis_seminar_audiences_user_id_fkey")
-  @@index([validatedBy], map: "thesis_seminar_audiences_validated_by_fkey")
+  seminar    ThesisSeminar @relation(fields: [thesisSeminarId], references: [id], onDelete: Cascade)
+  verifier   User?         @relation("SeminarDocVerifiedBy", fields: [verifiedBy], references: [id])
+
+  @@id([thesisSeminarId, documentTypeId])
+  @@index([verifiedBy], map: "thesis_seminar_documents_verified_by_fkey")
+  @@map("thesis_seminar_documents")
+}
+
+model ThesisSeminarAudience {
+  thesisSeminarId String             @map("thesis_seminar_id") @db.VarChar(255)
+  studentId       String             @map("student_id") @db.VarChar(255)
+  approvedBy      String?            @map("approved_by") @db.VarChar(255)
+  registeredAt    DateTime?          @map("registered_at")
+  isPresent       Boolean            @default(false) @map("is_present")
+  approvedAt      DateTime?          @map("approved_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  seminar    ThesisSeminar      @relation(fields: [thesisSeminarId], references: [id], onDelete: Cascade)
+  student    Student            @relation(fields: [studentId], references: [id])
+  supervisor ThesisSupervisors? @relation(fields: [approvedBy], references: [id])
+
+  @@id([thesisSeminarId, studentId])
+  @@index([studentId], map: "thesis_seminar_audiences_student_id_fkey")
+  @@index([approvedBy], map: "thesis_seminar_audiences_approved_by_fkey")
   @@map("thesis_seminar_audiences")
 }
 
+model ThesisSeminarExaminer {
+  id                      String         @id @default(uuid()) @db.VarChar(255)
+  thesisSeminarId         String         @map("thesis_seminar_id") @db.VarChar(255)
+  lecturerId              String         @map("lecturer_id") @db.VarChar(255)
+  assignedBy              String         @map("assigned_by") @db.VarChar(255)
+  order                   Int
+  assignedAt              DateTime       @map("assigned_at")
+  availabilityStatus     ExaminerAvailabilityStatus @default(pending) @map("availability_status")
+  respondedAt             DateTime?      @map("responded_at")
+  assessmentScore         Int?           @map("assessment_score")
+  assessmentSubmittedAt   DateTime?      @map("assessment_submitted_at")
+  revisionNotes           String?        @map("revision_notes") @db.Text
+  createdAt               DateTime       @default(now()) @map("created_at")
+  updatedAt               DateTime       @updatedAt @map("updated_at")
+
+  seminar                                ThesisSeminar                        @relation(fields: [thesisSeminarId], references: [id], onDelete: Cascade)
+  assignedByUser                         User                                 @relation("SeminarExaminerAssignedBy", fields: [assignedBy], references: [id])
+  thesisSeminarExaminerAssessmentDetails ThesisSeminarExaminerAssessmentDetail[]
+  thesisSeminarRevisions                 ThesisSeminarRevision[]
+
+  @@index([thesisSeminarId], map: "thesis_seminar_examiners_thesis_seminar_id_fkey")
+  @@index([lecturerId], map: "thesis_seminar_examiners_lecturer_id_fkey")
+  @@index([assignedBy], map: "thesis_seminar_examiners_assigned_by_fkey")
+  @@map("thesis_seminar_examiners")
+}
+
+model ThesisSeminarExaminerAssessmentDetail {
+  thesisSeminarExaminerId String   @map("thesis_seminar_examiner_id") @db.VarChar(255)
+  assessmentRubricId      String   @map("assessment_rubric_id") @db.VarChar(255)
+  score                   Int
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  seminarExaminer ThesisSeminarExaminer @relation(fields: [thesisSeminarExaminerId], references: [id], onDelete: Cascade)
+  rubric          AssessmentRubric      @relation(fields: [assessmentRubricId], references: [id])
+
+  @@id([thesisSeminarExaminerId, assessmentRubricId])
+  @@index([assessmentRubricId], map: "thesis_seminar_examiner_assessment_details_rubric_id_fkey")
+  @@map("thesis_seminar_examiner_assessment_details")
+}
+
+model ThesisSeminarRevision {
+  id                    String             @id @default(uuid()) @db.VarChar(255)
+  seminarExaminerId     String             @map("thesis_seminar_examiner_id") @db.VarChar(255)
+  approvedBy            String?            @map("approved_by") @db.VarChar(255)
+  description           String             @db.Text
+  revisionAction        String?            @map("revision_action") @db.Text
+  isFinished            Boolean            @default(false) @map("is_finished")
+  studentSubmittedAt    DateTime?          @map("student_submitted_at")
+  supervisorApprovedAt  DateTime?          @map("supervisor_approved_at")
+
+  seminarExaminer ThesisSeminarExaminer @relation(fields: [seminarExaminerId], references: [id], onDelete: Cascade)
+  supervisor      ThesisSupervisors?    @relation(fields: [approvedBy], references: [id])
+
+  @@index([seminarExaminerId], map: "thesis_seminar_revisions_seminar_examiner_id_fkey")
+  @@index([approvedBy], map: "thesis_seminar_revisions_approved_by_fkey")
+  @@map("thesis_seminar_revisions")
+}
+
 model ThesisDefence {
-  id        String   @id @default(uuid())
-  thesisId  String?  @map("thesis_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  thesis    Thesis?  @relation(fields: [thesisId], references: [id])
+  id                   String               @id @default(uuid())
+  thesisId             String               @map("thesis_id")
+  roomId               String?              @map("room_id")
+  registeredAt         DateTime?            @map("registered_at")
+  date                 DateTime?            @db.Date
+  startTime            DateTime?            @map("start_time") @db.Time(0)
+  endTime              DateTime?            @map("end_time") @db.Time(0)
+  meetingLink          String?              @map("meeting_link") @db.VarChar(255)
+  status               ThesisDefenceStatus  @default(registered)
+  examinerAverageScore Float?               @map("examiner_average_score")
+  supervisorScore      Float?               @map("supervisor_score")
+  finalScore           Float?               @map("final_score")
+  grade                String?              @db.VarChar(10)
+  resultFinalizedAt    DateTime?            @map("result_finalized_at")
+  cancelledReason      String?              @map("cancelled_reason") @db.Text
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+
+  thesis    Thesis                                    @relation(fields: [thesisId], references: [id])
+  room      Room?                                     @relation(fields: [roomId], references: [id])
+  examiners ThesisDefenceExaminer[]
+  documents ThesisDefenceDocument[]
+  supervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
 
   @@index([thesisId], map: "thesis_defences_thesis_id_fkey")
+  @@index([roomId], map: "thesis_defences_room_id_fkey")
   @@map("thesis_defences")
 }
 
-model Yudisium {
-  id             String                @id @default(uuid())
-  yudisiumDecree String?               @map("yudisium_decree")
-  createdAt      DateTime              @default(now()) @map("created_at")
-  updatedAt      DateTime              @updatedAt @map("updated_at")
-  participants   YudisiumParticipant[]
+model ThesisDefenceDocument {
+  thesisDefenceId String               @map("thesis_defence_id") @db.VarChar(255)
+  documentTypeId  String               @map("document_type_id") @db.VarChar(255)
+  documentId      String               @map("document_id") @db.VarChar(255)
+  verifiedBy      String?              @map("verified_by") @db.VarChar(255)
+  submittedAt     DateTime             @map("submitted_at")
+  status          DocumentSubmitStatus @default(submitted)
+  notes           String?              @db.Text
+  verifiedAt      DateTime?            @map("verified_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
 
+  defence    ThesisDefence @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
+  verifier   User?         @relation("DefenceDocVerifiedBy", fields: [verifiedBy], references: [id])
+
+  @@id([thesisDefenceId, documentTypeId])
+  @@index([verifiedBy], map: "thesis_defence_documents_verified_by_fkey")
+  @@map("thesis_defence_documents")
+}
+
+model ThesisDefenceExaminer {
+  id                      String         @id @default(uuid()) @db.VarChar(255)
+  thesisDefenceId         String         @map("thesis_defence_id") @db.VarChar(255)
+  lecturerId              String         @map("lecturer_id") @db.VarChar(255)
+  assignedBy              String         @map("assigned_by") @db.VarChar(255)
+  order                   Int
+  assignedAt              DateTime       @map("assigned_at")
+  availabilityStatus     ExaminerAvailabilityStatus @default(pending) @map("availability_status")
+  respondedAt             DateTime?      @map("responded_at")
+  assessmentScore         Int?           @map("assessment_score")
+  assessmentSubmittedAt   DateTime?      @map("assessment_submitted_at")
+  revisionNotes           String?        @map("revision_notes") @db.Text
+  createdAt               DateTime       @default(now()) @map("created_at")
+  updatedAt               DateTime       @updatedAt @map("updated_at")
+
+  defence                                ThesisDefence                         @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
+  assignedByUser                         User                                  @relation("DefenceExaminerAssignedBy", fields: [assignedBy], references: [id])
+  thesisDefenceExaminerAssessmentDetails ThesisDefenceExaminerAssessmentDetail[]
+  thesisDefenceRevisions                 ThesisDefenceRevision[]
+
+  @@index([thesisDefenceId], map: "thesis_defence_examiners_thesis_defence_id_fkey")
+  @@index([lecturerId], map: "thesis_defence_examiners_lecturer_id_fkey")
+  @@index([assignedBy], map: "thesis_defence_examiners_assigned_by_fkey")
+  @@map("thesis_defence_examiners")
+}
+
+model ThesisDefenceExaminerAssessmentDetail {
+  thesisDefenceExaminerId String   @map("thesis_defence_examiner_id") @db.VarChar(255)
+  assessmentRubricId      String   @map("assessment_rubric_id") @db.VarChar(255)
+  score                   Int
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  defenceExaminer ThesisDefenceExaminer @relation(fields: [thesisDefenceExaminerId], references: [id], onDelete: Cascade)
+  rubric          AssessmentRubric      @relation(fields: [assessmentRubricId], references: [id])
+
+  @@id([thesisDefenceExaminerId, assessmentRubricId])
+  @@index([assessmentRubricId], map: "thesis_defence_examiner_assessment_details_rubric_id_fkey")
+  @@map("thesis_defence_examiner_assessment_details")
+}
+
+model ThesisDefenceSupervisorAssessmentDetail {
+  thesisDefenceId    String   @map("thesis_defence_id") @db.VarChar(255)
+  assessmentRubricId String   @map("assessment_rubric_id") @db.VarChar(255)
+  score              Int
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  defence ThesisDefence    @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
+  rubric  AssessmentRubric @relation(fields: [assessmentRubricId], references: [id])
+
+  @@id([thesisDefenceId, assessmentRubricId])
+  @@index([assessmentRubricId], map: "thesis_defence_supervisor_assessment_details_rubric_id_fkey")
+  @@map("thesis_defence_supervisor_assessment_details")
+}
+
+model ThesisDefenceRevision {
+  id                    String             @id @default(uuid()) @db.VarChar(255)
+  defenceExaminerId     String             @map("thesis_defence_examiner_id") @db.VarChar(255)
+  approvedBy            String?            @map("approved_by") @db.VarChar(255)
+  description           String             @db.Text
+  revisionAction        String?            @map("revision_action") @db.Text
+  isFinished            Boolean            @default(false) @map("is_finished")
+  studentSubmittedAt    DateTime?          @map("student_submitted_at")
+  supervisorApprovedAt  DateTime?          @map("supervisor_approved_at")
+
+  defenceExaminer ThesisDefenceExaminer @relation(fields: [defenceExaminerId], references: [id], onDelete: Cascade)
+  supervisor      ThesisSupervisors?    @relation(fields: [approvedBy], references: [id])
+
+  @@index([defenceExaminerId], map: "thesis_defence_revisions_defence_examiner_id_fkey")
+  @@index([approvedBy], map: "thesis_defence_revisions_approved_by_fkey")
+  @@map("thesis_defence_revisions")
+}
+
+
+model Yudisium {
+  id                    String                    @id @default(uuid())
+  decreeUploadedBy      String?                   @map("decree_uploaded_by")
+  roomId                String?                   @map("room_id")
+  documentId            String?                   @map("document_id")
+  exitSurveyFormId      String?                   @map("exit_survey_form_id")
+  exitSurveyOpenDate    DateTime?                 @map("exit_survey_open_date") @db.Date
+  exitSurveyCloseDate   DateTime?                 @map("exit_survey_close_date") @db.Date
+  registrationOpenDate  DateTime?                 @map("registration_open_date") @db.Date
+  registrationCloseDate DateTime?                 @map("registration_close_date") @db.Date
+  eventDate             DateTime?                 @map("event_date") @db.Date
+  notes                 String?                   @db.Text
+  status                YudisiumStatus            @default(draft)
+  decreeNumber          String?                   @map("decree_number") @db.VarChar(255)
+  decreeIssuedAt        DateTime?                 @map("decree_issued_at")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+
+  decreeUploader            User?                       @relation("YudisiumDecreeUploader", fields: [decreeUploadedBy], references: [id])
+  room                      Room?                       @relation(fields: [roomId], references: [id])
+  document                  Document?                   @relation(fields: [documentId], references: [id])
+  exitSurveyForm            ExitSurveyForm?             @relation(fields: [exitSurveyFormId], references: [id])
+  participants              YudisiumParticipant[]
+  studentExitSurveyResponses StudentExitSurveyResponse[]
+
+  @@index([decreeUploadedBy], map: "yudisiums_decree_uploaded_by_fkey")
+
+  @@index([roomId], map: "yudisiums_room_id_fkey")
+  @@index([documentId], map: "yudisiums_document_id_fkey")
+  @@index([exitSurveyFormId], map: "yudisiums_exit_survey_form_id_fkey")
   @@map("yudisiums")
 }
 
-model YudisiumParticipant {
-  id         String   @id @default(uuid())
-  yudisiumId String   @map("yudisium_id")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-  yudisium   Yudisium @relation(fields: [yudisiumId], references: [id])
+model YudisiumRequirement {
+  id          String   @id @default(uuid()) @db.VarChar(255)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  order       Int      @default(0)
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
+  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
+
+  @@map("yudisium_requirements")
+}
+
+model YudisiumParticipant {
+  id          String                    @id @default(uuid())
+  thesisId    String                    @map("thesis_id")
+  yudisiumId  String                    @map("yudisium_id")
+  registeredAt DateTime?                @map("registered_at")
+  status      YudisiumParticipantStatus @default(registered)
+  appointedAt DateTime?                 @map("appointed_at")
+  notes       String?                   @db.Text
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+
+  thesis                          Thesis                          @relation(fields: [thesisId], references: [id])
+  yudisium                        Yudisium                        @relation(fields: [yudisiumId], references: [id])
+  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
+  yudisiumCplRecommendations      YudisiumCplRecommendation[]
+
+  @@index([thesisId], map: "yudisium_participants_thesis_id_fkey")
   @@index([yudisiumId], map: "yudisium_participants_yudisium_id_fkey")
   @@map("yudisium_participants")
 }
+
+model YudisiumParticipantRequirement {
+  yudisiumParticipantId String               @map("yudisium_participant_id") @db.VarChar(255)
+  yudisiumRequirementId String               @map("yudisium_requirement_id") @db.VarChar(255)
+  documentId            String               @map("document_id") @db.VarChar(255)
+  verifiedBy            String?              @map("verified_by") @db.VarChar(255)
+  submittedAt           DateTime             @map("submitted_at")
+  status                DocumentSubmitStatus @default(submitted)
+  notes                 String?              @db.Text
+  verifiedAt            DateTime?            @map("verified_at")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  participant YudisiumParticipant @relation(fields: [yudisiumParticipantId], references: [id], onDelete: Cascade)
+  requirement YudisiumRequirement @relation(fields: [yudisiumRequirementId], references: [id])
+  document    Document            @relation(fields: [documentId], references: [id])
+  verifier    User?               @relation("YudisiumReqVerifiedBy", fields: [verifiedBy], references: [id])
+
+  @@id([yudisiumParticipantId, yudisiumRequirementId])
+  @@index([yudisiumRequirementId], map: "yudisium_participant_requirements_yudisium_requirement_id_fkey")
+  @@index([documentId], map: "yudisium_participant_requirements_document_id_fkey")
+  @@index([verifiedBy], map: "yudisium_participant_requirements_verified_by_fkey")
+  @@map("yudisium_participant_requirements")
+}
+
+model YudisiumCplRecommendation {
+  id                    String                          @id @default(uuid()) @db.VarChar(255)
+  yudisiumParticipantId String                          @map("yudisium_participant_id") @db.VarChar(255)
+  cplId                 String                          @map("cpl_id") @db.VarChar(255)
+  createdBy             String?                         @map("created_by") @db.VarChar(255)
+  resolvedBy            String?                         @map("resolved_by") @db.VarChar(255)
+  reccomendation        String?                         @db.Text
+  description           String?                         @db.Text
+  status                YudisiumCplRecommendationStatus @default(open)
+  resolvedAt            DateTime?                       @map("resolved_at")
+  createdAt             DateTime                        @default(now()) @map("created_at")
+  updatedAt             DateTime                        @updatedAt @map("updated_at")
+
+  participant YudisiumParticipant @relation(fields: [yudisiumParticipantId], references: [id], onDelete: Cascade)
+  cpl         Cpl                 @relation(fields: [cplId], references: [id])
+  creator     User?               @relation("YudisiumCplRecCreatedBy", fields: [createdBy], references: [id])
+  resolver    User?               @relation("YudisiumCplRecResolvedBy", fields: [resolvedBy], references: [id])
+
+  @@index([yudisiumParticipantId], map: "yudisium_cpl_reccomendations_participant_id_fkey")
+  @@index([cplId], map: "yudisium_cpl_reccomendations_cpl_id_fkey")
+  @@index([createdBy], map: "yudisium_cpl_reccomendations_created_by_fkey")
+  @@index([resolvedBy], map: "yudisium_cpl_reccomendations_resolved_by_fkey")
+  @@map("yudisium_cpl_reccomendations")
+}
+
+model StudentExitSurveyResponse {
+  id          String   @id @default(uuid()) @db.VarChar(255)
+  yudisiumId  String   @map("yudisium_id") @db.VarChar(255)
+  thesisId    String   @map("thesis_id") @db.VarChar(255)
+  submittedAt DateTime @map("submitted_at")
+
+  yudisium Yudisium                  @relation(fields: [yudisiumId], references: [id])
+  thesis   Thesis                    @relation(fields: [thesisId], references: [id])
+  answers  StudentExitSurveyAnswer[]
+
+  @@index([yudisiumId], map: "student_exit_survey_responses_yudisium_id_fkey")
+  @@index([thesisId], map: "student_exit_survey_responses_thesis_id_fkey")
+  @@map("student_exit_survey_responses")
+}
+
+model StudentExitSurveyAnswer {
+  id                         String   @id @default(uuid()) @db.VarChar(255)
+  studentExitSurveyResponseId String  @map("student_exit_survey_response_id") @db.VarChar(255)
+  exitSurveyQuestionId       String   @map("exit_survey_question_id") @db.VarChar(255)
+  exitSurveyOptionId         String?  @map("exit_survey_option_id") @db.VarChar(255)
+  answerText                 String?  @map("answer_text") @db.Text
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  response StudentExitSurveyResponse @relation(fields: [studentExitSurveyResponseId], references: [id], onDelete: Cascade)
+  question ExitSurveyQuestion @relation(fields: [exitSurveyQuestionId], references: [id])
+  option   ExitSurveyOption?  @relation(fields: [exitSurveyOptionId], references: [id])
+
+  @@index([studentExitSurveyResponseId], map: "student_exit_survey_answers_response_id_fkey")
+  @@index([exitSurveyQuestionId], map: "student_exit_survey_answers_question_id_fkey")
+  @@index([exitSurveyOptionId], map: "student_exit_survey_answers_option_id_fkey")
+  @@map("student_exit_survey_answers")
+}
+
 
 model Document {
   id                           String                        @id @default(uuid())
@@ -449,6 +959,8 @@ model Document {
   thesis                       Thesis[]
   thesisFinalDocument          Thesis[]                      @relation("FinalThesisDocument")
   thesisProposal               ThesisProposal[]
+  yudisiums                    Yudisium[]
+  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")
@@ -927,82 +1439,6 @@ model Company {
   @@map("companies")
 }
 
-// ==================== CPL & CPMK Management ====================
-model Cpl {
-  id          String    @id @default(uuid())
-  code        String?   @db.VarChar(255)
-  description String    @db.VarChar(255)
-  minScore    Int       @map("min_scrore")
-  createdAt   DateTime? @map("created_at")
-  updatedAt   DateTime? @map("updated_at")
-
-  studentCplScores           StudentCplScore[]
-  yudisiumCplRecommendations YudisiumCplRecommendation[]
-
-  @@map("cpls")
-}
-
-model StudentCplScore {
-  studentId String         @map("student_id") @db.VarChar(199)
-  cplId     String         @map("cpl_id") @db.VarChar(255)
-  score     Int
-  status    CplScoreStatus @default(passed)
-  source    CplScoreSource @default(SIA_API)
-  inputBy   String?        @map("input_by") @db.VarChar(255)
-  inputAt   DateTime?      @map("input_at")
-
-  cpl Cpl @relation(fields: [cplId], references: [id])
-
-  @@id([studentId, cplId])
-  @@index([cplId], map: "student_cpl_scores_cpl_id_fkey")
-  @@map("student_cpl_scores")
-}
-
-model Cpmk {
-  id             String @id @default(uuid()) @db.VarChar(255)
-  code           String @db.VarChar(255)
-  description    String @db.VarChar(255)
-  proposalWeight Int?   @map("proposal_weight")
-  seminarWeight  Int?   @map("seminar_weight")
-  defenceWeight  Int?   @map("defence_weight")
-
-  assessmentCriterias AssessmentCriteria[]
-
-  @@map("cpmks")
-}
-
-model AssessmentCriteria {
-  id        String              @id @default(uuid()) @db.VarChar(255)
-  cpmkId    String              @map("cpmk_id") @db.VarChar(255)
-  code      String              @db.VarChar(255)
-  name      String              @db.VarChar(255)
-  appliesTo AssessmentAppliesTo @map("applies_to")
-  maxWeight Int                 @map("max_weight")
-
-  cpmk              Cpmk               @relation(fields: [cpmkId], references: [id])
-  assessmentRubrics AssessmentRubric[]
-
-  @@index([cpmkId], map: "assessment_criterias_cpmk_id_fkey")
-  @@map("assessment_criterias")
-}
-
-model AssessmentRubric {
-  id                   String @id @default(uuid()) @db.VarChar(255)
-  assessmentCriteriaId String @map("assesment_criteria_id") @db.VarChar(255)
-  code                 String @db.VarChar(255)
-  description          String @db.VarChar(255)
-  maxWeight            Int    @map("max_weight")
-
-  assessmentCriteria                       AssessmentCriteria                        @relation(fields: [assessmentCriteriaId], references: [id])
-  thesisSeminarAssessmentDetails           ThesisSeminarAssessmentDetail[]
-  thesisDefenceExaminerAssessmentDetails   ThesisDefenceExaminerAssessmentDetail[]
-  thesisDefenceSupervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
-  researchMethodScoreDetails               ResearchMethodScoreDetail[]
-
-  @@index([assessmentCriteriaId], map: "assesment_rubrics_assesment_criteria_id_fkey")
-  @@map("assesment_rubrics")
-}
-
 // ==================== Thesis Advisor Request ====================
 model ThesisAdvisorRequest {
   id                String                     @id @default(uuid()) @db.VarChar(255)
@@ -1119,226 +1555,6 @@ model ResearchMethodScoreDetail {
   @@map("research_method_score_details")
 }
 
-// ==================== Thesis Seminar Examiners ====================
-model ThesisSeminarExaminer {
-  id                           String             @id @default(uuid()) @db.VarChar(255)
-  seminarId                    String             @map("seminar_id") @db.VarChar(255)
-  lecturerId                   String             @map("lecturer_id") @db.VarChar(255)
-  assignedBy                   String             @map("assigned_by") @db.VarChar(255)
-  examinerOrder                Int                @map("examiner_order")
-  assignedAt                   DateTime           @map("assigned_at")
-  availabilityStatus           AvailabilityStatus @default(pending) @map("availability_status")
-  respondedAt                  DateTime           @map("responded_at")
-  seminarAssessmentScore       Int?               @map("seminar_assessment_score")
-  seminarAssessmentSubmittedAt DateTime?          @map("seminar_assessment_submitted_at")
-  createdAt                    DateTime?          @map("created_at")
-  updatedAt                    DateTime?          @map("updated_at")
-
-  thesisSeminarAssessmentDetails ThesisSeminarAssessmentDetail[]
-  thesisSeminarRevisions         ThesisSeminarRevision[]
-
-  @@map("thesis_seminar_examiners")
-}
-
-model ThesisSeminarAssessmentDetail {
-  seminarExaminerId String @map("seminar_examiner_id") @db.VarChar(255)
-  rubricId          String @map("rubric_id") @db.VarChar(255)
-  score             Int
-
-  seminarExaminer ThesisSeminarExaminer @relation(fields: [seminarExaminerId], references: [id])
-  rubric          AssessmentRubric      @relation(fields: [rubricId], references: [id])
-
-  @@id([seminarExaminerId, rubricId])
-  @@index([rubricId], map: "thesis_seminar_assessment_details_rubric_id_fkey")
-  @@map("thesis_seminar_assessment_details")
-}
-
-// ==================== Thesis Defence Examiners ====================
-model ThesisDefenceExaminer {
-  id                           String             @id @default(uuid()) @db.VarChar(255)
-  defenceId                    String             @map("defence_id") @db.VarChar(255)
-  lecturerId                   String             @map("lecturer_id") @db.VarChar(255)
-  assignedBy                   String             @map("assigned_by") @db.VarChar(255)
-  examinerOrder                Int                @map("examiner_order")
-  assignedAt                   DateTime           @map("assigned_at")
-  source                       ExaminerSource     @default(seminar)
-  availabilityStatus           AvailabilityStatus @default(pending) @map("availability_status")
-  respondedAt                  DateTime           @map("responded_at")
-  defenceAssessmentScore       Int?               @map("defence_assessment_score")
-  defenceAssessmentSubmittedAt DateTime?          @map("defence_assessment_submitted_at")
-  createdAt                    DateTime?          @map("created_at")
-  updatedAt                    DateTime?          @map("updated_at")
-
-  thesisDefenceExaminerAssessmentDetails ThesisDefenceExaminerAssessmentDetail[]
-  thesisDefenceRevisions                 ThesisDefenceRevision[]
-
-  @@map("thesis_defence_examiners")
-}
-
-model ThesisDefenceExaminerAssessmentDetail {
-  defenceExaminerId String @map("defence_examiner_id") @db.VarChar(255)
-  rubricId          String @map("rubric_id") @db.VarChar(255)
-  score             Int
-
-  defenceExaminer ThesisDefenceExaminer @relation(fields: [defenceExaminerId], references: [id])
-  rubric          AssessmentRubric      @relation(fields: [rubricId], references: [id])
-
-  @@id([defenceExaminerId, rubricId])
-  @@index([rubricId], map: "thesis_defence_examiner_assessment_details_rubric_id_fkey")
-  @@map("thesis_defence_examiner_assessment_details")
-}
-
-model ThesisDefenceSupervisorAssessmentDetail {
-  defenceId String @map("defence_id") @db.VarChar(255)
-  rubricId  String @map("rubric_id") @db.VarChar(255)
-  score     Int
-
-  rubric AssessmentRubric @relation(fields: [rubricId], references: [id])
-
-  @@id([defenceId, rubricId])
-  @@index([rubricId], map: "thesis_defence_supervisor_assessment_details_rubric_id_fkey")
-  @@map("thesis_defence_supervisor_assessment_details")
-}
-
-// ==================== Lecturer Availability ====================
-model LecturerAvailability {
-  id             String   @id @default(uuid()) @db.VarChar(255)
-  lecturerId     String   @map("lecturer_id") @db.VarChar(255)
-  academicYearId String   @map("academic_year_id") @db.VarChar(255)
-  weekDay        String   @map("week_day") @db.VarChar(255)
-  startTime      DateTime @map("start_time") @db.Time(0)
-  endTime        DateTime @map("end_time") @db.Time(0)
-  validFrom      DateTime @map("valid_from") @db.Date
-  validUntil     DateTime @map("valid_until") @db.Date
-
-  @@map("lecturer_availabilities")
-}
-
-// ==================== Seminar Attendance Requirements ====================
-model SeminarAttendanceRequirement {
-  id                String    @id @default(uuid()) @db.VarChar(255)
-  academicYearId    String    @map("academic_year_id") @db.VarChar(255)
-  minimumAttendance Int       @map("minimum_attendance")
-  isActive          Boolean   @map("is_active")
-  createdAt         DateTime? @map("created_at")
-  updatedAt         DateTime? @map("updated_at")
-
-  @@map("seminar_attendance_requirements")
-}
-
-// ==================== Yudisium Periods & Requirements ====================
-model YudisiumPeriod {
-  id        String    @id @default(uuid()) @db.VarChar(255)
-  name      String    @db.VarChar(255)
-  createdAt DateTime? @map("created_at")
-  updatedAt String?   @map("updated_at") @db.VarChar(255)
-
-  @@map("yudisium_periods")
-}
-
-model YudisiumRequirement {
-  id        String    @id @default(uuid()) @db.VarChar(255)
-  name      String    @db.VarChar(255)
-  isActive  Boolean   @map("is_active")
-  notes     String?   @db.VarChar(255)
-  createdAt DateTime? @map("created_at")
-  updatedAt DateTime? @map("updated_at")
-
-  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
-
-  @@map("yudisium_requirements")
-}
-
-model YudisiumParticipantRequirement {
-  yudisiumParticipantId String               @map("yudisium_participant_id") @db.VarChar(255)
-  yudisiumRequirementId String               @map("yudisium_requirement_id") @db.VarChar(255)
-  documentId            String               @map("document_id") @db.VarChar(255)
-  submittedAt           DateTime             @map("submitted_at")
-  status                DocumentSubmitStatus @default(submitted)
-  approvedAt            DateTime?            @map("approved_at")
-  notes                 String?              @db.VarChar(255)
-
-  requirement YudisiumRequirement @relation(fields: [yudisiumRequirementId], references: [id])
-
-  @@id([yudisiumParticipantId, yudisiumRequirementId])
-  @@index([yudisiumRequirementId], map: "yudisium_participant_requirements_yudisium_requirement_id_fkey")
-  @@map("yudisium_participant_requirements")
-}
-
-// ==================== Thesis Seminar & Defence Documents ====================
-model ThesisSeminarDocument {
-  thesisSeminarId String               @map("thesis_seminar_id") @db.VarChar(255)
-  documentTypeId  String               @map("document_type_id") @db.VarChar(255)
-  documentId      String               @map("document_id") @db.VarChar(255)
-  submittedAt     DateTime             @map("submitted_at")
-  status          DocumentSubmitStatus @default(submitted)
-  approvedAt      DateTime?            @map("approved_at")
-  notes           String?              @db.VarChar(255)
-
-  @@id([thesisSeminarId, documentTypeId])
-  @@map("thesis_seminar_documents")
-}
-
-model ThesisDefenceDocument {
-  thesisDefenceId String               @map("thesis_defence_id") @db.VarChar(255)
-  documentTypeId  String               @map("document_type_id") @db.VarChar(255)
-  documentId      String               @map("document_id") @db.VarChar(255)
-  submittedAt     DateTime             @map("submitted_at")
-  status          DocumentSubmitStatus @default(submitted)
-  approvedAt      DateTime?            @map("approved_at")
-  notes           String?              @db.VarChar(255)
-
-  @@id([thesisDefenceId, documentTypeId])
-  @@map("thesis_defence_documents")
-}
-
-// ==================== Thesis Revisions ====================
-model ThesisSeminarRevision {
-  id                   String         @id @default(uuid()) @db.VarChar(255)
-  seminarExaminerId    String         @map("seminar_examiner_id") @db.VarChar(255)
-  description          String         @db.VarChar(255)
-  status               RevisionStatus @default(pending)
-  studentSubmittedAt   DateTime       @map("student_submitted_at")
-  examinerVerifiedAt   DateTime?      @map("examiner_verified_at")
-  supervisorVerifiedAt DateTime       @map("supervisor_verified_at")
-
-  seminarExaminer ThesisSeminarExaminer @relation(fields: [seminarExaminerId], references: [id])
-
-  @@index([seminarExaminerId], map: "thesis_seminar_revisions_seminar_examiner_id_fkey")
-  @@map("thesis_seminar_revisions")
-}
-
-model ThesisDefenceRevision {
-  id                   Int            @id @default(autoincrement())
-  defenceExaminerId    String         @map("defence") @db.VarChar(255)
-  description          String         @db.VarChar(255)
-  status               RevisionStatus @default(pending)
-  studentSubmittedAt   DateTime       @map("student_submitted_at")
-  examinerVerifiedAt   DateTime?      @map("examiner_verified_at")
-  supervisorVerifiedAt DateTime?      @map("supervisor_verified_at")
-
-  defenceExaminer ThesisDefenceExaminer @relation(fields: [defenceExaminerId], references: [id])
-
-  @@index([defenceExaminerId], map: "thesis_defence_revisions_defence_fkey")
-  @@map("thesis_defence_revisions")
-}
-
-// ==================== Yudisium CPL Recommendations ====================
-model YudisiumCplRecommendation {
-  id                    String                          @id @default(uuid()) @db.VarChar(255)
-  yudisiumParticipantId String                          @map("yudisium_participant_id") @db.VarChar(255)
-  cplId                 String                          @map("cpl_id") @db.VarChar(255)
-  recommendationType    YudisiumCplRecommendationType   @default(development) @map("reccomendation_type")
-  description           String                          @db.VarChar(255)
-  status                YudisiumCplRecommendationStatus @default(draft)
-  resolvedAt            DateTime?                       @map("resolved_at")
-
-  cpl Cpl @relation(fields: [cplId], references: [id])
-
-  @@index([cplId], map: "yudisium_cpl_reccomendations_cpl_id_fkey")
-  @@map("yudisium_cpl_reccomendations")
-}
-
 enum IdentityType {
   NIM
   NIP
@@ -1400,11 +1616,25 @@ enum MilestoneStatus {
   deleted
 }
 
-enum SeminarStatus {
+enum ThesisSeminarStatus {
+  registered
+  verified
+  examiner_assigned
   scheduled
-  rescheduled
-  ongoing
-  completed
+  passed
+  passed_with_revision
+  failed
+  cancelled
+}
+
+enum ThesisDefenceStatus {
+  registered
+  verified
+  examiner_assigned
+  scheduled
+  passed
+  passed_with_revision
+  failed
   cancelled
 }
 
@@ -1414,6 +1644,12 @@ enum ApprovalStatus {
   rejected
 }
 
+enum ExaminerAvailabilityStatus {
+  pending
+  available
+  unavailable
+}
+
 enum BookingStatus {
   requested
   approved
@@ -1421,15 +1657,15 @@ enum BookingStatus {
   completed
 }
 
-// ==================== New Enums from SQL ====================
 enum CplScoreStatus {
-  passed
-  failed
+  calculated
+  verified
+  finalized
 }
 
 enum CplScoreSource {
-  SIA_API
-  MANUAL
+  SIA
+  manual
 }
 
 enum AssessmentAppliesTo {
@@ -1444,41 +1680,33 @@ enum ThesisAdvisorRequestStatus {
   rejected
 }
 
-enum AvailabilityStatus {
-  pending
-  available
-  unavailable
-}
-
-enum ExaminerSource {
-  seminar
-  replacement
-}
-
-enum RevisionStatus {
-  pending
-  revised
-  approved
-}
-
 enum DocumentSubmitStatus {
   submitted
   approved
   declined
 }
 
-enum YudisiumCplRecommendationType {
-  development
-  additional_assesment
-  improvement
+enum YudisiumStatus {
+  draft
+  open
+  closed
+  in_review
+  finalized
+}
+
+enum YudisiumParticipantStatus {
+  registered
+  under_review
+  approved
+  rejected
+  finalized
 }
 
 enum YudisiumCplRecommendationStatus {
-  draft
-  submitted
-  approved
-  declined
+  open
+  in_progress
   resolved
+  dismissed
 }
 
 // ==================== Internship Enums ====================
@@ -1558,4 +1786,19 @@ enum InternshipAssessmentStatus {
   PENDING
   APPROVED
   COMPLETED
+}
+
+enum DayOfWeek {
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+}
+
+enum ExitSurveyQuestionType {
+  single_choice
+  multiple_choice
+  text
+  textarea
 }
