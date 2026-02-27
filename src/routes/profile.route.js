@@ -6,6 +6,7 @@ import {
   deleteAvatarHandler,
   serveAvatarHandler,
   getLecturerDataHandler,
+  updateLecturerDataHandler,
 } from "../controllers/profile.controller.js";
 
 const router = express.Router();
@@ -21,5 +22,8 @@ router.delete("/avatar", authGuard, deleteAvatarHandler);
 
 // Get lecturer extended data
 router.get("/lecturer-data", authGuard, getLecturerDataHandler);
+
+// Update lecturer extended data
+router.patch("/lecturer-data", authGuard, updateLecturerDataHandler);
 
 export default router;

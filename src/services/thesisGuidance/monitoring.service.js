@@ -16,12 +16,13 @@ function toTitleCaseName(str) {
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar] = await Promise.all([
+  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
     monitoringRepository.getRatingDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
     monitoringRepository.getAtRiskStudents(5, academicYear),
     monitoringRepository.getStudentsReadyForSeminar(academicYear),
+    monitoringRepository.getSlowStudents(5, academicYear),
   ]);
 
   return {
@@ -29,10 +30,12 @@ export async function getMonitoringDashboard(academicYear) {
       ...progressStats,
       totalReadyForSeminar: readyForSeminar.length,
       totalAtRisk: atRiskStudents.length,
+      totalSlow: ratingDistribution.find((r) => r.id === "SLOW")?.count || 0,
     },
     statusDistribution,
     ratingDistribution,
     atRiskStudents,
+    slowStudents,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({
       thesisId: t.id,
       title: t.title,
@@ -55,22 +58,42 @@ export async function getMonitoringDashboard(academicYear) {
 export async function getThesesList(filters) {
   const { theses, total, page, pageSize } = await monitoringRepository.getThesesOverview(filters);
 
+  const allAcademicYears = await monitoringRepository.getAllAcademicYears();
+
   const formattedTheses = theses.map((t) => {
     const milestones = t.thesisMilestones || [];
     const completedMilestones = milestones.filter((m) => m.status === "completed").length;
     const totalMilestones = milestones.length;
     const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-    // Get last activity date from milestones
-    let lastActivity = t.createdAt;
-    if (milestones.length > 0) {
-      const sortedMilestones = [...milestones].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-      lastActivity = sortedMilestones[0].updatedAt;
-    }
+    // Get last activity date directly from thesis updatedAt
+    let lastActivity = t.updatedAt;
 
     // Get supervisors
     const pembimbing1 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
     const pembimbing2 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
+
+    // Determine Semester Mulai TA
+    let startSemester = t.academicYear?.name;
+    if (t.startDate) {
+      const ts = new Date(t.startDate).getTime();
+      let matchedAy = null;
+      for (const ay of allAcademicYears) {
+        if (ay.startDate && ay.endDate) {
+          const start = new Date(ay.startDate).getTime();
+          const end = new Date(ay.endDate).getTime();
+          // 30 days margin before start date
+          const margin = 30 * 24 * 60 * 60 * 1000;
+          if (ts >= (start - margin) && ts <= end) {
+            matchedAy = ay;
+            break;
+          }
+        }
+      }
+      if (matchedAy) {
+        startSemester = matchedAy.name;
+      }
+    }
 
     return {
       id: t.id,
@@ -85,6 +108,7 @@ export async function getThesesList(filters) {
       },
       status: t.thesisStatus?.name,
       academicYear: t.academicYear?.name,
+      startSemester: startSemester,
       progress: {
         completed: completedMilestones,
         total: totalMilestones,
@@ -162,6 +186,13 @@ export async function getAtRiskStudentsFull(academicYear) {
 }
 
 /**
+ * Get full list of slow students
+ */
+export async function getSlowStudentsFull(academicYear) {
+  return monitoringRepository.getSlowStudents(50, academicYear);
+}
+
+/**
  * Get full list of students ready for seminar
  */
 export async function getStudentsReadyForSeminarFull(academicYear) {
@@ -201,11 +232,7 @@ export async function getThesisDetail(thesisId) {
   const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
   // Get last activity
-  let lastActivity = thesis.createdAt;
-  if (milestones.length > 0) {
-    const sortedMilestones = [...milestones].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-    lastActivity = sortedMilestones[0].updatedAt;
-  }
+  let lastActivity = thesis.updatedAt;
 
   // Separate supervisors and examiners
   const supervisors = thesis.thesisSupervisors
@@ -502,7 +529,7 @@ export async function getProgressReportService(academicYearId) {
   return {
     academicYear: academicYear
       ? `${academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${academicYear.year}`
-      : "Semua Tahun Ajaran",
+      : "Semua Semester",
     generatedAt: new Date().toISOString(),
     summary,
     statusDistribution,

@@ -1,5 +1,4 @@
 import * as topicRepo from "../../repositories/thesisGuidance/topic.repository.js";
-import { ROLES } from "../../constants/roles.js";
 
 // Custom errors
 class NotFoundError extends Error {
@@ -30,12 +29,7 @@ class BadRequestError extends Error {
   }
 }
 
-/**
- * Check if user has secretary role
- */
-function hasSecretaryRole(user) {
-  return user?.roles?.some((r) => r.name === ROLES.SEKRETARIS_DEPARTEMEN);
-}
+
 
 /**
  * Get all thesis topics
@@ -75,9 +69,6 @@ export async function getTopicById(id) {
  * Create new topic (Sekretaris Departemen only)
  */
 export async function createTopic(user, data) {
-  if (!hasSecretaryRole(user)) {
-    throw new ForbiddenError("Hanya Sekretaris Departemen yang dapat membuat topik");
-  }
 
   // Check if name already exists
   const existing = await topicRepo.findByName(data.name.trim());
@@ -103,9 +94,6 @@ export async function createTopic(user, data) {
  * Update topic (Sekretaris Departemen only)
  */
 export async function updateTopic(id, user, data) {
-  if (!hasSecretaryRole(user)) {
-    throw new ForbiddenError("Hanya Sekretaris Departemen yang dapat mengubah topik");
-  }
 
   const existing = await topicRepo.findById(id);
   if (!existing) {
@@ -139,9 +127,6 @@ export async function updateTopic(id, user, data) {
  * Delete topic (Sekretaris Departemen only)
  */
 export async function deleteTopic(id, user) {
-  if (!hasSecretaryRole(user)) {
-    throw new ForbiddenError("Hanya Sekretaris Departemen yang dapat menghapus topik");
-  }
 
   const existing = await topicRepo.findById(id);
   if (!existing) {
@@ -165,9 +150,6 @@ export async function deleteTopic(id, user) {
  * Bulk delete topics (Sekretaris Departemen only)
  */
 export async function bulkDeleteTopics(ids, user) {
-  if (!hasSecretaryRole(user)) {
-    throw new ForbiddenError("Hanya Sekretaris Departemen yang dapat menghapus topik");
-  }
 
   // Check each topic for related data
   const cannotDelete = [];

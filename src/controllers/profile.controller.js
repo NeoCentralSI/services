@@ -1,5 +1,6 @@
-import { saveAvatar, deleteAvatar, resolveAvatarPath, getLecturerData } from "../services/profile.service.js";
+import { saveAvatar, deleteAvatar, resolveAvatarPath, getLecturerData, updateLecturerData } from "../services/profile.service.js";
 import path from "path";
+
 
 /**
  * POST /profile/avatar - Upload user avatar (file already saved by multer middleware)
@@ -66,6 +67,19 @@ export async function getLecturerDataHandler(req, res, next) {
     }
 
     res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PATCH /profile/lecturer-data - Update lecturer extended data
+ */
+export async function updateLecturerDataHandler(req, res, next) {
+  try {
+    const { data } = req.body;
+    const updatedData = await updateLecturerData(req.user.sub, data);
+    res.json({ success: true, data: updatedData });
   } catch (err) {
     next(err);
   }

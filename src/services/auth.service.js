@@ -26,13 +26,6 @@ export async function loginWithEmailPassword(email, password) {
 		throw err;
 	}
 
-	const ok = await bcrypt.compare(password, user.password);
-	if (!ok) {
-		const err = new Error("Invalid credentials");
-		err.statusCode = 401;
-		throw err;
-	}
-
 	// Check if account is verified/activated
 	if (!user.isVerified) {
 		const err = new Error("Akun belum diaktivasi. Silakan aktivasi akun terlebih dahulu.");
@@ -41,17 +34,26 @@ export async function loginWithEmailPassword(email, password) {
 		throw err;
 	}
 
+	const ok = await bcrypt.compare(password, user.password);
+	if (!ok) {
+		const err = new Error("Invalid credentials");
+		err.statusCode = 401;
+		throw err;
+	}
+
+
+
 	const payload = { sub: user.id, email: user.email };
 	const accessToken = signAccessToken(payload);
 	const refreshToken = signRefreshToken(payload);
 
 	// Store refresh token hash (revocation support)
-		// Store hashed refresh token into User.refreshToken (column mapped to refresh_token)
-		const refreshHash = await bcrypt.hash(refreshToken, 10);
-		await prisma.user.update({
-			where: { id: user.id },
-			data: { refreshToken: refreshHash },
-		});
+	// Store hashed refresh token into User.refreshToken (column mapped to refresh_token)
+	const refreshHash = await bcrypt.hash(refreshToken, 10);
+	await prisma.user.update({
+		where: { id: user.id },
+		data: { refreshToken: refreshHash },
+	});
 
 	// Fetch roles for the user (from user_has_roles -> user_roles)
 	const roleAssignments = await getUserRolesWithIds(user.id);
@@ -72,13 +74,13 @@ export async function refreshTokens(refreshToken) {
 	try {
 		const decoded = jwt.verify(refreshToken, ENV.REFRESH_TOKEN_SECRET);
 		const user = await findUserById(decoded.sub);
-			if (!user || !user.refreshToken) {
+		if (!user || !user.refreshToken) {
 			const err = new Error("Invalid refresh token");
 			err.statusCode = 401;
 			throw err;
 		}
 
-			const match = await bcrypt.compare(refreshToken, user.refreshToken);
+		const match = await bcrypt.compare(refreshToken, user.refreshToken);
 		if (!match) {
 			const err = new Error("Invalid refresh token");
 			err.statusCode = 401;
@@ -161,15 +163,15 @@ export async function requestPasswordReset(email) {
 	const baseUrl = (ENV.BASE_URL || "").replace(/\/$/, "");
 	const resetUrl = `${baseUrl}/auth/reset/verify?token=${encodeURIComponent(token)}`;
 	const html = passwordResetTemplate({ appName: ENV.APP_NAME, fullName: user.fullName || user.email, resetUrl, expiresInMinutes: 15 });
-		try {
-			await sendMail({ to: user.email, subject: `${ENV.APP_NAME || "App"} - Password Reset`, html });
-		} catch (e) {
-			// Do not leak details to client; log server-side and still return success to avoid user enumeration
-			console.error("❌ SMTP send failed:", e?.message || e);
-			if (ENV.NODE_ENV !== "production") {
-				console.warn("🔗 Dev hint — password reset URL:", resetUrl);
-			}
+	try {
+		await sendMail({ to: user.email, subject: `${ENV.APP_NAME || "App"} - Password Reset`, html });
+	} catch (e) {
+		// Do not leak details to client; log server-side and still return success to avoid user enumeration
+		console.error("❌ SMTP send failed:", e?.message || e);
+		if (ENV.NODE_ENV !== "production") {
+			console.warn("🔗 Dev hint — password reset URL:", resetUrl);
 		}
+	}
 }
 
 export async function verifyPasswordResetToken(token) {

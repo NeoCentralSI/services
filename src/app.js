@@ -27,7 +27,6 @@ try {
     try {
       openapiDoc = JSON.parse(fs.readFileSync(openapiJsonPath, "utf-8"));
       if (!openapiDoc?.openapi && !openapiDoc?.swagger) {
-        // Not an OpenAPI document, ignore so we fallback to YAML
         openapiDoc = null;
       }
     } catch (err) {
@@ -48,7 +47,6 @@ try {
 } catch (err) {
   console.warn("Swagger UI disabled; failed to initialize Swagger UI:", err.message);
 }
-
 
 try {
   const uploadsDir = path.join(process.cwd(), "uploads");
@@ -90,10 +88,19 @@ try {
   console.error("❌ Failed scanning routes directory:", e.stack || e.message);
 }
 
+// Health check – used by Docker HEALTHCHECK and load balancers
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    env: process.env.NODE_ENV || "development",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get("/", (req, res) => {
   res.json({ message: "API is running 🚀" });
 });
-
 
 // Serve OpenAPI spec directly at root for Swagger UI/manual access
 app.get("/openapi.yaml", (req, res) => {
