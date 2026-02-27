@@ -6,6 +6,7 @@ import {
   getThesesList,
   getFilterOptions,
   getAtRiskStudents,
+  getSlowStudents,
   getStudentsReadyForSeminar,
   getThesisDetail,
   sendWarningNotification,
@@ -33,6 +34,9 @@ router.get("/report", getProgressReport);
 
 // At-risk students list
 router.get("/at-risk", getAtRiskStudents);
+
+// Slow students list
+router.get("/slow", getSlowStudents);
 
 // Students ready for seminar
 router.get("/ready-seminar", getStudentsReadyForSeminar);

@@ -382,16 +382,19 @@ async function main() {
 
     console.log(`📝 Membuat ${templates.length} template untuk: ${topic.name}`);
 
+    let orderIndexCounter = 0;
+
     for (const template of templates) {
       await prisma.thesisMilestoneTemplate.create({
         data: {
           name: template.name,
           description: template.description,
           topicId: topic.id,
-          orderIndex: template.orderIndex,
+          orderIndex: template.orderIndex !== undefined ? template.orderIndex : orderIndexCounter,
           isActive: true,
         },
       });
+      orderIndexCounter++;
       totalCreated++;
     }
   }

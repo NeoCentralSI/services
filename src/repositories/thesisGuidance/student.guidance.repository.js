@@ -183,8 +183,8 @@ export async function upsertStudentCompletions(thesisId, componentIds = [], comp
  * Submit session summary by student
  * Changes status from 'accepted' to 'summary_pending'
  */
-export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }) {
-  return prisma.thesisGuidance.update({
+export async function submitSessionSummary(guidanceId, { sessionSummary, actionItems }) {
+  const updated = await prisma.thesisGuidance.update({
     where: { id: guidanceId },
     data: {
       sessionSummary,
@@ -197,6 +197,15 @@ export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }
       milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
     },
   });
+
+  if (updated.thesisId) {
+    await prisma.thesis.update({
+      where: { id: updated.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+
+  return updated;
 }
 
 /**

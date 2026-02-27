@@ -3,6 +3,7 @@ import {
   getMicrosoftAuthUrl,
   exchangeCodeForTokens,
   loginOrRegisterWithMicrosoft,
+  loginWithMicrosoftToken,
 } from "../services/microsoft-auth.service.js";
 
 /**
@@ -58,15 +59,15 @@ export async function handleCallback(req, res, next) {
       user: result.user,
       hasCalendarAccess: result.hasCalendarAccess,
     };
-    
+
     // Base64 encode untuk avoid special characters di URL
     const encodedTokens = Buffer.from(JSON.stringify(tokenData)).toString('base64');
-    
+
     res.redirect(`${frontendUrl}?tokens=${encodedTokens}`);
   } catch (error) {
     // If account not verified (403), redirect to account-inactive page
     if (error.statusCode === 403) {
-      const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/account-inactive`;
+      const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/inactive`;
       return res.redirect(frontendUrl);
     }
     // Redirect ke login dengan error message

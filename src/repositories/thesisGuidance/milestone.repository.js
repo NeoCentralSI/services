@@ -198,10 +198,17 @@ export function findByIdAndThesisId(id, thesisId) {
 /**
  * Create new milestone
  */
-export function create(data) {
-  return prisma.thesisMilestone.create({
+export async function create(data) {
+  const result = await prisma.thesisMilestone.create({
     data,
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
@@ -217,11 +224,18 @@ export function createMany(dataArray) {
 /**
  * Update milestone by ID
  */
-export function update(id, data) {
-  return prisma.thesisMilestone.update({
+export async function update(id, data) {
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data,
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
@@ -236,24 +250,38 @@ export function remove(id) {
 /**
  * Update milestone status
  */
-export function updateStatus(id, status, additionalData = {}) {
-  return prisma.thesisMilestone.update({
+export async function updateStatus(id, status, additionalData = {}) {
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data: {
       status,
       ...additionalData,
     },
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
  * Update progress percentage
  */
-export function updateProgress(id, progressPercentage) {
-  return prisma.thesisMilestone.update({
+export async function updateProgress(id, progressPercentage) {
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data: { progressPercentage },
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
@@ -347,7 +375,7 @@ export async function updateMilestoneStatus(id, newStatus, additionalData = {}) 
  * Validate milestone by supervisor
  */
 export async function validateMilestone(id, validatorId, supervisorNotes = null) {
-  return prisma.thesisMilestone.update({
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data: {
       status: "completed",
@@ -358,6 +386,13 @@ export async function validateMilestone(id, validatorId, supervisorNotes = null)
       completedAt: new Date(),
     },
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**

@@ -1,6 +1,22 @@
 import prisma from "../../config/prisma.js";
 
 /**
+ * Helper to build a dynamic start date filter based on academic year
+ */
+async function buildAcademicYearFilter(academicYearId) {
+  if (!academicYearId) return null;
+  const ay = await prisma.academicYear.findUnique({ where: { id: academicYearId } });
+  if (ay && ay.startDate && ay.endDate) {
+    const margin = 30 * 24 * 60 * 60 * 1000;
+    const start = new Date(new Date(ay.startDate).getTime() - margin);
+    return {
+      startDate: { gte: start, lte: ay.endDate }
+    };
+  }
+  return { academicYearId }; // fallback
+}
+
+/**
  * Get all theses with progress summary for management monitoring
  * @param {Object} filters - Filter options
  * @param {string} filters.status - Filter by thesis status name
@@ -34,15 +50,15 @@ export async function getThesesOverview(filters = {}) {
 
   // Filter by academic year
   if (academicYear) {
-    where.academicYearId = academicYear;
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
   }
 
   // Search by student name, NIM, or thesis title
   if (search) {
     where.OR = [
-      { title: { contains: search, mode: 'insensitive' } },
-      { student: { user: { fullName: { contains: search, mode: 'insensitive' } } } },
-      { student: { user: { identityNumber: { contains: search, mode: 'insensitive' } } } },
+      { title: { contains: search } },
+      { student: { user: { fullName: { contains: search } } } },
+      { student: { user: { identityNumber: { contains: search } } } },
     ];
   }
 
@@ -54,6 +70,8 @@ export async function getThesesOverview(filters = {}) {
         title: true,
         rating: true,
         createdAt: true,
+        updatedAt: true,
+        startDate: true,
         student: {
           include: {
             user: {
@@ -105,7 +123,7 @@ export async function getThesesOverview(filters = {}) {
  * Get thesis status distribution summary
  */
 export async function getStatusDistribution(academicYear) {
-  const where = academicYear ? { academicYearId: academicYear } : {};
+  const where = academicYear ? await buildAcademicYearFilter(academicYear) : {};
 
   const statuses = await prisma.thesisStatus.findMany({
     include: {
@@ -132,13 +150,14 @@ export async function getStatusDistribution(academicYear) {
  */
 export async function getRatingDistribution(academicYear) {
   const where = {
+    rating: { notIn: ["FAILED", "CANCELLED"] },
     thesisStatus: {
-      name: { notIn: ["Selesai"] },
+      name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
     },
   };
 
   if (academicYear) {
-    where.academicYearId = academicYear;
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
   }
 
   const ratings = await prisma.thesis.groupBy({
@@ -154,11 +173,9 @@ export async function getRatingDistribution(academicYear) {
     ONGOING: 'Ongoing',
     SLOW: 'Slow',
     AT_RISK: 'At Risk',
-    FAILED: 'Gagal',
-    CANCELLED: 'Dibatalkan',
   };
 
-  return ['ONGOING', 'SLOW', 'AT_RISK', 'FAILED', 'CANCELLED'].map((rating) => {
+  return ['ONGOING', 'SLOW', 'AT_RISK'].map((rating) => {
     const found = ratings.find((r) => r.rating === rating);
     return {
       id: rating,
@@ -174,14 +191,17 @@ export async function getRatingDistribution(academicYear) {
  */
 export async function getProgressStatistics(academicYear) {
   // Build where clause
+  // Active means it has rating ONGOING, SLOW, or AT_RISK
+  // FAILED and CANCELLED are not active
   const where = {
+    rating: { in: ["ONGOING", "SLOW", "AT_RISK"] },
     thesisStatus: {
-      name: { notIn: ["Selesai", "Gagal"] },
+      name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
     },
   };
 
   if (academicYear) {
-    where.academicYearId = academicYear;
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
   }
 
   // Get all theses with milestones
@@ -247,7 +267,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
   };
 
   if (academicYear) {
-    where.academicYearId = academicYear;
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
   }
 
   const theses = await prisma.thesis.findMany({
@@ -285,13 +305,13 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
         },
       },
     },
+    orderBy: { updatedAt: "desc" },
   });
 
   // Filter and calculate days since last activity
   const atRisk = theses
     .map((t) => {
-      const lastMilestone = t.thesisMilestones[0];
-      const lastActivity = lastMilestone?.updatedAt || t.createdAt;
+      const lastActivity = t.updatedAt;
       const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
 
       return {
@@ -318,6 +338,85 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
 }
 
 /**
+ * Get slow students (rating SLOW)
+ */
+export async function getSlowStudents(limit = 10, academicYear) {
+  const where = {
+    rating: "SLOW",
+    thesisStatus: {
+      name: { notIn: ["Selesai", "Gagal", "Acc Seminar"] },
+    },
+  };
+
+  if (academicYear) {
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
+  }
+
+  const theses = await prisma.thesis.findMany({
+    where,
+    include: {
+      student: {
+        include: {
+          user: {
+            select: {
+              fullName: true,
+              identityNumber: true,
+            },
+          },
+        },
+      },
+      thesisStatus: true,
+      thesisMilestones: {
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+        select: {
+          updatedAt: true,
+        },
+      },
+      thesisSupervisors: {
+        where: {
+          role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
+        },
+        include: {
+          lecturer: {
+            include: {
+              user: { select: { fullName: true } },
+            },
+          },
+          role: true,
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  const slow = theses
+    .map((t) => {
+      const lastActivity = t.updatedAt;
+      const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
+
+      return {
+        thesisId: t.id,
+        title: t.title,
+        student: {
+          name: t.student?.user?.fullName,
+          nim: t.student?.user?.identityNumber,
+        },
+        status: t.thesisStatus?.name,
+        lastActivity,
+        daysSinceActivity,
+        supervisors: t.thesisSupervisors.map((p) => ({
+          name: p.lecturer?.user?.fullName,
+          role: p.role?.name,
+        })),
+      };
+    })
+    .slice(0, limit);
+
+  return slow;
+}
+
+/**
  * Get students ready for seminar
  */
 export async function getStudentsReadyForSeminar(academicYear) {
@@ -333,7 +432,7 @@ export async function getStudentsReadyForSeminar(academicYear) {
   };
 
   if (academicYear) {
-    where.academicYearId = academicYear;
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
   }
 
   return prisma.thesis.findMany({
@@ -373,9 +472,10 @@ export async function getStudentsReadyForSeminar(academicYear) {
 export async function getAllAcademicYears() {
   const academicYears = await prisma.academicYear.findMany({
     where: {
-      thesis: {
-        some: {},
-      },
+      OR: [
+        { thesis: { some: {} } },
+        { isActive: true }
+      ]
     },
     orderBy: [
       { year: "desc" },
@@ -385,10 +485,12 @@ export async function getAllAcademicYears() {
 
   return academicYears.map((ay) => ({
     id: ay.id,
-    name: `${ay.semester === "ganjil" ? "Ganjil" : "Genap"} ${ay.year}`,
+    name: `${ay.semester === "ganjil" ? "Ganjil" : "Genap"} ${ay.year} `,
     semester: ay.semester,
     year: ay.year,
     isActive: ay.isActive,
+    startDate: ay.startDate,
+    endDate: ay.endDate,
   }));
 }
 
@@ -504,7 +606,7 @@ export async function getThesesForReport(academicYearId) {
   const where = {};
 
   if (academicYearId) {
-    where.academicYearId = academicYearId;
+    Object.assign(where, await buildAcademicYearFilter(academicYearId));
   }
 
   const theses = await prisma.thesis.findMany({

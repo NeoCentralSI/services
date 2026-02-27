@@ -1,4 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail } from "../services/adminfeatures.service.js";
+﻿import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -192,3 +192,8 @@ export async function getFailedThesesController(req, res, next) {
 		next(err);
 	}
 }
+
+// Removed Science Group controllers
+export async function updateLecturerByAdminController(req, res, next) { try { const result = await adminUpdateLecturer(req.params.id, req.body); res.status(200).json({ success: true, data: result }); } catch (err) { next(err); } }
+
+export async function updateStudentByAdminController(req, res, next) { try { const result = await adminUpdateStudent(req.params.id, req.body); res.status(200).json({ success: true, data: result }); } catch (err) { next(err); } }

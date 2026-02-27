@@ -770,6 +770,15 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
   const currentUserRole = currentUserParticipant?.role?.name || null;
   const currentUserHasApproved = currentUserParticipant?.seminarReady || false;
 
+  // Get guidance sessions status
+  const completedGuidancesCount = await prisma.thesisGuidance.count({
+    where: {
+      thesisId,
+      status: "completed",
+    },
+  });
+  const isGuidanceComplete = completedGuidancesCount >= 8;
+
   return {
     thesisId: thesis.id,
     thesisTitle: thesis.title,
@@ -786,6 +795,11 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
       percentComplete: progress.percentComplete,
       isComplete: progress.isComplete,
     },
+    guidanceProgress: {
+      completed: completedGuidancesCount,
+      required: 8,
+      isComplete: isGuidanceComplete,
+    },
     seminarReadiness: {
       approvedBySupervisor1,
       approvedBySupervisor2,
@@ -794,7 +808,7 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
     supervisors,
     currentUserRole,
     currentUserHasApproved,
-    canRegisterSeminar: progress.isComplete && isFullyApproved,
+    canRegisterSeminar: progress.isComplete && isGuidanceComplete && isFullyApproved,
   };
 }
 
@@ -828,6 +842,21 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
     throw createError(
       `Mahasiswa belum menyelesaikan semua milestone (${progress.completed}/${progress.total}). ` +
       "Pastikan semua milestone sudah tervalidasi sebelum memberikan approval."
+    );
+  }
+
+  // Check minimum completed guidances (8 sessions)
+  const completedGuidancesCount = await prisma.thesisGuidance.count({
+    where: {
+      thesisId,
+      status: "completed",
+    },
+  });
+
+  if (completedGuidancesCount < 8) {
+    throw createError(
+      `Mahasiswa baru menyelesaikan ${completedGuidancesCount} sesi bimbingan. ` +
+      "Minimal 8 sesi bimbingan yang berstatus 'completed' diperlukan sebelum menyetujui kesiapan seminar."
     );
   }
 

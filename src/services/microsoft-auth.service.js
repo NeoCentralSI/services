@@ -329,3 +329,27 @@ export async function refreshMicrosoftToken(userId) {
     throw err;
   }
 }
+
+/**
+ * Login using a raw Microsoft Graph access token (mobile OAuth flow).
+ * Called by POST /auth/microsoft/mobile – the mobile app gets an MS token
+ * directly via flutter_appauth and sends it here for validation.
+ *
+ * @param {string} msAccessToken - Microsoft Graph access token from flutter_appauth
+ * @returns {Promise<Object>} { accessToken, refreshToken, user }
+ */
+export async function loginWithMicrosoftToken(msAccessToken) {
+  // 1. Validate token by fetching user profile from Microsoft Graph
+  const userProfile = await getMicrosoftUserProfile(msAccessToken);
+
+  // 2. Optional calendar access check (non-blocking)
+  const hasCalendarAccess = await checkCalendarAccessWithToken(msAccessToken);
+
+  // 3. Reuse existing business logic: find user in DB, issue our JWT
+  return loginOrRegisterWithMicrosoft(
+    userProfile,
+    msAccessToken,
+    null,            // no MS refresh token; we store our own JWT refresh token
+    hasCalendarAccess
+  );
+}

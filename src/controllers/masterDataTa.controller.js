@@ -13,6 +13,18 @@ export const getAllTheses = async (req, res, next) => {
     }
 };
 
+export const getAllThesisStatuses = async (req, res, next) => {
+    try {
+        const statuses = await masterDataTaService.getAllThesisStatuses();
+        res.status(200).json({
+            success: true,
+            data: statuses
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const createThesis = async (req, res, next) => {
     try {
         const data = await masterDataTaService.createThesisMasterData(req.body);
@@ -33,6 +45,19 @@ export const updateThesis = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: "Berhasil mengubah data tugas akhir",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const syncSia = async (req, res, next) => {
+    try {
+        const data = await masterDataTaService.syncSia();
+        res.status(200).json({
+            success: true,
+            message: "Berhasil melakukan sinkronisasi dengan SIA",
             data
         });
     } catch (error) {
