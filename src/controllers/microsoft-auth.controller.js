@@ -76,3 +76,28 @@ export async function handleCallback(req, res, next) {
     res.redirect(frontendUrl);
   }
 }
+
+/**
+ * Mobile Microsoft OAuth login
+ * POST /auth/microsoft/mobile
+ * Body: { accessToken: string }  – Microsoft Graph access token from flutter_appauth
+ */
+export async function mobileLogin(req, res, next) {
+  try {
+    const { accessToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({ message: "accessToken is required" });
+    }
+
+    const result = await loginWithMicrosoftToken(accessToken);
+
+    res.json({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
