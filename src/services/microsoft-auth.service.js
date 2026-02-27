@@ -33,11 +33,13 @@ const MICROSOFT_SCOPES = [
  * Get Microsoft OAuth authorization URL
  * @returns {string} Authorization URL
  */
-export function getMicrosoftAuthUrl() {
+export function getMicrosoftAuthUrl(isMobile = false) {
   const authCodeUrlParameters = {
     scopes: MICROSOFT_SCOPES,
     redirectUri: ENV.REDIRECT_URI,
     prompt: 'select_account',
+    // Encode platform info in state so callback knows how to redirect
+    state: isMobile ? Buffer.from(JSON.stringify({ platform: 'mobile' })).toString('base64') : undefined,
   };
 
   return msalClient.getAuthCodeUrl(authCodeUrlParameters);

@@ -51,11 +51,11 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           status: status || "accepted",
           ...(startDate &&
             endDate && {
-              requestedDate: {
-                gte: new Date(startDate),
-                lte: new Date(endDate),
-              },
-            }),
+            requestedDate: {
+              gte: new Date(startDate),
+              lte: new Date(endDate),
+            },
+          }),
         },
         include: {
           supervisor: {
@@ -85,8 +85,8 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
               guidance.status === "accepted"
                 ? "guidance_scheduled"
                 : guidance.status === "requested"
-                ? "guidance_request"
-                : "guidance_rejected",
+                  ? "guidance_request"
+                  : "guidance_rejected",
             status: guidance.status,
             startDate: guidance.requestedDate,
             endDate: guidance.requestedDate,
@@ -120,11 +120,11 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           },
           ...(startDate &&
             endDate && {
-              createdAt: {
-                gte: new Date(startDate),
-                lte: new Date(endDate),
-              },
-            }),
+            createdAt: {
+              gte: new Date(startDate),
+              lte: new Date(endDate),
+            },
+          }),
         },
         include: {
           thesis: true,
@@ -163,11 +163,11 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           },
           ...(startDate &&
             endDate && {
-              createdAt: {
-                gte: new Date(startDate),
-                lte: new Date(endDate),
-              },
-            }),
+            createdAt: {
+              gte: new Date(startDate),
+              lte: new Date(endDate),
+            },
+          }),
         },
         include: {
           thesis: true,
@@ -203,21 +203,21 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       console.log('[Calendar Service] ===== LECTURER SECTION =====');
       console.log('[Calendar Service] Fetching lecturer guidances for lecturer ID:', user.lecturer.id);
       console.log('[Calendar Service] Date range:', { startDate, endDate });
-      
+
       // Debug: Check total guidances for this lecturer (any status)
       const totalGuidances = await prisma.thesisGuidance.count({
         where: { supervisorId: user.lecturer.id }
       });
       console.log('[Calendar Service] Total guidances (all statuses) for this lecturer:', totalGuidances);
-      
+
       const acceptedCount = await prisma.thesisGuidance.count({
-        where: { 
+        where: {
           supervisorId: user.lecturer.id,
           status: "accepted"
         }
       });
       console.log('[Calendar Service] Accepted guidances count:', acceptedCount);
-      
+
       // Guidance requests - only show accepted guidances in calendar
       const guidances = await prisma.thesisGuidance.findMany({
         where: {
@@ -225,11 +225,11 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           status: "accepted", // Only show accepted guidances in lecturer calendar
           ...(startDate &&
             endDate && {
-              requestedDate: {
-                gte: new Date(startDate),
-                lte: new Date(endDate),
-              },
-            }),
+            requestedDate: {
+              gte: new Date(startDate),
+              lte: new Date(endDate),
+            },
+          }),
         },
         include: {
           thesis: {
@@ -243,7 +243,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           },
         },
       });
-      
+
       console.log('[Calendar Service] Found lecturer guidances:', guidances.length);
       console.log('[Calendar Service] Guidances:', guidances.map(g => ({
         id: g.id,
@@ -264,8 +264,8 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
               guidance.status === "accepted"
                 ? "student_guidance"
                 : guidance.status === "requested"
-                ? "guidance_request"
-                : "guidance_rejected",
+                  ? "guidance_request"
+                  : "guidance_rejected",
             status: guidance.status,
             startDate: guidance.requestedDate,
             endDate: guidance.requestedDate,
@@ -294,18 +294,20 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       // Note: ThesisSeminar model doesn't have schedule relation
       const seminarAudiences = await prisma.thesisSeminarAudience.findMany({
         where: {
-          validator: {
-            id: userId,
+          supervisor: {
+            user: {
+              id: userId,
+            },
           },
           ...(startDate &&
             endDate && {
-              seminar: {
-                createdAt: {
-                  gte: new Date(startDate),
-                  lte: new Date(endDate),
-                },
+            seminar: {
+              createdAt: {
+                gte: new Date(startDate),
+                lte: new Date(endDate),
               },
-            }),
+            },
+          }),
         },
         include: {
           seminar: {
@@ -364,7 +366,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       filteredEvents = events.filter((event) => types.includes(event.type));
       console.log('[Calendar Service] Events after type filter:', filteredEvents.length);
     }
-    
+
     console.log('[Calendar Service] Returning events:', filteredEvents.length);
     console.log('[Calendar Service] Event types:', filteredEvents.map(e => ({ id: e.id, type: e.type, title: e.title })));
 
