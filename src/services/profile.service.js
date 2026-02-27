@@ -74,3 +74,14 @@ export async function getLecturerData(userId) {
     data: lecturer.data || null,
   };
 }
+
+/**
+ * Update lecturer extended data (JSON field)
+ */
+export async function updateLecturerData(userId, jsonData) {
+  const updated = await prisma.lecturer.update({
+    where: { id: userId },
+    data: { data: jsonData },
+  });
+  return updated.data;
+}

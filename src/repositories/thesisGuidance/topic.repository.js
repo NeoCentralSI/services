@@ -42,7 +42,6 @@ export function findByName(name) {
     where: {
       name: {
         equals: name,
-        mode: "insensitive",
       },
     },
   });

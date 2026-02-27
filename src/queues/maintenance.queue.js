@@ -5,6 +5,7 @@ import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
+import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -61,6 +62,22 @@ export async function scheduleDailyThesisStatus() {
   }
 }
 
+export async function scheduleAcademicYearSync() {
+  const pattern = ENV.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *"; // Midnight + 1 hr
+  const tz = ENV.ACADEMIC_YEAR_SYNC_TZ || "Asia/Jakarta";
+
+  await maintenanceQueue.add(
+    "academic-year-sync",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: true,
+      removeOnFail: true,
+    }
+  );
+  console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
+}
+
 /**
  * Schedule automatic SIA sync job
  * Default: every 6 hours. Override via ENV.SIA_SYNC_CRON
@@ -75,7 +92,7 @@ export async function scheduleSiaSync() {
   // Default: every 6 hours at minute 0. Override via ENV.SIA_SYNC_CRON
   const pattern = ENV.SIA_SYNC_CRON || "0 */6 * * *";
   const tz = ENV.SIA_SYNC_TZ || "Asia/Jakarta";
-  
+
   await maintenanceQueue.add(
     "sia-sync",
     {},
@@ -114,7 +131,7 @@ export async function scheduleGuidanceReminder() {
   // Default: every day at 07:00 WIB
   const pattern = ENV.GUIDANCE_REMINDER_CRON || "0 7 * * *";
   const tz = ENV.GUIDANCE_REMINDER_TZ || "Asia/Jakarta";
-  
+
   await maintenanceQueue.add(
     "guidance-reminder",
     {},
@@ -148,7 +165,7 @@ export async function scheduleDailyThesisReminder() {
   // Default: every day at 09:00 WIB
   const pattern = ENV.DAILY_THESIS_REMINDER_CRON || "0 9 * * *";
   const tz = ENV.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta";
-  
+
   await maintenanceQueue.add(
     "daily-thesis-reminder",
     {},
@@ -183,6 +200,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "sia-sync":
         await runSiaSync();
+        break;
+      case "academic-year-sync":
+        await syncActiveAcademicYear();
         break;
       case "guidance-reminder":
         await runGuidanceReminderJob();

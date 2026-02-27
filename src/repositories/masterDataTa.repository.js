@@ -95,6 +95,7 @@ export const updateThesis = async (id, data) => {
             data: {
                 title: data.title,
                 thesisTopicId: data.thesisTopicId,
+                thesisStatusId: data.thesisStatusId,
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
                 rating: data.rating

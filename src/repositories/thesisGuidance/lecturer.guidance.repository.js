@@ -9,7 +9,14 @@ export async function getLecturerByUserId(userId) {
 
 // List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
 export async function findMyStudents(lecturerId, roles) {
-	const where = { lecturerId };
+	const where = {
+		lecturerId,
+		thesis: {
+			thesisStatus: {
+				name: { notIn: ["Gagal", "Failed", "failed"] }
+			}
+		}
+	};
 	if (Array.isArray(roles) && roles.length) {
 		// Filter by role.name from UserRole
 		where.role = { name: { in: roles } };
@@ -442,7 +449,7 @@ export async function findGuidancesPendingApproval(lecturerId, { page = 1, pageS
  * Changes status from 'summary_pending' to 'completed'
  */
 export async function approveSessionSummary(guidanceId) {
-	return prisma.thesisGuidance.update({
+	const updated = await prisma.thesisGuidance.update({
 		where: { id: guidanceId },
 		data: {
 			status: "completed",
@@ -458,6 +465,15 @@ export async function approveSessionSummary(guidanceId) {
 			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 		},
 	});
+
+	if (updated.thesisId) {
+		await prisma.thesis.update({
+			where: { id: updated.thesisId },
+			data: { updatedAt: new Date() }
+		});
+	}
+
+	return updated;
 }
 
 /**

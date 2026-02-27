@@ -1,8 +1,9 @@
 import express from "express";
-import { authGuard } from "../middlewares/auth.middleware.js";
+import { authGuard, requireRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import * as controller from "../controllers/thesisGuidance/topic.controller.js";
 import * as validator from "../validators/topic.validator.js";
+import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
@@ -25,6 +26,7 @@ router.get("/:id", authGuard, controller.getTopicById);
 router.post(
   "/",
   authGuard,
+  requireRole(ROLES.SEKRETARIS_DEPARTEMEN),
   validate(validator.createTopicSchema),
   controller.createTopic
 );
@@ -36,6 +38,7 @@ router.post(
 router.patch(
   "/:id",
   authGuard,
+  requireRole(ROLES.SEKRETARIS_DEPARTEMEN),
   validate(validator.updateTopicSchema),
   controller.updateTopic
 );
@@ -48,6 +51,7 @@ router.patch(
 router.delete(
   "/bulk",
   authGuard,
+  requireRole(ROLES.SEKRETARIS_DEPARTEMEN),
   validate(validator.bulkDeleteTopicsSchema),
   controller.bulkDeleteTopics
 );
@@ -56,6 +60,6 @@ router.delete(
  * DELETE /api/topics/:id
  * Delete topic (Sekretaris Departemen only)
  */
-router.delete("/:id", authGuard, controller.deleteTopic);
+router.delete("/:id", authGuard, requireRole(ROLES.SEKRETARIS_DEPARTEMEN), controller.deleteTopic);
 
 export default router;

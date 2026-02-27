@@ -1,4 +1,4 @@
-import csv from "csv-parser";
+﻿import csv from "csv-parser";
 import { Readable } from "stream";
 import path from "path";
 import fs from "fs";
@@ -295,7 +295,7 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		const html = accountInviteTemplate({ appName: ENV.APP_NAME, fullName: user.fullName, email: user.email, temporaryPassword: plainPassword, verifyUrl });
 		await sendMail({ to: user.email, subject: `${ENV.APP_NAME || "App"} - Account Invitation`, html });
 	} catch (e) {
-		console.error("✉️ Failed to send verification email:", e?.message || e);
+		console.error("âœ‰ï¸ Failed to send verification email:", e?.message || e);
 	}
 
 	return { id: user.id, email: user.email, roles: uniqueRoles };
@@ -561,7 +561,7 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 		? {
 			OR: [
 				{ year: !isNaN(parseInt(search)) ? parseInt(search) : undefined },
-				{ semester: { contains: search, mode: "insensitive" } },
+				{ semester: { contains: search } },
 			].filter((condition) => condition.year !== undefined || condition.semester !== undefined),
 		}
 		: {};
@@ -616,9 +616,9 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 			// Search filter
 			search ? {
 				OR: [
-					{ fullName: { contains: search, mode: "insensitive" } },
-					{ email: { contains: search, mode: "insensitive" } },
-					{ identityNumber: { contains: search, mode: "insensitive" } },
+					{ fullName: { contains: search } },
+					{ email: { contains: search } },
+					{ identityNumber: { contains: search } },
 				],
 			} : {},
 			// Identity type filter
@@ -687,9 +687,9 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 		...(search
 			? {
 				OR: [
-					{ fullName: { contains: search, mode: "insensitive" } },
-					{ email: { contains: search, mode: "insensitive" } },
-					{ identityNumber: { contains: search, mode: "insensitive" } },
+					{ fullName: { contains: search } },
+					{ email: { contains: search } },
+					{ identityNumber: { contains: search } },
 				],
 			}
 			: {}),
@@ -786,21 +786,26 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 }
 
 // Get all Lecturers with detailed information
-export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}) {
+export async function getLecturers({ page = 1, pageSize = 10, search = "", scienceGroupId = "" } = {}) {
 	const skip = (page - 1) * pageSize;
 	const take = pageSize;
 
 	const where = {
-		lecturer: { isNot: null }, // Only users with lecturer record
-		...(search
-			? {
+		AND: [
+			{ lecturer: { isNot: null } }, // Only users with lecturer record
+			search ? {
 				OR: [
-					{ fullName: { contains: search, mode: "insensitive" } },
-					{ email: { contains: search, mode: "insensitive" } },
-					{ identityNumber: { contains: search, mode: "insensitive" } },
+					{ fullName: { contains: search } },
+					{ email: { contains: search } },
+					{ identityNumber: { contains: search } },
 				],
-			}
-			: {}),
+			} : {},
+			scienceGroupId ? {
+				lecturer: {
+					scienceGroupId: scienceGroupId
+				}
+			} : {}
+		]
 	};
 
 	const [lecturers, total] = await Promise.all([
@@ -812,6 +817,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 			include: {
 				lecturer: {
 					include: {
+						scienceGroup: true,
 						_count: {
 							select: {
 								thesisGuidances: true,
@@ -845,6 +851,8 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "" } = {}
 				id: user.lecturer.id,
 				activeGuidances: user.lecturer._count?.thesisGuidances || 0,
 				participations: user.lecturer._count?.thesisSupervisors || 0,
+				scienceGroup: user.lecturer.scienceGroup?.name || null,
+				scienceGroupId: user.lecturer.scienceGroupId || null,
 			}
 			: null,
 		roles: user.userHasRoles.map((ur) => ({
@@ -1174,3 +1182,25 @@ export async function getLecturerDetail(userId) {
  */
 
 
+// Removed Science Group functions
+
+export async function adminUpdateLecturer(id, data) {
+	return prisma.lecturer.update({
+		where: { id },
+		data: {
+			scienceGroupId: data.scienceGroupId === "" ? null : data.scienceGroupId
+		}
+	});
+}
+
+export async function adminUpdateStudent(id, data) {
+	const updateData = { status: data.status, skscompleted: parseInt(data.skscompleted) };
+	if (data.enrollmentYear !== undefined) {
+		updateData.enrollmentYear = data.enrollmentYear;
+	}
+
+	return prisma.student.update({
+		where: { id },
+		data: updateData
+	});
+}

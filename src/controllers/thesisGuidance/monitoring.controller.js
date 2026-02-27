@@ -78,6 +78,23 @@ export async function getAtRiskStudents(req, res, next) {
 }
 
 /**
+ * Get slow students list
+ * @route GET /api/thesis-guidance/monitoring/slow
+ */
+export async function getSlowStudents(req, res, next) {
+  try {
+    const { academicYear } = req.query;
+    const data = await monitoringService.getSlowStudentsFull(academicYear);
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * Get students ready for seminar list
  * @route GET /api/thesis-guidance/monitoring/ready-seminar
  */

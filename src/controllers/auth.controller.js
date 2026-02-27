@@ -197,7 +197,7 @@ export async function verifyAccount(req, res, next) {
 		}
 		const result = await verifyAccountToken(token);
 		// Redirect ke frontend activation success page
-		const frontendUrl = `${ENV.FRONTEND_URL}/activation-success`;
+		const frontendUrl = `${ENV.FRONTEND_URL}/auth/activate/success`;
 		res.redirect(frontendUrl);
 	} catch (err) {
 		// Redirect ke frontend dengan error
