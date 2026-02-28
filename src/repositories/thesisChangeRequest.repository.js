@@ -471,6 +471,49 @@ export const updateApproval = async (requestId, lecturerId, status, notes) => {
 };
 
 /**
+ * Find all pending change requests for a specific lecturer
+ */
+export const findAllPendingForLecturer = async (lecturerId) => {
+  return await prisma.thesisChangeRequest.findMany({
+    where: {
+      status: 'pending',
+      approvals: {
+        some: {
+          lecturerId,
+          status: 'pending'
+        }
+      }
+    },
+    orderBy: { createdAt: 'asc' },
+    include: {
+      thesis: {
+        include: {
+          student: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, identityNumber: true }
+              }
+            }
+          },
+          thesisTopic: true,
+        }
+      },
+      approvals: {
+        include: {
+          lecturer: {
+            include: {
+              user: {
+                select: { id: true, fullName: true }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+};
+
+/**
  * Find pending change request by thesis ID for a specific lecturer
  * Used to check if lecturer needs to review a change request
  */

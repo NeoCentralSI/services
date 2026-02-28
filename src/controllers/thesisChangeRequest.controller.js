@@ -250,6 +250,39 @@ export const getPendingRequestForThesis = async (req, res, next) => {
 };
 
 /**
+ * Get all pending change requests for a lecturer
+ */
+export const getPendingRequestsForLecturer = async (req, res, next) => {
+  try {
+    const userId = req.user.sub || req.user.id;
+    if (!userId) {
+      const error = new Error('User ID not found in token');
+      error.statusCode = 401;
+      throw error;
+    }
+
+    // Get lecturer ID from user ID
+    const lecturer = await prisma.lecturer.findFirst({
+      where: { user: { id: userId } }
+    });
+    if (!lecturer) {
+      const error = new Error('Anda tidak terdaftar sebagai dosen');
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const result = await thesisChangeRequestService.getPendingRequestsForLecturerList(lecturer.id);
+
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Check if student has an approved change request where thesis was deleted
  * Used to show "please re-register" message on frontend
  */
