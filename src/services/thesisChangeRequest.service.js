@@ -583,6 +583,44 @@ export const reviewRequestByLecturer = async (requestId, lecturerId, status, not
 };
 
 /**
+ * Get all pending change requests for a lecturer
+ */
+export const getPendingRequestsForLecturerList = async (lecturerId) => {
+  const requests = await thesisChangeRequestRepository.findAllPendingForLecturer(lecturerId);
+
+  // Enrich each request with proposed thesis info
+  const enrichedRequests = await Promise.all(requests.map(async (request) => {
+    const studentId = request.thesis?.student?.id;
+    if (studentId) {
+      const diajukanStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Diajukan' } });
+      if (diajukanStatus) {
+        const proposedThesis = await prisma.thesis.findFirst({
+          where: {
+            studentId,
+            thesisStatusId: diajukanStatus.id,
+            id: { not: request.thesisId },
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            thesisTopic: { select: { id: true, name: true } },
+          },
+        });
+        if (proposedThesis) {
+          request.proposedThesis = {
+            id: proposedThesis.id,
+            title: proposedThesis.title,
+            topic: proposedThesis.thesisTopic,
+          };
+        }
+      }
+    }
+    return flattenRequest(request);
+  }));
+
+  return enrichedRequests;
+};
+
+/**
  * Get pending change request for a specific thesis that requires lecturer review.
  * Also includes the proposed new thesis info (created during submitRequest).
  */

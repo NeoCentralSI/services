@@ -61,6 +61,12 @@ router.get(
 );
 
 router.get(
+  '/lecturer/pending',
+  authGuard,
+  controller.getPendingRequestsForLecturer
+);
+
+router.get(
   '/:id',
   authGuard,
   requireRole(ROLES.KETUA_DEPARTEMEN, ROLES.MAHASISWA),
