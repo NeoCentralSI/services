@@ -40,6 +40,8 @@ tags:
     description: External SIA (Academic Information System) synchronization endpoints
   - name: CPL
     description: CPL (Capaian Pembelajaran Lulusan) master data management
+  - name: CPMK
+    description: CPMK (Capaian Pembelajaran Mata Kuliah) master data management
 
 paths:
   "/":
@@ -335,6 +337,19 @@ paths:
 
   "/cpl/{id}/toggle":
     $ref: "./cpl/swagger-cpl.yaml#/cpl_toggle"
+
+  # ============================================
+  # CPMK Master Data Endpoints
+  # ============================================
+
+  "/cpmk":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_list"
+
+  "/cpmk/{id}":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_detail"
+
+  "/cpmk/{id}/toggle":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_toggle"
 
 components:
   schemas:

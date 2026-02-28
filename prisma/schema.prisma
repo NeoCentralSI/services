@@ -208,13 +208,21 @@ model Cpl {
   @@map("cpls")
 }
 
+enum CpmkType {
+  research_method
+  thesis
+}
+
 model Cpmk {
   id             String   @id @default(uuid()) @db.VarChar(255)
   code           String   @db.VarChar(255)
   description    String   @db.VarChar(255)
+  type           CpmkType
   proposalWeight Int?     @map("proposal_weight")
   seminarWeight  Int?     @map("seminar_weight")
   defenceWeight  Int?     @map("defence_weight")
+  isActive       Boolean  @default(true) @map("is_active")
+  displayOrder   Int      @default(0) @map("display_order")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
