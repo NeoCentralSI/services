@@ -38,6 +38,8 @@ tags:
     description: Thesis monitoring endpoints for Kadep/Sekdep/GKM
   - name: SIA Sync
     description: External SIA (Academic Information System) synchronization endpoints
+  - name: CPL
+    description: CPL (Capaian Pembelajaran Lulusan) master data management
 
 paths:
   "/":
@@ -320,6 +322,19 @@ paths:
     
   "/master-data-ta/{id}":
     $ref: "./masterDataTa/swagger-masterDataTa.yaml#/paths/~1api~1v1~1master-data-ta~1{id}"
+
+  # ============================================
+  # CPL Master Data Endpoints
+  # ============================================
+
+  "/cpl":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_list"
+
+  "/cpl/{id}":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_detail"
+
+  "/cpl/{id}/toggle":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_toggle"
 
 components:
   schemas:
