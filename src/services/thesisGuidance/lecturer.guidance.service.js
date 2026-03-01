@@ -175,9 +175,23 @@ export async function getStudentDetailService(userId, thesisId) {
 			title: m.title,
 			status: m.status,
 			updatedAt: m.updatedAt,
+			updatedAtFormatted: m.updatedAt ? formatDateTimeJakarta(m.updatedAt, { withDay: true }) : null,
 			progressPercentage: m.progressPercentage || 0,
-			targetDate: m.targetDate
-		}))
+			targetDate: m.targetDate,
+			targetDateFormatted: m.targetDate ? formatDateTimeJakarta(m.targetDate, { withDay: true }) : null,
+		})),
+		guidanceHistory: await (async () => {
+			const studentId = thesis.student?.id || thesis.studentId;
+			if (!studentId) return { count: 0, items: [] };
+			const rows = await listGuidanceHistory(studentId, lecturer.id);
+			const items = rows.map((g) => {
+				const titles = (g.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
+				return toFlatGuidance({ ...g, milestoneTitles: titles });
+			});
+			return { count: items.length, items };
+		})(),
+		startDateFormatted: thesis.startDate ? formatDateTimeJakarta(thesis.startDate) : null,
+		deadlineDateFormatted: thesis.deadlineDate ? formatDateTimeJakarta(thesis.deadlineDate) : null,
 	};
 }
 
@@ -224,6 +238,14 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 		err.statusCode = 404;
 		throw err;
 	}
+
+	// Status guard: only allow rejecting "requested" guidance
+	if (guidance.status !== "requested") {
+		const err = new Error(`Tidak dapat menolak bimbingan dengan status "${guidance.status}". Hanya bimbingan berstatus "requested" yang dapat ditolak.`);
+		err.statusCode = 400;
+		throw err;
+	}
+
 	const updated = await rejectGuidanceById(guidanceId, { feedback });
 
 	// Send notification to student
@@ -270,6 +292,14 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, app
 		err.statusCode = 404;
 		throw err;
 	}
+
+	// Status guard: only allow approving "requested" guidance
+	if (guidance.status !== "requested") {
+		const err = new Error(`Tidak dapat menyetujui bimbingan dengan status "${guidance.status}". Hanya bimbingan berstatus "requested" yang dapat disetujui.`);
+		err.statusCode = 400;
+		throw err;
+	}
+
 	const updated = await approveGuidanceById(guidanceId, { feedback, approvedDate, duration });
 
 	// Sync to Outlook Calendar - Create events for both supervisor and student
@@ -1043,16 +1073,19 @@ export async function approveTransferRequestService(userId, notificationId) {
 	const refs = payload.refs || [];
 	const p1RoleId = await getRoleIdByName(ROLES.PEMBIMBING_1);
 
-	// Process each student
-	const results = [];
-	for (const ref of refs) {
-		try {
+	// Process all students in a single transaction for data consistency
+	const results = await prisma.$transaction(async (tx) => {
+		const txResults = [];
+		for (const ref of refs) {
 			// Transfer the original supervisor record to the new lecturer
-			await transferSupervisor(ref.sId, lecturer.id);
+			await tx.thesisSupervisors.update({
+				where: { id: ref.sId },
+				data: { lecturerId: lecturer.id },
+			});
 
 			// After transfer, check if the approving lecturer already had a P2 record
 			// on this thesis. If so, they now have two records (P1 + P2) — delete the P2.
-			const allSupRecords = await prisma.ThesisSupervisors.findMany({
+			const allSupRecords = await tx.thesisSupervisors.findMany({
 				where: { thesisId: ref.tId },
 				include: { role: { select: { id: true, name: true } } },
 			});
@@ -1061,7 +1094,7 @@ export async function approveTransferRequestService(userId, notificationId) {
 			const myP2Record = myRecords.find((r) => r.role?.name === ROLES.PEMBIMBING_2);
 			if (myP2Record) {
 				// Delete the duplicate P2 record — this lecturer is now P1
-				await prisma.ThesisSupervisors.delete({ where: { id: myP2Record.id } });
+				await tx.thesisSupervisors.delete({ where: { id: myP2Record.id } });
 				console.log(`[Transfer] Deleted duplicate P2 record for lecturer ${lecturer.id} on thesis ${ref.tId}`);
 			}
 
@@ -1074,23 +1107,28 @@ export async function approveTransferRequestService(userId, notificationId) {
 			if (otherP2 && p1RoleId) {
 				const p2HasP1Role = await lecturerHasRole(otherP2.lecturerId, ROLES.PEMBIMBING_1);
 				if (p2HasP1Role) {
-					await updateSupervisorRole(otherP2.id, p1RoleId);
+					await tx.thesisSupervisors.update({
+						where: { id: otherP2.id },
+						data: { roleId: p1RoleId },
+					});
 					promoted = true;
 					console.log(`[Transfer] P2 (${otherP2.lecturerId}) promoted to P1 on thesis ${ref.tId}`);
 				}
 			}
 
-			results.push({ thesisId: ref.tId, success: true, promoted });
-		} catch (e) {
-			console.error(`[Transfer] Error transferring thesis ${ref.tId}:`, e);
-			results.push({ thesisId: ref.tId, success: false, error: e.message });
+			txResults.push({ thesisId: ref.tId, success: true, promoted });
 		}
-	}
 
-	// Mark notification as read
-	await markNotificationRead(notificationId);
+		// Mark notification as read inside transaction
+		await tx.notification.update({
+			where: { id: notificationId },
+			data: { isRead: true },
+		});
 
-	// Notify source lecturer that transfer was approved
+		return txResults;
+	});
+
+	// Notify source lecturer that transfer was approved (outside transaction — non-critical)
 	const approverUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
 	const approverName = toTitleCaseName(approverUser?.fullName || "Dosen");
 	const successCount = results.filter((r) => r.success).length;
@@ -1100,6 +1138,30 @@ export async function approveTransferRequestService(userId, notificationId) {
 		"Transfer Mahasiswa Disetujui",
 		`${approverName} telah menyetujui transfer ${successCount} mahasiswa.`
 	);
+
+	// Notify students that their supervisor has changed
+	try {
+		for (const ref of refs) {
+			const thesis = await prisma.thesis.findUnique({
+				where: { id: ref.tId },
+				include: { student: { include: { user: { select: { id: true } } } } },
+			});
+			const studentUserId = thesis?.student?.user?.id;
+			if (studentUserId) {
+				await createNotificationsForUsers([studentUserId], {
+					title: "Dosen Pembimbing Berubah",
+					message: `Dosen pembimbing Anda telah berubah. ${approverName} sekarang menjadi pembimbing Anda.`,
+				});
+				await sendFcmToUsers([studentUserId], {
+					title: "Dosen Pembimbing Berubah",
+					body: `${approverName} sekarang menjadi dosen pembimbing Anda.`,
+					data: { type: "thesis-guidance:supervisor-changed", thesisId: ref.tId },
+				});
+			}
+		}
+	} catch (e) {
+		console.error("Failed to notify students about transfer:", e?.message || e);
+	}
 
 	return {
 		message: `Transfer ${successCount} mahasiswa berhasil disetujui`,

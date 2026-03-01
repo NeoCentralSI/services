@@ -1,17 +1,27 @@
+/**
+ * Unit Tests — thesisStatus.service: updateAllThesisStatuses
+ * Tests the CRON-driven thesis rating update logic:
+ *   ONGOING / SLOW / AT_RISK / FAILED based on milestone activity age
+ */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Create the mock object in a hoisted factory so it's available when vi.mock is hoisted
-const { mockPrisma } = vi.hoisted(() => ({
+const { mockPrisma, mockPush, mockNotif, mockRoles } = vi.hoisted(() => ({
   mockPrisma: {
     thesisStatus: { findMany: vi.fn() },
     thesis: { findMany: vi.fn(), update: vi.fn() },
-    thesisGuidance: { findMany: vi.fn() },
+    thesisGuidance: { updateMany: vi.fn() },
+    user: { findMany: vi.fn() },
   },
+  mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
+  mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
+  mockRoles: { ROLES: { KETUA_DEPARTEMEN: "Ketua Departemen" } },
 }));
 
 vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../services/push.service.js", () => mockPush);
+vi.mock("../services/notification.service.js", () => mockNotif);
+vi.mock("../constants/roles.js", () => mockRoles);
 
-// Import after mocking
 import { updateAllThesisStatuses } from "../services/thesisStatus.service.js";
 
 function daysAgo(n) {
@@ -20,77 +30,123 @@ function daysAgo(n) {
   return d;
 }
 
+const TERMINAL_STATUSES = [
+  { id: "ts-selesai", name: "Selesai" },
+  { id: "ts-gagal", name: "Gagal" },
+  { id: "ts-lulus", name: "Lulus" },
+];
+
+const silentLogger = { log: vi.fn(), error: vi.fn(), warn: vi.fn() };
+
 describe("updateAllThesisStatuses", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
-    mockPrisma.thesisStatus.findMany.mockReset();
-    mockPrisma.thesis.findMany.mockReset();
-    mockPrisma.thesis.update.mockReset();
-    mockPrisma.thesisGuidance.findMany.mockReset();
+    vi.clearAllMocks();
+    mockPrisma.thesisStatus.findMany.mockResolvedValue(TERMINAL_STATUSES);
+    mockPrisma.user.findMany.mockResolvedValue([]);
+    mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 0 });
   });
 
-  it("categorizes theses into Ongoing/Slow/at_risk based on 30/90-day completions", async () => {
-    // Status IDs
-    const idOngoing = "ongoing-id";
-    const idSlow = "slow-id";
-    const idRisk = "risk-id";
-    mockPrisma.thesisStatus.findMany.mockResolvedValue([
-      { id: idOngoing, name: "Ongoing" },
-      { id: idSlow, name: "Slow" },
-      { id: idRisk, name: "at_risk" },
-    ]);
-
-    // Theses dataset (single page)
-    const theses = [
-      { id: "A", thesisStatusId: null, startDate: daysAgo(200) }, // 3 in 90d -> Ongoing
-      { id: "B", thesisStatusId: null, startDate: daysAgo(200) }, // 2 in 90d incl 1 in 30d -> Ongoing
-      { id: "C", thesisStatusId: null, startDate: daysAgo(200) }, // 1 in 90d -> Slow
-      { id: "D", thesisStatusId: null, startDate: daysAgo(45) },  // 0 comps, start 45d -> Slow
-      { id: "E", thesisStatusId: null, startDate: daysAgo(10) },  // 0 comps, start 10d -> Ongoing
-      { id: "F", thesisStatusId: null, startDate: daysAgo(120) }, // 0 comps, start 120d -> at_risk
-    ];
+  it("marks ONGOING for thesis with recent milestone activity", async () => {
     mockPrisma.thesis.findMany
-      .mockResolvedValueOnce(theses)
-      .mockResolvedValueOnce([]); // end paging
+      .mockResolvedValueOnce([{
+        id: "A", rating: null, createdAt: daysAgo(100), thesisStatusId: null,
+        thesisMilestones: [{ updatedAt: daysAgo(10) }],
+        student: { user: { id: "u1", fullName: "Budi", identityNumber: "123" } },
+      }])
+      .mockResolvedValueOnce([]);
+    mockPrisma.thesis.update.mockResolvedValue({});
 
-    // Guidance completions per thesis
-    const completions = new Map([
-      ["A", [daysAgo(10), daysAgo(40), daysAgo(80)]],
-      ["B", [daysAgo(10), daysAgo(70)]],
-      ["C", [daysAgo(60)]],
-      ["D", []],
-      ["E", []],
-      ["F", []],
-    ]);
+    const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
-    // Mock thesisGuidance.findMany to honor 90d and 30d windows
-    mockPrisma.thesisGuidance.findMany.mockImplementation(async ({ where }) => {
-      const ids = where?.thesisId?.in || [];
-      const gte = where?.schedule?.guidanceDate?.gte;
-      const out = [];
-      for (const id of ids) {
-        const arr = completions.get(id) || [];
-        for (const dt of arr) {
-          if (!gte || dt >= gte) out.push({ thesisId: id });
-        }
-      }
-      return out;
-    });
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { rating: "ONGOING" } })
+    );
+    expect(summary.ONGOING).toBe(1);
+  });
 
-    const summary = await updateAllThesisStatuses({ pageSize: 500, logger: console });
+  it("marks SLOW for thesis with no activity > 60 days", async () => {
+    mockPrisma.thesis.findMany
+      .mockResolvedValueOnce([{
+        id: "B", rating: null, createdAt: daysAgo(200), thesisStatusId: null,
+        thesisMilestones: [{ updatedAt: daysAgo(90) }],
+        student: { user: { id: "u2", fullName: "Andi", identityNumber: "456" } },
+      }])
+      .mockResolvedValueOnce([]);
+    mockPrisma.thesis.update.mockResolvedValue({});
 
-    // Verify update calls mapping to expected statuses
-    const updatedCalls = mockPrisma.thesis.update.mock.calls.map((c) => ({ id: c[0].where.id, data: c[0].data }));
-    const targetById = new Map(updatedCalls.map((u) => [u.id, u.data.thesisStatusId]));
+    const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
-    expect(targetById.get("A")).toBe(idOngoing);
-    expect(targetById.get("B")).toBe(idOngoing);
-    expect(targetById.get("C")).toBe(idSlow);
-    expect(targetById.get("D")).toBe(idSlow);
-    expect(targetById.get("E")).toBe(idOngoing);
-    expect(targetById.get("F")).toBe(idRisk);
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { rating: "SLOW" } })
+    );
+    expect(summary.SLOW).toBe(1);
+  });
 
-    // Summary counts
-    expect(summary).toEqual({ Ongoing: 3, Slow: 2, at_risk: 1 });
+  it("marks AT_RISK for thesis with no activity > 120 days", async () => {
+    mockPrisma.thesis.findMany
+      .mockResolvedValueOnce([{
+        id: "C", rating: null, createdAt: daysAgo(300), thesisStatusId: null,
+        thesisMilestones: [{ updatedAt: daysAgo(150) }],
+        student: { user: { id: "u3", fullName: "Siti", identityNumber: "789" } },
+      }])
+      .mockResolvedValueOnce([]);
+    mockPrisma.thesis.update.mockResolvedValue({});
+
+    const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
+
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { rating: "AT_RISK" } })
+    );
+    expect(summary.AT_RISK).toBe(1);
+  });
+
+  it("marks FAILED for thesis older than 1 year", async () => {
+    mockPrisma.thesis.findMany
+      .mockResolvedValueOnce([{
+        id: "D", rating: "AT_RISK", createdAt: daysAgo(400), thesisStatusId: null,
+        thesisMilestones: [],
+        student: { user: { id: "u4", fullName: "Fadi", identityNumber: "012" } },
+      }])
+      .mockResolvedValueOnce([]);
+    mockPrisma.thesis.update.mockResolvedValue({});
+
+    const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
+
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ rating: "FAILED" }),
+      })
+    );
+    expect(summary.FAILED).toBe(1);
+  });
+
+  it("skips theses already in terminal statuses (Selesai/Gagal)", async () => {
+    mockPrisma.thesis.findMany
+      .mockResolvedValueOnce([{
+        id: "E", rating: "ONGOING", createdAt: daysAgo(400), thesisStatusId: "ts-selesai",
+        thesisMilestones: [],
+        student: { user: { id: "u5", fullName: "Rini", identityNumber: "111" } },
+      }])
+      .mockResolvedValueOnce([]);
+
+    const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
+
+    expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
+    expect(summary).toEqual({ ONGOING: 0, SLOW: 0, AT_RISK: 0, FAILED: 0 });
+  });
+
+  it("does not update thesis if rating hasn't changed", async () => {
+    mockPrisma.thesis.findMany
+      .mockResolvedValueOnce([{
+        id: "F", rating: "ONGOING", createdAt: daysAgo(30), thesisStatusId: null,
+        thesisMilestones: [{ updatedAt: daysAgo(5) }],
+        student: { user: { id: "u6", fullName: "Joko", identityNumber: "222" } },
+      }])
+      .mockResolvedValueOnce([]);
+
+    const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
+
+    expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
+    expect(summary.ONGOING).toBe(0);
   });
 });

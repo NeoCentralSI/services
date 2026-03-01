@@ -565,18 +565,52 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
  * Submit milestone for review (student)
  */
 export async function submitForReview(milestoneId, userId, studentNotes = null) {
-  const { milestone, isOwner } = await getMilestoneWithAccess(milestoneId, userId);
+  const { milestone, thesis, isOwner } = await getMilestoneWithAccess(milestoneId, userId);
 
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengajukan review milestone");
   }
 
-  const updateData = {};
+  if (milestone.status === "completed") {
+    throw createError("Milestone sudah selesai dan tidak dapat di-submit untuk review");
+  }
+
+  if (milestone.status === "pending_review") {
+    throw createError("Milestone sudah dalam status menunggu review");
+  }
+
+  const updateData = {
+    status: "pending_review",
+  };
   if (studentNotes) updateData.studentNotes = studentNotes;
 
   const updated = await milestoneRepo.update(milestoneId, {
     ...updateData,
   });
+
+  // Send notification to supervisors
+  try {
+    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+    const milestoneTitle = updated.title || milestone.title || "Milestone";
+    const supervisorUserIds = (thesis.thesisSupervisors || [])
+      .map((p) => p.lecturer?.user?.id)
+      .filter(Boolean);
+
+    for (const supervisorUserId of supervisorUserIds) {
+      await sendFcmToUsers([supervisorUserId], {
+        title: "Milestone Siap Direview",
+        body: `${studentName} mengajukan review untuk milestone "${milestoneTitle}"`,
+      });
+
+      await createNotification({
+        userId: supervisorUserId,
+        title: "Milestone Siap Direview",
+        message: `${studentName} mengajukan review untuk milestone "${milestoneTitle}"`,
+      });
+    }
+  } catch (e) {
+    console.error("Failed to send submitForReview notification:", e?.message || e);
+  }
 
   return updated;
 }
