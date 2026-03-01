@@ -16,6 +16,7 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
     lecturer: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
     academicYear: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     userRole: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
+    studentCplScore: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
   mockAdminRepo: {
@@ -247,6 +248,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
           }],
         },
       });
+      mockPrisma.studentCplScore.findMany.mockResolvedValue([]);
 
       const result = await getStudentDetail("user-1");
 

@@ -25,10 +25,11 @@ export async function initiateLogin(req, res, next) {
  * GET /auth/microsoft/callback
  */
 export async function handleCallback(req, res, next) {
+  let isMobile = false;
   try {
     const { code, error: oauthError, error_description, state } = req.query;
     // Detect mobile flow: state carries platform=mobile (encoded by getMicrosoftAuthUrl)
-    const isMobile = state && Buffer.from(state, 'base64').toString().includes('"platform":"mobile"');
+    isMobile = state && Buffer.from(state, 'base64').toString().includes('"platform":"mobile"');
 
     // Handle OAuth errors dari Microsoft
     if (oauthError) {

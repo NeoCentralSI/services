@@ -1,0 +1,136 @@
+# ─────────────────────────────────────────────────────────────────
+# Production Docker Compose – NeoCentral Full Stack
+# Deploy to: /www/wwwroot/neocentral/docker-compose.yml
+#
+# Images are built locally by self-hosted GitHub Actions runner.
+# No container registry needed.
+#
+# Prerequisites:
+#   1. Cloudflare Tunnel token (from Cloudflare Zero Trust dashboard)
+#   2. Copy .env.example → .env and fill in all values
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f
+# ─────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Cloudflare Tunnel ──────────────────────────────────────────
+  # Routes traffic from Cloudflare edge to local services
+  # Configure routes in Cloudflare Zero Trust dashboard:
+  #   neocentral.dev       → http://frontend:80
+  #   api.neocentral.dev   → http://backend:3000
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: neocentral-tunnel
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - neocentral-net
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+
+  # ── Backend API ────────────────────────────────────────────────
+  backend:
+    image: neocentral/services:latest
+    container_name: neocentral-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      GOTENBERG_URL: http://gotenberg:3000
+      SIA_BASE_URL: http://sia:4000
+    volumes:
+      - uploads:/app/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      gotenberg:
+        condition: service_started
+      sia:
+        condition: service_healthy
+    networks:
+      - neocentral-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ── Frontend (Nginx SPA) ───────────────────────────────────────
+  frontend:
+    image: neocentral/website:latest
+    container_name: neocentral-frontend
+    restart: unless-stopped
+    networks:
+      - neocentral-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── SIA (Dummy Academic System) ────────────────────────────────
+  sia:
+    image: neocentral/dummy-sia:latest
+    container_name: neocentral-sia
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      API_TOKEN: ${SIA_API_TOKEN}
+    networks:
+      - neocentral-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Redis ──────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: neocentral-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    networks:
+      - neocentral-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Gotenberg (PDF generation) ─────────────────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: neocentral-gotenberg
+    restart: unless-stopped
+    command:
+      - gotenberg
+      - "--chromium-disable-routes=false"
+      - "--api-timeout=60s"
+    networks:
+      - neocentral-net
+
+# ─────────────────────────────────────────────────────────────────
+volumes:
+  uploads:
+  redis-data:
+
+networks:
+  neocentral-net:
+    driver: bridge
