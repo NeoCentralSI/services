@@ -165,13 +165,7 @@ components:
           type: string
         description:
           type: string
-        proposalWeight:
-          type: integer
-          nullable: true
-        seminarWeight:
-          type: integer
-          nullable: true
-        defenceWeight:
+        maxScore:
           type: integer
           nullable: true
         isActive:

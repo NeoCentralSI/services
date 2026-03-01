@@ -1,0 +1,808 @@
+rubric_seminar_criteria_list:
+  get:
+    tags: [Rubrik Seminar]
+    summary: Get configured seminar rubric tree by CPMK
+    description: Returns active thesis CPMK that already have seminar default criteria, including nested criteria and rubrics.
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: Seminar rubric tree retrieved
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                message:
+                  type: string
+                data:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CpmkSeminarTree"
+
+  post:
+    tags: [Rubrik Seminar]
+    summary: Create seminar criteria under CPMK
+    description: Creates new criteria with appliesTo=seminar and role=default.
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CreateCriteriaRequest"
+    responses:
+      "201":
+        description: Criteria created successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                message:
+                  type: string
+                data:
+                  $ref: "#/components/schemas/AssessmentCriteria"
+      "400":
+        description: Validation error
+      "404":
+        description: CPMK not found
+
+rubric_seminar_criteria_detail:
+  patch:
+    tags: [Rubrik Seminar]
+    summary: Update seminar criteria
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: criteriaId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UpdateCriteriaRequest"
+    responses:
+      "200":
+        description: Criteria updated
+      "400":
+        description: Validation error
+      "404":
+        description: Criteria not found
+
+  delete:
+    tags: [Rubrik Seminar]
+    summary: Delete seminar criteria
+    description: Deletes criteria and all rubric levels under it.
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: criteriaId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Criteria deleted
+      "400":
+        description: Criteria has assessment data
+      "404":
+        description: Criteria not found
+
+rubric_seminar_rubric_create:
+  post:
+    tags: [Rubrik Seminar]
+    summary: Create rubric under criteria
+    description: Creates rubric level under seminar default criteria with no overlapping score ranges.
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: criteriaId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CreateRubricRequest"
+    responses:
+      "201":
+        description: Rubric created
+      "400":
+        description: Validation error (range invalid, overlap, or beyond criteria maxScore)
+      "404":
+        description: Criteria not found
+
+rubric_seminar_rubric_detail:
+  patch:
+    tags: [Rubrik Seminar]
+    summary: Update rubric level
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: rubricId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UpdateRubricRequest"
+    responses:
+      "200":
+        description: Rubric updated
+      "400":
+        description: Validation error
+      "404":
+        description: Rubric not found
+
+  delete:
+    tags: [Rubrik Seminar]
+    summary: Delete rubric level
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: rubricId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Rubric deleted
+      "404":
+        description: Rubric not found
+
+rubric_seminar_cpmk_remove_config:
+  delete:
+    tags: [Rubrik Seminar]
+    summary: Delete seminar config for one CPMK
+    description: Deletes seminar default criteria and rubrics under selected CPMK, without deleting master CPMK.
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: cpmkId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: CPMK seminar configuration removed
+      "400":
+        description: Existing assessment data prevents deletion
+      "404":
+        description: CPMK not found
+
+rubric_seminar_weight_summary:
+  get:
+    tags: [Rubrik Seminar]
+    summary: Get seminar rubric summary
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: Summary retrieved
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                message:
+                  type: string
+                data:
+                  $ref: "#/components/schemas/WeightSummary"
+
+components:
+  schemas:
+    CpmkSeminarTree:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [thesis]
+        isActive:
+          type: boolean
+        assessmentCriterias:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssessmentCriteria"
+
+    AssessmentCriteria:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        cpmkId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+        appliesTo:
+          type: string
+          enum: [seminar]
+        role:
+          type: string
+          enum: [default]
+        maxScore:
+          type: integer
+          nullable: true
+        displayOrder:
+          type: integer
+        assessmentRubrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssessmentRubric"
+
+    AssessmentRubric:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        assessmentCriteriaId:
+          type: string
+          format: uuid
+        minScore:
+          type: integer
+        maxScore:
+          type: integer
+        description:
+          type: string
+        displayOrder:
+          type: integer
+
+    CreateCriteriaRequest:
+      type: object
+      required: [cpmkId, maxScore]
+      properties:
+        cpmkId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+          maxLength: 255
+        maxScore:
+          type: integer
+          minimum: 1
+          maximum: 1000
+
+    UpdateCriteriaRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+          maxLength: 255
+        maxScore:
+          type: integer
+          minimum: 1
+          maximum: 1000
+
+    CreateRubricRequest:
+      type: object
+      required: [description, minScore, maxScore]
+      properties:
+        description:
+          type: string
+          maxLength: 1000
+        minScore:
+          type: integer
+          minimum: 0
+        maxScore:
+          type: integer
+          minimum: 1
+
+    UpdateRubricRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          maxLength: 1000
+        minScore:
+          type: integer
+          minimum: 0
+        maxScore:
+          type: integer
+          minimum: 1
+
+    WeightSummary:
+      type: object
+      properties:
+        totalScore:
+          type: integer
+        isComplete:
+          type: boolean
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              cpmkId:
+                type: string
+                format: uuid
+              cpmkCode:
+                type: string
+              cpmkDescription:
+                type: string
+              criteriaCount:
+                type: integer
+              criteriaScoreSum:
+                type: integer
+              rubricCount:
+                type: integerrubric_seminar_criteria_list:
+  get:
+    tags: [Rubrik Seminar]
+    summary: Get all seminar assessment criteria
+    description: Returns all assessment criteria scoped to seminar, including related CPMK and rubric items.
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: Criteria list retrieved successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                message:
+                  type: string
+                data:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AssessmentCriteriaWithRubrics"
+      "401":
+        description: Unauthorized
+      "403":
+        description: Forbidden
+
+  post:
+    tags: [Rubrik Seminar]
+    summary: Create a new seminar assessment criteria
+    description: Creates a new assessment criteria for seminar under a CPMK.
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CreateCriteriaRequest"
+    responses:
+      "201":
+        description: Criteria created successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                message:
+                  type: string
+                data:
+                  $ref: "#/components/schemas/AssessmentCriteriaWithRubrics"
+      "400":
+        description: Validation error
+
+rubric_seminar_criteria_detail:
+  get:
+    tags: [Rubrik Seminar]
+    summary: Get criteria by ID
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Criteria detail
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  $ref: "#/components/schemas/AssessmentCriteriaWithRubrics"
+      "404":
+        description: Criteria not found
+
+  patch:
+    tags: [Rubrik Seminar]
+    summary: Update criteria
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UpdateCriteriaRequest"
+    responses:
+      "200":
+        description: Criteria updated successfully
+      "404":
+        description: Criteria not found
+
+  delete:
+    tags: [Rubrik Seminar]
+    summary: Delete criteria
+    description: Hard deletes a criteria. Fails if assessment data exists that references this criteria.
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Criteria deleted successfully
+      "404":
+        description: Criteria not found
+      "409":
+        description: Cannot delete - assessment data exists
+
+rubric_seminar_rubric_create:
+  post:
+    tags: [Rubrik Seminar]
+    summary: Create rubric item under a criteria
+    description: Creates a new rubric level for the specified criteria with a score range.
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: criteriaId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CreateRubricRequest"
+    responses:
+      "201":
+        description: Rubric item created successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                message:
+                  type: string
+                data:
+                  $ref: "#/components/schemas/AssessmentRubric"
+      "400":
+        description: Validation error (e.g. minScore >= maxScore)
+      "404":
+        description: Parent criteria not found
+
+rubric_seminar_rubric_detail:
+  patch:
+    tags: [Rubrik Seminar]
+    summary: Update rubric item
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: rubricId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UpdateRubricRequest"
+    responses:
+      "200":
+        description: Rubric item updated successfully
+      "404":
+        description: Rubric item not found
+
+  delete:
+    tags: [Rubrik Seminar]
+    summary: Delete rubric item
+    description: Hard deletes a rubric level item.
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: rubricId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      "200":
+        description: Rubric item deleted successfully
+      "404":
+        description: Rubric item not found
+
+rubric_seminar_weight_summary:
+  get:
+    tags: [Rubrik Seminar]
+    summary: Get seminar score summary
+    description: Returns the total CPMK max scores and per-CPMK criteria score breakdown.
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: Score summary retrieved
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+                data:
+                  $ref: "#/components/schemas/WeightSummary"
+
+rubric_seminar_cpmk_weight:
+  patch:
+    tags: [Rubrik Seminar]
+    summary: Update CPMK max score
+    description: Updates the maxScore field on a CPMK. The new score must be >= existing criteria score sum.
+    security:
+      - bearerAuth: []
+    parameters:
+      - in: path
+        name: cpmkId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [maxScore]
+            properties:
+              maxScore:
+                type: integer
+                minimum: 0
+                example: 55
+    responses:
+      "200":
+        description: CPMK max score updated
+      "400":
+        description: Validation error (new score < existing criteria sum)
+      "404":
+        description: CPMK not found
+
+components:
+  schemas:
+    AssessmentCriteriaWithRubrics:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        cpmkId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+        appliesTo:
+          type: string
+          enum: [seminar]
+        maxScore:
+          type: integer
+          nullable: true
+        displayOrder:
+          type: integer
+        cpmk:
+          type: object
+          properties:
+            id:
+              type: string
+            code:
+              type: string
+            description:
+              type: string
+            maxScore:
+              type: integer
+              nullable: true
+        assessmentRubrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssessmentRubric"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AssessmentRubric:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        assessmentCriteriaId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        minScore:
+          type: integer
+        maxScore:
+          type: integer
+        displayOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateCriteriaRequest:
+      type: object
+      required: [cpmkId]
+      properties:
+        cpmkId:
+          type: string
+          format: uuid
+          description: ID of related CPMK
+        name:
+          type: string
+          nullable: true
+          description: Optional criteria name. Omit for direct rubric under CPMK.
+          example: Kesesuaian Metodologi
+        maxScore:
+          type: integer
+          nullable: true
+          description: Optional criteria max score. Must not exceed CPMK maxScore combined.
+          example: 15
+          minimum: 0
+
+    UpdateCriteriaRequest:
+      type: object
+      properties:
+        cpmkId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+        maxScore:
+          type: integer
+          nullable: true
+          minimum: 0
+
+    CreateRubricRequest:
+      type: object
+      required: [description, minScore, maxScore]
+      properties:
+        description:
+          type: string
+          description: Score level description for this rubric item
+          example: "Laporan memenuhi kaidah akademik dengan sangat baik"
+          maxLength: 1000
+        minScore:
+          type: integer
+          description: Minimum score for this rubric level
+          example: 12
+          minimum: 0
+        maxScore:
+          type: integer
+          description: Maximum score for this rubric level
+          example: 15
+          minimum: 1
+
+    UpdateRubricRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          maxLength: 1000
+        minScore:
+          type: integer
+          minimum: 0
+        maxScore:
+          type: integer
+          minimum: 1
+
+    WeightSummary:
+      type: object
+      properties:
+        totalScore:
+          type: integer
+          description: Sum of all CPMK maxScores
+          example: 100
+        isComplete:
+          type: boolean
+          description: Whether all CPMK scores are properly configured
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              cpmkId:
+                type: string
+                format: uuid
+              cpmkCode:
+                type: string
+              cpmkDescription:
+                type: string
+              cpmkMaxScore:
+                type: integer
+                nullable: true
+              criteriaCount:
+                type: integer
+              criteriaScoreSum:
+                type: integer
+              rubricCount:
+                type: integer
+              isScoreValid:
+                type: boolean

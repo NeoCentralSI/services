@@ -208,23 +208,15 @@ model Cpl {
   @@map("cpls")
 }
 
-enum CpmkType {
-  research_method
-  thesis
-}
-
 model Cpmk {
-  id             String   @id @default(uuid()) @db.VarChar(255)
-  code           String   @db.VarChar(255)
-  description    String   @db.VarChar(255)
-  type           CpmkType
-  proposalWeight Int?     @map("proposal_weight")
-  seminarWeight  Int?     @map("seminar_weight")
-  defenceWeight  Int?     @map("defence_weight")
-  isActive       Boolean  @default(true) @map("is_active")
-  displayOrder   Int      @default(0) @map("display_order")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(uuid()) @db.VarChar(255)
+  code         String   @db.VarChar(255)
+  description  String   @db.VarChar(255)
+  type         CpmkType
+  isActive     Boolean  @default(true) @map("is_active")
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   assessmentCriterias AssessmentCriteria[]
 
@@ -232,17 +224,24 @@ model Cpmk {
 }
 
 model AssessmentCriteria {
-  id        String              @id @default(uuid()) @db.VarChar(255)
-  cpmkId    String              @map("cpmk_id") @db.VarChar(255)
-  code      String              @db.VarChar(255)
-  name      String              @db.VarChar(255)
-  appliesTo AssessmentAppliesTo @map("applies_to")
-  maxWeight Int                 @map("max_weight")
-  createdAt DateTime            @default(now()) @map("created_at")
-  updatedAt DateTime            @updatedAt @map("updated_at")
+  id           String              @id @default(uuid()) @db.VarChar(255)
+  cpmkId       String              @map("cpmk_id") @db.VarChar(255)
+  name         String?             @db.VarChar(255)
+  appliesTo    AssessmentAppliesTo @map("applies_to")
+  role         AssessmentRole      @default(default)
+  maxScore     Int?                @map("max_score")
+  isActive     Boolean             @default(true) @map("is_active")
+  displayOrder Int                 @default(0) @map("display_order")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
 
   cpmk              Cpmk               @relation(fields: [cpmkId], references: [id])
   assessmentRubrics AssessmentRubric[]
+
+  thesisSeminarExaminerAssessmentDetails    ThesisSeminarExaminerAssessmentDetail[]
+  thesisDefenceExaminerAssessmentDetails   ThesisDefenceExaminerAssessmentDetail[]
+  thesisDefenceSupervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
+  researchMethodScoreDetails               ResearchMethodScoreDetail[]
 
   @@index([cpmkId], map: "assessment_criterias_cpmk_id_fkey")
   @@map("assessment_criterias")
@@ -251,17 +250,14 @@ model AssessmentCriteria {
 model AssessmentRubric {
   id                   String   @id @default(uuid()) @db.VarChar(255)
   assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(255)
-  code                 String   @db.VarChar(255)
+  minScore             Int      @default(0) @map("min_score")
+  maxScore             Int      @default(0) @map("max_score")
   description          String   @db.VarChar(255)
-  maxWeight            Int      @map("max_weight")
+  displayOrder         Int      @default(0) @map("display_order")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  assessmentCriteria                       AssessmentCriteria                        @relation(fields: [assessmentCriteriaId], references: [id])
-  thesisSeminarExaminerAssessmentDetails    ThesisSeminarExaminerAssessmentDetail[]
-  thesisDefenceExaminerAssessmentDetails   ThesisDefenceExaminerAssessmentDetail[]
-  thesisDefenceSupervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
-  researchMethodScoreDetails               ResearchMethodScoreDetail[]
+  assessmentCriteria AssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id])
 
   @@index([assessmentCriteriaId], map: "assessment_rubrics_assessment_criteria_id_fkey")
   @@map("assessment_rubrics")
@@ -639,16 +635,16 @@ model ThesisSeminarExaminer {
 
 model ThesisSeminarExaminerAssessmentDetail {
   thesisSeminarExaminerId String   @map("thesis_seminar_examiner_id") @db.VarChar(255)
-  assessmentRubricId      String   @map("assessment_rubric_id") @db.VarChar(255)
-  score                   Int
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
+  assessmentCriteriaId   String   @map("assessment_criteria_id") @db.VarChar(255)
+  score                  Int
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   seminarExaminer ThesisSeminarExaminer @relation(fields: [thesisSeminarExaminerId], references: [id], onDelete: Cascade)
-  rubric          AssessmentRubric      @relation(fields: [assessmentRubricId], references: [id])
+  criteria        AssessmentCriteria    @relation(fields: [assessmentCriteriaId], references: [id])
 
-  @@id([thesisSeminarExaminerId, assessmentRubricId])
-  @@index([assessmentRubricId], map: "thesis_seminar_examiner_assessment_details_rubric_id_fkey")
+  @@id([thesisSeminarExaminerId, assessmentCriteriaId])
+  @@index([assessmentCriteriaId], map: "thesis_seminar_examiner_assessment_details_criteria_id_fkey")
   @@map("thesis_seminar_examiner_assessment_details")
 }
 
@@ -748,31 +744,31 @@ model ThesisDefenceExaminer {
 
 model ThesisDefenceExaminerAssessmentDetail {
   thesisDefenceExaminerId String   @map("thesis_defence_examiner_id") @db.VarChar(255)
-  assessmentRubricId      String   @map("assessment_rubric_id") @db.VarChar(255)
-  score                   Int
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
+  assessmentCriteriaId   String   @map("assessment_criteria_id") @db.VarChar(255)
+  score                  Int
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   defenceExaminer ThesisDefenceExaminer @relation(fields: [thesisDefenceExaminerId], references: [id], onDelete: Cascade)
-  rubric          AssessmentRubric      @relation(fields: [assessmentRubricId], references: [id])
+  criteria        AssessmentCriteria    @relation(fields: [assessmentCriteriaId], references: [id])
 
-  @@id([thesisDefenceExaminerId, assessmentRubricId])
-  @@index([assessmentRubricId], map: "thesis_defence_examiner_assessment_details_rubric_id_fkey")
+  @@id([thesisDefenceExaminerId, assessmentCriteriaId])
+  @@index([assessmentCriteriaId], map: "thesis_defence_examiner_assessment_details_criteria_id_fkey")
   @@map("thesis_defence_examiner_assessment_details")
 }
 
 model ThesisDefenceSupervisorAssessmentDetail {
-  thesisDefenceId    String   @map("thesis_defence_id") @db.VarChar(255)
-  assessmentRubricId String   @map("assessment_rubric_id") @db.VarChar(255)
-  score              Int
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  thesisDefenceId      String   @map("thesis_defence_id") @db.VarChar(255)
+  assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(255)
+  score                Int
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
-  defence ThesisDefence    @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
-  rubric  AssessmentRubric @relation(fields: [assessmentRubricId], references: [id])
+  defence  ThesisDefence      @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
+  criteria AssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id])
 
-  @@id([thesisDefenceId, assessmentRubricId])
-  @@index([assessmentRubricId], map: "thesis_defence_supervisor_assessment_details_rubric_id_fkey")
+  @@id([thesisDefenceId, assessmentCriteriaId])
+  @@index([assessmentCriteriaId], map: "thesis_defence_supervisor_assessment_details_criteria_id_fkey")
   @@map("thesis_defence_supervisor_assessment_details")
 }
 
@@ -1555,13 +1551,13 @@ model ResearchMethodScore {
 
 model ResearchMethodScoreDetail {
   researchMethodScoreId String @id @map("research_method_score_id") @db.VarChar(255)
-  rubricId              String @map("rubric_id") @db.VarChar(255)
+  assessmentCriteriaId  String @map("assessment_criteria_id") @db.VarChar(255)
   score                 Int?
 
   researchMethodScore ResearchMethodScore @relation(fields: [researchMethodScoreId], references: [id])
-  rubric              AssessmentRubric    @relation(fields: [rubricId], references: [id])
+  criteria            AssessmentCriteria  @relation(fields: [assessmentCriteriaId], references: [id])
 
-  @@index([rubricId], map: "research_method_score_details_rubric_id_fkey")
+  @@index([assessmentCriteriaId], map: "research_method_score_details_criteria_id_fkey")
   @@map("research_method_score_details")
 }
 
@@ -1676,6 +1672,17 @@ enum CplScoreStatus {
 enum CplScoreSource {
   SIA
   manual
+}
+
+enum CpmkType {
+  research_method
+  thesis
+}
+
+enum AssessmentRole {
+  default
+  examiner
+  supervisor
 }
 
 enum AssessmentAppliesTo {
