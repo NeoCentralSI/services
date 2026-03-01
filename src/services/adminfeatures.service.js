@@ -755,6 +755,11 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 				id: user.student.id,
 				enrollmentYear: user.student.enrollmentYear,
 				sksCompleted: user.student.skscompleted,
+				mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
+				mkwuCompleted: user.student.mkwuCompleted,
+				internshipCompleted: user.student.internshipCompleted,
+				kknCompleted: user.student.kknCompleted,
+				currentSemester: user.student.currentSemester,
 				status: user.student.status || null,
 				activeTheses: user.student.thesis.map((thesis) => ({
 					title: thesis.title,
@@ -953,6 +958,24 @@ export async function getStudentDetail(userId) {
 		throw err;
 	}
 
+	const studentCplScores = await prisma.studentCplScore.findMany({
+		where: { studentId: user.student.id },
+		include: {
+			cpl: {
+				select: {
+					id: true,
+					code: true,
+					description: true,
+					minimalScore: true,
+				},
+			},
+		},
+		orderBy: [
+			{ cpl: { displayOrder: "asc" } },
+			{ cplId: "asc" },
+		],
+	});
+
 	// Transform thesis data
 	const theses = user.student.thesis.map((thesis) => {
 		const supervisors = thesis.thesisSupervisors
@@ -1024,12 +1047,29 @@ export async function getStudentDetail(userId) {
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.skscompleted,
+			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
+			mkwuCompleted: user.student.mkwuCompleted,
+			internshipCompleted: user.student.internshipCompleted,
+			kknCompleted: user.student.kknCompleted,
+			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
 		},
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,
 			name: ur.role.name,
 			status: ur.status,
+		})),
+		cplScores: studentCplScores.map((row) => ({
+			cplId: row.cplId,
+			cplCode: row.cpl?.code || null,
+			cplDescription: row.cpl?.description || null,
+			minimalScore: row.cpl?.minimalScore ?? null,
+			score: row.score,
+			source: row.source,
+			status: row.status,
+			inputAt: row.inputAt,
+			verifiedAt: row.verifiedAt,
+			finalizedAt: row.finalizedAt,
 		})),
 		theses,
 	};

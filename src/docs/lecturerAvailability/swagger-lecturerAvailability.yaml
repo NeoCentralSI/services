@@ -1,0 +1,268 @@
+paths:
+  /lecturer-availability:
+    get:
+      tags:
+        - Lecturer Availability
+      summary: Get my availabilities
+      description: Returns all availability schedules for the authenticated lecturer
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Berhasil mengambil jadwal ketersediaan
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LecturerAvailability'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - not a lecturer
+
+    post:
+      tags:
+        - Lecturer Availability
+      summary: Create availability
+      description: Add a new availability schedule for the authenticated lecturer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAvailabilityInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Berhasil menambah jadwal ketersediaan
+                  data:
+                    $ref: '#/components/schemas/LecturerAvailability'
+        '400':
+          description: Validation error (overlap, invalid time range, etc.)
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /lecturer-availability/{id}:
+    patch:
+      tags:
+        - Lecturer Availability
+      summary: Update availability
+      description: Update an existing availability schedule
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAvailabilityInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Berhasil mengubah jadwal ketersediaan
+                  data:
+                    $ref: '#/components/schemas/LecturerAvailability'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - not the owner
+        '404':
+          description: Not found
+
+    delete:
+      tags:
+        - Lecturer Availability
+      summary: Delete availability
+      description: Delete an availability schedule
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Berhasil menghapus jadwal ketersediaan
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - not the owner
+        '404':
+          description: Not found
+
+  /lecturer-availability/{id}/toggle:
+    patch:
+      tags:
+        - Lecturer Availability
+      summary: Toggle availability status
+      description: Toggle isActive between true and false
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Jadwal berhasil diaktifkan
+                  data:
+                    $ref: '#/components/schemas/LecturerAvailability'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - not the owner
+        '404':
+          description: Not found
+
+components:
+  schemas:
+    LecturerAvailability:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        day:
+          type: string
+          enum: [monday, tuesday, wednesday, thursday, friday]
+        startTime:
+          type: string
+          example: "08:00"
+        endTime:
+          type: string
+          example: "12:00"
+        validFrom:
+          type: string
+          format: date
+          example: "2026-02-01"
+        validUntil:
+          type: string
+          format: date
+          example: "2026-05-01"
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateAvailabilityInput:
+      type: object
+      required:
+        - day
+        - startTime
+        - endTime
+        - validFrom
+        - validUntil
+      properties:
+        day:
+          type: string
+          enum: [monday, tuesday, wednesday, thursday, friday]
+        startTime:
+          type: string
+          example: "08:00"
+          description: "Format HH:mm"
+        endTime:
+          type: string
+          example: "12:00"
+          description: "Format HH:mm"
+        validFrom:
+          type: string
+          format: date
+          example: "2026-02-01"
+        validUntil:
+          type: string
+          format: date
+          example: "2026-05-01"
+
+    UpdateAvailabilityInput:
+      type: object
+      properties:
+        day:
+          type: string
+          enum: [monday, tuesday, wednesday, thursday, friday]
+        startTime:
+          type: string
+          example: "08:00"
+        endTime:
+          type: string
+          example: "12:00"
+        validFrom:
+          type: string
+          format: date
+        validUntil:
+          type: string
+          format: date

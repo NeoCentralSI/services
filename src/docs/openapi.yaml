@@ -38,6 +38,12 @@ tags:
     description: Thesis monitoring endpoints for Kadep/Sekdep/GKM
   - name: SIA Sync
     description: External SIA (Academic Information System) synchronization endpoints
+  - name: CPL
+    description: CPL (Capaian Pembelajaran Lulusan) master data management
+  - name: CPMK
+    description: CPMK (Capaian Pembelajaran Mata Kuliah) master data management
+  - name: Exit Survey
+    description: Exit survey form and question management (Sekretaris/Ketua Departemen)
 
 paths:
   "/":
@@ -320,6 +326,384 @@ paths:
     
   "/master-data-ta/{id}":
     $ref: "./masterDataTa/swagger-masterDataTa.yaml#/paths/~1api~1v1~1master-data-ta~1{id}"
+
+  # ============================================
+  # CPL Master Data Endpoints
+  # ============================================
+
+  "/cpl":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_list"
+
+  "/cpl/{id}":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_detail"
+
+  "/cpl/{id}/toggle":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_toggle"
+
+  # ============================================
+  # CPMK Master Data Endpoints
+  # ============================================
+
+  "/cpmk":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_list"
+
+  "/cpmk/{id}":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_detail"
+
+  "/cpmk/{id}/toggle":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_toggle"
+
+    - name: Yudisium Requirements
+    description: Yudisium document requirement master data management
+
+paths:
+  "/":
+    get:
+      tags: [System]
+      summary: API health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Health OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "API is running 🚀"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  
+
+  "/auth/login":
+    $ref: "./auth/swagger-auth.yaml#/auth_login"
+
+  "/auth/refresh":
+    $ref: "./auth/swagger-auth.yaml#/auth_refresh"
+
+  "/auth/me":
+    $ref: "./auth/swagger-auth.yaml#/auth_me"
+
+  "/auth/logout":
+    $ref: "./auth/swagger-auth.yaml#/auth_logout"
+
+  "/auth/password":
+    $ref: "./auth/swagger-auth.yaml#/auth_password"
+
+  "/auth/profile":
+    $ref: "./auth/swagger-auth.yaml#/auth_profile"
+
+  "/auth/reset/request":
+    $ref: "./auth/swagger-auth.yaml#/auth_reset_request"
+
+  "/auth/reset/verify":
+    $ref: "./auth/swagger-auth.yaml#/auth_reset_verify"
+
+  "/auth/reset/confirm":
+    $ref: "./auth/swagger-auth.yaml#/auth_reset_confirm"
+
+  "/auth/verify":
+    $ref: "./auth/swagger-auth.yaml#/auth_verify"
+
+  "/auth/verify/request":
+    $ref: "./auth/swagger-auth.yaml#/auth_verify_request"
+
+  "/auth/microsoft/login":
+    $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_login"
+
+  "/auth/microsoft/callback":
+    $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_callback"
+
+  "/sia/sync":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync"
+
+  "/sia/sync/status":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync~1status"
+
+  "/sia/cached":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1cached"
+
+  "/adminfeatures/students/import":
+    $ref: "./admin/swagger-admin.yaml#/admin_import_students"
+
+  "/adminfeatures/users":
+    get:
+      $ref: "./admin/swagger-admin.yaml#/admin_get_users"
+    post:
+      $ref: "./admin/swagger-admin.yaml#/admin_create_user"
+
+  "/adminfeatures/students":
+    $ref: "./admin/swagger-admin.yaml#/admin_get_students"
+
+  "/adminfeatures/lecturers":
+    $ref: "./admin/swagger-admin.yaml#/admin_get_lecturers"
+
+  "/adminfeatures/{id}":
+    $ref: "./admin/swagger-admin.yaml#/admin_update_user"
+
+  "/adminfeatures/academic-years":
+    get:
+      $ref: "./admin/swagger-admin.yaml#/admin_get_academic_years"
+    post:
+      $ref: "./admin/swagger-admin.yaml#/admin_create_academic_year"
+  
+  "/adminfeatures/academic-years/{id}":
+    $ref: "./admin/swagger-admin.yaml#/admin_update_academic_year"
+
+  "/notification":
+    $ref: "./notification/swagger-notification.yaml#/notification_get_all"
+
+  "/notification/unread-count":
+    $ref: "./notification/swagger-notification.yaml#/notification_unread_count"
+
+  "/notification/read-all":
+    $ref: "./notification/swagger-notification.yaml#/notification_mark_all_read"
+
+  "/notification/{id}/read":
+    $ref: "./notification/swagger-notification.yaml#/notification_mark_read"
+
+  "/notification/{id}":
+    $ref: "./notification/swagger-notification.yaml#/notification_delete"
+
+  "/notification/fcm/register":
+    $ref: "./notification/swagger-notification.yaml#/notification_fcm_register"
+
+  "/notification/fcm/unregister":
+    $ref: "./notification/swagger-notification.yaml#/notification_fcm_unregister"
+
+  "/calendar/my-events":
+    $ref: "./calendar/swagger-calendar.yaml#/paths/~1calendar~1my-events"
+
+  "/calendar/upcoming":
+    $ref: "./calendar/swagger-calendar.yaml#/paths/~1calendar~1upcoming"
+
+  "/calendar/statistics":
+    $ref: "./calendar/swagger-calendar.yaml#/paths/~1calendar~1statistics"
+
+  "/thesisGuidance/lecturer/my-students":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_my_students"
+
+  "/thesisGuidance/lecturer/requests":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_requests"
+
+  "/thesisGuidance/lecturer/requests/{guidanceId}/reject":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_requests_reject"
+
+  "/thesisGuidance/lecturer/requests/{guidanceId}/approve":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_requests_approve"
+
+  "/thesisGuidance/lecturer/progress":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_progress"
+
+  "/thesisGuidance/lecturer/progress/{studentId}":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_progress_detail"
+
+  "/thesisGuidance/lecturer/progress/{studentId}/approve":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_progress_approve_components"
+
+  "/thesisGuidance/lecturer/feedback/{guidanceId}":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_feedback"
+
+  "/thesisGuidance/lecturer/progress/{studentId}/final-approval":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_final_approval"
+
+  "/thesisGuidance/lecturer/progress/{studentId}/fail":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_fail_thesis"
+
+  "/thesisGuidance/lecturer/guidance-history/{studentId}":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_guidance_history"
+
+  "/thesisGuidance/lecturer/supervisor/eligibility":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_supervisor_eligibility"
+
+  "/thesisGuidance/student/guidance":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_list"
+
+  "/thesisGuidance/student/guidance/{guidanceId}":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_detail"
+
+  "/thesisGuidance/student/guidance/request":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_request"
+
+  "/thesisGuidance/student/guidance/{guidanceId}/reschedule":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_reschedule"
+
+  "/thesisGuidance/student/guidance/{guidanceId}/cancel":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_cancel"
+
+  "/thesisGuidance/student/guidance/{guidanceId}/notes":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_notes"
+
+  "/thesisGuidance/student/progress":
+    $ref: "./thesisGuidance/student.yaml#/student_progress_detail"
+
+  "/thesisGuidance/student/progress/complete":
+    $ref: "./thesisGuidance/student.yaml#/student_progress_complete"
+
+  "/thesisGuidance/student/history":
+    $ref: "./thesisGuidance/student.yaml#/student_history"
+
+  "/thesisGuidance/student/supervisors":
+    $ref: "./thesisGuidance/student.yaml#/student_supervisors"
+
+  # ============================================
+  # Milestone Endpoints
+  # ============================================
+
+  "/milestones/templates":
+    $ref: "./milestone/milestone.yaml#/milestone_templates"
+
+  "/milestones/templates/categories":
+    $ref: "./milestone/milestone.yaml#/milestone_template_categories"
+
+  "/milestones/thesis/{thesisId}":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones"
+
+  "/milestones/thesis/{thesisId}/progress":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_progress"
+
+  "/milestones/thesis/{thesisId}/from-templates":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_from_templates"
+
+  "/milestones/thesis/{thesisId}/reorder":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_reorder"
+
+  "/milestones/{milestoneId}":
+    $ref: "./milestone/milestone.yaml#/milestone_detail"
+
+  "/milestones/{milestoneId}/status":
+    $ref: "./milestone/milestone.yaml#/milestone_status"
+
+  "/milestones/{milestoneId}/progress":
+    $ref: "./milestone/milestone.yaml#/milestone_progress"
+
+  "/milestones/{milestoneId}/submit-review":
+    $ref: "./milestone/milestone.yaml#/milestone_submit_review"
+
+  "/milestones/{milestoneId}/validate":
+    $ref: "./milestone/milestone.yaml#/milestone_validate"
+
+  "/milestones/{milestoneId}/request-revision":
+    $ref: "./milestone/milestone.yaml#/milestone_request_revision"
+
+  "/milestones/{milestoneId}/feedback":
+    $ref: "./milestone/milestone.yaml#/milestone_feedback"
+
+  # Seminar Readiness Approval
+  "/milestones/ready-for-seminar":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_list"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_status"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness/approve":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_approve"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness/revoke":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_revoke"
+
+  # ============================================
+  # Topic Management Endpoints (Sekretaris Departemen)
+  # ============================================
+
+  "/topics":
+    $ref: "./topic/swagger-topic.yaml#/paths/~1topics"
+
+  "/topics/bulk":
+    $ref: "./topic/swagger-topic.yaml#/paths/~1topics~1bulk"
+
+  "/topics/{id}":
+    $ref: "./topic/swagger-topic.yaml#/paths/~1topics~1{id}"
+
+  # Thesis Monitoring (Kadep/Sekdep/GKM)
+  "/thesis-guidance/monitoring/dashboard":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1dashboard"
+  "/thesis-guidance/monitoring/theses":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1theses"
+  "/thesis-guidance/monitoring/filters":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1filters"
+  "/thesis-guidance/monitoring/at-risk":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1at-risk"
+  "/thesis-guidance/monitoring/ready-seminar":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1ready-seminar"
+
+  # Master Data Tugas Akhir (Admin/Kadep/Sekdep)
+  "/master-data-ta":
+    $ref: "./masterDataTa/swagger-masterDataTa.yaml#/paths/~1api~1v1~1master-data-ta"
+    
+  "/master-data-ta/{id}":
+    $ref: "./masterDataTa/swagger-masterDataTa.yaml#/paths/~1api~1v1~1master-data-ta~1{id}"
+
+  # ============================================
+  # CPL Master Data Endpoints
+  # ============================================
+
+  "/cpl":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_list"
+
+  "/cpl/{id}":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_detail"
+
+  "/cpl/{id}/toggle":
+    $ref: "./cpl/swagger-cpl.yaml#/cpl_toggle"
+
+  # ============================================
+  # CPMK Master Data Endpoints
+  # ============================================
+
+  "/cpmk":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_list"
+
+  "/cpmk/{id}":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_detail"
+
+  "/cpmk/{id}/toggle":
+    $ref: "./cpmk/swagger-cpmk.yaml#/cpmk_toggle"
+
+  # ============================================
+  # Yudisium Requirements Endpoints
+  # ============================================
+
+  "/yudisium-requirements":
+    $ref: "./yudisium/swagger-yudisiumRequirements.yaml#/yudisium_requirements_list"
+
+  "/yudisium-requirements/{id}":
+    $ref: "./yudisium/swagger-yudisiumRequirements.yaml#/yudisium_requirements_detail"
+
+  "/yudisium-requirements/{id}/toggle":
+    $ref: "./yudisium/swagger-yudisiumRequirements.yaml#/yudisium_requirements_toggle"
+
+  "/yudisium-requirements/{id}/move-top":
+    $ref: "./yudisium/swagger-yudisiumRequirements.yaml#/yudisium_requirements_move_top"
+
+  "/yudisium-requirements/{id}/move-bottom":
+    $ref: "./yudisium/swagger-yudisiumRequirements.yaml#/yudisium_requirements_move_bottom"
+
+  # ============================================
+  # Exit Survey (Yudisium)
+  # ============================================
+
+  "/exit-survey":
+    $ref: "./exitSurvey/swagger-exitSurvey.yaml#/exit_survey_list"
+
+  "/exit-survey/{id}":
+    $ref: "./exitSurvey/swagger-exitSurvey.yaml#/exit_survey_detail"
+
+  "/exit-survey/{id}/toggle":
+    $ref: "./exitSurvey/swagger-exitSurvey.yaml#/exit_survey_toggle"
+
+  "/exit-survey/{id}/duplicate":
+    $ref: "./exitSurvey/swagger-exitSurvey.yaml#/exit_survey_duplicate"
+
+  "/exit-survey/{formId}/questions":
+    $ref: "./exitSurvey/swagger-exitSurvey.yaml#/exit_survey_questions_list"
+
+  "/exit-survey/{formId}/questions/{questionId}":
+    $ref: "./exitSurvey/swagger-exitSurvey.yaml#/exit_survey_question_detail"
 
 components:
   schemas:
