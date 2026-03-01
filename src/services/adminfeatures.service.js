@@ -755,6 +755,11 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 				id: user.student.id,
 				enrollmentYear: user.student.enrollmentYear,
 				sksCompleted: user.student.skscompleted,
+				mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
+				mkwuCompleted: user.student.mkwuCompleted,
+				internshipCompleted: user.student.internshipCompleted,
+				kknCompleted: user.student.kknCompleted,
+				currentSemester: user.student.currentSemester,
 				status: user.student.status || null,
 				activeTheses: user.student.thesis.map((thesis) => ({
 					title: thesis.title,
@@ -1024,6 +1029,11 @@ export async function getStudentDetail(userId) {
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.skscompleted,
+			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
+			mkwuCompleted: user.student.mkwuCompleted,
+			internshipCompleted: user.student.internshipCompleted,
+			kknCompleted: user.student.kknCompleted,
+			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
 		},
 		roles: user.userHasRoles.map((ur) => ({

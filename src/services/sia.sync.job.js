@@ -40,8 +40,8 @@ export async function runSiaSync() {
     summary.skipped = skipped;
     console.log(`💾 Cache: ${updated} updated, ${skipped} skipped`);
 
-    // Batch update database SKS
-    const dbResult = await updateStudentSksBatch(stamped);
+    // Batch update database student academic fields
+    const dbResult = await updateStudentAcademicBatch(stamped);
     summary.dbUpdated = dbResult.updated;
     console.log(`🗄️  Database: ${dbResult.updated} students updated`);
 
@@ -64,15 +64,23 @@ export async function runSiaSync() {
 }
 
 /**
- * Batch update student SKS in database (optimized version)
+ * Batch update student academic fields in database (optimized version)
  * Uses single query with updateMany instead of N+1 queries
  */
-async function updateStudentSksBatch(stamped) {
+async function updateStudentAcademicBatch(stamped) {
   // Prepare updates data
   const updates = stamped
     .map((entry) => ({
       nim: entry.nim,
       sks: Number(entry.data?.sksCompleted),
+      mandatoryCoursesCompleted: Boolean(entry.data?.mandatoryCoursesCompleted),
+      mkwuCompleted: Boolean(entry.data?.mkwuCompleted),
+      internshipCompleted: Boolean(entry.data?.internshipCompleted),
+      kknCompleted: Boolean(entry.data?.kknCompleted),
+      currentSemester:
+        entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
+          ? null
+          : Number(entry.data.currentSemester),
     }))
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
@@ -97,7 +105,14 @@ async function updateStudentSksBatch(stamped) {
       .map((u) =>
         prisma.student.updateMany({
           where: { id: nimToUserId.get(u.nim) },
-          data: { skscompleted: u.sks },
+          data: {
+            skscompleted: u.sks,
+            mandatoryCoursesCompleted: u.mandatoryCoursesCompleted,
+            mkwuCompleted: u.mkwuCompleted,
+            internshipCompleted: u.internshipCompleted,
+            kknCompleted: u.kknCompleted,
+            currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
+          },
         })
       );
 
@@ -106,18 +121,18 @@ async function updateStudentSksBatch(stamped) {
 
     return { updated: totalUpdated };
   } catch (err) {
-    console.error("❌ Failed to batch update student SKS:", err.message);
+    console.error("❌ Failed to batch update student academic fields:", err.message);
     // Fallback to individual updates if batch fails
-    return await updateStudentSksIndividual(updates);
+    return await updateStudentAcademicIndividual(updates);
   }
 }
 
 /**
  * Fallback: Individual updates if batch update fails
  */
-async function updateStudentSksIndividual(updates) {
+async function updateStudentAcademicIndividual(updates) {
   let updated = 0;
-  for (const { nim, sks } of updates) {
+  for (const { nim, sks, mandatoryCoursesCompleted, mkwuCompleted, internshipCompleted, kknCompleted, currentSemester } of updates) {
     try {
       const user = await prisma.user.findUnique({
         where: { identityNumber: nim },
@@ -127,11 +142,18 @@ async function updateStudentSksIndividual(updates) {
 
       await prisma.student.update({
         where: { id: user.id },
-        data: { skscompleted: sks },
+        data: {
+          skscompleted: sks,
+          mandatoryCoursesCompleted,
+          mkwuCompleted,
+          internshipCompleted,
+          kknCompleted,
+          currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
+        },
       });
       updated++;
     } catch (err) {
-      console.warn(`⚠️  Failed to update SKS for NIM ${nim}:`, err.message);
+      console.warn(`⚠️  Failed to update student academic fields for NIM ${nim}:`, err.message);
     }
   }
   return { updated };

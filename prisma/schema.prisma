@@ -76,6 +76,11 @@ model Student {
   status                         StudentStatus               @default(active) @map("student_status")
   enrollmentYear                 Int?                        @map("enrollment_year")
   skscompleted                   Int
+  mandatoryCoursesCompleted      Boolean                     @default(false) @map("mandatory_courses_completed")
+  mkwuCompleted                  Boolean                     @default(false) @map("mkwu_completed")
+  internshipCompleted            Boolean                     @default(false) @map("internship_completed")
+  kknCompleted                   Boolean                     @default(false) @map("kkn_completed")
+  currentSemester                Int?                        @map("current_semester")
   createdAt                      DateTime                    @default(now()) @map("created_at")
   updatedAt                      DateTime                    @updatedAt @map("updated_at")
   internships                    Internship[]
