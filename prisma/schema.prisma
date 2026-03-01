@@ -252,7 +252,7 @@ model AssessmentRubric {
   assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(255)
   minScore             Int      @default(0) @map("min_score")
   maxScore             Int      @default(0) @map("max_score")
-  description          String   @db.VarChar(255)
+  description          String   @db.Text
   displayOrder         Int      @default(0) @map("display_order")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
