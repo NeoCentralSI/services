@@ -80,9 +80,6 @@ importers:
       redis:
         specifier: ^5.8.3
         version: 5.10.0
-      swagger-ui-express:
-        specifier: ^5.0.1
-        version: 5.0.1(express@5.2.1)
       yamljs:
         specifier: ^0.3.0
         version: 0.3.0
@@ -619,9 +616,6 @@ packages:
     resolution: {integrity: sha512-UhTd8u31dXadv0MopwGgNOBpUVROFKWVQgAg5N1ESyCz8AuBcMqm4AuTjrwgQKGDfoFuz02EuMRHQIw/frmYKQ==}
     cpu: [x64]
     os: [win32]
-
-  '@scarf/scarf@1.4.0':
-    resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
 
   '@sinclair/typebox@0.27.8':
     resolution: {integrity: sha512-+Fj43pSMwJs4KRrH/938Uf+uAELIgVBmQzg/q1YG10djyfA3TnrU8N8XzqCh/okZdszqBQTZf96idMfE5lnwTA==}
@@ -2050,15 +2044,6 @@ packages:
     resolution: {integrity: sha512-QjVjwdXIt408MIiAqCX4oUKsgU2EqAGzs2Ppkm4aQYbjm+ZEWEcW4SfFNTr4uMNZma0ey4f5lgLrkB0aX0QMow==}
     engines: {node: '>=4'}
 
-  swagger-ui-dist@5.30.3:
-    resolution: {integrity: sha512-giQl7/ToPxCqnUAx2wpnSnDNGZtGzw1LyUw6ZitIpTmdrvpxKFY/94v1hihm0zYNpgp1/VY0jTDk//R0BBgnRQ==}
-
-  swagger-ui-express@5.0.1:
-    resolution: {integrity: sha512-SrNU3RiBGTLLmFU8GIJdOdanJTl4TOmT27tt3bWWHppqYmAZ6IDuEuBvMU6nZq0zLEe6b/1rACXCgLZqO6ZfrA==}
-    engines: {node: '>= v0.10.32'}
-    peerDependencies:
-      express: '>=4.0.0 || >=5.0.0-beta'
-
   teeny-request@9.0.0:
     resolution: {integrity: sha512-resvxdc6Mgb7YEThw6G6bExlXKkv6+YbuzGg9xuXxSgxJF7Ozs+o8Y9+2R3sArdWdW8nOokoQb1yrpFB0pQK2g==}
     engines: {node: '>=14'}
@@ -2749,8 +2734,6 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.53.3':
     optional: true
-
-  '@scarf/scarf@1.4.0': {}
 
   '@sinclair/typebox@0.27.8': {}
 
@@ -4441,15 +4424,6 @@ snapshots:
   supports-color@5.5.0:
     dependencies:
       has-flag: 3.0.0
-
-  swagger-ui-dist@5.30.3:
-    dependencies:
-      '@scarf/scarf': 1.4.0
-
-  swagger-ui-express@5.0.1(express@5.2.1):
-    dependencies:
-      express: 5.2.1
-      swagger-ui-dist: 5.30.3
 
   teeny-request@9.0.0:
     dependencies:

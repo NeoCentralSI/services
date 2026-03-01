@@ -485,8 +485,9 @@ export async function rescheduleGuidanceService(userId, guidanceId, guidanceDate
   });
   ensureThesisActive(thesis);
 
-  if (guidance.status === "accepted" || guidance.status === "rejected") {
-    const err = new Error("Cannot reschedule an accepted or rejected guidance");
+  // Only allow rescheduling "requested" guidance
+  if (guidance.status !== "requested") {
+    const err = new Error(`Tidak dapat menjadwalkan ulang bimbingan dengan status "${guidance.status}". Hanya bimbingan berstatus "requested" yang dapat dijadwalkan ulang.`);
     err.statusCode = 400;
     throw err;
   }

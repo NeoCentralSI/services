@@ -11,8 +11,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tka-app
-    image: tka-backend:latest
+    container_name: neocentral-app
+    image: neocentral-backend:latest
     restart: unless-stopped
     env_file: .env
     environment:
@@ -29,7 +29,7 @@ services:
       gotenberg:
         condition: service_started
     networks:
-      - tka-net
+      - neocentral-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
@@ -40,13 +40,13 @@ services:
   # ── Redis ──────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: tka-redis
+    container_name: neocentral-redis
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
     volumes:
       - redis-data:/data
     networks:
-      - tka-net
+      - neocentral-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -56,14 +56,14 @@ services:
   # ── Gotenberg (PDF) ────────────────────────────────────────────
   gotenberg:
     image: gotenberg/gotenberg:8
-    container_name: tka-gotenberg
+    container_name: neocentral-gotenberg
     restart: unless-stopped
     command:
       - gotenberg
       - "--chromium-disable-routes=false"
       - "--api-timeout=60s"
     networks:
-      - tka-net
+      - neocentral-net
     # Not exposed externally – only reachable by the app container
 
 # ─────────────────────────────────────────────────────────────────
@@ -72,5 +72,5 @@ volumes:
   redis-data:
 
 networks:
-  tka-net:
+  neocentral-net:
     driver: bridge

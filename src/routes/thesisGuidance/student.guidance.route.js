@@ -6,6 +6,7 @@ import {
 	rescheduleGuidanceSchema,
 	studentNotesSchema,
 	completeComponentsSchema,
+	cancelGuidanceSchema,
 } from "../../validators/student.guidance.validator.js";
 import {
 	listMyGuidances,
@@ -52,7 +53,7 @@ router.get("/guidance/:guidanceId", guidanceDetail);
 // The upload middleware is placed before validation so multer parses multipart bodies.
 router.post("/guidance/request", uploadThesisFile, validate(requestGuidanceSchema), requestGuidance);
 router.patch("/guidance/:guidanceId/reschedule", validate(rescheduleGuidanceSchema), rescheduleGuidance);
-router.patch("/guidance/:guidanceId/cancel", cancelGuidance);
+router.patch("/guidance/:guidanceId/cancel", validate(cancelGuidanceSchema), cancelGuidance);
 
 // Update student notes
 router.patch("/guidance/:guidanceId/notes", validate(studentNotesSchema), updateStudentNotes);

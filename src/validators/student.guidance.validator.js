@@ -64,6 +64,7 @@ export const requestGuidanceSchema = z.object({
       message: "documentUrl must be a valid URL",
     })
     .optional(),
+  duration: z.coerce.number().min(1).optional(),
 });
 
 export const rescheduleGuidanceSchema = z.object({
@@ -84,6 +85,10 @@ export const rescheduleGuidanceSchema = z.object({
 
 export const studentNotesSchema = z.object({
   studentNotes: z.string().min(1, "studentNotes is required"),
+});
+
+export const cancelGuidanceSchema = z.object({
+  reason: z.string().max(1000, "Alasan maksimal 1000 karakter").optional(),
 });
 
 export const completeComponentsSchema = z.object({

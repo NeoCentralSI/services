@@ -180,69 +180,9 @@ module.exports = router;
 - Test business logic di service layer
 - Test edge cases dan error handling
 
-### 4. Dokumentasi OpenAPI/Swagger (WAJIB)
-Setelah fitur selesai diimplementasi, **WAJIB** mendokumentasikannya di `src/docs/`:
 
-#### Structure Dokumentasi:
-```
-src/docs/
-├── openapi.yaml (main file)
-└── {feature}/
-    └── swagger-{feature}.yaml
-```
 
-#### Format Dokumentasi:
-```yaml
-# docs/{feature}/swagger-{feature}.yaml
-paths:
-  /{endpoint}:
-    get:
-      tags:
-        - Feature Name
-      summary: Short description
-      description: Detailed description
-      parameters:
-        - in: path/query/header
-          name: paramName
-          required: true/false
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    type: object
-                    # ... sesuai response
-        '400':
-          description: Bad request
-        '401':
-          description: Unauthorized
-        '404':
-          description: Not found
-        '500':
-          description: Internal server error
 
-components:
-  schemas:
-    ModelName:
-      type: object
-      properties:
-        # ... sesuai dengan Prisma schema
-```
-
-#### Jangan Lupa:
-1. Update `src/docs/openapi.yaml` untuk me-reference file swagger baru
-2. Dokumentasikan semua endpoint (GET, POST, PUT, DELETE)
-3. Sertakan contoh request dan response
-4. Dokumentasikan semua parameter dan field
-5. Dokumentasikan error responses yang mungkin terjadi
 
 ## Checklist Implementasi Fitur
 
@@ -255,7 +195,6 @@ Sebelum menganggap fitur selesai, pastikan semua checklist berikut sudah terpenu
 - [ ] Validator dibuat untuk semua input
 - [ ] Route didefinisikan dengan middleware yang sesuai
 - [ ] Testing (jika diperlukan)
-- [ ] **Dokumentasi Swagger/OpenAPI sudah dibuat dan lengkap**
 - [ ] Code sudah ditest secara manual
 - [ ] Tidak ada error atau warning
 
@@ -334,9 +273,7 @@ src/
 5. **CREATE** validator layer
 6. **CREATE** route layer
 7. **TEST** manual atau automated
-8. **DOCUMENT** di OpenAPI/Swagger
 
-**Jangan pernah skip langkah dokumentasi!** Dokumentasi adalah bagian integral dari implementasi fitur.
 
 ## DILARANG: Membuat File Summary/Changelog
 
@@ -349,8 +286,5 @@ src/
 
 ✅ **YANG BENAR:**
 - Langsung implementasi code
-- Update dokumentasi di `src/docs/` (OpenAPI/Swagger)
 - Berikan penjelasan singkat di chat jika diperlukan
-- Code dan dokumentasi API adalah satu-satunya output yang diperlukan
 
-**Prinsip:** Code speaks for itself. Dokumentasi API di OpenAPI/Swagger sudah cukup.

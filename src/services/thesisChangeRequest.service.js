@@ -228,89 +228,127 @@ export const approveRequest = async (requestId, reviewerId, reviewNotes = null) 
     throw new BadRequestError('Permintaan ini sudah diproses sebelumnya');
   }
 
-  // Update request status first
-  const updatedRequest = await thesisChangeRequestRepository.update(requestId, {
-    status: 'approved',
-    reviewedBy: reviewerId,
-    reviewNotes,
-    reviewedAt: new Date(),
-  });
-
-  // 1. Archive the OLD thesis
-  const dibatalkanStatus = await prisma.thesisStatus.findFirst({
-    where: { name: 'Dibatalkan' }
-  });
-
-  if (dibatalkanStatus) {
-    await prisma.thesis.update({
-      where: { id: request.thesisId },
+  // Wrap all data mutations in a transaction for consistency
+  const updatedRequest = await prisma.$transaction(async (tx) => {
+    // Update request status
+    const updated = await tx.thesisChangeRequest.update({
+      where: { id: requestId },
       data: {
-        thesisStatusId: dibatalkanStatus.id,
-        rating: 'CANCELLED',
-      }
-    });
-  }
-
-  // 2. Find the student's new thesis (created during submitRequest with "Diajukan" status)
-  const studentId = request.thesis?.studentId;
-  if (studentId) {
-    const diajukanStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Diajukan' } });
-    const newThesis = await prisma.thesis.findFirst({
-      where: {
-        studentId,
-        thesisStatusId: diajukanStatus?.id,
-        id: { not: request.thesisId }, // Not the old thesis
+        status: 'approved',
+        reviewedBy: reviewerId,
+        reviewNotes,
+        reviewedAt: new Date(),
       },
-      orderBy: { createdAt: 'desc' },
+      include: {
+        thesis: {
+          include: {
+            student: { include: { user: true } },
+            thesisSupervisors: { include: { lecturer: { include: { user: { select: { id: true, fullName: true } } } } } },
+          },
+        },
+      },
     });
 
-    if (newThesis) {
-      // 3. Activate the new thesis with "Bimbingan" status
-      let bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Bimbingan' } });
-      if (!bimbinganStatus) {
-        bimbinganStatus = await prisma.thesisStatus.create({ data: { name: 'Bimbingan', description: 'Dalam bimbingan' } });
-      }
+    // 1. Archive the OLD thesis
+    const dibatalkanStatus = await tx.thesisStatus.findFirst({
+      where: { name: 'Dibatalkan' }
+    });
 
-      await prisma.thesis.update({
-        where: { id: newThesis.id },
+    if (dibatalkanStatus) {
+      await tx.thesis.update({
+        where: { id: request.thesisId },
         data: {
-          thesisStatusId: bimbinganStatus.id,
-          rating: 'ONGOING',
-          startDate: new Date(),
-          deadlineDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
+          thesisStatusId: dibatalkanStatus.id,
+          rating: 'CANCELLED',
+        }
+      });
+    }
+
+    // 2. Find the student's new thesis (created during submitRequest with "Diajukan" status)
+    const studentId = request.thesis?.studentId;
+    if (studentId) {
+      const diajukanStatus = await tx.thesisStatus.findFirst({ where: { name: 'Diajukan' } });
+      const newThesis = await tx.thesis.findFirst({
+        where: {
+          studentId,
+          thesisStatusId: diajukanStatus?.id,
+          id: { not: request.thesisId },
         },
+        orderBy: { createdAt: 'desc' },
       });
 
-      // 4. Move supervisors from old thesis to new thesis
-      await prisma.thesisSupervisors.updateMany({
-        where: { thesisId: request.thesisId },
-        data: { thesisId: newThesis.id },
-      });
+      if (newThesis) {
+        // 3. Activate the new thesis with "Bimbingan" status
+        let bimbinganStatus = await tx.thesisStatus.findFirst({ where: { name: 'Bimbingan' } });
+        if (!bimbinganStatus) {
+          bimbinganStatus = await tx.thesisStatus.create({ data: { name: 'Bimbingan', description: 'Dalam bimbingan' } });
+        }
 
-      // 5. Auto-create milestones from topic templates
-      if (newThesis.thesisTopicId) {
-        const templates = await prisma.thesisMilestoneTemplate.findMany({
-          where: { topicId: newThesis.thesisTopicId, isActive: true },
-          orderBy: { orderIndex: 'asc' },
+        await tx.thesis.update({
+          where: { id: newThesis.id },
+          data: {
+            thesisStatusId: bimbinganStatus.id,
+            rating: 'ONGOING',
+            startDate: new Date(),
+            deadlineDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
+          },
         });
 
-        if (templates.length > 0) {
-          await prisma.thesisMilestone.createMany({
-            data: templates.map(m => ({
-              thesisId: newThesis.id,
-              title: m.name,
-              description: m.description,
-              orderIndex: m.orderIndex,
-              status: 'not_started',
-            })),
+        // 4. Move supervisors from old thesis to new thesis
+        await tx.thesisSupervisors.updateMany({
+          where: { thesisId: request.thesisId },
+          data: { thesisId: newThesis.id },
+        });
+
+        // 5. Auto-create milestones from topic templates
+        if (newThesis.thesisTopicId) {
+          const templates = await tx.thesisMilestoneTemplate.findMany({
+            where: { topicId: newThesis.thesisTopicId, isActive: true },
+            orderBy: { orderIndex: 'asc' },
           });
+
+          if (templates.length > 0) {
+            await tx.thesisMilestone.createMany({
+              data: templates.map(m => ({
+                thesisId: newThesis.id,
+                title: m.name,
+                description: m.description,
+                orderIndex: m.orderIndex,
+                status: 'not_started',
+              })),
+            });
+          }
         }
       }
     }
-  }
 
-  // Notify student
+    return updated;
+  });
+
+  // Notify student (outside transaction — non-critical)
   await notifyStudentApproval(updatedRequest);
+
+  // Notify supervisors about the topic change approval
+  try {
+    const supervisors = request.thesis?.thesisSupervisors || updatedRequest.thesis?.thesisSupervisors || [];
+    const supervisorUserIds = supervisors.map((s) => s.lecturer?.user?.id).filter(Boolean);
+    const studentName = request.thesis?.student?.user?.fullName || 'Mahasiswa';
+
+    if (supervisorUserIds.length > 0) {
+      await createNotificationsForUsers(supervisorUserIds, {
+        title: 'Pergantian Topik TA Disetujui',
+        message: `Permintaan pergantian topik dari ${studentName} telah disetujui oleh Ketua Departemen. Supervisi Anda telah dipindahkan ke tugas akhir baru.`,
+      });
+
+      await sendFcmToUsers(supervisorUserIds, {
+        title: 'Pergantian Topik TA Disetujui',
+        body: `Permintaan pergantian topik dari ${studentName} telah disetujui. Supervisi Anda dipindahkan ke TA baru.`,
+        data: { type: 'THESIS_CHANGE_REQUEST_APPROVED_SUPERVISOR', requestId },
+      });
+    }
+  } catch (e) {
+    console.error('Failed to notify supervisors about topic change approval:', e);
+  }
 
   return flattenRequest(updatedRequest);
 };
