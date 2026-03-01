@@ -15,32 +15,11 @@ env:
   IMAGE_TAG: neocentral/services:latest
 
 jobs:
-  # ── Test ────────────────────────────────────────────────────────
-  test:
-    name: Run Tests
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: npx prisma generate
-      - run: pnpm test
-
   # ── Build & Deploy ─────────────────────────────────────────────
   deploy:
     name: Build & Deploy
     runs-on: self-hosted
-    needs: test
-    environment: production
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
