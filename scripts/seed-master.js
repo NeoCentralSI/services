@@ -913,6 +913,29 @@ async function seedGuidances(thesisMap, userMap) {
 }
 
 // ============================================================
+// SEED ROOMS
+// ============================================================
+async function seedRooms() {
+  console.log("\n" + "=".repeat(60));
+  console.log("🏛️  STEP 10: Seeding Rooms...");
+  console.log("=".repeat(60));
+
+  const roomNames = ["Ruangan Seminar DSI", "Laboratorium Dasar"];
+
+  for (const name of roomNames) {
+    const existing = await prisma.room.findFirst({ where: { name } });
+    if (existing) {
+      console.log(`  ⏭️  Room already exists: ${name}`);
+    } else {
+      await prisma.room.create({ data: { name } });
+      console.log(`  ✅ Room created: ${name}`);
+    }
+  }
+
+  return roomNames;
+}
+
+// ============================================================
 // MAIN EXECUTION
 // ============================================================
 async function main() {
@@ -930,6 +953,7 @@ async function main() {
     const thesisMap = await seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap);
     await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);
+    await seedRooms();
 
     console.log("\n" + "=".repeat(60));
     console.log("✨ MASTER SEED COMPLETED SUCCESSFULLY!");

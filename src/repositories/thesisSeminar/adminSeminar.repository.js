@@ -98,6 +98,7 @@ export async function findSeminarById(seminarId) {
           },
           thesisSupervisors: {
             select: {
+              lecturerId: true,
               lecturer: {
                 select: {
                   user: {
@@ -203,4 +204,61 @@ export async function findDocumentWithFile(thesisSeminarId, documentTypeId) {
     ...semDoc,
     document: doc,
   };
+}
+
+/**
+ * Get lecturer availability records for a list of lecturer IDs (active only)
+ */
+export async function findLecturerAvailabilitiesByLecturerIds(lecturerIds) {
+  return prisma.lecturerAvailability.findMany({
+    where: {
+      lecturerId: { in: lecturerIds },
+      isActive: true,
+    },
+    orderBy: [{ lecturerId: "asc" }, { day: "asc" }, { startTime: "asc" }],
+  });
+}
+
+/**
+ * Get all rooms
+ */
+export async function findAllRooms() {
+  return prisma.room.findMany({
+    orderBy: { name: "asc" },
+  });
+}
+
+/**
+ * Check for conflicting room schedules (another seminar in same room at overlapping time on same date),
+ * excluding the given seminarId (for editing).
+ */
+export async function findRoomScheduleConflict({ seminarId, roomId, date, startTime, endTime }) {
+  return prisma.thesisSeminar.findFirst({
+    where: {
+      id: seminarId ? { not: seminarId } : undefined,
+      roomId,
+      date: new Date(date),
+      status: { notIn: ["cancelled"] },
+      AND: [
+        { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
+        { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
+      ],
+    },
+  });
+}
+
+/**
+ * Set / update seminar schedule (date, time, room) and transition to 'scheduled'
+ */
+export async function updateSeminarSchedule(seminarId, { roomId, date, startTime, endTime }) {
+  return prisma.thesisSeminar.update({
+    where: { id: seminarId },
+    data: {
+      roomId,
+      date: new Date(date),
+      startTime: new Date(`1970-01-01T${startTime}:00.000Z`),
+      endTime: new Date(`1970-01-01T${endTime}:00.000Z`),
+      status: "scheduled",
+    },
+  });
 }

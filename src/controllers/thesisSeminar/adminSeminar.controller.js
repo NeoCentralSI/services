@@ -2,6 +2,8 @@ import {
   getAdminSeminarList,
   getAdminSeminarDetail,
   validateSeminarDocument,
+  getSchedulingData,
+  scheduleSeminar,
 } from "../../services/thesisSeminar/adminSeminar.service.js";
 
 /**
@@ -48,6 +50,36 @@ export async function validateDocument(req, res, next) {
       userId,
     });
 
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /thesisSeminar/admin/:seminarId/scheduling-data
+ * Get lecturer availabilities and rooms for scheduling UI
+ */
+export async function getSchedulingDataController(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const data = await getSchedulingData(seminarId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /thesisSeminar/admin/:seminarId/schedule
+ * Set or update the seminar schedule
+ */
+export async function setSchedule(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const { roomId, date, startTime, endTime } = req.validated;
+
+    const data = await scheduleSeminar(seminarId, { roomId, date, startTime, endTime });
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

@@ -5,6 +5,10 @@ import {
   countDocumentsByStatus,
   updateSeminarStatus,
   findDocumentWithFile,
+  findLecturerAvailabilitiesByLecturerIds,
+  findAllRooms,
+  findRoomScheduleConflict,
+  updateSeminarSchedule,
 } from "../../repositories/thesisSeminar/adminSeminar.repository.js";
 import { getSeminarDocumentTypes } from "../../repositories/thesisSeminar/seminarDocument.repository.js";
 
@@ -255,4 +259,116 @@ export async function validateSeminarDocument(
     seminarTransitioned,
     newSeminarStatus: seminarTransitioned ? "verified" : seminar.status,
   };
+}
+
+// ============================================================
+// SCHEDULING
+// ============================================================
+
+/**
+ * Get data needed for the scheduling UI:
+ * - Lecturer availabilities (supervisors + confirmed examiners)
+ * - All rooms
+ */
+export async function getSchedulingData(seminarId) {
+  const seminar = await findSeminarById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Collect lecturer ids: only Pembimbing 1 (not Pembimbing 2) + all assigned examiners
+  const supervisorIds = (seminar.thesis?.thesisSupervisors || [])
+    .filter((ts) => ts.role?.name === "Pembimbing 1")
+    .map((ts) => ts.lecturerId)
+    .filter(Boolean);
+
+  // Include all assigned examiners regardless of availability confirmation status
+  const examinerIds = (seminar.examiners || [])
+    .map((e) => e.lecturerId)
+    .filter(Boolean);
+
+  const allLecturerIds = [...new Set([...supervisorIds, ...examinerIds])];
+
+  const [availabilities, rooms] = await Promise.all([
+    allLecturerIds.length > 0
+      ? findLecturerAvailabilitiesByLecturerIds(allLecturerIds)
+      : [],
+    findAllRooms(),
+  ]);
+
+  // Build lecturer name map from seminar data
+  const lecturerNameMap = {};
+  (seminar.thesis?.thesisSupervisors || []).forEach((ts) => {
+    if (ts.lecturerId) {
+      lecturerNameMap[ts.lecturerId] = ts.lecturer?.user?.fullName || "-";
+    }
+  });
+  (seminar.examiners || []).forEach((e) => {
+    if (e.lecturerId) {
+      lecturerNameMap[e.lecturerId] = e.lecturerName || "-";
+    }
+  });
+
+  // Enrich availabilities with lecturer names
+  const enrichedAvailabilities = availabilities.map((a) => ({
+    id: a.id,
+    lecturerId: a.lecturerId,
+    lecturerName: lecturerNameMap[a.lecturerId] || "-",
+    day: a.day,
+    startTime: a.startTime,
+    endTime: a.endTime,
+    validFrom: a.validFrom,
+    validUntil: a.validUntil,
+  }));
+
+  return {
+    rooms: rooms.map((r) => ({ id: r.id, name: r.name })),
+    lecturerAvailabilities: enrichedAvailabilities,
+    currentSchedule: seminar.date
+      ? {
+          date: seminar.date,
+          startTime: seminar.startTime,
+          endTime: seminar.endTime,
+          room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
+        }
+      : null,
+  };
+}
+
+/**
+ * Schedule (or re-schedule) a seminar
+ * Only allowed when status is 'examiner_assigned' or already 'scheduled' (edit)
+ */
+export async function scheduleSeminar(seminarId, { roomId, date, startTime, endTime }) {
+  const seminar = await findSeminarById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const allowed = ["examiner_assigned", "scheduled"];
+  if (!allowed.includes(seminar.status)) {
+    const err = new Error(
+      "Penjadwalan hanya dapat dilakukan saat seminar berstatus 'examiner_assigned' atau 'scheduled'."
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Check room conflict
+  const conflict = await findRoomScheduleConflict({ seminarId, roomId, date, startTime, endTime });
+  if (conflict) {
+    const err = new Error(
+      "Ruangan sudah digunakan oleh seminar lain pada waktu yang sama."
+    );
+    err.statusCode = 409;
+    throw err;
+  }
+
+  await updateSeminarSchedule(seminarId, { roomId, date, startTime, endTime });
+
+  return { seminarId, status: "scheduled" };
 }
