@@ -173,7 +173,8 @@ export const syncSia = async () => {
     }));
 
     try {
-        const response = await fetch("http://localhost:4000/sync-ta", {
+        const siaBase = process.env.SIA_BASE_URL || "http://localhost:4000";
+        const response = await fetch(`${siaBase}/sync-ta`, {
             method: "POST",
             body: JSON.stringify({ data: syncData }),
             headers: {
