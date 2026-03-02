@@ -300,7 +300,7 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 	return prisma.thesisGuidance.findMany({
 		where: {
 			thesis: { studentId },
-			supervisorId: lecturerId,
+			status: { not: "deleted" },
 		},
 		include: {
 			supervisor: { include: { user: true } },

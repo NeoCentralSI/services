@@ -1340,6 +1340,13 @@ export async function getMyThesisDetailService(userId) {
     ? Math.round((completedMilestones / totalMilestones) * 100)
     : 0;
 
+  // Count completed guidances (only status === 'completed')
+  const guidanceRows = await prisma.thesisGuidance.findMany({
+    where: { thesisId: thesis.id },
+    select: { status: true },
+  });
+  const completedGuidanceCount = guidanceRows.filter(g => g.status === 'completed').length;
+
   // Format supervisors
   const supervisors = fullThesis.thesisSupervisors
     .filter(p => p.role?.name?.toLowerCase().includes('pembimbing'))
@@ -1403,6 +1410,7 @@ export async function getMyThesisDetailService(userId) {
       // Progress stats
       stats: {
         totalGuidances: fullThesis._count.thesisGuidances,
+        completedGuidances: completedGuidanceCount,
         totalSessions: fullThesis._count.thesisGuidances,
         totalMilestones: totalMilestones,
         completedMilestones: completedMilestones,
