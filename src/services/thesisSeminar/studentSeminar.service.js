@@ -3,10 +3,11 @@ import {
   getStudentThesisWithSeminarInfo,
   countSeminarAttendance,
   getSeminarAttendanceHistory,
-} from "../../repositories/thesisGuidance/studentSeminar.repository.js";
+} from "../../repositories/thesisSeminar/studentSeminar.repository.js";
+import { ENV } from "../../config/env.js";
 
-const MIN_BIMBINGAN = 8;
-const MIN_KEHADIRAN_SEMINAR = 8;
+const MIN_BIMBINGAN = ENV.SEMINAR_MIN_BIMBINGAN;
+const MIN_KEHADIRAN_SEMINAR = ENV.SEMINAR_MIN_KEHADIRAN;
 
 /**
  * Get student seminar overview: checklist, status, documents

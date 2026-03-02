@@ -1,7 +1,7 @@
 import {
   getStudentSeminarOverview,
   getStudentAttendanceHistory,
-} from "../../services/thesisGuidance/studentSeminar.service.js";
+} from "../../services/thesisSeminar/studentSeminar.service.js";
 
 /**
  * GET /thesisSeminar/student/overview

@@ -1,5 +1,5 @@
 import express from "express";
-import studentRouter from "./thesisGuidance/student.seminar.route.js";
+import studentRouter from "./thesisSeminar/student.seminar.route.js";
 
 const router = express.Router();
 
