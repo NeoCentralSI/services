@@ -519,7 +519,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
 
   // Auto-update status based on progress
   let statusUpdate = null;
-  if (progressPercentage > 0 && milestone.status === "not_started") {
+  if (progressPercentage > 0 && progressPercentage < 100 && milestone.status === "not_started") {
     statusUpdate = "in_progress";
     await milestoneRepo.update(milestoneId, {
       status: "in_progress",
@@ -527,8 +527,15 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     });
   }
 
-  // Send FCM notification to supervisors when progress reaches 100%
+  // Auto-submit for review when progress reaches 100%
   if (progressPercentage === 100 && previousProgress < 100) {
+    if (milestone.status !== "completed" && milestone.status !== "pending_review") {
+      statusUpdate = "pending_review";
+      await milestoneRepo.update(milestoneId, {
+        status: "pending_review",
+      });
+    }
+
     const { thesis } = await getMilestoneWithAccess(milestoneId, userId);
     const supervisors = thesis.thesisSupervisors.filter((p) =>
       isSupervisorRole(p.role?.name)
@@ -543,16 +550,17 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     if (supervisorUserIds.length > 0) {
       // Send FCM notification
       await sendFcmToUsers(supervisorUserIds, {
-        title: "Milestone Selesai 100%",
-        body: `${studentName} telah menyelesaikan milestone "${milestoneTitle}"`,
+        title: "Milestone Siap Direview",
+        body: `${studentName} telah menyelesaikan milestone "${milestoneTitle}" (100%)`,
+        data: { type: "milestone:pending_review" },
       });
 
       // Create in-app notifications
       for (const supervisorUserId of supervisorUserIds) {
         await createNotification({
           userId: supervisorUserId,
-          title: "Milestone Selesai 100%",
-          message: `${studentName} telah menyelesaikan milestone "${milestoneTitle}"`,
+          title: "Milestone Siap Direview",
+          message: `${studentName} telah menyelesaikan milestone "${milestoneTitle}" (100%)`,
         });
       }
     }
