@@ -1437,3 +1437,25 @@ export async function requestDefence(thesisId, userId, documentId) {
     },
   };
 }
+
+/**
+ * Get all pending_review milestones across all theses supervised by this user.
+ * Uses a single DB query instead of N+1 client-side aggregation.
+ */
+export async function getPendingReviewForSupervisor(userId) {
+  const milestones = await milestoneRepo.findPendingReviewBySupervisor(userId);
+  return milestones.map((m) => ({
+    id: m.id,
+    title: m.title,
+    description: m.description,
+    progressPercentage: m.progressPercentage,
+    status: m.status,
+    studentNotes: m.studentNotes,
+    targetDate: m.targetDate,
+    updatedAt: m.updatedAt,
+    thesisId: m.thesis?.id,
+    thesisTitle: m.thesis?.title ?? "-",
+    studentName: m.thesis?.student?.user?.fullName ?? "-",
+    studentNim: m.thesis?.student?.user?.identityNumber ?? "",
+  }));
+}

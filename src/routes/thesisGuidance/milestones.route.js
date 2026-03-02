@@ -74,6 +74,16 @@ router.delete(
 router.delete("/templates/:templateId", authGuard, controller.deleteTemplate);
 
 // ============================================
+// Supervisor Aggregate Routes
+// ============================================
+
+/**
+ * GET /api/milestones/supervisor/pending-review
+ * Get all pending_review milestones across supervised theses (single query)
+ */
+router.get("/supervisor/pending-review", authGuard, controller.getSupervisorPendingReview);
+
+// ============================================
 // Thesis Milestone Routes
 // All routes require authentication
 // ============================================
