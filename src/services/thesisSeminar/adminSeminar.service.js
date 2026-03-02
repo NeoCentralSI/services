@@ -159,12 +159,26 @@ export async function getAdminSeminarDetail(seminarId) {
       id: dt.id,
       name: dt.name,
     })),
-    examiners: (seminar.examiners || []).map((e) => ({
-      id: e.id,
-      lecturerName: e.lecturerName || "-",
-      order: e.order,
-      availabilityStatus: e.availabilityStatus,
-    })),
+    // Active examiners (current: pending/available)
+    examiners: (seminar.examiners || [])
+      .filter((e) => e.availabilityStatus === "available" || e.availabilityStatus === "pending")
+      .map((e) => ({
+        id: e.id,
+        lecturerName: e.lecturerName || "-",
+        order: e.order,
+        availabilityStatus: e.availabilityStatus,
+      })),
+    // Rejected examiners (historical log)
+    rejectedExaminers: (seminar.examiners || [])
+      .filter((e) => e.availabilityStatus === "unavailable")
+      .map((e) => ({
+        id: e.id,
+        lecturerName: e.lecturerName || "-",
+        order: e.order,
+        availabilityStatus: e.availabilityStatus,
+        respondedAt: e.respondedAt,
+        assignedAt: e.assignedAt,
+      })),
   };
 }
 
