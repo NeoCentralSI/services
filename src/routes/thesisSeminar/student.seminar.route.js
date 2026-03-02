@@ -5,6 +5,9 @@ import { uploadSeminarDocFile } from "../../middlewares/file.middleware.js";
 import {
   getSeminarOverview,
   getAttendanceHistory,
+  getSeminarAnnouncementsCtrl,
+  registerToSeminarCtrl,
+  cancelSeminarRegistrationCtrl,
 } from "../../controllers/thesisSeminar/studentSeminar.controller.js";
 import {
   getDocumentTypes,
@@ -23,6 +26,15 @@ router.get("/overview", getSeminarOverview);
 
 // GET /thesisSeminar/student/attendance
 router.get("/attendance", getAttendanceHistory);
+
+// GET /thesisSeminar/student/announcements
+router.get("/announcements", getSeminarAnnouncementsCtrl);
+
+// POST /thesisSeminar/student/announcements/:seminarId/register
+router.post("/announcements/:seminarId/register", registerToSeminarCtrl);
+
+// DELETE /thesisSeminar/student/announcements/:seminarId/register
+router.delete("/announcements/:seminarId/register", cancelSeminarRegistrationCtrl);
 
 // --- Seminar Document routes ---
 // GET /thesisSeminar/student/documents/types

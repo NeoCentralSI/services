@@ -143,6 +143,94 @@ export async function getSeminarAttendanceHistory(studentId) {
 }
 
 /**
+ * Get all announced (scheduled/past) seminars for the announcement board,
+ * including the current student's audience registration status.
+ */
+export async function getAllAnnouncedSeminars(studentId) {
+  return prisma.thesisSeminar.findMany({
+    where: {
+      status: { in: ["scheduled", "passed", "passed_with_revision", "failed"] },
+      date: { not: null },
+    },
+    select: {
+      id: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+      status: true,
+      meetingLink: true,
+      room: { select: { id: true, name: true } },
+      thesis: {
+        select: {
+          id: true,
+          title: true,
+          student: {
+            select: {
+              id: true,
+              user: { select: { fullName: true } },
+            },
+          },
+          thesisSupervisors: {
+            select: {
+              role: { select: { name: true } },
+              lecturer: {
+                select: { user: { select: { fullName: true } } },
+              },
+            },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      },
+      examiners: {
+        where: { availabilityStatus: "available" },
+        select: {
+          order: true,
+          lecturerId: true,
+        },
+        orderBy: { order: "asc" },
+      },
+      audiences: {
+        where: { studentId },
+        select: { studentId: true, isPresent: true, registeredAt: true },
+      },
+    },
+    orderBy: { date: "desc" },
+  });
+}
+
+/**
+ * Find a single audience record for a student in a seminar
+ */
+export async function findAudienceRegistration(seminarId, studentId) {
+  return prisma.thesisSeminarAudience.findUnique({
+    where: { thesisSeminarId_studentId: { thesisSeminarId: seminarId, studentId } },
+  });
+}
+
+/**
+ * Register a student as an audience for a seminar
+ */
+export async function createAudienceRegistration(seminarId, studentId) {
+  return prisma.thesisSeminarAudience.create({
+    data: {
+      thesisSeminarId: seminarId,
+      studentId,
+      registeredAt: new Date(),
+      isPresent: false,
+    },
+  });
+}
+
+/**
+ * Remove a student's audience registration from a seminar
+ */
+export async function deleteAudienceRegistration(seminarId, studentId) {
+  return prisma.thesisSeminarAudience.delete({
+    where: { thesisSeminarId_studentId: { thesisSeminarId: seminarId, studentId } },
+  });
+}
+
+/**
  * Check supervisor seminar readiness for a thesis
  */
 export async function getSupervisorSeminarReadiness(thesisId) {
