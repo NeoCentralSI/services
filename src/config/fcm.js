@@ -9,25 +9,37 @@ function parsePrivateKey(key) {
 
 export function initFcm() {
   if (getApps().length) return;
-  const saJson = process.env.FCM_SERVICE_ACCOUNT_JSON
-    ? JSON.parse(process.env.FCM_SERVICE_ACCOUNT_JSON)
-    : null;
+
+  let saJson = null;
+  const rawJson = process.env.FCM_SERVICE_ACCOUNT_JSON;
+  if (rawJson) {
+    try {
+      saJson = JSON.parse(rawJson);
+    } catch (e) {
+      console.error("❌ FCM_SERVICE_ACCOUNT_JSON is not valid JSON:", e.message);
+      console.error("   Value starts with:", rawJson.substring(0, 80) + "...");
+    }
+  }
+
   const projectId = process.env.FCM_PROJECT_ID;
   const clientEmail = process.env.FCM_CLIENT_EMAIL;
   const privateKey = parsePrivateKey(process.env.FCM_PRIVATE_KEY);
 
   if (saJson) {
     initializeApp({ credential: cert(saJson) });
+    console.log("✅ FCM initialized with service account JSON");
   } else if (projectId && clientEmail && privateKey) {
     initializeApp({
       credential: cert({ projectId, clientEmail, privateKey }),
     });
+    console.log("✅ FCM initialized with separate credentials");
   } else {
     // Try default credentials (GCE/Cloud Run) if available
     try {
       initializeApp({ credential: applicationDefault() });
     } catch (e) {
-      console.warn("FCM not initialized: missing credentials");
+      console.warn("⚠️  FCM not initialized: missing credentials.",
+        "Set FCM_SERVICE_ACCOUNT_JSON or FCM_PROJECT_ID + FCM_CLIENT_EMAIL + FCM_PRIVATE_KEY");
     }
   }
 }
