@@ -253,7 +253,7 @@ export async function listCompanyResponses() {
             status: proposal.status,
             responseStatus: response?.status,
             sekdepNotes: response?.sekdepNotes,
-            memberCount: proposal.members.length + 1,
+            memberCount: proposal.members.filter(m => m.status === 'ACCEPTED_BY_COMPANY').length + 1,
             members: [
                 {
                     id: proposal.coordinatorId,
@@ -281,6 +281,7 @@ export async function listCompanyResponses() {
                 fileName: proposal.assignmentLetters[0].document.fileName,
                 filePath: proposal.assignmentLetters[0].document.filePath,
             } : null,
+            isAssignmentSigned: !!proposal.assignmentLetters?.[0]?.signedById,
         };
     });
 }
