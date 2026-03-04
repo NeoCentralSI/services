@@ -74,7 +74,10 @@ export function listGuidancesForThesis(thesisId, status) {
   // Schema baru: tidak ada schedule relation, gunakan requestedDate/approvedDate langsung
   return prisma.thesisGuidance.findMany({
     where,
-    include: { supervisor: { include: { user: true } } },
+    include: {
+      supervisor: { include: { user: true } },
+      document: { select: { id: true, fileName: true, filePath: true } },
+    },
     orderBy: [
       { requestedDate: "desc" },
       { id: "desc" },
@@ -87,6 +90,7 @@ export function getGuidanceByIdForStudent(guidanceId, studentId) {
     where: { id: guidanceId, thesis: { studentId } },
     include: {
       supervisor: { include: { user: true } },
+      document: { select: { id: true, fileName: true, filePath: true } },
       milestones: { include: { milestone: { select: { id: true, title: true } } } },
     },
   });
@@ -122,7 +126,10 @@ export function listGuidanceHistoryByStudent(studentId) {
       thesis: { studentId },
       status: { not: "deleted" }
     },
-    include: { supervisor: { include: { user: true } } },
+    include: {
+      supervisor: { include: { user: true } },
+      document: { select: { id: true, fileName: true, filePath: true } },
+    },
     orderBy: [
       { requestedDate: "desc" },
       { id: "desc" },

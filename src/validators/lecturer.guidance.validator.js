@@ -13,6 +13,10 @@ export const approveGuidanceSchema = z.object({
   feedback: z.string().optional(),
 });
 
+export const cancelGuidanceSchema = z.object({
+  reason: z.string().min(1, "Alasan pembatalan wajib diisi").max(1000, "Alasan maksimal 1000 karakter"),
+});
+
 export const approveComponentsSchema = z.object({
   componentIds: z.array(z.string().min(1)).min(1, "componentIds cannot be empty"),
 });

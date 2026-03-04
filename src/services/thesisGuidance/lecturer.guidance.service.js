@@ -58,6 +58,7 @@ function toFlatGuidance(g) {
 		// Keep minimal identifiers; include studentId for UI fallbacks, omit thesisId to reduce noise
 		studentId: g.thesis?.studentId || g.thesis?.student?.id || null,
 		studentName: g.thesis?.student?.user?.fullName || null,
+		studentNim: g.thesis?.student?.user?.identityNumber || null,
 		supervisorName: g?.supervisor?.user?.fullName || null,
 		status: g.status,
 		requestedDate: g.requestedDate || null,
@@ -68,9 +69,12 @@ function toFlatGuidance(g) {
 		notes: g.studentNotes || null,
 		studentNotes: g.studentNotes || null, // Alias for clarity
 		supervisorFeedback: g.supervisorFeedback || null,
-		document: g?.thesis?.document
-			? { fileName: g.thesis.document.fileName, filePath: g.thesis.document.filePath }
-			: null,
+		// Prefer guidance-level document; fallback to thesis-level document
+		document: g.document
+			? { id: g.document.id, fileName: g.document.fileName, filePath: g.document.filePath }
+			: g?.thesis?.document
+				? { id: g.thesis.document.id, fileName: g.thesis.document.fileName, filePath: g.thesis.document.filePath }
+				: null,
 		createdAt: g.createdAt || null,
 		createdAtFormatted: g.createdAt ? formatDateTimeJakarta(g.createdAt, { withDay: true }) : null,
 		updatedAt: g.updatedAt || null,
@@ -278,6 +282,89 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 	}
 
 	// Re-read with includes for a complete, flat response
+	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
+	const titles = await resolveMilestoneTitles(fresh);
+	return { guidance: toFlatGuidance({ ...fresh, milestoneTitles: titles }) };
+}
+
+// Cancel an accepted guidance session (lecturer cannot attend)
+export async function cancelGuidanceByLecturerService(userId, guidanceId, { reason } = {}) {
+	const lecturer = await getLecturerByUserId(userId);
+	ensureLecturer(lecturer);
+	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
+	if (!guidance) {
+		const err = new Error("Guidance not found or not assigned to you");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	// Only allow cancelling "accepted" guidance
+	if (guidance.status !== "accepted") {
+		const err = new Error(`Hanya bimbingan berstatus "diterima" yang dapat dibatalkan. Status saat ini: "${guidance.status}"`);
+		err.statusCode = 400;
+		throw err;
+	}
+
+	if (!reason || !reason.trim()) {
+		const err = new Error("Alasan pembatalan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// Delete calendar events if they exist
+	try {
+		if (guidance.supervisorCalendarEventId) {
+			await deleteCalendarEvent(userId, guidance.supervisorCalendarEventId);
+		}
+		const studentUserId = guidance.thesis?.student?.user?.id;
+		if (guidance.studentCalendarEventId && studentUserId) {
+			await deleteCalendarEvent(studentUserId, guidance.studentCalendarEventId);
+		}
+	} catch (e) {
+		console.error("Failed to delete calendar events:", e?.message || e);
+	}
+
+	// Update guidance status to cancelled
+	await prisma.thesisGuidance.update({
+		where: { id: guidance.id },
+		data: {
+			status: "cancelled",
+			rejectionReason: reason,
+			studentCalendarEventId: null,
+			supervisorCalendarEventId: null,
+		},
+	});
+
+	// Send notification to student
+	try {
+		const studentUserId = guidance.thesis?.student?.user?.id;
+		if (studentUserId) {
+			const lecturerName = toTitleCaseName(guidance.supervisor?.user?.fullName || "Dosen");
+			const dateStr = guidance.requestedDate
+				? formatDateTimeJakarta(new Date(guidance.requestedDate), { withDay: true })
+				: "belum ditentukan";
+
+			await createNotificationsForUsers([studentUserId], {
+				title: "Bimbingan Dibatalkan oleh Dosen",
+				message: `${lecturerName} membatalkan bimbingan terjadwal pada ${dateStr}. Alasan: ${reason}`,
+			});
+
+			await sendFcmToUsers([studentUserId], {
+				title: "Bimbingan Dibatalkan oleh Dosen",
+				body: `${lecturerName} membatalkan bimbingan pada ${dateStr}. Alasan: ${reason}`,
+				data: {
+					type: "thesis-guidance:cancelled-by-lecturer",
+					guidanceId: String(guidanceId),
+					role: ROLE_CATEGORY.STUDENT,
+					reason: reason,
+					playSound: "true",
+				},
+			});
+		}
+	} catch (e) {
+		console.warn("FCM notify failed (lecturer cancel):", e?.message || e);
+	}
+
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
 	const titles = await resolveMilestoneTitles(fresh);
 	return { guidance: toFlatGuidance({ ...fresh, milestoneTitles: titles }) };
@@ -689,14 +776,20 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 		milestoneIds: (guidance.milestones || []).map((m) => m.milestoneId),
 		milestoneTitles,
 		milestoneName: milestoneTitles.length > 0 ? milestoneTitles[0] : null,
-		// Document
-		document: guidance.thesis?.document
+		// Document - prefer guidance-level; fallback to thesis-level
+		document: guidance.document
 			? {
-				id: guidance.thesis.document.id,
-				fileName: guidance.thesis.document.fileName,
-				filePath: guidance.thesis.document.filePath,
+				id: guidance.document.id,
+				fileName: guidance.document.fileName,
+				filePath: guidance.document.filePath,
 			}
-			: null,
+			: guidance.thesis?.document
+				? {
+					id: guidance.thesis.document.id,
+					fileName: guidance.thesis.document.fileName,
+					filePath: guidance.thesis.document.filePath,
+				}
+				: null,
 		// Timestamps
 		createdAt: guidance.createdAt || null,
 		createdAtFormatted: guidance.createdAt

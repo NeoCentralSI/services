@@ -6,7 +6,12 @@ import prisma from "../config/prisma.js";
 export function authGuard(req, res, next) {
 	try {
 		const auth = req.headers.authorization || "";
-		const [, token] = auth.split(" "); // Expect: Bearer <token>
+		let token = "";
+		if (auth.startsWith("Bearer ")) {
+			token = auth.split(" ")[1];
+		} else if (req.query.token) {
+			token = req.query.token;
+		}
 		if (!token) {
 			const err = new Error("Unauthorized");
 			err.statusCode = 401;
@@ -56,10 +61,10 @@ export function requireRole(roleName) {
 			}
 
 			// Find role by name (case-insensitive)
-					const role = await prisma.userRole.findFirst({
-						where: { name: String(roleName) },
-						select: { id: true, name: true },
-					});
+			const role = await prisma.userRole.findFirst({
+				where: { name: String(roleName) },
+				select: { id: true, name: true },
+			});
 			if (!role) {
 				const err = new Error("Forbidden: required role not found");
 				err.statusCode = 403;

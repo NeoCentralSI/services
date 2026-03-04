@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { validate } from "../../middlewares/validation.middleware.js";
-import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, transferStudentsSchema, rejectTransferSchema } from "../../validators/lecturer.guidance.validator.js";
+import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, transferStudentsSchema, rejectTransferSchema, cancelGuidanceSchema } from "../../validators/lecturer.guidance.validator.js";
 import { ROLES } from "../../constants/roles.js";
 import {
 	myStudents,
@@ -9,6 +9,7 @@ import {
 	listRequests,
 	listScheduledGuidances,
 	rejectGuidance,
+	cancelGuidance,
 	approveGuidance,
 	listProgress,
 	progressDetail,
@@ -51,6 +52,7 @@ router.get("/requests", listRequests);
 router.get("/scheduled", listScheduledGuidances);
 router.patch("/requests/:guidanceId/reject", validate(rejectGuidanceSchema), rejectGuidance);
 router.patch("/requests/:guidanceId/approve", validate(approveGuidanceSchema), approveGuidance);
+router.patch("/requests/:guidanceId/cancel", validate(cancelGuidanceSchema), cancelGuidance);
 
 router.get("/progress", listProgress);
 router.get("/progress/:studentId", progressDetail);
