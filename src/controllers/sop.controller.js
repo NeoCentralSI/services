@@ -2,11 +2,11 @@ import fs from "fs";
 import path from "path";
 import { ROLES } from "../constants/roles.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
-import { uploadThesisFile } from "../middlewares/file.middleware.js";
+import { uploadGuideFile } from "../middlewares/file.middleware.js";
 import * as sopService from "../services/sop.service.js";
 
 // Export middlewares for route wiring
-export const sopUploadMiddleware = [authGuard, requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]), uploadThesisFile];
+export const sopUploadMiddleware = [authGuard, requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]), uploadGuideFile];
 // Public read (landing page needs access)
 export const sopReadMiddleware = [];
 export const sopDeleteMiddleware = [authGuard, requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN])];
