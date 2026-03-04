@@ -5,6 +5,7 @@ import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { stampQRCode } from "../../utils/pdf-sign.util.js";
 import { ENV } from "../../config/env.js";
+import { getWorkingDays } from "../../utils/internship-date.util.js";
 import fs from "fs/promises";
 import path from "path";
 
@@ -113,6 +114,20 @@ export async function approveLetter(userId, type, letterId, signaturePositions =
         signedLetter = await kadepRepository.signApplicationLetter(letterId, userId, kadepRole.id);
     } else if (type === 'ASSIGNMENT') {
         signedLetter = await kadepRepository.signAssignmentLetter(letterId, userId, kadepRole.id);
+
+        // Auto-generate Logbooks for all members
+        try {
+            const workingDays = getWorkingDays(letter.startDateActual, letter.endDateActual);
+            await kadepRepository.initializeInternshipsAndLogbooks(
+                letter.proposalId,
+                letter.id,
+                workingDays
+            );
+        } catch (genError) {
+            console.error("[kadep-service] Auto logbook generation failed:", genError);
+            // We don't throw here to avoid potentially causing the signature to "fail" 
+            // from the user's perspective, but it's recorded in logs.
+        }
     } else {
         throw new Error("Tipe surat tidak valid.");
     }
