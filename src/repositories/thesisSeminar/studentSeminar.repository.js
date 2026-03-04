@@ -248,3 +248,247 @@ export async function getSupervisorSeminarReadiness(thesisId) {
     },
   });
 }
+
+// ============================================================
+// Student Revision CRUD
+// ============================================================
+
+/**
+ * Get student's seminar revisions for a specific seminar.
+ */
+export async function getStudentSeminarRevisions(seminarId) {
+  return prisma.thesisSeminarRevision.findMany({
+    where: {
+      seminarExaminer: {
+        thesisSeminarId: seminarId,
+      },
+    },
+    include: {
+      seminarExaminer: {
+        select: {
+          id: true,
+          order: true,
+          lecturerId: true,
+        },
+      },
+      supervisor: {
+        select: {
+          id: true,
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              id: true,
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { isFinished: "asc" },
+      { studentSubmittedAt: "desc" },
+      { id: "asc" },
+    ],
+  });
+}
+
+/**
+ * Create a new revision item for a student.
+ */
+export async function createStudentRevision({ seminarExaminerId, description }) {
+  return prisma.thesisSeminarRevision.create({
+    data: {
+      seminarExaminerId,
+      description,
+    },
+  });
+}
+
+/**
+ * Find a revision by ID.
+ */
+export async function findRevisionById(revisionId) {
+  return prisma.thesisSeminarRevision.findUnique({
+    where: { id: revisionId },
+    include: {
+      seminarExaminer: {
+        select: {
+          id: true,
+          thesisSeminarId: true,
+          lecturerId: true,
+          order: true,
+          seminar: {
+            select: {
+              id: true,
+              status: true,
+              thesis: {
+                select: {
+                  id: true,
+                  studentId: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Submit revision action by student.
+ */
+export async function submitRevisionAction(revisionId, revisionAction) {
+  return prisma.thesisSeminarRevision.update({
+    where: { id: revisionId },
+    data: {
+      revisionAction,
+      studentSubmittedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Get all seminars for a student's thesis (for history).
+ */
+export async function getAllStudentSeminars(studentId) {
+  return prisma.thesisSeminar.findMany({
+    where: {
+      thesis: { studentId },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      registeredAt: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+      finalScore: true,
+      grade: true,
+      resultFinalizedAt: true,
+      cancelledReason: true,
+      meetingLink: true,
+      room: { select: { id: true, name: true } },
+      examiners: {
+        where: { availabilityStatus: "available" },
+        select: {
+          id: true,
+          lecturerId: true,
+          order: true,
+          assessmentScore: true,
+          assessmentSubmittedAt: true,
+        },
+        orderBy: { order: "asc" },
+      },
+    },
+  });
+}
+
+/**
+ * Find a specific seminar by ID with full detail for student view.
+ */
+export async function findStudentSeminarDetail(seminarId) {
+  return prisma.thesisSeminar.findUnique({
+    where: { id: seminarId },
+    select: {
+      id: true,
+      thesisId: true,
+      status: true,
+      registeredAt: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+      meetingLink: true,
+      finalScore: true,
+      grade: true,
+      resultFinalizedAt: true,
+      cancelledReason: true,
+      room: { select: { id: true, name: true } },
+      thesis: {
+        select: {
+          id: true,
+          studentId: true,
+          title: true,
+        },
+      },
+      examiners: {
+        where: { availabilityStatus: "available" },
+        select: {
+          id: true,
+          lecturerId: true,
+          order: true,
+          assessmentScore: true,
+          assessmentSubmittedAt: true,
+          revisionNotes: true,
+        },
+        orderBy: { order: "asc" },
+      },
+      documents: {
+        select: {
+          thesisSeminarId: true,
+          documentTypeId: true,
+          documentId: true,
+          status: true,
+          submittedAt: true,
+          verifiedAt: true,
+          notes: true,
+        },
+      },
+      audiences: {
+        select: {
+          studentId: true,
+          registeredAt: true,
+          isPresent: true,
+          approvedAt: true,
+          student: {
+            select: {
+              user: { select: { fullName: true, identityNumber: true } },
+            },
+          },
+          supervisor: {
+            select: {
+              lecturer: {
+                select: {
+                  user: { select: { fullName: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { registeredAt: "asc" },
+      },
+    },
+  });
+}
+
+/**
+ * Get audience list for a seminar.
+ */
+export async function getSeminarAudiences(seminarId) {
+  return prisma.thesisSeminarAudience.findMany({
+    where: { thesisSeminarId: seminarId },
+    select: {
+      studentId: true,
+      registeredAt: true,
+      isPresent: true,
+      approvedAt: true,
+      approvedBy: true,
+      student: {
+        select: {
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
+      supervisor: {
+        select: {
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { registeredAt: "asc" },
+  });
+}

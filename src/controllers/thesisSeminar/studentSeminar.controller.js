@@ -4,6 +4,15 @@ import {
   getSeminarAnnouncements,
   registerToSeminar,
   cancelSeminarRegistration,
+  getStudentRevisions,
+  createStudentRevisionItem,
+  submitStudentRevisionAction,
+  getStudentSeminarHistory,
+  getStudentSeminarDetail,
+  getStudentSeminarAssessment,
+  saveStudentRevisionAction,
+  submitStudentRevision,
+  cancelStudentRevisionSubmission,
 } from "../../services/thesisSeminar/studentSeminar.service.js";
 
 /**
@@ -67,6 +76,129 @@ export async function cancelSeminarRegistrationCtrl(req, res, next) {
   try {
     const { seminarId } = req.params;
     const data = await cancelSeminarRegistration(req.user.sub, seminarId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesisSeminar/student/revisions
+ * Get student's revision items for their current seminar
+ */
+export async function getStudentRevisionsCtrl(req, res, next) {
+  try {
+    const data = await getStudentRevisions(req.user.sub);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesisSeminar/student/revisions
+ * Create a new revision item
+ */
+export async function createStudentRevisionCtrl(req, res, next) {
+  try {
+    const data = await createStudentRevisionItem(req.user.sub, req.validated);
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PUT /thesisSeminar/student/revisions/:revisionId/submit
+ * Submit revision action for a revision item
+ */
+export async function submitRevisionActionCtrl(req, res, next) {
+  try {
+    const { revisionId } = req.params;
+    const data = await submitStudentRevisionAction(req.user.sub, revisionId, req.validated);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesisSeminar/student/history
+ * Get student's seminar history
+ */
+export async function getStudentSeminarHistoryCtrl(req, res, next) {
+  try {
+    const data = await getStudentSeminarHistory(req.user.sub);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesisSeminar/student/seminars/:seminarId
+ * Get student's specific seminar detail
+ */
+export async function getStudentSeminarDetailCtrl(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const data = await getStudentSeminarDetail(req.user.sub, seminarId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /thesisSeminar/student/seminars/:seminarId/assessment
+ * Get student's assessment/rubric data (read-only)
+ */
+export async function getStudentSeminarAssessmentCtrl(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const data = await getStudentSeminarAssessment(req.user.sub, seminarId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PATCH /thesisSeminar/student/revisions/:revisionId/action
+ * Save perbaikan text without submitting
+ */
+export async function saveRevisionActionCtrl(req, res, next) {
+  try {
+    const { revisionId } = req.params;
+    const data = await saveStudentRevisionAction(req.user.sub, revisionId, req.validated);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesisSeminar/student/revisions/:revisionId/submit
+ * Submit revision (set studentSubmittedAt)
+ */
+export async function submitRevisionCtrl(req, res, next) {
+  try {
+    const { revisionId } = req.params;
+    const data = await submitStudentRevision(req.user.sub, revisionId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesisSeminar/student/revisions/:revisionId/cancel-submit
+ * Cancel revision submission (clear studentSubmittedAt)
+ */
+export async function cancelRevisionSubmitCtrl(req, res, next) {
+  try {
+    const { revisionId } = req.params;
+    const data = await cancelStudentRevisionSubmission(req.user.sub, revisionId);
     res.json({ success: true, data });
   } catch (err) {
     next(err);

@@ -250,11 +250,12 @@ export async function findRoomScheduleConflict({ seminarId, roomId, date, startT
 /**
  * Set / update seminar schedule (date, time, room) and transition to 'scheduled'
  */
-export async function updateSeminarSchedule(seminarId, { roomId, date, startTime, endTime }) {
+export async function updateSeminarSchedule(seminarId, { roomId, date, startTime, endTime, meetingLink }) {
   return prisma.thesisSeminar.update({
     where: { id: seminarId },
     data: {
       roomId,
+      meetingLink,
       date: new Date(date),
       startTime: new Date(`1970-01-01T${startTime}:00.000Z`),
       endTime: new Date(`1970-01-01T${endTime}:00.000Z`),

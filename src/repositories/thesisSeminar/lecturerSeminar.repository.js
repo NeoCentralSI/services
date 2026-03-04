@@ -335,3 +335,354 @@ export async function updateSeminarStatus(seminarId, status) {
     data: { status },
   });
 }
+
+// ============================================================
+// LECTURER — ongoing seminar assessment & finalization
+// ============================================================
+
+/**
+ * Get active seminar assessment criteria (seminar/default role) grouped by CPMK.
+ */
+export async function findSeminarAssessmentCpmks() {
+  return prisma.cpmk.findMany({
+    where: {
+      type: "thesis",
+      isActive: true,
+      assessmentCriterias: {
+        some: {
+          appliesTo: "seminar",
+          role: "default",
+          isActive: true,
+        },
+      },
+    },
+    include: {
+      assessmentCriterias: {
+        where: {
+          appliesTo: "seminar",
+          role: "default",
+          isActive: true,
+        },
+        include: {
+          assessmentRubrics: {
+            orderBy: { displayOrder: "asc" },
+          },
+        },
+        orderBy: { displayOrder: "asc" },
+      },
+    },
+    orderBy: { code: "asc" },
+  });
+}
+
+/**
+ * Get latest examiner record for lecturer in a seminar.
+ */
+export async function findLatestExaminerBySeminarAndLecturer(seminarId, lecturerId) {
+  return prisma.thesisSeminarExaminer.findFirst({
+    where: {
+      thesisSeminarId: seminarId,
+      lecturerId,
+    },
+    orderBy: { assignedAt: "desc" },
+    include: {
+      thesisSeminarExaminerAssessmentDetails: true,
+    },
+  });
+}
+
+/**
+ * Persist examiner assessment details and total score in one transaction.
+ */
+export async function saveExaminerAssessment({ examinerId, scores, revisionNotes }) {
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    await tx.thesisSeminarExaminerAssessmentDetail.deleteMany({
+      where: { thesisSeminarExaminerId: examinerId },
+    });
+
+    if (scores.length > 0) {
+      await tx.thesisSeminarExaminerAssessmentDetail.createMany({
+        data: scores.map((item) => ({
+          thesisSeminarExaminerId: examinerId,
+          assessmentCriteriaId: item.assessmentCriteriaId,
+          score: item.score,
+        })),
+      });
+    }
+
+    const totalScore = scores.reduce((sum, item) => sum + item.score, 0);
+
+    const updatedExaminer = await tx.thesisSeminarExaminer.update({
+      where: { id: examinerId },
+      data: {
+        assessmentScore: totalScore,
+        revisionNotes: revisionNotes || null,
+        assessmentSubmittedAt: now,
+      },
+    });
+
+    return updatedExaminer;
+  });
+}
+
+/**
+ * Get active examiners and their assessment payload for a seminar.
+ */
+export async function findActiveExaminersWithAssessments(seminarId) {
+  return prisma.thesisSeminarExaminer.findMany({
+    where: {
+      thesisSeminarId: seminarId,
+      availabilityStatus: "available",
+    },
+    include: {
+      thesisSeminarExaminerAssessmentDetails: {
+        include: {
+          criteria: {
+            select: {
+              id: true,
+              name: true,
+              maxScore: true,
+              displayOrder: true,
+              cpmk: {
+                select: {
+                  id: true,
+                  code: true,
+                  description: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { order: "asc" },
+  });
+}
+
+/**
+ * Find supervisor role relation in seminar's thesis.
+ */
+export async function findSeminarSupervisorRole(seminarId, lecturerId) {
+  return prisma.thesisSeminar.findFirst({
+    where: {
+      id: seminarId,
+      thesis: {
+        thesisSupervisors: {
+          some: { lecturerId },
+        },
+      },
+    },
+    select: {
+      id: true,
+      thesis: {
+        select: {
+          thesisSupervisors: {
+            where: { lecturerId },
+            select: {
+              id: true,
+              role: { select: { name: true } },
+            },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Finalize seminar result (status + final score metadata).
+ */
+export async function finalizeSeminarResult({ seminarId, status, finalScore, grade }) {
+  return prisma.thesisSeminar.update({
+    where: { id: seminarId },
+    data: {
+      status,
+      finalScore,
+      grade,
+      resultFinalizedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Get seminar revisions list (for supervisor revision monitoring).
+ */
+export async function findSeminarRevisionsBySeminarId(seminarId) {
+  return prisma.thesisSeminarRevision.findMany({
+    where: {
+      seminarExaminer: {
+        thesisSeminarId: seminarId,
+      },
+    },
+    include: {
+      seminarExaminer: {
+        select: {
+          id: true,
+          order: true,
+          lecturerId: true,
+        },
+      },
+      supervisor: {
+        select: {
+          id: true,
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              id: true,
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { isFinished: "asc" },
+      { studentSubmittedAt: "desc" },
+      { id: "asc" },
+    ],
+  });
+}
+
+/**
+ * Approve a revision item by supervisor.
+ */
+export async function approveRevisionItem(revisionId, supervisorId) {
+  return prisma.thesisSeminarRevision.update({
+    where: { id: revisionId },
+    data: {
+      isFinished: true,
+      approvedBy: supervisorId,
+      supervisorApprovedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Unapprove a revision item (reset approval).
+ */
+export async function unapproveRevisionItem(revisionId) {
+  return prisma.thesisSeminarRevision.update({
+    where: { id: revisionId },
+    data: {
+      isFinished: false,
+      approvedBy: null,
+      supervisorApprovedAt: null,
+    },
+  });
+}
+
+/**
+ * Find a revision by ID with full relations.
+ */
+export async function findRevisionByIdFull(revisionId) {
+  return prisma.thesisSeminarRevision.findUnique({
+    where: { id: revisionId },
+    include: {
+      seminarExaminer: {
+        select: {
+          id: true,
+          thesisSeminarId: true,
+          seminar: {
+            select: {
+              id: true,
+              status: true,
+              thesis: {
+                select: { id: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// ============================================================
+// Audience / Attendance
+// ============================================================
+
+/**
+ * Get all audience registrations for a seminar.
+ */
+export async function findSeminarAudiences(seminarId) {
+  return prisma.thesisSeminarAudience.findMany({
+    where: { thesisSeminarId: seminarId },
+    select: {
+      thesisSeminarId: true,
+      studentId: true,
+      registeredAt: true,
+      isPresent: true,
+      approvedAt: true,
+      approvedBy: true,
+      student: {
+        select: {
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
+      supervisor: {
+        select: {
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { registeredAt: "asc" },
+  });
+}
+
+/**
+ * Approve an audience registration (supervisor sets approvedBy + approvedAt).
+ */
+export async function approveAudienceRegistration(seminarId, studentId, supervisorId) {
+  return prisma.thesisSeminarAudience.update({
+    where: {
+      thesisSeminarId_studentId: {
+        thesisSeminarId: seminarId,
+        studentId,
+      },
+    },
+    data: {
+      approvedBy: supervisorId,
+      approvedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Reset approval data so audience goes back to initial registration state.
+ */
+export async function resetAudienceApproval(seminarId, studentId) {
+  return prisma.thesisSeminarAudience.update({
+    where: {
+      thesisSeminarId_studentId: {
+        thesisSeminarId: seminarId,
+        studentId,
+      },
+    },
+    data: {
+      approvedBy: null,
+      approvedAt: null,
+      isPresent: false,
+    },
+  });
+}
+
+/**
+ * Toggle audience presence status by supervisor.
+ */
+export async function toggleAudiencePresence(seminarId, studentId, isPresent) {
+  return prisma.thesisSeminarAudience.update({
+    where: {
+      thesisSeminarId_studentId: {
+        thesisSeminarId: seminarId,
+        studentId,
+      },
+    },
+    data: { isPresent },
+  });
+}

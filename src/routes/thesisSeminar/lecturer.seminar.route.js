@@ -8,6 +8,8 @@ import { ROLES, LECTURER_ROLES } from "../../constants/roles.js";
 import {
   assignExaminersSchema,
   respondAssignmentSchema,
+  submitExaminerAssessmentSchema,
+  finalizeSeminarSchema,
 } from "../../validators/lecturerSeminar.validator.js";
 import {
   listAssignmentSeminars,
@@ -17,6 +19,17 @@ import {
   listSupervisedStudentSeminars,
   getSeminarDetail,
   respondExaminerAssignment,
+  getExaminerAssessment,
+  submitExaminerAssessmentCtrl,
+  getSupervisorFinalization,
+  finalizeSeminarCtrl,
+  getSeminarRevisionsCtrl,
+  approveRevisionCtrl,
+  unapproveRevisionCtrl,
+  getSeminarAudiencesCtrl,
+  approveAudienceCtrl,
+  unapproveAudienceCtrl,
+  toggleAudiencePresenceCtrl,
 } from "../../controllers/thesisSeminar/lecturerSeminar.controller.js";
 
 const router = express.Router();
@@ -44,6 +57,51 @@ router.get("/supervised-students", listSupervisedStudentSeminars);
 
 // GET /thesisSeminar/lecturer/seminars/:seminarId
 router.get("/seminars/:seminarId", getSeminarDetail);
+
+// GET /thesisSeminar/lecturer/seminars/:seminarId/assessment
+router.get("/seminars/:seminarId/assessment", getExaminerAssessment);
+
+// POST /thesisSeminar/lecturer/seminars/:seminarId/assessment
+router.post(
+  "/seminars/:seminarId/assessment",
+  validate(submitExaminerAssessmentSchema),
+  submitExaminerAssessmentCtrl
+);
+
+// GET /thesisSeminar/lecturer/seminars/:seminarId/finalization
+router.get("/seminars/:seminarId/finalization", getSupervisorFinalization);
+
+// POST /thesisSeminar/lecturer/seminars/:seminarId/finalize
+router.post(
+  "/seminars/:seminarId/finalize",
+  validate(finalizeSeminarSchema),
+  finalizeSeminarCtrl
+);
+
+// GET /thesisSeminar/lecturer/seminars/:seminarId/revisions
+router.get("/seminars/:seminarId/revisions", getSeminarRevisionsCtrl);
+
+// PUT /thesisSeminar/lecturer/seminars/:seminarId/revisions/:revisionId/approve
+router.put("/seminars/:seminarId/revisions/:revisionId/approve", approveRevisionCtrl);
+
+// PUT /thesisSeminar/lecturer/seminars/:seminarId/revisions/:revisionId/unapprove
+router.put("/seminars/:seminarId/revisions/:revisionId/unapprove", unapproveRevisionCtrl);
+
+// ============================================================
+// LECTURER — Audience / Attendance Management
+// ============================================================
+
+// GET /thesisSeminar/lecturer/seminars/:seminarId/audiences
+router.get("/seminars/:seminarId/audiences", getSeminarAudiencesCtrl);
+
+// PUT /thesisSeminar/lecturer/seminars/:seminarId/audiences/:studentId/approve
+router.put("/seminars/:seminarId/audiences/:studentId/approve", approveAudienceCtrl);
+
+// PUT /thesisSeminar/lecturer/seminars/:seminarId/audiences/:studentId/unapprove
+router.put("/seminars/:seminarId/audiences/:studentId/unapprove", unapproveAudienceCtrl);
+
+// PUT /thesisSeminar/lecturer/seminars/:seminarId/audiences/:studentId/presence
+router.put("/seminars/:seminarId/audiences/:studentId/presence", toggleAudiencePresenceCtrl);
 
 // POST /thesisSeminar/lecturer/seminars/:examinerId/respond
 router.post(

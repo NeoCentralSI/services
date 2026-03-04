@@ -1,4 +1,5 @@
 import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
+import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
 import {
   getStudentThesisWithSeminarInfo,
   countSeminarAttendance,
@@ -7,7 +8,17 @@ import {
   findAudienceRegistration,
   createAudienceRegistration,
   deleteAudienceRegistration,
+  getStudentSeminarRevisions,
+  createStudentRevision,
+  findRevisionById,
+  submitRevisionAction,
+  getAllStudentSeminars,
+  findStudentSeminarDetail,
+  getSeminarAudiences,
 } from "../../repositories/thesisSeminar/studentSeminar.repository.js";
+import {
+  findActiveExaminersWithAssessments,
+} from "../../repositories/thesisSeminar/lecturerSeminar.repository.js";
 import prisma from "../../config/prisma.js";
 import { ENV } from "../../config/env.js";
 
@@ -75,6 +86,28 @@ export async function getStudentSeminarOverview(userId) {
   // Current seminar (latest)
   const currentSeminar = thesis.thesisSeminars?.[0] || null;
 
+  // Resolve examiner lecturer names
+  let enrichedExaminers = [];
+  if (currentSeminar?.examiners?.length) {
+    const examinerLecturerIds = [
+      ...new Set(currentSeminar.examiners.map((e) => e.lecturerId).filter(Boolean)),
+    ];
+    const lecturerMap = new Map();
+    if (examinerLecturerIds.length > 0) {
+      const lecturers = await prisma.lecturer.findMany({
+        where: { id: { in: examinerLecturerIds } },
+        select: { id: true, user: { select: { fullName: true } } },
+      });
+      for (const l of lecturers) {
+        lecturerMap.set(l.id, l.user?.fullName || "-");
+      }
+    }
+    enrichedExaminers = currentSeminar.examiners.map((e) => ({
+      ...e,
+      lecturerName: lecturerMap.get(e.lecturerId) || "-",
+    }));
+  }
+
   return {
     thesisId: thesis.id,
     thesisTitle: thesis.title,
@@ -95,7 +128,7 @@ export async function getStudentSeminarOverview(userId) {
           cancelledReason: currentSeminar.cancelledReason,
           room: currentSeminar.room,
           documents: currentSeminar.documents,
-          examiners: currentSeminar.examiners,
+          examiners: enrichedExaminers,
         }
       : null,
   };
@@ -156,7 +189,7 @@ export async function getSeminarAnnouncements(userId) {
       date: s.date,
       startTime: s.startTime,
       endTime: s.endTime,
-      status: s.status,
+      status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
       meetingLink: s.meetingLink,
       room: s.room,
       thesisTitle: s.thesis?.title || "-",
@@ -293,5 +326,653 @@ export async function getStudentAttendanceHistory(userId) {
       approvedAt: r.approvedAt,
       approvedBy: r.supervisor?.lecturer?.user?.fullName || null,
     })),
+  };
+}
+
+// ============================================================
+// Student Revision
+// ============================================================
+
+/**
+ * Get revisions for the student's current seminar.
+ */
+export async function getStudentRevisions(userId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const thesis = await getStudentThesisWithSeminarInfo(student.id);
+  if (!thesis) {
+    const err = new Error("Anda belum memiliki tugas akhir yang terdaftar.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = thesis.thesisSeminars?.[0];
+  if (!seminar) {
+    const err = new Error("Anda belum memiliki seminar.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (seminar.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk seminar berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const revisions = await getStudentSeminarRevisions(seminar.id);
+
+  // Get examiner names
+  const lecturerIds = [...new Set(revisions.map((r) => r.seminarExaminer?.lecturerId).filter(Boolean))];
+  const lecturerMap = new Map();
+  if (lecturerIds.length > 0) {
+    const lecturers = await prisma.lecturer.findMany({
+      where: { id: { in: lecturerIds } },
+      select: { id: true, user: { select: { fullName: true } } },
+    });
+    for (const l of lecturers) {
+      lecturerMap.set(l.id, l.user?.fullName || "-");
+    }
+  }
+
+  // Get examiner revision notes
+  const examiners = seminar.examiners || [];
+  const examinerNotes = [];
+  for (const ex of examiners) {
+    if (ex.revisionNotes) {
+      examinerNotes.push({
+        examinerOrder: ex.order,
+        lecturerName: lecturerMap.get(ex.lecturerId) || "-",
+        revisionNotes: ex.revisionNotes,
+      });
+    }
+  }
+
+  const totalRevisions = revisions.length;
+  const finishedRevisions = revisions.filter((r) => r.isFinished).length;
+  const pendingApproval = revisions.filter((r) => r.studentSubmittedAt && !r.isFinished).length;
+
+  return {
+    seminarId: seminar.id,
+    examinerNotes,
+    summary: {
+      total: totalRevisions,
+      finished: finishedRevisions,
+      pendingApproval,
+    },
+    revisions: revisions.map((item) => ({
+      id: item.id,
+      examinerOrder: item.seminarExaminer?.order || null,
+      examinerLecturerId: item.seminarExaminer?.lecturerId || null,
+      examinerName: lecturerMap.get(item.seminarExaminer?.lecturerId) || "-",
+      description: item.description,
+      revisionAction: item.revisionAction,
+      isFinished: item.isFinished,
+      studentSubmittedAt: item.studentSubmittedAt,
+      supervisorApprovedAt: item.supervisorApprovedAt,
+      approvedBySupervisorName: item.supervisor?.lecturer?.user?.fullName || null,
+    })),
+  };
+}
+
+/**
+ * Create a new revision item by student.
+ */
+export async function createStudentRevisionItem(userId, body) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const thesis = await getStudentThesisWithSeminarInfo(student.id);
+  if (!thesis) {
+    const err = new Error("Anda belum memiliki tugas akhir.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = thesis.thesisSeminars?.[0];
+  if (!seminar || seminar.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk seminar berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Validate seminarExaminerId belongs to this seminar
+  const validExaminer = seminar.examiners.find((e) => e.id === body.seminarExaminerId);
+  if (!validExaminer) {
+    const err = new Error("Penguji tidak ditemukan pada seminar ini.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const revision = await createStudentRevision({
+    seminarExaminerId: body.seminarExaminerId,
+    description: body.description,
+  });
+
+  return {
+    id: revision.id,
+    seminarExaminerId: revision.seminarExaminerId,
+    description: revision.description,
+  };
+}
+
+/**
+ * Submit revision action by student.
+ */
+export async function submitStudentRevisionAction(userId, revisionId, body) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const revision = await findRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Item revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Verify student owns this seminar
+  const seminar = revision.seminarExaminer?.seminar;
+  if (!seminar || seminar.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (seminar.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk seminar berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.isFinished) {
+    const err = new Error("Revisi ini sudah disetujui dan tidak dapat diubah.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const updated = await submitRevisionAction(revisionId, body.revisionAction);
+
+  return {
+    id: updated.id,
+    revisionAction: updated.revisionAction,
+    studentSubmittedAt: updated.studentSubmittedAt,
+  };
+}
+
+/**
+ * Get seminar history for student.
+ */
+export async function getStudentSeminarHistory(userId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminars = await getAllStudentSeminars(student.id);
+
+  // Get examiner lecturer names
+  const allLecturerIds = [...new Set(seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId).filter(Boolean)))];
+  const lecturerMap = new Map();
+  if (allLecturerIds.length > 0) {
+    const lecturers = await prisma.lecturer.findMany({
+      where: { id: { in: allLecturerIds } },
+      select: { id: true, user: { select: { fullName: true } } },
+    });
+    for (const l of lecturers) {
+      lecturerMap.set(l.id, l.user?.fullName || "-");
+    }
+  }
+
+  return seminars.map((s) => ({
+    id: s.id,
+    status: s.status,
+    registeredAt: s.registeredAt,
+    date: s.date,
+    startTime: s.startTime,
+    endTime: s.endTime,
+    meetingLink: s.meetingLink,
+    finalScore: s.finalScore,
+    grade: s.grade,
+    resultFinalizedAt: s.resultFinalizedAt,
+    cancelledReason: s.cancelledReason,
+    room: s.room,
+    examiners: s.examiners.map((e) => ({
+      order: e.order,
+      lecturerName: lecturerMap.get(e.lecturerId) || "-",
+      assessmentScore: e.assessmentScore,
+    })),
+  }));
+}
+
+// ============================================================
+// Student Seminar Detail (for history detail page)
+// ============================================================
+
+/**
+ * Get detailed info about a specific seminar for the student.
+ */
+export async function getStudentSeminarDetail(userId, seminarId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = await findStudentSeminarDetail(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Verify student owns this seminar
+  if (seminar.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  // Get lecturer names for examiners
+  const lecturerIds = [...new Set(seminar.examiners.map((e) => e.lecturerId).filter(Boolean))];
+  const lecturerMap = new Map();
+  if (lecturerIds.length > 0) {
+    const lecturers = await prisma.lecturer.findMany({
+      where: { id: { in: lecturerIds } },
+      select: { id: true, user: { select: { fullName: true } } },
+    });
+    for (const l of lecturers) {
+      lecturerMap.set(l.id, l.user?.fullName || "-");
+    }
+  }
+
+  // Get document type names
+  const { getSeminarDocumentTypes } = await import("../../repositories/thesisSeminar/seminarDocument.repository.js");
+  const docTypes = await getSeminarDocumentTypes();
+
+  // Manually join Document data for fileName
+  const docIds = seminar.documents.map((d) => d.documentId).filter(Boolean);
+  const docFiles = docIds.length
+    ? await prisma.document.findMany({
+        where: { id: { in: docIds } },
+        select: { id: true, fileName: true },
+      })
+    : [];
+  const docFileMap = new Map(docFiles.map((d) => [d.id, d.fileName]));
+
+  // Build examiner notes (for revision notes)
+  const examinerNotes = seminar.examiners
+    .filter((e) => e.revisionNotes)
+    .map((e) => ({
+      examinerOrder: e.order,
+      lecturerName: lecturerMap.get(e.lecturerId) || "-",
+      revisionNotes: e.revisionNotes,
+    }));
+
+  // Get revisions if passed_with_revision
+  let revisions = [];
+  let revisionSummary = { total: 0, finished: 0, pendingApproval: 0 };
+  if (seminar.status === "passed_with_revision") {
+    const revisionData = await getStudentSeminarRevisions(seminarId);
+    revisions = revisionData.map((item) => ({
+      id: item.id,
+      examinerOrder: item.seminarExaminer?.order || null,
+      examinerLecturerId: item.seminarExaminer?.lecturerId || null,
+      examinerName: lecturerMap.get(item.seminarExaminer?.lecturerId) || "-",
+      description: item.description,
+      revisionAction: item.revisionAction,
+      isFinished: item.isFinished,
+      studentSubmittedAt: item.studentSubmittedAt,
+      supervisorApprovedAt: item.supervisorApprovedAt,
+      approvedBySupervisorName: item.supervisor?.lecturer?.user?.fullName || null,
+    }));
+    revisionSummary = {
+      total: revisions.length,
+      finished: revisions.filter((r) => r.isFinished).length,
+      pendingApproval: revisions.filter((r) => r.studentSubmittedAt && !r.isFinished).length,
+    };
+  }
+
+  return {
+    id: seminar.id,
+    status: seminar.status,
+    registeredAt: seminar.registeredAt,
+    date: seminar.date,
+    startTime: seminar.startTime,
+    endTime: seminar.endTime,
+    meetingLink: seminar.meetingLink,
+    finalScore: seminar.finalScore,
+    grade: seminar.grade,
+    resultFinalizedAt: seminar.resultFinalizedAt,
+    cancelledReason: seminar.cancelledReason,
+    room: seminar.room,
+    thesis: {
+      id: seminar.thesis.id,
+      title: seminar.thesis.title,
+    },
+    examiners: seminar.examiners.map((e) => ({
+      id: e.id,
+      order: e.order,
+      lecturerName: lecturerMap.get(e.lecturerId) || "-",
+      assessmentScore: e.assessmentScore,
+      assessmentSubmittedAt: e.assessmentSubmittedAt,
+    })),
+    documents: seminar.documents.map((d) => {
+      const dt = docTypes.find((t) => t.id === d.documentTypeId);
+      return {
+        documentTypeId: d.documentTypeId,
+        documentTypeName: dt?.name || "-",
+        fileName: docFileMap.get(d.documentId) || null,
+        status: d.status,
+        submittedAt: d.submittedAt,
+        verifiedAt: d.verifiedAt,
+        notes: d.notes,
+      };
+    }),
+    examinerNotes,
+    revisions,
+    revisionSummary,
+    audiences: (seminar.audiences || []).map((a) => ({
+      studentName: a.student?.user?.fullName || "-",
+      nim: a.student?.user?.identityNumber || "-",
+      registeredAt: a.registeredAt,
+      isPresent: a.isPresent,
+      approvedAt: a.approvedAt,
+      approvedByName: a.supervisor?.lecturer?.user?.fullName || null,
+    })),
+  };
+}
+
+// ============================================================
+// Student Assessment View (read-only rubric view)
+// ============================================================
+
+function mapScoreToGrade(score) {
+  if (score >= 85) return "A";
+  if (score >= 80) return "AB";
+  if (score >= 75) return "B";
+  if (score >= 70) return "BC";
+  if (score >= 65) return "C";
+  if (score >= 60) return "D";
+  return "E";
+}
+
+/**
+ * Get assessment/rubric data for a student's seminar (read-only).
+ * Similar to supervisor finalization data but student-accessible.
+ */
+export async function getStudentSeminarAssessment(userId, seminarId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = await findStudentSeminarDetail(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (seminar.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  // Get examiner names
+  const lecturerIds = [...new Set(seminar.examiners.map((e) => e.lecturerId).filter(Boolean))];
+  const lecturerMap = new Map();
+  if (lecturerIds.length > 0) {
+    const lecturers = await prisma.lecturer.findMany({
+      where: { id: { in: lecturerIds } },
+      select: { id: true, user: { select: { fullName: true } } },
+    });
+    for (const l of lecturers) {
+      lecturerMap.set(l.id, l.user?.fullName || "-");
+    }
+  }
+
+  const examiners = await findActiveExaminersWithAssessments(seminarId);
+  const allExaminerSubmitted =
+    examiners.length >= 2 &&
+    examiners.every((item) => !!item.assessmentSubmittedAt && item.assessmentScore !== null);
+
+  const averageScore = allExaminerSubmitted
+    ? examiners.reduce((sum, item) => sum + (item.assessmentScore || 0), 0) / examiners.length
+    : null;
+  const averageGrade = averageScore !== null ? mapScoreToGrade(averageScore) : null;
+
+  return {
+    seminar: {
+      id: seminar.id,
+      status: seminar.status,
+      finalScore: seminar.finalScore ?? null,
+      grade: seminar.grade ?? null,
+      resultFinalizedAt: seminar.resultFinalizedAt ?? null,
+    },
+    examiners: examiners.map((item) => {
+      const detailsByGroup = {};
+      (item.thesisSeminarExaminerAssessmentDetails || []).forEach((d) => {
+        const cpmk = d.criteria?.cpmk;
+        if (!cpmk) return;
+        if (!detailsByGroup[cpmk.id]) {
+          detailsByGroup[cpmk.id] = {
+            id: cpmk.id,
+            code: cpmk.code,
+            description: cpmk.description,
+            criteria: [],
+          };
+        }
+        detailsByGroup[cpmk.id].criteria.push({
+          id: d.criteria.id,
+          name: d.criteria.name,
+          maxScore: d.criteria.maxScore,
+          score: d.score,
+          displayOrder: d.criteria.displayOrder,
+        });
+      });
+      Object.values(detailsByGroup).forEach((g) => {
+        g.criteria.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+      });
+
+      return {
+        id: item.id,
+        lecturerId: item.lecturerId,
+        lecturerName: lecturerMap.get(item.lecturerId) || "-",
+        order: item.order,
+        assessmentScore: item.assessmentScore,
+        revisionNotes: item.revisionNotes,
+        assessmentSubmittedAt: item.assessmentSubmittedAt,
+        assessmentDetails: Object.values(detailsByGroup).sort((a, b) =>
+          (a.code || "").localeCompare(b.code || "")
+        ),
+      };
+    }),
+    allExaminerSubmitted,
+    averageScore,
+    averageGrade,
+  };
+}
+
+// ============================================================
+// Separated Revision Flow
+// ============================================================
+
+/**
+ * Save perbaikan text (revisionAction) without submitting.
+ */
+export async function saveStudentRevisionAction(userId, revisionId, body) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const revision = await findRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Item revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = revision.seminarExaminer?.seminar;
+  if (!seminar || seminar.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (seminar.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk seminar berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.isFinished) {
+    const err = new Error("Revisi ini sudah disetujui dan tidak dapat diubah.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.studentSubmittedAt) {
+    const err = new Error("Perbaikan sudah diajukan. Batalkan pengajuan terlebih dahulu untuk mengedit.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const updated = await prisma.thesisSeminarRevision.update({
+    where: { id: revisionId },
+    data: { revisionAction: body.revisionAction },
+  });
+
+  return {
+    id: updated.id,
+    revisionAction: updated.revisionAction,
+  };
+}
+
+/**
+ * Submit revision (set studentSubmittedAt) - separate from saving perbaikan.
+ */
+export async function submitStudentRevision(userId, revisionId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const revision = await findRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Item revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = revision.seminarExaminer?.seminar;
+  if (!seminar || seminar.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (seminar.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk seminar berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.isFinished) {
+    const err = new Error("Revisi ini sudah disetujui.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.studentSubmittedAt) {
+    const err = new Error("Revisi ini sudah diajukan.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!revision.revisionAction) {
+    const err = new Error("Isi perbaikan terlebih dahulu sebelum mengajukan.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const updated = await prisma.thesisSeminarRevision.update({
+    where: { id: revisionId },
+    data: { studentSubmittedAt: new Date() },
+  });
+
+  return {
+    id: updated.id,
+    studentSubmittedAt: updated.studentSubmittedAt,
+  };
+}
+
+/**
+ * Cancel revision submission (clear studentSubmittedAt).
+ */
+export async function cancelStudentRevisionSubmission(userId, revisionId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const revision = await findRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Item revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = revision.seminarExaminer?.seminar;
+  if (!seminar || seminar.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (revision.isFinished) {
+    const err = new Error("Revisi yang sudah disetujui tidak dapat dibatalkan.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!revision.studentSubmittedAt) {
+    const err = new Error("Revisi ini belum diajukan.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const updated = await prisma.thesisSeminarRevision.update({
+    where: { id: revisionId },
+    data: { studentSubmittedAt: null },
+  });
+
+  return {
+    id: updated.id,
+    studentSubmittedAt: updated.studentSubmittedAt,
   };
 }

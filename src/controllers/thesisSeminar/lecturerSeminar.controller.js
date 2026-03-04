@@ -6,6 +6,17 @@ import {
   getSupervisedStudentSeminars,
   getLecturerSeminarDetail,
   respondToAssignment,
+  getExaminerAssessmentForm,
+  submitExaminerAssessment,
+  getSupervisorFinalizationData,
+  finalizeSeminarBySupervisor,
+  getSupervisorRevisionBoard,
+  approveRevisionBySupervisor,
+  unapproveRevisionBySupervisor,
+  getSeminarAudienceList,
+  approveAudienceBySupervisor,
+  unapproveAudienceBySupervisor,
+  toggleAudiencePresenceBySupervisor,
 } from "../../services/thesisSeminar/lecturerSeminar.service.js";
 
 // ============================================================
@@ -102,7 +113,83 @@ export async function listSupervisedStudentSeminars(req, res, next) {
 export async function getSeminarDetail(req, res, next) {
   try {
     const { seminarId } = req.params;
-    const data = await getLecturerSeminarDetail(seminarId);
+    const userId = req.user.sub;
+    const data = await getLecturerSeminarDetail(seminarId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /thesisSeminar/lecturer/seminars/:seminarId/assessment
+ * Get examiner assessment form payload for ongoing seminar
+ */
+export async function getExaminerAssessment(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const userId = req.user.sub;
+    const data = await getExaminerAssessmentForm(seminarId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /thesisSeminar/lecturer/seminars/:seminarId/assessment
+ * Submit examiner assessment
+ */
+export async function submitExaminerAssessmentCtrl(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const userId = req.user.sub;
+    const data = await submitExaminerAssessment(seminarId, userId, req.body);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /thesisSeminar/lecturer/seminars/:seminarId/finalization
+ * Get supervisor finalization dashboard payload
+ */
+export async function getSupervisorFinalization(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const userId = req.user.sub;
+    const data = await getSupervisorFinalizationData(seminarId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /thesisSeminar/lecturer/seminars/:seminarId/finalize
+ * Finalize seminar result by supervisor
+ */
+export async function finalizeSeminarCtrl(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const userId = req.user.sub;
+    const data = await finalizeSeminarBySupervisor(seminarId, userId, req.body);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /thesisSeminar/lecturer/seminars/:seminarId/revisions
+ * Get revision board payload for supervisor
+ */
+export async function getSeminarRevisionsCtrl(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const userId = req.user.sub;
+    const data = await getSupervisorRevisionBoard(seminarId, userId);
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -120,6 +207,97 @@ export async function respondExaminerAssignment(req, res, next) {
     const { status } = req.body;
 
     const data = await respondToAssignment(examinerId, userId, status);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT /thesisSeminar/lecturer/seminars/:seminarId/revisions/:revisionId/approve
+ * Supervisor approves a revision item
+ */
+export async function approveRevisionCtrl(req, res, next) {
+  try {
+    const { seminarId, revisionId } = req.params;
+    const userId = req.user.sub;
+    const data = await approveRevisionBySupervisor(seminarId, revisionId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT /thesisSeminar/lecturer/seminars/:seminarId/revisions/:revisionId/unapprove
+ * Supervisor unapproves a revision item
+ */
+export async function unapproveRevisionCtrl(req, res, next) {
+  try {
+    const { seminarId, revisionId } = req.params;
+    const userId = req.user.sub;
+    const data = await unapproveRevisionBySupervisor(seminarId, revisionId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ============================================================
+// Audience / Attendance
+// ============================================================
+
+/**
+ * GET /thesisSeminar/lecturer/seminars/:seminarId/audiences
+ * Get audience list for a seminar
+ */
+export async function getSeminarAudiencesCtrl(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const data = await getSeminarAudienceList(seminarId, req.user.sub);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT /thesisSeminar/lecturer/seminars/:seminarId/audiences/:studentId/approve
+ * Supervisor approves an audience registration
+ */
+export async function approveAudienceCtrl(req, res, next) {
+  try {
+    const { seminarId, studentId } = req.params;
+    const data = await approveAudienceBySupervisor(seminarId, studentId, req.user.sub);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT /thesisSeminar/lecturer/seminars/:seminarId/audiences/:studentId/unapprove
+ * Supervisor cancels audience approval.
+ */
+export async function unapproveAudienceCtrl(req, res, next) {
+  try {
+    const { seminarId, studentId } = req.params;
+    const data = await unapproveAudienceBySupervisor(seminarId, studentId, req.user.sub);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT /thesisSeminar/lecturer/seminars/:seminarId/audiences/:studentId/presence
+ * Supervisor toggles audience presence
+ */
+export async function toggleAudiencePresenceCtrl(req, res, next) {
+  try {
+    const { seminarId, studentId } = req.params;
+    const { isPresent } = req.body;
+    const data = await toggleAudiencePresenceBySupervisor(seminarId, studentId, req.user.sub, isPresent);
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

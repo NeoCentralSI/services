@@ -77,9 +77,16 @@ export async function getSchedulingDataController(req, res, next) {
 export async function setSchedule(req, res, next) {
   try {
     const { seminarId } = req.params;
-    const { roomId, date, startTime, endTime } = req.validated;
+    const { roomId, date, startTime, endTime, isOnline, meetingLink } = req.validated;
 
-    const data = await scheduleSeminar(seminarId, { roomId, date, startTime, endTime });
+    const data = await scheduleSeminar(seminarId, {
+      roomId,
+      date,
+      startTime,
+      endTime,
+      isOnline,
+      meetingLink,
+    });
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

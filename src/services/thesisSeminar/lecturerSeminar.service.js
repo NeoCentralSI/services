@@ -12,9 +12,25 @@ import {
   findExaminerById,
   countExaminersByStatus,
   updateSeminarStatus,
+  findSeminarAssessmentCpmks,
+  findLatestExaminerBySeminarAndLecturer,
+  saveExaminerAssessment,
+  findActiveExaminersWithAssessments,
+  findSeminarSupervisorRole,
+  finalizeSeminarResult,
+  findSeminarRevisionsBySeminarId,
+  approveRevisionItem,
+  unapproveRevisionItem,
+  findRevisionByIdFull,
+  findSeminarAudiences,
+  approveAudienceRegistration,
+  resetAudienceApproval,
+  toggleAudiencePresence,
 } from "../../repositories/thesisSeminar/lecturerSeminar.repository.js";
 import { getSeminarDocumentTypes } from "../../repositories/thesisSeminar/seminarDocument.repository.js";
 import { findDocumentWithFile } from "../../repositories/thesisSeminar/adminSeminar.repository.js";
+import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
+import prisma from "../../config/prisma.js";
 
 // ============================================================
 // Helper: determine examiner assignment status label for kadep view
@@ -51,6 +67,33 @@ function getAssignmentStatus(activeExaminers, totalExaminerCount = 0) {
   if (hasPending) return "pending";
 
   return "pending";
+}
+
+function resolveSupervisorMembership(supervisorRelation) {
+  if (!supervisorRelation) return null;
+
+  if (
+    supervisorRelation.thesis?.thesisSupervisors &&
+    supervisorRelation.thesis.thesisSupervisors.length > 0
+  ) {
+    return supervisorRelation.thesis.thesisSupervisors[0];
+  }
+
+  return supervisorRelation;
+}
+
+function mapScoreToGrade(score) {
+  if (score === null || score === undefined || Number.isNaN(Number(score))) return null;
+  const numericScore = Number(score);
+
+  if (numericScore >= 80 && numericScore <= 100) return "A";
+  if (numericScore >= 76 && numericScore < 80) return "A-";
+  if (numericScore >= 70 && numericScore < 76) return "B+";
+  if (numericScore >= 65 && numericScore < 70) return "B";
+  if (numericScore >= 55 && numericScore < 65) return "C+";
+  if (numericScore >= 50 && numericScore < 55) return "C";
+  if (numericScore >= 45 && numericScore < 50) return "D";
+  return "E";
 }
 
 // ============================================================
@@ -266,7 +309,7 @@ export async function getExaminerRequests(lecturerId, { search } = {}) {
       studentNim: student?.user?.identityNumber || "-",
       thesisTitle: s.thesis?.title || "-",
       supervisors,
-      status: s.status,
+      status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
       registeredAt: s.registeredAt,
       date: s.date,
       startTime: s.startTime,
@@ -321,7 +364,7 @@ export async function getSupervisedStudentSeminars(lecturerId, { search } = {}) 
       studentNim: student?.user?.identityNumber || "-",
       thesisTitle: s.thesis?.title || "-",
       supervisors,
-      status: s.status,
+      status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
       registeredAt: s.registeredAt,
       date: s.date,
       startTime: s.startTime,
@@ -336,7 +379,7 @@ export async function getSupervisedStudentSeminars(lecturerId, { search } = {}) 
 /**
  * Get seminar detail for lecturer
  */
-export async function getLecturerSeminarDetail(seminarId) {
+export async function getLecturerSeminarDetail(seminarId, lecturerId) {
   const seminar = await findSeminarDetailById(seminarId);
   if (!seminar) {
     const err = new Error("Seminar tidak ditemukan.");
@@ -369,10 +412,45 @@ export async function getLecturerSeminarDetail(seminarId) {
   );
 
   const docTypes = await getSeminarDocumentTypes();
+  const effectiveStatus = computeEffectiveStatus(
+    seminar.status,
+    seminar.date,
+    seminar.startTime,
+    seminar.endTime
+  );
+
+  const myExaminerRecords = (seminar.examiners || [])
+    .filter((e) => e.lecturerId === lecturerId)
+    .sort((a, b) => new Date(b.assignedAt) - new Date(a.assignedAt));
+  const myExaminer = myExaminerRecords[0] || null;
+
+  const mySupervisor = (seminar.thesis?.thesisSupervisors || []).find(
+    (ts) => ts.lecturerId === lecturerId
+  ) || null;
+
+  const isExaminer = !!myExaminer;
+  const isSupervisor = !!mySupervisor;
+
+  const activeExaminers = (seminar.examiners || []).filter(
+    (e) => e.availabilityStatus === "available"
+  );
+  const allExaminerSubmitted =
+    activeExaminers.length >= 2 &&
+    activeExaminers.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
+
+  // Get audience data for view-only display
+  const audienceRows = await findSeminarAudiences(seminarId);
+  const audiences = audienceRows.map((a) => ({
+    studentName: a.student?.user?.fullName || "-",
+    nim: a.student?.user?.identityNumber || "-",
+    registeredAt: a.registeredAt,
+    isPresent: a.isPresent,
+    approvedAt: a.approvedAt,
+  }));
 
   return {
     id: seminar.id,
-    status: seminar.status,
+    status: effectiveStatus,
     registeredAt: seminar.registeredAt,
     date: seminar.date,
     startTime: seminar.startTime,
@@ -391,6 +469,24 @@ export async function getLecturerSeminarDetail(seminarId) {
       name: student?.user?.fullName || "-",
       nim: student?.user?.identityNumber || "-",
     },
+    viewerRole: isSupervisor ? "supervisor" : isExaminer ? "examiner" : "none",
+    mySupervisorRole: mySupervisor?.role?.name || null,
+    myExaminerId: myExaminer?.id || null,
+    myExaminerOrder: myExaminer?.order || null,
+    myExaminerAvailabilityStatus: myExaminer?.availabilityStatus || null,
+    myAssessmentSubmittedAt: myExaminer?.assessmentSubmittedAt || null,
+    canOpenExaminerAssessment:
+      ["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus) &&
+      isExaminer &&
+      myExaminer?.availabilityStatus === "available",
+    canOpenSupervisorFinalization:
+      ["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus) &&
+      isSupervisor,
+    canOpenSupervisorRevision:
+      ["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus) &&
+      isSupervisor,
+    resultFinalizedAt: seminar.resultFinalizedAt,
+    allExaminerSubmitted,
     supervisors,
     documents,
     documentTypes: docTypes.map((dt) => ({ id: dt.id, name: dt.name })),
@@ -417,6 +513,471 @@ export async function getLecturerSeminarDetail(seminarId) {
         respondedAt: e.respondedAt,
         assignedAt: e.assignedAt,
       })),
+    audiences,
+  };
+}
+
+/**
+ * Examiner assessment form payload for an ongoing seminar.
+ */
+export async function getExaminerAssessmentForm(seminarId, lecturerId) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const effectiveStatus = computeEffectiveStatus(
+    seminar.status,
+    seminar.date,
+    seminar.startTime,
+    seminar.endTime
+  );
+  if (!["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus)) {
+    const err = new Error("Form penilaian hanya tersedia saat seminar sedang berlangsung atau sudah selesai.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const examiner = await findLatestExaminerBySeminarAndLecturer(seminarId, lecturerId);
+  if (!examiner || examiner.availabilityStatus !== "available") {
+    const err = new Error("Anda bukan penguji aktif pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const cpmks = await findSeminarAssessmentCpmks();
+  const existingScoreMap = new Map(
+    (examiner.thesisSeminarExaminerAssessmentDetails || []).map((item) => [
+      item.assessmentCriteriaId,
+      item.score,
+    ])
+  );
+
+  const criteriaGroups = cpmks.map((cpmk) => ({
+    id: cpmk.id,
+    code: cpmk.code,
+    description: cpmk.description,
+    criteria: (cpmk.assessmentCriterias || []).map((criterion) => ({
+      id: criterion.id,
+      name: criterion.name || "-",
+      maxScore: criterion.maxScore || 0,
+      score: existingScoreMap.get(criterion.id) ?? null,
+      rubrics: (criterion.assessmentRubrics || []).map((rubric) => ({
+        id: rubric.id,
+        minScore: rubric.minScore,
+        maxScore: rubric.maxScore,
+        description: rubric.description,
+      })),
+    })),
+  }));
+
+  return {
+    seminar: {
+      id: seminar.id,
+      status: effectiveStatus,
+      studentName: seminar.thesis?.student?.user?.fullName || "-",
+      studentNim: seminar.thesis?.student?.user?.identityNumber || "-",
+      thesisTitle: seminar.thesis?.title || "-",
+      date: seminar.date,
+      startTime: seminar.startTime,
+      endTime: seminar.endTime,
+      room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
+    },
+    examiner: {
+      id: examiner.id,
+      order: examiner.order,
+      assessmentScore: examiner.assessmentScore,
+      revisionNotes: examiner.revisionNotes,
+      assessmentSubmittedAt: examiner.assessmentSubmittedAt,
+    },
+    criteriaGroups,
+  };
+}
+
+/**
+ * Submit examiner assessment (final submit).
+ */
+export async function submitExaminerAssessment(seminarId, lecturerId, payload) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const effectiveStatus = computeEffectiveStatus(
+    seminar.status,
+    seminar.date,
+    seminar.startTime,
+    seminar.endTime
+  );
+  if (effectiveStatus !== "ongoing") {
+    const err = new Error("Penilaian hanya dapat disubmit saat seminar sedang berlangsung.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const examiner = await findLatestExaminerBySeminarAndLecturer(seminarId, lecturerId);
+  if (!examiner || examiner.availabilityStatus !== "available") {
+    const err = new Error("Anda bukan penguji aktif pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+  if (examiner.assessmentSubmittedAt) {
+    const err = new Error("Penilaian sudah disubmit sebelumnya dan tidak dapat diubah.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const cpmks = await findSeminarAssessmentCpmks();
+  const activeCriteria = cpmks.flatMap((cpmk) => cpmk.assessmentCriterias || []);
+  const criteriaMap = new Map(activeCriteria.map((item) => [item.id, item]));
+
+  const incoming = payload.scores || [];
+  if (incoming.length !== activeCriteria.length) {
+    const err = new Error("Semua kriteria aktif harus diisi sebelum submit.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const seen = new Set();
+  const normalizedScores = incoming.map((item) => {
+    const criterion = criteriaMap.get(item.assessmentCriteriaId);
+    if (!criterion) {
+      const err = new Error("Terdapat kriteria yang tidak valid.");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (seen.has(item.assessmentCriteriaId)) {
+      const err = new Error("Duplikasi kriteria pada payload penilaian.");
+      err.statusCode = 400;
+      throw err;
+    }
+    seen.add(item.assessmentCriteriaId);
+
+    const max = criterion.maxScore || 0;
+    if (item.score < 0 || item.score > max) {
+      const err = new Error(`Nilai untuk '${criterion.name || "kriteria"}' harus 0-${max}.`);
+      err.statusCode = 400;
+      throw err;
+    }
+
+    return {
+      assessmentCriteriaId: item.assessmentCriteriaId,
+      score: item.score,
+    };
+  });
+
+  const updatedExaminer = await saveExaminerAssessment({
+    examinerId: examiner.id,
+    scores: normalizedScores,
+    revisionNotes: payload.revisionNotes,
+  });
+
+  return {
+    examinerId: updatedExaminer.id,
+    assessmentScore: updatedExaminer.assessmentScore,
+    assessmentSubmittedAt: updatedExaminer.assessmentSubmittedAt,
+  };
+}
+
+/**
+ * Supervisor monitoring data for final recommendation step.
+ */
+export async function getSupervisorFinalizationData(seminarId, lecturerId) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
+  if (!mySupervisor) {
+    const err = new Error("Anda bukan dosen pembimbing pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const effectiveStatus = computeEffectiveStatus(
+    seminar.status,
+    seminar.date,
+    seminar.startTime,
+    seminar.endTime
+  );
+
+  const examiners = await findActiveExaminersWithAssessments(seminarId);
+  const hasTwoExaminers = examiners.length >= 2;
+  const allExaminerSubmitted =
+    hasTwoExaminers && examiners.every((item) => !!item.assessmentSubmittedAt && item.assessmentScore !== null);
+
+  const averageScore = allExaminerSubmitted
+    ? examiners.reduce((sum, item) => sum + (item.assessmentScore || 0), 0) / examiners.length
+    : null;
+  const averageGrade = averageScore !== null ? mapScoreToGrade(averageScore) : null;
+
+  return {
+    seminar: {
+      id: seminar.id,
+      status: effectiveStatus,
+      finalScore: seminar.finalScore,
+      grade: seminar.grade,
+      resultFinalizedAt: seminar.resultFinalizedAt,
+      studentName: seminar.thesis?.student?.user?.fullName || "-",
+      studentNim: seminar.thesis?.student?.user?.identityNumber || "-",
+      thesisTitle: seminar.thesis?.title || "-",
+    },
+    supervisor: {
+      roleName: mySupervisor.role?.name || "Pembimbing",
+      canFinalize: effectiveStatus === "ongoing" && !seminar.resultFinalizedAt,
+    },
+    examiners: examiners.map((item) => {
+      // Group assessment details by CPMK for per-criteria breakdown
+      const detailsByGroup = {};
+      (item.thesisSeminarExaminerAssessmentDetails || []).forEach((d) => {
+        const cpmk = d.criteria?.cpmk;
+        if (!cpmk) return;
+        if (!detailsByGroup[cpmk.id]) {
+          detailsByGroup[cpmk.id] = {
+            id: cpmk.id,
+            code: cpmk.code,
+            description: cpmk.description,
+            criteria: [],
+          };
+        }
+        detailsByGroup[cpmk.id].criteria.push({
+          id: d.criteria.id,
+          name: d.criteria.name,
+          maxScore: d.criteria.maxScore,
+          score: d.score,
+          displayOrder: d.criteria.displayOrder,
+        });
+      });
+      // Sort criteria within each group by displayOrder
+      Object.values(detailsByGroup).forEach((g) => {
+        g.criteria.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+      });
+
+      return {
+        id: item.id,
+        lecturerId: item.lecturerId,
+        lecturerName:
+          (seminar.examiners || []).find((x) => x.lecturerId === item.lecturerId)?.lecturerName || "-",
+        order: item.order,
+        assessmentScore: item.assessmentScore,
+        revisionNotes: item.revisionNotes,
+        assessmentSubmittedAt: item.assessmentSubmittedAt,
+        assessmentDetails: Object.values(detailsByGroup).sort((a, b) =>
+          (a.code || "").localeCompare(b.code || "")
+        ),
+      };
+    }),
+    allExaminerSubmitted,
+    averageScore,
+    averageGrade,
+    recommendationUnlocked: allExaminerSubmitted,
+  };
+}
+
+/**
+ * Supervisor finalizes seminar result.
+ */
+export async function finalizeSeminarBySupervisor(seminarId, lecturerId, payload) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (seminar.resultFinalizedAt) {
+    const err = new Error("Hasil seminar sudah pernah ditetapkan.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  if (!resolveSupervisorMembership(supervisorRelation)) {
+    const err = new Error("Anda bukan dosen pembimbing pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const effectiveStatus = computeEffectiveStatus(
+    seminar.status,
+    seminar.date,
+    seminar.startTime,
+    seminar.endTime
+  );
+  if (effectiveStatus !== "ongoing") {
+    const err = new Error("Penetapan hasil hanya dapat dilakukan saat seminar berstatus sedang berlangsung.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const examiners = await findActiveExaminersWithAssessments(seminarId);
+  const allExaminerSubmitted =
+    examiners.length >= 2 &&
+    examiners.every((item) => !!item.assessmentSubmittedAt && item.assessmentScore !== null);
+  if (!allExaminerSubmitted) {
+    const err = new Error("Penetapan hasil dikunci sampai seluruh penguji submit nilai.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const averageScore =
+    examiners.reduce((sum, item) => sum + (item.assessmentScore || 0), 0) /
+    examiners.length;
+  const finalGrade = mapScoreToGrade(averageScore);
+
+  const finalized = await finalizeSeminarResult({
+    seminarId,
+    status: payload.status,
+    finalScore: averageScore,
+    grade: finalGrade,
+  });
+
+  // If failed, reset seminarReady for all supervisors so student can re-register
+  if (payload.status === "failed") {
+    const thesisId = seminar.thesis?.id;
+    if (thesisId) {
+      await prisma.thesisSupervisors.updateMany({
+        where: { thesisId },
+        data: { seminarReady: false },
+      });
+    }
+  }
+
+  return {
+    seminarId: finalized.id,
+    status: finalized.status,
+    finalScore: finalized.finalScore,
+    grade: finalized.grade,
+    resultFinalizedAt: finalized.resultFinalizedAt,
+  };
+}
+
+/**
+ * Supervisor revision board API.
+ */
+export async function getSupervisorRevisionBoard(seminarId, lecturerId) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  if (!resolveSupervisorMembership(supervisorRelation)) {
+    const err = new Error("Anda bukan dosen pembimbing pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const revisions = await findSeminarRevisionsBySeminarId(seminarId);
+
+  return revisions.map((item) => ({
+    id: item.id,
+    examinerOrder: item.seminarExaminer?.order || null,
+    examinerLecturerId: item.seminarExaminer?.lecturerId || null,
+    description: item.description,
+    revisionAction: item.revisionAction,
+    isFinished: item.isFinished,
+    studentSubmittedAt: item.studentSubmittedAt,
+    supervisorApprovedAt: item.supervisorApprovedAt,
+    approvedBySupervisorId: item.supervisor?.id || null,
+    approvedBySupervisorName: item.supervisor?.lecturer?.user?.fullName || null,
+  }));
+}
+
+/**
+ * Supervisor approves a revision item.
+ */
+export async function approveRevisionBySupervisor(seminarId, revisionId, lecturerId) {
+  const revision = await findRevisionByIdFull(revisionId);
+  if (!revision) {
+    const err = new Error("Item revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Verify revision belongs to this seminar
+  if (revision.seminarExaminer?.thesisSeminarId !== seminarId) {
+    const err = new Error("Revisi tidak terkait dengan seminar ini.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Verify lecturer is supervisor
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
+  if (!mySupervisor) {
+    const err = new Error("Anda bukan dosen pembimbing pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const supervisorId = mySupervisor.id;
+
+  if (revision.isFinished) {
+    const err = new Error("Revisi ini sudah disetujui.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!revision.studentSubmittedAt) {
+    const err = new Error("Mahasiswa belum mengisi perbaikan untuk revisi ini.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const approved = await approveRevisionItem(revisionId, supervisorId);
+
+  return {
+    id: approved.id,
+    isFinished: approved.isFinished,
+    supervisorApprovedAt: approved.supervisorApprovedAt,
+  };
+}
+
+/**
+ * Supervisor unapproves a revision item (reset approval).
+ */
+export async function unapproveRevisionBySupervisor(seminarId, revisionId, lecturerId) {
+  const revision = await findRevisionByIdFull(revisionId);
+  if (!revision) {
+    const err = new Error("Item revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (revision.seminarExaminer?.thesisSeminarId !== seminarId) {
+    const err = new Error("Revisi tidak terkait dengan seminar ini.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  if (!resolveSupervisorMembership(supervisorRelation)) {
+    const err = new Error("Anda bukan dosen pembimbing pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (!revision.isFinished) {
+    const err = new Error("Revisi ini belum disetujui.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const unapproved = await unapproveRevisionItem(revisionId);
+
+  return {
+    id: unapproved.id,
+    isFinished: unapproved.isFinished,
   };
 }
 
@@ -482,4 +1043,102 @@ export async function respondToAssignment(examinerId, lecturerId, status) {
     availabilityStatus: status,
     seminarTransitioned,
   };
+}
+
+// ============================================================
+// Audience / Attendance Management
+// ============================================================
+
+/**
+ * Get audience list for a seminar. Accessible by supervisors and examiners.
+ */
+export async function getSeminarAudienceList(seminarId, lecturerId) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const audiences = await findSeminarAudiences(seminarId);
+
+  return audiences.map((a) => ({
+    studentId: a.studentId,
+    studentName: a.student?.user?.fullName || "-",
+    nim: a.student?.user?.identityNumber || "-",
+    registeredAt: a.registeredAt,
+    isPresent: a.isPresent,
+    approvedAt: a.approvedAt,
+    approvedByName: a.supervisor?.lecturer?.user?.fullName || null,
+  }));
+}
+
+/**
+ * Supervisor approves an audience registration.
+ */
+export async function approveAudienceBySupervisor(seminarId, studentId, lecturerId) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Find the supervisor role for this lecturer
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  const supervisorRole = resolveSupervisorMembership(supervisorRelation);
+  if (!supervisorRole) {
+    const err = new Error("Anda bukan pembimbing untuk seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  await approveAudienceRegistration(seminarId, studentId, supervisorRole.id);
+  return { success: true };
+}
+
+/**
+ * Supervisor cancels audience approval and resets it to initial registration state.
+ */
+export async function unapproveAudienceBySupervisor(seminarId, studentId, lecturerId) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  const supervisorRole = resolveSupervisorMembership(supervisorRelation);
+  if (!supervisorRole) {
+    const err = new Error("Anda bukan pembimbing untuk seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  await resetAudienceApproval(seminarId, studentId);
+  return { success: true };
+}
+
+/**
+ * Supervisor toggles audience presence.
+ */
+export async function toggleAudiencePresenceBySupervisor(seminarId, studentId, lecturerId, isPresent) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  const supervisorRole = resolveSupervisorMembership(supervisorRelation);
+  if (!supervisorRole) {
+    const err = new Error("Anda bukan pembimbing untuk seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  await toggleAudiencePresence(seminarId, studentId, isPresent);
+  return { success: true };
 }

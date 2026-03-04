@@ -13,3 +13,23 @@ export const respondAssignmentSchema = z.object({
     }),
   }),
 });
+
+export const submitExaminerAssessmentSchema = z.object({
+  scores: z
+    .array(
+      z.object({
+        assessmentCriteriaId: z.string().uuid("ID kriteria tidak valid"),
+        score: z.number().int().min(0, "Nilai minimal 0"),
+      })
+    )
+    .min(1, "Minimal satu nilai kriteria harus diisi"),
+  revisionNotes: z.string().trim().optional().nullable(),
+});
+
+export const finalizeSeminarSchema = z.object({
+  status: z.enum(["passed", "passed_with_revision", "failed"], {
+    errorMap: () => ({
+      message: "Status akhir harus passed, passed_with_revision, atau failed",
+    }),
+  }),
+});

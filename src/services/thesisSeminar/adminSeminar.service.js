@@ -11,6 +11,8 @@ import {
   updateSeminarSchedule,
 } from "../../repositories/thesisSeminar/adminSeminar.repository.js";
 import { getSeminarDocumentTypes } from "../../repositories/thesisSeminar/seminarDocument.repository.js";
+import { getSeminarAudiences } from "../../repositories/thesisSeminar/studentSeminar.repository.js";
+import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
 
 // ============================================================
 // Status priority for admin-focused sorting
@@ -65,7 +67,7 @@ export async function getAdminSeminarList({ search, status } = {}) {
       studentNim: student?.user?.identityNumber || "-",
       thesisTitle: s.thesis?.title || "-",
       supervisors,
-      status: s.status,
+      status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
       registeredAt: s.registeredAt,
       date: s.date,
       startTime: s.startTime,
@@ -134,9 +136,20 @@ export async function getAdminSeminarDetail(seminarId) {
   // Get document types for reference
   const docTypes = await getSeminarDocumentTypes();
 
+  // Get audience data
+  const audienceRows = await getSeminarAudiences(seminarId);
+  const audiences = audienceRows.map((a) => ({
+    studentName: a.student?.user?.fullName || "-",
+    nim: a.student?.user?.identityNumber || "-",
+    registeredAt: a.registeredAt,
+    isPresent: a.isPresent,
+    approvedAt: a.approvedAt,
+    approvedByName: a.supervisor?.lecturer?.user?.fullName || null,
+  }));
+
   return {
     id: seminar.id,
-    status: seminar.status,
+    status: computeEffectiveStatus(seminar.status, seminar.date, seminar.startTime, seminar.endTime),
     registeredAt: seminar.registeredAt,
     date: seminar.date,
     startTime: seminar.startTime,
@@ -183,6 +196,7 @@ export async function getAdminSeminarDetail(seminarId) {
         respondedAt: e.respondedAt,
         assignedAt: e.assignedAt,
       })),
+    audiences,
   };
 }
 
@@ -331,6 +345,8 @@ export async function getSchedulingData(seminarId) {
           date: seminar.date,
           startTime: seminar.startTime,
           endTime: seminar.endTime,
+          meetingLink: seminar.meetingLink,
+          isOnline: !seminar.roomId,
           room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
         }
       : null,
@@ -341,7 +357,7 @@ export async function getSchedulingData(seminarId) {
  * Schedule (or re-schedule) a seminar
  * Only allowed when status is 'examiner_assigned' or already 'scheduled' (edit)
  */
-export async function scheduleSeminar(seminarId, { roomId, date, startTime, endTime }) {
+export async function scheduleSeminar(seminarId, { roomId, date, startTime, endTime, isOnline, meetingLink }) {
   const seminar = await findSeminarById(seminarId);
   if (!seminar) {
     const err = new Error("Seminar tidak ditemukan.");
@@ -358,17 +374,24 @@ export async function scheduleSeminar(seminarId, { roomId, date, startTime, endT
     throw err;
   }
 
-  // Check room conflict
-  const conflict = await findRoomScheduleConflict({ seminarId, roomId, date, startTime, endTime });
-  if (conflict) {
-    const err = new Error(
-      "Ruangan sudah digunakan oleh seminar lain pada waktu yang sama."
-    );
-    err.statusCode = 409;
-    throw err;
+  if (!isOnline) {
+    const conflict = await findRoomScheduleConflict({ seminarId, roomId, date, startTime, endTime });
+    if (conflict) {
+      const err = new Error(
+        "Ruangan sudah digunakan oleh seminar lain pada waktu yang sama."
+      );
+      err.statusCode = 409;
+      throw err;
+    }
   }
 
-  await updateSeminarSchedule(seminarId, { roomId, date, startTime, endTime });
+  await updateSeminarSchedule(seminarId, {
+    roomId: isOnline ? null : roomId,
+    date,
+    startTime,
+    endTime,
+    meetingLink: isOnline ? meetingLink : null,
+  });
 
   return { seminarId, status: "scheduled" };
 }
