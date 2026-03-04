@@ -84,6 +84,7 @@ import {
   requestStudentTransferService,
   approveTransferRequestService,
   rejectTransferRequestService,
+  cancelGuidanceByLecturerService,
 } from "../services/thesisGuidance/lecturer.guidance.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
@@ -271,6 +272,55 @@ describe("Module 2 (Dosen): Approve/Reject Guidance", () => {
       });
 
       await rejectGuidanceService("user-dosen-1", "guid-1", { feedback: "Alasan" });
+
+      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
+    });
+  });
+
+  // ─── Cancel Accepted ──────────────────────────────────────
+  describe("cancelGuidanceByLecturerService", () => {
+    it("cancels guidance when status is 'accepted' with reason", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findGuidanceByIdForLecturer.mockResolvedValue(GUIDANCE_ACCEPTED);
+      mockPrisma.thesisGuidance.update.mockResolvedValue({});
+
+      const result = await cancelGuidanceByLecturerService("user-dosen-1", "guid-2", { reason: "Dosen sakit" });
+
+      expect(result).toMatchObject({ success: true, message: "Bimbingan berhasil dibatalkan" });
+      expect(mockPrisma.thesisGuidance.update).toHaveBeenCalledWith({
+        where: { id: "guid-2" },
+        data: expect.objectContaining({
+          status: "cancelled",
+          rejectionReason: "Dosen sakit"
+        })
+      });
+    });
+
+    it("rejects (400) if guidance status is not 'accepted'", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      // It is requested
+      mockRepo.findGuidanceByIdForLecturer.mockResolvedValue(GUIDANCE_REQUESTED);
+
+      await expect(
+        cancelGuidanceByLecturerService("user-dosen-1", "guid-1", { reason: "tes" })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects (400) if reason is not provided", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findGuidanceByIdForLecturer.mockResolvedValue(GUIDANCE_ACCEPTED);
+
+      await expect(
+        cancelGuidanceByLecturerService("user-dosen-1", "guid-2", { reason: "  " })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("sends notification to student after cancellation", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findGuidanceByIdForLecturer.mockResolvedValue(GUIDANCE_ACCEPTED);
+      mockPrisma.thesisGuidance.update.mockResolvedValue({});
+
+      await cancelGuidanceByLecturerService("user-dosen-1", "guid-2", { reason: "Sakit" });
 
       expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
     });

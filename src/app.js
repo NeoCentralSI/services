@@ -6,6 +6,8 @@ import path from "path";
 import fs from "fs";
 import errorHandler from "./middlewares/error.middleware.js";
 import dateFormatMiddleware from "./middlewares/dateFormat.middleware.js";
+import { authGuard } from "./middlewares/auth.middleware.js";
+import { checkThesisFileAccess } from "./middlewares/fileAccess.middleware.js";
 
 const app = express();
 
@@ -23,8 +25,14 @@ try {
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
-  app.use("/uploads", express.static(uploadsDir));
-  console.log("📁 Serving uploads at /uploads");
+  // Protect thesis uploads with authGuard and custom access logic
+  app.use("/uploads/thesis", authGuard, checkThesisFileAccess, express.static(path.join(uploadsDir, "thesis")));
+
+  // Serve internship and general uploads statically
+  app.use("/uploads/internship", express.static(path.join(uploadsDir, "internship")));
+  app.use("/uploads/general", express.static(path.join(uploadsDir, "general")));
+
+  console.log("📁 Serving protected thesis uploads and public internship/general uploads");
 } catch (err) {
   console.warn("⚠️ Failed to set up static uploads serving:", err.message);
 }

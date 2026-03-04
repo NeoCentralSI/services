@@ -129,6 +129,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 						document: true,
 					},
 				},
+				document: { select: { id: true, fileName: true, filePath: true } },
 				supervisor: { include: { user: true } },
 				milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 			},
@@ -145,6 +146,7 @@ export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 		where: { id: guidanceId, supervisorId: lecturerId },
 		include: {
 			thesis: { include: { student: { include: { user: true } }, document: true } },
+			document: { select: { id: true, fileName: true, filePath: true } },
 			supervisor: { include: { user: true } },
 			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 		},
@@ -300,7 +302,7 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 	return prisma.thesisGuidance.findMany({
 		where: {
 			thesis: { studentId },
-			supervisorId: lecturerId,
+			status: { not: "deleted" },
 		},
 		include: {
 			supervisor: { include: { user: true } },
@@ -502,13 +504,13 @@ export async function findPendingGuidanceById(guidanceId, lecturerId) {
  * Find scheduled guidances (accepted or summary_pending) for a lecturer
  */
 export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 10 } = {}) {
-	const take = Math.max(1, Math.min(50, Number(pageSize) || 10));
+	const take = Math.max(1, Math.min(200, Number(pageSize) || 10));
 	const currentPage = Math.max(1, Number(page) || 1);
 	const skip = (currentPage - 1) * take;
 
 	const where = {
 		supervisorId: lecturerId,
-		status: { in: ["accepted", "summary_pending"] },
+		status: { in: ["accepted", "summary_pending", "completed", "cancelled", "rejected"] },
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -516,8 +518,9 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 		prisma.thesisGuidance.findMany({
 			where,
 			orderBy: [
-				{ approvedDate: "asc" }, // Upcoming first
-				{ requestedDate: "asc" },
+				{ createdAt: "desc" },
+				{ approvedDate: "desc" },
+				{ requestedDate: "desc" },
 				{ id: "desc" },
 			],
 			include: {
@@ -527,6 +530,7 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 						document: true,
 					},
 				},
+				document: { select: { id: true, fileName: true, filePath: true } },
 				supervisor: { include: { user: true } },
 				milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 			},

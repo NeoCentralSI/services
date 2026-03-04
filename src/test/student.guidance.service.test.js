@@ -267,11 +267,38 @@ describe("Module 2: Request Guidance", () => {
       });
     });
 
-    it("rejects (400) if guidance status is not 'requested' (e.g., 'accepted')", async () => {
+    it("updates guidance status to 'cancelled' with reason when status is 'accepted'", async () => {
+      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
+      mockRepo.getGuidanceByIdForStudent.mockResolvedValue(GUIDANCE_ACCEPTED);
+      mockPrisma.thesisGuidance.update.mockResolvedValue({});
+
+      const result = await cancelGuidanceService("user-1", "guid-2", "Dosen berhalangan");
+
+      expect(result).toMatchObject({ success: true, message: "Bimbingan berhasil dibatalkan" });
+      expect(mockPrisma.thesisGuidance.update).toHaveBeenCalledWith({
+        where: { id: "guid-2" },
+        data: expect.objectContaining({
+          status: "cancelled",
+          rejectionReason: "Dosen berhalangan"
+        })
+      });
+    });
+
+    it("rejects (400) if student tries to cancel 'accepted' guidance without a reason", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getGuidanceByIdForStudent.mockResolvedValue(GUIDANCE_ACCEPTED);
 
-      await expect(cancelGuidanceService("user-1", "guid-2", "reason")).rejects.toMatchObject({
+      await expect(cancelGuidanceService("user-1", "guid-2", "   ")).rejects.toMatchObject({
+        statusCode: 400,
+        message: expect.stringContaining("Alasan pembatalan wajib diisi")
+      });
+    });
+
+    it("rejects (400) if guidance status is neither 'requested' nor 'accepted' (e.g., 'completed')", async () => {
+      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
+      mockRepo.getGuidanceByIdForStudent.mockResolvedValue(GUIDANCE_COMPLETED);
+
+      await expect(cancelGuidanceService("user-1", "guid-3", "reason")).rejects.toMatchObject({
         statusCode: 400,
       });
     });

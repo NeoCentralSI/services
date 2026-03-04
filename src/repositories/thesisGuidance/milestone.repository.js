@@ -791,3 +791,39 @@ export function findStudentsReadyForDefence() {
     orderBy: { defenceRequestedAt: "desc" },
   });
 }
+
+/**
+ * Get all pending_review milestones for a given supervisor (by userId).
+ * Single query — avoids N+1 problem.
+ */
+export function findPendingReviewBySupervisor(userId) {
+  return prisma.thesisMilestone.findMany({
+    where: {
+      status: "pending_review",
+      thesis: {
+        thesisSupervisors: {
+          some: { lecturerId: userId },
+        },
+      },
+    },
+    include: {
+      thesis: {
+        select: {
+          id: true,
+          title: true,
+          student: {
+            select: {
+              user: {
+                select: {
+                  fullName: true,
+                  identityNumber: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+}

@@ -630,3 +630,16 @@ export async function requestDefence(req, res, next) {
   }
 }
 
+/**
+ * GET /milestones/supervisor/pending-review
+ * Returns all pending_review milestones for the authenticated supervisor.
+ */
+export async function getSupervisorPendingReview(req, res, next) {
+  try {
+    const data = await milestoneService.getPendingReviewForSupervisor(req.user.sub);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+

@@ -2,12 +2,22 @@ import redisClient from "../config/redis.js";
 import { getFcmMessaging } from "../config/fcm.js";
 
 const KEY_PREFIX = "fcm:tokens:"; // per-user set of tokens
+const REVERSE_KEY_PREFIX = "fcm:token-owner:"; // reverse index: token → userId
 
 export async function registerFcmToken(userId, token) {
   if (!userId || !token) return { registered: 0 };
   if (!redisClient.isOpen) await redisClient.connect();
+
+  // ── Dedup: ensure a device token belongs to only ONE user ──
+  const previousOwner = await redisClient.get(REVERSE_KEY_PREFIX + token);
+  if (previousOwner && previousOwner !== String(userId)) {
+    // Remove the token from the old user's set
+    await redisClient.sRem(KEY_PREFIX + previousOwner, token);
+    console.log(`[FCM] Token migrated from user ${previousOwner} → ${userId}`);
+  }
+
   await redisClient.sAdd(KEY_PREFIX + userId, token);
-  // Optional: set TTL or track last seen
+  await redisClient.set(REVERSE_KEY_PREFIX + token, String(userId));
   return { registered: 1 };
 }
 
@@ -15,6 +25,10 @@ export async function unregisterFcmToken(userId, token) {
   if (!userId || !token) return { removed: 0 };
   if (!redisClient.isOpen) await redisClient.connect();
   const removed = await redisClient.sRem(KEY_PREFIX + userId, token);
+  // Clean up reverse index
+  if (removed) {
+    await redisClient.del(REVERSE_KEY_PREFIX + token);
+  }
   return { removed };
 }
 
