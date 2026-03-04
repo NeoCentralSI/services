@@ -159,3 +159,22 @@ export async function getProgressReport(req, res, next) {
     next(error);
   }
 }
+
+/**
+ * Download progress report as PDF (server-side generation via Gotenberg)
+ * @route GET /api/thesis-guidance/monitoring/report/download
+ */
+export async function downloadProgressReport(req, res, next) {
+  try {
+    const { academicYear } = req.query;
+    const result = await monitoringService.generateProgressReportPdfService(academicYear);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(result.filename)}"`
+    );
+    res.send(result.buffer);
+  } catch (error) {
+    next(error);
+  }
+}

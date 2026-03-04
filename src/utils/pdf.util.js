@@ -27,7 +27,14 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
 
         return Buffer.from(response.data);
     } catch (error) {
-        console.error('Gotenberg PDF conversion failed:', error.response?.data?.toString() || error.message);
+        const respBody = error.response?.data ? Buffer.from(error.response.data).toString('utf8').substring(0, 2000) : null;
+        console.error('Gotenberg PDF conversion failed:', {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            body: respBody,
+            message: error.message,
+            code: error.code,
+        });
         throw new Error('Gagal mengonversi dokumen ke PDF melalui Gotenberg');
     }
 }

@@ -29,6 +29,7 @@ import {
 	getMyThesis,
 	updateMyThesisTitle,
 	proposeThesis,
+	generateGuidanceLog,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
 import {
 	getAvailableSupervisor2,
@@ -72,6 +73,7 @@ router.post("/guidance/:guidanceId/submit-summary", submitSummary);
 router.post("/guidance/:guidanceId/complete", markSessionComplete); // Quick complete without lecturer approval
 router.get("/completed-history", completedHistory);
 router.get("/guidance/:guidanceId/export", exportGuidance);
+router.post("/guidance/generate-log", generateGuidanceLog);
 
 // Supervisors info
 router.get("/supervisors", listSupervisors);

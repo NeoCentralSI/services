@@ -147,6 +147,28 @@ export async function getStudentDetailService(userId, thesisId) {
 		throw err;
 	}
 
+	// Fetch per-guidance uploaded documents (file versioning)
+	const guidanceDocuments = await prisma.thesisGuidance.findMany({
+		where: {
+			thesisId: thesis.id,
+			documentId: { not: null },
+		},
+		select: {
+			id: true,
+			requestedDate: true,
+			approvedDate: true,
+			document: {
+				select: {
+					id: true,
+					fileName: true,
+					filePath: true,
+					createdAt: true,
+				},
+			},
+		},
+		orderBy: { requestedDate: "desc" },
+	});
+
 	return {
 		thesisId: thesis.id,
 		title: thesis.title,
@@ -162,18 +184,27 @@ export async function getStudentDetailService(userId, thesisId) {
 		},
 		document: thesis.document ? {
 			id: thesis.document.id,
-			fileName: thesis.document.fileName,
+			fileName: thesis.document.filePath?.split('/').pop() || thesis.document.fileName,
 			url: thesis.document.filePath.startsWith('uploads/')
 				? `/${thesis.document.filePath}`
 				: `/uploads/${thesis.document.filePath}`
 		} : null,
 		proposalDocument: thesis.thesisProposal?.document ? {
 			id: thesis.thesisProposal.document.id,
-			fileName: thesis.thesisProposal.document.fileName,
+			fileName: thesis.thesisProposal.document.filePath?.split('/').pop() || thesis.thesisProposal.document.fileName,
 			url: thesis.thesisProposal.document.filePath.startsWith('uploads/')
 				? `/${thesis.thesisProposal.document.filePath}`
 				: `/uploads/${thesis.thesisProposal.document.filePath}`
 		} : null,
+		uploadedFiles: guidanceDocuments
+			.filter((g) => g.document)
+			.map((g) => ({
+				id: g.document.id,
+				fileName: g.document.filePath?.split('/').pop() || g.document.fileName,
+				filePath: g.document.filePath,
+				uploadedAt: g.document.createdAt,
+				guidanceDate: g.approvedDate || g.requestedDate,
+			})),
 		milestones: thesis.thesisMilestones.map(m => ({
 			id: m.id,
 			title: m.title,
