@@ -21,6 +21,19 @@ function thesisFileFilter(req, file, cb) {
 	cb(null, true);
 }
 
+function seminarDocFileFilter(req, file, cb) {
+	const name = (file.originalname || "").toLowerCase();
+	const allowedMimes = [
+		"application/pdf",
+		"application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	];
+	const allowedExts = [".pdf", ".ppt", ".pptx"];
+	const isAllowed = allowedMimes.includes(file.mimetype) || allowedExts.some((ext) => name.endsWith(ext));
+	if (!isAllowed) return cb(new Error("Only PDF and PPT/PPTX files are allowed for seminar documents"));
+	cb(null, true);
+}
+
 function guideFileFilter(req, file, cb) {
 	// Allow PDF and Word documents for SOPs and Templates
 	const allowedMimes = [
@@ -37,11 +50,13 @@ function guideFileFilter(req, file, cb) {
 
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 const thesisUpload = multer({ storage, fileFilter: thesisFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
+const seminarDocUpload = multer({ storage, fileFilter: seminarDocFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 const guideUpload = multer({ storage, fileFilter: guideFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 
 export const uploadCsv = upload.single("file");
 export const uploadThesisFile = thesisUpload.single("file");
 export const uploadInternshipFile = thesisUpload.single("file");
+export const uploadSeminarDocFile = seminarDocUpload.single("file");
 export const uploadGuideFile = guideUpload.single("file");
 
 export default upload;
