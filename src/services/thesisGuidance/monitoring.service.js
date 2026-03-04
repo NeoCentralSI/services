@@ -2,6 +2,13 @@ import * as monitoringRepository from "../../repositories/thesisGuidance/monitor
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
+import fs from "fs";
+import path from "path";
+import { promisify } from "util";
+import PizZip from "pizzip";
+import { convertDocxToPdf } from "../../utils/pdf.util.js";
+
+const readFile = promisify(fs.readFile);
 
 function toTitleCaseName(str) {
   if (!str) return "";
@@ -66,8 +73,9 @@ export async function getThesesList(filters) {
     const totalMilestones = milestones.length;
     const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-    // Get last activity date directly from thesis updatedAt
-    let lastActivity = t.updatedAt;
+    // Get last activity from latest completed guidance approval date (most valid)
+    const latestGuidance = t.thesisGuidances?.[0];
+    let lastActivity = latestGuidance?.approvedDate || latestGuidance?.completedAt || t.updatedAt;
 
     // Get supervisors
     const pembimbing1 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
@@ -137,13 +145,39 @@ export async function getThesesList(filters) {
     };
   });
 
+  // Filter: per student, show only the active thesis.
+  // If a student has both a cancelled/failed thesis AND a newer active one,
+  // hide the cancelled/failed one. Only show cancelled/failed if
+  // the student has no other (active) thesis.
+  const inactiveStatuses = new Set(["Dibatalkan", "Gagal"]);
+  const byStudent = new Map();
+  for (const t of formattedTheses) {
+    const studentId = t.student?.id;
+    if (!studentId) continue;
+    if (!byStudent.has(studentId)) byStudent.set(studentId, []);
+    byStudent.get(studentId).push(t);
+  }
+
+  const filteredTheses = [];
+  for (const [, studentTheses] of byStudent) {
+    const activeTheses = studentTheses.filter((t) => !inactiveStatuses.has(t.status));
+    if (activeTheses.length > 0) {
+      // Student has active thesis(es), only show those
+      filteredTheses.push(...activeTheses);
+    } else {
+      // Student has no active thesis, show the most recent cancelled/failed one
+      studentTheses.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      filteredTheses.push(studentTheses[0]);
+    }
+  }
+
   return {
-    data: formattedTheses,
+    data: filteredTheses,
     pagination: {
       page,
       pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
+      total: filteredTheses.length,
+      totalPages: Math.ceil(filteredTheses.length / pageSize),
     },
   };
 }
@@ -231,8 +265,11 @@ export async function getThesisDetail(thesisId) {
   const totalMilestones = milestones.length;
   const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-  // Get last activity
-  let lastActivity = thesis.updatedAt;
+  // Get last activity from latest completed guidance approval date (most valid)
+  const latestCompletedGuidance = (thesis.thesisGuidances || [])
+    .filter((g) => g.status === "completed")
+    .sort((a, b) => new Date(b.approvedDate || b.completedAt || 0).getTime() - new Date(a.approvedDate || a.completedAt || 0).getTime())[0];
+  let lastActivity = latestCompletedGuidance?.approvedDate || latestCompletedGuidance?.completedAt || thesis.updatedAt;
 
   // Separate supervisors and examiners
   const supervisors = thesis.thesisSupervisors
@@ -337,6 +374,11 @@ export async function getThesisDetail(thesisId) {
     },
     supervisors,
     examiners,
+    latestDocument: thesis.document ? {
+      id: thesis.document.id,
+      fileName: thesis.document.filePath?.split('/').pop() || thesis.document.fileName,
+      filePath: thesis.document.filePath,
+    } : null,
     progress: {
       completed: completedMilestones,
       total: totalMilestones,
@@ -535,5 +577,364 @@ export async function getProgressReportService(academicYearId) {
     statusDistribution,
     ratingDistribution,
     theses: reportData,
+  };
+}
+
+// ========== RATING LABELS ==========
+const RATING_LABELS = {
+  ONGOING: "Ongoing",
+  SLOW: "Lambat",
+  AT_RISK: "Berisiko",
+  FAILED: "Gagal",
+  CANCELLED: "Dibatalkan",
+};
+
+// ========== DOCX XML Helpers ==========
+
+function escapeXml(str) {
+  return (str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Build a single OOXML table cell
+ */
+function makeCell(text, opts = {}) {
+  const { bold = false, center = false, fontSize = 18, shading = "" } = opts;
+  const jc = center ? '<w:jc w:val="center"/>' : "";
+  const b = bold ? "<w:b/><w:bCs/>" : "";
+  const shd = shading
+    ? `<w:shd w:val="clear" w:color="auto" w:fill="${shading}"/>`
+    : "";
+  const rpr = `<w:rPr>${b}<w:sz w:val="${fontSize}"/><w:szCs w:val="${fontSize}"/></w:rPr>`;
+  const ppr = `<w:pPr>${jc}<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>${rpr}</w:pPr>`;
+
+  const lines = (text || "").split("\n");
+  const paragraphs = lines
+    .map(
+      (line) =>
+        `<w:p>${ppr}<w:r>${rpr}<w:t xml:space="preserve">${escapeXml(
+          line
+        )}</w:t></w:r></w:p>`
+    )
+    .join("");
+
+  return `<w:tc><w:tcPr>${shd}<w:vAlign w:val="center"/></w:tcPr>${paragraphs}</w:tc>`;
+}
+
+/**
+ * Build the monitoring report content as OOXML
+ */
+function buildMonitoringReportXml(reportData) {
+  const { academicYear, generatedAt, theses } = reportData;
+
+  const formatDateLong = (dateString) => {
+    if (!dateString) return "-";
+    return new Date(dateString).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  // Title
+  const titleXml = `
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="center"/>
+        <w:spacing w:before="240" w:after="60"/>
+        <w:rPr><w:b/><w:bCs/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:b/><w:bCs/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>
+        <w:t>Laporan Progress Pengerjaan Tugas Akhir Mahasiswa</w:t>
+      </w:r>
+    </w:p>`;
+
+  // Subtitle
+  const subtitleXml = `
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="center"/>
+        <w:spacing w:after="240"/>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:t>Periode Semester ${escapeXml(academicYear)}</w:t>
+      </w:r>
+    </w:p>`;
+
+  // Table header
+  const headerShading = "D9E2F3";
+  const headerRow = `
+    <w:tr>
+      <w:trPr><w:tblHeader/></w:trPr>
+      ${makeCell("No", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+      ${makeCell("NIM", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+      ${makeCell("Nama Mahasiswa", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+      ${makeCell("Pembimbing", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+      ${makeCell("Rating", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+      ${makeCell("Jml. Bimbingan", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+      ${makeCell("Progress Milestone", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+    </w:tr>`;
+
+  // Table data rows
+  const dataRows = theses
+    .map((t) => {
+      let pembimbingText = `- ${t.pembimbing1}`;
+      if (t.pembimbing2 && t.pembimbing2 !== "-") {
+        pembimbingText += `\n- ${t.pembimbing2}`;
+      }
+      const ratingLabel = RATING_LABELS[t.rating] || t.rating;
+      return `
+      <w:tr>
+        ${makeCell(String(t.no), { center: true, fontSize: 18 })}
+        ${makeCell(t.nim, { center: false, fontSize: 18 })}
+        ${makeCell(t.name, { center: false, fontSize: 18 })}
+        ${makeCell(pembimbingText, { center: false, fontSize: 18 })}
+        ${makeCell(ratingLabel, { center: true, fontSize: 18 })}
+        ${makeCell(String(t.guidanceCompleted), { center: true, fontSize: 18 })}
+        ${makeCell(`${t.progressPercent}%`, { center: true, fontSize: 18 })}
+      </w:tr>`;
+    })
+    .join("");
+
+  // Full table
+  const tableXml = `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="5000" w:type="pct"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+        </w:tblBorders>
+        <w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="500"/>
+        <w:gridCol w:w="1200"/>
+        <w:gridCol w:w="1600"/>
+        <w:gridCol w:w="2300"/>
+        <w:gridCol w:w="1000"/>
+        <w:gridCol w:w="1100"/>
+        <w:gridCol w:w="1300"/>
+      </w:tblGrid>
+      ${headerRow}
+      ${dataRows}
+    </w:tbl>`;
+
+  // Signature section
+  const signatureXml = `
+    <w:p><w:pPr><w:spacing w:before="480"/></w:pPr></w:p>
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="right"/>
+        <w:spacing w:after="0"/>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:t>Padang, ${escapeXml(formatDateLong(generatedAt))}</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="right"/>
+        <w:spacing w:after="0"/>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:t>Mengetahui,</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="right"/>
+        <w:spacing w:after="0"/>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:t>Kepala Departemen Sistem Informasi</w:t>
+      </w:r>
+    </w:p>
+    <w:p><w:pPr><w:spacing w:before="960"/></w:pPr></w:p>
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="right"/>
+        <w:spacing w:after="0"/>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:t>_______________________________</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="right"/>
+        <w:spacing w:after="0"/>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:t>NIP. ...............................</w:t>
+      </w:r>
+    </w:p>`;
+
+  return titleXml + subtitleXml + tableXml + signatureXml;
+}
+
+/**
+ * Extract only the kop surat (letterhead) from the catatan template DOCX.
+ * Stops before "TA" heading and "Identitas Mahasiswa" section.
+ *
+ * Uses element-boundary-safe extraction: tracks table nesting depth so
+ * the cut always happens at a top-level element boundary (never inside
+ * an open <w:tbl>), producing well-formed OOXML.
+ */
+function extractHeaderFromDocXml(body) {
+  const stopPatterns = [/TA\s*[–\-]/, /Identitas/i, /\{[a-z#]/];
+
+  // --- Find the earliest stop-text position ---
+  let firstStopPos = body.length;
+  for (const pattern of stopPatterns) {
+    const m = body.match(pattern);
+    if (m && m.index < firstStopPos) firstStopPos = m.index;
+  }
+
+  if (firstStopPos >= body.length || firstStopPos <= 0) {
+    const firstTable = body.indexOf("<w:tbl");
+    if (firstTable > 0) return body.substring(0, firstTable);
+    return "";
+  }
+
+  // --- Build an ordered list of structural events ---
+  const events = [];
+  const scanRegex =
+    /(<w:tbl[\s>])|(<\/w:tbl>)|(<\/w:p>)|(<\/w:sdt>)/g;
+  let m;
+  while ((m = scanRegex.exec(body)) !== null) {
+    if (m[1]) events.push({ pos: m.index, end: m.index, type: "open-tbl" });
+    else if (m[2])
+      events.push({ pos: m.index, end: m.index + m[2].length, type: "close-tbl" });
+    else if (m[3])
+      events.push({ pos: m.index, end: m.index + m[3].length, type: "close-p" });
+    else if (m[4])
+      events.push({ pos: m.index, end: m.index + m[4].length, type: "close-sdt" });
+  }
+
+  // --- Walk events, track table depth, collect safe cut-points ---
+  let tblDepth = 0;
+  const cutPoints = [0]; // position 0 = empty header (fallback)
+
+  for (const ev of events) {
+    if (ev.type === "open-tbl") {
+      tblDepth++;
+    } else if (ev.type === "close-tbl") {
+      tblDepth--;
+      if (tblDepth === 0) cutPoints.push(ev.end);
+    } else if (ev.type === "close-p" || ev.type === "close-sdt") {
+      if (tblDepth === 0) cutPoints.push(ev.end);
+    }
+  }
+
+  // --- Pick the last safe cut-point that comes before the stop text ---
+  let bestCut = 0;
+  for (const cp of cutPoints) {
+    if (cp <= firstStopPos) bestCut = cp;
+  }
+
+  return body.substring(0, bestCut);
+}
+
+/**
+ * Generate progress report PDF using the catatan template header
+ * @param {string} academicYearId - Academic year ID
+ * @returns {{ buffer: Buffer, filename: string }}
+ */
+export async function generateProgressReportPdfService(academicYearId) {
+  // Get report data
+  const reportData = await getProgressReportService(academicYearId);
+
+  // Read catatan template
+  const templatePath = path.join(
+    process.cwd(),
+    "uploads",
+    "sop",
+    "logcatatantemplate.docx"
+  );
+  if (!fs.existsSync(templatePath)) {
+    const err = new Error(
+      "Template log catatan (TA-06) belum diupload oleh Sekretaris Departemen. Template dibutuhkan untuk header laporan."
+    );
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const content = await readFile(templatePath);
+  const zip = new PizZip(content);
+
+  // Get document.xml
+  const docXmlFile = zip.file("word/document.xml");
+  if (!docXmlFile) {
+    throw new Error("Template DOCX tidak valid: word/document.xml tidak ditemukan");
+  }
+
+  let docXml = docXmlFile.asText();
+
+  // Extract body content
+  const bodyStartTag = "<w:body>";
+  const bodyStart = docXml.indexOf(bodyStartTag) + bodyStartTag.length;
+  const bodyEnd = docXml.lastIndexOf("</w:body>");
+  const body = docXml.substring(bodyStart, bodyEnd);
+
+  // Extract section properties (page margins, size, header/footer refs)
+  const sectPrMatch = body.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
+  const sectPr = sectPrMatch ? sectPrMatch[0] : "";
+
+  // Extract header portion (kop surat) from the template
+  const headerXml = extractHeaderFromDocXml(body);
+
+  // Build monitoring report content
+  const reportContentXml = buildMonitoringReportXml(reportData);
+
+  // Assemble new body: header + report content + section properties
+  const newBody = headerXml + reportContentXml + sectPr;
+
+  // Replace document.xml body
+  const newDocXml =
+    docXml.substring(0, bodyStart) + newBody + docXml.substring(bodyEnd);
+  zip.file("word/document.xml", newDocXml);
+
+  // Generate DOCX buffer
+  const docxBuffer = zip.generate({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+  });
+
+  // Debug: save generated DOCX to disk for inspection
+  const debugPath = path.join(process.cwd(), "uploads", "debug_monitoring_report.docx");
+  try { fs.writeFileSync(debugPath, docxBuffer); console.log("[MonitoringReport] Debug DOCX saved to:", debugPath); } catch (e) { console.error("[MonitoringReport] Failed to save debug DOCX:", e.message); }
+  console.log("[MonitoringReport] headerXml length:", headerXml.length, "| reportContent length:", reportContentXml.length, "| sectPr length:", sectPr.length);
+
+  // Convert to PDF via Gotenberg
+  const semester = reportData.academicYear.replace(/\s+/g, "_");
+  const docxFilename = `Laporan_Progress_TA_${semester}.docx`;
+  const pdfBuffer = await convertDocxToPdf(docxBuffer, docxFilename);
+
+  return {
+    buffer: pdfBuffer,
+    filename: `Laporan_Progress_TA_${semester}_${new Date().toISOString().slice(0, 10)}.pdf`,
   };
 }

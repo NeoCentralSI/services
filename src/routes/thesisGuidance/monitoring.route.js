@@ -11,6 +11,7 @@ import {
   getThesisDetail,
   sendWarningNotification,
   getProgressReport,
+  downloadProgressReport,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
 
 const router = express.Router();
@@ -31,6 +32,9 @@ router.get("/filters", getFilterOptions);
 
 // Progress report for PDF generation
 router.get("/report", getProgressReport);
+
+// Download progress report as PDF (server-side Gotenberg)
+router.get("/report/download", downloadProgressReport);
 
 // At-risk students list
 router.get("/at-risk", getAtRiskStudents);

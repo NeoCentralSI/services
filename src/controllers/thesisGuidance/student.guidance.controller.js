@@ -19,6 +19,7 @@ import {
   updateMyThesisTitleService,
   getThesisHistoryService,
   proposeThesisService,
+  generateGuidanceLogPdfService,
 } from "../../services/thesisGuidance/student.guidance.service.js";
 
 export async function listMyGuidances(req, res, next) {
@@ -292,6 +293,24 @@ export async function proposeThesis(req, res, next) {
     const { title, topicId } = req.body || {};
     const result = await proposeThesisService(req.user.sub, { title, topicId });
     res.status(201).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /thesis-guidance/student/guidance/generate-log
+ * Generate guidance log PDF using the TA-06 DOCX template via Gotenberg.
+ * Body (optional): { guidanceIds: string[] }
+ * If guidanceIds is omitted, generates for ALL completed guidances.
+ */
+export async function generateGuidanceLog(req, res, next) {
+  try {
+    const { guidanceIds } = req.body || {};
+    const result = await generateGuidanceLogPdfService(req.user.sub, guidanceIds);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(result.filename)}"`);
+    res.send(result.buffer);
   } catch (err) {
     next(err);
   }

@@ -15,6 +15,16 @@ const GUIDE_TYPES = {
     TEMPLATE_UMUM: "Template Umum",
 };
 
+/**
+ * Static filename mapping for template types.
+ * When uploading a template of this type, the file is saved with
+ * a fixed name so that the generate feature can always find it.
+ * Re-uploading the same type overwrites the file and updates the DB record.
+ */
+const TEMPLATE_STATIC_FILES = {
+    TEMPLATE_TA: "logcatatantemplate.docx",
+};
+
 async function ensureDir() {
     await fs.mkdir(SOP_ROOT, { recursive: true });
 }
@@ -97,6 +107,9 @@ export async function listSopPublic() {
 
 /**
  * Save/Upload a new Guide document
+ * For template types with a static filename mapping, the file is saved
+ * with a fixed name and any existing document of the same type is updated
+ * (file overwritten on disk, DB record reused).
  */
 export async function saveSop({ type, buffer, originalName, mimeType, size, userId, title }) {
     const typeName = GUIDE_TYPES[type] || GUIDE_TYPES.SOP_TA;
@@ -114,10 +127,63 @@ export async function saveSop({ type, buffer, originalName, mimeType, size, user
         });
     }
 
+    const staticFile = TEMPLATE_STATIC_FILES[type];
+
+    if (staticFile) {
+        // --- Static filename: overwrite existing ---
+        const fileName = staticFile;
+        const relativePath = `uploads/sop/${fileName}`;
+        const fullPath = path.join(SOP_ROOT, fileName);
+
+        // Write (overwrite) file on disk
+        await fs.writeFile(fullPath, buffer);
+
+        // Check if a Document record for this type already exists
+        const existing = await prisma.document.findFirst({
+            where: { documentTypeId: docType.id, filePath: relativePath },
+            include: { documentType: true },
+        });
+
+        if (existing) {
+            // Update existing record
+            const updated = await prisma.document.update({
+                where: { id: existing.id },
+                data: {
+                    userId,
+                    fileName: title || originalName,
+                    updatedAt: new Date(),
+                },
+                include: { documentType: true },
+            });
+            return {
+                id: updated.id, type, typeName: updated.documentType?.name,
+                fileName: updated.fileName, url: `/${updated.filePath}`,
+                updatedAt: updated.updatedAt.toISOString(),
+            };
+        }
+
+        // First upload — create record
+        const document = await prisma.document.create({
+            data: {
+                userId,
+                documentTypeId: docType.id,
+                fileName: title || originalName,
+                filePath: relativePath,
+            },
+            include: { documentType: true },
+        });
+        return {
+            id: document.id, type, typeName: document.documentType?.name,
+            fileName: document.fileName, url: `/${document.filePath}`,
+            updatedAt: document.updatedAt.toISOString(),
+        };
+    }
+
+    // --- Dynamic filename (original behaviour for SOPs) ---
     const uniqueId = Date.now().toString(36);
-    const fileName = `${uniqueId}-${originalName}`;
-    const relativePath = `uploads/sop/${fileName}`;
-    const fullPath = path.join(SOP_ROOT, fileName);
+    const dynamicFileName = `${uniqueId}-${originalName}`;
+    const relativePath = `uploads/sop/${dynamicFileName}`;
+    const fullPath = path.join(SOP_ROOT, dynamicFileName);
 
     await fs.writeFile(fullPath, buffer);
 
@@ -125,7 +191,7 @@ export async function saveSop({ type, buffer, originalName, mimeType, size, user
         data: {
             userId,
             documentTypeId: docType.id,
-            fileName: title || originalName, // Store the user-provided title as the recorded filename/title
+            fileName: title || originalName,
             filePath: relativePath,
         },
         include: {

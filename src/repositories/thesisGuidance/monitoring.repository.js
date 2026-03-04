@@ -108,6 +108,15 @@ export async function getThesesOverview(filters = {}) {
             updatedAt: true,
           },
         },
+        thesisGuidances: {
+          where: { status: "completed" },
+          orderBy: { approvedDate: "desc" },
+          take: 1,
+          select: {
+            approvedDate: true,
+            completedAt: true,
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
@@ -291,6 +300,15 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
           updatedAt: true,
         },
       },
+      thesisGuidances: {
+        where: { status: "completed" },
+        orderBy: { approvedDate: "desc" },
+        take: 1,
+        select: {
+          approvedDate: true,
+          completedAt: true,
+        },
+      },
       thesisSupervisors: {
         where: {
           role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
@@ -311,7 +329,8 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
   // Filter and calculate days since last activity
   const atRisk = theses
     .map((t) => {
-      const lastActivity = t.updatedAt;
+      const latestGuidance = t.thesisGuidances?.[0];
+      const lastActivity = latestGuidance?.approvedDate || latestGuidance?.completedAt || t.updatedAt;
       const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
 
       return {
@@ -373,6 +392,15 @@ export async function getSlowStudents(limit = 10, academicYear) {
           updatedAt: true,
         },
       },
+      thesisGuidances: {
+        where: { status: "completed" },
+        orderBy: { approvedDate: "desc" },
+        take: 1,
+        select: {
+          approvedDate: true,
+          completedAt: true,
+        },
+      },
       thesisSupervisors: {
         where: {
           role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
@@ -392,7 +420,8 @@ export async function getSlowStudents(limit = 10, academicYear) {
 
   const slow = theses
     .map((t) => {
-      const lastActivity = t.updatedAt;
+      const latestGuidance = t.thesisGuidances?.[0];
+      const lastActivity = latestGuidance?.approvedDate || latestGuidance?.completedAt || t.updatedAt;
       const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
 
       return {
@@ -531,6 +560,9 @@ export async function getThesisDetailById(thesisId) {
   return prisma.thesis.findUnique({
     where: { id: thesisId },
     include: {
+      document: {
+        select: { id: true, fileName: true, filePath: true, createdAt: true },
+      },
       student: {
         include: {
           user: {
