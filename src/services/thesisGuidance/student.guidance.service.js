@@ -166,22 +166,18 @@ export async function listMyGuidancesService(userId, status) {
     duration: g.duration || 60,
     supervisorId: g.supervisorId || null,
     supervisorName: g?.supervisor?.user?.fullName || null,
+    // Additional fields for merged view (history data in main table)
+    studentNotes: g.studentNotes || null,
+    rejectionReason: g.rejectionReason || null,
+    sessionSummary: g.sessionSummary || null,
+    actionItems: g.actionItems || null,
+    completedAt: g.completedAt || null,
+    completedAtFormatted: g.completedAt ? formatDateTimeJakarta(g.completedAt, { withDay: true }) : null,
+    document: g.document
+      ? { id: g.document.id, fileName: g.document.fileName, filePath: g.document.filePath }
+      : null,
   }));
-  let doc = null;
-  try {
-    const t = await prisma.thesis.findUnique({ where: { id: thesis.id }, include: { document: true } });
-    if (t?.document) {
-      doc = {
-        id: t.document.id,
-        fileName: t.document.fileName,
-        filePath: t.document.filePath, // relative path served under /uploads
-      };
-    }
-  } catch (e) {
-    console.warn("Failed to load thesis document:", e?.message || e);
-  }
-  const withDoc = items.map((it) => ({ ...it, document: doc }));
-  return { count: withDoc.length, items: withDoc };
+  return { count: items.length, items };
 }
 
 export async function getGuidanceDetailService(userId, guidanceId) {
@@ -215,17 +211,26 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     milestoneIds,
     milestoneTitles,
   };
-  // attach thesis document
-  try {
-    const t = await prisma.thesis.findUnique({ where: { id: guidance.thesisId }, include: { document: true } });
-    if (t?.document) {
-      flat.document = {
-        id: t.document.id,
-        fileName: t.document.fileName,
-        filePath: t.document.filePath,
-      };
-    }
-  } catch { }
+  // attach guidance-level document (uploaded during this specific guidance request)
+  if (guidance.document) {
+    flat.document = {
+      id: guidance.document.id,
+      fileName: guidance.document.fileName,
+      filePath: guidance.document.filePath,
+    };
+  } else {
+    // Fallback: show thesis-level document if no guidance-specific document
+    try {
+      const t = await prisma.thesis.findUnique({ where: { id: guidance.thesisId }, include: { document: true } });
+      if (t?.document) {
+        flat.document = {
+          id: t.document.id,
+          fileName: t.document.fileName,
+          filePath: t.document.filePath,
+        };
+      }
+    } catch { }
+  }
   return { guidance: flat };
 }
 
@@ -409,20 +414,27 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesis.id);
       await mkdir(uploadsRoot, { recursive: true });
 
-      // Delete old file and document if exists
-      if (thesis.documentId && thesis.document?.filePath) {
-        try {
-          const oldFilePath = path.join(process.cwd(), thesis.document.filePath);
-          await unlink(oldFilePath);
-          await prisma.document.delete({ where: { id: thesis.documentId } });
-        } catch (delErr) {
-          // Ignore if old file doesn't exist or deletion fails
-          console.warn("Could not delete old document:", delErr.message);
+      // Build versioned filename: nim_Name_LaporanTA_v{n}.pdf
+      const nim = studentUser?.identityNumber || "NIM";
+      const cleanName = (studentUser?.fullName || "Mahasiswa").replace(/[^a-zA-Z0-9]/g, "_");
+      const baseName = `${nim}_${cleanName}_LaporanTA`;
+
+      // Auto-increment version based on existing files in the directory
+      let version = 1;
+      if (fs.existsSync(uploadsRoot)) {
+        const existingFiles = fs.readdirSync(uploadsRoot);
+        const versionRegex = new RegExp(`^${baseName}_v(\\d+)\\.pdf$`, "i");
+        for (const f of existingFiles) {
+          const match = f.match(versionRegex);
+          if (match) {
+            const v = parseInt(match[1]);
+            if (v >= version) version = v + 1;
+          }
         }
       }
 
-      const safeName = `thesis-document.pdf`; // Simple fixed name, always overwrite
-      const filePath = path.join(uploadsRoot, safeName);
+      const versionedName = `${baseName}_v${version}.pdf`;
+      const filePath = path.join(uploadsRoot, versionedName);
       await writeFile(filePath, file.buffer);
 
       const relPath = path.relative(process.cwd(), filePath).replace(/\\/g, "/");
@@ -437,7 +449,11 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
         },
       });
 
+      // Point thesis to the latest document (previous versions remain on disk + in DB)
       await prisma.thesis.update({ where: { id: thesis.id }, data: { documentId: doc.id } });
+
+      // Also link this document to the specific guidance record
+      await prisma.thesisGuidance.update({ where: { id: created.id }, data: { documentId: doc.id } });
     } catch (err) {
       console.error("Failed to store uploaded thesis file:", err.message || err);
     }
@@ -598,9 +614,18 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     throw err;
   }
 
-  // Only allow canceling "requested" status
-  if (guidance.status !== "requested") {
-    const err = new Error("Can only cancel pending guidance requests");
+  // Allow canceling "requested" or "accepted" status
+  if (!["requested", "accepted"].includes(guidance.status)) {
+    const err = new Error("Hanya bimbingan berstatus 'menunggu' atau 'diterima' yang dapat dibatalkan");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const isAccepted = guidance.status === "accepted";
+
+  // For accepted guidance, reason is required
+  if (isAccepted && (!reason || !reason.trim())) {
+    const err = new Error("Alasan pembatalan wajib diisi untuk bimbingan yang sudah disetujui");
     err.statusCode = 400;
     throw err;
   }
@@ -622,7 +647,7 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
   const studentUser = await prisma.user.findUnique({ where: { id: userId } });
   const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
 
-  // Send FCM notification to supervisor
+  // Send notification to supervisor
   try {
     if (guidance.supervisor?.user?.id) {
       const supervisorUserId = guidance.supervisor.user.id;
@@ -630,10 +655,17 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
         ? formatDateTimeJakarta(new Date(guidance.requestedDate), { withDay: true })
         : "belum ditentukan";
 
+      const notifTitle = isAccepted
+        ? "Bimbingan terjadwal dibatalkan"
+        : "Pengajuan bimbingan dibatalkan";
+      const notifMessage = isAccepted
+        ? `${studentName} membatalkan bimbingan terjadwal untuk ${dateStr}. Alasan: ${reason}`
+        : `${studentName} membatalkan pengajuan bimbingan untuk ${dateStr}${reason ? `. Alasan: ${reason}` : ""}`;
+
       // Persist notification
       await createNotificationsForUsers([supervisorUserId], {
-        title: "Pengajuan bimbingan dibatalkan",
-        message: `${studentName} membatalkan pengajuan bimbingan untuk ${dateStr}${reason ? `. Alasan: ${reason}` : ""}`,
+        title: notifTitle,
+        message: notifMessage,
       });
 
       // Send FCM
@@ -647,8 +679,8 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
         playSound: "true",
       };
       await sendFcmToUsers([supervisorUserId], {
-        title: "Pengajuan bimbingan dibatalkan",
-        body: `${studentName} membatalkan pengajuan untuk ${dateStr}`,
+        title: notifTitle,
+        body: notifMessage,
         data,
         dataOnly: true,
       });
@@ -657,12 +689,25 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     console.warn("FCM notify failed (guidance cancelled):", e?.message || e);
   }
 
-  // Delete the guidance record
-  await prisma.thesisGuidance.delete({
-    where: { id: guidance.id }
-  });
-
-  return { success: true, message: "Guidance request deleted successfully" };
+  if (isAccepted) {
+    // For accepted guidance: update status to cancelled, keep the record
+    await prisma.thesisGuidance.update({
+      where: { id: guidance.id },
+      data: {
+        status: "cancelled",
+        rejectionReason: reason || null,
+        studentCalendarEventId: null,
+        supervisorCalendarEventId: null,
+      },
+    });
+    return { success: true, message: "Bimbingan berhasil dibatalkan" };
+  } else {
+    // For requested guidance: delete the record
+    await prisma.thesisGuidance.delete({
+      where: { id: guidance.id },
+    });
+    return { success: true, message: "Pengajuan bimbingan berhasil dibatalkan" };
+  }
 }
 
 export async function updateStudentNotesService(userId, guidanceId, studentNotes) {

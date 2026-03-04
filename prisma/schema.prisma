@@ -516,6 +516,7 @@ model ThesisGuidance {
   approvedDate  DateTime? @map("approved_date")
   duration      Int       @default(60)
 
+  documentId   String? @map("document_id")
   documentUrl        String? @map("document_url")
   studentNotes       String? @map("student_notes") @db.Text
   supervisorFeedback String? @map("supervisor_feedback") @db.Text
@@ -534,12 +535,14 @@ model ThesisGuidance {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  document   Document? @relation(fields: [documentId], references: [id])
   supervisor Lecturer? @relation(fields: [supervisorId], references: [id])
   thesis     Thesis    @relation(fields: [thesisId], references: [id], onDelete: Cascade)
 
   milestones ThesisGuidanceMilestone[]
 
   @@index([thesisId])
+  @@index([documentId], map: "thesis_guidances_document_id_fkey")
   @@index([supervisorId], map: "thesis_guidances_supervisor_id_fkey")
   @@map("thesis_guidances")
 }
@@ -969,6 +972,7 @@ model Document {
   internshipSeminarBeritaAcara InternshipSeminar[]           @relation("InternshipSeminarBeritaAcara")
   thesis                       Thesis[]
   thesisFinalDocument          Thesis[]                      @relation("FinalThesisDocument")
+  thesisGuidances              ThesisGuidance[]
   thesisProposal               ThesisProposal[]
   yudisiums                    Yudisium[]
   yudisiumParticipantRequirements YudisiumParticipantRequirement[]

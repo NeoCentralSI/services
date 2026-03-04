@@ -1,5 +1,6 @@
 // src/controllers/outlook-calendar.controller.js
 import { hasCalendarAccess, getCalendarEvents } from "../services/outlook-calendar.service.js";
+import { getMicrosoftAuthUrl } from "../services/microsoft-auth.service.js";
 
 /**
  * Check if current user has calendar access (Microsoft account connected)
@@ -7,14 +8,20 @@ import { hasCalendarAccess, getCalendarEvents } from "../services/outlook-calend
 export async function checkCalendarAccess(req, res, next) {
   try {
     const userId = req.user.sub;
-    const hasAccess = await hasCalendarAccess(userId);
+    const result = await hasCalendarAccess(userId);
+    // Support both old boolean and new object return format
+    const hasAccess = typeof result === 'object' ? result.hasAccess : result;
+    const needsReconnect = typeof result === 'object' ? result.needsReconnect : false;
     
     res.json({
       success: true,
       hasCalendarAccess: hasAccess,
+      needsReconnect,
       message: hasAccess 
         ? "Calendar sync is enabled" 
-        : "Please connect your Microsoft account to enable calendar sync",
+        : needsReconnect
+          ? "Microsoft token expired. Please reconnect your account."
+          : "Please connect your Microsoft account to enable calendar sync",
     });
   } catch (error) {
     next(error);
@@ -45,6 +52,22 @@ export async function getUserCalendarEvents(req, res, next) {
       success: true,
       count: events.length,
       events,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Get Microsoft OAuth URL for reconnecting calendar access
+ * GET /outlook-calendar/reconnect
+ */
+export async function reconnectCalendar(req, res, next) {
+  try {
+    const authUrl = await getMicrosoftAuthUrl(false);
+    res.json({
+      success: true,
+      authUrl,
     });
   } catch (error) {
     next(error);
