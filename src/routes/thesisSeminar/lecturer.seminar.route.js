@@ -26,6 +26,7 @@ import {
   getSeminarRevisionsCtrl,
   approveRevisionCtrl,
   unapproveRevisionCtrl,
+  finalizeSeminarRevisionsCtrl,
   getSeminarAudiencesCtrl,
   approveAudienceCtrl,
   unapproveAudienceCtrl,
@@ -86,6 +87,9 @@ router.put("/seminars/:seminarId/revisions/:revisionId/approve", approveRevision
 
 // PUT /thesisSeminar/lecturer/seminars/:seminarId/revisions/:revisionId/unapprove
 router.put("/seminars/:seminarId/revisions/:revisionId/unapprove", unapproveRevisionCtrl);
+
+// POST /thesisSeminar/lecturer/seminars/:seminarId/revisions/finalize
+router.post("/seminars/:seminarId/revisions/finalize", finalizeSeminarRevisionsCtrl);
 
 // ============================================================
 // LECTURER — Audience / Attendance Management
