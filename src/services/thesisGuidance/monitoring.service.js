@@ -299,39 +299,46 @@ export async function getThesisDetail(thesisId) {
     }));
 
   // Format seminars
-  const seminars = thesis.thesisSeminars.map((s) => ({
-    id: s.id,
-    status: s.status,
-    result: s.result?.name || null,
-    // scheduledAt: s.schedule?.startTime || null, // Removed
-    // endTime: s.schedule?.endTime || null, // Removed
-    // room: s.schedule?.room?.name || null, // Removed
-    scores: s.scores.map((sc) => ({
-      scorerName: sc.scorer?.user?.fullName,
-      rubric: sc.rubricDetail?.name || null,
-      score: sc.score,
-    })),
-    averageScore: s.scores.length > 0
-      ? Math.round(s.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / s.scores.length)
-      : null,
-  }));
+  const seminars = thesis.thesisSeminars.map((s) => {
+    const examiners = s.examiners || [];
+    const scoredExaminers = examiners.filter((e) => e.assessmentScore != null);
+    return {
+      id: s.id,
+      status: s.status,
+      date: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      finalScore: s.finalScore,
+      grade: s.grade,
+      examinerCount: examiners.length,
+      scoredCount: scoredExaminers.length,
+      averageScore: scoredExaminers.length > 0
+        ? Math.round(scoredExaminers.reduce((sum, e) => sum + e.assessmentScore, 0) / scoredExaminers.length)
+        : null,
+    };
+  });
 
   // Format defences
-  const defences = thesis.thesisDefences.map((d) => ({
-    id: d.id,
-    status: d.status?.name || null,
-    // scheduledAt: d.schedule?.startTime || null, // Removed
-    // endTime: d.schedule?.endTime || null, // Removed
-    // room: d.schedule?.room?.name || null, // Removed
-    scores: d.scores.map((sc) => ({
-      scorerName: sc.scorer?.user?.fullName,
-      rubric: sc.rubricDetail?.name || null,
-      score: sc.score,
-    })),
-    averageScore: d.scores.length > 0
-      ? Math.round(d.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / d.scores.length)
-      : null,
-  }));
+  const defences = thesis.thesisDefences.map((d) => {
+    const examiners = d.examiners || [];
+    const scoredExaminers = examiners.filter((e) => e.assessmentScore != null);
+    return {
+      id: d.id,
+      status: d.status,
+      date: d.date,
+      startTime: d.startTime,
+      endTime: d.endTime,
+      finalScore: d.finalScore,
+      grade: d.grade,
+      examinerAverageScore: d.examinerAverageScore,
+      supervisorScore: d.supervisorScore,
+      examinerCount: examiners.length,
+      scoredCount: scoredExaminers.length,
+      averageScore: scoredExaminers.length > 0
+        ? Math.round(scoredExaminers.reduce((sum, e) => sum + e.assessmentScore, 0) / scoredExaminers.length)
+        : null,
+    };
+  });
 
   // Format guidances
   const guidances = thesis.thesisGuidances.map((g) => ({

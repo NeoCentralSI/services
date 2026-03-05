@@ -622,9 +622,51 @@ export async function getThesisDetailById(thesisId) {
       },
       thesisSeminars: {
         orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          thesisId: true,
+          status: true,
+          finalScore: true,
+          grade: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          createdAt: true,
+          updatedAt: true,
+          examiners: {
+            select: {
+              id: true,
+              assessmentScore: true,
+              lecturerId: true,
+              order: true,
+            },
+          },
+        },
       },
       thesisDefences: {
         orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          thesisId: true,
+          status: true,
+          examinerAverageScore: true,
+          supervisorScore: true,
+          finalScore: true,
+          grade: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          createdAt: true,
+          updatedAt: true,
+          examiners: {
+            select: {
+              id: true,
+              assessmentScore: true,
+              lecturerId: true,
+              order: true,
+            },
+          },
+        },
       },
     },
   });
