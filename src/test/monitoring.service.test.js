@@ -19,6 +19,10 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
     getThesisDetailById: vi.fn(),
     getThesesForReport: vi.fn(),
     getAcademicYearById: vi.fn(),
+    getTopicDistribution: vi.fn(),
+    getBatchDistribution: vi.fn(),
+    getProgressDistribution: vi.fn(),
+    getGuidanceTrend: vi.fn(),
   },
   mockPrisma: {
     thesis: { findUnique: vi.fn(), findFirst: vi.fn() },
@@ -62,18 +66,33 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
   // ─── Dashboard ────────────────────────────────────────────
   describe("getMonitoringDashboard", () => {
-    it("returns summary stats, distributions, at-risk and slow students", async () => {
+    it("returns summary stats, distributions, charts, at-risk and slow students", async () => {
       mockRepo.getProgressStatistics.mockResolvedValue({ total: 100, active: 80 });
       mockRepo.getStatusDistribution.mockResolvedValue([{ status: "Bimbingan", count: 60 }]);
       mockRepo.getRatingDistribution.mockResolvedValue([{ rating: "on_track", count: 50 }]);
       mockRepo.getAtRiskStudents.mockResolvedValue([{ id: "s1", name: "At Risk Student" }]);
       mockRepo.getSlowStudents.mockResolvedValue([{ id: "s2", name: "Slow Student" }]);
       mockRepo.getStudentsReadyForSeminar.mockResolvedValue([]);
+      mockRepo.getTopicDistribution.mockResolvedValue([{ id: "t1", name: "Machine Learning", count: 10 }]);
+      mockRepo.getBatchDistribution.mockResolvedValue([{ id: "2022", name: "Angkatan 2022", count: 15 }]);
+      mockRepo.getProgressDistribution.mockResolvedValue([{ label: "0-25%", count: 5 }]);
+      mockRepo.getGuidanceTrend.mockResolvedValue([{ month: "2025-01", count: 12 }]);
 
       const result = await getMonitoringDashboard(ACADEMIC_YEAR);
 
       expect(result).toHaveProperty("summary");
+      expect(result).toHaveProperty("statusDistribution");
+      expect(result).toHaveProperty("ratingDistribution");
+      expect(result).toHaveProperty("topicDistribution");
+      expect(result).toHaveProperty("batchDistribution");
+      expect(result).toHaveProperty("progressDistribution");
+      expect(result).toHaveProperty("guidanceTrend");
+      expect(result).toHaveProperty("atRiskStudents");
+      expect(result).toHaveProperty("slowStudents");
+      expect(result).toHaveProperty("readyForSeminar");
       expect(mockRepo.getProgressStatistics).toHaveBeenCalledWith(ACADEMIC_YEAR);
+      expect(mockRepo.getBatchDistribution).toHaveBeenCalledWith(ACADEMIC_YEAR);
+      expect(mockRepo.getGuidanceTrend).toHaveBeenCalledWith(ACADEMIC_YEAR);
     });
   });
 

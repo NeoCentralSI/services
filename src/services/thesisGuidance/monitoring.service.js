@@ -23,13 +23,17 @@ function toTitleCaseName(str) {
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents] = await Promise.all([
+  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
     monitoringRepository.getRatingDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
     monitoringRepository.getAtRiskStudents(5, academicYear),
     monitoringRepository.getStudentsReadyForSeminar(academicYear),
     monitoringRepository.getSlowStudents(5, academicYear),
+    monitoringRepository.getTopicDistribution(academicYear),
+    monitoringRepository.getBatchDistribution(academicYear),
+    monitoringRepository.getProgressDistribution(academicYear),
+    monitoringRepository.getGuidanceTrend(academicYear),
   ]);
 
   return {
@@ -41,6 +45,10 @@ export async function getMonitoringDashboard(academicYear) {
     },
     statusDistribution,
     ratingDistribution,
+    topicDistribution,
+    batchDistribution,
+    progressDistribution,
+    guidanceTrend,
     atRiskStudents,
     slowStudents,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({

@@ -33,6 +33,13 @@ import {
 	findTransferNotificationById,
 	markNotificationRead,
 	createInfoNotification,
+	// Kadep Transfer
+	findKadepUsers,
+	createKadepTransferNotification,
+	findPendingKadepTransferNotifications,
+	findAllKadepTransferNotifications,
+	updateNotificationMessage,
+	findKadepTransferNotificationsBySrcTgt,
 } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
 import { ROLE_CATEGORY, ROLES, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
@@ -1043,42 +1050,85 @@ export async function requestStudentTransferService(userId, { thesisIds, targetL
 		sId: sr.id,
 	}));
 
-	// Compact payload to fit in notification message column
-	const payload = JSON.stringify({
+	// Find all active Kadep users
+	const kadepUsers = await findKadepUsers();
+	if (kadepUsers.length === 0) {
+		const err = new Error("Tidak ditemukan Ketua Departemen aktif untuk menyetujui transfer");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// --- Send notification to TARGET LECTURER (Dosen B) ---
+	const txPayload = JSON.stringify({
 		t: "TX",
 		src: lecturer.id,
 		refs,
 		r: reason,
 	});
-	await createTransferNotification(targetLecturerId, payload);
+	await createTransferNotification(targetLecturerId, txPayload);
+
+	// --- Send notification to KADEP ---
+	const kadepPayload = JSON.stringify({
+		t: "TX_KADEP",
+		src: lecturer.id,
+		tgt: targetLecturerId,
+		refs,
+		r: reason,
+		tgtApproved: false,
+		st: "pending",
+	});
+	for (const kadep of kadepUsers) {
+		await createKadepTransferNotification(kadep.id, kadepPayload);
+	}
 
 	// Build student names for readable notifications
 	const studentNames = supervisorRecords
 		.map((sr) => toTitleCaseName(sr.thesis?.student?.user?.fullName || "Mahasiswa"))
 		.join(", ");
 
-	// Get source lecturer name
+	// Get names
 	const sourceUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
 	const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
-
-	// Send human-readable notification to target lecturer
 	const targetUser = await prisma.user.findUnique({ where: { id: targetLecturerId }, select: { fullName: true } });
 	const targetName = toTitleCaseName(targetUser?.fullName || "Dosen");
+
+	// Send human-readable notification to target lecturer
 	await createInfoNotification(
 		targetLecturerId,
 		"Permintaan Transfer Mahasiswa",
-		`${sourceName} ingin mentransfer ${refs.length} mahasiswa (${studentNames}) kepada Anda.`
+		`${sourceName} ingin mentransfer ${refs.length} mahasiswa (${studentNames}) kepada Anda. Silakan review.`
 	);
+
+	// Send FCM to target lecturer
+	await sendFcmToUsers([targetLecturerId], {
+		title: "Permintaan Transfer Mahasiswa",
+		body: `${sourceName} ingin mentransfer ${refs.length} mahasiswa kepada Anda`,
+		data: { type: "transfer-request-incoming" },
+	});
+
+	// Send human-readable notification to all Kadep
+	const kadepUserIds = kadepUsers.map((k) => k.id);
+	await createNotificationsForUsers(kadepUserIds, {
+		title: "Permintaan Transfer Mahasiswa",
+		message: `${sourceName} mengajukan transfer ${refs.length} mahasiswa (${studentNames}) ke ${targetName}. Menunggu persetujuan dosen tujuan.`,
+	});
+
+	// Send FCM push notification to Kadep
+	await sendFcmToUsers(kadepUserIds, {
+		title: "Permintaan Transfer Mahasiswa",
+		body: `${sourceName} mengajukan transfer ${refs.length} mahasiswa ke ${targetName}`,
+		data: { type: "transfer-request-kadep" },
+	});
 
 	// Also notify source lecturer that request was sent
 	await createInfoNotification(
 		userId,
 		"Transfer Mahasiswa Dikirim",
-		`Permintaan transfer ${refs.length} mahasiswa ke ${targetName} telah dikirim.`
+		`Permintaan transfer ${refs.length} mahasiswa ke ${targetName} telah dikirim. Menunggu persetujuan dosen tujuan dan Ketua Departemen.`
 	);
 
 	return {
-		message: `Permintaan transfer ${refs.length} mahasiswa ke ${targetName} berhasil dikirim`,
+		message: `Permintaan transfer ${refs.length} mahasiswa ke ${targetName} berhasil dikirim. Menunggu persetujuan dosen tujuan dan Ketua Departemen.`,
 		studentCount: refs.length,
 	};
 }
@@ -1158,8 +1208,9 @@ export async function getIncomingTransferRequestsService(userId) {
 }
 
 /**
- * Approve a transfer request — executes the actual supervisor swap
- * Also handles P2→P1 auto-promotion when a P2 has the P1 role
+ * Approve a transfer request (TARGET LECTURER) — does NOT execute swap yet.
+ * Marks target notification read, updates kadep notifications to tgtApproved=true,
+ * and notifies kadep + source that target has approved.
  */
 export async function approveTransferRequestService(userId, notificationId) {
 	const lecturer = await getLecturerByUserId(userId);
@@ -1195,106 +1246,57 @@ export async function approveTransferRequestService(userId, notificationId) {
 
 	const sourceLecturerId = payload.src;
 	const refs = payload.refs || [];
-	const p1RoleId = await getRoleIdByName(ROLES.PEMBIMBING_1);
 
-	// Process all students in a single transaction for data consistency
-	const results = await prisma.$transaction(async (tx) => {
-		const txResults = [];
-		for (const ref of refs) {
-			// Transfer the original supervisor record to the new lecturer
-			await tx.thesisSupervisors.update({
-				where: { id: ref.sId },
-				data: { lecturerId: lecturer.id },
-			});
+	// Mark target notification as read
+	await markNotificationRead(notificationId);
 
-			// After transfer, check if the approving lecturer already had a P2 record
-			// on this thesis. If so, they now have two records (P1 + P2) — delete the P2.
-			const allSupRecords = await tx.thesisSupervisors.findMany({
-				where: { thesisId: ref.tId },
-				include: { role: { select: { id: true, name: true } } },
-			});
-
-			const myRecords = allSupRecords.filter((r) => r.lecturerId === lecturer.id);
-			const myP2Record = myRecords.find((r) => r.role?.name === ROLES.PEMBIMBING_2);
-			if (myP2Record) {
-				// Delete the duplicate P2 record — this lecturer is now P1
-				await tx.thesisSupervisors.delete({ where: { id: myP2Record.id } });
-				console.log(`[Transfer] Deleted duplicate P2 record for lecturer ${lecturer.id} on thesis ${ref.tId}`);
-			}
-
-			// Check for P2→P1 auto-promotion for OTHER P2 lecturers
-			const otherP2 = allSupRecords.find(
-				(r) => r.role?.name === ROLES.PEMBIMBING_2 && r.lecturerId !== lecturer.id
-			);
-
-			let promoted = false;
-			if (otherP2 && p1RoleId) {
-				const p2HasP1Role = await lecturerHasRole(otherP2.lecturerId, ROLES.PEMBIMBING_1);
-				if (p2HasP1Role) {
-					await tx.thesisSupervisors.update({
-						where: { id: otherP2.id },
-						data: { roleId: p1RoleId },
-					});
-					promoted = true;
-					console.log(`[Transfer] P2 (${otherP2.lecturerId}) promoted to P1 on thesis ${ref.tId}`);
-				}
-			}
-
-			txResults.push({ thesisId: ref.tId, success: true, promoted });
+	// Update all kadep TX_KADEP notifications for this transfer to tgtApproved=true
+	const kadepNotifs = await findKadepTransferNotificationsBySrcTgt(sourceLecturerId, lecturer.id);
+	for (const kn of kadepNotifs) {
+		try {
+			const kPayload = JSON.parse(kn.message);
+			kPayload.tgtApproved = true;
+			await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
+		} catch {
+			// skip malformed
 		}
-
-		// Mark notification as read inside transaction
-		await tx.notification.update({
-			where: { id: notificationId },
-			data: { isRead: true },
-		});
-
-		return txResults;
-	});
-
-	// Notify source lecturer that transfer was approved (outside transaction — non-critical)
-	const approverUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
-	const approverName = toTitleCaseName(approverUser?.fullName || "Dosen");
-	const successCount = results.filter((r) => r.success).length;
-
-	await createInfoNotification(
-		sourceLecturerId,
-		"Transfer Mahasiswa Disetujui",
-		`${approverName} telah menyetujui transfer ${successCount} mahasiswa.`
-	);
-
-	// Notify students that their supervisor has changed
-	try {
-		for (const ref of refs) {
-			const thesis = await prisma.thesis.findUnique({
-				where: { id: ref.tId },
-				include: { student: { include: { user: { select: { id: true } } } } },
-			});
-			const studentUserId = thesis?.student?.user?.id;
-			if (studentUserId) {
-				await createNotificationsForUsers([studentUserId], {
-					title: "Dosen Pembimbing Berubah",
-					message: `Dosen pembimbing Anda telah berubah. ${approverName} sekarang menjadi pembimbing Anda.`,
-				});
-				await sendFcmToUsers([studentUserId], {
-					title: "Dosen Pembimbing Berubah",
-					body: `${approverName} sekarang menjadi dosen pembimbing Anda.`,
-					data: { type: "thesis-guidance:supervisor-changed", thesisId: ref.tId },
-				});
-			}
-		}
-	} catch (e) {
-		console.error("Failed to notify students about transfer:", e?.message || e);
 	}
 
+	// Get names for notifications
+	const approverUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+	const approverName = toTitleCaseName(approverUser?.fullName || "Dosen");
+	const sourceUser = await prisma.user.findUnique({ where: { id: sourceLecturerId }, select: { fullName: true } });
+	const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
+
+	// Notify source lecturer
+	await createInfoNotification(
+		sourceLecturerId,
+		"Transfer Disetujui Dosen Tujuan",
+		`${approverName} telah menyetujui transfer ${refs.length} mahasiswa. Menunggu persetujuan Ketua Departemen.`
+	);
+
+	// Notify kadep that target has approved
+	const kadepUsers = await findKadepUsers();
+	const kadepUserIds = kadepUsers.map((k) => k.id);
+	await createNotificationsForUsers(kadepUserIds, {
+		title: "Dosen Tujuan Menyetujui Transfer",
+		message: `${approverName} menyetujui permintaan transfer dari ${sourceName}. Silakan berikan persetujuan akhir.`,
+	});
+	await sendFcmToUsers(kadepUserIds, {
+		title: "Dosen Tujuan Menyetujui Transfer",
+		body: `${approverName} menyetujui transfer dari ${sourceName}. Menunggu approval Kadep.`,
+		data: { type: "transfer-target-approved" },
+	});
+
 	return {
-		message: `Transfer ${successCount} mahasiswa berhasil disetujui`,
-		results,
+		message: `Transfer disetujui. Menunggu persetujuan Ketua Departemen.`,
+		results: refs.map((r) => ({ thesisId: r.tId, success: true })),
 	};
 }
 
 /**
- * Reject a transfer request
+ * Reject a transfer request (TARGET LECTURER)
+ * Marks target notification read, updates kadep notifications to st=target_rejected, notifies source.
  */
 export async function rejectTransferRequestService(userId, notificationId, { reason } = {}) {
 	const lecturer = await getLecturerByUserId(userId);
@@ -1321,8 +1323,21 @@ export async function rejectTransferRequestService(userId, notificationId, { rea
 		throw err;
 	}
 
-	// Mark as read (processed)
+	// Mark target notification as read (processed)
 	await markNotificationRead(notificationId);
+
+	// Update all kadep TX_KADEP notifications: mark as rejected by target, mark read
+	const kadepNotifs = await findKadepTransferNotificationsBySrcTgt(payload.src, lecturer.id);
+	for (const kn of kadepNotifs) {
+		try {
+			const kPayload = JSON.parse(kn.message);
+			kPayload.st = "target_rejected";
+			await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
+			await markNotificationRead(kn.id);
+		} catch {
+			// skip malformed
+		}
+	}
 
 	// Notify source lecturer
 	const rejecterUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
@@ -1335,5 +1350,444 @@ export async function rejectTransferRequestService(userId, notificationId, { rea
 		`${rejecterName} menolak permintaan transfer mahasiswa.${rejectReason}`
 	);
 
+	// Notify kadep that target rejected
+	const kadepUsers = await findKadepUsers();
+	const kadepUserIds = kadepUsers.map((k) => k.id);
+	if (kadepUserIds.length > 0) {
+		const sourceUser = await prisma.user.findUnique({ where: { id: payload.src }, select: { fullName: true } });
+		const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
+		await createNotificationsForUsers(kadepUserIds, {
+			title: "Transfer Ditolak Dosen Tujuan",
+			message: `${rejecterName} menolak permintaan transfer dari ${sourceName}.${rejectReason}`,
+		});
+	}
+
 	return { message: "Transfer request ditolak" };
+}
+
+// ==================== KADEP TRANSFER APPROVAL ====================
+
+/**
+ * Get pending transfer requests for Kadep review
+ */
+export async function getKadepPendingTransfersService(userId) {
+	const notifications = await findPendingKadepTransferNotifications(userId);
+	const transfers = [];
+
+	for (const notif of notifications) {
+		try {
+			const payload = JSON.parse(notif.message);
+			if (payload.t !== "TX_KADEP") continue;
+
+			// Get source lecturer info
+			const srcUser = await prisma.user.findUnique({
+				where: { id: payload.src },
+				select: { fullName: true },
+			});
+
+			// Get target lecturer info
+			const tgtUser = await prisma.user.findUnique({
+				where: { id: payload.tgt },
+				select: { fullName: true },
+			});
+
+			// Get student details
+			const thesisIds = (payload.refs || []).map((r) => r.tId);
+			const supRecords = thesisIds.length
+				? await prisma.ThesisSupervisors.findMany({
+					where: { thesisId: { in: thesisIds } },
+					include: {
+						role: { select: { name: true } },
+						thesis: {
+							include: {
+								student: {
+									include: { user: { select: { fullName: true, identityNumber: true } } },
+								},
+							},
+						},
+					},
+				})
+				: [];
+
+			const byThesis = {};
+			for (const sr of supRecords) {
+				if (!byThesis[sr.thesisId]) byThesis[sr.thesisId] = sr;
+			}
+
+			const students = (payload.refs || []).map((ref) => {
+				const sr = byThesis[ref.tId];
+				return {
+					thesisId: ref.tId,
+					thesisSupervisorId: ref.sId,
+					studentName: sr?.thesis?.student?.user?.fullName || "Unknown",
+					studentNim: sr?.thesis?.student?.user?.identityNumber || "-",
+					thesisTitle: sr?.thesis?.title || "Untitled",
+					role: sr?.role?.name || "Pembimbing",
+				};
+			});
+
+			transfers.push({
+				notificationId: notif.id,
+				sourceLecturerId: payload.src,
+				sourceLecturerName: toTitleCaseName(srcUser?.fullName || "Dosen"),
+				targetLecturerId: payload.tgt,
+				targetLecturerName: toTitleCaseName(tgtUser?.fullName || "Dosen"),
+				students,
+				reason: payload.r,
+				targetApproved: !!payload.tgtApproved,
+				status: payload.st || "pending",
+				createdAt: notif.createdAt,
+			});
+		} catch {
+			// Skip non-JSON or malformed notifications
+		}
+	}
+
+	return { count: transfers.length, transfers };
+}
+
+/**
+ * Get ALL kadep transfer notifications (for history view with pagination)
+ */
+export async function getKadepAllTransfersService(userId, { page = 1, pageSize = 10, search = "", status = "" } = {}) {
+	const { notifications, total } = await findAllKadepTransferNotifications(userId, { page, pageSize, search });
+	const transfers = [];
+
+	for (const notif of notifications) {
+		try {
+			const payload = JSON.parse(notif.message);
+			if (payload.t !== "TX_KADEP") continue;
+
+			// Filter by status if provided
+			const transferStatus = payload.st || "pending";
+			if (status && transferStatus !== status) continue;
+
+			const srcUser = await prisma.user.findUnique({ where: { id: payload.src }, select: { fullName: true } });
+			const tgtUser = await prisma.user.findUnique({ where: { id: payload.tgt }, select: { fullName: true } });
+
+			const thesisIds = (payload.refs || []).map((r) => r.tId);
+			const supRecords = thesisIds.length
+				? await prisma.ThesisSupervisors.findMany({
+					where: { thesisId: { in: thesisIds } },
+					include: {
+						role: { select: { name: true } },
+						thesis: {
+							include: {
+								student: {
+									include: { user: { select: { fullName: true, identityNumber: true } } },
+								},
+							},
+						},
+					},
+				})
+				: [];
+
+			const byThesis = {};
+			for (const sr of supRecords) {
+				if (!byThesis[sr.thesisId]) byThesis[sr.thesisId] = sr;
+			}
+
+			const students = (payload.refs || []).map((ref) => {
+				const sr = byThesis[ref.tId];
+				return {
+					thesisId: ref.tId,
+					thesisSupervisorId: ref.sId,
+					studentName: sr?.thesis?.student?.user?.fullName || "Unknown",
+					studentNim: sr?.thesis?.student?.user?.identityNumber || "-",
+					thesisTitle: sr?.thesis?.title || "Untitled",
+					role: sr?.role?.name || "Pembimbing",
+				};
+			});
+
+			transfers.push({
+				notificationId: notif.id,
+				sourceLecturerId: payload.src,
+				sourceLecturerName: toTitleCaseName(srcUser?.fullName || "Dosen"),
+				targetLecturerId: payload.tgt,
+				targetLecturerName: toTitleCaseName(tgtUser?.fullName || "Dosen"),
+				students,
+				reason: payload.r,
+				targetApproved: !!payload.tgtApproved,
+				status: transferStatus,
+				createdAt: notif.createdAt,
+			});
+		} catch {
+			// Skip non-JSON or malformed
+		}
+	}
+
+	return {
+		data: transfers,
+		pagination: {
+			total,
+			page,
+			pageSize,
+			totalPages: Math.ceil(total / pageSize),
+		},
+	};
+}
+
+/**
+ * Kadep approves a transfer request → executes the actual supervisor swap
+ * Only allowed if target lecturer has already approved (tgtApproved=true)
+ */
+export async function kadepApproveTransferService(userId, notificationId) {
+	const notif = await findTransferNotificationById(notificationId);
+	if (!notif || notif.userId !== userId) {
+		const err = new Error("Transfer request not found");
+		err.statusCode = 404;
+		throw err;
+	}
+	if (notif.isRead) {
+		const err = new Error("Transfer request already processed");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	let payload;
+	try {
+		payload = JSON.parse(notif.message);
+	} catch {
+		const err = new Error("Invalid transfer data");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	if (payload.t !== "TX_KADEP") {
+		const err = new Error("Invalid kadep transfer request");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	if (!payload.tgtApproved) {
+		const err = new Error("Dosen tujuan belum menyetujui transfer ini");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const targetLecturerId = payload.tgt;
+	const sourceLecturerId = payload.src;
+	const refs = payload.refs || [];
+
+	// Execute the actual supervisor swap in a transaction
+	const p1RoleId = await getRoleIdByName(ROLES.PEMBIMBING_1);
+
+	const results = await prisma.$transaction(async (tx) => {
+		const txResults = [];
+		for (const ref of refs) {
+			// Transfer the supervisor record to the target lecturer
+			await tx.thesisSupervisors.update({
+				where: { id: ref.sId },
+				data: { lecturerId: targetLecturerId },
+			});
+
+			// Check if target lecturer already had a P2 record on this thesis
+			const allSupRecords = await tx.thesisSupervisors.findMany({
+				where: { thesisId: ref.tId },
+				include: { role: { select: { id: true, name: true } } },
+			});
+
+			const targetRecords = allSupRecords.filter((r) => r.lecturerId === targetLecturerId);
+			const targetP2Record = targetRecords.find((r) => r.role?.name === ROLES.PEMBIMBING_2);
+			if (targetP2Record) {
+				await tx.thesisSupervisors.delete({ where: { id: targetP2Record.id } });
+				console.log(`[Transfer] Deleted duplicate P2 record for target ${targetLecturerId} on thesis ${ref.tId}`);
+			}
+
+			// Check for P2→P1 auto-promotion for OTHER P2 lecturers
+			const otherP2 = allSupRecords.find(
+				(r) => r.role?.name === ROLES.PEMBIMBING_2 && r.lecturerId !== targetLecturerId
+			);
+
+			let promoted = false;
+			if (otherP2 && p1RoleId) {
+				const p2HasP1Role = await lecturerHasRole(otherP2.lecturerId, ROLES.PEMBIMBING_1);
+				if (p2HasP1Role) {
+					await tx.thesisSupervisors.update({
+						where: { id: otherP2.id },
+						data: { roleId: p1RoleId },
+					});
+					promoted = true;
+					console.log(`[Transfer] P2 (${otherP2.lecturerId}) promoted to P1 on thesis ${ref.tId}`);
+				}
+			}
+
+			txResults.push({ thesisId: ref.tId, success: true, promoted });
+		}
+		return txResults;
+	});
+
+	// Mark kadep notification as read and update status
+	const updatedPayload = { ...payload, st: "approved" };
+	await updateNotificationMessage(notificationId, JSON.stringify(updatedPayload));
+	await markNotificationRead(notificationId);
+
+	// Also mark other kadep notifications for the same transfer
+	const allKadepNotifs = await findKadepTransferNotificationsBySrcTgt(sourceLecturerId, targetLecturerId);
+	for (const kn of allKadepNotifs) {
+		if (kn.id !== notificationId) {
+			try {
+				const kPayload = JSON.parse(kn.message);
+				kPayload.st = "approved";
+				await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
+				await markNotificationRead(kn.id);
+			} catch {
+				// skip
+			}
+		}
+	}
+
+	// Get names for notifications
+	const kadepUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+	const kadepName = toTitleCaseName(kadepUser?.fullName || "Ketua Departemen");
+	const sourceUser = await prisma.user.findUnique({ where: { id: sourceLecturerId }, select: { fullName: true } });
+	const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
+	const targetUser = await prisma.user.findUnique({ where: { id: targetLecturerId }, select: { fullName: true } });
+	const targetName = toTitleCaseName(targetUser?.fullName || "Dosen");
+
+	const successCount = results.filter((r) => r.success).length;
+
+	// Notify source lecturer
+	await createInfoNotification(
+		sourceLecturerId,
+		"Transfer Mahasiswa Disetujui",
+		`${kadepName} telah menyetujui transfer ${successCount} mahasiswa ke ${targetName}. Transfer berhasil dilaksanakan.`
+	);
+
+	// Notify target lecturer
+	await createInfoNotification(
+		targetLecturerId,
+		"Transfer Mahasiswa Selesai",
+		`${kadepName} menyetujui transfer. ${successCount} mahasiswa dari ${sourceName} sekarang menjadi bimbingan Anda.`
+	);
+
+	// Send FCM
+	await sendFcmToUsers([targetLecturerId], {
+		title: "Transfer Mahasiswa Selesai",
+		body: `${successCount} mahasiswa dari ${sourceName} sekarang menjadi bimbingan Anda`,
+		data: { type: "transfer-completed" },
+	});
+
+	// Notify students that their supervisor has changed
+	try {
+		for (const ref of refs) {
+			const thesis = await prisma.thesis.findUnique({
+				where: { id: ref.tId },
+				include: { student: { include: { user: { select: { id: true } } } } },
+			});
+			const studentUserId = thesis?.student?.user?.id;
+			if (studentUserId) {
+				await createNotificationsForUsers([studentUserId], {
+					title: "Dosen Pembimbing Berubah",
+					message: `Dosen pembimbing Anda telah berubah. ${targetName} sekarang menjadi pembimbing Anda.`,
+				});
+				await sendFcmToUsers([studentUserId], {
+					title: "Dosen Pembimbing Berubah",
+					body: `${targetName} sekarang menjadi dosen pembimbing Anda.`,
+					data: { type: "thesis-guidance:supervisor-changed", thesisId: ref.tId },
+				});
+			}
+		}
+	} catch (e) {
+		console.error("Failed to notify students about transfer:", e?.message || e);
+	}
+
+	return {
+		message: `Transfer ${successCount} mahasiswa berhasil disetujui dan dilaksanakan`,
+		results,
+	};
+}
+
+/**
+ * Kadep rejects a transfer request
+ */
+export async function kadepRejectTransferService(userId, notificationId, { reason } = {}) {
+	const notif = await findTransferNotificationById(notificationId);
+	if (!notif || notif.userId !== userId) {
+		const err = new Error("Transfer request not found");
+		err.statusCode = 404;
+		throw err;
+	}
+	if (notif.isRead) {
+		const err = new Error("Transfer request already processed");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	let payload;
+	try {
+		payload = JSON.parse(notif.message);
+	} catch {
+		const err = new Error("Invalid transfer data");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	if (payload.t !== "TX_KADEP") {
+		const err = new Error("Invalid kadep transfer request");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// Update status and mark as read
+	const updatedPayload = { ...payload, st: "rejected" };
+	await updateNotificationMessage(notificationId, JSON.stringify(updatedPayload));
+	await markNotificationRead(notificationId);
+
+	// Also mark other kadep notifications for the same transfer
+	const allKadepNotifs = await findKadepTransferNotificationsBySrcTgt(payload.src, payload.tgt);
+	for (const kn of allKadepNotifs) {
+		if (kn.id !== notificationId) {
+			try {
+				const kPayload = JSON.parse(kn.message);
+				kPayload.st = "rejected";
+				await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
+				await markNotificationRead(kn.id);
+			} catch {
+				// skip
+			}
+		}
+	}
+
+	// Also mark target lecturer's TX notification as read (cancel it)
+	const targetTxNotifs = await findPendingTransferNotifications(payload.tgt);
+	for (const txn of targetTxNotifs) {
+		try {
+			const txPayload = JSON.parse(txn.message);
+			if (txPayload.t === "TX" && txPayload.src === payload.src) {
+				await markNotificationRead(txn.id);
+			}
+		} catch {
+			// skip
+		}
+	}
+
+	// Notify source lecturer about rejection
+	const kadepUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+	const kadepName = toTitleCaseName(kadepUser?.fullName || "Ketua Departemen");
+	const rejectReason = reason ? ` Alasan: ${reason}` : "";
+
+	await createInfoNotification(
+		payload.src,
+		"Transfer Mahasiswa Ditolak oleh Kadep",
+		`${kadepName} menolak permintaan transfer mahasiswa.${rejectReason}`
+	);
+
+	// Notify target lecturer that transfer was cancelled
+	const targetUser = await prisma.user.findUnique({ where: { id: payload.tgt }, select: { fullName: true } });
+	const targetName = toTitleCaseName(targetUser?.fullName || "Dosen");
+	await createInfoNotification(
+		payload.tgt,
+		"Transfer Mahasiswa Dibatalkan",
+		`${kadepName} menolak permintaan transfer mahasiswa. Transfer tidak dilanjutkan.`
+	);
+
+	// Send FCM to source lecturer
+	await sendFcmToUsers([payload.src], {
+		title: "Transfer Mahasiswa Ditolak",
+		body: `${kadepName} menolak permintaan transfer mahasiswa`,
+		data: { type: "transfer-request-rejected-kadep" },
+	});
+
+	return { message: "Transfer request ditolak oleh Kadep" };
 }

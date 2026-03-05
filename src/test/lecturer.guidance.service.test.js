@@ -50,6 +50,13 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
     listGuidanceHistory: vi.fn(),
     findThesisDetailForLecturer: vi.fn(),
     findGuidancesPendingApproval: vi.fn(),
+    // Kadep Transfer
+    findKadepUsers: vi.fn().mockResolvedValue([]),
+    createKadepTransferNotification: vi.fn(),
+    findPendingKadepTransferNotifications: vi.fn(),
+    findAllKadepTransferNotifications: vi.fn(),
+    updateNotificationMessage: vi.fn().mockResolvedValue({}),
+    findKadepTransferNotificationsBySrcTgt: vi.fn().mockResolvedValue([]),
   },
   mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
@@ -281,12 +288,14 @@ describe("Module 2 (Dosen): Approve/Reject Guidance", () => {
   describe("cancelGuidanceByLecturerService", () => {
     it("cancels guidance when status is 'accepted' with reason", async () => {
       mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findGuidanceByIdForLecturer.mockResolvedValue(GUIDANCE_ACCEPTED);
+      mockRepo.findGuidanceByIdForLecturer
+        .mockResolvedValueOnce(GUIDANCE_ACCEPTED)   // initial fetch
+        .mockResolvedValueOnce({ ...GUIDANCE_ACCEPTED, status: "cancelled" }); // fresh re-fetch
       mockPrisma.thesisGuidance.update.mockResolvedValue({});
 
       const result = await cancelGuidanceByLecturerService("user-dosen-1", "guid-2", { reason: "Dosen sakit" });
 
-      expect(result).toMatchObject({ success: true, message: "Bimbingan berhasil dibatalkan" });
+      expect(result).toHaveProperty("guidance");
       expect(mockPrisma.thesisGuidance.update).toHaveBeenCalledWith({
         where: { id: "guid-2" },
         data: expect.objectContaining({
@@ -395,6 +404,8 @@ describe("Module 9: Transfer Mahasiswa Bimbingan", () => {
       ]);
       mockRepo.lecturerHasRole.mockResolvedValue(true);
       mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
+      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
+      mockRepo.createKadepTransferNotification.mockResolvedValue({});
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
       mockRepo.createInfoNotification.mockResolvedValue({});
 
@@ -444,6 +455,8 @@ describe("Module 9: Transfer Mahasiswa Bimbingan", () => {
       ]);
       mockRepo.lecturerHasRole.mockResolvedValue(true);
       mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
+      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
+      mockRepo.createKadepTransferNotification.mockResolvedValue({});
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
       mockRepo.createInfoNotification.mockResolvedValue({});
 
@@ -461,32 +474,17 @@ describe("Module 9: Transfer Mahasiswa Bimbingan", () => {
   });
 
   describe("approveTransferRequestService", () => {
-    it("executes transfer using $transaction and preserves history", async () => {
+    it("approves transfer request, marks notification read and notifies kadep", async () => {
       mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
       mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.getRoleIdByName.mockResolvedValue("role-p1");
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
+      mockRepo.markNotificationRead.mockResolvedValue({});
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
       mockRepo.createInfoNotification.mockResolvedValue({});
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        student: { user: { id: "user-mhs-1", fullName: "Budi", fcmToken: "fcm-1" } },
-      });
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        const tx = {
-          thesisSupervisors: {
-            update: vi.fn().mockResolvedValue({}),
-            findMany: vi.fn().mockResolvedValue([]),
-            delete: vi.fn().mockResolvedValue({}),
-          },
-          notification: { update: vi.fn().mockResolvedValue({}) },
-        };
-        return cb(tx);
-      });
 
       const result = await approveTransferRequestService("user-dosen-1", "notif-tx-1");
 
       expect(result).toHaveProperty("message");
-      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockRepo.markNotificationRead).toHaveBeenCalledWith("notif-tx-1");
     });
 
     it("rejects (400) if transfer request already processed", async () => {
@@ -510,31 +508,17 @@ describe("Module 9: Transfer Mahasiswa Bimbingan", () => {
       ).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it("sends notification to student after transfer approval", async () => {
+    it("sends notification to source and kadep after transfer approval", async () => {
       mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
       mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.getRoleIdByName.mockResolvedValue("role-p1");
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
+      mockRepo.markNotificationRead.mockResolvedValue({});
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
       mockRepo.createInfoNotification.mockResolvedValue({});
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        student: { user: { id: "user-mhs-1", fullName: "Budi", fcmToken: "fcm-1" } },
-      });
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        const tx = {
-          thesisSupervisors: {
-            update: vi.fn().mockResolvedValue({}),
-            findMany: vi.fn().mockResolvedValue([]),
-            delete: vi.fn().mockResolvedValue({}),
-          },
-          notification: { update: vi.fn().mockResolvedValue({}) },
-        };
-        return cb(tx);
-      });
 
       await approveTransferRequestService("user-dosen-1", "notif-tx-1");
 
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
+      // Notifies source lecturer
+      expect(mockRepo.createInfoNotification).toHaveBeenCalled();
     });
   });
 

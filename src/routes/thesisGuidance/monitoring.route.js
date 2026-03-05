@@ -1,6 +1,6 @@
 import express from "express";
-import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
-import { DEPARTMENT_ROLES } from "../../constants/roles.js";
+import { authGuard, requireAnyRole, requireRole } from "../../middlewares/auth.middleware.js";
+import { DEPARTMENT_ROLES, ROLES } from "../../constants/roles.js";
 import {
   getMonitoringDashboard,
   getThesesList,
@@ -12,6 +12,11 @@ import {
   sendWarningNotification,
   getProgressReport,
   downloadProgressReport,
+  // Kadep Transfer
+  getKadepPendingTransfers,
+  getKadepAllTransfers,
+  kadepApproveTransfer,
+  kadepRejectTransfer,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
 
 const router = express.Router();
@@ -50,5 +55,11 @@ router.get("/theses/:thesisId", getThesisDetail);
 
 // Send warning notification to student
 router.post("/theses/:thesisId/send-warning", sendWarningNotification);
+
+// Kadep Transfer Approval (only Ketua Departemen)
+router.get("/transfers/pending", requireRole(ROLES.KETUA_DEPARTEMEN), getKadepPendingTransfers);
+router.get("/transfers/all", requireRole(ROLES.KETUA_DEPARTEMEN), getKadepAllTransfers);
+router.patch("/transfers/:notificationId/approve", requireRole(ROLES.KETUA_DEPARTEMEN), kadepApproveTransfer);
+router.patch("/transfers/:notificationId/reject", requireRole(ROLES.KETUA_DEPARTEMEN), kadepRejectTransfer);
 
 export default router;
