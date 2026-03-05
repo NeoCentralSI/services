@@ -703,3 +703,105 @@ export async function createInfoNotification(userId, title, message) {
 		data: { userId, title, message, isRead: false },
 	});
 }
+
+// ==================== KADEP TRANSFER APPROVAL ====================
+
+/**
+ * Find all users with the Ketua Departemen role (active)
+ */
+export async function findKadepUsers() {
+	const kadepUsers = await prisma.user.findMany({
+		where: {
+			userHasRoles: {
+				some: {
+					role: { name: ROLES.KETUA_DEPARTEMEN },
+					status: "active",
+				},
+			},
+		},
+		select: { id: true, fullName: true },
+	});
+	return kadepUsers;
+}
+
+/**
+ * Create a transfer notification for Kadep (title: [TRANSFER_REQUEST_KADEP])
+ */
+export async function createKadepTransferNotification(kadepUserId, message) {
+	return prisma.notification.create({
+		data: {
+			userId: kadepUserId,
+			title: "[TRANSFER_REQUEST_KADEP]",
+			message,
+			isRead: false,
+		},
+	});
+}
+
+/**
+ * Find pending (unread) kadep transfer notifications
+ */
+export async function findPendingKadepTransferNotifications(kadepUserId) {
+	return prisma.notification.findMany({
+		where: {
+			userId: kadepUserId,
+			title: "[TRANSFER_REQUEST_KADEP]",
+			isRead: false,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+}
+
+/**
+ * Find ALL kadep transfer notifications (for history - both read and unread)
+ */
+export async function findAllKadepTransferNotifications(kadepUserId, { page = 1, pageSize = 10, search = "" } = {}) {
+	const where = {
+		userId: kadepUserId,
+		title: "[TRANSFER_REQUEST_KADEP]",
+	};
+
+	const [notifications, total] = await Promise.all([
+		prisma.notification.findMany({
+			where,
+			orderBy: { createdAt: "desc" },
+			skip: (page - 1) * pageSize,
+			take: pageSize,
+		}),
+		prisma.notification.count({ where }),
+	]);
+
+	return { notifications, total };
+}
+
+/**
+ * Update a notification's message field (used to update JSON payload state)
+ */
+export async function updateNotificationMessage(notificationId, message) {
+	return prisma.notification.update({
+		where: { id: notificationId },
+		data: { message },
+	});
+}
+
+/**
+ * Find kadep transfer notifications that match a specific src+tgt+refs combo
+ * Used to find all kadep copies of the same transfer request
+ */
+export async function findKadepTransferNotificationsBySrcTgt(srcLecturerId, tgtLecturerId) {
+	const notifications = await prisma.notification.findMany({
+		where: {
+			title: "[TRANSFER_REQUEST_KADEP]",
+			isRead: false,
+		},
+	});
+	// Filter by payload content
+	return notifications.filter((n) => {
+		try {
+			const p = JSON.parse(n.message);
+			return p.t === "TX_KADEP" && p.src === srcLecturerId && p.tgt === tgtLecturerId;
+		} catch {
+			return false;
+		}
+	});
+}

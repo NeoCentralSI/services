@@ -707,3 +707,152 @@ export async function getAcademicYearById(academicYearId) {
     where: { id: academicYearId },
   });
 }
+
+/**
+ * Get topic distribution - count of theses per topic
+ */
+export async function getTopicDistribution(academicYear) {
+  const where = {};
+  if (academicYear) {
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
+  }
+
+  const topics = await prisma.thesisTopic.findMany({
+    include: {
+      _count: {
+        select: {
+          thesis: { where },
+        },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return topics
+    .map((t) => ({
+      id: t.id,
+      name: t.name,
+      count: t._count.thesis,
+    }))
+    .filter((t) => t.count > 0)
+    .sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Get batch/angkatan distribution - count of theses grouped by student enrollment year
+ */
+export async function getBatchDistribution(academicYear) {
+  const where = {
+    thesisStatus: { name: { notIn: ["Gagal", "Dibatalkan"] } },
+  };
+  if (academicYear) {
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
+  }
+
+  const theses = await prisma.thesis.findMany({
+    where,
+    select: {
+      student: {
+        select: { enrollmentYear: true },
+      },
+    },
+  });
+
+  const yearMap = new Map();
+  theses.forEach((t) => {
+    const year = t.student?.enrollmentYear;
+    if (year) {
+      yearMap.set(year, (yearMap.get(year) || 0) + 1);
+    }
+  });
+
+  return Array.from(yearMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([year, count]) => ({
+      id: String(year),
+      name: `Angkatan ${year}`,
+      count,
+    }));
+}
+
+/**
+ * Get progress distribution - count of theses per progress bucket
+ */
+export async function getProgressDistribution(academicYear) {
+  const where = {
+    rating: { in: ["ONGOING", "SLOW", "AT_RISK"] },
+    thesisStatus: {
+      name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
+    },
+  };
+  if (academicYear) {
+    Object.assign(where, await buildAcademicYearFilter(academicYear));
+  }
+
+  const theses = await prisma.thesis.findMany({
+    where,
+    select: {
+      thesisMilestones: {
+        select: { status: true },
+      },
+    },
+  });
+
+  // Categorize into progress buckets
+  const buckets = [
+    { label: "0%", min: 0, max: 0, count: 0 },
+    { label: "1-25%", min: 1, max: 25, count: 0 },
+    { label: "26-50%", min: 26, max: 50, count: 0 },
+    { label: "51-75%", min: 51, max: 75, count: 0 },
+    { label: "76-99%", min: 76, max: 99, count: 0 },
+    { label: "100%", min: 100, max: 100, count: 0 },
+  ];
+
+  theses.forEach((t) => {
+    const total = t.thesisMilestones.length;
+    const completed = t.thesisMilestones.filter((m) => m.status === "completed").length;
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    const bucket = buckets.find((b) => percent >= b.min && percent <= b.max);
+    if (bucket) bucket.count++;
+  });
+
+  return buckets.map((b) => ({
+    label: b.label,
+    count: b.count,
+  }));
+}
+
+/**
+ * Get monthly guidance session trend - count of completed/accepted guidances per month
+ */
+export async function getGuidanceTrend(academicYear) {
+  const thesisWhere = {
+    thesisStatus: {
+      name: { notIn: ["Gagal", "Dibatalkan"] },
+    },
+  };
+  if (academicYear) {
+    Object.assign(thesisWhere, await buildAcademicYearFilter(academicYear));
+  }
+
+  const guidances = await prisma.thesisGuidance.findMany({
+    where: {
+      status: { in: ["completed", "accepted", "summary_pending"] },
+      thesis: thesisWhere,
+    },
+    select: { requestedDate: true },
+    orderBy: { requestedDate: "asc" },
+  });
+
+  const monthMap = new Map();
+  guidances.forEach((g) => {
+    const d = new Date(g.requestedDate);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    monthMap.set(key, (monthMap.get(key) || 0) + 1);
+  });
+
+  return Array.from(monthMap.entries())
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+}
