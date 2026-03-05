@@ -18,6 +18,7 @@ import {
   findActiveExaminersWithAssessments,
   findSeminarSupervisorRole,
   finalizeSeminarResult,
+  finalizeSeminarRevisions,
   findSeminarRevisionsBySeminarId,
   approveRevisionItem,
   unapproveRevisionItem,
@@ -726,6 +727,7 @@ export async function getSupervisorFinalizationData(seminarId, lecturerId) {
       finalScore: seminar.finalScore,
       grade: seminar.grade,
       resultFinalizedAt: seminar.resultFinalizedAt,
+      revisionFinalizedAt: seminar.revisionFinalizedAt,
       studentName: seminar.thesis?.student?.user?.fullName || "-",
       studentNim: seminar.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: seminar.thesis?.title || "-",
@@ -978,6 +980,79 @@ export async function unapproveRevisionBySupervisor(seminarId, revisionId, lectu
   return {
     id: unapproved.id,
     isFinished: unapproved.isFinished,
+  };
+}
+
+/**
+ * Supervisor finalizes all seminar revisions.
+ */
+export async function finalizeSeminarRevisionsBySupervisor(seminarId, lecturerId) {
+  const seminar = await findSeminarDetailById(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const supervisorRelation = await findSeminarSupervisorRole(seminarId, lecturerId);
+  const supervisorRole = resolveSupervisorMembership(supervisorRelation);
+  if (!supervisorRole) {
+    const err = new Error("Anda bukan dosen pembimbing pada seminar ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (seminar.revisionFinalizedAt) {
+    const err = new Error("Revisi seminar sudah difinalisasi sebelumnya.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const revisions = await findSeminarRevisionsBySeminarId(seminarId);
+  const relevantRevisions = revisions.filter(
+    (item) => item.studentSubmittedAt || item.isFinished
+  );
+
+  if (relevantRevisions.length === 0) {
+    const err = new Error("Tidak ada item revisi yang diajukan mahasiswa untuk difinalisasi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const unfinished = relevantRevisions.filter((item) => !item.isFinished);
+  if (unfinished.length > 0) {
+    const err = new Error("Masih ada item revisi yang belum disetujui.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  let finalized;
+  try {
+    finalized = await finalizeSeminarRevisions({
+      seminarId,
+      supervisorId: supervisorRole.id,
+    });
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (
+      message.includes("revisionFinalizedAt") ||
+      message.includes("revisionFinalizedBy") ||
+      message.includes("Unknown arg") ||
+      message.includes("Unknown column")
+    ) {
+      const err = new Error(
+        "Kolom finalisasi revisi belum tersedia di database. Jalankan migrasi Prisma dan generate client terlebih dahulu."
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+    throw error;
+  }
+
+  return {
+    seminarId: finalized.id,
+    revisionFinalizedAt: finalized.revisionFinalizedAt,
+    revisionFinalizedBy: finalized.revisionFinalizedBy,
   };
 }
 

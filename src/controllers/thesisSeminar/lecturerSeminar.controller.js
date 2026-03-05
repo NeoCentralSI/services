@@ -13,6 +13,7 @@ import {
   getSupervisorRevisionBoard,
   approveRevisionBySupervisor,
   unapproveRevisionBySupervisor,
+  finalizeSeminarRevisionsBySupervisor,
   getSeminarAudienceList,
   approveAudienceBySupervisor,
   unapproveAudienceBySupervisor,
@@ -237,6 +238,21 @@ export async function unapproveRevisionCtrl(req, res, next) {
     const { seminarId, revisionId } = req.params;
     const userId = req.user.sub;
     const data = await unapproveRevisionBySupervisor(seminarId, revisionId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /thesisSeminar/lecturer/seminars/:seminarId/revisions/finalize
+ * Supervisor finalizes all student revisions for this seminar
+ */
+export async function finalizeSeminarRevisionsCtrl(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const userId = req.user.sub;
+    const data = await finalizeSeminarRevisionsBySupervisor(seminarId, userId);
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

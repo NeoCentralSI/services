@@ -407,6 +407,10 @@ model ThesisSupervisors {
   thesis       Thesis   @relation(fields: [thesisId], references: [id])
   thesisSeminarAudienceApprovals ThesisSeminarAudience[]
   thesisSeminarRevisionApprovals ThesisSeminarRevision[]
+  thesisSeminarResultFinalizations ThesisSeminar[] @relation("SeminarResultFinalizedBy")
+  thesisSeminarRevisionFinalizations ThesisSeminar[] @relation("SeminarRevisionFinalizedBy")
+  thesisDefenceResultFinalizations ThesisDefence[] @relation("DefenceResultFinalizedBy")
+  thesisDefenceRevisionFinalizations ThesisDefence[] @relation("DefenceRevisionFinalizedBy")
   thesisDefenceRevisionApprovals ThesisDefenceRevision[]
 
   @@index([lecturerId], map: "thesis_participants_lecturer_id_fkey")
@@ -560,18 +564,25 @@ model ThesisSeminar {
   finalScore         Float?              @map("final_score")
   grade              String?             @db.VarChar(10)
   resultFinalizedAt  DateTime?           @map("result_finalized_at")
+  resultFinalizedBy  String?             @map("result_finalized_by") @db.VarChar(255)
+  revisionFinalizedAt DateTime?          @map("revision_finalized_at")
+  revisionFinalizedBy String?            @map("revision_finalized_by") @db.VarChar(255)
   cancelledReason    String?             @map("cancelled_reason") @db.Text
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
   thesis    Thesis                 @relation(fields: [thesisId], references: [id])
   room      Room?                  @relation(fields: [roomId], references: [id])
+  resultFinalizer ThesisSupervisors? @relation("SeminarResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
+  revisionFinalizer ThesisSupervisors? @relation("SeminarRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
   audiences ThesisSeminarAudience[]
   examiners ThesisSeminarExaminer[]
   documents ThesisSeminarDocument[]
 
   @@index([thesisId], map: "thesis_seminars_thesis_id_fkey")
   @@index([roomId], map: "thesis_seminars_room_id_fkey")
+  @@index([resultFinalizedBy], map: "thesis_seminars_result_finalized_by_fkey")
+  @@index([revisionFinalizedBy], map: "thesis_seminars_finalized_by_fkey")
   @@map("thesis_seminars")
 }
 
@@ -689,18 +700,25 @@ model ThesisDefence {
   finalScore           Float?               @map("final_score")
   grade                String?              @db.VarChar(10)
   resultFinalizedAt    DateTime?            @map("result_finalized_at")
+  resultFinalizedBy    String?              @map("result_finalized_by") @db.VarChar(255)
+  revisionFinalizedAt  DateTime?            @map("revision_finalized_at")
+  revisionFinalizedBy  String?              @map("revision_finalized_by") @db.VarChar(255)
   cancelledReason      String?              @map("cancelled_reason") @db.Text
   createdAt            DateTime             @default(now()) @map("created_at")
   updatedAt            DateTime             @updatedAt @map("updated_at")
 
   thesis    Thesis                                    @relation(fields: [thesisId], references: [id])
   room      Room?                                     @relation(fields: [roomId], references: [id])
+  resultFinalizer ThesisSupervisors?                  @relation("DefenceResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
+  revisionFinalizer ThesisSupervisors?                @relation("DefenceRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
   examiners ThesisDefenceExaminer[]
   documents ThesisDefenceDocument[]
   supervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
 
   @@index([thesisId], map: "thesis_defences_thesis_id_fkey")
   @@index([roomId], map: "thesis_defences_room_id_fkey")
+  @@index([resultFinalizedBy], map: "thesis_defences_result_finalized_by_fkey")
+  @@index([revisionFinalizedBy], map: "thesis_defences_finalized_by_fkey")
   @@map("thesis_defences")
 }
 

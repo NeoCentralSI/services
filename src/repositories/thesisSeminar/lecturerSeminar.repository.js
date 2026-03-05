@@ -507,6 +507,24 @@ export async function finalizeSeminarResult({ seminarId, status, finalScore, gra
 }
 
 /**
+ * Finalize seminar revisions metadata.
+ */
+export async function finalizeSeminarRevisions({ seminarId, supervisorId }) {
+  return prisma.thesisSeminar.update({
+    where: { id: seminarId },
+    data: {
+      revisionFinalizedAt: new Date(),
+      revisionFinalizedBy: supervisorId,
+    },
+    select: {
+      id: true,
+      revisionFinalizedAt: true,
+      revisionFinalizedBy: true,
+    },
+  });
+}
+
+/**
  * Get seminar revisions list (for supervisor revision monitoring).
  */
 export async function findSeminarRevisionsBySeminarId(seminarId) {
