@@ -324,7 +324,7 @@ model Thesis {
   thesisStatusId        String?               @map("thesis_status_id")
   academicYearId        String?               @map("academic_year_id")
   documentId            String?               @map("document_id")
-  title                 String?
+  title                 String?               @db.Text
   startDate             DateTime?             @map("start_date")
   deadlineDate          DateTime?             @map("deadline_date")
   finalThesisDocumentId String?               @map("final_thesis_document_id")
