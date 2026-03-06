@@ -5,9 +5,12 @@ import {
   ensureDefenceDocumentTypes,
   findDefenceDocuments,
   upsertDefenceDocument,
+  createThesisDefence,
 } from "../../repositories/thesisDefence/studentDefence.repository.js";
 import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import prisma from "../../config/prisma.js";
+import path from "path";
+import { mkdir, writeFile, unlink } from "fs/promises";
 
 /**
  * Get student defence overview: checklist, status, documents
@@ -199,6 +202,12 @@ export const uploadDefenceDocumentService = async (
   file,
   documentTypeName
 ) => {
+  if (!file) {
+    const err = new Error("File dokumen wajib diunggah.");
+    err.statusCode = 400;
+    throw err;
+  }
+
   const student = await getStudentByUserId(userId);
   if (!student) {
     const err = new Error("Data mahasiswa tidak ditemukan.");
@@ -213,11 +222,18 @@ export const uploadDefenceDocumentService = async (
     throw err;
   }
 
-  const currentDefence = thesis.thesisDefences?.[0] || null;
-  if (!currentDefence) {
-    const err = new Error("Belum ada pendaftaran sidang.");
+  if (!documentTypeName) {
+    const err = new Error("Tipe dokumen wajib diisi.");
     err.statusCode = 400;
     throw err;
+  }
+
+  // Get or auto-create defence (first upload triggers creation)
+  // If latest defence is failed/cancelled, create a new one for re-registration
+  let currentDefence = thesis.thesisDefences?.[0] || null;
+  if (!currentDefence || ['failed', 'cancelled'].includes(currentDefence.status)) {
+    const created = await createThesisDefence(thesis.id);
+    currentDefence = { id: created.id, status: created.status };
   }
 
   // Ensure document types exist
@@ -229,12 +245,60 @@ export const uploadDefenceDocumentService = async (
     throw err;
   }
 
+  const existing = await prisma.thesisDefenceDocument.findUnique({
+    where: {
+      thesisDefenceId_documentTypeId: {
+        thesisDefenceId: currentDefence.id,
+        documentTypeId: docType.id,
+      },
+    },
+  });
+
+  if (existing && existing.status === "approved") {
+    const err = new Error("Dokumen ini sudah diverifikasi dan tidak dapat diubah.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const uploadsRoot = path.join(
+    process.cwd(),
+    "uploads",
+    "thesis",
+    thesis.id,
+    "defence"
+  );
+  await mkdir(uploadsRoot, { recursive: true });
+
+  if (existing?.documentId) {
+    try {
+      const oldDoc = await prisma.document.findUnique({
+        where: { id: existing.documentId },
+        select: { filePath: true },
+      });
+      if (oldDoc?.filePath) {
+        const oldFilePath = path.join(process.cwd(), oldDoc.filePath);
+        await unlink(oldFilePath);
+      }
+      await prisma.document.delete({ where: { id: existing.documentId } });
+    } catch (delErr) {
+      console.warn("Could not delete old defence document:", delErr.message);
+    }
+  }
+
+  const ext = path.extname(file.originalname).toLowerCase();
+  const safeName = `${documentTypeName.replace(/\s+/g, "-").toLowerCase()}${ext}`;
+  const absolutePath = path.join(uploadsRoot, safeName);
+  await writeFile(absolutePath, file.buffer);
+
+  const relPath = path.relative(process.cwd(), absolutePath).replace(/\\/g, "/");
+
   // Create document record
   const document = await prisma.document.create({
     data: {
+      userId,
+      documentTypeId: docType.id,
       fileName: file.originalname,
-      filePath: file.path,
-      documentType: { connect: { id: docType.id } },
+      filePath: relPath,
     },
   });
 

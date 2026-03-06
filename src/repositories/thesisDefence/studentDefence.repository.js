@@ -223,6 +223,19 @@ export const findDefenceDocuments = async (thesisDefenceId) => {
 };
 
 /**
+ * Create a new ThesisDefence record with status 'registered'
+ */
+export const createThesisDefence = async (thesisId) => {
+  return prisma.thesisDefence.create({
+    data: {
+      thesisId,
+      registeredAt: new Date(),
+      status: "registered",
+    },
+  });
+};
+
+/**
  * Upload a defence document (upsert)
  */
 export const upsertDefenceDocument = async ({

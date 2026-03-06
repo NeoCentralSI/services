@@ -609,10 +609,10 @@ export async function getStudentSeminarDetail(userId, seminarId) {
   const docFiles = docIds.length
     ? await prisma.document.findMany({
         where: { id: { in: docIds } },
-        select: { id: true, fileName: true },
+        select: { id: true, fileName: true, filePath: true },
       })
     : [];
-  const docFileMap = new Map(docFiles.map((d) => [d.id, d.fileName]));
+  const docFileMap = new Map(docFiles.map((d) => [d.id, { fileName: d.fileName, filePath: d.filePath }]));
 
   // Build examiner notes (for revision notes)
   const examinerNotes = seminar.examiners
@@ -673,10 +673,12 @@ export async function getStudentSeminarDetail(userId, seminarId) {
     })),
     documents: seminar.documents.map((d) => {
       const dt = docTypes.find((t) => t.id === d.documentTypeId);
+      const docFile = docFileMap.get(d.documentId);
       return {
         documentTypeId: d.documentTypeId,
         documentTypeName: dt?.name || "-",
-        fileName: docFileMap.get(d.documentId) || null,
+        fileName: docFile?.fileName || null,
+        filePath: docFile?.filePath || null,
         status: d.status,
         submittedAt: d.submittedAt,
         verifiedAt: d.verifiedAt,
