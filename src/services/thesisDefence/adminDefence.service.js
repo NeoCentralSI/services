@@ -5,15 +5,30 @@ import {
   updateDefenceDocumentStatus,
   countDefenceDocumentsByStatus,
   updateDefenceStatus,
+  findLecturerAvailabilitiesByLecturerIds,
+  findAllRooms,
+  findRoomScheduleConflict,
+  updateDefenceSchedule,
 } from "../../repositories/thesisDefence/adminDefence.repository.js";
 import { getDefenceDocumentTypes } from "../../repositories/thesisDefence/studentDefence.repository.js";
+
+const STATUS_PRIORITY = {
+  registered: 0,
+  examiner_assigned: 1,
+  verified: 2,
+  scheduled: 3,
+  passed: 4,
+  passed_with_revision: 4,
+  failed: 4,
+  cancelled: 4,
+};
 
 export async function getAdminDefenceList({ search, status } = {}) {
   const defences = await findAllDefences({ search, status });
   const docTypes = await getDefenceDocumentTypes();
   const totalDocTypes = docTypes.length;
 
-  return defences.map((d) => {
+  const mapped = defences.map((d) => {
     const student = d.thesis?.student;
     const supervisors = (d.thesis?.thesisSupervisors || []).map((ts) => ({
       name: ts.lecturer?.user?.fullName || "-",
@@ -44,6 +59,17 @@ export async function getAdminDefenceList({ search, status } = {}) {
       },
     };
   });
+
+  mapped.sort((a, b) => {
+    const pa = STATUS_PRIORITY[a.status] ?? 99;
+    const pb = STATUS_PRIORITY[b.status] ?? 99;
+    if (pa !== pb) return pa - pb;
+    const dateA = a.registeredAt ? new Date(a.registeredAt).getTime() : 0;
+    const dateB = b.registeredAt ? new Date(b.registeredAt).getTime() : 0;
+    return dateA - dateB;
+  });
+
+  return mapped;
 }
 
 export async function getAdminDefenceDetail(defenceId) {
@@ -187,4 +213,106 @@ export async function validateDefenceDocument(
     defenceTransitioned,
     newDefenceStatus: defenceTransitioned ? "verified" : defence.status,
   };
+}
+
+export async function getDefenceSchedulingData(defenceId) {
+  const defence = await findDefenceById(defenceId);
+  if (!defence) {
+    const err = new Error("Sidang tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const supervisorIds = (defence.thesis?.thesisSupervisors || [])
+    .filter((ts) => ts.role?.name === "Pembimbing 1")
+    .map((ts) => ts.lecturerId)
+    .filter(Boolean);
+
+  const examinerIds = (defence.examiners || [])
+    .map((e) => e.lecturerId)
+    .filter(Boolean);
+
+  const allLecturerIds = [...new Set([...supervisorIds, ...examinerIds])];
+
+  const [availabilities, rooms] = await Promise.all([
+    allLecturerIds.length > 0
+      ? findLecturerAvailabilitiesByLecturerIds(allLecturerIds)
+      : [],
+    findAllRooms(),
+  ]);
+
+  const lecturerNameMap = {};
+  (defence.thesis?.thesisSupervisors || []).forEach((ts) => {
+    if (ts.lecturerId) {
+      lecturerNameMap[ts.lecturerId] = ts.lecturer?.user?.fullName || "-";
+    }
+  });
+  (defence.examiners || []).forEach((e) => {
+    if (e.lecturerId) {
+      lecturerNameMap[e.lecturerId] = e.lecturerName || "-";
+    }
+  });
+
+  const enrichedAvailabilities = availabilities.map((a) => ({
+    id: a.id,
+    lecturerId: a.lecturerId,
+    lecturerName: lecturerNameMap[a.lecturerId] || "-",
+    day: a.day,
+    startTime: a.startTime,
+    endTime: a.endTime,
+    validFrom: a.validFrom,
+    validUntil: a.validUntil,
+  }));
+
+  return {
+    rooms: rooms.map((r) => ({ id: r.id, name: r.name })),
+    lecturerAvailabilities: enrichedAvailabilities,
+    currentSchedule: defence.date
+      ? {
+          date: defence.date,
+          startTime: defence.startTime,
+          endTime: defence.endTime,
+          meetingLink: defence.meetingLink,
+          isOnline: !defence.roomId,
+          room: defence.room ? { id: defence.room.id, name: defence.room.name } : null,
+        }
+      : null,
+  };
+}
+
+export async function scheduleDefence(defenceId, { roomId, date, startTime, endTime, isOnline, meetingLink }) {
+  const defence = await findDefenceById(defenceId);
+  if (!defence) {
+    const err = new Error("Sidang tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const allowed = ["examiner_assigned", "scheduled"];
+  if (!allowed.includes(defence.status)) {
+    const err = new Error(
+      "Penjadwalan hanya dapat dilakukan saat sidang berstatus 'examiner_assigned' atau 'scheduled'."
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!isOnline) {
+    const conflict = await findRoomScheduleConflict({ defenceId, roomId, date, startTime, endTime });
+    if (conflict) {
+      const err = new Error("Ruangan sudah digunakan oleh sidang lain pada waktu yang sama.");
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  await updateDefenceSchedule(defenceId, {
+    roomId: isOnline ? null : roomId,
+    date,
+    startTime,
+    endTime,
+    meetingLink: isOnline ? meetingLink : null,
+  });
+
+  return { defenceId, status: "scheduled" };
 }
