@@ -1,5 +1,5 @@
-import * as formRepo from "../repositories/exitSurveyForm.repository.js";
-import * as questionRepo from "../repositories/exitSurveyQuestion.repository.js";
+import * as formRepo from "../../repositories/yudisium/exitSurveyForm.repository.js";
+import * as questionRepo from "../../repositories/yudisium/exitSurveyQuestion.repository.js";
 
 class NotFoundError extends Error {
   constructor(message) {

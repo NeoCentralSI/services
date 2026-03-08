@@ -1,4 +1,4 @@
-import * as service from "../services/exitSurveyForm.service.js";
+import * as service from "../../services/yudisium/exitSurveyForm.service.js";
 
 export const getAll = async (req, res, next) => {
   try {

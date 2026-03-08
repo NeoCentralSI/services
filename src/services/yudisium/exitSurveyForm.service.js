@@ -1,6 +1,6 @@
-import * as formRepo from "../repositories/exitSurveyForm.repository.js";
-import * as questionRepo from "../repositories/exitSurveyQuestion.repository.js";
-import prisma from "../config/prisma.js";
+import * as formRepo from "../../repositories/yudisium/exitSurveyForm.repository.js";
+import * as questionRepo from "../../repositories/yudisium/exitSurveyQuestion.repository.js";
+import prisma from "../../config/prisma.js";
 
 class NotFoundError extends Error {
   constructor(message) {
