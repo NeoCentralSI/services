@@ -10,7 +10,7 @@ node_modules
 src/generated/prisma
 
 
-
+uploads/
 # Logs
 logs
 *.log

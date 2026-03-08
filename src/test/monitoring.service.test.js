@@ -44,8 +44,10 @@ import {
   getFilterOptions,
   getAtRiskStudentsFull,
   getSlowStudentsFull,
+  getStudentsReadyForSeminarFull,
   getThesisDetail,
   sendWarningNotificationService,
+  sendBatchWarningNotificationService,
   getProgressReportService,
 } from "../services/thesisGuidance/monitoring.service.js";
 
@@ -232,15 +234,124 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
   describe("getProgressReportService", () => {
     it("returns comprehensive report data for PDF generation", async () => {
       mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "Ganjil", year: 2024 });
-      mockRepo.getProgressStatistics.mockResolvedValue({ total: 50 });
       mockRepo.getStatusDistribution.mockResolvedValue([]);
       mockRepo.getRatingDistribution.mockResolvedValue([]);
       mockRepo.getThesesForReport.mockResolvedValue([]);
 
-      const result = await getProgressReportService("ay1");
+      const result = await getProgressReportService({ academicYearId: "ay1" });
 
       expect(result).toHaveProperty("summary");
       expect(mockRepo.getAcademicYearById).toHaveBeenCalledWith("ay1");
+    });
+  });
+
+  // ─── Students Ready for Seminar ─────────────────────
+  describe("getStudentsReadyForSeminarFull", () => {
+    it("returns students meeting seminar criteria", async () => {
+      mockRepo.getStudentsReadyForSeminar.mockResolvedValue([
+        {
+          id: "thesis-1", title: "AI Research",
+          student: { user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
+          thesisSupervisors: [{ lecturer: { user: { fullName: "Dr. Andi" } }, role: { name: "pembimbing_1" } }],
+        },
+      ]);
+
+      const result = await getStudentsReadyForSeminarFull(ACADEMIC_YEAR);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toHaveProperty("thesisId", "thesis-1");
+      expect(result[0].student).toHaveProperty("name", "Budi");
+    });
+
+    it("returns empty array if no students are ready", async () => {
+      mockRepo.getStudentsReadyForSeminar.mockResolvedValue([]);
+
+      const result = await getStudentsReadyForSeminarFull(ACADEMIC_YEAR);
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  // ─── Batch Warning Notification ─────────────────────
+  describe("sendBatchWarningNotificationService", () => {
+    it("sends batch SLOW warnings to multiple students", async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([
+        {
+          id: "thesis-1", daysSinceActivity: 65,
+          student: { user: { id: "user-1", fullName: "Budi" } },
+        },
+        {
+          id: "thesis-2", daysSinceActivity: 70,
+          student: { user: { id: "user-2", fullName: "Andi" } },
+        },
+      ]);
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["thesis-1", "thesis-2"], "SLOW");
+
+      expect(result.success).toBe(true);
+      expect(mockPush.sendFcmToUsers).toHaveBeenCalledTimes(2);
+      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws error if thesisIds is empty", async () => {
+      await expect(
+        sendBatchWarningNotificationService("admin-user", [], "SLOW")
+      ).rejects.toThrow();
+    });
+
+    it("throws error if no theses are found", async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([]);
+
+      await expect(
+        sendBatchWarningNotificationService("admin-user", ["nonexistent"], "SLOW")
+      ).rejects.toThrow();
+    });
+  });
+
+  // ─── Progress Report (with filters) ─────────────────
+  describe("getProgressReportService (with options)", () => {
+    it("returns report data with all-semester filter", async () => {
+      mockRepo.getThesesForReport.mockResolvedValue([]);
+      mockRepo.getStatusDistribution.mockResolvedValue([]);
+      mockRepo.getRatingDistribution.mockResolvedValue([]);
+
+      const result = await getProgressReportService({});
+
+      expect(result).toHaveProperty("summary");
+      expect(result).toHaveProperty("academicYear", "Semua Semester");
+    });
+
+    it("computes milestone and guidance statistics correctly", async () => {
+      mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: 2025 });
+      mockRepo.getThesesForReport.mockResolvedValue([
+        {
+          id: "t1", title: "Thesis 1", rating: "ONGOING",
+          student: { user: { identityNumber: "123", fullName: "Budi" } },
+          thesisStatus: { name: "Bimbingan" },
+          thesisTopic: { name: "ML" },
+          thesisSupervisors: [],
+          thesisMilestones: [
+            { status: "completed" }, { status: "in_progress" },
+          ],
+          thesisGuidances: [
+            { status: "completed" }, { status: "accepted" },
+          ],
+          startDate: new Date(), deadlineDate: new Date(), createdAt: new Date(),
+        },
+      ]);
+      mockRepo.getStatusDistribution.mockResolvedValue([]);
+      mockRepo.getRatingDistribution.mockResolvedValue([]);
+
+      const result = await getProgressReportService({ academicYearId: "ay1" });
+
+      expect(result.summary.totalTheses).toBe(1);
+      expect(result.summary.totalMilestones).toBe(2);
+      expect(result.summary.completedMilestones).toBe(1);
+      expect(result.summary.totalGuidances).toBe(2);
+      expect(result.summary.completedGuidances).toBe(1);
+      expect(result.theses[0]).toHaveProperty("progressPercent", 50);
     });
   });
 });

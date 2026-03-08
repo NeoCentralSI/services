@@ -172,7 +172,7 @@ model ScienceGroup {
 model AcademicYear {
   id                  String               @id @default(uuid())
   semester            Semester             @default(ganjil)
-  year                Int?
+  year                String?              @db.VarChar(20)
   startDate           DateTime?            @map("start_date")
   endDate             DateTime?            @map("end_date")
   isActive            Boolean              @default(false) @map("is_active")

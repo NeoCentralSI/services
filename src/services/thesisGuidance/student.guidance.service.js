@@ -31,7 +31,7 @@ import path from "path";
 import { promisify } from "util";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
-import { convertDocxToPdf } from "../../utils/pdf.util.js";
+import { convertDocxToPdf, addGuidanceTablePages } from "../../utils/pdf.util.js";
 const writeFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
 const unlink = promisify(fs.unlink);
@@ -1467,21 +1467,21 @@ export async function getMyThesisDetailService(userId) {
       // Document
       document: fullThesis.document ? {
         id: fullThesis.document.id,
-        fileName: fullThesis.document.filePath?.split('/').pop() || fullThesis.document.fileName,
+        fileName: path.basename(fullThesis.document.filePath || "") || fullThesis.document.fileName,
         filePath: fullThesis.document.filePath,
       } : null,
       // Proposal Document
       proposalDocument: fullThesis.thesisProposal?.document ? {
         id: fullThesis.thesisProposal.document.id,
-        fileName: fullThesis.thesisProposal.document.filePath?.split('/').pop() || fullThesis.thesisProposal.document.fileName,
+        fileName: path.basename(fullThesis.thesisProposal.document.filePath || "") || fullThesis.thesisProposal.document.fileName,
         filePath: fullThesis.thesisProposal.document.filePath,
       } : null,
       // Per-guidance uploaded file versions
-      uploadedFiles: guidanceDocuments
+      uploadedFiles: (guidanceDocuments || [])
         .filter(g => g.document)
         .map(g => ({
           id: g.document.id,
-          fileName: g.document.filePath?.split('/').pop() || g.document.fileName,
+          fileName: path.basename(g.document.filePath || "") || g.document.fileName,
           filePath: g.document.filePath,
           uploadedAt: g.document.createdAt,
           guidanceDate: g.approvedDate || g.requestedDate,
@@ -1698,21 +1698,16 @@ export async function proposeThesisService(userId, { title, topicId }) {
 // ==================== GENERATE GUIDANCE LOG PDF ====================
 
 /**
- * Generate a PDF log of thesis guidance sessions using the TA-06 DOCX template
- * managed by the secretary department (Sekretaris Departemen).
+ * Generate a PDF log of thesis guidance sessions using the TA-06 DOCX template.
  *
- * Template placeholders (set in the DOCX):
- *   {nama}           – student full name
- *   {nim}            – student identity number
- *   {title}          – thesis title
- *   {dospem1}        – Pembimbing 1 name
- *   {dospem2}        – Pembimbing 2 name (or '-' if absent)
- *   {dategenerated}  – date of generation
- *   Loop {#items}...{/items} with: {no}, {tanggal}, {catatan}
+ * Flow:
+ *  1. Docxtemplater fills identity placeholders in the DOCX template
+ *  2. Gotenberg converts the clean DOCX → PDF (header / identity page)
+ *  3. pdf-lib appends table pages + signature directly into the PDF
  *
- * @param {string} userId – authenticated student's user ID
- * @param {string[]|undefined} guidanceIds – specific guidance IDs to include (all completed if omitted)
- * @returns {Promise<Buffer>} PDF buffer
+ * @param {string} userId
+ * @param {string[]|undefined} guidanceIds
+ * @returns {Promise<{buffer: Buffer, filename: string}>}
  */
 export async function generateGuidanceLogPdfService(userId, guidanceIds) {
   const student = await getStudentByUserId(userId);
@@ -1725,7 +1720,6 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
     throw err;
   }
 
-  // --- Read template ---
   const templatePath = path.join(process.cwd(), "uploads", "sop", "logcatatantemplate.docx");
   if (!fs.existsSync(templatePath)) {
     const err = new Error(
@@ -1735,20 +1729,13 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
     throw err;
   }
 
-  // --- Fetch guidances ---
-  const where = {
-    thesisId: thesis.id,
-    status: "completed",
-  };
-  if (guidanceIds && guidanceIds.length > 0) {
-    where.id = { in: guidanceIds };
-  }
+  // --- Fetch completed guidances ---
+  const where = { thesisId: thesis.id, status: "completed" };
+  if (guidanceIds && guidanceIds.length > 0) where.id = { in: guidanceIds };
 
   const guidances = await prisma.thesisGuidance.findMany({
     where,
-    include: {
-      supervisor: { include: { user: { select: { fullName: true } } } },
-    },
+    include: { supervisor: { include: { user: { select: { fullName: true } } } } },
     orderBy: [{ approvedDate: "asc" }, { completedAt: "asc" }],
   });
 
@@ -1767,10 +1754,11 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
   const sup1 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_1);
   const sup2 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_2);
   const dospem1Name = toTitleCaseName(sup1?.lecturer?.user?.fullName || "-");
-  const hasDospem2 = !!sup2;
-  const dospem2Name = hasDospem2
-    ? toTitleCaseName(sup2.lecturer?.user?.fullName || "-")
-    : "-";
+  const hasDospem2 = !!sup2 && !!sup2.lecturer?.user?.fullName;
+  const dospem2Name = hasDospem2 ? toTitleCaseName(sup2.lecturer.user.fullName) : "-";
+
+  const nip1 = sup1?.lecturer?.user?.identityNumber || "-";
+  const nip2 = hasDospem2 ? (sup2?.lecturer?.user?.identityNumber || "-") : "-";
 
   const formatDateId = (date) => {
     if (!date) return "-";
@@ -1781,142 +1769,36 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
     });
   };
 
-  // --- Build template data ---
-  const items = guidances.map((g, idx) => {
-    const catatanParts = [];
-    if (g.sessionSummary) {
-      catatanParts.push(g.sessionSummary.trim());
-    }
-    if (g.actionItems) {
-      catatanParts.push(`Arahan/Saran: ${g.actionItems.trim()}`);
-    }
-    return {
-      no: idx + 1,
-      tanggal: formatDateId(g.approvedDate || g.completedAt),
-      catatan: catatanParts.join("\n\n") || "-",
-    };
-  });
-
-  const templateData = {
-    nama: studentName,
-    nim: studentNim,
-    title: thesis.title || "-",
-    dospem1: dospem1Name,
-    dospem2: dospem2Name,
-    dategenerated: formatDateId(new Date()),
-    items,
-  };
-
-  // --- Render DOCX ---
+  // --- 1. Fill template placeholders with Docxtemplater (NO XML surgery) ---
+  //     Then strip "Catatan Asistensi" + signature from DOCX so Gotenberg
+  //     only converts the identity/header page. Table + signature will be
+  //     appended later by pdf-lib.
   let docxBuffer;
   try {
     const content = await readFile(templatePath);
     const zip = new PizZip(content);
 
-    // Preprocess: fix unnamed loop tags {#} → {#items} and {/} → {/items}
-    // The template may use shorthand {#} and {/} which docxtemplater doesn't understand
+    // Strip signature + empty area AFTER "Catatan Asistensi" heading.
+    // Strip "Catatan Asistensi" paragraph and everything after it.
+    // Gotenberg only renders the identity/header page.
+    // "B. Catatan Asistensi" heading + table + signature → pdf-lib.
     const docXmlFile = zip.file("word/document.xml");
     if (docXmlFile) {
       let docXml = docXmlFile.asText();
-      docXml = docXml.replace(/\{#\}/g, "{#items}");
-      docXml = docXml.replace(/\{\/\}/g, "{/items}");
-
-      // --- Fix table data row formatting ---
-      // 1) Catatan cell: justify text + tighter line spacing (1.15 = 276 twips)
-      //    Find the cell containing {catatan} and fix its paragraph properties
-      docXml = docXml.replace(
-        /(<w:tc>(?:<w:tcPr>[\s\S]*?<\/w:tcPr>)[\s\S]*?)\{catatan\}([\s\S]*?<\/w:tc>)/,
-        (match) => {
-          // Change center → justify (both) in the catatan cell
-          let fixed = match.replace(
-            /<w:jc w:val="center"\/>/g,
-            '<w:jc w:val="both"/>'
-          );
-          return fixed;
-        }
-      );
-
-      // 2) All data row cells: reduce line spacing from 480 (double) to 276 (1.15x)
-      //    and vertical align from bottom to center
-      {
-        // Find the loop row: starts with {#items} (in the {no} cell) and ends with {/items}
-        const loopRowStart = docXml.indexOf("{#items}");
-        if (loopRowStart !== -1) {
-          const trStart = docXml.lastIndexOf("<w:tr ", loopRowStart);
-          const trEnd = docXml.indexOf("</w:tr>", loopRowStart) + 7;
-          let row = docXml.substring(trStart, trEnd);
-
-          // Reduce line spacing in all cells
-          row = row.replace(
-            /<w:spacing w:line="480" w:lineRule="auto"\/>/g,
-            '<w:spacing w:line="276" w:lineRule="auto"/>'
-          );
-
-          // Vertical align center instead of bottom
-          row = row.replace(
-            /<w:vAlign w:val="bottom"\/>/g,
-            '<w:vAlign w:val="center"/>'
-          );
-
-          // Reduce fixed row height to auto (remove trHeight so it sizes to content)
-          row = row.replace(/<w:trPr><w:trHeight[^/]*\/><\/w:trPr>/, "<w:trPr/>");
-
-          // Adjust column widths: No=420, Tanggal=1800, Catatan=5576, Paraf=1400
-          const widthMap = { "630": "420", "1350": "1800", "5188": "5576", "2028": "1400" };
-          row = row.replace(/<w:tcW w:w="(\d+)"/g, (m, w) => {
-            return widthMap[w] ? `<w:tcW w:w="${widthMap[w]}"` : m;
-          });
-
-          docXml = docXml.substring(0, trStart) + row + docXml.substring(trEnd);
+      const cataIdx = docXml.toLowerCase().indexOf("catatan");
+      if (cataIdx !== -1) {
+        // Cut from the <w:p> that contains "Catatan"
+        const pStart = docXml.lastIndexOf("<w:p ", cataIdx);
+        const bodyEnd = docXml.indexOf("</w:body>");
+        if (pStart !== -1 && bodyEnd !== -1) {
+          // Extract sectPr (contains header/kop ref + page size)
+          const tail = docXml.substring(pStart, bodyEnd);
+          const sectMatch = tail.match(/<w:sectPr[\s\S]*<\/w:sectPr>/);
+          docXml = docXml.substring(0, pStart) +
+            (sectMatch ? sectMatch[0] : "") +
+            "</w:body></w:document>";
         }
       }
-
-      // Also fix header row column widths to match
-      {
-        const headerWidthMap = { "630": "420", "1350": "1800", "5188": "5576", "2028": "1400" };
-        // Find header row (contains "Tanggal" text but not {tanggal} placeholder)
-        const tanggalHeaderIdx = docXml.indexOf(">Tanggal");
-        if (tanggalHeaderIdx !== -1) {
-          const hdrTrStart = docXml.lastIndexOf("<w:tr ", tanggalHeaderIdx);
-          const hdrTrEnd = docXml.indexOf("</w:tr>", tanggalHeaderIdx) + 7;
-          let hdrRow = docXml.substring(hdrTrStart, hdrTrEnd);
-          hdrRow = hdrRow.replace(/<w:tcW w:w="(\d+)"/g, (m, w) => {
-            return headerWidthMap[w] ? `<w:tcW w:w="${headerWidthMap[w]}"` : m;
-          });
-          docXml = docXml.substring(0, hdrTrStart) + hdrRow + docXml.substring(hdrTrEnd);
-        }
-      }
-
-      // Remove "(jika ada)" paragraph when dospem2 exists
-      if (hasDospem2) {
-        docXml = docXml.replace(/<w:p [^>]*>(?:<[^>]*>)*<w:t>\(jika ada\)<\/w:t>(?:<[^>]*>)*<\/w:p>/g, "");
-      }
-
-      // Keep signature section together on the same page by adding w:keepNext + w:keepLines
-      // to the "Padang, ..." paragraph and subsequent signature paragraphs
-      const padangIdx = docXml.indexOf("Padang,");
-      if (padangIdx !== -1) {
-        // Find the start of the paragraph containing "Padang"
-        const paraBefore = docXml.lastIndexOf("<w:p ", padangIdx);
-        const bodyEnd = docXml.indexOf("</w:body>", padangIdx);
-        const preSection = docXml.substring(0, paraBefore);
-        const sigFull = docXml.substring(paraBefore, bodyEnd);
-        const afterBody = docXml.substring(bodyEnd);
-
-        // Inject keepNext and keepLines into each <w:pPr> within the signature section
-        // Also add page break before the signature block (first paragraph only)
-        let firstPara = true;
-        const fixedSig = sigFull.replace(/<w:pPr>/g, (match) => {
-          if (firstPara) {
-            firstPara = false;
-            return "<w:pPr><w:pageBreakBefore/><w:keepNext/><w:keepLines/>";
-          }
-          return "<w:pPr><w:keepNext/><w:keepLines/>";
-        });
-
-        docXml = preSection + fixedSig + afterBody;
-      }
-
       zip.file("word/document.xml", docXml);
     }
 
@@ -1924,21 +1806,61 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
       paragraphLoop: true,
       linebreaks: true,
     });
-    doc.render(templateData);
-    docxBuffer = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+    doc.render({
+      nama: studentName,
+      nim: studentNim,
+      title: thesis.title || "-",
+      dospem1: dospem1Name,
+      dospem2: hasDospem2 ? dospem2Name : "-",
+      dategenerated: formatDateId(new Date()),
+      namapembimbing1: dospem1Name,
+      namapembimbing2: hasDospem2 ? dospem2Name : "-",
+      nippembimbing1: nip1,
+      nippembimbing2: hasDospem2 ? nip2 : "-",
+      items: [],
+    });
+
+    docxBuffer = doc
+      .getZip()
+      .generate({ type: "nodebuffer", compression: "DEFLATE" });
   } catch (err) {
-    console.error("Docxtemplater error:", err);
-    throw new Error("Gagal generate dokumen dari template: " + (err.message || err));
+    console.error("Guidance log template error:", err);
+    throw new Error(
+      "Gagal generate dokumen dari template: " + (err.message || err)
+    );
   }
 
-  // --- Convert to PDF via Gotenberg ---
-  const pdfBuffer = await convertDocxToPdf(
+  // --- 2. Convert clean DOCX → PDF via Gotenberg (identity / header page) ---
+  const basePdfBuffer = await convertDocxToPdf(
     docxBuffer,
     `Log_Bimbingan_${studentNim}.docx`
   );
+
+  // --- 3. Append guidance table pages + signature using pdf-lib ---
+  const tableRows = guidances.map((g, idx) => {
+    const parts = [];
+    if (g.sessionSummary) parts.push(g.sessionSummary.trim());
+    if (g.actionItems) parts.push("Arahan/Saran: " + g.actionItems.trim());
+    return {
+      no: String(idx + 1),
+      tanggal: formatDateId(g.approvedDate || g.completedAt),
+      notes: parts.join("\n\n") || "-",
+    };
+  });
+
+  const pdfBuffer = await addGuidanceTablePages(basePdfBuffer, {
+    rows: tableRows,
+    dateGenerated: formatDateId(new Date()),
+    dospem1Name,
+    nip1,
+    hasDospem2,
+    dospem2Name,
+    nip2,
+  });
 
   return {
     buffer: pdfBuffer,
     filename: `Log_Bimbingan_${studentNim}_${new Date().toISOString().slice(0, 10)}.pdf`,
   };
 }
+
