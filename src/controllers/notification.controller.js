@@ -105,15 +105,15 @@ export async function deleteAllNotifications(req, res, next) {
 export async function registerFcm(req, res, next) {
 	try {
 		const userId = req.user.sub;
-		const { token } = req.body || {};
+		const { token, platform } = req.body || {};
 		if (!token) {
 			const e = new Error("token is required");
 			e.statusCode = 400;
 			throw e;
 		}
 		const masked = token.length > 12 ? `${token.slice(0, 6)}...${token.slice(-6)}` : token;
-		console.log(`[FCM] register token user=${userId} token=${masked}`);
-		const result = await registerFcmToken(userId, token);
+		console.log(`[FCM] register token user=${userId} token=${masked} platform=${platform || "unknown"}`);
+		const result = await registerFcmToken(userId, token, platform);
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);
