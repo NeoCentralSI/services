@@ -43,12 +43,15 @@ function ensureThesis(thesis) {
 }
 
 /**
- * Get existing seminar or auto-create one for the thesis.
+ * Get existing active seminar or auto-create one for the thesis.
  * Called during upload — the first upload triggers seminar creation.
+ * If latest seminar is failed/cancelled, create a new one for re-registration.
  */
 async function getOrCreateSeminar(thesis) {
   const existing = thesis.thesisSeminars?.[0];
-  if (existing) return existing;
+  if (existing && !['failed', 'cancelled'].includes(existing.status)) {
+    return existing;
+  }
 
   // Auto-create seminar with status 'registered'
   const created = await createThesisSeminar(thesis.id);

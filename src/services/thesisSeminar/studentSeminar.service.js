@@ -609,10 +609,10 @@ export async function getStudentSeminarDetail(userId, seminarId) {
   const docFiles = docIds.length
     ? await prisma.document.findMany({
         where: { id: { in: docIds } },
-        select: { id: true, fileName: true },
+        select: { id: true, fileName: true, filePath: true },
       })
     : [];
-  const docFileMap = new Map(docFiles.map((d) => [d.id, d.fileName]));
+  const docFileMap = new Map(docFiles.map((d) => [d.id, { fileName: d.fileName, filePath: d.filePath }]));
 
   // Build examiner notes (for revision notes)
   const examinerNotes = seminar.examiners
@@ -663,6 +663,10 @@ export async function getStudentSeminarDetail(userId, seminarId) {
     thesis: {
       id: seminar.thesis.id,
       title: seminar.thesis.title,
+      supervisors: (seminar.thesis.thesisSupervisors || []).map((s) => ({
+        role: s.role?.name || "-",
+        lecturerName: s.lecturer?.user?.fullName || "-",
+      })),
     },
     examiners: seminar.examiners.map((e) => ({
       id: e.id,
@@ -673,10 +677,12 @@ export async function getStudentSeminarDetail(userId, seminarId) {
     })),
     documents: seminar.documents.map((d) => {
       const dt = docTypes.find((t) => t.id === d.documentTypeId);
+      const docFile = docFileMap.get(d.documentId);
       return {
         documentTypeId: d.documentTypeId,
         documentTypeName: dt?.name || "-",
-        fileName: docFileMap.get(d.documentId) || null,
+        fileName: docFile?.fileName || null,
+        filePath: docFile?.filePath || null,
         status: d.status,
         submittedAt: d.submittedAt,
         verifiedAt: d.verifiedAt,
@@ -858,13 +864,24 @@ export async function saveStudentRevisionAction(userId, revisionId, body) {
     throw err;
   }
 
+  const nextDescription =
+    typeof body.description === "string" ? body.description.trim() : revision.description;
+  const nextAction =
+    typeof body.revisionAction === "string"
+      ? body.revisionAction.trim()
+      : revision.revisionAction;
+
   const updated = await prisma.thesisSeminarRevision.update({
     where: { id: revisionId },
-    data: { revisionAction: body.revisionAction },
+    data: {
+      description: nextDescription,
+      revisionAction: nextAction,
+    },
   });
 
   return {
     id: updated.id,
+    description: updated.description,
     revisionAction: updated.revisionAction,
   };
 }
@@ -975,4 +992,54 @@ export async function cancelStudentRevisionSubmission(userId, revisionId) {
     id: updated.id,
     studentSubmittedAt: updated.studentSubmittedAt,
   };
+}
+
+/**
+ * Delete revision item while still in draft (before submit).
+ */
+export async function deleteStudentRevision(userId, revisionId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const revision = await findRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Item revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const seminar = revision.seminarExaminer?.seminar;
+  if (!seminar || seminar.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (seminar.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk seminar berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.isFinished) {
+    const err = new Error("Revisi yang sudah disetujui tidak dapat dihapus.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.studentSubmittedAt) {
+    const err = new Error("Revisi yang sudah diajukan tidak dapat dihapus.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const deleted = await prisma.thesisSeminarRevision.delete({
+    where: { id: revisionId },
+  });
+
+  return { id: deleted.id };
 }

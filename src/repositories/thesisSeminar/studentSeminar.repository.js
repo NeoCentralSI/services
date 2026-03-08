@@ -410,6 +410,16 @@ export async function findStudentSeminarDetail(seminarId) {
           id: true,
           studentId: true,
           title: true,
+          thesisSupervisors: {
+            select: {
+              role: { select: { name: true } },
+              lecturer: {
+                select: {
+                  user: { select: { fullName: true } },
+                },
+              },
+            },
+          },
         },
       },
       examiners: {

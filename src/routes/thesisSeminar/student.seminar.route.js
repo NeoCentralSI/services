@@ -18,6 +18,7 @@ import {
   saveRevisionActionCtrl,
   submitRevisionCtrl,
   cancelRevisionSubmitCtrl,
+  deleteRevisionCtrl,
 } from "../../controllers/thesisSeminar/studentSeminar.controller.js";
 import {
   getDocumentTypes,
@@ -82,6 +83,9 @@ router.post("/revisions/:revisionId/submit", submitRevisionCtrl);
 
 // POST /thesisSeminar/student/revisions/:revisionId/cancel-submit (cancel submission)
 router.post("/revisions/:revisionId/cancel-submit", cancelRevisionSubmitCtrl);
+
+// DELETE /thesisSeminar/student/revisions/:revisionId (delete before submit)
+router.delete("/revisions/:revisionId", deleteRevisionCtrl);
 
 // --- Student Seminar History ---
 // GET /thesisSeminar/student/history

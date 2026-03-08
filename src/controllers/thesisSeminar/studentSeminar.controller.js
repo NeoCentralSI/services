@@ -13,6 +13,7 @@ import {
   saveStudentRevisionAction,
   submitStudentRevision,
   cancelStudentRevisionSubmission,
+  deleteStudentRevision,
 } from "../../services/thesisSeminar/studentSeminar.service.js";
 
 /**
@@ -199,6 +200,20 @@ export async function cancelRevisionSubmitCtrl(req, res, next) {
   try {
     const { revisionId } = req.params;
     const data = await cancelStudentRevisionSubmission(req.user.sub, revisionId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * DELETE /thesisSeminar/student/revisions/:revisionId
+ * Delete revision before submission
+ */
+export async function deleteRevisionCtrl(req, res, next) {
+  try {
+    const { revisionId } = req.params;
+    const data = await deleteStudentRevision(req.user.sub, revisionId);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
