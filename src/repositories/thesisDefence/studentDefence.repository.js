@@ -264,3 +264,289 @@ export const upsertDefenceDocument = async ({
     },
   });
 };
+
+/**
+ * Get all defence sessions for student's thesis (history)
+ */
+export const getAllStudentDefences = async (studentId) => {
+  return prisma.thesisDefence.findMany({
+    where: {
+      thesis: { studentId },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      registeredAt: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+      meetingLink: true,
+      examinerAverageScore: true,
+      supervisorScore: true,
+      supervisorNotes: true,
+      finalScore: true,
+      grade: true,
+      resultFinalizedAt: true,
+      cancelledReason: true,
+      updatedAt: true,
+      room: { select: { id: true, name: true } },
+      examiners: {
+        where: { availabilityStatus: "available" },
+        select: {
+          id: true,
+          lecturerId: true,
+          order: true,
+          assessmentScore: true,
+          assessmentSubmittedAt: true,
+        },
+        orderBy: { order: "asc" },
+      },
+    },
+  });
+};
+
+/**
+ * Get examiner assessment details for a defence.
+ */
+export const getStudentDefenceExaminerAssessmentDetails = async (defenceId) => {
+  return prisma.thesisDefenceExaminerAssessmentDetail.findMany({
+    where: {
+      defenceExaminer: {
+        thesisDefenceId: defenceId,
+        availabilityStatus: "available",
+      },
+    },
+    include: {
+      defenceExaminer: {
+        select: {
+          id: true,
+          lecturerId: true,
+          order: true,
+        },
+      },
+      criteria: {
+        select: {
+          id: true,
+          name: true,
+          maxScore: true,
+          displayOrder: true,
+          cpmk: {
+            select: {
+              id: true,
+              code: true,
+              description: true,
+            },
+          },
+        },
+      },
+    },
+  });
+};
+
+/**
+ * Get supervisor assessment details for a defence.
+ */
+export const getStudentDefenceSupervisorAssessmentDetails = async (defenceId) => {
+  return prisma.thesisDefenceSupervisorAssessmentDetail.findMany({
+    where: { thesisDefenceId: defenceId },
+    include: {
+      criteria: {
+        select: {
+          id: true,
+          name: true,
+          maxScore: true,
+          displayOrder: true,
+          cpmk: {
+            select: {
+              id: true,
+              code: true,
+              description: true,
+            },
+          },
+        },
+      },
+    },
+  });
+};
+
+/**
+ * Find a specific defence detail for student detail page.
+ */
+export const findStudentDefenceDetail = async (defenceId) => {
+  return prisma.thesisDefence.findUnique({
+    where: { id: defenceId },
+    select: {
+      id: true,
+      thesisId: true,
+      status: true,
+      registeredAt: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+      meetingLink: true,
+      examinerAverageScore: true,
+      supervisorScore: true,
+      supervisorNotes: true,
+      finalScore: true,
+      grade: true,
+      resultFinalizedAt: true,
+      updatedAt: true,
+      cancelledReason: true,
+      room: { select: { id: true, name: true } },
+      resultFinalizer: {
+        select: {
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+          role: { select: { name: true } },
+        },
+      },
+      thesis: {
+        select: {
+          id: true,
+          studentId: true,
+          title: true,
+          thesisSupervisors: {
+            select: {
+              role: { select: { name: true } },
+              lecturer: { select: { user: { select: { fullName: true } } } },
+            },
+          },
+        },
+      },
+      examiners: {
+        where: { availabilityStatus: "available" },
+        select: {
+          id: true,
+          lecturerId: true,
+          order: true,
+          assessmentScore: true,
+          assessmentSubmittedAt: true,
+          revisionNotes: true,
+        },
+        orderBy: { order: "asc" },
+      },
+      documents: {
+        select: {
+          thesisDefenceId: true,
+          documentTypeId: true,
+          documentId: true,
+          status: true,
+          submittedAt: true,
+          verifiedAt: true,
+          notes: true,
+        },
+      },
+    },
+  });
+};
+
+/**
+ * Get revisions for a defence.
+ */
+export const getStudentDefenceRevisions = async (defenceId) => {
+  return prisma.thesisDefenceRevision.findMany({
+    where: {
+      defenceExaminer: {
+        defence: { id: defenceId },
+      },
+    },
+    include: {
+      defenceExaminer: {
+        select: {
+          id: true,
+          lecturerId: true,
+          order: true,
+          defence: {
+            select: {
+              id: true,
+              status: true,
+              thesis: {
+                select: {
+                  studentId: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      supervisor: {
+        select: {
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { id: "asc" },
+  });
+};
+
+/**
+ * Create defence revision item.
+ */
+export const createStudentDefenceRevision = async ({ defenceExaminerId, description }) => {
+  return prisma.thesisDefenceRevision.create({
+    data: {
+      defenceExaminerId,
+      description,
+      isFinished: false,
+    },
+  });
+};
+
+/**
+ * Find defence revision by id (for auth checks)
+ */
+export const findDefenceRevisionById = async (revisionId) => {
+  return prisma.thesisDefenceRevision.findUnique({
+    where: { id: revisionId },
+    include: {
+      defenceExaminer: {
+        select: {
+          id: true,
+          lecturerId: true,
+          order: true,
+          defence: {
+            select: {
+              id: true,
+              status: true,
+              thesis: {
+                select: {
+                  studentId: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      supervisor: {
+        select: {
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+};
+
+/**
+ * Legacy submit action (save + submit at once)
+ */
+export const submitDefenceRevisionAction = async (revisionId, revisionAction) => {
+  return prisma.thesisDefenceRevision.update({
+    where: { id: revisionId },
+    data: {
+      revisionAction,
+      studentSubmittedAt: new Date(),
+    },
+  });
+};

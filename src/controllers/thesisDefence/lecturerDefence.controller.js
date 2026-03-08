@@ -6,6 +6,10 @@ import {
   getSupervisedStudentDefences,
   getLecturerDefenceDetail,
   respondToAssignment,
+  getDefenceAssessmentForm,
+  submitDefenceAssessment,
+  getSupervisorFinalizationData,
+  finalizeDefenceBySupervisor,
 } from "../../services/thesisDefence/lecturerDefence.service.js";
 
 // ============================================================
@@ -98,6 +102,54 @@ export async function respondExaminerAssignment(req, res, next) {
     const { examinerId } = req.params;
     const userId = req.user.sub;
     const data = await respondToAssignment(examinerId, userId, req.body);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ============================================================
+// LECTURER — Defence Assessment & Finalization
+// ============================================================
+
+export async function getDefenceAssessment(req, res, next) {
+  try {
+    const { defenceId } = req.params;
+    const userId = req.user.sub;
+    const data = await getDefenceAssessmentForm(defenceId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function submitDefenceAssessmentCtrl(req, res, next) {
+  try {
+    const { defenceId } = req.params;
+    const userId = req.user.sub;
+    const data = await submitDefenceAssessment(defenceId, userId, req.body);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getDefenceFinalization(req, res, next) {
+  try {
+    const { defenceId } = req.params;
+    const userId = req.user.sub;
+    const data = await getSupervisorFinalizationData(defenceId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function finalizeDefenceCtrl(req, res, next) {
+  try {
+    const { defenceId } = req.params;
+    const userId = req.user.sub;
+    const data = await finalizeDefenceBySupervisor(defenceId, userId, req.body);
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

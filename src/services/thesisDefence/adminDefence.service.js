@@ -11,12 +11,14 @@ import {
   updateDefenceSchedule,
 } from "../../repositories/thesisDefence/adminDefence.repository.js";
 import { getDefenceDocumentTypes } from "../../repositories/thesisDefence/studentDefence.repository.js";
+import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
 
 const STATUS_PRIORITY = {
   registered: 0,
   examiner_assigned: 1,
   verified: 2,
   scheduled: 3,
+  ongoing: 3,
   passed: 4,
   passed_with_revision: 4,
   failed: 4,
@@ -46,7 +48,7 @@ export async function getAdminDefenceList({ search, status } = {}) {
       studentNim: student?.user?.identityNumber || "-",
       thesisTitle: d.thesis?.title || "-",
       supervisors,
-      status: d.status,
+      status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
       registeredAt: d.registeredAt,
       date: d.date,
       startTime: d.startTime,
@@ -107,7 +109,12 @@ export async function getAdminDefenceDetail(defenceId) {
 
   return {
     id: defence.id,
-    status: defence.status,
+    status: computeEffectiveDefenceStatus(
+      defence.status,
+      defence.date,
+      defence.startTime,
+      defence.endTime
+    ),
     registeredAt: defence.registeredAt,
     date: defence.date,
     startTime: defence.startTime,

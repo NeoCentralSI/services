@@ -663,6 +663,10 @@ export async function getStudentSeminarDetail(userId, seminarId) {
     thesis: {
       id: seminar.thesis.id,
       title: seminar.thesis.title,
+      supervisors: (seminar.thesis.thesisSupervisors || []).map((s) => ({
+        role: s.role?.name || "-",
+        lecturerName: s.lecturer?.user?.fullName || "-",
+      })),
     },
     examiners: seminar.examiners.map((e) => ({
       id: e.id,

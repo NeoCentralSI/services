@@ -8,6 +8,8 @@ import { ROLES, LECTURER_ROLES } from "../../constants/roles.js";
 import {
   assignExaminersSchema,
   respondAssignmentSchema,
+  submitDefenceAssessmentSchema,
+  finalizeDefenceSchema,
 } from "../../validators/lecturerDefence.validator.js";
 import {
   listAssignmentDefences,
@@ -17,6 +19,10 @@ import {
   listSupervisedStudentDefences,
   getDefenceDetail,
   respondExaminerAssignment,
+  getDefenceAssessment,
+  submitDefenceAssessmentCtrl,
+  getDefenceFinalization,
+  finalizeDefenceCtrl,
 } from "../../controllers/thesisDefence/lecturerDefence.controller.js";
 
 const router = express.Router();
@@ -44,6 +50,26 @@ router.get("/supervised-students", listSupervisedStudentDefences);
 
 // GET /thesisDefence/lecturer/defences/:defenceId
 router.get("/defences/:defenceId", getDefenceDetail);
+
+// GET /thesisDefence/lecturer/defences/:defenceId/assessment
+router.get("/defences/:defenceId/assessment", getDefenceAssessment);
+
+// POST /thesisDefence/lecturer/defences/:defenceId/assessment
+router.post(
+  "/defences/:defenceId/assessment",
+  validate(submitDefenceAssessmentSchema),
+  submitDefenceAssessmentCtrl
+);
+
+// GET /thesisDefence/lecturer/defences/:defenceId/finalization
+router.get("/defences/:defenceId/finalization", getDefenceFinalization);
+
+// POST /thesisDefence/lecturer/defences/:defenceId/finalize
+router.post(
+  "/defences/:defenceId/finalize",
+  validate(finalizeDefenceSchema),
+  finalizeDefenceCtrl
+);
 
 // POST /thesisDefence/lecturer/defences/:examinerId/respond
 router.post(

@@ -257,3 +257,218 @@ export async function updateDefenceStatus(defenceId, status) {
     data: { status },
   });
 }
+
+// ============================================================
+// LECTURER — ongoing defence assessment & finalization
+// ============================================================
+
+export async function findDefenceAssessmentCpmks(role) {
+  return prisma.cpmk.findMany({
+    where: {
+      type: "thesis",
+      isActive: true,
+      assessmentCriterias: {
+        some: {
+          appliesTo: "defence",
+          role,
+          isActive: true,
+        },
+      },
+    },
+    include: {
+      assessmentCriterias: {
+        where: {
+          appliesTo: "defence",
+          role,
+          isActive: true,
+        },
+        include: {
+          assessmentRubrics: {
+            orderBy: { displayOrder: "asc" },
+          },
+        },
+        orderBy: { displayOrder: "asc" },
+      },
+    },
+    orderBy: { code: "asc" },
+  });
+}
+
+export async function findLatestExaminerByDefenceAndLecturer(defenceId, lecturerId) {
+  return prisma.thesisDefenceExaminer.findFirst({
+    where: {
+      thesisDefenceId: defenceId,
+      lecturerId,
+    },
+    orderBy: { assignedAt: "desc" },
+    include: {
+      thesisDefenceExaminerAssessmentDetails: true,
+    },
+  });
+}
+
+export async function saveDefenceExaminerAssessment({ examinerId, scores, revisionNotes }) {
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    await tx.thesisDefenceExaminerAssessmentDetail.deleteMany({
+      where: { thesisDefenceExaminerId: examinerId },
+    });
+
+    if (scores.length > 0) {
+      await tx.thesisDefenceExaminerAssessmentDetail.createMany({
+        data: scores.map((item) => ({
+          thesisDefenceExaminerId: examinerId,
+          assessmentCriteriaId: item.assessmentCriteriaId,
+          score: item.score,
+        })),
+      });
+    }
+
+    const totalScore = scores.reduce((sum, item) => sum + item.score, 0);
+
+    return tx.thesisDefenceExaminer.update({
+      where: { id: examinerId },
+      data: {
+        assessmentScore: totalScore,
+        revisionNotes: revisionNotes || null,
+        assessmentSubmittedAt: now,
+      },
+    });
+  });
+}
+
+export async function findDefenceSupervisorRole(defenceId, lecturerId) {
+  return prisma.thesisDefence.findFirst({
+    where: {
+      id: defenceId,
+      thesis: {
+        thesisSupervisors: {
+          some: { lecturerId },
+        },
+      },
+    },
+    select: {
+      id: true,
+      thesis: {
+        select: {
+          thesisSupervisors: {
+            where: { lecturerId },
+            select: {
+              id: true,
+              role: { select: { name: true } },
+              lecturer: { select: { user: { select: { fullName: true } } } },
+            },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+}
+
+export async function findDefenceSupervisorAssessmentDetails(defenceId) {
+  return prisma.thesisDefenceSupervisorAssessmentDetail.findMany({
+    where: { thesisDefenceId: defenceId },
+    include: {
+      criteria: {
+        select: {
+          id: true,
+          name: true,
+          maxScore: true,
+          displayOrder: true,
+          cpmk: {
+            select: {
+              id: true,
+              code: true,
+              description: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+export async function saveDefenceSupervisorAssessment({ defenceId, scores, supervisorNotes }) {
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    await tx.thesisDefenceSupervisorAssessmentDetail.deleteMany({
+      where: { thesisDefenceId: defenceId },
+    });
+
+    if (scores.length > 0) {
+      await tx.thesisDefenceSupervisorAssessmentDetail.createMany({
+        data: scores.map((item) => ({
+          thesisDefenceId: defenceId,
+          assessmentCriteriaId: item.assessmentCriteriaId,
+          score: item.score,
+        })),
+      });
+    }
+
+    const totalScore = scores.reduce((sum, item) => sum + item.score, 0);
+
+    return tx.thesisDefence.update({
+      where: { id: defenceId },
+      data: {
+        supervisorScore: totalScore,
+        supervisorNotes: supervisorNotes || null,
+        updatedAt: now,
+      },
+    });
+  });
+}
+
+export async function findActiveExaminersWithAssessments(defenceId) {
+  return prisma.thesisDefenceExaminer.findMany({
+    where: {
+      thesisDefenceId: defenceId,
+      availabilityStatus: "available",
+    },
+    include: {
+      thesisDefenceExaminerAssessmentDetails: {
+        include: {
+          criteria: {
+            select: {
+              id: true,
+              name: true,
+              maxScore: true,
+              displayOrder: true,
+              cpmk: {
+                select: {
+                  id: true,
+                  code: true,
+                  description: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { order: "asc" },
+  });
+}
+
+export async function finalizeDefenceResult({
+  defenceId,
+  status,
+  examinerAverageScore,
+  supervisorScore,
+  finalScore,
+  grade,
+  resultFinalizedBy,
+}) {
+  return prisma.thesisDefence.update({
+    where: { id: defenceId },
+    data: {
+      status,
+      examinerAverageScore,
+      supervisorScore,
+      finalScore,
+      grade,
+      resultFinalizedAt: new Date(),
+      resultFinalizedBy,
+    },
+  });
+}

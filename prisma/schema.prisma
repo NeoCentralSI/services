@@ -697,6 +697,7 @@ model ThesisDefence {
   status               ThesisDefenceStatus  @default(registered)
   examinerAverageScore Float?               @map("examiner_average_score")
   supervisorScore      Float?               @map("supervisor_score")
+  supervisorNotes      String?              @map("supervisor_notes") @db.Text
   finalScore           Float?               @map("final_score")
   grade                String?              @db.VarChar(10)
   resultFinalizedAt    DateTime?            @map("result_finalized_at")

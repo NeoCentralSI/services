@@ -6,11 +6,55 @@ import {
   findDefenceDocuments,
   upsertDefenceDocument,
   createThesisDefence,
+  getAllStudentDefences,
+  findStudentDefenceDetail,
+  getStudentDefenceExaminerAssessmentDetails,
+  getStudentDefenceSupervisorAssessmentDetails,
+  getStudentDefenceRevisions,
+  createStudentDefenceRevision,
+  findDefenceRevisionById,
+  submitDefenceRevisionAction,
 } from "../../repositories/thesisDefence/studentDefence.repository.js";
 import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import prisma from "../../config/prisma.js";
 import path from "path";
 import { mkdir, writeFile, unlink } from "fs/promises";
+import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
+
+const buildLecturerNameMap = async (lecturerIds = []) => {
+  const uniqueIds = [...new Set(lecturerIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  const lecturers = await prisma.lecturer.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, user: { select: { fullName: true } } },
+  });
+
+  return new Map(lecturers.map((lecturer) => [lecturer.id, lecturer.user?.fullName || "-"]));
+};
+
+const mapScoreToGrade = (score) => {
+  if (score === null || score === undefined || Number.isNaN(Number(score))) return "-";
+  const numericScore = Number(score);
+  if (numericScore >= 80 && numericScore <= 100) return "A";
+  if (numericScore >= 76) return "A-";
+  if (numericScore >= 70) return "B+";
+  if (numericScore >= 65) return "B";
+  if (numericScore >= 55) return "C+";
+  if (numericScore >= 50) return "C";
+  if (numericScore >= 45) return "D";
+  return "E";
+};
+
+const sortGroupedDetails = (grouped) => {
+  Object.values(grouped).forEach((group) => {
+    group.criteria.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  });
+
+  return Object.values(grouped).sort((a, b) =>
+    (a.code || "").localeCompare(b.code || "")
+  );
+};
 
 /**
  * Get student defence overview: checklist, status, documents
@@ -138,7 +182,12 @@ export const getStudentDefenceOverview = async (userId) => {
     defence: currentDefence
       ? {
           id: currentDefence.id,
-          status: currentDefence.status,
+          status: computeEffectiveDefenceStatus(
+            currentDefence.status,
+            currentDefence.date,
+            currentDefence.startTime,
+            currentDefence.endTime
+          ),
           registeredAt: currentDefence.registeredAt,
           date: currentDefence.date,
           startTime: currentDefence.startTime,
@@ -187,6 +236,11 @@ export const getStudentDefenceDocuments = async (userId) => {
 
   const currentDefence = thesis.thesisDefences?.[0] || null;
   if (!currentDefence) {
+    return { documents: [] };
+  }
+
+  // Failed/cancelled attempts must re-upload all defence documents on a new attempt.
+  if (["failed", "cancelled"].includes(currentDefence.status)) {
     return { documents: [] };
   }
 
@@ -315,4 +369,370 @@ export const uploadDefenceDocumentService = async (
     fileName: file.originalname,
     status: "submitted",
   };
+};
+
+/**
+ * Get student defence history list (all attempts)
+ */
+export const getStudentDefenceHistoryService = async (userId) => {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const attempts = await getAllStudentDefences(student.id);
+
+  const lecturerNameMap = await buildLecturerNameMap(
+    attempts.flatMap((attempt) => (attempt.examiners || []).map((examiner) => examiner.lecturerId))
+  );
+
+  return attempts.map((attempt) => ({
+    ...attempt,
+    examiners: (attempt.examiners || []).map((examiner) => ({
+      ...examiner,
+      lecturerName: lecturerNameMap.get(examiner.lecturerId) || "-",
+    })),
+    status: computeEffectiveDefenceStatus(
+      attempt.status,
+      attempt.date,
+      attempt.startTime,
+      attempt.endTime
+    ),
+  }));
+};
+
+/**
+ * Get student defence detail by id
+ */
+export const getStudentDefenceDetailService = async (userId, defenceId) => {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const detail = await findStudentDefenceDetail(defenceId);
+  if (!detail) {
+    const err = new Error("Data sidang tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (detail.thesis?.studentId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke data sidang ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const lecturerNameMap = await buildLecturerNameMap(
+    (detail.examiners || []).map((examiner) => examiner.lecturerId)
+  );
+
+  const docTypes = await getDefenceDocumentTypes();
+  const docTypeMap = new Map(docTypes.map((docType) => [docType.id, docType.name]));
+
+  const docIds = (detail.documents || []).map((doc) => doc.documentId).filter(Boolean);
+  const docFiles = docIds.length
+    ? await prisma.document.findMany({
+        where: { id: { in: docIds } },
+        select: { id: true, fileName: true, filePath: true },
+      })
+    : [];
+  const docFileMap = new Map(docFiles.map((doc) => [doc.id, doc]));
+
+  return {
+    ...detail,
+    examiners: (detail.examiners || []).map((examiner) => ({
+      ...examiner,
+      lecturerName: lecturerNameMap.get(examiner.lecturerId) || "-",
+    })),
+    documents: (detail.documents || []).map((doc) => {
+      const fileMeta = docFileMap.get(doc.documentId);
+      return {
+        ...doc,
+        documentTypeName: docTypeMap.get(doc.documentTypeId) || "-",
+        fileName: fileMeta?.fileName || null,
+        filePath: fileMeta?.filePath || null,
+      };
+    }),
+    status: computeEffectiveDefenceStatus(
+      detail.status,
+      detail.date,
+      detail.startTime,
+      detail.endTime
+    ),
+  };
+};
+
+/**
+ * Get student defence assessment summary
+ */
+export const getStudentDefenceAssessmentService = async (userId, defenceId) => {
+  const detail = await getStudentDefenceDetailService(userId, defenceId);
+
+  if (!["passed", "passed_with_revision", "failed"].includes(detail.status)) {
+    const err = new Error("Berita acara sidang belum tersedia.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const [examinerAssessmentDetails, supervisorAssessmentDetails] = await Promise.all([
+    getStudentDefenceExaminerAssessmentDetails(defenceId),
+    getStudentDefenceSupervisorAssessmentDetails(defenceId),
+  ]);
+
+  const lecturerNameMap = await buildLecturerNameMap(
+    (detail.examiners || []).map((item) => item.lecturerId)
+  );
+
+  const examinerGroupsByExaminer = {};
+  (examinerAssessmentDetails || []).forEach((item) => {
+    const examinerId = item.thesisDefenceExaminerId;
+    const cpmk = item.criteria?.cpmk;
+    if (!examinerId || !cpmk) return;
+
+    if (!examinerGroupsByExaminer[examinerId]) {
+      examinerGroupsByExaminer[examinerId] = {};
+    }
+    if (!examinerGroupsByExaminer[examinerId][cpmk.id]) {
+      examinerGroupsByExaminer[examinerId][cpmk.id] = {
+        id: cpmk.id,
+        code: cpmk.code,
+        description: cpmk.description,
+        criteria: [],
+      };
+    }
+
+    examinerGroupsByExaminer[examinerId][cpmk.id].criteria.push({
+      id: item.criteria.id,
+      name: item.criteria.name,
+      maxScore: item.criteria.maxScore,
+      score: item.score,
+      displayOrder: item.criteria.displayOrder,
+    });
+  });
+
+  const supervisorGroups = {};
+  (supervisorAssessmentDetails || []).forEach((item) => {
+    const cpmk = item.criteria?.cpmk;
+    if (!cpmk) return;
+
+    if (!supervisorGroups[cpmk.id]) {
+      supervisorGroups[cpmk.id] = {
+        id: cpmk.id,
+        code: cpmk.code,
+        description: cpmk.description,
+        criteria: [],
+      };
+    }
+
+    supervisorGroups[cpmk.id].criteria.push({
+      id: item.criteria.id,
+      name: item.criteria.name,
+      maxScore: item.criteria.maxScore,
+      score: item.score,
+      displayOrder: item.criteria.displayOrder,
+    });
+  });
+
+  const supervisorNames = (detail.thesis?.thesisSupervisors || []).map(
+    (item) => item?.lecturer?.user?.fullName
+  ).filter(Boolean);
+
+  const computedSupervisorScoreFromDetails = (supervisorAssessmentDetails || []).reduce(
+    (sum, item) => sum + Number(item?.score || 0),
+    0
+  );
+  const resolvedSupervisorScore = detail.supervisorScore ?? computedSupervisorScoreFromDetails;
+  const hasSupervisorSubmission =
+    detail.supervisorScore !== null && detail.supervisorScore !== undefined
+      ? true
+      : (supervisorAssessmentDetails || []).length > 0;
+  const resolvedSupervisorName =
+    detail.resultFinalizer?.lecturer?.user?.fullName ||
+    supervisorNames[0] ||
+    "-";
+
+  return {
+    defence: {
+      id: detail.id,
+      status: detail.status,
+      examinerAverageScore: detail.examinerAverageScore,
+      supervisorScore: resolvedSupervisorScore,
+      finalScore: detail.finalScore,
+      grade: detail.grade || mapScoreToGrade(detail.finalScore),
+      resultFinalizedAt: detail.resultFinalizedAt,
+      room: detail.room,
+      date: detail.date,
+      startTime: detail.startTime,
+      endTime: detail.endTime,
+      meetingLink: detail.meetingLink,
+    },
+    examiners: (detail.examiners || []).map((item) => ({
+      ...item,
+      lecturerName: lecturerNameMap.get(item.lecturerId) || "-",
+      assessmentDetails: sortGroupedDetails(examinerGroupsByExaminer[item.id] || {}),
+    })),
+    supervisorAssessment: {
+      name: resolvedSupervisorName,
+      assessmentScore: resolvedSupervisorScore,
+      supervisorNotes: detail.supervisorNotes,
+      assessmentSubmittedAt: hasSupervisorSubmission ? detail.updatedAt || detail.resultFinalizedAt || null : null,
+      assessmentDetails: sortGroupedDetails(supervisorGroups),
+    },
+  };
+};
+
+/**
+ * Get student defence revisions for a specific defence attempt
+ */
+export const getStudentDefenceRevisionService = async (userId, defenceId) => {
+  await getStudentDefenceDetailService(userId, defenceId);
+  const revisions = await getStudentDefenceRevisions(defenceId);
+
+  const lecturerNameMap = await buildLecturerNameMap(
+    revisions.map((revision) => revision.defenceExaminer?.lecturerId)
+  );
+
+  return revisions.map((revision) => ({
+    ...revision,
+    examinerName:
+      lecturerNameMap.get(revision.defenceExaminer?.lecturerId) || "-",
+    examinerOrder: revision.defenceExaminer?.order ?? null,
+  }));
+};
+
+/**
+ * Create one revision item for defence
+ */
+export const createStudentDefenceRevisionService = async (
+  userId,
+  defenceId,
+  payload
+) => {
+  const detail = await getStudentDefenceDetailService(userId, defenceId);
+
+  if (detail.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya dapat ditambahkan pada status lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const examinerId = String(payload?.defenceExaminerId || "").trim();
+  const examiner = detail.examiners.find((e) => e.id === examinerId);
+  if (!examiner) {
+    const err = new Error("Penguji tidak valid untuk sidang ini.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const description = String(payload?.description || "").trim();
+  if (!description) {
+    const err = new Error("Deskripsi revisi wajib diisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return createStudentDefenceRevision({
+    defenceExaminerId: examinerId,
+    description,
+  });
+};
+
+/**
+ * Save revision action draft (without submit)
+ */
+export const saveStudentDefenceRevisionActionService = async (
+  userId,
+  revisionId,
+  revisionAction
+) => {
+  const revision = await findDefenceRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Data revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const ownerId = revision.defenceExaminer?.defence?.thesis?.studentId;
+  if (ownerId !== (await getStudentByUserId(userId))?.id) {
+    const err = new Error("Anda tidak memiliki akses ke data revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (revision.defenceExaminer?.defence?.status !== "passed_with_revision") {
+    const err = new Error("Revisi tidak dapat diubah pada status sidang saat ini.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return prisma.thesisDefenceRevision.update({
+    where: { id: revisionId },
+    data: { revisionAction },
+  });
+};
+
+/**
+ * Submit revision action
+ */
+export const submitStudentDefenceRevisionActionService = async (
+  userId,
+  revisionId,
+  revisionAction
+) => {
+  const revision = await findDefenceRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Data revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const ownerId = revision.defenceExaminer?.defence?.thesis?.studentId;
+  if (ownerId !== (await getStudentByUserId(userId))?.id) {
+    const err = new Error("Anda tidak memiliki akses ke data revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (!revisionAction || !String(revisionAction).trim()) {
+    const err = new Error("Tindakan revisi wajib diisi sebelum submit.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return submitDefenceRevisionAction(revisionId, revisionAction);
+};
+
+/**
+ * Cancel submitted revision action
+ */
+export const cancelStudentDefenceRevisionActionService = async (
+  userId,
+  revisionId
+) => {
+  const revision = await findDefenceRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Data revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const ownerId = revision.defenceExaminer?.defence?.thesis?.studentId;
+  if (ownerId !== (await getStudentByUserId(userId))?.id) {
+    const err = new Error("Anda tidak memiliki akses ke data revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  return prisma.thesisDefenceRevision.update({
+    where: { id: revisionId },
+    data: {
+      studentSubmittedAt: null,
+      revisionAction: null,
+    },
+  });
 };
