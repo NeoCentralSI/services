@@ -606,6 +606,81 @@ export const getStudentDefenceRevisionService = async (userId, defenceId) => {
 };
 
 /**
+ * Get revisions for student's current defence (seminar-style response shape)
+ */
+export const getCurrentStudentDefenceRevisionsService = async (userId) => {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const thesis = await getStudentThesisWithDefenceInfo(student.id);
+  if (!thesis) {
+    const err = new Error("Anda belum memiliki tugas akhir yang terdaftar.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const defence = thesis.thesisDefences?.[0] || null;
+  if (!defence) {
+    const err = new Error("Anda belum memiliki sidang.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (defence.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk sidang berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const revisions = await getStudentDefenceRevisions(defence.id);
+
+  const lecturerNameMap = await buildLecturerNameMap([
+    ...revisions.map((revision) => revision.defenceExaminer?.lecturerId),
+    ...(defence.examiners || []).map((examiner) => examiner.lecturerId),
+  ]);
+
+  const examinerNotes = (defence.examiners || [])
+    .filter((examiner) => !!examiner.revisionNotes)
+    .map((examiner) => ({
+      examinerOrder: examiner.order,
+      lecturerName: lecturerNameMap.get(examiner.lecturerId) || "-",
+      revisionNotes: examiner.revisionNotes,
+    }));
+
+  const totalRevisions = revisions.length;
+  const finishedRevisions = revisions.filter((revision) => revision.isFinished).length;
+  const pendingApproval = revisions.filter(
+    (revision) => revision.studentSubmittedAt && !revision.isFinished
+  ).length;
+
+  return {
+    defenceId: defence.id,
+    examinerNotes,
+    summary: {
+      total: totalRevisions,
+      finished: finishedRevisions,
+      pendingApproval,
+    },
+    revisions: revisions.map((revision) => ({
+      id: revision.id,
+      examinerOrder: revision.defenceExaminer?.order || null,
+      examinerLecturerId: revision.defenceExaminer?.lecturerId || null,
+      examinerName: lecturerNameMap.get(revision.defenceExaminer?.lecturerId) || "-",
+      description: revision.description,
+      revisionAction: revision.revisionAction,
+      isFinished: revision.isFinished,
+      studentSubmittedAt: revision.studentSubmittedAt,
+      supervisorApprovedAt: revision.supervisorApprovedAt,
+      approvedBySupervisorName: revision.supervisor?.lecturer?.user?.fullName || null,
+    })),
+  };
+};
+
+/**
  * Create one revision item for defence
  */
 export const createStudentDefenceRevisionService = async (
@@ -643,12 +718,40 @@ export const createStudentDefenceRevisionService = async (
 };
 
 /**
+ * Create revision item for student's current defence (seminar-style route)
+ */
+export const createCurrentStudentDefenceRevisionService = async (userId, payload) => {
+  const student = await getStudentByUserId(userId);
+  if (!student) {
+    const err = new Error("Data mahasiswa tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const thesis = await getStudentThesisWithDefenceInfo(student.id);
+  if (!thesis) {
+    const err = new Error("Anda belum memiliki tugas akhir yang terdaftar.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const defence = thesis.thesisDefences?.[0] || null;
+  if (!defence || defence.status !== "passed_with_revision") {
+    const err = new Error("Revisi hanya tersedia untuk sidang berstatus lulus dengan revisi.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return createStudentDefenceRevisionService(userId, defence.id, payload);
+};
+
+/**
  * Save revision action draft (without submit)
  */
 export const saveStudentDefenceRevisionActionService = async (
   userId,
   revisionId,
-  revisionAction
+  payload
 ) => {
   const revision = await findDefenceRevisionById(revisionId);
   if (!revision) {
@@ -670,9 +773,21 @@ export const saveStudentDefenceRevisionActionService = async (
     throw err;
   }
 
+  const nextDescription =
+    typeof payload?.description === "string"
+      ? payload.description.trim()
+      : revision.description;
+  const nextAction =
+    typeof payload?.revisionAction === "string"
+      ? payload.revisionAction.trim()
+      : revision.revisionAction;
+
   return prisma.thesisDefenceRevision.update({
     where: { id: revisionId },
-    data: { revisionAction },
+    data: {
+      description: nextDescription,
+      revisionAction: nextAction,
+    },
   });
 };
 
@@ -735,4 +850,48 @@ export const cancelStudentDefenceRevisionActionService = async (
       revisionAction: null,
     },
   });
+};
+
+/**
+ * Delete student defence revision while still draft (before submit).
+ */
+export const deleteStudentDefenceRevisionService = async (userId, revisionId) => {
+  const revision = await findDefenceRevisionById(revisionId);
+  if (!revision) {
+    const err = new Error("Data revisi tidak ditemukan.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const student = await getStudentByUserId(userId);
+  const ownerId = revision.defenceExaminer?.defence?.thesis?.studentId;
+  if (!student || ownerId !== student.id) {
+    const err = new Error("Anda tidak memiliki akses ke data revisi ini.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (revision.defenceExaminer?.defence?.status !== "passed_with_revision") {
+    const err = new Error("Revisi tidak dapat dihapus pada status sidang saat ini.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.isFinished) {
+    const err = new Error("Revisi yang sudah disetujui tidak dapat dihapus.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (revision.studentSubmittedAt) {
+    const err = new Error("Revisi yang sudah diajukan tidak dapat dihapus.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const deleted = await prisma.thesisDefenceRevision.delete({
+    where: { id: revisionId },
+  });
+
+  return { id: deleted.id };
 };

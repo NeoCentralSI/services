@@ -12,10 +12,13 @@ import {
   getStudentDefenceDetailCtrl,
   getStudentDefenceAssessmentCtrl,
   getStudentDefenceRevisionCtrl,
+  getCurrentStudentDefenceRevisionCtrl,
   createStudentDefenceRevisionCtrl,
+  createCurrentStudentDefenceRevisionCtrl,
   saveStudentDefenceRevisionActionCtrl,
   submitStudentDefenceRevisionActionCtrl,
   cancelStudentDefenceRevisionActionCtrl,
+  deleteStudentDefenceRevisionCtrl,
 } from "../../controllers/thesisDefence/studentDefence.controller.js";
 import {
   createDefenceRevisionSchema,
@@ -41,6 +44,16 @@ router.get("/documents", getDefenceDocumentsCtrl);
 router.post("/documents/upload", uploadSeminarDocFile, uploadDefenceDocumentCtrl);
 
 // --- Student Revision routes ---
+// GET /thesisDefence/student/revisions
+router.get("/revisions", getCurrentStudentDefenceRevisionCtrl);
+
+// POST /thesisDefence/student/revisions
+router.post(
+  "/revisions",
+  validate(createDefenceRevisionSchema),
+  createCurrentStudentDefenceRevisionCtrl
+);
+
 // GET /thesisDefence/student/defences/:defenceId/revisions
 router.get("/defences/:defenceId/revisions", getStudentDefenceRevisionCtrl);
 
@@ -77,6 +90,9 @@ router.post(
   "/revisions/:revisionId/cancel-submit",
   cancelStudentDefenceRevisionActionCtrl
 );
+
+// DELETE /thesisDefence/student/revisions/:revisionId
+router.delete("/revisions/:revisionId", deleteStudentDefenceRevisionCtrl);
 
 // --- Student Defence History ---
 // GET /thesisDefence/student/history

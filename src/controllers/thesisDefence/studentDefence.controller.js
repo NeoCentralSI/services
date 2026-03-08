@@ -7,10 +7,13 @@ import {
   getStudentDefenceDetailService,
   getStudentDefenceAssessmentService,
   getStudentDefenceRevisionService,
+  getCurrentStudentDefenceRevisionsService,
   createStudentDefenceRevisionService,
+  createCurrentStudentDefenceRevisionService,
   saveStudentDefenceRevisionActionService,
   submitStudentDefenceRevisionActionService,
   cancelStudentDefenceRevisionActionService,
+  deleteStudentDefenceRevisionService,
 } from "../../services/thesisDefence/studentDefence.service.js";
 
 export async function getDefenceOverviewCtrl(req, res, next) {
@@ -97,6 +100,15 @@ export async function getStudentDefenceRevisionCtrl(req, res, next) {
   }
 }
 
+export async function getCurrentStudentDefenceRevisionCtrl(req, res, next) {
+  try {
+    const data = await getCurrentStudentDefenceRevisionsService(req.user.sub);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function createStudentDefenceRevisionCtrl(req, res, next) {
   try {
     const { defenceId } = req.params;
@@ -111,14 +123,25 @@ export async function createStudentDefenceRevisionCtrl(req, res, next) {
   }
 }
 
+export async function createCurrentStudentDefenceRevisionCtrl(req, res, next) {
+  try {
+    const data = await createCurrentStudentDefenceRevisionService(
+      req.user.sub,
+      req.body
+    );
+    res.status(201).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function saveStudentDefenceRevisionActionCtrl(req, res, next) {
   try {
     const { revisionId } = req.params;
-    const { revisionAction } = req.body;
     const data = await saveStudentDefenceRevisionActionService(
       req.user.sub,
       revisionId,
-      revisionAction
+      req.body
     );
     res.status(200).json({ success: true, data });
   } catch (error) {
@@ -148,6 +171,16 @@ export async function cancelStudentDefenceRevisionActionCtrl(req, res, next) {
       req.user.sub,
       revisionId
     );
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteStudentDefenceRevisionCtrl(req, res, next) {
+  try {
+    const { revisionId } = req.params;
+    const data = await deleteStudentDefenceRevisionService(req.user.sub, revisionId);
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

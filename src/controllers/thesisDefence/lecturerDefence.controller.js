@@ -10,6 +10,10 @@ import {
   submitDefenceAssessment,
   getSupervisorFinalizationData,
   finalizeDefenceBySupervisor,
+  getSupervisorDefenceRevisionBoard,
+  approveDefenceRevisionBySupervisor,
+  unapproveDefenceRevisionBySupervisor,
+  finalizeDefenceRevisionsBySupervisor,
 } from "../../services/thesisDefence/lecturerDefence.service.js";
 
 // ============================================================
@@ -150,6 +154,50 @@ export async function finalizeDefenceCtrl(req, res, next) {
     const { defenceId } = req.params;
     const userId = req.user.sub;
     const data = await finalizeDefenceBySupervisor(defenceId, userId, req.body);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getDefenceRevisionsCtrl(req, res, next) {
+  try {
+    const { defenceId } = req.params;
+    const userId = req.user.sub;
+    const data = await getSupervisorDefenceRevisionBoard(defenceId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function approveDefenceRevisionCtrl(req, res, next) {
+  try {
+    const { defenceId, revisionId } = req.params;
+    const userId = req.user.sub;
+    const data = await approveDefenceRevisionBySupervisor(defenceId, revisionId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function unapproveDefenceRevisionCtrl(req, res, next) {
+  try {
+    const { defenceId, revisionId } = req.params;
+    const userId = req.user.sub;
+    const data = await unapproveDefenceRevisionBySupervisor(defenceId, revisionId, userId);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function finalizeDefenceRevisionsCtrl(req, res, next) {
+  try {
+    const { defenceId } = req.params;
+    const userId = req.user.sub;
+    const data = await finalizeDefenceRevisionsBySupervisor(defenceId, userId);
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

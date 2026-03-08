@@ -23,6 +23,10 @@ import {
   submitDefenceAssessmentCtrl,
   getDefenceFinalization,
   finalizeDefenceCtrl,
+  getDefenceRevisionsCtrl,
+  approveDefenceRevisionCtrl,
+  unapproveDefenceRevisionCtrl,
+  finalizeDefenceRevisionsCtrl,
 } from "../../controllers/thesisDefence/lecturerDefence.controller.js";
 
 const router = express.Router();
@@ -69,6 +73,27 @@ router.post(
   "/defences/:defenceId/finalize",
   validate(finalizeDefenceSchema),
   finalizeDefenceCtrl
+);
+
+// GET /thesisDefence/lecturer/defences/:defenceId/revisions
+router.get("/defences/:defenceId/revisions", getDefenceRevisionsCtrl);
+
+// PUT /thesisDefence/lecturer/defences/:defenceId/revisions/:revisionId/approve
+router.put(
+  "/defences/:defenceId/revisions/:revisionId/approve",
+  approveDefenceRevisionCtrl
+);
+
+// PUT /thesisDefence/lecturer/defences/:defenceId/revisions/:revisionId/unapprove
+router.put(
+  "/defences/:defenceId/revisions/:revisionId/unapprove",
+  unapproveDefenceRevisionCtrl
+);
+
+// POST /thesisDefence/lecturer/defences/:defenceId/revisions/finalize
+router.post(
+  "/defences/:defenceId/revisions/finalize",
+  finalizeDefenceRevisionsCtrl
 );
 
 // POST /thesisDefence/lecturer/defences/:examinerId/respond

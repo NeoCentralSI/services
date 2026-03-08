@@ -472,3 +472,95 @@ export async function finalizeDefenceResult({
     },
   });
 }
+
+export async function finalizeDefenceRevisions({ defenceId, supervisorId }) {
+  return prisma.thesisDefence.update({
+    where: { id: defenceId },
+    data: {
+      revisionFinalizedAt: new Date(),
+      revisionFinalizedBy: supervisorId,
+    },
+    select: {
+      id: true,
+      revisionFinalizedAt: true,
+      revisionFinalizedBy: true,
+    },
+  });
+}
+
+export async function findDefenceRevisionsByDefenceId(defenceId) {
+  return prisma.thesisDefenceRevision.findMany({
+    where: {
+      defenceExaminer: {
+        thesisDefenceId: defenceId,
+      },
+    },
+    include: {
+      defenceExaminer: {
+        select: {
+          id: true,
+          order: true,
+          lecturerId: true,
+        },
+      },
+      supervisor: {
+        select: {
+          id: true,
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              id: true,
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [{ isFinished: "asc" }, { studentSubmittedAt: "desc" }, { id: "asc" }],
+  });
+}
+
+export async function approveDefenceRevisionItem(revisionId, supervisorId) {
+  return prisma.thesisDefenceRevision.update({
+    where: { id: revisionId },
+    data: {
+      isFinished: true,
+      approvedBy: supervisorId,
+      supervisorApprovedAt: new Date(),
+    },
+  });
+}
+
+export async function unapproveDefenceRevisionItem(revisionId) {
+  return prisma.thesisDefenceRevision.update({
+    where: { id: revisionId },
+    data: {
+      isFinished: false,
+      approvedBy: null,
+      supervisorApprovedAt: null,
+    },
+  });
+}
+
+export async function findDefenceRevisionByIdFull(revisionId) {
+  return prisma.thesisDefenceRevision.findUnique({
+    where: { id: revisionId },
+    include: {
+      defenceExaminer: {
+        select: {
+          id: true,
+          thesisDefenceId: true,
+          defence: {
+            select: {
+              id: true,
+              status: true,
+              thesis: {
+                select: { id: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
