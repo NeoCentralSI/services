@@ -46,6 +46,8 @@ import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
 import { createGuidanceCalendarEvent, deleteCalendarEvent } from "../outlook-calendar.service.js";
+import { resolve } from "path";
+import path from "path";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 
@@ -191,14 +193,14 @@ export async function getStudentDetailService(userId, thesisId) {
 		},
 		document: thesis.document ? {
 			id: thesis.document.id,
-			fileName: thesis.document.filePath?.split('/').pop() || thesis.document.fileName,
+			fileName: path.basename(thesis.document.filePath || "") || thesis.document.fileName,
 			url: thesis.document.filePath.startsWith('uploads/')
 				? `/${thesis.document.filePath}`
 				: `/uploads/${thesis.document.filePath}`
 		} : null,
 		proposalDocument: thesis.thesisProposal?.document ? {
 			id: thesis.thesisProposal.document.id,
-			fileName: thesis.thesisProposal.document.filePath?.split('/').pop() || thesis.thesisProposal.document.fileName,
+			fileName: path.basename(thesis.thesisProposal.document.filePath || "") || thesis.thesisProposal.document.fileName,
 			url: thesis.thesisProposal.document.filePath.startsWith('uploads/')
 				? `/${thesis.thesisProposal.document.filePath}`
 				: `/uploads/${thesis.thesisProposal.document.filePath}`
@@ -207,7 +209,7 @@ export async function getStudentDetailService(userId, thesisId) {
 			.filter((g) => g.document)
 			.map((g) => ({
 				id: g.document.id,
-				fileName: g.document.filePath?.split('/').pop() || g.document.fileName,
+				fileName: path.basename(g.document.filePath || "") || g.document.fileName,
 				filePath: g.document.filePath,
 				uploadedAt: g.document.createdAt,
 				guidanceDate: g.approvedDate || g.requestedDate,

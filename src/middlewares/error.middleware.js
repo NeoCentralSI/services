@@ -67,6 +67,9 @@ export default function errorHandler(err, req, res, next) {
     if (statusCode === 400 && mappedErr.details) {
       console.error("Validation details:", mappedErr.details);
     }
+    if (err instanceof Prisma.PrismaClientValidationError) {
+      console.error("Prisma Validation Error:", err.message);
+    }
   }
 
   // Bentuk respons standar JSON

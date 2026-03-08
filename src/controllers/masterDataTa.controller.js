@@ -64,3 +64,20 @@ export const syncSia = async (req, res, next) => {
         next(error);
     }
 };
+
+export const importTheses = async (req, res, next) => {
+    try {
+        const { rows } = req.body;
+        if (!rows || !Array.isArray(rows)) {
+            return res.status(400).json({ success: false, message: "Invalid data format" });
+        }
+        const data = await masterDataTaService.importThesesMasterData(rows);
+        res.status(200).json({
+            success: true,
+            message: "Proses import selesai",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+};

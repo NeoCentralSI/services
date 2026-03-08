@@ -72,6 +72,7 @@ export async function getThesesOverview(filters = {}) {
         createdAt: true,
         updatedAt: true,
         startDate: true,
+        deadlineDate: true,
         student: {
           include: {
             user: {
@@ -266,10 +267,8 @@ export async function getProgressStatistics(academicYear) {
  * Get at-risk students (no activity for more than 2 months)
  */
 export async function getAtRiskStudents(limit = 10, academicYear) {
-  const twoMonthsAgo = new Date();
-  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-
   const where = {
+    rating: "AT_RISK",
     thesisStatus: {
       name: { notIn: ["Selesai", "Gagal", "Acc Seminar"] },
     },
@@ -288,6 +287,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
             select: {
               fullName: true,
               identityNumber: true,
+              email: true,
             },
           },
         },
@@ -339,6 +339,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
         student: {
           name: t.student?.user?.fullName,
           nim: t.student?.user?.identityNumber,
+          email: t.student?.user?.email,
         },
         status: t.thesisStatus?.name,
         lastActivity,
@@ -349,7 +350,6 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
         })),
       };
     })
-    .filter((t) => t.daysSinceActivity >= 60) // 60 days = 2 months
     .sort((a, b) => b.daysSinceActivity - a.daysSinceActivity)
     .slice(0, limit);
 
@@ -380,6 +380,7 @@ export async function getSlowStudents(limit = 10, academicYear) {
             select: {
               fullName: true,
               identityNumber: true,
+              email: true,
             },
           },
         },
@@ -430,6 +431,7 @@ export async function getSlowStudents(limit = 10, academicYear) {
         student: {
           name: t.student?.user?.fullName,
           nim: t.student?.user?.identityNumber,
+          email: t.student?.user?.email,
         },
         status: t.thesisStatus?.name,
         lastActivity,
@@ -622,9 +624,51 @@ export async function getThesisDetailById(thesisId) {
       },
       thesisSeminars: {
         orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          thesisId: true,
+          status: true,
+          finalScore: true,
+          grade: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          createdAt: true,
+          updatedAt: true,
+          examiners: {
+            select: {
+              id: true,
+              assessmentScore: true,
+              lecturerId: true,
+              order: true,
+            },
+          },
+        },
       },
       thesisDefences: {
         orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          thesisId: true,
+          status: true,
+          examinerAverageScore: true,
+          supervisorScore: true,
+          finalScore: true,
+          grade: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          createdAt: true,
+          updatedAt: true,
+          examiners: {
+            select: {
+              id: true,
+              assessmentScore: true,
+              lecturerId: true,
+              order: true,
+            },
+          },
+        },
       },
     },
   });
@@ -632,13 +676,25 @@ export async function getThesisDetailById(thesisId) {
 
 /**
  * Get comprehensive thesis data for semester progress report
- * @param {string} academicYearId - Academic year ID for filtering
+ * @param {Object} options - Filter options
+ * @param {string} options.academicYearId - Academic year ID
+ * @param {string[]} options.statusIds - Array of status IDs
+ * @param {string[]} options.ratings - Array of ratings
  */
-export async function getThesesForReport(academicYearId) {
+export async function getThesesForReport(options = {}) {
+  const { academicYearId, statusIds, ratings } = options;
   const where = {};
 
-  if (academicYearId) {
+  if (academicYearId && academicYearId !== 'all') {
     Object.assign(where, await buildAcademicYearFilter(academicYearId));
+  }
+
+  if (statusIds && Array.isArray(statusIds) && statusIds.length > 0) {
+    where.thesisStatus = { name: { in: statusIds } };
+  }
+
+  if (ratings && Array.isArray(ratings) && ratings.length > 0) {
+    where.rating = { in: ratings };
   }
 
   const theses = await prisma.thesis.findMany({
@@ -689,6 +745,7 @@ export async function getThesesForReport(academicYearId) {
           completedAt: true,
           createdAt: true,
         },
+        orderBy: { completedAt: "desc" },
       },
     },
     orderBy: [

@@ -38,7 +38,7 @@ export async function getThesisHistory(studentId) {
       thesisSupervisors: {
         include: {
           role: { select: { id: true, name: true } },
-          lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
+          lecturer: { include: { user: { select: { id: true, fullName: true, email: true, identityNumber: true } } } },
         }
       },
       _count: {
@@ -57,7 +57,7 @@ export async function getSupervisorsForThesis(thesisId) {
     where: { thesisId },
     include: {
       role: { select: { id: true, name: true } },
-      lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
+      lecturer: { include: { user: { select: { id: true, fullName: true, email: true, identityNumber: true } } } },
     },
   });
   return supervisors;

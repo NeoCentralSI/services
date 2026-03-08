@@ -12,20 +12,17 @@ function decideStatus(thesis) {
   const created = new Date(thesis.createdAt);
   const age = now - created;
 
-  // 1. FAILED: Jika > 1 tahun (dan belum selesai - checked outside)
-  if (age > YEAR_1) {
+  // 1. FAILED: Berdasarkan deadlineDate jika ada, jika tidak default 1 tahun dari createdAt
+  const deadline = thesis.deadlineDate ? new Date(thesis.deadlineDate) : new Date(created.getTime() + YEAR_1);
+  if (now > deadline) {
     return "FAILED";
   }
 
-  // Cari aktivitas milestone terakhir
-  // thesis.thesisMilestones is array of { updatedAt }
-  let lastActivity = created;
-  if (thesis.thesisMilestones && thesis.thesisMilestones.length > 0) {
-    // Assuming sorted desc by query
-    const lastMilestone = thesis.thesisMilestones[0];
-    const updateTime = new Date(lastMilestone.updatedAt);
-    if (updateTime > lastActivity) lastActivity = updateTime;
-  }
+  // Align with Monitoring Logic (monitoring.repository.js/service.js)
+  // Get last activity from latest completed guidance or thesis.updatedAt
+  const latestGuidance = thesis.thesisGuidances?.[0];
+  const lastActivityDate = latestGuidance?.completedAt || latestGuidance?.approvedDate || thesis.updatedAt;
+  const lastActivity = new Date(lastActivityDate);
 
   const timeSinceLastChange = now - lastActivity;
 
@@ -157,10 +154,13 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
         id: true,
         rating: true,
         createdAt: true,
+        updatedAt: true,
+        deadlineDate: true,
         thesisStatusId: true,
-        thesisMilestones: {
-          select: { updatedAt: true },
-          orderBy: { updatedAt: 'desc' },
+        thesisGuidances: {
+          where: { status: 'completed' },
+          select: { completedAt: true, approvedDate: true },
+          orderBy: { completedAt: 'desc' },
           take: 1
         },
         student: {

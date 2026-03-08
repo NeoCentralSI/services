@@ -65,7 +65,7 @@ router.patch("/progress/complete", validate(completeComponentsSchema), completeP
 
 // History
 router.get("/history", guidanceHistory);
-router.get("/history/theses", thesisHistory);
+router.get("/thesis-history", thesisHistory);
 
 // Session Summary (after guidance)
 router.get("/needs-summary", needsSummary);

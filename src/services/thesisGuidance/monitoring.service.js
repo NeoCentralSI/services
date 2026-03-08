@@ -149,6 +149,7 @@ export async function getThesesList(filters) {
         };
       })(),
       lastActivity,
+      deadlineDate: t.deadlineDate,
       createdAt: t.createdAt,
     };
   });
@@ -299,39 +300,46 @@ export async function getThesisDetail(thesisId) {
     }));
 
   // Format seminars
-  const seminars = thesis.thesisSeminars.map((s) => ({
-    id: s.id,
-    status: s.status,
-    result: s.result?.name || null,
-    // scheduledAt: s.schedule?.startTime || null, // Removed
-    // endTime: s.schedule?.endTime || null, // Removed
-    // room: s.schedule?.room?.name || null, // Removed
-    scores: s.scores.map((sc) => ({
-      scorerName: sc.scorer?.user?.fullName,
-      rubric: sc.rubricDetail?.name || null,
-      score: sc.score,
-    })),
-    averageScore: s.scores.length > 0
-      ? Math.round(s.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / s.scores.length)
-      : null,
-  }));
+  const seminars = thesis.thesisSeminars.map((s) => {
+    const examiners = s.examiners || [];
+    const scoredExaminers = examiners.filter((e) => e.assessmentScore != null);
+    return {
+      id: s.id,
+      status: s.status,
+      date: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      finalScore: s.finalScore,
+      grade: s.grade,
+      examinerCount: examiners.length,
+      scoredCount: scoredExaminers.length,
+      averageScore: scoredExaminers.length > 0
+        ? Math.round(scoredExaminers.reduce((sum, e) => sum + e.assessmentScore, 0) / scoredExaminers.length)
+        : null,
+    };
+  });
 
   // Format defences
-  const defences = thesis.thesisDefences.map((d) => ({
-    id: d.id,
-    status: d.status?.name || null,
-    // scheduledAt: d.schedule?.startTime || null, // Removed
-    // endTime: d.schedule?.endTime || null, // Removed
-    // room: d.schedule?.room?.name || null, // Removed
-    scores: d.scores.map((sc) => ({
-      scorerName: sc.scorer?.user?.fullName,
-      rubric: sc.rubricDetail?.name || null,
-      score: sc.score,
-    })),
-    averageScore: d.scores.length > 0
-      ? Math.round(d.scores.reduce((sum, sc) => sum + (sc.score || 0), 0) / d.scores.length)
-      : null,
-  }));
+  const defences = thesis.thesisDefences.map((d) => {
+    const examiners = d.examiners || [];
+    const scoredExaminers = examiners.filter((e) => e.assessmentScore != null);
+    return {
+      id: d.id,
+      status: d.status,
+      date: d.date,
+      startTime: d.startTime,
+      endTime: d.endTime,
+      finalScore: d.finalScore,
+      grade: d.grade,
+      examinerAverageScore: d.examinerAverageScore,
+      supervisorScore: d.supervisorScore,
+      examinerCount: examiners.length,
+      scoredCount: scoredExaminers.length,
+      averageScore: scoredExaminers.length > 0
+        ? Math.round(scoredExaminers.reduce((sum, e) => sum + e.assessmentScore, 0) / scoredExaminers.length)
+        : null,
+    };
+  });
 
   // Format guidances
   const guidances = thesis.thesisGuidances.map((g) => ({
@@ -384,7 +392,7 @@ export async function getThesisDetail(thesisId) {
     examiners,
     latestDocument: thesis.document ? {
       id: thesis.document.id,
-      fileName: thesis.document.filePath?.split('/').pop() || thesis.document.fileName,
+      fileName: path.basename(thesis.document.filePath || "") || thesis.document.fileName,
       filePath: thesis.document.filePath,
     } : null,
     progress: {
@@ -454,17 +462,17 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     SLOW: {
       title: "⚠️ Peringatan Progress Tugas Akhir",
       body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
-      notifBody: `Progress tugas akhir Anda terdeteksi lambat. ${senderName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`
+      notifBody: `Progress tugas akhir Anda terdeteksi lambat. Departemen mengingatkan Anda untuk segera menjadwalkan bimbingan.`
     },
     AT_RISK: {
       title: "🚨 Peringatan Serius: Progress Tugas Akhir",
       body: `Halo ${toTitleCaseName(studentName)}, status tugas akhir Anda dalam kondisi BERISIKO. Segera hubungi dosen pembimbing untuk menghindari kegagalan.`,
-      notifBody: `Status tugas akhir Anda dalam kondisi BERISIKO. ${senderName} meminta Anda segera menghubungi dosen pembimbing.`
+      notifBody: `Status tugas akhir Anda dalam kondisi BERISIKO. Departemen meminta Anda segera menghubungi dosen pembimbing.`
     },
     FAILED: {
       title: "❌ Pemberitahuan Status Tugas Akhir",
       body: `Halo ${toTitleCaseName(studentName)}, tugas akhir Anda telah melampaui batas waktu. Segera hubungi dosen pembimbing untuk langkah selanjutnya.`,
-      notifBody: `Tugas akhir Anda telah melampaui batas waktu. Silakan hubungi dosen pembimbing atau ${senderName}.`
+      notifBody: `Tugas akhir Anda telah melampaui batas waktu. Silakan hubungi dosen pembimbing atau Departemen.`
     }
   };
 
@@ -496,17 +504,101 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 }
 
 /**
- * Get comprehensive progress report data for PDF generation
- * @param {string} academicYearId - Academic year ID
+ * Send batch warning notifications to multiple students
  */
-export async function getProgressReportService(academicYearId) {
+export async function sendBatchWarningNotificationService(userId, thesisIds, warningType) {
+  if (!Array.isArray(thesisIds) || thesisIds.length === 0) {
+    throw new Error("Daftar mahasiswa (thesisId) tidak boleh kosong");
+  }
+
+  // Get user info for sender name
+  const sender = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { fullName: true }
+  });
+  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+
+  // Get all theses with student user info
+  const theses = await prisma.thesis.findMany({
+    where: { id: { in: thesisIds } },
+    include: {
+      student: {
+        include: {
+          user: { select: { id: true, fullName: true } }
+        }
+      }
+    }
+  });
+
+  if (theses.length === 0) {
+    throw new Error("Tidak ada data tugas akhir yang ditemukan");
+  }
+
+  // Define warning messages based on type
+  const warningMessages = {
+    SLOW: {
+      title: "⚠️ Peringatan: Progress Tugas Akhir",
+      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari. Segera lakukan bimbingan dengan dosen pembimbing Anda sebelum deadline tugas akhir Anda berakhir.`,
+      notifBody: (days) => `Anda tidak ada update progress selama ${days} hari. Segera hubungi dosen pembimbing Anda.`
+    },
+    AT_RISK: {
+      title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari (Status: BERISIKO). Segera lakukan bimbingan dengan dosen pembimbing Anda sebelum deadline tugas akhir Anda berakhir.`,
+      notifBody: (days) => `Progress Anda terhenti selama ${days} hari (BERISIKO). Segera hubungi dosen pembimbing untuk menghindari kegagalan.`
+    }
+  };
+
+  const messageConfig = warningMessages[warningType] || warningMessages.SLOW;
+
+  // Process notifications in batches
+  const results = await Promise.allSettled(theses.map(async (thesis) => {
+    const studentUserId = thesis.student?.user?.id;
+    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+    const daysSinceActivity = thesis.daysSinceActivity || 0;
+
+    if (!studentUserId) return;
+
+    // Send FCM notification
+    await sendFcmToUsers([studentUserId], {
+      title: messageConfig.title,
+      body: typeof messageConfig.body === 'function' ? messageConfig.body(studentName, daysSinceActivity) : messageConfig.body,
+      data: {
+        type: "thesis_warning",
+        thesisId: thesis.id,
+        warningType
+      }
+    });
+
+    // Create in-app notification
+    await createNotificationsForUsers([studentUserId], {
+      title: messageConfig.title,
+      message: typeof messageConfig.notifBody === 'function' ? messageConfig.notifBody(daysSinceActivity) : messageConfig.notifBody,
+      type: "thesis_warning",
+      referenceId: thesis.id
+    });
+  }));
+
+  const successfulCount = results.filter(r => r.status === 'fulfilled').length;
+
+  return {
+    success: true,
+    message: `Peringatan berhasil dikirim ke ${successfulCount} mahasiswa.`
+  };
+}
+
+/**
+ * Get comprehensive progress report data for PDF generation
+ * @param {Object} options - Filter options (academicYearId, statusIds, ratings)
+ */
+export async function getProgressReportService(options = {}) {
+  const { academicYearId } = options;
   // Get academic year info
-  const academicYear = academicYearId
+  const academicYear = academicYearId && academicYearId !== 'all'
     ? await monitoringRepository.getAcademicYearById(academicYearId)
     : null;
 
-  // Get all theses for the academic year
-  const theses = await monitoringRepository.getThesesForReport(academicYearId);
+  // Get all theses for the academic year with filters
+  const theses = await monitoringRepository.getThesesForReport(options);
 
   // Get statistics
   const [statusDistribution, ratingDistribution] = await Promise.all([
@@ -541,6 +633,9 @@ export async function getProgressReportService(academicYearId) {
     const pembimbing1 = t.thesisSupervisors?.find(p => p.role?.name === "Pembimbing 1");
     const pembimbing2 = t.thesisSupervisors?.find(p => p.role?.name === "Pembimbing 2");
 
+    // Get last guidance
+    const lastGuidance = guidances.find(g => g.status === "completed");
+
     return {
       no: index + 1,
       nim: t.student?.user?.identityNumber || "-",
@@ -553,10 +648,12 @@ export async function getProgressReportService(academicYearId) {
       pembimbing2: toTitleCaseName(pembimbing2?.lecturer?.user?.fullName || "-"),
       guidanceTotal: guidances.length,
       guidanceCompleted: completedGuidanceCount,
+      lastGuidanceDate: lastGuidance?.completedAt || null,
       milestoneTotal: milestones.length,
       milestoneCompleted: completedMilestoneCount,
       progressPercent,
       startDate: t.startDate,
+      deadlineDate: t.deadlineDate,
       createdAt: t.createdAt,
     };
   });
@@ -669,45 +766,50 @@ function buildMonitoringReportXml(reportData) {
       <w:pPr>
         <w:jc w:val="center"/>
         <w:spacing w:after="240"/>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
       </w:pPr>
       <w:r>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t>Periode Semester ${escapeXml(academicYear)}</w:t>
       </w:r>
     </w:p>`;
 
   // Table header
-  const headerShading = "D9E2F3";
   const headerRow = `
     <w:tr>
-      <w:trPr><w:tblHeader/></w:trPr>
-      ${makeCell("No", { bold: true, center: true, fontSize: 18, shading: headerShading })}
-      ${makeCell("NIM", { bold: true, center: true, fontSize: 18, shading: headerShading })}
-      ${makeCell("Nama Mahasiswa", { bold: true, center: true, fontSize: 18, shading: headerShading })}
-      ${makeCell("Pembimbing", { bold: true, center: true, fontSize: 18, shading: headerShading })}
-      ${makeCell("Rating", { bold: true, center: true, fontSize: 18, shading: headerShading })}
-      ${makeCell("Jml. Bimbingan", { bold: true, center: true, fontSize: 18, shading: headerShading })}
-      ${makeCell("Progress Milestone", { bold: true, center: true, fontSize: 18, shading: headerShading })}
+      ${makeCell("No", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Nama / NIM", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Judul / Topik", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Pembimbing", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Mulai / Deadline", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Rating / Progress", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Status / Bimbingan Terakhir", { bold: true, center: true, fontSize: 20 })}
     </w:tr>`;
 
   // Table data rows
   const dataRows = theses
     .map((t) => {
-      let pembimbingText = `- ${t.pembimbing1}`;
+      let pembimbingText = `${t.pembimbing1}`;
       if (t.pembimbing2 && t.pembimbing2 !== "-") {
-        pembimbingText += `\n- ${t.pembimbing2}`;
+        pembimbingText += `\n${t.pembimbing2}`;
       }
       const ratingLabel = RATING_LABELS[t.rating] || t.rating;
+
+      const identity = `${t.name}\n${t.nim}`;
+      const info = `${t.title}\n(${t.topic})`;
+      const dates = `${formatDateLong(t.startDate)}\n${formatDateLong(t.deadlineDate)}`;
+      const statusInfo = `${t.status}\n${formatDateLong(t.lastGuidanceDate)}`;
+      const progressInfo = `${ratingLabel}\n${t.progressPercent}%`;
+
       return `
       <w:tr>
-        ${makeCell(String(t.no), { center: true, fontSize: 18 })}
-        ${makeCell(t.nim, { center: false, fontSize: 18 })}
-        ${makeCell(t.name, { center: false, fontSize: 18 })}
-        ${makeCell(pembimbingText, { center: false, fontSize: 18 })}
-        ${makeCell(ratingLabel, { center: true, fontSize: 18 })}
-        ${makeCell(String(t.guidanceCompleted), { center: true, fontSize: 18 })}
-        ${makeCell(`${t.progressPercent}%`, { center: true, fontSize: 18 })}
+        ${makeCell(String(t.no), { center: true, fontSize: 20 })}
+        ${makeCell(identity, { center: false, fontSize: 20 })}
+        ${makeCell(info, { center: false, fontSize: 20 })}
+        ${makeCell(pembimbingText, { center: false, fontSize: 20 })}
+        ${makeCell(dates, { center: true, fontSize: 20 })}
+        ${makeCell(progressInfo, { center: true, fontSize: 20 })}
+        ${makeCell(statusInfo, { center: true, fontSize: 20 })}
       </w:tr>`;
     })
     .join("");
@@ -729,12 +831,12 @@ function buildMonitoringReportXml(reportData) {
       </w:tblPr>
       <w:tblGrid>
         <w:gridCol w:w="500"/>
-        <w:gridCol w:w="1200"/>
-        <w:gridCol w:w="1600"/>
-        <w:gridCol w:w="2300"/>
-        <w:gridCol w:w="1000"/>
-        <w:gridCol w:w="1100"/>
-        <w:gridCol w:w="1300"/>
+        <w:gridCol w:w="2500"/>
+        <w:gridCol w:w="3500"/>
+        <w:gridCol w:w="2500"/>
+        <w:gridCol w:w="1800"/>
+        <w:gridCol w:w="1500"/>
+        <w:gridCol w:w="2200"/>
       </w:tblGrid>
       ${headerRow}
       ${dataRows}
@@ -747,10 +849,10 @@ function buildMonitoringReportXml(reportData) {
       <w:pPr>
         <w:jc w:val="right"/>
         <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
       </w:pPr>
       <w:r>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t>Padang, ${escapeXml(formatDateLong(generatedAt))}</w:t>
       </w:r>
     </w:p>
@@ -758,10 +860,10 @@ function buildMonitoringReportXml(reportData) {
       <w:pPr>
         <w:jc w:val="right"/>
         <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
       </w:pPr>
       <w:r>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t>Mengetahui,</w:t>
       </w:r>
     </w:p>
@@ -769,34 +871,34 @@ function buildMonitoringReportXml(reportData) {
       <w:pPr>
         <w:jc w:val="right"/>
         <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
       </w:pPr>
       <w:r>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
-        <w:t>Kepala Departemen Sistem Informasi</w:t>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+        <w:t>Ketua Departemen,</w:t>
       </w:r>
     </w:p>
-    <w:p><w:pPr><w:spacing w:before="960"/></w:pPr></w:p>
+    <w:p><w:pPr><w:spacing w:before="1000"/></w:pPr></w:p>
     <w:p>
       <w:pPr>
         <w:jc w:val="right"/>
         <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:b/><w:bCs/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
       </w:pPr>
       <w:r>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
-        <w:t>_______________________________</w:t>
+        <w:rPr><w:b/><w:bCs/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+        <w:t>Ricky Akbar M.Kom</w:t>
       </w:r>
     </w:p>
     <w:p>
       <w:pPr>
         <w:jc w:val="right"/>
         <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
       </w:pPr>
       <w:r>
-        <w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
-        <w:t>NIP. ...............................</w:t>
+        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+        <w:t>NIP. 198410062012121001</w:t>
       </w:r>
     </w:p>`;
 
@@ -868,12 +970,12 @@ function extractHeaderFromDocXml(body) {
 
 /**
  * Generate progress report PDF using the catatan template header
- * @param {string} academicYearId - Academic year ID
+ * @param {Object} options - Filter options (academicYearId, statusIds, ratings)
  * @returns {{ buffer: Buffer, filename: string }}
  */
-export async function generateProgressReportPdfService(academicYearId) {
+export async function generateProgressReportPdfService(options = {}) {
   // Get report data
-  const reportData = await getProgressReportService(academicYearId);
+  const reportData = await getProgressReportService(options);
 
   // Read catatan template
   const templatePath = path.join(
@@ -909,7 +1011,17 @@ export async function generateProgressReportPdfService(academicYearId) {
 
   // Extract section properties (page margins, size, header/footer refs)
   const sectPrMatch = body.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
-  const sectPr = sectPrMatch ? sectPrMatch[0] : "";
+  let sectPr = sectPrMatch ? sectPrMatch[0] : "";
+
+  // Override to Landscape
+  if (sectPr) {
+    sectPr = sectPr.replace(
+      /<w:pgSz[^>]*\/>/,
+      '<w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/>'
+    );
+  } else {
+    sectPr = `<w:sectPr><w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/></w:sectPr>`;
+  }
 
   // Extract header portion (kop surat) from the template
   const headerXml = extractHeaderFromDocXml(body);
@@ -930,11 +1042,6 @@ export async function generateProgressReportPdfService(academicYearId) {
     type: "nodebuffer",
     compression: "DEFLATE",
   });
-
-  // Debug: save generated DOCX to disk for inspection
-  const debugPath = path.join(process.cwd(), "uploads", "debug_monitoring_report.docx");
-  try { fs.writeFileSync(debugPath, docxBuffer); console.log("[MonitoringReport] Debug DOCX saved to:", debugPath); } catch (e) { console.error("[MonitoringReport] Failed to save debug DOCX:", e.message); }
-  console.log("[MonitoringReport] headerXml length:", headerXml.length, "| reportContent length:", reportContentXml.length, "| sectPr length:", sectPr.length);
 
   // Convert to PDF via Gotenberg
   const semester = reportData.academicYear.replace(/\s+/g, "_");

@@ -150,13 +150,32 @@ export async function sendWarningNotification(req, res, next) {
 }
 
 /**
+ * Send batch warning notifications to students
+ * @route POST /api/thesis-guidance/monitoring/batch-warning
+ */
+export async function sendBatchWarnings(req, res, next) {
+  try {
+    const { thesisIds, warningType } = req.body;
+    const result = await monitoringService.sendBatchWarningNotificationService(req.user.sub, thesisIds, warningType);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * Get progress report data for PDF generation
  * @route GET /api/thesis-guidance/monitoring/report
  */
 export async function getProgressReport(req, res, next) {
   try {
-    const { academicYear } = req.query;
-    const data = await monitoringService.getProgressReportService(academicYear);
+    const { academicYear, statusIds, ratings } = req.query;
+    const options = {
+      academicYearId: academicYear,
+      statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
+      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+    };
+    const data = await monitoringService.getProgressReportService(options);
     res.json({
       success: true,
       data,
@@ -172,8 +191,13 @@ export async function getProgressReport(req, res, next) {
  */
 export async function downloadProgressReport(req, res, next) {
   try {
-    const { academicYear } = req.query;
-    const result = await monitoringService.generateProgressReportPdfService(academicYear);
+    const { academicYear, statusIds, ratings } = req.query;
+    const options = {
+      academicYearId: academicYear,
+      statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
+      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+    };
+    const result = await monitoringService.generateProgressReportPdfService(options);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
