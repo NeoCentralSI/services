@@ -113,7 +113,7 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 		studentId: student.id,
 	});
 
-	// 6. Send FCM to the lecturer
+	// 6. Send FCM to the lecturer (Target only web platform)
 	await sendFcmToUsers([lecturerId], {
 		title: "Permintaan Pembimbing 2",
 		body: `${toTitleCaseName(studentName)} mengajukan Anda sebagai Pembimbing 2 untuk tugas akhir "${thesisTitle}"`,
@@ -123,6 +123,7 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 			thesisId: thesis.id,
 		},
 		dataOnly: true,
+		targetPlatform: "web",
 	});
 
 	// 7. Also create a regular notification for the lecturer
@@ -270,6 +271,7 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 		body: `${lecturerName} telah menyetujui menjadi Pembimbing 2 untuk tugas akhir Anda.`,
 		data: { type: "supervisor2_approved", thesisId },
 		dataOnly: true,
+		targetPlatform: "web",
 	});
 
 	return { success: true, lecturerName };
@@ -318,6 +320,7 @@ export async function rejectSupervisor2RequestService(lecturerId, requestId, { r
 		body: `${lecturerName} menolak permintaan menjadi Pembimbing 2 untuk tugas akhir Anda${reasonText}`,
 		data: { type: "supervisor2_rejected", thesisId },
 		dataOnly: true,
+		targetPlatform: "web",
 	});
 
 	return { success: true };
