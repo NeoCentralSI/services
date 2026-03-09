@@ -70,7 +70,8 @@ export const createThesis = async (data) => {
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
                 deadlineDate: data.deadlineDate,
-                rating: "ONGOING"
+                rating: "ONGOING",
+                isProposal: data.isProposal ?? false
             }
         });
 
@@ -98,7 +99,8 @@ export const updateThesis = async (id, data) => {
                 thesisStatusId: data.thesisStatusId,
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
-                rating: data.rating
+                rating: data.rating,
+                isProposal: data.isProposal
             }
         });
 

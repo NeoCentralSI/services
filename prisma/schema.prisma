@@ -317,6 +317,7 @@ model ExitSurveyOption {
 
 model Thesis {
   id                    String                @id @default(uuid())
+  isProposal            Boolean               @default(true) @map("is_proposal")
   rating                ThesisRating          @default(ONGOING)
   studentId             String                @map("student_id")
   thesisTopicId         String?               @map("thesis_topic_id")

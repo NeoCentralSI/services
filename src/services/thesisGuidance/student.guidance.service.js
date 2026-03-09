@@ -867,7 +867,7 @@ export async function listSupervisorsService(userId) {
   // Fall back to most recent thesis (including Gagal/Dibatalkan) for overview display
   if (!thesis) {
     thesis = await prisma.thesis.findFirst({
-      where: { studentId: student.id },
+      where: { studentId: student.id, isProposal: false },
       orderBy: { createdAt: 'desc' },
       include: {
         thesisStatus: { select: { id: true, name: true } },
@@ -1309,7 +1309,7 @@ export async function getMyThesisDetailService(userId) {
   // so the frontend can display the appropriate status message
   if (!thesis) {
     thesis = await prisma.thesis.findFirst({
-      where: { studentId: student.id },
+      where: { studentId: student.id, isProposal: false },
       orderBy: { createdAt: 'desc' },
       include: {
         document: { select: { id: true, filePath: true, fileName: true } },
@@ -1619,7 +1619,7 @@ export async function proposeThesisService(userId, { title, topicId }) {
   // 1b. Block re-registration for students with FAILED thesis
   // They must go to the department in person to re-register
   const latestThesis = await prisma.thesis.findFirst({
-    where: { studentId: student.id },
+    where: { studentId: student.id, isProposal: false },
     orderBy: { createdAt: 'desc' },
     include: { thesisStatus: { select: { name: true } } },
   });
@@ -1640,7 +1640,7 @@ export async function proposeThesisService(userId, { title, topicId }) {
   // 3. Get supervisors from previous thesis (if any)
   // We need to look at the MAJOR previous thesis (the one that was cancelled/failed most recently)
   const previousTheses = await prisma.thesis.findMany({
-    where: { studentId: student.id },
+    where: { studentId: student.id, isProposal: false },
     orderBy: { createdAt: 'desc' },
     take: 1,
     include: {

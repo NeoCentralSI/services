@@ -29,7 +29,7 @@ async function buildAcademicYearFilter(academicYearId) {
 export async function getThesesOverview(filters = {}) {
   const { status, lecturerId, academicYear, search, page = 1, pageSize = 20 } = filters;
 
-  const where = {};
+  const where = { isProposal: false };
 
   // Filter by thesis status
   if (status) {
@@ -134,6 +134,7 @@ export async function getThesesOverview(filters = {}) {
  */
 export async function getStatusDistribution(academicYear) {
   const where = academicYear ? await buildAcademicYearFilter(academicYear) : {};
+  where.isProposal = false;
 
   const statuses = await prisma.thesisStatus.findMany({
     include: {
@@ -160,6 +161,7 @@ export async function getStatusDistribution(academicYear) {
  */
 export async function getRatingDistribution(academicYear) {
   const where = {
+    isProposal: false,
     rating: { notIn: ["FAILED", "CANCELLED"] },
     thesisStatus: {
       name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
@@ -204,6 +206,7 @@ export async function getProgressStatistics(academicYear) {
   // Active means it has rating ONGOING, SLOW, or AT_RISK
   // FAILED and CANCELLED are not active
   const where = {
+    isProposal: false,
     rating: { in: ["ONGOING", "SLOW", "AT_RISK"] },
     thesisStatus: {
       name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
@@ -268,6 +271,7 @@ export async function getProgressStatistics(academicYear) {
  */
 export async function getAtRiskStudents(limit = 10, academicYear) {
   const where = {
+    isProposal: false,
     rating: "AT_RISK",
     thesisStatus: {
       name: { notIn: ["Selesai", "Gagal", "Acc Seminar"] },
@@ -361,6 +365,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
  */
 export async function getSlowStudents(limit = 10, academicYear) {
   const where = {
+    isProposal: false,
     rating: "SLOW",
     thesisStatus: {
       name: { notIn: ["Selesai", "Gagal", "Acc Seminar"] },
@@ -452,6 +457,7 @@ export async function getSlowStudents(limit = 10, academicYear) {
  */
 export async function getStudentsReadyForSeminar(academicYear) {
   const where = {
+    isProposal: false,
     thesisStatus: {
       name: "Acc Seminar",
     },
@@ -683,7 +689,7 @@ export async function getThesisDetailById(thesisId) {
  */
 export async function getThesesForReport(options = {}) {
   const { academicYearId, statusIds, ratings } = options;
-  const where = {};
+  const where = { isProposal: false };
 
   if (academicYearId && academicYearId !== 'all') {
     Object.assign(where, await buildAcademicYearFilter(academicYearId));
@@ -769,7 +775,7 @@ export async function getAcademicYearById(academicYearId) {
  * Get topic distribution - count of theses per topic
  */
 export async function getTopicDistribution(academicYear) {
-  const where = {};
+  const where = { isProposal: false };
   if (academicYear) {
     Object.assign(where, await buildAcademicYearFilter(academicYear));
   }
@@ -800,6 +806,7 @@ export async function getTopicDistribution(academicYear) {
  */
 export async function getBatchDistribution(academicYear) {
   const where = {
+    isProposal: false,
     thesisStatus: { name: { notIn: ["Gagal", "Dibatalkan"] } },
   };
   if (academicYear) {
@@ -837,6 +844,7 @@ export async function getBatchDistribution(academicYear) {
  */
 export async function getProgressDistribution(academicYear) {
   const where = {
+    isProposal: false,
     rating: { in: ["ONGOING", "SLOW", "AT_RISK"] },
     thesisStatus: {
       name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
@@ -885,6 +893,7 @@ export async function getProgressDistribution(academicYear) {
  */
 export async function getGuidanceTrend(academicYear) {
   const thesisWhere = {
+    isProposal: false,
     thesisStatus: {
       name: { notIn: ["Gagal", "Dibatalkan"] },
     },
