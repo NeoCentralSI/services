@@ -161,6 +161,7 @@ export const getStudentYudisiumOverview = async (userId) => {
                 thesisId: thesis.id,
             },
             select: {
+                status: true,
                 yudisiumParticipantRequirements: {
                     select: {
                         yudisiumRequirementId: true,
@@ -234,6 +235,7 @@ export const getStudentYudisiumOverview = async (userId) => {
 
     return {
         yudisium: currentYudisium,
+        participantStatus: participant?.status ?? null,
         thesis: thesis
             ? {
                 id: thesis.id,
