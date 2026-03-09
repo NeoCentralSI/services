@@ -212,6 +212,8 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     notes: guidance.studentNotes || null,
     supervisorFeedback: guidance.supervisorFeedback || null,
     rejectionReason: guidance.rejectionReason || null,
+    sessionSummary: guidance.sessionSummary || null,
+    actionItems: guidance.actionItems || null,
     milestoneIds,
     milestoneTitles,
   };
@@ -1573,14 +1575,14 @@ export async function getThesisHistoryService(userId) {
       rating: t.rating || "ONGOING",
       topic: t.thesisTopic?.name || "-",
       academicYear: t.academicYear
-        ? `${t.academicYear.year}/${t.academicYear.year + 1} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
+        ? `${t.academicYear.year.includes('/') ? t.academicYear.year : `${t.academicYear.year}/${parseInt(t.academicYear.year) + 1}`} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
         : "-",
       createdAt: t.createdAt,
       stats: {
         guidances: t._count.thesisGuidances,
         completedMilestones: ["Dibatalkan", "Gagal"].includes(t.thesisStatus?.name)
-          ? `0/${t._count.thesisMilestones}`
-          : t._count.thesisMilestones,
+          ? `0/${t.thesisMilestones?.length || 0}`
+          : t.thesisMilestones?.filter((m) => m.status === "completed").length || 0,
       },
       supervisors: (t.thesisSupervisors || []).map(s => ({
         id: s.lecturerId,

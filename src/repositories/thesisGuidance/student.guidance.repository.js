@@ -44,8 +44,11 @@ export async function getThesisHistory(studentId) {
       _count: {
         select: {
           thesisGuidances: { where: { status: "completed" } },
-          thesisMilestones: { where: { status: { not: "deleted" } } }
         }
+      },
+      thesisMilestones: {
+        select: { status: true },
+        where: { status: { not: "deleted" } }
       }
     },
   });
