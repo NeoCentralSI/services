@@ -1,4 +1,6 @@
 import prisma from "../../config/prisma.js";
+import path from "path";
+import { mkdir, writeFile, unlink } from "fs/promises";
 
 const REQUIRED_SKS = 146;
 
@@ -417,5 +419,197 @@ export const submitStudentExitSurvey = async (userId, payload) => {
 
     return {
         response: mapStudentExitSurveyResponse(created),
+    };
+};
+
+export const getStudentYudisiumRequirements = async (userId) => {
+    const { currentYudisium, thesis } = await findStudentContext(userId);
+
+    if (!currentYudisium) {
+        throw new NotFoundError("Belum ada periode yudisium yang berlangsung");
+    }
+
+    if (!thesis?.id) {
+        throw new ValidationError("Data tugas akhir mahasiswa belum tersedia");
+    }
+
+    const activeRequirements = await prisma.yudisiumRequirement.findMany({
+        where: { isActive: true },
+        orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+        select: { id: true, name: true, description: true, notes: true },
+    });
+
+    const participant = await prisma.yudisiumParticipant.findFirst({
+        where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
+        select: {
+            id: true,
+            status: true,
+            yudisiumParticipantRequirements: {
+                select: {
+                    yudisiumRequirementId: true,
+                    status: true,
+                    submittedAt: true,
+                    verifiedAt: true,
+                    notes: true,
+                    documentId: true,
+                    document: { select: { id: true, fileName: true, filePath: true } },
+                },
+            },
+        },
+    });
+
+    const uploadedMap = new Map(
+        (participant?.yudisiumParticipantRequirements ?? []).map((r) => [r.yudisiumRequirementId, r])
+    );
+
+    const requirements = activeRequirements.map((req) => {
+        const uploaded = uploadedMap.get(req.id);
+        return {
+            id: req.id,
+            name: req.name,
+            description: req.description,
+            notes: req.notes,
+            status: uploaded?.status ?? null,
+            submittedAt: uploaded?.submittedAt ?? null,
+            verifiedAt: uploaded?.verifiedAt ?? null,
+            validationNotes: uploaded?.notes ?? null,
+            document: uploaded?.document
+                ? { id: uploaded.document.id, fileName: uploaded.document.fileName, filePath: uploaded.document.filePath }
+                : null,
+        };
+    });
+
+    return {
+        yudisiumId: currentYudisium.id,
+        participantId: participant?.id ?? null,
+        participantStatus: participant?.status ?? null,
+        requirements,
+    };
+};
+
+export const uploadYudisiumDocument = async (userId, file, requirementId) => {
+    if (!file) {
+        throw new ValidationError("File dokumen wajib diunggah");
+    }
+
+    if (!requirementId) {
+        throw new ValidationError("ID persyaratan wajib diisi");
+    }
+
+    const { currentYudisium, thesis } = await findStudentContext(userId);
+
+    if (!currentYudisium) {
+        throw new NotFoundError("Belum ada periode yudisium yang berlangsung");
+    }
+
+    if (!thesis?.id) {
+        throw new ValidationError("Data tugas akhir mahasiswa belum tersedia");
+    }
+
+    const requirement = await prisma.yudisiumRequirement.findUnique({
+        where: { id: requirementId },
+    });
+
+    if (!requirement || !requirement.isActive) {
+        throw new ValidationError("Persyaratan yudisium tidak valid atau sudah tidak aktif");
+    }
+
+    // Get or auto-create participant on first upload
+    let participant = await prisma.yudisiumParticipant.findFirst({
+        where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
+    });
+
+    if (!participant) {
+        participant = await prisma.yudisiumParticipant.create({
+            data: {
+                thesisId: thesis.id,
+                yudisiumId: currentYudisium.id,
+                registeredAt: new Date(),
+                status: "registered",
+            },
+        });
+    }
+
+    // Check if already approved (block re-upload)
+    const existing = await prisma.yudisiumParticipantRequirement.findUnique({
+        where: {
+            yudisiumParticipantId_yudisiumRequirementId: {
+                yudisiumParticipantId: participant.id,
+                yudisiumRequirementId: requirementId,
+            },
+        },
+    });
+
+    if (existing?.status === "approved") {
+        throw new ConflictError("Dokumen ini sudah diverifikasi dan tidak dapat diubah");
+    }
+
+    // Prepare upload directory
+    const uploadsRoot = path.join(process.cwd(), "uploads", "yudisium", currentYudisium.id, participant.id);
+    await mkdir(uploadsRoot, { recursive: true });
+
+    // Delete old file if re-uploading
+    if (existing?.documentId) {
+        try {
+            const oldDoc = await prisma.document.findUnique({
+                where: { id: existing.documentId },
+                select: { filePath: true },
+            });
+            if (oldDoc?.filePath) {
+                await unlink(path.join(process.cwd(), oldDoc.filePath));
+            }
+            await prisma.document.delete({ where: { id: existing.documentId } });
+        } catch (delErr) {
+            console.warn("Could not delete old yudisium document:", delErr.message);
+        }
+    }
+
+    // Write file to disk
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeName = `${requirement.name.replace(/\s+/g, "-").toLowerCase()}${ext}`;
+    const absolutePath = path.join(uploadsRoot, safeName);
+    await writeFile(absolutePath, file.buffer);
+
+    const relPath = path.relative(process.cwd(), absolutePath).replace(/\\/g, "/");
+
+    // Create document record
+    const document = await prisma.document.create({
+        data: {
+            userId,
+            fileName: file.originalname,
+            filePath: relPath,
+        },
+    });
+
+    // Upsert participant requirement
+    await prisma.yudisiumParticipantRequirement.upsert({
+        where: {
+            yudisiumParticipantId_yudisiumRequirementId: {
+                yudisiumParticipantId: participant.id,
+                yudisiumRequirementId: requirementId,
+            },
+        },
+        create: {
+            yudisiumParticipantId: participant.id,
+            yudisiumRequirementId: requirementId,
+            documentId: document.id,
+            status: "submitted",
+            submittedAt: new Date(),
+        },
+        update: {
+            documentId: document.id,
+            status: "submitted",
+            submittedAt: new Date(),
+            notes: null,
+            verifiedAt: null,
+            verifiedBy: null,
+        },
+    });
+
+    return {
+        documentId: document.id,
+        requirementId,
+        fileName: file.originalname,
+        status: "submitted",
     };
 };

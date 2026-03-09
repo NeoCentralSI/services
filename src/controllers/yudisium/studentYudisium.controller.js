@@ -2,6 +2,8 @@ import {
     getStudentYudisiumOverview,
     getStudentExitSurvey,
     submitStudentExitSurvey,
+    getStudentYudisiumRequirements,
+    uploadYudisiumDocument,
 } from "../../services/yudisium/studentYudisium.service.js";
 
 export const getOverview = async (req, res, next) => {
@@ -36,6 +38,36 @@ export const submitExitSurvey = async (req, res, next) => {
         res.status(201).json({
             success: true,
             message: "Berhasil mengirim exit survey",
+            data,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getRequirements = async (req, res, next) => {
+    try {
+        const data = await getStudentYudisiumRequirements(req.user.sub);
+        res.status(200).json({
+            success: true,
+            message: "Berhasil mengambil daftar persyaratan yudisium",
+            data,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const uploadDocument = async (req, res, next) => {
+    try {
+        const data = await uploadYudisiumDocument(
+            req.user.sub,
+            req.file,
+            req.body.requirementId
+        );
+        res.status(200).json({
+            success: true,
+            message: "Berhasil mengunggah dokumen yudisium",
             data,
         });
     } catch (error) {
