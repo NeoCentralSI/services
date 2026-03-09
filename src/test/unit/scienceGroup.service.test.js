@@ -18,14 +18,14 @@ const { mockPrisma } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
 
 import {
   getScienceGroups,
   createScienceGroup,
   updateScienceGroup,
   deleteScienceGroup,
-} from "../services/scienceGroup.service.js";
+} from "../../services/scienceGroup.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const GROUP = { id: "sg-1", name: "Artificial Intelligence" };

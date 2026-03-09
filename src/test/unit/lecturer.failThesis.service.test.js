@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../repositories/thesisGuidance/lecturer.guidance.repository.js", () => {
+vi.mock("../../repositories/thesisGuidance/lecturer.guidance.repository.js", () => {
   return {
     getLecturerByUserId: mocks.repo.getLecturerByUserId,
     getStudentActiveThesis: mocks.repo.getStudentActiveThesis,
@@ -24,7 +24,7 @@ vi.mock("../repositories/thesisGuidance/lecturer.guidance.repository.js", () => 
   };
 });
 
-import { failStudentThesisService } from "../services/thesisGuidance/lecturer.guidance.service.js";
+import { failStudentThesisService } from "../../services/thesisGuidance/lecturer.guidance.service.js";
 
 const LECTURER = { id: "lec-1", userId: "user-1" };
 const THESIS = { id: "th-1", thesisStatusId: "status-at-risk" };

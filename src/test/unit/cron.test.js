@@ -19,12 +19,12 @@ const { mockPrisma, mockPush, mockNotif, mockRoles } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../constants/roles.js", () => mockRoles);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../services/notification.service.js", () => mockNotif);
+vi.mock("../../constants/roles.js", () => mockRoles);
 
-import { updateAllThesisStatuses, getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
+import { updateAllThesisStatuses, getFailedThesesCount, getFailedTheses } from "../../services/thesisStatus.service.js";
 
 describe("Module 20: CRON — Thesis Status Update", () => {
   beforeEach(() => vi.clearAllMocks());

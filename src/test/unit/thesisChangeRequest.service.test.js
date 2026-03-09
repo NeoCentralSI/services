@@ -40,11 +40,11 @@ const { mockRepo, mockPrisma, mockNotif, mockPush, mockRoles } = vi.hoisted(() =
   },
 }));
 
-vi.mock("../repositories/thesisChangeRequest.repository.js", () => mockRepo);
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../constants/roles.js", () => mockRoles);
+vi.mock("../../repositories/thesisChangeRequest.repository.js", () => mockRepo);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../services/notification.service.js", () => mockNotif);
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../constants/roles.js", () => mockRoles);
 
 import {
   submitRequest,
@@ -52,7 +52,7 @@ import {
   rejectRequest,
   getRequestById,
   getPendingCount,
-} from "../services/thesisChangeRequest.service.js";
+} from "../../services/thesisChangeRequest.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const STUDENT_ID = "student-1";

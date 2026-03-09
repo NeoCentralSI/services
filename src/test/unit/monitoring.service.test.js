@@ -33,10 +33,10 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
 }));
 
-vi.mock("../repositories/thesisGuidance/monitoring.repository.js", () => mockRepo);
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
+vi.mock("../../repositories/thesisGuidance/monitoring.repository.js", () => mockRepo);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../services/notification.service.js", () => mockNotif);
 
 import {
   getMonitoringDashboard,
@@ -49,7 +49,7 @@ import {
   sendWarningNotificationService,
   sendBatchWarningNotificationService,
   getProgressReportService,
-} from "../services/thesisGuidance/monitoring.service.js";
+} from "../../services/thesisGuidance/monitoring.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const ACADEMIC_YEAR = "2024/2025";

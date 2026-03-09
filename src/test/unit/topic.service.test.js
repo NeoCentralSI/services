@@ -18,7 +18,7 @@ const { mockTopicRepo } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../repositories/thesisGuidance/topic.repository.js", () => mockTopicRepo);
+vi.mock("../../repositories/thesisGuidance/topic.repository.js", () => mockTopicRepo);
 
 import {
   getTopics,
@@ -27,7 +27,7 @@ import {
   updateTopic,
   deleteTopic,
   bulkDeleteTopics,
-} from "../services/thesisGuidance/topic.service.js";
+} from "../../services/thesisGuidance/topic.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const ADMIN_USER = { id: "admin-1", fullName: "Admin" };

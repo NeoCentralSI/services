@@ -61,17 +61,17 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
   mockAcademicYear: { getActiveAcademicYear: vi.fn() },
 }));
 
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../repositories/adminfeatures.repository.js", () => mockAdminRepo);
-vi.mock("../config/mailer.js", () => mockMailer);
-vi.mock("../config/env.js", () => ({ ENV: mockEnv }));
-vi.mock("../utils/emailTemplate.js", () => mockEmailTpl);
-vi.mock("../utils/password.util.js", () => mockPwdUtil);
-vi.mock("../constants/roles.js", () => mockRoles);
-vi.mock("../config/redis.js", () => mockRedis);
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../helpers/academicYear.helper.js", () => mockAcademicYear);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../repositories/adminfeatures.repository.js", () => mockAdminRepo);
+vi.mock("../../config/mailer.js", () => mockMailer);
+vi.mock("../../config/env.js", () => ({ ENV: mockEnv }));
+vi.mock("../../utils/emailTemplate.js", () => mockEmailTpl);
+vi.mock("../../utils/password.util.js", () => mockPwdUtil);
+vi.mock("../../constants/roles.js", () => mockRoles);
+vi.mock("../../config/redis.js", () => mockRedis);
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../services/notification.service.js", () => mockNotif);
+vi.mock("../../helpers/academicYear.helper.js", () => mockAcademicYear);
 vi.mock("bcrypt", () => ({
   default: { hash: vi.fn().mockResolvedValue("hashed"), compare: vi.fn() },
 }));
@@ -93,7 +93,7 @@ import {
   getAcademicYears,
   adminUpdateLecturer,
   adminUpdateStudent,
-} from "../services/adminfeatures.service.js";
+} from "../../services/adminfeatures.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const USER = {
@@ -388,7 +388,7 @@ describe("Module 18: Tahun Ajaran", () => {
       mockPrisma.academicYear.findFirst.mockResolvedValue({ id: "existing" });
 
       await expect(
-        createAcademicYear({ semester: "ganjil", year: 2024, startDate: "2024-09-01", endDate: "2025-01-31" })
+        createAcademicYear({ semester: "ganjil", year: "2024", startDate: "2024-09-01", endDate: "2025-01-31" })
       ).rejects.toMatchObject({ statusCode: 409 });
     });
   });

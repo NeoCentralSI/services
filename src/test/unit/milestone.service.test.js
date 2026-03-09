@@ -52,12 +52,12 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
   },
 }));
 
-vi.mock("../repositories/thesisGuidance/milestone.repository.js", () => mockMilestoneRepo);
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../constants/roles.js", () => mockRoles);
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../repositories/notification.repository.js", () => mockNotifRepo);
-vi.mock("../repositories/thesisGuidance/lecturer.guidance.repository.js", () => mockLecturerRepo);
+vi.mock("../../repositories/thesisGuidance/milestone.repository.js", () => mockMilestoneRepo);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../constants/roles.js", () => mockRoles);
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../repositories/notification.repository.js", () => mockNotifRepo);
+vi.mock("../../repositories/thesisGuidance/lecturer.guidance.repository.js", () => mockLecturerRepo);
 
 import {
   createMilestone,
@@ -69,7 +69,7 @@ import {
   reorderMilestones,
   getThesisSeminarReadiness,
   approveSeminarReadiness,
-} from "../services/thesisGuidance/milestone.service.js";
+} from "../../services/thesisGuidance/milestone.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const STUDENT_USER_ID = "user-mhs-1";

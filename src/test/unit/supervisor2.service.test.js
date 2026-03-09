@@ -42,13 +42,13 @@ const { mockRepo, mockStudentRepo, mockPrisma, mockPush, mockNotif, mockGlobalUt
   },
 }));
 
-vi.mock("../repositories/thesisGuidance/supervisor2.repository.js", () => mockRepo);
-vi.mock("../repositories/thesisGuidance/student.guidance.repository.js", () => mockStudentRepo);
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../utils/global.util.js", () => mockGlobalUtil);
-vi.mock("../constants/roles.js", () => mockRoles);
+vi.mock("../../repositories/thesisGuidance/supervisor2.repository.js", () => mockRepo);
+vi.mock("../../repositories/thesisGuidance/student.guidance.repository.js", () => mockStudentRepo);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../services/notification.service.js", () => mockNotif);
+vi.mock("../../utils/global.util.js", () => mockGlobalUtil);
+vi.mock("../../constants/roles.js", () => mockRoles);
 
 import {
   getAvailableSupervisor2Service,
@@ -58,7 +58,7 @@ import {
   cancelSupervisor2RequestService,
   checkAndPromoteSupervisor,
   checkPromotionForThesisSupervisors,
-} from "../services/thesisGuidance/supervisor2.service.js";
+} from "../../services/thesisGuidance/supervisor2.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const STUDENT = { id: "student-1", userId: "user-mhs-1" };

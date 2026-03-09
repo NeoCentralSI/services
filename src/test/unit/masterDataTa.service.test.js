@@ -23,15 +23,15 @@ const { mockRepo, mockPrisma } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../repositories/masterDataTa.repository.js", () => mockRepo);
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../repositories/masterDataTa.repository.js", () => mockRepo);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
 
 import {
   getAllThesesMasterData,
   getAllThesisStatuses,
   createThesisMasterData,
   updateThesisMasterData,
-} from "../services/masterDataTa.service.js";
+} from "../../services/masterDataTa.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const THESIS = {

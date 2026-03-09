@@ -5,8 +5,11 @@ import prisma from "../config/prisma.js";
  * @param {string} userId
  * @param {object} options - { limit, offset, onlyUnread }
  */
+// Internal notification types used as state-tracking records (not user-facing)
+const INTERNAL_NOTIFICATION_TITLES = ["[TRANSFER_REQUEST]", "[TRANSFER_REQUEST_KADEP]", "REQUEST_SUPERVISOR_2"];
+
 export async function findNotificationsByUserId(userId, { limit = 20, offset = 0, onlyUnread = false } = {}) {
-	const where = { userId, title: { not: "[TRANSFER_REQUEST]" } };
+	const where = { userId, title: { notIn: INTERNAL_NOTIFICATION_TITLES } };
 	if (onlyUnread) {
 		where.isRead = false;
 	}
@@ -25,7 +28,7 @@ export async function findNotificationsByUserId(userId, { limit = 20, offset = 0
  */
 export async function countUnreadNotifications(userId) {
 	return await prisma.notification.count({
-		where: { userId, isRead: false, title: { not: "[TRANSFER_REQUEST]" } },
+		where: { userId, isRead: false, title: { notIn: INTERNAL_NOTIFICATION_TITLES } },
 	});
 }
 

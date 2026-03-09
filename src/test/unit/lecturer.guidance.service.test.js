@@ -74,14 +74,14 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
   },
 }));
 
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../repositories/thesisGuidance/lecturer.guidance.repository.js", () => mockRepo);
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../services/outlook-calendar.service.js", () => mockCalendar);
-vi.mock("../utils/date.util.js", () => mockDateUtil);
-vi.mock("../utils/global.util.js", () => mockGlobalUtil);
-vi.mock("../constants/roles.js", () => mockRoles);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../repositories/thesisGuidance/lecturer.guidance.repository.js", () => mockRepo);
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../services/notification.service.js", () => mockNotif);
+vi.mock("../../services/outlook-calendar.service.js", () => mockCalendar);
+vi.mock("../../utils/date.util.js", () => mockDateUtil);
+vi.mock("../../utils/global.util.js", () => mockGlobalUtil);
+vi.mock("../../constants/roles.js", () => mockRoles);
 
 import {
   getMyStudentsService,
@@ -98,7 +98,7 @@ import {
   failStudentThesisService,
   sendWarningNotificationService,
   getGuidanceDetailService,
-} from "../services/thesisGuidance/lecturer.guidance.service.js";
+} from "../../services/thesisGuidance/lecturer.guidance.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const LECTURER = { id: "lec-1", userId: "user-dosen-1", user: { id: "user-dosen-1", fullName: "Dr. Andi" } };

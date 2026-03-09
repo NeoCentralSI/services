@@ -420,16 +420,17 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesis.id);
       await mkdir(uploadsRoot, { recursive: true });
 
-      // Build versioned filename: nim_Name_LaporanTA_v{n}.pdf
+      // Build versioned filename: nim_Name_LaporanTA_v{n}.{ext}
       const nim = studentUser?.identityNumber || "NIM";
       const cleanName = (studentUser?.fullName || "Mahasiswa").replace(/[^a-zA-Z0-9]/g, "_");
       const baseName = `${nim}_${cleanName}_LaporanTA`;
+      const ext = path.extname(file.originalname).toLowerCase() || ".pdf";
 
       // Auto-increment version based on existing files in the directory
       let version = 1;
       if (fs.existsSync(uploadsRoot)) {
         const existingFiles = fs.readdirSync(uploadsRoot);
-        const versionRegex = new RegExp(`^${baseName}_v(\\d+)\\.pdf$`, "i");
+        const versionRegex = new RegExp(`^${baseName}_v(\\d+)\\${ext}$`, "i");
         for (const f of existingFiles) {
           const match = f.match(versionRegex);
           if (match) {
@@ -439,7 +440,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
         }
       }
 
-      const versionedName = `${baseName}_v${version}.pdf`;
+      const versionedName = `${baseName}_v${version}${ext}`;
       const filePath = path.join(uploadsRoot, versionedName);
       await writeFile(filePath, file.buffer);
 

@@ -9,8 +9,8 @@
  *   cd c:\Projects\Tugas Akhir\backend
  *   node src/test/triggerFailedThesis.script.js
  */
-import prisma from "../config/prisma.js";
-import { updateAllThesisStatuses } from "../services/thesisStatus.service.js";
+import prisma from "../../config/prisma.js";
+import { updateAllThesisStatuses } from "../../services/thesisStatus.service.js";
 
 const THESIS_ID = "0a454898-508a-4c52-8bd7-51e24c600e5e";
 

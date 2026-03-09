@@ -45,14 +45,14 @@ const { mockPrisma, mockRedis, mockRepo, mockAdminRepo, mockMailer, mockEnv, moc
   },
 }));
 
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../config/redis.js", () => ({ default: mockRedis }));
-vi.mock("../repositories/auth.repository.js", () => mockRepo);
-vi.mock("../repositories/adminfeatures.repository.js", () => mockAdminRepo);
-vi.mock("../config/mailer.js", () => mockMailer);
-vi.mock("../config/env.js", () => ({ ENV: mockEnv }));
-vi.mock("../utils/emailTemplate.js", () => mockEmailTemplate);
-vi.mock("../utils/password.util.js", () => mockPasswordUtil);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../config/redis.js", () => ({ default: mockRedis }));
+vi.mock("../../repositories/auth.repository.js", () => mockRepo);
+vi.mock("../../repositories/adminfeatures.repository.js", () => mockAdminRepo);
+vi.mock("../../config/mailer.js", () => mockMailer);
+vi.mock("../../config/env.js", () => ({ ENV: mockEnv }));
+vi.mock("../../utils/emailTemplate.js", () => mockEmailTemplate);
+vi.mock("../../utils/password.util.js", () => mockPasswordUtil);
 vi.mock("bcrypt", () => ({
   default: {
     compare: vi.fn(),
@@ -76,7 +76,7 @@ import {
   verifyAccountToken,
   requestAccountVerification,
   getUserProfile,
-} from "../services/auth.service.js";
+} from "../../services/auth.service.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
