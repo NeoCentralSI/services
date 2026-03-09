@@ -38,3 +38,15 @@ export const remove = async (id) => {
     where: { id },
   });
 };
+
+export const hasLinkedResponses = async (formId) => {
+  const count = await prisma.studentExitSurveyResponse.count({
+    where: {
+      yudisium: {
+        exitSurveyFormId: formId,
+      },
+    },
+  });
+
+  return count > 0;
+};

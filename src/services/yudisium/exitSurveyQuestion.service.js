@@ -9,6 +9,14 @@ class NotFoundError extends Error {
   }
 }
 
+class ConflictError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ConflictError";
+    this.statusCode = 409;
+  }
+}
+
 const QUESTION_TYPES = ["single_choice", "multiple_choice", "text", "textarea"];
 
 function validateQuestionType(value) {
@@ -64,6 +72,14 @@ export const getQuestionById = async (questionId) => {
 export const createQuestion = async (formId, data) => {
   const form = await formRepo.findById(formId);
   if (!form) throw new NotFoundError("Form exit survey tidak ditemukan");
+
+  const hasLinkedResponses = await formRepo.hasLinkedResponses(formId);
+  if (hasLinkedResponses) {
+    throw new ConflictError(
+      "Pertanyaan tidak dapat ditambahkan karena form sudah digunakan mahasiswa"
+    );
+  }
+
   validateQuestionType(data.questionType);
 
   const payload = {
@@ -89,6 +105,13 @@ export const createQuestion = async (formId, data) => {
 export const updateQuestion = async (formId, questionId, data) => {
   const form = await formRepo.findById(formId);
   if (!form) throw new NotFoundError("Form exit survey tidak ditemukan");
+
+  const hasLinkedResponses = await formRepo.hasLinkedResponses(formId);
+  if (hasLinkedResponses) {
+    throw new ConflictError(
+      "Pertanyaan tidak dapat diubah karena form sudah digunakan mahasiswa"
+    );
+  }
 
   const existing = await questionRepo.findById(questionId);
   if (!existing || existing.exitSurveyFormId !== formId) {
@@ -121,6 +144,13 @@ export const updateQuestion = async (formId, questionId, data) => {
 export const deleteQuestion = async (formId, questionId) => {
   const form = await formRepo.findById(formId);
   if (!form) throw new NotFoundError("Form exit survey tidak ditemukan");
+
+  const hasLinkedResponses = await formRepo.hasLinkedResponses(formId);
+  if (hasLinkedResponses) {
+    throw new ConflictError(
+      "Pertanyaan tidak dapat dihapus karena form sudah digunakan mahasiswa"
+    );
+  }
 
   const existing = await questionRepo.findById(questionId);
   if (!existing || existing.exitSurveyFormId !== formId) {
