@@ -13,6 +13,7 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
   mockPrisma: {
     user: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     student: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
+    studentCplScore: { findMany: vi.fn() },
     lecturer: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
     academicYear: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     userRole: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
@@ -223,10 +224,79 @@ describe("Module 15: Data Master Mahasiswa", () => {
 
       expect(result).toHaveProperty("students");
     });
+
+    it("adds visibleAcademicYear from active semester sources", async () => {
+      mockAcademicYear.getActiveAcademicYear.mockResolvedValue({
+        id: "ay-active",
+        year: 2025,
+        semester: "genap",
+      });
+      mockPrisma.user.findMany.mockResolvedValue([{
+        ...USER,
+        student: {
+          id: "s1",
+          status: "active",
+          enrollmentYear: 2021,
+          skscompleted: 120,
+          thesis: [{
+            id: "thesis-1",
+            title: "AI Research",
+            academicYear: { id: "ay-active", year: 2025, semester: "genap" },
+            thesisSupervisors: [],
+          }],
+          metopenClassEnrollments: [{
+            metopenClass: {
+              name: "Metopen Genap 2025",
+              academicYear: { id: "ay-active", year: 2025, semester: "genap" },
+            },
+          }],
+        },
+        userHasRoles: USER.userHasRoles,
+      }]);
+      mockPrisma.user.count.mockResolvedValue(1);
+
+      const result = await getStudents({ page: 1, pageSize: 10 });
+
+      expect(result.students[0].student.visibleAcademicYear).toEqual({
+        id: "ay-active",
+        year: 2025,
+        semester: "genap",
+        label: "Genap 2025",
+        isActive: true,
+        sources: ["metopen", "ta"],
+      });
+    });
+
+    it("keeps metopen programFilter exclusive from active thesis", async () => {
+      mockAcademicYear.getActiveAcademicYear.mockResolvedValue(null);
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+
+      await getStudents({ page: 1, pageSize: 10, programFilter: "metopen" });
+
+      expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            student: {
+              is: expect.objectContaining({
+                metopenClassEnrollments: { some: {} },
+                thesis: { none: expect.any(Object) },
+              }),
+            },
+          }),
+        })
+      );
+    });
   });
 
   describe("getStudentDetail", () => {
     it("returns student detail with thesis info", async () => {
+      mockPrisma.studentCplScore.findMany.mockResolvedValue([]);
+      mockAcademicYear.getActiveAcademicYear.mockResolvedValue({
+        id: "ay-active",
+        year: 2025,
+        semester: "genap",
+      });
       mockPrisma.user.findUnique.mockResolvedValue({
         ...USER,
         student: {
@@ -234,6 +304,22 @@ describe("Module 15: Data Master Mahasiswa", () => {
           status: "aktif",
           enrollmentYear: 2021,
           skscompleted: 100,
+          metopenClassEnrollments: [{
+            classId: "class-1",
+            enrolledAt: new Date("2025-02-01"),
+            metopenClass: {
+              name: "Metopen Genap 2025",
+              academicYear: { id: "ay-active", year: 2025, semester: "genap" },
+              lecturer: {
+                user: {
+                  id: "lecturer-1",
+                  fullName: "Dr. Andi",
+                  email: "andi@example.com",
+                  identityNumber: "1987001",
+                },
+              },
+            },
+          }],
           thesis: [{
             id: "thesis-1",
             title: "AI Research",
@@ -251,6 +337,16 @@ describe("Module 15: Data Master Mahasiswa", () => {
       const result = await getStudentDetail("user-1");
 
       expect(result).toBeDefined();
+      expect(result.metopenHistory).toHaveLength(1);
+      expect(result.metopenHistory[0]).toMatchObject({
+        classId: "class-1",
+        className: "Metopen Genap 2025",
+        academicYear: {
+          id: "ay-active",
+          label: "Genap 2025",
+          isActive: true,
+        },
+      });
     });
 
     it("rejects (400) if userId is missing", async () => {

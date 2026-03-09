@@ -1,4 +1,4 @@
-﻿import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent } from "../services/adminfeatures.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, getMetopenDuplicateEnrollments, resolveMetopenDuplicateEnrollmentByAdmin } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -105,7 +105,13 @@ export async function getStudentsController(req, res, next) {
 		const page = parseInt(req.query.page) || 1;
 		const pageSize = parseInt(req.query.pageSize) || 10;
 		const search = req.query.search || "";
-		const result = await getStudents({ page, pageSize, search });
+		const programFilter = req.query.programFilter || "";
+		const statusFilter = req.query.statusFilter || "";
+		const enrollmentYearFilter = req.query.enrollmentYearFilter || "";
+		const academicYearFilter = req.query.academicYearFilter || "";
+		const sortBy = req.query.sortBy || "";
+		const sortOrder = req.query.sortOrder === "asc" ? "asc" : "desc";
+		const result = await getStudents({ page, pageSize, search, programFilter, statusFilter, enrollmentYearFilter, academicYearFilter, sortBy, sortOrder });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -128,6 +134,26 @@ export async function getStudentDetailController(req, res, next) {
 	try {
 		const { id } = req.params;
 		const result = await getStudentDetail(id);
+		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getMetopenDuplicateEnrollmentsController(req, res, next) {
+	try {
+		const academicYearId = req.query.academicYearId || null;
+		const result = await getMetopenDuplicateEnrollments(academicYearId);
+		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function resolveMetopenDuplicateEnrollmentController(req, res, next) {
+	try {
+		const body = req.validated ?? req.body ?? {};
+		const result = await resolveMetopenDuplicateEnrollmentByAdmin(body);
 		res.status(200).json({ success: true, data: result });
 	} catch (err) {
 		next(err);

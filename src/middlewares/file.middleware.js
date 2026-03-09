@@ -28,5 +28,8 @@ export const uploadCsv = upload.single("file");
 export const uploadThesisFile = thesisUpload.single("file");
 export const uploadInternshipFile = thesisUpload.single("file");
 
+/** Metopen task submit: max 10 files, all types */
+export const uploadMetopenSubmit = upload.array("files", 10);
+
 export default upload;
 

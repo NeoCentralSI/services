@@ -5,9 +5,15 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "prestart": "node scripts/check-prisma-client-mode.js",
+    "predev": "node scripts/check-prisma-client-mode.js",
     "test": "vitest run",
+    "prisma:check-client": "node scripts/check-prisma-client-mode.js",
+    "prisma:generate": "prisma generate",
+    "prisma:generate:no-engine": "prisma generate --no-engine",
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "seed:ilham-no-advisor": "node scripts/set-ilham-no-advisor.js"
   },
   "devDependencies": {
     "prisma": "^6.2.0",

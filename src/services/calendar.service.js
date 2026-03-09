@@ -295,8 +295,10 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       const seminarAudiences = await prisma.thesisSeminarAudience.findMany({
         where: {
           supervisor: {
-            user: {
-              id: userId,
+            is: {
+              user: {
+                id: userId,
+              },
             },
           },
           ...(startDate &&

@@ -25,10 +25,11 @@ export async function initiateLogin(req, res, next) {
  * GET /auth/microsoft/callback
  */
 export async function handleCallback(req, res, next) {
+  let isMobile = false;
   try {
     const { code, error: oauthError, error_description, state } = req.query;
     // Detect mobile flow: state carries platform=mobile (encoded by getMicrosoftAuthUrl)
-    const isMobile = state && Buffer.from(state, 'base64').toString().includes('"platform":"mobile"');
+    isMobile = state && Buffer.from(state, 'base64').toString().includes('"platform":"mobile"');
 
     // Handle OAuth errors dari Microsoft
     if (oauthError) {
@@ -72,6 +73,7 @@ export async function handleCallback(req, res, next) {
     const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/microsoft/callback`;
     res.redirect(`${frontendUrl}?tokens=${encodedTokens}`);
   } catch (error) {
+    console.error('[Microsoft Auth Callback Error]', error);
     // If account not verified (403)
     if (error.statusCode === 403) {
       if (isMobile) return res.redirect(`neocentral://auth?error=${encodeURIComponent('Akun belum diaktivasi')}`);

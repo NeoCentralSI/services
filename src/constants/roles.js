@@ -14,6 +14,7 @@ export const ROLES = {
   GKM: "GKM",
   KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
   TIM_PENGELOLA_CPL: "Tim Pengelola CPL",
+  DOSEN_METOPEN: "Dosen Pengampu Metopel",
 };
 
 // Role categories for easy checking
@@ -33,6 +34,7 @@ export const LECTURER_ROLES = [
   ROLES.GKM,
   ROLES.KOORDINATOR_YUDISIUM,
   ROLES.TIM_PENGELOLA_CPL,
+  ROLES.DOSEN_METOPEN,
 ];
 
 // Helper functions

@@ -163,12 +163,12 @@ export async function getStudentDetailService(userId, thesisId) {
 				? `/${thesis.document.filePath}`
 				: `/uploads/${thesis.document.filePath}`
 		} : null,
-		proposalDocument: thesis.thesisProposal?.document ? {
-			id: thesis.thesisProposal.document.id,
-			fileName: thesis.thesisProposal.document.fileName,
-			url: thesis.thesisProposal.document.filePath.startsWith('uploads/')
-				? `/${thesis.thesisProposal.document.filePath}`
-				: `/uploads/${thesis.thesisProposal.document.filePath}`
+		proposalDocument: thesis.proposalDocument ? {
+			id: thesis.proposalDocument.id,
+			fileName: thesis.proposalDocument.fileName,
+			url: thesis.proposalDocument.filePath.startsWith('uploads/')
+				? `/${thesis.proposalDocument.filePath}`
+				: `/uploads/${thesis.proposalDocument.filePath}`
 		} : null,
 		milestones: thesis.thesisMilestones.map(m => ({
 			id: m.id,
@@ -180,6 +180,7 @@ export async function getStudentDetailService(userId, thesisId) {
 			targetDate: m.targetDate,
 			targetDateFormatted: m.targetDate ? formatDateTimeJakarta(m.targetDate, { withDay: true }) : null,
 		})),
+		researchMethodScore: thesis.researchMethodScores?.[0] || null,
 		guidanceHistory: await (async () => {
 			const studentId = thesis.student?.id || thesis.studentId;
 			if (!studentId) return { count: 0, items: [] };

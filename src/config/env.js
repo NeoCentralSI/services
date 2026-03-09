@@ -55,6 +55,7 @@ export const ENV = {
   SIA_FETCH_TIMEOUT: toNum(process.env.SIA_FETCH_TIMEOUT, 10000), // ms
   SIA_CHUNK_SIZE: toNum(process.env.SIA_CHUNK_SIZE, 200),
   ENABLE_SIA_CRON: toBool(process.env.ENABLE_SIA_CRON),
+  SIA_MOCK: toBool(process.env.SIA_MOCK),
 
   // ===============================
   // 🕒 CRON JOBS

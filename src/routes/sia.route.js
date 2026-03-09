@@ -1,11 +1,12 @@
 import express from "express";
 import { triggerSiaSync, siaSyncStatus, getCachedStudents } from "../controllers/sia.controller.js";
-import { authGuard } from "../middlewares/auth.middleware.js";
+import { authGuard, requireRole } from "../middlewares/auth.middleware.js";
+import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
-// Protect with authGuard; adjust roles if needed.
-router.post("/sync", authGuard, triggerSiaSync);
+// Sync SIA: Admin only (Dosen Pengampu must not trigger sync; they only view list).
+router.post("/sync", authGuard, requireRole(ROLES.ADMIN), triggerSiaSync);
 router.get("/sync/status", authGuard, siaSyncStatus);
 router.get("/cached", authGuard, getCachedStudents);
 

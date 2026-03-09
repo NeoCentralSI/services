@@ -103,6 +103,25 @@ export function bulkDelete(ids) {
 }
 
 /**
+ * Find topics offered by a specific lecturer
+ */
+export function findByLecturerId(lecturerId) {
+  return prisma.thesisTopic.findMany({
+    where: { lecturerId },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      scienceGroup: { select: { id: true, name: true } },
+      _count: {
+        select: {
+          thesis: true,
+          advisorRequests: true,
+        },
+      },
+    },
+  });
+}
+
+/**
  * Check if topic has related data
  */
 export async function hasRelatedData(id) {

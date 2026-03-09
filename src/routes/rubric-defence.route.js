@@ -29,7 +29,7 @@ import { ROLES } from "../constants/roles.js";
 const router = express.Router();
 
 router.use(authGuard);
-router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]));
+router.use(requireAnyRole([ROLES.ADMIN, ROLES.SEKRETARIS_DEPARTEMEN]));
 
 // ── CPMK listing with rubrics (per role) ─────
 router.get("/cpmks", getCpmksWithRubrics);

@@ -397,11 +397,13 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 			},
 			thesisStatus: true,
 			document: true,
-			thesisProposal: {
-				include: { document: true }
-			},
+			proposalDocument: true,
 			thesisMilestones: {
 				orderBy: { updatedAt: "desc" }
+			},
+			researchMethodScores: {
+				orderBy: { createdAt: "desc" },
+				take: 1
 			}
 		}
 	});

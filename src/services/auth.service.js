@@ -34,6 +34,16 @@ export async function loginWithEmailPassword(email, password) {
 		throw err;
 	}
 
+	// Check if user has a password set (Microsoft OAuth users may not have one)
+	if (!user.password) {
+		const err = new Error(
+			"Akun ini terdaftar melalui Microsoft. Gunakan tombol 'Masuk dengan Microsoft' atau reset password terlebih dahulu."
+		);
+		err.statusCode = 403;
+		err.code = "NO_PASSWORD";
+		throw err;
+	}
+
 	const ok = await bcrypt.compare(password, user.password);
 	if (!ok) {
 		const err = new Error("Invalid credentials");
@@ -284,7 +294,8 @@ export async function getUserProfile(userId) {
 		profile.student = {
 			id: user.student.id,
 			enrollmentYear: user.student.enrollmentYear,
-			sksCompleted: user.student.skscompleted,
+			sksCompleted: user.student.sksCompleted ?? 0,
+			currentSemester: user.student.currentSemester ?? null,
 			status: user.student.status || null,
 		};
 	}

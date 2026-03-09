@@ -1,4 +1,4 @@
-﻿import csv from "csv-parser";
+import csv from "csv-parser";
 import { Readable } from "stream";
 import path from "path";
 import fs from "fs";
@@ -12,6 +12,10 @@ import { accountInviteTemplate } from "../utils/emailTemplate.js";
 import { generatePassword } from "../utils/password.util.js";
 import { sendFcmToUsers } from "./push.service.js";
 import { createNotificationsForUsers } from "./notification.service.js";
+import {
+	getDuplicateEnrollmentAudit as getMetopenDuplicateEnrollmentAudit,
+	resolveDuplicateEnrollment as resolveMetopenDuplicateEnrollment,
+} from "./metopenClass.service.js";
 import {
 	ROLES,
 	SUPERVISOR_ROLES,
@@ -55,6 +59,40 @@ function deriveEnrollmentYearFromNIM(nim) {
 		if (!isNaN(yy)) return 2000 + yy;
 	}
 	return null;
+}
+
+function formatAcademicYearLabel(academicYear) {
+	if (!academicYear?.year || !academicYear?.semester) return null;
+	const semesterLabel = academicYear.semester === "genap" ? "Genap" : "Ganjil";
+	return `${semesterLabel} ${academicYear.year}`;
+}
+
+function buildVisibleAcademicYear({ activeAcademicYear, academicYearFilter, thesisAcademicYears, metopenAcademicYears }) {
+	const candidateAcademicYearId = academicYearFilter || activeAcademicYear?.id || null;
+	if (!candidateAcademicYearId) {
+		return null;
+	}
+
+	const thesisMatch = thesisAcademicYears.find((academicYear) => academicYear?.id === candidateAcademicYearId) || null;
+	const metopenMatch = metopenAcademicYears.find((academicYear) => academicYear?.id === candidateAcademicYearId) || null;
+	const targetAcademicYear = thesisMatch || metopenMatch;
+
+	if (!targetAcademicYear) {
+		return null;
+	}
+
+	const sources = [];
+	if (metopenMatch) sources.push("metopen");
+	if (thesisMatch) sources.push("ta");
+
+	return {
+		id: targetAcademicYear.id,
+		year: targetAcademicYear.year,
+		semester: targetAcademicYear.semester,
+		label: formatAcademicYearLabel(targetAcademicYear),
+		isActive: activeAcademicYear?.id === targetAcademicYear.id,
+		sources,
+	};
 }
 export async function adminUpdateUser(id, payload = {}) {
 	if (!id) {
@@ -678,12 +716,64 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 }
 
 // Get all Students with detailed information
-export async function getStudents({ page = 1, pageSize = 10, search = "" } = {}) {
+export async function getStudents({ page = 1, pageSize = 10, search = "", programFilter = "", statusFilter = "", enrollmentYearFilter = "", academicYearFilter = "", sortBy = "", sortOrder = "desc" } = {}) {
 	const skip = (page - 1) * pageSize;
 	const take = pageSize;
+	const activeAcademicYear = await getActiveAcademicYear();
+
+	// Build student filter: Prisma relation filter hanya menerima is/isNot, tidak bisa campur isNot:null dengan field Student
+	const activeThesisStatusFilter = {
+		thesisStatus: {
+			name: { notIn: ["Selesai", "Dibatalkan", "Gagal", "selesai", "dibatalkan", "gagal"] },
+		},
+	};
+
+	const thesisWithYearFilter = (ayId) => ({ ...activeThesisStatusFilter, academicYearId: ayId });
+	const metopenWithYearFilter = (ayId) => ({ some: { metopenClass: { academicYearId: ayId } } });
+
+	const studentFilter = {};
+	if (programFilter === "metopen") {
+		// Metopen saja: punya metopen, TIDAK punya TA aktif
+		studentFilter.metopenClassEnrollments = academicYearFilter
+			? metopenWithYearFilter(academicYearFilter)
+			: { some: {} };
+		studentFilter.thesis = { none: activeThesisStatusFilter };
+	} else if (programFilter === "ta") {
+		// TA saja: punya TA aktif, TIDAK punya metopen
+		studentFilter.thesis = {
+			some: academicYearFilter ? thesisWithYearFilter(academicYearFilter) : activeThesisStatusFilter,
+		};
+		studentFilter.metopenClassEnrollments = { none: {} };
+	} else if (programFilter === "both") {
+		studentFilter.metopenClassEnrollments = academicYearFilter
+			? metopenWithYearFilter(academicYearFilter)
+			: { some: {} };
+		studentFilter.thesis = {
+			some: academicYearFilter ? thesisWithYearFilter(academicYearFilter) : activeThesisStatusFilter,
+		};
+	} else if (programFilter === "none") {
+		studentFilter.metopenClassEnrollments = { none: {} };
+		studentFilter.thesis = { none: activeThesisStatusFilter };
+	} else if (academicYearFilter) {
+		// Tanpa filter program: mahasiswa yang punya TA atau Metopen di tahun ajaran tersebut
+		studentFilter.OR = [
+			{ thesis: { some: { academicYearId: academicYearFilter, ...activeThesisStatusFilter } } },
+			{ metopenClassEnrollments: { some: { metopenClass: { academicYearId: academicYearFilter } } } },
+		];
+	}
+	const validStatuses = ["active", "lulus", "bss", "dropout", "mengundurkan_diri"];
+	if (statusFilter && validStatuses.includes(statusFilter)) {
+		studentFilter.status = statusFilter;
+	}
+	if (enrollmentYearFilter) {
+		const year = parseInt(enrollmentYearFilter, 10);
+		if (!isNaN(year)) {
+			studentFilter.enrollmentYear = year;
+		}
+	}
 
 	const where = {
-		student: { isNot: null }, // Only users with student record
+		student: Object.keys(studentFilter).length > 0 ? { is: studentFilter } : { isNot: null },
 		...(search
 			? {
 				OR: [
@@ -695,12 +785,24 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 			: {}),
 	};
 
+	// Build orderBy (User model - student is relation)
+	const validSortColumns = {
+		fullName: { fullName: sortOrder },
+		identityNumber: { identityNumber: sortOrder },
+		email: { email: sortOrder },
+		enrollmentYear: { student: { enrollmentYear: sortOrder } },
+		sksCompleted: { student: { sksCompleted: sortOrder } },
+		status: { student: { status: sortOrder } },
+		createdAt: { createdAt: sortOrder },
+	};
+	const orderBy = validSortColumns[sortBy] ?? { createdAt: "desc" };
+
 	const [students, total] = await Promise.all([
 		prisma.user.findMany({
 			where,
 			skip,
 			take,
-			orderBy: { createdAt: "desc" },
+			orderBy,
 			include: {
 				student: {
 					include: {
@@ -713,6 +815,9 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 								},
 							},
 							include: {
+								academicYear: {
+									select: { id: true, year: true, semester: true },
+								},
 								thesisSupervisors: {
 									include: {
 										lecturer: {
@@ -725,6 +830,17 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 											},
 										},
 										role: true,
+									},
+								},
+							},
+						},
+						metopenClassEnrollments: {
+							include: {
+								metopenClass: {
+									include: {
+										academicYear: {
+											select: { id: true, year: true, semester: true },
+										},
 									},
 								},
 							},
@@ -742,42 +858,74 @@ export async function getStudents({ page = 1, pageSize = 10, search = "" } = {})
 	]);
 
 	// Transform data
-	const transformedStudents = students.map((user) => ({
-		id: user.id,
-		fullName: user.fullName,
-		email: user.email,
-		identityNumber: user.identityNumber,
-		identityType: user.identityType,
-		isVerified: user.isVerified,
-		createdAt: user.createdAt,
-		student: user.student
-			? {
-				id: user.student.id,
-				enrollmentYear: user.student.enrollmentYear,
-				sksCompleted: user.student.skscompleted,
-				mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
-				mkwuCompleted: user.student.mkwuCompleted,
-				internshipCompleted: user.student.internshipCompleted,
-				kknCompleted: user.student.kknCompleted,
-				currentSemester: user.student.currentSemester,
-				status: user.student.status || null,
-				activeTheses: user.student.thesis.map((thesis) => ({
-					title: thesis.title,
-					supervisors: thesis.thesisSupervisors
-						.filter((tp) => isSupervisorRole(tp.role.name))
-						.map((tp) => ({
-							role: tp.role.name,
-							fullName: tp.lecturer.user.fullName,
-						})),
+	const transformedStudents = students.map((user) => {
+		const thesisAcademicYears = (user.student?.thesis ?? [])
+			.map((thesis) => thesis.academicYear)
+			.filter(Boolean);
+		const metopenAcademicYears = (user.student?.metopenClassEnrollments ?? [])
+			.map((enrollment) => enrollment.metopenClass?.academicYear)
+			.filter(Boolean);
+		const activeTheses = user.student?.thesis?.map((thesis) => ({
+			title: thesis.title,
+			academicYearId: thesis.academicYear?.id ?? null,
+			year: thesis.academicYear?.year ?? null,
+			semester: thesis.academicYear?.semester ?? null,
+			supervisors: thesis.thesisSupervisors
+				.filter((tp) => isSupervisorRole(tp.role.name))
+				.map((tp) => ({
+					role: tp.role.name,
+					fullName: tp.lecturer.user.fullName,
 				})),
-			}
-			: null,
-		roles: user.userHasRoles.map((ur) => ({
-			id: ur.role.id,
-			name: ur.role.name,
-			status: ur.status,
-		})),
-	}));
+		})) ?? [];
+		const metopenEnrollments = (user.student?.metopenClassEnrollments ?? []).map((e) => ({
+			className: e.metopenClass?.name ?? "-",
+			academicYearId: e.metopenClass?.academicYear?.id ?? null,
+			year: e.metopenClass?.academicYear?.year,
+			semester: e.metopenClass?.academicYear?.semester,
+			isActiveYear: activeAcademicYear?.id === e.metopenClass?.academicYear?.id,
+		}));
+		const isInMetopen = metopenEnrollments.length > 0;
+		const hasActiveThesis = activeTheses.length > 0;
+		const visibleAcademicYear = buildVisibleAcademicYear({
+			activeAcademicYear,
+			academicYearFilter,
+			thesisAcademicYears,
+			metopenAcademicYears,
+		});
+
+		return {
+			id: user.id,
+			fullName: user.fullName,
+			email: user.email,
+			identityNumber: user.identityNumber,
+			identityType: user.identityType,
+			isVerified: user.isVerified,
+			createdAt: user.createdAt,
+			student: user.student
+				? {
+					id: user.student.id,
+					enrollmentYear: user.student.enrollmentYear,
+					sksCompleted: user.student.skscompleted,
+					mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
+					mkwuCompleted: user.student.mkwuCompleted,
+					internshipCompleted: user.student.internshipCompleted,
+					kknCompleted: user.student.kknCompleted,
+					currentSemester: user.student.currentSemester,
+					status: user.student.status || null,
+					activeTheses,
+					metopenEnrollments,
+					visibleAcademicYear,
+					isInMetopen,
+					hasActiveThesis,
+				}
+				: null,
+			roles: user.userHasRoles.map((ur) => ({
+				id: ur.role.id,
+				name: ur.role.name,
+				status: ur.status,
+			})),
+		};
+	});
 
 	return {
 		students: transformedStudents,
@@ -891,6 +1039,29 @@ export async function getStudentDetail(userId) {
 		include: {
 			student: {
 				include: {
+					metopenClassEnrollments: {
+						include: {
+							metopenClass: {
+								include: {
+									academicYear: {
+										select: { id: true, year: true, semester: true },
+									},
+									lecturer: {
+										include: {
+											user: {
+												select: { id: true, fullName: true, email: true, identityNumber: true },
+											},
+										},
+									},
+								},
+							},
+						},
+						orderBy: [
+							{ metopenClass: { academicYear: { year: "desc" } } },
+							{ metopenClass: { academicYear: { semester: "desc" } } },
+							{ enrolledAt: "desc" },
+						],
+					},
 					thesis: {
 						include: {
 							thesisStatus: true,
@@ -977,6 +1148,29 @@ export async function getStudentDetail(userId) {
 	});
 
 	// Transform thesis data
+	const activeAcademicYear = await getActiveAcademicYear();
+	const metopenHistory = (user.student.metopenClassEnrollments ?? []).map((enrollment) => ({
+		classId: enrollment.classId,
+		className: enrollment.metopenClass?.name ?? "-",
+		enrolledAt: enrollment.enrolledAt,
+		academicYear: enrollment.metopenClass?.academicYear
+			? {
+				id: enrollment.metopenClass.academicYear.id,
+				year: enrollment.metopenClass.academicYear.year,
+				semester: enrollment.metopenClass.academicYear.semester,
+				label: formatAcademicYearLabel(enrollment.metopenClass.academicYear),
+				isActive: activeAcademicYear?.id === enrollment.metopenClass.academicYear.id,
+			}
+			: null,
+		lecturer: enrollment.metopenClass?.lecturer?.user
+			? {
+				id: enrollment.metopenClass.lecturer.user.id,
+				fullName: enrollment.metopenClass.lecturer.user.fullName,
+				email: enrollment.metopenClass.lecturer.user.email,
+				identityNumber: enrollment.metopenClass.lecturer.user.identityNumber,
+			}
+			: null,
+	}));
 	const theses = user.student.thesis.map((thesis) => {
 		const supervisors = thesis.thesisSupervisors
 			.filter((tp) => isSupervisorRole(tp.role.name))
@@ -1071,8 +1265,23 @@ export async function getStudentDetail(userId) {
 			verifiedAt: row.verifiedAt,
 			finalizedAt: row.finalizedAt,
 		})),
+		metopenHistory,
 		theses,
 	};
+}
+
+export async function getMetopenDuplicateEnrollments(academicYearId = null) {
+	return getMetopenDuplicateEnrollmentAudit(academicYearId);
+}
+
+export async function resolveMetopenDuplicateEnrollmentByAdmin({ academicYearId, studentId, keepClassId }) {
+	if (!academicYearId || !studentId || !keepClassId) {
+		const err = new Error("academicYearId, studentId, dan keepClassId wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	return resolveMetopenDuplicateEnrollment({ academicYearId, studentId, keepClassId });
 }
 
 // Get Lecturer detail by ID
@@ -1234,13 +1443,34 @@ export async function adminUpdateLecturer(id, data) {
 }
 
 export async function adminUpdateStudent(id, data) {
-	const updateData = { status: data.status, skscompleted: parseInt(data.skscompleted) };
+	const updateData = {};
+
+	if (data.status !== undefined) {
+		updateData.status = data.status;
+	}
+
+	if (data.sksCompleted !== undefined || data.skscompleted !== undefined) {
+		const raw = data.sksCompleted ?? data.skscompleted;
+		const parsed = parseInt(raw, 10);
+		if (!isNaN(parsed) && parsed >= 0 && parsed <= 200) {
+			updateData.sksCompleted = parsed;
+		}
+	}
+
 	if (data.enrollmentYear !== undefined) {
-		updateData.enrollmentYear = data.enrollmentYear;
+		updateData.enrollmentYear = Number(data.enrollmentYear);
+	}
+
+	if (data.currentSemester !== undefined) {
+		updateData.currentSemester = Number(data.currentSemester);
+	}
+
+	if (Object.keys(updateData).length === 0) {
+		throw new Error("Tidak ada data yang valid untuk diupdate");
 	}
 
 	return prisma.student.update({
 		where: { id },
-		data: updateData
+		data: updateData,
 	});
 }
