@@ -404,6 +404,9 @@ export async function requestRevision(id, supervisorId, revisionNotes) {
     data: {
       status: "revision_needed",
       supervisorNotes: revisionNotes,
+      progressPercentage: {
+        decrement: 10,
+      },
     },
   });
 }
