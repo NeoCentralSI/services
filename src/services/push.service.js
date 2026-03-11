@@ -6,9 +6,8 @@ const KEY_PREFIX = "fcm:tokens:"; // per-user set of tokens
 export async function registerFcmToken(userId, token) {
   if (!userId || !token) return { registered: 0 };
   if (!redisClient.isOpen) await redisClient.connect();
-  await redisClient.sAdd(KEY_PREFIX + userId, token);
-  // Optional: set TTL or track last seen
-  return { registered: 1 };
+  const res = await redisClient.sAdd(KEY_PREFIX + userId, token);
+  return { registered: res };
 }
 
 export async function unregisterFcmToken(userId, token) {
@@ -38,7 +37,7 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
     console.warn(`[FCM] No tokens for users: ${userIds.join(",")}`);
     return { success: true, sent: 0 };
   }
-  console.log(`[FCM] Preparing to send to ${tokens.length} token(s), users=${userIds.join(",")}, dataOnly=${Boolean(dataOnly)}`);
+
   // For web, to ensure foreground onMessage fires, it's safer to send data-only payloads.
   const payloadData = Object.fromEntries(
     Object.entries({ ...(data || {}), ...(dataOnly ? { title, body } : {}) })
@@ -48,10 +47,10 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
   const message = dataOnly
     ? { data: payloadData, tokens }
     : {
-        notification: title || body ? { title: title || undefined, body: body || undefined } : undefined,
-        data: payloadData,
-        tokens,
-      };
+      notification: title || body ? { title: title || undefined, body: body || undefined } : undefined,
+      data: payloadData,
+      tokens,
+    };
   const resp = await messaging.sendEachForMulticast(message);
   console.log(`[FCM] Sent multicast: success=${resp.successCount}, failed=${resp.failureCount}`);
   // Remove invalid tokens
@@ -69,7 +68,7 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
   if (invalidTokens.length) {
     if (!redisClient.isOpen) await redisClient.connect();
     for (const uid of userIds) {
-      if (invalidTokens.length) await redisClient.sRem(KEY_PREFIX + uid, invalidTokens);
+      await redisClient.sRem(KEY_PREFIX + uid, invalidTokens);
     }
   }
   return { success: true, sent: resp.successCount, failed: resp.failureCount };

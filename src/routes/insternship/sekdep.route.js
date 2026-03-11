@@ -10,9 +10,12 @@ router.use(authGuard, requireRole(ROLES.SEKRETARIS_DEPARTEMEN));
 
 /**
  * @route GET /insternship/sekdep/proposals
- * @desc Get all internship proposals ready for Sekdep review
+ * @desc Get all internship proposals for Sekdep review and assignment
  */
-router.get("/proposals", sekdepController.getProposals);
+router.get("/proposals", sekdepController.getAllProposals);
+router.get("/proposals/pending", sekdepController.getPendingProposals);
+router.get("/proposals/responses", sekdepController.getPendingResponses);
+
 
 /**
  * @route GET /insternship/sekdep/proposals/:id
@@ -50,16 +53,37 @@ router.delete("/companies/:id", sekdepController.deleteCompany);
  */
 router.post("/proposals/:id/respond", sekdepController.respondToProposal);
 
-/**
- * @route GET /insternship/sekdep/company-responses
- * @desc Get all internship proposals with uploaded company responses
- */
-router.get("/company-responses", sekdepController.getCompanyResponses);
+
 
 /**
  * @route POST /insternship/sekdep/company-responses/:id/verify
  * @desc Verify a company response
  */
 router.post("/company-responses/:id/verify", sekdepController.verifyCompanyResponse);
+
+/**
+ * @route GET /insternship/sekdep/internships
+ * @desc Get all internships (Ongoing/Completed) for Sekdep
+ */
+router.get("/internships", sekdepController.getInternshipList);
+
+/**
+ * @route GET /insternship/sekdep/internships/:id
+ * @desc Get full detail of an internship
+ */
+router.get("/internships/:id", sekdepController.getInternshipDetail);
+
+/**
+ * @route PATCH /insternship/sekdep/internships/bulk-assign
+ * @desc Assign supervisor to multiple internships in bulk
+ */
+router.patch("/internships/bulk-assign", sekdepController.bulkAssignSupervisor);
+
+/**
+ * @route GET /insternship/sekdep/lecturers/workload
+ * @desc Get all lecturers with their active internship workload
+ */
+router.get("/lecturers/workload", sekdepController.getLecturersWorkload);
+router.get("/lecturers/workload/export", sekdepController.exportLecturersWorkloadPdf);
 
 export default router;

@@ -9,10 +9,15 @@ import * as sekdepService from "../../services/insternship/sekdep.service.js";
  */
 export async function getCompaniesWithStats(req, res, next) {
     try {
-        const data = await sekdepService.getCompaniesStats();
+        const { q, page = 1, pageSize = 10, sortBy, sortOrder, status } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await sekdepService.getCompaniesStats({ q, skip, take, sortBy, sortOrder, status });
         res.status(200).json({
             success: true,
-            data
+            data,
+            total
         });
     } catch (error) {
         next(error);
@@ -27,7 +32,8 @@ export async function getCompaniesWithStats(req, res, next) {
  */
 export async function getPendingLetters(req, res, next) {
     try {
-        const data = await kadepService.getPendingLetters();
+        const { academicYear } = req.query;
+        const data = await kadepService.getPendingLetters(academicYear);
         res.status(200).json({
             success: true,
             data

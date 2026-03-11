@@ -1,11 +1,13 @@
 import express from "express";
-import { getProposals, getProposalDetail, listCompanies, listEligibleStudents, submitProposal, respondToInvitation, submitCompanyResponse } from "../../controllers/insternship/registration.controller.js";
+import { getProposals, listCompanies, listEligibleStudents, submitProposal, updateProposal, deleteProposal, respondToInvitation, submitCompanyResponse } from "../../controllers/insternship/registration.controller.js";
 import { authGuard } from "../../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
 router.get("/proposals", authGuard, getProposals);
-router.get("/proposals/:id", authGuard, getProposalDetail);
+
+router.put("/proposals/:id", authGuard, updateProposal);
+router.delete("/proposals/:id", authGuard, deleteProposal);
 router.post("/proposals/:id/respond", authGuard, respondToInvitation);
 router.post("/proposals/:id/company-response", authGuard, submitCompanyResponse);
 router.get("/companies", authGuard, listCompanies);
