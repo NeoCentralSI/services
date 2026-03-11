@@ -1,31 +1,39 @@
 import prisma from "../../config/prisma.js";
 
 /**
- * Get all internship proposals where the student is either a coordinator or a member.
+ * Get all internship proposals where the student is either a coordinator or has an internship.
+ * After consolidation, uses `internships` relation instead of `members`.
  * @param {string} studentId 
+ * @param {string} [academicYearId]
  * @returns {Promise<Array>}
  */
-export async function getProposalsByStudentId(studentId) {
-    return prisma.internshipProposal.findMany({
-        where: {
-            OR: [
-                { coordinatorId: studentId },
-                {
-                    members: {
-                        some: {
-                            studentId: studentId
-                        }
+export async function getProposalsByStudentId(studentId, academicYearId) {
+    const whereClause = {
+        OR: [
+            { coordinatorId: studentId },
+            {
+                internships: {
+                    some: {
+                        studentId: studentId
                     }
                 }
-            ]
-        },
+            }
+        ]
+    };
+
+    if (academicYearId && academicYearId !== 'all') {
+        whereClause.academicYearId = academicYearId;
+    }
+
+    return prisma.internshipProposal.findMany({
+        where: whereClause,
         include: {
             coordinator: {
                 include: {
                     user: true
                 }
             },
-            members: {
+            internships: {
                 include: {
                     student: {
                         include: {
@@ -36,21 +44,10 @@ export async function getProposalsByStudentId(studentId) {
             },
             targetCompany: true,
             proposalDocument: true,
-            applicationLetters: {
-                include: {
-                    document: true
-                }
-            },
-            companyResponses: {
-                include: {
-                    document: true
-                }
-            },
-            assignmentLetters: {
-                include: {
-                    document: true
-                }
-            }
+            appLetterDoc: true,
+            companyResponseDoc: true,
+            assignLetterDoc: true,
+            academicYear: true
         },
         orderBy: {
             createdAt: 'desc'
@@ -70,6 +67,7 @@ export async function getAllCompanies() {
 
 /**
  * Get all eligible students for internship (skscompleted >= 90).
+ * After consolidation, checks internship records instead of proposal memberships.
  * @returns {Promise<Array>}
  */
 export async function getEligibleStudents() {
@@ -85,16 +83,7 @@ export async function getEligibleStudents() {
             // Filter out coordinators of active proposals
             internshipProposalsCoordinated: {
                 none: {
-                    status: { in: ['PENDING', 'APPROVED_BY_SEKDEP'] }
-                }
-            },
-            // Filter out members of active proposals
-            internshipProposalMemberships: {
-                none: {
-                    proposal: {
-                        status: { in: ['PENDING', 'APPROVED_BY_SEKDEP'] }
-                    },
-                    status: { in: ['PENDING', 'ACCEPTED_BY_COMPANY'] }
+                    status: { in: ['PENDING', 'APPROVED_PROPOSAL'] }
                 }
             }
         },
@@ -134,6 +123,7 @@ export async function getActiveAcademicYear() {
 
 /**
  * Create a new internship proposal.
+ * After consolidation, members are created as Internship records with PENDING status.
  * @param {Object} data 
  * @returns {Promise<Object>}
  */
@@ -147,17 +137,106 @@ export async function createProposal(data) {
             academicYearId,
             targetCompanyId,
             status: 'PENDING',
-            members: {
-                create: memberIds.map(id => ({
-                    studentId: id,
-                    status: 'PENDING'
-                }))
+            internships: {
+                create: [
+                    { studentId: coordinatorId, status: 'ACCEPTED' },
+                    ...memberIds.map(id => ({
+                        studentId: id,
+                        status: 'PENDING'
+                    }))
+                ]
             }
         },
         include: {
-            members: true,
+            internships: true,
             targetCompany: true
         }
+    });
+}
+
+/**
+ * Update an existing internship proposal.
+ * Resets status to PENDING and handles member update by replacement.
+ * @param {string} proposalId 
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function updateProposal(proposalId, data) {
+    const { proposalDocumentId, targetCompanyId, memberIds = [] } = data;
+
+    return prisma.$transaction(async (tx) => {
+        // 1. Get old document info for deletion
+        const oldProposal = await tx.internshipProposal.findUnique({
+            where: { id: proposalId },
+            select: { proposalDocumentId: true }
+        });
+
+        // 2. Update proposal basic info and reset status
+        await tx.internshipProposal.update({
+            where: { id: proposalId },
+            data: {
+                proposalDocumentId,
+                targetCompanyId,
+                status: 'PENDING',
+                updatedAt: new Date(),
+                proposalSekdepNotes: null
+            }
+        });
+
+        // 3. Delete old document record if it changed
+        if (oldProposal?.proposalDocumentId && oldProposal.proposalDocumentId !== proposalDocumentId) {
+            await tx.document.delete({
+                where: { id: oldProposal.proposalDocumentId }
+            }).catch(err => {
+                console.error("Failed to delete old proposal document:", err);
+                // Non-critical, so we continue
+            });
+        }
+
+        // 4. Handle members: Preserve statuses for existing members, add new ones, remove old ones
+        const currentInternships = await tx.internship.findMany({
+            where: { proposalId }
+        });
+        const currentStudentIds = currentInternships.map(i => i.studentId);
+
+        // Required IDs now include the coordinator
+        const requiredStudentIds = [coordinatorId, ...memberIds];
+
+        // Members to keep (exists in current and required)
+        const membersToKeep = requiredStudentIds.filter(id => currentStudentIds.includes(id));
+        // Members to add (required but doesn't exist)
+        const membersToAdd = requiredStudentIds.filter(id => !currentStudentIds.includes(id));
+        // Members to remove (exists but not required)
+        const membersToRemove = currentStudentIds.filter(id => !requiredStudentIds.includes(id));
+
+        // Delete removed members
+        if (membersToRemove.length > 0) {
+            await tx.internship.deleteMany({
+                where: {
+                    proposalId,
+                    studentId: { in: membersToRemove }
+                }
+            });
+        }
+
+        // Add new members
+        if (membersToAdd.length > 0) {
+            await tx.internship.createMany({
+                data: membersToAdd.map(id => ({
+                    proposalId,
+                    studentId: id,
+                    status: id === coordinatorId ? 'ACCEPTED' : 'PENDING'
+                }))
+            });
+        }
+
+        return tx.internshipProposal.findUnique({
+            where: { id: proposalId },
+            include: {
+                internships: true,
+                targetCompany: true
+            }
+        });
     });
 }
 
@@ -177,28 +256,28 @@ export async function findActiveProposalOrInternship(studentId) {
 
     if (activeInternship) return { type: 'INTERNSHIP', data: activeInternship };
 
-    // Check for active proposal (coordinator or member)
+    // Check for active proposal (coordinator or member via internship)
     const activeProposal = await prisma.internshipProposal.findFirst({
         where: {
             OR: [
                 {
                     coordinatorId: studentId,
-                    status: { in: ['PENDING', 'APPROVED_BY_SEKDEP'] }
+                    status: { in: ['PENDING', 'APPROVED_PROPOSAL', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED'] }
                 },
                 {
-                    members: {
+                    internships: {
                         some: {
                             studentId,
-                            status: { in: ['PENDING', 'ACCEPTED_BY_COMPANY'] }
+                            status: { in: ['PENDING', 'ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
                         }
                     },
-                    status: { in: ['PENDING', 'APPROVED_BY_SEKDEP'] }
+                    status: { in: ['PENDING', 'APPROVED_PROPOSAL', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED'] }
                 }
             ]
         },
         include: {
             targetCompany: true,
-            members: {
+            internships: {
                 where: { studentId }
             }
         }
@@ -207,6 +286,53 @@ export async function findActiveProposalOrInternship(studentId) {
     if (activeProposal) return { type: 'PROPOSAL', data: activeProposal };
 
     return null;
+}
+
+/**
+ * Delete a proposal and its associated documents.
+ * @param {string} proposalId 
+ * @returns {Promise<Object>}
+ */
+export async function deleteProposal(proposalId) {
+    return prisma.$transaction(async (tx) => {
+        // 1. Get proposal to find document IDs
+        const proposal = await tx.internshipProposal.findUnique({
+            where: { id: proposalId },
+            select: {
+                proposalDocumentId: true,
+                appLetterDocId: true,
+                companyResponseDocId: true,
+                assignLetterDocId: true
+            }
+        });
+
+        if (!proposal) {
+            throw new Error("Proposal tidak ditemukan.");
+        }
+
+        const docIds = [
+            proposal.proposalDocumentId,
+            proposal.appLetterDocId,
+            proposal.companyResponseDocId,
+            proposal.assignLetterDocId
+        ].filter(Boolean);
+
+        // 2. Delete the proposal (cascades to internships)
+        await tx.internshipProposal.delete({
+            where: { id: proposalId }
+        });
+
+        // 3. Delete Document records
+        if (docIds.length > 0) {
+            await tx.document.deleteMany({
+                where: { id: { in: docIds } }
+            }).catch(err => {
+                console.error("Failed to cleanup document records for deleted proposal:", err);
+            });
+        }
+
+        return { success: true };
+    });
 }
 
 /**
@@ -240,6 +366,7 @@ export async function createDocument(data) {
         }
     });
 }
+
 /**
  * Find users by their role name.
  * @param {string} roleName 
@@ -261,6 +388,7 @@ export async function findUsersByRole(roleName) {
 
 /**
  * Find an internship proposal by ID.
+ * After consolidation, includes flat letter fields and internships instead of members.
  * @param {string} id 
  * @returns {Promise<Object|null>}
  */
@@ -282,7 +410,7 @@ export async function findProposalById(id) {
                     }
                 }
             },
-            members: {
+            internships: {
                 include: {
                     student: {
                         include: {
@@ -300,47 +428,40 @@ export async function findProposalById(id) {
             },
             targetCompany: true,
             proposalDocument: true,
-            applicationLetters: {
+            appLetterDoc: true,
+            appLetterSignedBy: {
                 include: {
-                    document: true,
-                    signedBy: {
-                        include: {
-                            user: true
-                        }
-                    }
+                    user: true
                 }
             },
-            companyResponses: {
-                include: {
-                    document: true
-                }
-            },
-            assignmentLetters: {
-                include: {
-                    document: true
-                }
-            }
+            companyResponseDoc: true,
+            assignLetterDoc: true,
+            academicYear: true
         }
     });
 }
+
 /**
- * Update the status of an internship proposal member.
+ * Update the status of an internship record (replaces updateMemberStatus).
+ * After consolidation, member status is tracked via Internship.status.
  * @param {string} proposalId 
  * @param {string} studentId 
  * @param {string} status 
  * @returns {Promise<Object>}
  */
 export async function updateMemberStatus(proposalId, studentId, status) {
-    return prisma.internshipProposalMember.update({
-        where: {
-            proposalId_studentId: {
-                proposalId,
-                studentId
-            }
-        },
-        data: {
-            status
-        },
+    // Find the internship for this student+proposal
+    const internship = await prisma.internship.findFirst({
+        where: { proposalId, studentId }
+    });
+
+    if (!internship) {
+        throw new Error("Internship record tidak ditemukan untuk mahasiswa ini.");
+    }
+
+    return prisma.internship.update({
+        where: { id: internship.id },
+        data: { status },
         include: {
             proposal: {
                 include: {
@@ -362,62 +483,65 @@ export async function updateMemberStatus(proposalId, studentId, status) {
 }
 
 /**
- * Create a new company response record.
+ * Upload company response document for a proposal.
+ * After consolidation, updates the companyResponseDocId field on the proposal.
  * @param {Object} data 
  * @returns {Promise<Object>}
  */
 export async function createCompanyResponse(data) {
-    return prisma.internshipCompanyResponse.create({
-        data,
+    const { proposalId, documentId } = data;
+    return prisma.internshipProposal.update({
+        where: { id: proposalId },
+        data: {
+            companyResponseDocId: documentId
+        },
         include: {
-            proposal: {
-                include: {
-                    targetCompany: true
-                }
-            },
-            document: true
+            targetCompany: true,
+            companyResponseDoc: true
         }
     });
 }
 
 /**
- * Create company response and update member statuses transactionally.
+ * Upload company response and update internship statuses transactionally.
+ * After consolidation, updates proposal fields and internship statuses.
  * @param {Object} responseData 
- * @param {Array<{studentId: string, status: string}>} memberUpdates 
+ * @param {Array<{studentId: string, status: string}>} internshipUpdates 
  * @returns {Promise<Object>}
  */
-export async function createCompanyResponseTransaction(responseData, memberUpdates) {
+export async function createCompanyResponseTransaction(responseData, internshipUpdates) {
     return prisma.$transaction(async (tx) => {
-        // 1. Create company response
-        const response = await tx.internshipCompanyResponse.create({
-            data: responseData,
+        // 1. Update company response doc and set status to WAITING_FOR_VERIFICATION
+        const updatedProposal = await tx.internshipProposal.update({
+            where: { id: responseData.proposalId },
+            data: {
+                companyResponseDocId: responseData.documentId,
+                status: 'WAITING_FOR_VERIFICATION'
+            },
             include: {
-                proposal: {
-                    include: {
-                        targetCompany: true
-                    }
-                },
-                document: true
+                targetCompany: true,
+                companyResponseDoc: true
             }
         });
 
-        // 2. Update member statuses
-        if (memberUpdates && memberUpdates.length > 0) {
-            for (const update of memberUpdates) {
-                await tx.internshipProposalMember.update({
+        // 2. Update internship statuses
+        if (internshipUpdates && internshipUpdates.length > 0) {
+            for (const update of internshipUpdates) {
+                const internship = await tx.internship.findFirst({
                     where: {
-                        proposalId_studentId: {
-                            proposalId: responseData.proposalId,
-                            studentId: update.studentId
-                        }
-                    },
-                    data: {
-                        status: update.status
+                        proposalId: responseData.proposalId,
+                        studentId: update.studentId
                     }
                 });
+                if (internship) {
+                    await tx.internship.update({
+                        where: { id: internship.id },
+                        data: { status: update.status }
+                    });
+                }
             }
         }
 
-        return response;
+        return updatedProposal;
     });
 }

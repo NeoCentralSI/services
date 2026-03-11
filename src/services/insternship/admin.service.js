@@ -8,45 +8,35 @@ import { ROLES } from "../../constants/roles.js";
 
 /**
  * Get all internship proposals that need "Surat Pengantar" (Approved by Sekdep).
+ * After consolidation, application letter fields are on the proposal itself.
  * @returns {Promise<Array>}
  */
 export async function getApprovedProposals() {
     const proposals = await adminRepository.findApprovedProposals();
 
     return proposals.map(p => {
-        const latestLetter = p.applicationLetters?.[0] || null;
-
         return {
             id: p.id,
             coordinatorName: p.coordinator?.user?.fullName,
             coordinatorNim: p.coordinator?.user?.identityNumber,
             companyName: p.targetCompany?.companyName || "—",
             companyAddress: p.targetCompany?.companyAddress || "—",
-            members: [
-                {
-                    name: p.coordinator?.user?.fullName,
-                    nim: p.coordinator?.user?.identityNumber,
-                    isCoordinator: true
-                },
-                ...p.members.map(m => ({
-                    name: m.student?.user?.fullName,
-                    nim: m.student?.user?.identityNumber,
-                    isCoordinator: false
-                }))
-            ],
-            letterNumber: latestLetter?.documentNumber || "—",
-            letterFile: latestLetter?.document ? {
-                id: latestLetter.document.id,
-                fileName: latestLetter.document.fileName,
-                filePath: latestLetter.document.filePath
+            members: p.internships.map(i => ({
+                name: i.student?.user?.fullName,
+                nim: i.student?.user?.identityNumber,
+                isCoordinator: i.studentId === p.coordinatorId
+            })),
+            letterNumber: p.appLetterDocNumber || "—",
+            letterFile: p.appLetterDoc ? {
+                id: p.appLetterDoc.id,
+                fileName: p.appLetterDoc.fileName,
+                filePath: p.appLetterDoc.filePath
             } : null,
-            // Assuming date range is in the application letter or proposal?
-            // Re-checking schema: InternshipApplicationLetter has startDatePlanned and endDatePlanned
-            period: latestLetter ? {
-                start: latestLetter.startDatePlanned,
-                end: latestLetter.endDatePlanned
+            period: p.startDatePlanned ? {
+                start: p.startDatePlanned,
+                end: p.endDatePlanned
             } : null,
-            isSigned: !!latestLetter?.signedById,
+            isSigned: !!p.appLetterSignedById,
             updatedAt: p.updatedAt
         };
     });
@@ -57,11 +47,13 @@ export async function getApprovedProposals() {
  * Reuses the repository logic from Sekdep.
  * @returns {Promise<Array>}
  */
-export async function getCompaniesStats() {
-    const companies = await sekdepRepository.findCompaniesWithStats();
+export async function getCompaniesStats({ q, skip, take, sortBy, sortOrder, status } = {}) {
+    const [companies, total] = await Promise.all([
+        sekdepRepository.findCompaniesWithStats({ q, skip, take, sortBy, sortOrder, status }),
+        sekdepRepository.countCompanies({ q, status })
+    ]);
 
-    return companies.map(company => {
-        // Count unique students who have an internship record with this company
+    const data = companies.map(company => {
         const internIds = company.internshipProposals.flatMap(p =>
             p.internships.map(i => i.studentId)
         );
@@ -76,6 +68,8 @@ export async function getCompaniesStats() {
             internCount: uniqueInternCount
         };
     });
+
+    return { data, total };
 }
 
 /**
@@ -91,37 +85,28 @@ export async function getProposalLetterDetail(id) {
         throw error;
     }
 
-    const latestLetter = p.applicationLetters?.[0] || null;
-
     return {
         id: p.id,
         coordinatorName: p.coordinator?.user?.fullName,
         coordinatorNim: p.coordinator?.user?.identityNumber,
         companyName: p.targetCompany?.companyName || "—",
         companyAddress: p.targetCompany?.companyAddress || "—",
-        members: [
-            {
-                name: p.coordinator?.user?.fullName,
-                nim: p.coordinator?.user?.identityNumber,
-                isCoordinator: true
-            },
-            ...p.members.map(m => ({
-                name: m.student?.user?.fullName,
-                nim: m.student?.user?.identityNumber,
-                isCoordinator: false
-            }))
-        ],
-        letterNumber: latestLetter?.documentNumber || "",
-        period: latestLetter ? {
-            start: latestLetter.startDatePlanned,
-            end: latestLetter.endDatePlanned
+        members: p.internships.map(i => ({
+            name: i.student?.user?.fullName,
+            nim: i.student?.user?.identityNumber,
+            isCoordinator: i.studentId === p.coordinatorId
+        })),
+        letterNumber: p.appLetterDocNumber || "",
+        period: p.startDatePlanned ? {
+            start: p.startDatePlanned,
+            end: p.endDatePlanned
         } : null,
-        letterFile: latestLetter?.document ? {
-            id: latestLetter.document.id,
-            fileName: latestLetter.document.fileName,
-            filePath: latestLetter.document.filePath
+        letterFile: p.appLetterDoc ? {
+            id: p.appLetterDoc.id,
+            fileName: p.appLetterDoc.fileName,
+            filePath: p.appLetterDoc.filePath
         } : null,
-        isSigned: !!latestLetter?.signedById
+        isSigned: !!p.appLetterSignedById
     };
 }
 
@@ -132,49 +117,43 @@ export async function getProposalLetterDetail(id) {
  * @returns {Promise<Object>}
  */
 export async function saveApplicationLetter(id, data) {
-    // 1. Fetch full data for document generation & check if already signed
+    // 1. Fetch full data & check if already signed
     const proposal = await adminRepository.findProposalForLetter(id);
     if (!proposal) {
         throw new Error("Pengajuan tidak ditemukan.");
     }
 
-    const latestLetter = proposal.applicationLetters?.[0];
-    if (latestLetter?.signedById) {
+    if (proposal.appLetterSignedById) {
         throw new Error("Dokumen sudah ditandatangani. Data tidak dapat diubah kembali.");
     }
 
-    // 2. Save/Update letter record
-    const letter = await adminRepository.updateApplicationLetter(id, data);
+    // 2. Save/Update letter fields on the proposal
+    const updatedProposal = await adminRepository.updateApplicationLetter(id, data);
     const genData = {
         documentNumber: data.documentNumber,
-        dateIssued: letter.dateIssued || new Date(),
+        dateIssued: updatedProposal.appLetterDateIssued || new Date(),
         companyName: proposal.targetCompany?.companyName || "Unknown Company",
         companyAddress: proposal.targetCompany?.companyAddress || "Unknown Address",
         startDate: data.startDatePlanned,
         endDate: data.endDatePlanned,
         coordinatorId: proposal.coordinatorId,
-        members: [
-            {
-                name: proposal.coordinator?.user?.fullName,
-                nim: proposal.coordinator?.user?.identityNumber
-            },
-            ...proposal.members.map(m => ({
-                name: m.student?.user?.fullName,
-                nim: m.student?.user?.identityNumber
-            }))
-        ]
+        members: proposal.internships.map(i => ({
+            name: i.student?.user?.fullName,
+            nim: i.student?.user?.identityNumber,
+            isCoordinator: i.studentId === proposal.coordinatorId
+        }))
     };
 
-    // 4. Generate Document
+    // 3. Generate Document
     const documentId = await documentService.generateApplicationLetter(id, genData);
 
-    // 5. Update letter with documentId
-    await adminRepository.updateLetterDocumentId(letter.id, documentId);
+    // 4. Update proposal with documentId
+    await adminRepository.updateLetterDocumentId(id, documentId);
 
-    // 6. Notify Kadep
+    // 5. Notify Kadep
     await notifyKadepForLetterGeneration(proposal, data.documentNumber);
 
-    return letter;
+    return updatedProposal;
 }
 
 /**
@@ -202,10 +181,7 @@ async function notifyKadepForLetterGeneration(proposal, documentNumber) {
         const title = "Surat Permohonan KP Baru";
         const message = `Admin telah men-generate Surat Permohonan KP (${documentNumber}) untuk proposal ke ${proposal.targetCompany?.companyName || "—"}. Silakan periksa untuk tanda tangan.`;
 
-        // Create in-app notifications
         await createNotificationsForUsers(kadepUserIds, { title, message });
-
-        // Send FCM push notification
         await sendFcmToUsers(kadepUserIds, {
             title,
             body: message,
@@ -229,38 +205,27 @@ export async function getProposalsForAssignment() {
     const proposals = await adminRepository.findProposalsForAssignment();
 
     return proposals.map(p => {
-        const latestLetter = p.assignmentLetters?.[0] || null;
-        const latestResponse = p.companyResponses?.[0] || null;
-
         return {
             id: p.id,
             coordinatorName: p.coordinator?.user?.fullName,
             coordinatorNim: p.coordinator?.user?.identityNumber,
             companyName: p.targetCompany?.companyName || "—",
-            members: [
-                {
-                    name: p.coordinator?.user?.fullName,
-                    nim: p.coordinator?.user?.identityNumber,
-                    isCoordinator: true
-                },
-                ...p.members.map(m => ({
-                    name: m.student?.user?.fullName,
-                    nim: m.student?.user?.identityNumber,
-                    isCoordinator: false
-                }))
-            ],
-            letterNumber: latestLetter?.documentNumber || "—",
-            letterFile: latestLetter?.document ? {
-                id: latestLetter.document.id,
-                fileName: latestLetter.document.fileName,
-                filePath: latestLetter.document.filePath
+            members: p.internships.map(i => ({
+                name: i.student?.user?.fullName,
+                nim: i.student?.user?.identityNumber,
+                isCoordinator: i.studentId === p.coordinatorId
+            })),
+            letterNumber: p.assignLetterDocNumber || "—",
+            letterFile: p.assignLetterDoc ? {
+                id: p.assignLetterDoc.id,
+                fileName: p.assignLetterDoc.fileName,
+                filePath: p.assignLetterDoc.filePath
             } : null,
-            period: latestLetter ? {
-                start: latestLetter.startDateActual,
-                end: latestLetter.endDateActual
+            period: p.startDateActual ? {
+                start: p.startDateActual,
+                end: p.endDateActual
             } : null,
-            responseId: latestResponse?.id,
-            isSigned: !!latestLetter?.signedById,
+            isSigned: !!p.assignLetterSignedById,
             updatedAt: p.updatedAt
         };
     });
@@ -279,39 +244,28 @@ export async function getAssignmentLetterDetail(id) {
         throw error;
     }
 
-    const latestLetter = p.assignmentLetters?.[0] || null;
-    const latestResponse = p.companyResponses?.[0] || null;
-
     return {
         id: p.id,
         coordinatorName: p.coordinator?.user?.fullName,
         coordinatorNim: p.coordinator?.user?.identityNumber,
         companyName: p.targetCompany?.companyName || "—",
         companyAddress: p.targetCompany?.companyAddress || "—",
-        members: [
-            {
-                name: p.coordinator?.user?.fullName,
-                nim: p.coordinator?.user?.identityNumber,
-                isCoordinator: true
-            },
-            ...p.members.map(m => ({
-                name: m.student?.user?.fullName,
-                nim: m.student?.user?.identityNumber,
-                isCoordinator: false
-            }))
-        ],
-        letterNumber: latestLetter?.documentNumber || "",
-        period: latestLetter ? {
-            start: latestLetter.startDateActual,
-            end: latestLetter.endDateActual
+        members: p.internships.map(i => ({
+            name: i.student?.user?.fullName,
+            nim: i.student?.user?.identityNumber,
+            isCoordinator: i.studentId === p.coordinatorId
+        })),
+        letterNumber: p.assignLetterDocNumber || "",
+        period: p.startDateActual ? {
+            start: p.startDateActual,
+            end: p.endDateActual
         } : null,
-        letterFile: latestLetter?.document ? {
-            id: latestLetter.document.id,
-            fileName: latestLetter.document.fileName,
-            filePath: latestLetter.document.filePath
+        letterFile: p.assignLetterDoc ? {
+            id: p.assignLetterDoc.id,
+            fileName: p.assignLetterDoc.fileName,
+            filePath: p.assignLetterDoc.filePath
         } : null,
-        responseId: latestResponse?.id,
-        isSigned: !!latestLetter?.signedById
+        isSigned: !!p.assignLetterSignedById
     };
 }
 
@@ -328,50 +282,44 @@ export async function saveAssignmentLetter(id, data) {
         throw new Error("Pengajuan tidak ditemukan.");
     }
 
-    const latestResponse = proposal.companyResponses?.[0];
-    if (!latestResponse) {
+    // Check company response doc exists
+    if (!proposal.companyResponseDocId) {
         throw new Error("Surat balasan perusahaan tidak ditemukan.");
     }
 
-    const latestLetter = proposal.assignmentLetters?.[0];
-    if (latestLetter?.signedById) {
+    if (proposal.assignLetterSignedById) {
         throw new Error("Dokumen sudah ditandatangani. Data tidak dapat diubah kembali.");
     }
 
-    // 2. Save/Update letter record
-    const letter = await adminRepository.updateAssignmentLetter(id, latestResponse.id, data);
+    // 2. Save/Update letter fields on the proposal
+    const updatedProposal = await adminRepository.updateAssignmentLetter(id, data);
 
     // 3. Prepare data for document generation
     const genData = {
         documentNumber: data.documentNumber,
-        dateIssued: letter.dateIssued || new Date(),
+        dateIssued: updatedProposal.assignLetterDateIssued || new Date(),
         companyName: proposal.targetCompany?.companyName || "Unknown Company",
         companyAddress: proposal.targetCompany?.companyAddress || "Unknown Address",
         startDate: data.startDateActual,
         endDate: data.endDateActual,
         coordinatorId: proposal.coordinatorId,
-        members: [
-            {
-                name: proposal.coordinator?.user?.fullName,
-                nim: proposal.coordinator?.user?.identityNumber
-            },
-            ...proposal.members.map(m => ({
-                name: m.student?.user?.fullName,
-                nim: m.student?.user?.identityNumber
-            }))
-        ]
+        members: proposal.internships.map(i => ({
+            name: i.student?.user?.fullName,
+            nim: i.student?.user?.identityNumber,
+            isCoordinator: i.studentId === proposal.coordinatorId
+        }))
     };
 
     // 4. Generate Document
     const documentId = await documentService.generateAssignmentLetter(id, genData);
 
-    // 5. Update letter with documentId
-    await adminRepository.updateAssignmentLetterDocumentId(letter.id, documentId);
+    // 5. Update proposal with assignment letter documentId
+    await adminRepository.updateAssignmentLetterDocumentId(id, documentId);
 
     // 6. Notify Kadep
     await notifyKadepForAssignmentLetter(proposal, data.documentNumber);
 
-    return letter;
+    return updatedProposal;
 }
 
 /**
@@ -399,10 +347,7 @@ async function notifyKadepForAssignmentLetter(proposal, documentNumber) {
         const title = "Surat Tugas KP Baru";
         const message = `Admin telah men-generate Surat Tugas KP (${documentNumber}) untuk proposal ke ${proposal.targetCompany?.companyName || "—"}. Silakan periksa untuk tanda tangan.`;
 
-        // Create in-app notifications
         await createNotificationsForUsers(kadepUserIds, { title, message });
-
-        // Send FCM push notification
         await sendFcmToUsers(kadepUserIds, {
             title,
             body: message,

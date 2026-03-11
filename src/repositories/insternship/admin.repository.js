@@ -2,18 +2,15 @@ import prisma from "../../config/prisma.js";
 
 /**
  * Find internship proposals that have been approved by the Sekdep.
+ * After consolidation, application letter data is on the proposal itself.
  * @returns {Promise<Array>}
  */
 export async function findApprovedProposals() {
     return prisma.internshipProposal.findMany({
         where: {
             OR: [
-                { status: 'APPROVED_BY_SEKDEP' },
-                {
-                    applicationLetters: {
-                        some: {}
-                    }
-                }
+                { status: 'APPROVED_PROPOSAL' },
+                { appLetterDocNumber: { not: null } }
             ]
         },
         include: {
@@ -27,7 +24,7 @@ export async function findApprovedProposals() {
                     }
                 }
             },
-            members: {
+            internships: {
                 where: {
                     status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY', 'REJECTED_BY_COMPANY'] }
                 },
@@ -45,15 +42,7 @@ export async function findApprovedProposals() {
                 }
             },
             targetCompany: true,
-            applicationLetters: {
-                include: {
-                    document: true
-                },
-                orderBy: {
-                    createdAt: 'desc'
-                },
-                take: 1
-            }
+            appLetterDoc: true
         },
         orderBy: {
             updatedAt: 'desc'
@@ -101,7 +90,7 @@ export async function findProposalForLetter(id) {
                     }
                 }
             },
-            members: {
+            internships: {
                 where: {
                     status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY', 'REJECTED_BY_COMPANY'] }
                 },
@@ -119,21 +108,13 @@ export async function findProposalForLetter(id) {
                 }
             },
             targetCompany: true,
-            applicationLetters: {
-                include: {
-                    document: true
-                },
-                orderBy: {
-                    createdAt: 'desc'
-                },
-                take: 1
-            }
+            appLetterDoc: true
         }
     });
 }
 
 /**
- * Upsert application letter details for a proposal.
+ * Update application letter details directly on InternshipProposal.
  * @param {string} proposalId 
  * @param {Object} data 
  * @returns {Promise<Object>}
@@ -141,29 +122,11 @@ export async function findProposalForLetter(id) {
 export async function updateApplicationLetter(proposalId, data) {
     const { documentNumber, startDatePlanned, endDatePlanned } = data;
 
-    // Find existing latest letter to update or create new one
-    const latestLetter = await prisma.internshipApplicationLetter.findFirst({
-        where: { proposalId },
-        orderBy: { createdAt: 'desc' }
-    });
-
-    if (latestLetter) {
-        return prisma.internshipApplicationLetter.update({
-            where: { id: latestLetter.id },
-            data: {
-                documentNumber,
-                dateIssued: new Date(),
-                startDatePlanned: startDatePlanned ? new Date(startDatePlanned) : null,
-                endDatePlanned: endDatePlanned ? new Date(endDatePlanned) : null
-            }
-        });
-    }
-
-    return prisma.internshipApplicationLetter.create({
+    return prisma.internshipProposal.update({
+        where: { id: proposalId },
         data: {
-            proposal: { connect: { id: proposalId } },
-            documentNumber,
-            dateIssued: new Date(),
+            appLetterDocNumber: documentNumber,
+            appLetterDateIssued: new Date(),
             startDatePlanned: startDatePlanned ? new Date(startDatePlanned) : null,
             endDatePlanned: endDatePlanned ? new Date(endDatePlanned) : null
         }
@@ -171,40 +134,32 @@ export async function updateApplicationLetter(proposalId, data) {
 }
 
 /**
- * Update the document ID of an application letter.
- * @param {string} letterId 
+ * Update the document ID of the application letter on the proposal.
+ * @param {string} proposalId 
  * @param {string} documentId 
  * @returns {Promise<Object>}
  */
-export async function updateLetterDocumentId(letterId, documentId) {
-    return prisma.internshipApplicationLetter.update({
-        where: { id: letterId },
+export async function updateLetterDocumentId(proposalId, documentId) {
+    return prisma.internshipProposal.update({
+        where: { id: proposalId },
         data: {
-            documentId: documentId
+            appLetterDocId: documentId
         }
     });
 }
 
 /**
  * Find internship proposals that have an approved company response.
+ * After consolidation, company response status is tracked via proposal status.
  * @returns {Promise<Array>}
  */
 export async function findProposalsForAssignment() {
     return prisma.internshipProposal.findMany({
         where: {
             OR: [
-                {
-                    companyResponses: {
-                        some: {
-                            status: 'APPROVED_BY_SEKDEP'
-                        }
-                    }
-                },
-                {
-                    assignmentLetters: {
-                        some: {}
-                    }
-                }
+                { status: 'ACCEPTED_BY_COMPANY' },
+                { status: 'PARTIALLY_ACCEPTED' },
+                { assignLetterDocNumber: { not: null } }
             ]
         },
         include: {
@@ -218,7 +173,7 @@ export async function findProposalsForAssignment() {
                     }
                 }
             },
-            members: {
+            internships: {
                 where: {
                     status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
                 },
@@ -236,31 +191,8 @@ export async function findProposalsForAssignment() {
                 }
             },
             targetCompany: true,
-            assignmentLetters: {
-                include: {
-                    document: true
-                },
-                orderBy: {
-                    createdAt: 'desc'
-                },
-                take: 1
-            },
-            companyResponses: {
-                where: {
-                    OR: [
-                        { status: 'APPROVED_BY_SEKDEP' },
-                        {
-                            assignmentLetters: {
-                                some: {}
-                            }
-                        }
-                    ]
-                },
-                orderBy: {
-                    createdAt: 'desc'
-                },
-                take: 1
-            }
+            assignLetterDoc: true,
+            companyResponseDoc: true
         },
         orderBy: {
             updatedAt: 'desc'
@@ -287,7 +219,7 @@ export async function findProposalForAssignment(id) {
                     }
                 }
             },
-            members: {
+            internships: {
                 where: {
                     status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
                 },
@@ -305,73 +237,26 @@ export async function findProposalForAssignment(id) {
                 }
             },
             targetCompany: true,
-            companyResponses: {
-                where: {
-                    OR: [
-                        { status: 'APPROVED_BY_SEKDEP' },
-                        {
-                            assignmentLetters: {
-                                some: {}
-                            }
-                        }
-                    ]
-                },
-                include: {
-                    document: true
-                },
-                orderBy: {
-                    createdAt: 'desc'
-                },
-                take: 1
-            },
-            assignmentLetters: {
-                include: {
-                    document: true
-                },
-                orderBy: {
-                    createdAt: 'desc'
-                },
-                take: 1
-            }
+            companyResponseDoc: true,
+            assignLetterDoc: true
         }
     });
 }
 
 /**
- * Upsert assignment letter details for a proposal.
+ * Update assignment letter details directly on InternshipProposal.
  * @param {string} proposalId 
- * @param {string} responseId
  * @param {Object} data 
  * @returns {Promise<Object>}
  */
-export async function updateAssignmentLetter(proposalId, responseId, data) {
+export async function updateAssignmentLetter(proposalId, data) {
     const { documentNumber, startDateActual, endDateActual } = data;
 
-    // Find existing latest assignment letter for this proposal
-    const latestLetter = await prisma.internshipAssignmentLetter.findFirst({
-        where: { proposalId },
-        orderBy: { createdAt: 'desc' }
-    });
-
-    if (latestLetter) {
-        return prisma.internshipAssignmentLetter.update({
-            where: { id: latestLetter.id },
-            data: {
-                documentNumber,
-                responseId,
-                dateIssued: new Date(),
-                startDateActual: startDateActual ? new Date(startDateActual) : null,
-                endDateActual: endDateActual ? new Date(endDateActual) : null
-            }
-        });
-    }
-
-    return prisma.internshipAssignmentLetter.create({
+    return prisma.internshipProposal.update({
+        where: { id: proposalId },
         data: {
-            proposal: { connect: { id: proposalId } },
-            response: { connect: { id: responseId } },
-            documentNumber,
-            dateIssued: new Date(),
+            assignLetterDocNumber: documentNumber,
+            assignLetterDateIssued: new Date(),
             startDateActual: startDateActual ? new Date(startDateActual) : null,
             endDateActual: endDateActual ? new Date(endDateActual) : null
         }
@@ -379,16 +264,16 @@ export async function updateAssignmentLetter(proposalId, responseId, data) {
 }
 
 /**
- * Update the document ID of an assignment letter.
- * @param {string} letterId 
+ * Update the document ID of the assignment letter on the proposal.
+ * @param {string} proposalId 
  * @param {string} documentId 
  * @returns {Promise<Object>}
  */
-export async function updateAssignmentLetterDocumentId(letterId, documentId) {
-    return prisma.internshipAssignmentLetter.update({
-        where: { id: letterId },
+export async function updateAssignmentLetterDocumentId(proposalId, documentId) {
+    return prisma.internshipProposal.update({
+        where: { id: proposalId },
         data: {
-            documentId: documentId
+            assignLetterDocId: documentId
         }
     });
 }

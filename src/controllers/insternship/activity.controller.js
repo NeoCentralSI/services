@@ -62,3 +62,40 @@ export async function downloadLogbookPdf(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Download Logbook as DOCX.
+ */
+export async function downloadLogbookDocx(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const { buffer, filename } = await activityService.generateLogbookDocx(userId);
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.send(buffer);
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Submit internship report.
+ */
+export async function submitReport(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const { title, documentId } = req.body;
+
+        if (!title || !documentId) {
+            const error = new Error("Judul dan file laporan wajib diisi.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        const data = await activityService.submitInternshipReport(userId, title, documentId);
+        res.json({ success: true, message: "Laporan berhasil diunggah", data });
+    } catch (error) {
+        next(error);
+    }
+}

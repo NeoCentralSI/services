@@ -1,33 +1,38 @@
 import prisma from "../../config/prisma.js";
 
 /**
- * Find all pending internship application letters (signedById is null).
+ * Find all proposals that have application letter data (for Kadep to sign).
+ * Now queries InternshipProposal directly since letters are consolidated.
  * @returns {Promise<Array>}
  */
-export async function findPendingApplicationLetters() {
-    return prisma.internshipApplicationLetter.findMany({
-        where: {}, // Fetch all for list
+export async function findPendingApplicationLetters(academicYearId) {
+    const where = {
+        appLetterDocNumber: { not: null },
+    };
+
+    if (academicYearId && academicYearId !== 'all') {
+        where.academicYearId = academicYearId;
+    }
+
+    return prisma.internshipProposal.findMany({
+        where,
         include: {
-            proposal: {
+            coordinator: {
                 include: {
-                    coordinator: {
+                    user: true
+                }
+            },
+            internships: {
+                include: {
+                    student: {
                         include: {
                             user: true
                         }
-                    },
-                    members: {
-                        include: {
-                            student: {
-                                include: {
-                                    user: true
-                                }
-                            },
-                        }
-                    },
-                    targetCompany: true
+                    }
                 }
             },
-            document: true
+            targetCompany: true,
+            appLetterDoc: true
         },
         orderBy: {
             updatedAt: 'desc'
@@ -36,126 +41,120 @@ export async function findPendingApplicationLetters() {
 }
 
 /**
- * Find all pending internship assignment letters (signedById is null).
+ * Find all proposals that have assignment letter data (for Kadep to sign).
  * @returns {Promise<Array>}
  */
-export async function findPendingAssignmentLetters() {
-    return prisma.internshipAssignmentLetter.findMany({
-        where: {}, // Fetch all for list
+export async function findPendingAssignmentLetters(academicYearId) {
+    const where = {
+        assignLetterDocNumber: { not: null },
+    };
+
+    if (academicYearId && academicYearId !== 'all') {
+        where.academicYearId = academicYearId;
+    }
+
+    return prisma.internshipProposal.findMany({
+        where,
         include: {
-            proposal: {
+            coordinator: {
                 include: {
-                    coordinator: {
+                    user: true
+                }
+            },
+            internships: {
+                include: {
+                    student: {
                         include: {
                             user: true
                         }
-                    },
-                    members: {
-                        include: {
-                            student: {
-                                include: {
-                                    user: true
-                                }
-                            },
-                        }
-                    },
-                    targetCompany: true
+                    }
                 }
             },
-            document: true
+            targetCompany: true,
+            assignLetterDoc: true
         },
         orderBy: {
-            createdAt: 'desc'
+            updatedAt: 'desc'
         }
     });
 }
 
 /**
- * Update signature for an application letter.
- * @param {string} id 
+ * Update signature for an application letter (now on InternshipProposal).
+ * @param {string} id - Proposal ID
  * @param {string} signedById 
  * @param {string} signedAsRoleId 
  * @returns {Promise<Object>}
  */
 export async function signApplicationLetter(id, signedById, signedAsRoleId) {
-    return prisma.internshipApplicationLetter.update({
+    return prisma.internshipProposal.update({
         where: { id },
         data: {
-            signedById,
-            signedAsRoleId,
-            dateIssued: new Date() // Finalize issue date upon signature
+            appLetterSignedById: signedById,
+            appLetterSignedAsRoleId: signedAsRoleId,
+            appLetterDateIssued: new Date()
         },
         include: {
-            proposal: {
+            coordinator: {
                 include: {
-                    coordinator: {
-                        include: {
-                            user: true
-                        }
-                    }
+                    user: true
                 }
-            }
+            },
+            targetCompany: true
         }
     });
 }
 
 /**
- * Update signature for an assignment letter.
- * @param {string} id 
+ * Update signature for an assignment letter (now on InternshipProposal).
+ * @param {string} id - Proposal ID
  * @param {string} signedById 
  * @param {string} signedAsRoleId 
  * @returns {Promise<Object>}
  */
 export async function signAssignmentLetter(id, signedById, signedAsRoleId) {
-    return prisma.internshipAssignmentLetter.update({
+    return prisma.internshipProposal.update({
         where: { id },
         data: {
-            signedById,
-            signedAsRoleId,
-            dateIssued: new Date()
+            assignLetterSignedById: signedById,
+            assignLetterSignedAsRoleId: signedAsRoleId,
+            assignLetterDateIssued: new Date()
         },
         include: {
-            proposal: {
+            coordinator: {
                 include: {
-                    coordinator: {
-                        include: {
-                            user: true
-                        }
-                    }
+                    user: true
                 }
-            }
+            },
+            targetCompany: true
         }
     });
 }
 
 /**
- * Transactionally initialize internships and logbooks for all proposal members.
+ * Transactionally initialize internships and logbooks for a proposal.
+ * After schema consolidation, internships track individual students. 
+ * The coordinator always gets an internship. Other students come from 
+ * existing Internship records with ACCEPTED_BY_COMPANY status.
  * @param {string} proposalId 
- * @param {string} assignmentLetterId 
  * @param {Date[]} workingDays 
  * @returns {Promise<void>}
  */
-export async function initializeInternshipsAndLogbooks(proposalId, assignmentLetterId, workingDays) {
-    const [proposal, letter] = await Promise.all([
-        prisma.internshipProposal.findUnique({
-            where: { id: proposalId },
-            include: {
-                members: true
-            }
-        }),
-        prisma.internshipAssignmentLetter.findUnique({
-            where: { id: assignmentLetterId }
-        })
-    ]);
+export async function initializeInternshipsAndLogbooks(proposalId, workingDays) {
+    const proposal = await prisma.internshipProposal.findUnique({
+        where: { id: proposalId },
+        include: {
+            internships: true
+        }
+    });
 
     if (!proposal) throw new Error("Proposal tidak ditemukan.");
-    if (!letter) throw new Error("Surat Tugas tidak ditemukan.");
 
-    // Filter members: Coordinator + those accepted by company
+    // Get students: coordinator + any internship records with ACCEPTED_BY_COMPANY
     const studentIds = [proposal.coordinatorId];
-    proposal.members.forEach(member => {
-        if (member.status === 'ACCEPTED_BY_COMPANY') {
-            studentIds.push(member.studentId);
+    proposal.internships.forEach(internship => {
+        if (internship.status === 'ACCEPTED_BY_COMPANY') {
+            studentIds.push(internship.studentId);
         }
     });
 
@@ -164,7 +163,7 @@ export async function initializeInternshipsAndLogbooks(proposalId, assignmentLet
 
     await prisma.$transaction(async (tx) => {
         for (const studentId of uniqueStudentIds) {
-            // 1. Create Internship if not exists
+            // 1. Create or update Internship
             let internship = await tx.internship.findFirst({
                 where: { studentId, proposalId }
             });
@@ -174,20 +173,18 @@ export async function initializeInternshipsAndLogbooks(proposalId, assignmentLet
                     data: {
                         studentId,
                         proposalId,
-                        assignmentLetterId,
-                        actualStartDate: letter.startDateActual,
-                        actualEndDate: letter.endDateActual,
+                        actualStartDate: proposal.startDateActual,
+                        actualEndDate: proposal.endDateActual,
                         status: 'ONGOING'
                     }
                 });
             } else {
-                // Update assignment letter ID if it was changed
                 await tx.internship.update({
                     where: { id: internship.id },
                     data: {
-                        assignmentLetterId,
-                        actualStartDate: letter.startDateActual,
-                        actualEndDate: letter.endDateActual
+                        actualStartDate: proposal.startDateActual,
+                        actualEndDate: proposal.endDateActual,
+                        status: 'ONGOING'
                     }
                 });
             }
@@ -196,7 +193,7 @@ export async function initializeInternshipsAndLogbooks(proposalId, assignmentLet
             const logbookData = workingDays.map(date => ({
                 internshipId: internship.id,
                 activityDate: date,
-                activityDescription: "" // Empty placeholder
+                activityDescription: ""
             }));
 
             // 3. Bulk Create Logbooks

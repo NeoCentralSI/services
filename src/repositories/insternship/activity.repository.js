@@ -74,3 +74,25 @@ export async function updateInternshipDetails(studentId, { fieldSupervisorName, 
         data: { fieldSupervisorName, unitSection }
     });
 }
+
+/**
+ * Create a new internship report record.
+ * After consolidation, this updates report fields directly in the Internship model.
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function createReport(data) {
+    const { internshipId, title, documentId } = data;
+    return prisma.internship.update({
+        where: { id: internshipId },
+        data: {
+            reportTitle: title,
+            reportDocumentId: documentId,
+            reportStatus: 'SUBMITTED',
+            reportUploadedAt: new Date()
+        },
+        include: {
+            reportDocument: true
+        }
+    });
+}

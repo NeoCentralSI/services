@@ -41,6 +41,32 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
 }
 
 /**
+ * Converts HTML content to PDF using Gotenberg (Chromium module)
+ * @param {string} html - The HTML content to convert
+ * @returns {Promise<Buffer>} - The converted PDF as a buffer
+ */
+export async function convertHtmlToPdf(html) {
+    try {
+        const url = `${ENV.GOTENBERG_URL || 'http://localhost:3001'}/forms/chromium/convert/html`;
+
+        const form = new FormData();
+        form.append('files', Buffer.from(html), {
+            filename: 'index.html',
+            contentType: 'text/html'
+        });
+
+        const response = await axios.post(url, form, {
+            headers: {
+                ...form.getHeaders()
+            },
+            responseType: 'arraybuffer'
+        });
+
+        return Buffer.from(response.data);
+    } catch (error) {
+        console.error('Gotenberg HTML to PDF conversion failed:', error.response?.data?.toString() || error.message);
+        throw new Error('Gagal mengonversi HTML ke PDF melalui Gotenberg');
+    }
  * Adds guidance table pages + signature to a base PDF using pdf-lib.
  *
  * @param {Buffer} basePdfBytes  – PDF from Gotenberg (identity/header page)
