@@ -383,6 +383,7 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 			lecturerId,
 			thesis: { isProposal: false }
 		},
+		include: { role: { select: { id: true, name: true } } },
 	});
 	if (!participant) return null;
 
@@ -408,6 +409,12 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 			},
 			thesisMilestones: {
 				orderBy: { updatedAt: "desc" }
+			},
+			thesisSupervisors: {
+				include: {
+					role: { select: { id: true, name: true } },
+					lecturer: { include: { user: { select: { id: true, fullName: true } } } }
+				}
 			}
 		}
 	});

@@ -1,21 +1,9 @@
 import * as milestoneRepo from "../../repositories/thesisGuidance/milestone.repository.js";
 import prisma from "../../config/prisma.js";
-import { ROLES, isSupervisorRole, normalize } from "../../constants/roles.js";
+import { ROLES, isSupervisorRole, normalize, isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotification } from "../../repositories/notification.repository.js";
 import { getThesisStatusMap, updateThesisStatusById } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
-
-// Helper to check if role is pembimbing1 (handles various formats)
-function isPembimbing1(roleName) {
-  const n = normalize(roleName);
-  return n === "pembimbing 1" || n === "pembimbing1";
-}
-
-// Helper to check if role is pembimbing2 (handles various formats)
-function isPembimbing2(roleName) {
-  const n = normalize(roleName);
-  return n === "pembimbing 2" || n === "pembimbing2";
-}
 
 // ============================================
 // Error Helpers
@@ -637,6 +625,15 @@ export async function validateMilestone(milestoneId, userId, supervisorNotes = n
     throw forbidden("Hanya dosen pembimbing yang dapat memvalidasi milestone");
   }
 
+  // Check if current user is Pembimbing 1 for this thesis
+  const userRole = thesis.thesisSupervisors.find(
+    (p) => p.lecturer?.user?.id === userId
+  )?.role?.name;
+
+  if (!isPembimbing1(userRole)) {
+    throw forbidden("Hanya Pembimbing 1 yang memiliki hak untuk memvalidasi milestone");
+  }
+
   if (milestone.status === "completed") {
     throw createError("Milestone sudah tervalidasi sebelumnya");
   }
@@ -678,6 +675,15 @@ export async function requestRevision(milestoneId, userId, revisionNotes) {
 
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat meminta revisi");
+  }
+
+  // Check if current user is Pembimbing 1 for this thesis
+  const userRole = thesis.thesisSupervisors.find(
+    (p) => p.lecturer?.user?.id === userId
+  )?.role?.name;
+
+  if (!isPembimbing1(userRole)) {
+    throw forbidden("Hanya Pembimbing 1 yang memiliki hak untuk meminta revisi milestone");
   }
 
   if (!revisionNotes) {
@@ -1452,7 +1458,16 @@ export async function requestDefence(thesisId, userId, documentId) {
  */
 export async function getPendingReviewForSupervisor(userId) {
   const milestones = await milestoneRepo.findPendingReviewBySupervisor(userId);
-  return milestones.map((m) => ({
+  
+  // Filter only milestones where this user is Pembimbing 1
+  const filteredMilestones = milestones.filter((m) => {
+    const userSupervisor = m.thesis?.thesisSupervisors?.find(
+      (p) => p.lecturer?.user?.id === userId
+    );
+    return isPembimbing1(userSupervisor?.role?.name);
+  });
+
+  return filteredMilestones.map((m) => ({
     id: m.id,
     title: m.title,
     description: m.description,

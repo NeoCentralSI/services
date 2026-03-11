@@ -236,6 +236,7 @@ export async function getStudentDetailService(userId, thesisId) {
 		})(),
 		startDateFormatted: thesis.startDate ? formatDateTimeJakarta(thesis.startDate) : null,
 		deadlineDateFormatted: thesis.deadlineDate ? formatDateTimeJakarta(thesis.deadlineDate) : null,
+		userRole: thesis.thesisSupervisors?.find(p => p.lecturer?.user?.id === userId)?.role?.name || null,
 	};
 }
 
