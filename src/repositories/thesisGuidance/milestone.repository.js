@@ -805,7 +805,11 @@ export function findPendingReviewBySupervisor(userId) {
       status: "pending_review",
       thesis: {
         thesisSupervisors: {
-          some: { lecturerId: userId },
+          some: {
+            lecturer: {
+              userId: userId,
+            },
+          },
         },
       },
     },
@@ -820,6 +824,16 @@ export function findPendingReviewBySupervisor(userId) {
                 select: {
                   fullName: true,
                   identityNumber: true,
+                },
+              },
+            },
+          },
+          thesisSupervisors: {
+            include: {
+              role: true,
+              lecturer: {
+                include: {
+                  user: true,
                 },
               },
             },
