@@ -807,7 +807,7 @@ export function findPendingReviewBySupervisor(userId) {
         thesisSupervisors: {
           some: {
             lecturer: {
-              userId: userId,
+              id: userId,
             },
           },
         },
