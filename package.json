@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.js",
+    "test:integration": "vitest run --config vitest.integration.config.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
@@ -21,6 +23,7 @@
   "license": "ISC",
   "dependencies": {
     "@azure/msal-node": "^3.8.4",
+    "@pdf-lib/fontkit": "^1.1.1",
     "@prisma/client": "^6.2.0",
     "axios": "^1.13.2",
     "bcrypt": "^6.0.0",

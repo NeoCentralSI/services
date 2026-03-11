@@ -26,6 +26,7 @@ export const getAllThesesMasterData = async () => {
         title: thesis.title,
         rating: thesis.rating,
         startDate: thesis.startDate,
+        isProposal: thesis.isProposal,
         student: {
             id: thesis.student?.id,
             nim: thesis.student?.user?.identityNumber,
@@ -115,7 +116,8 @@ export const createThesisMasterData = async (data) => {
         thesisStatusId: bimbinganStatus ? bimbinganStatus.id : null,
         startDate,
         deadlineDate,
-        supervisors
+        supervisors,
+        isProposal: data.isProposal ?? false
     };
 
     return await masterDataTaRepository.createThesis(payload);
@@ -198,4 +200,117 @@ export const syncSia = async () => {
     } catch (error) {
         throw new Error("Gagal melakukan sinkronisasi dengan SIA: " + error.message);
     }
+};
+
+export const importThesesMasterData = async (rows) => {
+    const results = {
+        success: 0,
+        updated: 0,
+        failed: 0,
+        errors: []
+    };
+
+    // Pre-cache roles
+    const [utamaRole, pendampingRole] = await Promise.all([
+        prisma.userRole.findFirst({ where: { name: "Pembimbing 1" } }),
+        prisma.userRole.findFirst({ where: { name: "Pembimbing 2" } })
+    ]);
+
+    if (!utamaRole) throw new Error("Role 'Pembimbing 1' tidak ditemukan.");
+
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2; // Excel row numbering start at 1, header is row 1
+
+        try {
+            const nim = String(row["NIM"] || "").trim();
+            if (!nim) throw new Error("NIM tidak boleh kosong");
+
+            // Lookups
+            const student = await masterDataTaRepository.findStudentByNim(nim);
+            if (!student) throw new Error(`Mahasiswa dengan NIM ${nim} tidak ditemukan`);
+
+            const existingThesis = await masterDataTaRepository.findThesisByStudentId(student.id);
+
+            // Academic Year lookup from "2024 - Ganjil" format
+            let academicYearId = null;
+            if (row["Tahun Ajaran"]) {
+                const [year, semester] = String(row["Tahun Ajaran"]).split(" - ").map(s => s.trim());
+                const ay = await masterDataTaRepository.findAcademicYearByYearAndSemester(year, semester);
+                if (ay) academicYearId = ay.id;
+            }
+
+            // Topic lookup
+            let topicId = null;
+            if (row["Topik"] && row["Topik"] !== "-") {
+                const topic = await masterDataTaRepository.findTopicByName(row["Topik"]);
+                if (topic) topicId = topic.id;
+            }
+
+            // Status lookup
+            let statusId = null;
+            if (row["Status"] && row["Status"] !== "-") {
+                const status = await masterDataTaRepository.findThesisStatusByName(row["Status"]);
+                if (status) statusId = status.id;
+            }
+
+            // Supervisors lookup
+            const supervisors = [];
+            const p1Name = String(row["Pembimbing 1"] || "").trim();
+            const p2Name = String(row["Pembimbing 2"] || "").trim();
+
+            if (p1Name && p1Name !== "-") {
+                const l1 = await prisma.lecturer.findFirst({
+                    where: { user: { fullName: { contains: p1Name } } }
+                });
+                if (l1) supervisors.push({ lecturerId: l1.id, roleId: utamaRole.id });
+            }
+
+            if (p2Name && p2Name !== "-" && pendampingRole) {
+                const l2 = await prisma.lecturer.findFirst({
+                    where: { user: { fullName: { contains: p2Name } } }
+                });
+                if (l2) supervisors.push({ lecturerId: l2.id, roleId: pendampingRole.id });
+            }
+
+            // Parsing Dates
+            let startDate = null;
+            if (row["Tanggal Mulai"] && row["Tanggal Mulai"] !== "-") {
+                // xlsx-parsed date might be serial number or string
+                startDate = new Date(row["Tanggal Mulai"]);
+                if (isNaN(startDate.getTime())) startDate = null;
+            }
+
+            const payload = {
+                title: row["Judul Tugas Akhir"] !== "-" ? row["Judul Tugas Akhir"] : null,
+                thesisTopicId: topicId,
+                thesisStatusId: statusId,
+                academicYearId: academicYearId,
+                startDate: startDate || (existingThesis ? existingThesis.startDate : new Date()),
+                rating: ["ONGOING", "SLOW", "AT_RISK", "FAILED", "CANCELLED"].includes(row["Rating"])
+                    ? row["Rating"]
+                    : (existingThesis ? existingThesis.rating : "ONGOING"),
+                supervisors: supervisors.length > 0 ? supervisors : undefined
+            };
+
+            if (existingThesis) {
+                await masterDataTaRepository.updateThesis(existingThesis.id, payload);
+                results.updated++;
+            } else {
+                payload.studentId = student.id;
+                // For new records, set 1 year deadline
+                const deadline = new Date(payload.startDate);
+                deadline.setFullYear(deadline.getFullYear() + 1);
+                payload.deadlineDate = deadline;
+
+                await masterDataTaRepository.createThesis(payload);
+                results.success++;
+            }
+        } catch (err) {
+            results.failed++;
+            results.errors.push(`Baris ${rowNum}: ${err.message}`);
+        }
+    }
+
+    return results;
 };

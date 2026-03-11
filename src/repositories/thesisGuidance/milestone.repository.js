@@ -404,6 +404,9 @@ export async function requestRevision(id, supervisorId, revisionNotes) {
     data: {
       status: "revision_needed",
       supervisorNotes: revisionNotes,
+      progressPercentage: {
+        decrement: 10,
+      },
     },
   });
 }
@@ -802,7 +805,11 @@ export function findPendingReviewBySupervisor(userId) {
       status: "pending_review",
       thesis: {
         thesisSupervisors: {
-          some: { lecturerId: userId },
+          some: {
+            lecturer: {
+              id: userId,
+            },
+          },
         },
       },
     },
@@ -817,6 +824,16 @@ export function findPendingReviewBySupervisor(userId) {
                 select: {
                   fullName: true,
                   identityNumber: true,
+                },
+              },
+            },
+          },
+          thesisSupervisors: {
+            include: {
+              role: true,
+              lecturer: {
+                include: {
+                  user: true,
                 },
               },
             },

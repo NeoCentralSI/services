@@ -1,4 +1,10 @@
 import * as monitoringService from "../../services/thesisGuidance/monitoring.service.js";
+import {
+  getKadepPendingTransfersService,
+  getKadepAllTransfersService,
+  kadepApproveTransferService,
+  kadepRejectTransferService,
+} from "../../services/thesisGuidance/lecturer.guidance.service.js";
 
 /**
  * Get monitoring dashboard for management
@@ -144,17 +150,123 @@ export async function sendWarningNotification(req, res, next) {
 }
 
 /**
+ * Send batch warning notifications to students
+ * @route POST /api/thesis-guidance/monitoring/batch-warning
+ */
+export async function sendBatchWarnings(req, res, next) {
+  try {
+    const { thesisIds, warningType } = req.body;
+    const result = await monitoringService.sendBatchWarningNotificationService(req.user.sub, thesisIds, warningType);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * Get progress report data for PDF generation
  * @route GET /api/thesis-guidance/monitoring/report
  */
 export async function getProgressReport(req, res, next) {
   try {
-    const { academicYear } = req.query;
-    const data = await monitoringService.getProgressReportService(academicYear);
+    const { academicYear, statusIds, ratings } = req.query;
+    const options = {
+      academicYearId: academicYear,
+      statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
+      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+    };
+    const data = await monitoringService.getProgressReportService(options);
     res.json({
       success: true,
       data,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Download progress report as PDF (server-side generation via Gotenberg)
+ * @route GET /api/thesis-guidance/monitoring/report/download
+ */
+export async function downloadProgressReport(req, res, next) {
+  try {
+    const { academicYear, statusIds, ratings } = req.query;
+    const options = {
+      academicYearId: academicYear,
+      statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
+      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+    };
+    const result = await monitoringService.generateProgressReportPdfService(options);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(result.filename)}"`
+    );
+    res.send(result.buffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ==================== KADEP TRANSFER APPROVAL ====================
+
+/**
+ * Get pending transfer requests for Kadep
+ * @route GET /api/thesis-guidance/monitoring/transfers/pending
+ */
+export async function getKadepPendingTransfers(req, res, next) {
+  try {
+    const result = await getKadepPendingTransfersService(req.user.sub);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Get all transfer requests for Kadep (with pagination for history)
+ * @route GET /api/thesis-guidance/monitoring/transfers/all
+ */
+export async function getKadepAllTransfers(req, res, next) {
+  try {
+    const { page = 1, pageSize = 10, search = "", status = "" } = req.query;
+    const result = await getKadepAllTransfersService(req.user.sub, {
+      page: Number(page),
+      pageSize: Number(pageSize),
+      search,
+      status,
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Kadep approves a transfer request
+ * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/approve
+ */
+export async function kadepApproveTransfer(req, res, next) {
+  try {
+    const { notificationId } = req.params;
+    const result = await kadepApproveTransferService(req.user.sub, notificationId);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Kadep rejects a transfer request
+ * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/reject
+ */
+export async function kadepRejectTransfer(req, res, next) {
+  try {
+    const { notificationId } = req.params;
+    const { reason } = req.body || {};
+    const result = await kadepRejectTransferService(req.user.sub, notificationId, { reason });
+    res.json({ success: true, ...result });
   } catch (error) {
     next(error);
   }
