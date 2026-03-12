@@ -1068,6 +1068,59 @@ export async function getStudentsReadyForSeminar() {
   }));
 }
 
+/**
+ * Remind supervisors to approve seminar readiness
+ */
+export async function remindSeminarReadiness(thesisId, userId) {
+  const { thesis } = await getThesisWithAccess(thesisId, userId);
+
+  // Get student info for notification
+  const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+
+  // Identify supervisors who haven't approved yet
+  const pendingSupervisors = thesis.thesisSupervisors.filter(
+    (s) => !s.seminarReady && (isPembimbing1(s.role?.name) || isPembimbing2(s.role?.name))
+  );
+
+  if (pendingSupervisors.length === 0) {
+    return { success: false, message: "Semua pembimbing sudah menyetujui kesiapan seminar." };
+  }
+
+  const supervisorUserIds = pendingSupervisors
+    .map((s) => s.lecturer?.user?.id)
+    .filter(Boolean);
+
+  if (supervisorUserIds.length > 0) {
+    const notifTitle = "🔔 Pengingat Persetujuan Seminar";
+    const notifMessage = `${studentName} mengingatkan Anda untuk meninjau dan menyetujui kesiapan seminar nya.`;
+
+    // Create in-app notifications
+    for (const supervisorUserId of supervisorUserIds) {
+      await createNotification({
+        userId: supervisorUserId,
+        title: notifTitle,
+        message: notifMessage,
+      });
+    }
+
+    // Send FCM push notification
+    try {
+      await sendFcmToUsers(supervisorUserIds, {
+        title: notifTitle,
+        body: notifMessage,
+        data: {
+          type: "seminar_readiness_reminder",
+          thesisId,
+        },
+      });
+    } catch (err) {
+      console.error("[FCM] Error sending seminar reminder notification:", err);
+    }
+  }
+
+  return { success: true, message: "Pengingat berhasil dikirim ke pembimbing." };
+}
+
 // ============================================
 // Defence Readiness Approval Services
 // ============================================
@@ -1458,7 +1511,7 @@ export async function requestDefence(thesisId, userId, documentId) {
  */
 export async function getPendingReviewForSupervisor(userId) {
   const milestones = await milestoneRepo.findPendingReviewBySupervisor(userId);
-  
+
   // Filter only milestones where this user is Pembimbing 1
   const filteredMilestones = milestones.filter((m) => {
     const userSupervisor = m.thesis?.thesisSupervisors?.find(

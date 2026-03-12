@@ -283,6 +283,16 @@ router.post(
   controller.revokeSeminarReadiness
 );
 
+/**
+ * POST /api/milestones/thesis/:thesisId/seminar-readiness/remind
+ * Request to remind supervisors to approve seminar readiness
+ */
+router.post(
+  "/thesis/:thesisId/seminar-readiness/remind",
+  authGuard,
+  controller.remindSeminarReadiness
+);
+
 // ============================================
 // Defence Readiness Routes
 // ============================================

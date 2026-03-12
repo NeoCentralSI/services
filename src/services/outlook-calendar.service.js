@@ -374,9 +374,14 @@ export async function hasCalendarAccess(userId) {
     },
   });
 
-  if (user?.oauthProvider !== "microsoft" || !user?.oauthRefreshToken) {
+  if (user?.oauthProvider !== "microsoft") {
     console.log("[OutlookCalendar] hasCalendarAccess: No Microsoft connection for user", userId);
     return { hasAccess: false, needsReconnect: false };
+  }
+
+  if (!user?.oauthRefreshToken) {
+    console.log("[OutlookCalendar] hasCalendarAccess: Microsoft connection exists but refresh token is missing", userId);
+    return { hasAccess: false, needsReconnect: true };
   }
 
   // Try to get a fresh token and verify calendar access
