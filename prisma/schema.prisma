@@ -816,22 +816,21 @@ model ThesisDefenceRevision {
 }
 
 model Yudisium {
-  id                    String         @id @default(uuid())
-  decreeUploadedBy      String?        @map("decree_uploaded_by")
-  roomId                String?        @map("room_id")
-  documentId            String?        @map("document_id")
-  exitSurveyFormId      String?        @map("exit_survey_form_id")
-  exitSurveyOpenDate    DateTime?      @map("exit_survey_open_date") @db.Date
-  exitSurveyCloseDate   DateTime?      @map("exit_survey_close_date") @db.Date
-  registrationOpenDate  DateTime?      @map("registration_open_date") @db.Date
-  registrationCloseDate DateTime?      @map("registration_close_date") @db.Date
-  eventDate             DateTime?      @map("event_date") @db.Date
-  notes                 String?        @db.Text
-  status                YudisiumStatus @default(draft)
-  decreeNumber          String?        @map("decree_number") @db.VarChar(255)
-  decreeIssuedAt        DateTime?      @map("decree_issued_at")
-  createdAt             DateTime       @default(now()) @map("created_at")
-  updatedAt             DateTime       @updatedAt @map("updated_at")
+  id                    String                    @id @default(uuid())
+  name                  String                    @db.VarChar(255)
+  decreeUploadedBy      String?                   @map("decree_uploaded_by")
+  roomId                String?                   @map("room_id")
+  documentId            String?                   @map("document_id")
+  exitSurveyFormId      String?                   @map("exit_survey_form_id")
+  registrationOpenDate  DateTime?                 @map("registration_open_date") @db.Date
+  registrationCloseDate DateTime?                 @map("registration_close_date") @db.Date
+  eventDate             DateTime?                 @map("event_date") @db.Date
+  notes                 String?                   @db.Text
+  status                YudisiumStatus            @default(draft)
+  decreeNumber          String?                   @map("decree_number") @db.VarChar(255)
+  decreeIssuedAt        DateTime?                 @map("decree_issued_at")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
 
   decreeUploader             User?                       @relation("YudisiumDecreeUploader", fields: [decreeUploadedBy], references: [id])
   room                       Room?                       @relation(fields: [roomId], references: [id])

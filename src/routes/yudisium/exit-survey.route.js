@@ -1,17 +1,17 @@
 import express from "express";
-import * as formController from "../controllers/exitSurveyForm.controller.js";
-import * as questionController from "../controllers/exitSurveyQuestion.controller.js";
-import { validate } from "../middlewares/validation.middleware.js";
+import * as formController from "../../controllers/yudisium/exitSurveyForm.controller.js";
+import * as questionController from "../../controllers/yudisium/exitSurveyQuestion.controller.js";
+import { validate } from "../../middlewares/validation.middleware.js";
 import {
   createExitSurveyFormSchema,
   updateExitSurveyFormSchema,
-} from "../validators/exitSurveyForm.validator.js";
+} from "../../validators/exitSurveyForm.validator.js";
 import {
   createExitSurveyQuestionSchema,
   updateExitSurveyQuestionSchema,
-} from "../validators/exitSurveyQuestion.validator.js";
-import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
-import { ROLES } from "../constants/roles.js";
+} from "../../validators/exitSurveyQuestion.validator.js";
+import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
+import { ROLES } from "../../constants/roles.js";
 
 const router = express.Router();
 
