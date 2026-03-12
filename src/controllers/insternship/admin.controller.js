@@ -1,10 +1,7 @@
 import * as adminService from "../../services/insternship/admin.service.js";
 
 /**
- * Controller to get proposals with status APPROVED_BY_SEKDEP for Admin.
- * @param {import('express').Request} req 
- * @param {import('express').Response} res 
- * @param {import('express').NextFunction} next 
+ * Controller to get proposals with status APPROVED_PROPOSAL for Admin.
  */
 export async function getApprovedInternshipProposals(req, res, next) {
     try {
@@ -26,10 +23,15 @@ export async function getApprovedInternshipProposals(req, res, next) {
  */
 export async function getCompaniesWithStats(req, res, next) {
     try {
-        const data = await adminService.getCompaniesStats();
+        const { q, page = 1, pageSize = 10, sortBy, sortOrder, status } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await adminService.getCompaniesStats({ q, skip, take, sortBy, sortOrder, status });
         res.status(200).json({
             success: true,
-            data
+            data,
+            total
         });
     } catch (error) {
         next(error);

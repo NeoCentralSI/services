@@ -60,6 +60,12 @@ export async function generateApplicationLetter(proposalId, data) {
             tanggal_mulai: formatDate(data.startDate),
             tanggal_selesai: formatDate(data.endDate),
             // Alias for shorter tags
+            "": data.members.map((m, i) => ({
+                no: i + 1,
+                nim: m.nim,
+                nama: m.name,
+                prodi: "Sistem Informasi"
+            })),
             m: data.members.map((m, i) => ({
                 no: i + 1,
                 nim: m.nim,
@@ -231,6 +237,12 @@ export async function generateAssignmentLetter(proposalId, data) {
             tanggal_mulai: formatDate(data.startDate),
             tanggal_selesai: formatDate(data.endDate),
             // Alias for shorter tags
+            "": data.members.map((m, i) => ({
+                no: i + 1,
+                nim: m.nim,
+                nama: m.name,
+                prodi: "Sistem Informasi"
+            })),
             m: data.members.map((m, i) => ({
                 no: i + 1,
                 nim: m.nim,

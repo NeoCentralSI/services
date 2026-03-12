@@ -12,6 +12,7 @@ export async function findMyStudents(lecturerId, roles) {
 	const where = {
 		lecturerId,
 		thesis: {
+			isProposal: false,
 			thesisStatus: {
 				name: { notIn: ["Gagal", "Failed", "failed"] }
 			}
@@ -110,6 +111,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 	const where = {
 		supervisorId: lecturerId,
 		status: "requested",
+		thesis: { isProposal: false },
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -143,7 +145,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 
 export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 	return prisma.thesisGuidance.findFirst({
-		where: { id: guidanceId, supervisorId: lecturerId },
+		where: { id: guidanceId, supervisorId: lecturerId, thesis: { isProposal: false } },
 		include: {
 			thesis: { include: { student: { include: { user: true } }, document: true } },
 			document: { select: { id: true, fileName: true, filePath: true } },
@@ -221,7 +223,7 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 
 export async function getLecturerTheses(lecturerId) {
 	const parts = await prisma.ThesisSupervisors.findMany({
-		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
+		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } }, thesis: { isProposal: false } },
 		select: { thesisId: true },
 	});
 	return parts.map((p) => p.thesisId);
@@ -245,6 +247,7 @@ export async function getStudentActiveThesis(studentId, lecturerId) {
 	return prisma.thesis.findFirst({
 		where: {
 			studentId,
+			isProposal: false,
 			thesisSupervisors: { some: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } } },
 		},
 		include: { thesisProgressCompletions: true },
@@ -301,7 +304,7 @@ export async function upsertCompletionsValidated(thesisId, componentIds = []) {
 export async function listGuidanceHistory(studentId, lecturerId) {
 	return prisma.thesisGuidance.findMany({
 		where: {
-			thesis: { studentId },
+			thesis: { studentId, isProposal: false },
 			status: { not: "deleted" },
 		},
 		include: {
@@ -378,7 +381,9 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 		where: {
 			thesisId,
 			lecturerId,
+			thesis: { isProposal: false }
 		},
+		include: { role: { select: { id: true, name: true } } },
 	});
 	if (!participant) return null;
 
@@ -404,6 +409,12 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 			},
 			thesisMilestones: {
 				orderBy: { updatedAt: "desc" }
+			},
+			thesisSupervisors: {
+				include: {
+					role: { select: { id: true, name: true } },
+					lecturer: { include: { user: { select: { id: true, fullName: true } } } }
+				}
 			}
 		}
 	});
@@ -422,6 +433,7 @@ export async function findGuidancesPendingApproval(lecturerId, { page = 1, pageS
 	const where = {
 		supervisorId: lecturerId,
 		status: "summary_pending",
+		thesis: { isProposal: false }
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -487,6 +499,7 @@ export async function findPendingGuidanceById(guidanceId, lecturerId) {
 			id: guidanceId,
 			supervisorId: lecturerId,
 			status: "summary_pending",
+			thesis: { isProposal: false }
 		},
 		include: {
 			thesis: {
@@ -511,6 +524,7 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 	const where = {
 		supervisorId: lecturerId,
 		status: { in: ["accepted", "summary_pending", "completed", "cancelled", "rejected"] },
+		thesis: { isProposal: false }
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -590,6 +604,7 @@ export async function findSupervisorRecords(thesisIds, lecturerId) {
 		where: {
 			thesisId: { in: thesisIds },
 			lecturerId,
+			thesis: { isProposal: false }
 		},
 		include: {
 			role: { select: { id: true, name: true } },

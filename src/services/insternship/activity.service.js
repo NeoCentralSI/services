@@ -63,17 +63,44 @@ export async function updateInternshipDetails(studentId, data) {
 }
 
 /**
- * Generate Logbook PDF based on DOCX template.
- * @param {string} studentId 
- * @returns {Promise<Buffer>}
+ * Internal helper to prepare logbook data for templates.
  */
-export async function generateLogbookPdf(studentId) {
+async function prepareLogbookData(studentId) {
     const { internship, logbooks } = await getStudentLogbooks(studentId);
 
     if (!internship) {
         throw new Error("Data Kerja Praktik tidak ditemukan.");
     }
 
+    const formatDate = (date) => {
+        if (!date) return "-";
+        return new Date(date).toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "long",
+            year: "numeric"
+        });
+    };
+
+    const templateData = {
+        instansi: internship.proposal?.targetCompany?.companyName || "-",
+        nama: internship.student?.user?.fullName || "-",
+        nim: internship.student?.user?.identityNumber || "-",
+        pembimbing: internship.fieldSupervisorName || "( ........................................ )",
+        tanggal_cetak: formatDate(new Date()),
+        a: logbooks.map((log, index) => ({
+            no: index + 1,
+            tanggal: formatDate(log.activityDate),
+            kegiatan: log.activityDescription || "-"
+        }))
+    };
+
+    return { internship, templateData };
+}
+
+/**
+ * Internal helper to generate DOCX buffer from template.
+ */
+async function generateLogbookDocxBuffer(templateData) {
     // Find template for logbook
     const templateDoc = await prisma.document.findFirst({
         where: {
@@ -102,35 +129,60 @@ export async function generateLogbookPdf(studentId) {
         }
     });
 
-    const formatDate = (date) => {
-        if (!date) return "-";
-        return new Date(date).toLocaleDateString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric"
-        });
-    };
-
-    const templateData = {
-        instansi: internship.proposal?.targetCompany?.companyName || "-",
-        nama: internship.student?.user?.fullName || "-",
-        nim: internship.student?.user?.identityNumber || "-",
-        pembimbing: internship.fieldSupervisorName || "( ........................................ )",
-        tanggal_cetak: formatDate(new Date()),
-        a: logbooks.map((log, index) => ({
-            no: index + 1,
-            tanggal: formatDate(log.activityDate),
-            kegiatan: log.activityDescription || "-"
-        }))
-    };
-
     doc.render(templateData);
 
-    const docxBuffer = doc.getZip().generate({
+    return doc.getZip().generate({
         type: "nodebuffer",
         compression: "DEFLATE",
     });
+}
+
+/**
+ * Generate Logbook PDF based on DOCX template.
+ * @param {string} studentId 
+ * @returns {Promise<Buffer>}
+ */
+export async function generateLogbookPdf(studentId) {
+    const { templateData } = await prepareLogbookData(studentId);
+    const docxBuffer = await generateLogbookDocxBuffer(templateData);
 
     // Convert DOCX to PDF
-    return convertDocxToPdf(docxBuffer, `Logbook_${templateData.studentName}.docx`);
+    return convertDocxToPdf(docxBuffer, `Logbook_${templateData.nama}.docx`);
+}
+
+/**
+ * Generate Logbook DOCX.
+ * @param {string} studentId 
+ * @returns {Promise<{buffer: Buffer, filename: string}>}
+ */
+export async function generateLogbookDocx(studentId) {
+    const { templateData } = await prepareLogbookData(studentId);
+    const buffer = await generateLogbookDocxBuffer(templateData);
+
+    return {
+        buffer,
+        filename: `Logbook_${templateData.nama}.docx`
+    };
+}
+
+/**
+ * Submit an internship report revision.
+ * @param {string} studentId 
+ * @param {string} title 
+ * @param {string} documentId 
+ * @returns {Promise<Object>}
+ */
+export async function submitInternshipReport(studentId, title, documentId) {
+    const internship = await activityRepository.getStudentInternship(studentId);
+    if (!internship) {
+        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    return activityRepository.createReport({
+        internshipId: internship.id,
+        title,
+        documentId
+    });
 }

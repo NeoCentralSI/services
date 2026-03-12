@@ -59,6 +59,16 @@ export function isExaminerRole(roleName) {
   return EXAMINER_ROLES.some(r => normalize(r) === normalized);
 }
 
+export function isPembimbing1(roleName) {
+  const normalized = normalize(roleName);
+  return normalized === normalize(ROLES.PEMBIMBING_1);
+}
+
+export function isPembimbing2(roleName) {
+  const normalized = normalize(roleName);
+  return normalized === normalize(ROLES.PEMBIMBING_2);
+}
+
 // Notification recipient categories (for FCM data, not DB roles)
 export const ROLE_CATEGORY = {
   STUDENT: "student",

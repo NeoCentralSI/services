@@ -1060,7 +1060,13 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "", scien
 						_count: {
 							select: {
 								thesisGuidances: true,
-								thesisSupervisors: true,
+								thesisSupervisors: {
+									where: {
+										thesis: {
+											thesisStatus: { name: "Bimbingan" },
+										},
+									},
+								},
 							},
 						},
 					},
@@ -1088,7 +1094,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "", scien
 		lecturer: user.lecturer
 			? {
 				id: user.lecturer.id,
-				activeGuidances: user.lecturer._count?.thesisGuidances || 0,
+				activeGuidances: user.lecturer._count?.thesisSupervisors || 0,
 				participations: user.lecturer._count?.thesisSupervisors || 0,
 				scienceGroup: user.lecturer.scienceGroup?.name || null,
 				scienceGroupId: user.lecturer.scienceGroupId || null,

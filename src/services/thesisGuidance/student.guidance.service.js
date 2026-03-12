@@ -212,6 +212,8 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     notes: guidance.studentNotes || null,
     supervisorFeedback: guidance.supervisorFeedback || null,
     rejectionReason: guidance.rejectionReason || null,
+    sessionSummary: guidance.sessionSummary || null,
+    actionItems: guidance.actionItems || null,
     milestoneIds,
     milestoneTitles,
   };
@@ -222,18 +224,6 @@ export async function getGuidanceDetailService(userId, guidanceId) {
       fileName: guidance.document.fileName,
       filePath: guidance.document.filePath,
     };
-  } else {
-    // Fallback: show thesis-level document if no guidance-specific document
-    try {
-      const t = await prisma.thesis.findUnique({ where: { id: guidance.thesisId }, include: { document: true } });
-      if (t?.document) {
-        flat.document = {
-          id: t.document.id,
-          fileName: t.document.fileName,
-          filePath: t.document.filePath,
-        };
-      }
-    } catch { }
   }
   return { guidance: flat };
 }
@@ -418,16 +408,17 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesis.id);
       await mkdir(uploadsRoot, { recursive: true });
 
-      // Build versioned filename: nim_Name_LaporanTA_v{n}.pdf
+      // Build versioned filename: nim_Name_LaporanTA_v{n}.{ext}
       const nim = studentUser?.identityNumber || "NIM";
       const cleanName = (studentUser?.fullName || "Mahasiswa").replace(/[^a-zA-Z0-9]/g, "_");
       const baseName = `${nim}_${cleanName}_LaporanTA`;
+      const ext = path.extname(file.originalname).toLowerCase() || ".pdf";
 
       // Auto-increment version based on existing files in the directory
       let version = 1;
       if (fs.existsSync(uploadsRoot)) {
         const existingFiles = fs.readdirSync(uploadsRoot);
-        const versionRegex = new RegExp(`^${baseName}_v(\\d+)\\.pdf$`, "i");
+        const versionRegex = new RegExp(`^${baseName}_v(\\d+)\\${ext}$`, "i");
         for (const f of existingFiles) {
           const match = f.match(versionRegex);
           if (match) {
@@ -437,7 +428,7 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
         }
       }
 
-      const versionedName = `${baseName}_v${version}.pdf`;
+      const versionedName = `${baseName}_v${version}${ext}`;
       const filePath = path.join(uploadsRoot, versionedName);
       await writeFile(filePath, file.buffer);
 
@@ -865,7 +856,7 @@ export async function listSupervisorsService(userId) {
   // Fall back to most recent thesis (including Gagal/Dibatalkan) for overview display
   if (!thesis) {
     thesis = await prisma.thesis.findFirst({
-      where: { studentId: student.id },
+      where: { studentId: student.id, isProposal: false },
       orderBy: { createdAt: 'desc' },
       include: {
         thesisStatus: { select: { id: true, name: true } },
@@ -1307,7 +1298,7 @@ export async function getMyThesisDetailService(userId) {
   // so the frontend can display the appropriate status message
   if (!thesis) {
     thesis = await prisma.thesis.findFirst({
-      where: { studentId: student.id },
+      where: { studentId: student.id, isProposal: false },
       orderBy: { createdAt: 'desc' },
       include: {
         document: { select: { id: true, filePath: true, fileName: true } },
@@ -1573,14 +1564,14 @@ export async function getThesisHistoryService(userId) {
       rating: t.rating || "ONGOING",
       topic: t.thesisTopic?.name || "-",
       academicYear: t.academicYear
-        ? `${t.academicYear.year}/${t.academicYear.year + 1} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
+        ? `${t.academicYear.year.includes('/') ? t.academicYear.year : `${t.academicYear.year}/${parseInt(t.academicYear.year) + 1}`} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
         : "-",
       createdAt: t.createdAt,
       stats: {
         guidances: t._count.thesisGuidances,
         completedMilestones: ["Dibatalkan", "Gagal"].includes(t.thesisStatus?.name)
-          ? `0/${t._count.thesisMilestones}`
-          : t._count.thesisMilestones,
+          ? `0/${t.thesisMilestones?.length || 0}`
+          : t.thesisMilestones?.filter((m) => m.status === "completed").length || 0,
       },
       supervisors: (t.thesisSupervisors || []).map(s => ({
         id: s.lecturerId,
@@ -1617,7 +1608,7 @@ export async function proposeThesisService(userId, { title, topicId }) {
   // 1b. Block re-registration for students with FAILED thesis
   // They must go to the department in person to re-register
   const latestThesis = await prisma.thesis.findFirst({
-    where: { studentId: student.id },
+    where: { studentId: student.id, isProposal: false },
     orderBy: { createdAt: 'desc' },
     include: { thesisStatus: { select: { name: true } } },
   });
@@ -1638,7 +1629,7 @@ export async function proposeThesisService(userId, { title, topicId }) {
   // 3. Get supervisors from previous thesis (if any)
   // We need to look at the MAJOR previous thesis (the one that was cancelled/failed most recently)
   const previousTheses = await prisma.thesis.findMany({
-    where: { studentId: student.id },
+    where: { studentId: student.id, isProposal: false },
     orderBy: { createdAt: 'desc' },
     take: 1,
     include: {

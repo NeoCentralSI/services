@@ -17,7 +17,7 @@ import {
 
 // Map from document type name → accepted extensions
 const DOC_TYPE_CONFIG = {
-  "Laporan Tugas Akhir": { accept: [".pdf"], label: "Laporan Tugas Akhir (PDF)" },
+  "Laporan Tugas Akhir": { accept: [".pdf", ".docx"], label: "Laporan Tugas Akhir (PDF/DOCX)" },
   "Slide Presentasi": { accept: [".ppt", ".pptx"], label: "Slide Presentasi (PPT)" },
   "Draft Jurnal TEKNOSI": { accept: [".pdf"], label: "Draft Jurnal TEKNOSI (PDF)" },
 };

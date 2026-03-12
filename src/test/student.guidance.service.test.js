@@ -763,9 +763,12 @@ describe("Module 5: Thesis Overview & History", () => {
           id: "thesis-1", title: "TA Lama", rating: "ONGOING",
           thesisStatus: { name: "Gagal" },
           thesisTopic: { name: "ML" },
-          academicYear: { year: 2024, semester: "ganjil" },
+          academicYear: { year: "2024", semester: "ganjil" },
           createdAt: new Date(),
           _count: { thesisGuidances: 3, thesisMilestones: 5 },
+          thesisMilestones: [
+            { status: "completed" }, { status: "completed" }, { status: "not_started" },
+          ],
           thesisSupervisors: [{ lecturerId: "lec-1", lecturer: { user: { fullName: "Dr. Andi" } }, role: { name: "pembimbing_1" } }],
         },
       ]);

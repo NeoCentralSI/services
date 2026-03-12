@@ -41,6 +41,35 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
 }
 
 /**
+ * Converts HTML content to PDF using Gotenberg (Chromium module)
+ * @param {string} html - The HTML content to convert
+ * @returns {Promise<Buffer>} - The converted PDF as a buffer
+ */
+export async function convertHtmlToPdf(html) {
+    try {
+        const url = `${ENV.GOTENBERG_URL || 'http://localhost:3001'}/forms/chromium/convert/html`;
+
+        const form = new FormData();
+        form.append('files', Buffer.from(html), {
+            filename: 'index.html',
+            contentType: 'text/html'
+        });
+
+        const response = await axios.post(url, form, {
+            headers: {
+                ...form.getHeaders()
+            },
+            responseType: 'arraybuffer'
+        });
+
+        return Buffer.from(response.data);
+    } catch (error) {
+        console.error('Gotenberg HTML to PDF conversion failed:', error.response?.data?.toString() || error.message);
+        throw new Error('Gagal mengonversi HTML ke PDF melalui Gotenberg');
+    }
+}
+
+/**
  * Adds guidance table pages + signature to a base PDF using pdf-lib.
  *
  * @param {Buffer} basePdfBytes  – PDF from Gotenberg (identity/header page)
@@ -72,10 +101,10 @@ export async function addGuidanceTablePages(basePdfBytes, opts) {
 
     // Column definitions: No | Tanggal | Pokok Bahasan | Paraf
     const cols = [
-        { w: 30,  hdr: 'No',                align: 'center' },
+        { w: 30, hdr: 'No', align: 'center' },
         { w: 100, hdr: 'Tanggal Bimbingan', align: 'center' },
         { w: 305, hdr: 'Pokok bahasan / Kemajuan / Tugas yang Didiskusikan', align: 'left' },
-        { w: 33,  hdr: 'Paraf\nDosen',      align: 'center' },
+        { w: 33, hdr: 'Paraf\nDosen', align: 'center' },
     ];
     const totalColW = cols.reduce((s, c) => s + c.w, 0);
     const scale = tableW / totalColW;
@@ -127,8 +156,10 @@ export async function addGuidanceTablePages(basePdfBytes, opts) {
         const f = isHeader ? fontBold : font;
         const sz = isHeader ? FS_HDR : FS;
         // Border
-        page.drawRectangle({ x, y: y - h, width: w, height: h,
-            borderColor, borderWidth: 0.5, color: rgb(1, 1, 1) });
+        page.drawRectangle({
+            x, y: y - h, width: w, height: h,
+            borderColor, borderWidth: 0.5, color: rgb(1, 1, 1)
+        });
         // Text
         const innerW = w - cellPad * 2;
         const paragraphs = String(text || '').split('\n');

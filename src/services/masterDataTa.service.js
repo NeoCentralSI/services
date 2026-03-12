@@ -26,6 +26,7 @@ export const getAllThesesMasterData = async () => {
         title: thesis.title,
         rating: thesis.rating,
         startDate: thesis.startDate,
+        isProposal: thesis.isProposal,
         student: {
             id: thesis.student?.id,
             nim: thesis.student?.user?.identityNumber,
@@ -115,7 +116,8 @@ export const createThesisMasterData = async (data) => {
         thesisStatusId: bimbinganStatus ? bimbinganStatus.id : null,
         startDate,
         deadlineDate,
-        supervisors
+        supervisors,
+        isProposal: data.isProposal ?? false
     };
 
     return await masterDataTaRepository.createThesis(payload);
