@@ -20,6 +20,53 @@ function toTitleCaseName(str) {
 }
 
 /**
+ * Calculate last activity date from multiple sources (guidance, milestone, seminar)
+ */
+function calculateLastActivity(thesis) {
+  const dates = [];
+
+  // 1. Guidance approvals
+  const latestGuidance = (thesis.thesisGuidances || []).sort((a, b) => 
+    new Date(b.approvedDate || b.completedAt || 0).getTime() - 
+    new Date(a.approvedDate || a.completedAt || 0).getTime()
+  )[0];
+  if (latestGuidance) {
+    const d = latestGuidance.approvedDate || latestGuidance.completedAt;
+    if (d) dates.push(new Date(d));
+  }
+
+  // 2. Milestone completions/updates
+  const latestMilestone = (thesis.thesisMilestones || []).filter(m => m.status === "completed").sort((a, b) => 
+    new Date(b.updatedAt || b.completedAt || 0).getTime() - 
+    new Date(a.updatedAt || a.completedAt || 0).getTime()
+  )[0];
+  if (latestMilestone) {
+    const d = latestMilestone.updatedAt || latestMilestone.completedAt;
+    if (d) dates.push(new Date(d));
+  }
+
+  // 3. Seminar updates/approvals
+  const latestSeminar = (thesis.thesisSeminars || []).sort((a, b) => 
+    new Date(b.updatedAt || 0).getTime() - 
+    new Date(a.updatedAt || 0).getTime()
+  )[0];
+  if (latestSeminar) {
+    if (latestSeminar.updatedAt) dates.push(new Date(latestSeminar.updatedAt));
+  }
+
+  // Fallback to thesis updatedAt
+  if (thesis.updatedAt) dates.push(new Date(thesis.updatedAt));
+
+  if (dates.length === 0) return thesis.createdAt;
+
+  // Return the maximum date
+  const validDates = dates.filter(d => !isNaN(d.getTime()));
+  if (validDates.length === 0) return thesis.createdAt || new Date().toISOString();
+
+  return new Date(Math.max(...validDates.map(d => d.getTime()))).toISOString();
+}
+
+/**
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
@@ -81,9 +128,8 @@ export async function getThesesList(filters) {
     const totalMilestones = milestones.length;
     const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-    // Get last activity from latest completed guidance approval date (most valid)
-    const latestGuidance = t.thesisGuidances?.[0];
-    let lastActivity = latestGuidance?.approvedDate || latestGuidance?.completedAt || t.updatedAt;
+    // Get last activity from multiple indicators (guidance, milestone, seminar)
+    const lastActivity = calculateLastActivity(t);
 
     // Get supervisors
     const pembimbing1 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
@@ -274,11 +320,8 @@ export async function getThesisDetail(thesisId) {
   const totalMilestones = milestones.length;
   const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-  // Get last activity from latest completed guidance approval date (most valid)
-  const latestCompletedGuidance = (thesis.thesisGuidances || [])
-    .filter((g) => g.status === "completed")
-    .sort((a, b) => new Date(b.approvedDate || b.completedAt || 0).getTime() - new Date(a.approvedDate || a.completedAt || 0).getTime())[0];
-  let lastActivity = latestCompletedGuidance?.approvedDate || latestCompletedGuidance?.completedAt || thesis.updatedAt;
+  // Get last activity from multiple indicators (guidance, milestone, seminar)
+  const lastActivity = calculateLastActivity(thesis);
 
   // Separate supervisors and examiners
   const supervisors = thesis.thesisSupervisors
