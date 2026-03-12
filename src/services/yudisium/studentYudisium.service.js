@@ -61,45 +61,102 @@ const findStudentContext = async (userId) => {
         throw new NotFoundError("Data mahasiswa tidak ditemukan");
     }
 
-    const currentYudisium = await prisma.yudisium.findFirst({
-        where: { status: "open" },
-        orderBy: [{ registrationOpenDate: "desc" }, { createdAt: "desc" }],
-        select: {
-            id: true,
-            name: true,
-            status: true,
-            registrationOpenDate: true,
-            registrationCloseDate: true,
-            eventDate: true,
-            exitSurveyForm: {
-                select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                    questions: {
-                        orderBy: { orderNumber: "asc" },
-                        select: {
-                            id: true,
-                            question: true,
-                            questionType: true,
-                            isRequired: true,
-                            orderNumber: true,
-                            options: {
-                                orderBy: { orderNumber: "asc" },
-                                select: {
-                                    id: true,
-                                    optionText: true,
-                                    orderNumber: true,
+    // First try to find a yudisium where the student is already a participant
+    const thesis = student.thesis[0] ?? null;
+    let currentYudisium = null;
+
+    if (thesis?.id) {
+        const participantRecord = await prisma.yudisiumParticipant.findFirst({
+            where: { thesisId: thesis.id },
+            orderBy: { createdAt: "desc" },
+            select: {
+                yudisium: {
+                    select: {
+                        id: true,
+                        name: true,
+                        status: true,
+                        registrationOpenDate: true,
+                        registrationCloseDate: true,
+                        eventDate: true,
+                        decreeNumber: true,
+                        decreeIssuedAt: true,
+                        documentId: true,
+                        document: {
+                            select: { id: true, fileName: true, filePath: true },
+                        },
+                        exitSurveyForm: {
+                            select: {
+                                id: true,
+                                name: true,
+                                description: true,
+                                questions: {
+                                    orderBy: { orderNumber: "asc" },
+                                    select: {
+                                        id: true,
+                                        question: true,
+                                        questionType: true,
+                                        isRequired: true,
+                                        orderNumber: true,
+                                        options: {
+                                            orderBy: { orderNumber: "asc" },
+                                            select: { id: true, optionText: true, orderNumber: true },
+                                        },
+                                    },
                                 },
                             },
                         },
                     },
                 },
             },
-        },
-    });
+        });
 
-    const thesis = student.thesis[0] ?? null;
+        if (participantRecord) {
+            currentYudisium = participantRecord.yudisium;
+        }
+    }
+
+    // If not yet a participant, find an open yudisium
+    if (!currentYudisium) {
+        currentYudisium = await prisma.yudisium.findFirst({
+            where: { status: "open" },
+            orderBy: [{ registrationOpenDate: "desc" }, { createdAt: "desc" }],
+            select: {
+                id: true,
+                name: true,
+                status: true,
+                registrationOpenDate: true,
+                registrationCloseDate: true,
+                eventDate: true,
+                decreeNumber: true,
+                decreeIssuedAt: true,
+                documentId: true,
+                document: {
+                    select: { id: true, fileName: true, filePath: true },
+                },
+                exitSurveyForm: {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        questions: {
+                            orderBy: { orderNumber: "asc" },
+                            select: {
+                                id: true,
+                                question: true,
+                                questionType: true,
+                                isRequired: true,
+                                orderNumber: true,
+                                options: {
+                                    orderBy: { orderNumber: "asc" },
+                                    select: { id: true, optionText: true, orderNumber: true },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
 
     return { student, currentYudisium, thesis };
 };
@@ -233,8 +290,64 @@ export const getStudentYudisiumOverview = async (userId) => {
 
     const allChecklistMet = Object.values(checklist).every((item) => item.met);
 
+    // Check CPL validation status
+    let allCplVerified = false;
+    let cplScores = [];
+    if (thesis?.id) {
+        const studentId = student.id;
+        const activeCpls = await prisma.cpl.findMany({
+            where: { isActive: true },
+            orderBy: { displayOrder: "asc" },
+            select: { id: true, code: true, description: true, minimalScore: true },
+        });
+
+        const scores = await prisma.studentCplScore.findMany({
+            where: { studentId },
+            select: { cplId: true, score: true, status: true },
+        });
+
+        const scoreMap = new Map(scores.map((s) => [s.cplId, s]));
+
+        cplScores = activeCpls.map((cpl) => {
+            const sc = scoreMap.get(cpl.id);
+            return {
+                code: cpl.code,
+                description: cpl.description,
+                score: sc?.score ?? null,
+                minimalScore: cpl.minimalScore,
+                status: sc?.status ?? "calculated",
+                passed: sc ? sc.score >= cpl.minimalScore : false,
+            };
+        });
+
+        allCplVerified = activeCpls.length > 0 && activeCpls.every(
+            (cpl) => scoreMap.get(cpl.id)?.status === "verified"
+        );
+    }
+
     return {
-        yudisium: currentYudisium,
+        yudisium: currentYudisium
+            ? {
+                id: currentYudisium.id,
+                name: currentYudisium.name,
+                status: currentYudisium.status,
+                registrationOpenDate: currentYudisium.registrationOpenDate,
+                registrationCloseDate: currentYudisium.registrationCloseDate,
+                eventDate: currentYudisium.eventDate,
+                decreeNumber: currentYudisium.decreeNumber ?? null,
+                decreeIssuedAt: currentYudisium.decreeIssuedAt ?? null,
+                decreeDocument: currentYudisium.document
+                    ? {
+                        id: currentYudisium.document.id,
+                        fileName: currentYudisium.document.fileName,
+                        filePath: currentYudisium.document.filePath,
+                    }
+                    : null,
+                exitSurveyForm: currentYudisium.exitSurveyForm
+                    ? { id: currentYudisium.exitSurveyForm.id, name: currentYudisium.exitSurveyForm.name }
+                    : null,
+            }
+            : null,
         participantStatus: participant?.status ?? null,
         thesis: thesis
             ? {
@@ -244,6 +357,8 @@ export const getStudentYudisiumOverview = async (userId) => {
             : null,
         checklist,
         allChecklistMet,
+        allCplVerified,
+        cplScores,
         requirements,
     };
 };
