@@ -123,7 +123,9 @@ export async function getStudentSeminarOverview(userId) {
           endTime: currentSeminar.endTime,
           meetingLink: currentSeminar.meetingLink,
           finalScore: currentSeminar.finalScore,
-          grade: currentSeminar.grade,
+          grade: currentSeminar.finalScore !== null && currentSeminar.finalScore !== undefined
+            ? mapScoreToGrade(currentSeminar.finalScore)
+            : null,
           resultFinalizedAt: currentSeminar.resultFinalizedAt,
           cancelledReason: currentSeminar.cancelledReason,
           room: currentSeminar.room,
@@ -206,7 +208,7 @@ export async function getSeminarAnnouncements(userId) {
       isOwn,
       isPast,
       isRegistered,
-      isPresent: audienceRecord?.isPresent || false,
+      isPresent: Boolean(audienceRecord?.approvedAt),
       registeredAt: audienceRecord?.registeredAt || null,
     };
   });
@@ -307,7 +309,7 @@ export async function getStudentAttendanceHistory(userId) {
 
   const records = await getSeminarAttendanceHistory(studentId);
 
-  const attendedCount = records.filter((r) => r.isPresent).length;
+  const attendedCount = records.filter((r) => Boolean(r.approvedAt)).length;
   const totalCount = records.length;
 
   return {
@@ -322,7 +324,7 @@ export async function getStudentAttendanceHistory(userId) {
       presenterName: r.seminar?.thesis?.student?.user?.fullName || "-",
       thesisTitle: r.seminar?.thesis?.title || "-",
       date: r.seminar?.date,
-      isPresent: r.isPresent,
+      isPresent: Boolean(r.approvedAt),
       approvedAt: r.approvedAt,
       approvedBy: r.supervisor?.lecturer?.user?.fullName || null,
     })),
@@ -546,7 +548,9 @@ export async function getStudentSeminarHistory(userId) {
     endTime: s.endTime,
     meetingLink: s.meetingLink,
     finalScore: s.finalScore,
-    grade: s.grade,
+    grade: s.finalScore !== null && s.finalScore !== undefined
+      ? mapScoreToGrade(s.finalScore)
+      : null,
     resultFinalizedAt: s.resultFinalizedAt,
     cancelledReason: s.cancelledReason,
     room: s.room,
@@ -656,7 +660,9 @@ export async function getStudentSeminarDetail(userId, seminarId) {
     endTime: seminar.endTime,
     meetingLink: seminar.meetingLink,
     finalScore: seminar.finalScore,
-    grade: seminar.grade,
+    grade: seminar.finalScore !== null && seminar.finalScore !== undefined
+      ? mapScoreToGrade(seminar.finalScore)
+      : null,
     resultFinalizedAt: seminar.resultFinalizedAt,
     cancelledReason: seminar.cancelledReason,
     room: seminar.room,
@@ -696,7 +702,7 @@ export async function getStudentSeminarDetail(userId, seminarId) {
       studentName: a.student?.user?.fullName || "-",
       nim: a.student?.user?.identityNumber || "-",
       registeredAt: a.registeredAt,
-      isPresent: a.isPresent,
+      isPresent: Boolean(a.approvedAt),
       approvedAt: a.approvedAt,
       approvedByName: a.supervisor?.lecturer?.user?.fullName || null,
     })),
@@ -770,7 +776,9 @@ export async function getStudentSeminarAssessment(userId, seminarId) {
       id: seminar.id,
       status: seminar.status,
       finalScore: seminar.finalScore ?? null,
-      grade: seminar.grade ?? null,
+      grade: seminar.finalScore !== null && seminar.finalScore !== undefined
+        ? mapScoreToGrade(seminar.finalScore)
+        : null,
       resultFinalizedAt: seminar.resultFinalizedAt ?? null,
     },
     examiners: examiners.map((item) => {

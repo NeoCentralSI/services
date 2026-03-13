@@ -1,4 +1,4 @@
-﻿import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, createRoom, updateRoom, getRooms, deleteRoom } from "../services/adminfeatures.service.js";
+﻿import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, createRoom, updateRoom, getRooms, deleteRoom, getSeminarResultThesisOptions, getSeminarResultLecturerOptions, getSeminarResultStudentOptions, getSeminarResults, createSeminarResult, updateSeminarResult, deleteSeminarResult, getSeminarResultAudienceLinks, assignSeminarResultAudiences, removeSeminarResultAudienceLink } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -125,6 +125,116 @@ export async function deleteRoomController(req, res, next) {
 		const { id } = req.params;
 		await deleteRoom(id);
 		res.status(200).json({ success: true, message: "Ruangan berhasil dihapus" });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getSeminarResultThesisOptionsController(req, res, next) {
+	try {
+		const data = await getSeminarResultThesisOptions();
+		res.status(200).json({ success: true, data });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getSeminarResultLecturerOptionsController(req, res, next) {
+	try {
+		const data = await getSeminarResultLecturerOptions();
+		res.status(200).json({ success: true, data });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getSeminarResultStudentOptionsController(req, res, next) {
+	try {
+		const data = await getSeminarResultStudentOptions();
+		res.status(200).json({ success: true, data });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getSeminarResultsController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const pageSize = parseInt(req.query.pageSize) || 10;
+		const search = req.query.search || "";
+		const result = await getSeminarResults({ page, pageSize, search });
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function createSeminarResultController(req, res, next) {
+	try {
+		const body = req.validated ?? req.body ?? {};
+		const userId = req.user?.sub || req.user?.id;
+		const result = await createSeminarResult({
+			...body,
+			assignedByUserId: userId,
+		});
+		res.status(201).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function updateSeminarResultController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const body = req.validated ?? req.body ?? {};
+		const userId = req.user?.sub || req.user?.id;
+		const result = await updateSeminarResult(id, {
+			...body,
+			assignedByUserId: userId,
+		});
+		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function deleteSeminarResultController(req, res, next) {
+	try {
+		const { id } = req.params;
+		await deleteSeminarResult(id);
+		res.status(200).json({ success: true, message: "Data seminar hasil berhasil dihapus" });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getSeminarResultAudienceLinksController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const pageSize = parseInt(req.query.pageSize) || 10;
+		const search = req.query.search || "";
+		const result = await getSeminarResultAudienceLinks({ page, pageSize, search });
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function assignSeminarResultAudiencesController(req, res, next) {
+	try {
+		const body = req.validated ?? req.body ?? {};
+		const result = await assignSeminarResultAudiences(body);
+		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function removeSeminarResultAudienceLinkController(req, res, next) {
+	try {
+		const { seminarId, studentId } = req.params;
+		await removeSeminarResultAudienceLink({ seminarId, studentId });
+		res.status(200).json({ success: true, message: "Relasi audience berhasil dihapus" });
 	} catch (err) {
 		next(err);
 	}
