@@ -1,5 +1,7 @@
 import express from "express";
 import * as sekdepController from "../../controllers/insternship/sekdep.controller.js";
+import * as guidanceController from "../../controllers/insternship/guidance.controller.js";
+import * as cpmkController from "../../controllers/insternship/cpmk.controller.js";
 import { authGuard, requireRole } from "../../middlewares/auth.middleware.js";
 import { ROLES } from "../../constants/roles.js";
 
@@ -85,5 +87,28 @@ router.patch("/internships/bulk-assign", sekdepController.bulkAssignSupervisor);
  */
 router.get("/lecturers/workload", sekdepController.getLecturersWorkload);
 router.get("/lecturers/workload/export", sekdepController.exportLecturersWorkloadPdf);
+
+// ==================== Guidance Master Data ====================
+router.get("/guidance/questions", guidanceController.getQuestions);
+router.post("/guidance/questions", guidanceController.createQuestion);
+router.put("/guidance/questions/:id", guidanceController.updateQuestion);
+router.delete("/guidance/questions/:id", guidanceController.deleteQuestion);
+
+router.get("/guidance/criteria", guidanceController.getCriteria);
+router.post("/guidance/criteria", guidanceController.createCriteria);
+router.put("/guidance/criteria/:id", guidanceController.updateCriteria);
+router.delete("/guidance/criteria/:id", guidanceController.deleteCriteria);
+
+// ==================== CPMK Master Data ====================
+router.get("/cpmk", cpmkController.getAllCpmks);
+router.get("/cpmk/:id", cpmkController.getCpmkById);
+router.post("/cpmk", cpmkController.createCpmk);
+router.put("/cpmk/:id", cpmkController.updateCpmk);
+router.delete("/cpmk/:id", cpmkController.deleteCpmk);
+
+router.post("/rubrics", cpmkController.createRubric);
+router.post("/cpmk/:cpmkId/rubrics/bulk", cpmkController.bulkUpdateRubrics);
+router.put("/rubrics/:id", cpmkController.updateRubric);
+router.delete("/rubrics/:id", cpmkController.deleteRubric);
 
 export default router;

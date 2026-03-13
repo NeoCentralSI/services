@@ -175,8 +175,11 @@ model AcademicYear {
   isActive            Boolean              @default(false) @map("is_active")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
-  internshipProposals InternshipProposal[]
-  thesis              Thesis[]
+  internshipProposals                InternshipProposal[]
+  thesis                             Thesis[]
+  internshipCpmks                    InternshipCpmk[]
+  internshipGuidanceQuestions        InternshipGuidanceQuestion[]
+  internshipGuidanceLecturerCriteria InternshipGuidanceLecturerCriteria[]
 
   @@map("academic_years")
 }
@@ -1223,8 +1226,10 @@ model InternshipGuidanceQuestion {
   weekNumber     Int                               @map("week_number")
   questionText   String                            @map("question_text") @db.Text
   orderIndex     Int                               @default(0) @map("order_index")
-  createdAt      DateTime                          @default(now()) @map("created_at")
-  updatedAt      DateTime                          @default(now()) @updatedAt @map("updated_at")
+  academicYearId String                            @map("academic_year_id")
+  createdAt      DateTime                           @default(now()) @map("created_at")
+  updatedAt      DateTime                           @default(now()) @updatedAt @map("updated_at")
+  academicYear   AcademicYear                      @relation(fields: [academicYearId], references: [id])
   studentAnswers InternshipGuidanceStudentAnswer[]
 
   @@map("internship_guidance_questions")
@@ -1236,18 +1241,33 @@ model InternshipGuidanceLecturerCriteria {
   weekNumber      Int                                @map("week_number")
   inputType       InternshipGuidanceInputType        @map("input_type")
   orderIndex      Int                                @default(0) @map("order_index")
+  academicYearId  String                            @map("academic_year_id")
   createdAt       DateTime                           @default(now()) @map("created_at")
   updatedAt       DateTime                           @default(now()) @updatedAt @map("updated_at")
+  academicYear    AcademicYear                      @relation(fields: [academicYearId], references: [id])
   lecturerAnswers InternshipGuidanceLecturerAnswer[]
+  options         InternshipGuidanceLecturerCriteriaOption[]
 
   @@map("internship_guidance_lecturer_criteria")
+}
+
+model InternshipGuidanceLecturerCriteriaOption {
+  id              String                             @id @default(uuid())
+  criteriaId      String                             @map("criteria_id")
+  optionText      String                             @map("option_text")
+  orderIndex      Int                                @default(0) @map("order_index")
+  createdAt       DateTime                           @default(now()) @map("created_at")
+  updatedAt       DateTime                           @default(now()) @updatedAt @map("updated_at")
+  criteria        InternshipGuidanceLecturerCriteria @relation(fields: [criteriaId], references: [id], onDelete: Cascade)
+
+  @@map("internship_guidance_lecturer_criteria_options")
 }
 
 model InternshipGuidanceSession {
   id              String                             @id @default(uuid())
   internshipId    String                             @map("internship_id")
   weekNumber      Int                                @map("week_number")
-  status          InternshipGuidanceSessionStatus    @default(DRAFT)
+  status          InternshipGuidanceSessionStatus    @default(SUBMITTED)
   submissionDate  DateTime?                          @map("submission_date") @db.Date
   approvedAt      DateTime?                          @map("approved_at")
   createdAt       DateTime                           @default(now()) @map("created_at")
@@ -1280,7 +1300,7 @@ model InternshipGuidanceLecturerAnswer {
   guidanceSessionId String                             @map("guidance_session_id")
   criteriaId        String                             @map("criteria_id")
   weekNumber        Int                                @map("week_number")
-  evaluationValue   InternshipGuidanceEvaluation?      @map("evaluation_value")
+  evaluationValue   String?                            @map("evaluation_value")
   answerText        String?                            @map("answer_text") @db.Text
   createdAt         DateTime                           @default(now()) @map("created_at")
   updatedAt         DateTime                           @default(now()) @updatedAt @map("updated_at")
@@ -1349,9 +1369,11 @@ model InternshipCpmk {
   name         String                       @db.Text
   weight       Float
   assessorType String                       @map("assessor_type") @db.VarChar(20) // 'LECTURER' or 'FIELD'
-  createdAt    DateTime                     @default(now()) @map("created_at")
-  updatedAt    DateTime                     @default(now()) @updatedAt @map("updated_at")
-  rubrics      InternshipAssessmentRubric[]
+  academicYearId String                      @map("academic_year_id")
+  createdAt      DateTime                     @default(now()) @map("created_at")
+  updatedAt      DateTime                     @default(now()) @updatedAt @map("updated_at")
+  academicYear   AcademicYear                @relation(fields: [academicYearId], references: [id])
+  rubrics        InternshipAssessmentRubric[]
 
   @@map("internship_cpmks")
 }
@@ -1359,6 +1381,7 @@ model InternshipCpmk {
 model InternshipAssessmentRubric {
   id                       String                    @id @default(uuid())
   cpmkId                   String                    @map("cpmk_id")
+  levelName                String                    @map("level_name")
   rubricLevelDescription   String                    @map("rubric_level_description") @db.Text
   minScore                 Float                     @map("min_score")
   maxScore                 Float                     @map("max_score")
@@ -1719,8 +1742,8 @@ enum InternshipActiveStatus {
 }
 
 enum InternshipGuidanceSessionStatus {
-  DRAFT
   SUBMITTED
+  LATE
   APPROVED
 }
 
@@ -1729,12 +1752,7 @@ enum InternshipGuidanceInputType {
   TEXT
 }
 
-enum InternshipGuidanceEvaluation {
-  SANGAT_BAIK
-  BAIK
-  CUKUP
-  PERLU_PERBAIKAN
-}
+// InternshipGuidanceEvaluation enum removed to support dynamic options
 
 enum InternshipSeminarStatus {
   REQUESTED

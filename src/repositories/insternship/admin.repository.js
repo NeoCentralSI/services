@@ -277,3 +277,17 @@ export async function updateAssignmentLetterDocumentId(proposalId, documentId) {
         }
     });
 }
+
+/**
+ * Find a lecturer by their ID.
+ * @param {string} id 
+ * @returns {Promise<Object|null>}
+ */
+export async function findLecturerById(id) {
+    return prisma.lecturer.findUnique({
+        where: { id },
+        include: {
+            user: true
+        }
+    });
+}
