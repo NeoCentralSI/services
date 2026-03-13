@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 export const createCpmkSchema = z.object({
+    academicYearId: z
+        .string()
+        .uuid("academicYearId harus berupa UUID yang valid")
+        .optional(),
     code: z
         .string({ required_error: "Kode CPMK wajib diisi" })
         .min(1, "Kode CPMK tidak boleh kosong")
@@ -14,6 +18,10 @@ export const createCpmkSchema = z.object({
 });
 
 export const updateCpmkSchema = z.object({
+    academicYearId: z
+        .string()
+        .uuid("academicYearId harus berupa UUID yang valid")
+        .optional(),
     code: z
         .string()
         .min(1, "Kode CPMK tidak boleh kosong")

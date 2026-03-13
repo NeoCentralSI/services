@@ -12,7 +12,6 @@ export const findCpmkById = async (id) => {
             code: true,
             description: true,
             type: true,
-            isActive: true,
         },
     });
 };
@@ -25,7 +24,6 @@ export const findConfiguredDefenceCpmks = async (role) => {
     return await prisma.cpmk.findMany({
         where: {
             type: "thesis",
-            isActive: true,
             assessmentCriterias: {
                 some: {
                     appliesTo: "defence",
@@ -82,7 +80,6 @@ export const findCriteriaById = async (id) => {
                     code: true,
                     description: true,
                     type: true,
-                    isActive: true,
                 },
             },
             assessmentRubrics: {
@@ -241,14 +238,13 @@ export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) 
 // ────────────────────────────────────────────
 
 /**
- * Get total maxScore of all active defence criteria across BOTH roles.
+ * Get total maxScore of all defence criteria across BOTH roles.
  * The 100-point cap is shared between examiner and supervisor.
  */
 export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null) => {
     const where = {
         appliesTo: "defence",
         role: { in: ["examiner", "supervisor"] },
-        isActive: true,
     };
     if (excludeCriteriaId) {
         where.id = { not: excludeCriteriaId };
@@ -258,13 +254,6 @@ export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null) => {
         _sum: { maxScore: true },
     });
     return result._sum.maxScore || 0;
-};
-
-export const toggleCriteriaActive = async (id, isActive) => {
-    return await prisma.assessmentCriteria.update({
-        where: { id },
-        data: { isActive },
-    });
 };
 
 // ────────────────────────────────────────────
@@ -301,7 +290,6 @@ export const getDefenceWeightSummary = async (role) => {
     const cpmks = await prisma.cpmk.findMany({
         where: {
             type: "thesis",
-            isActive: true,
             assessmentCriterias: {
                 some: {
                     appliesTo: "defence",
@@ -322,7 +310,6 @@ export const getDefenceWeightSummary = async (role) => {
                     id: true,
                     name: true,
                     maxScore: true,
-                    isActive: true,
                     assessmentRubrics: { select: { id: true } },
                 },
                 orderBy: { displayOrder: "asc" },
@@ -333,12 +320,10 @@ export const getDefenceWeightSummary = async (role) => {
 
     let totalCriteriaScore = 0;
     const details = cpmks.map((c) => {
-        const criteriaScore = c.assessmentCriterias
-            .filter((criteria) => criteria.isActive)
-            .reduce(
-                (sum, criteria) => sum + (criteria.maxScore || 0),
-                0,
-            );
+        const criteriaScore = c.assessmentCriterias.reduce(
+            (sum, criteria) => sum + (criteria.maxScore || 0),
+            0,
+        );
 
         totalCriteriaScore += criteriaScore;
 
