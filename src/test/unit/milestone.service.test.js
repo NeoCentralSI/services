@@ -40,8 +40,10 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
     ROLES: { MAHASISWA: "Mahasiswa", PEMBIMBING_1: "Pembimbing 1", PEMBIMBING_2: "Pembimbing 2" },
     isSupervisorRole: vi.fn((r) => {
       const n = String(r || "").trim().toLowerCase();
-      return n === "pembimbing 1" || n === "pembimbing1" || n === "pembimbing 2" || n === "pembimbing2";
+      return n === "pembimbing 1" || n === "pembimbing 2";
     }),
+    isPembimbing1: vi.fn((r) => String(r || "").trim().toLowerCase() === "pembimbing 1"),
+    isPembimbing2: vi.fn((r) => String(r || "").trim().toLowerCase() === "pembimbing 2"),
     normalize: vi.fn((r) => String(r || "").trim().toLowerCase()),
   },
   mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
@@ -353,6 +355,37 @@ describe("Module 4: Milestone Management", () => {
       await expect(
         validateMilestone("ms-4", STUDENT_USER_ID, "Notes")
       ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it("rejects (403) if user is Pembimbing 2 (only Pembimbing 1 can validate)", async () => {
+      // Mock thesis with TWO supervisors: one is P1, one is P2 (current user)
+      const thesisWithTwoSup = {
+        ...THESIS_WITH_STUDENT,
+        thesisSupervisors: [
+          ...THESIS_WITH_STUDENT.thesisSupervisors,
+          {
+            lecturerId: "lec-2",
+            lecturer: {
+              userId: "pembimbing-2-id",
+              user: { id: "pembimbing-2-id", fullName: "Dr. Budi", fcmToken: "fcm-2" },
+            },
+            role: { name: "Pembimbing 2" },
+          }
+        ]
+      };
+      mockMilestoneRepo.findById.mockResolvedValue(MILESTONE_PENDING_REVIEW);
+      mockPrisma.thesis.findUnique.mockResolvedValue(thesisWithTwoSup);
+
+      mockRoles.isSupervisorRole.mockReturnValue(true);
+      mockRoles.isPembimbing1.mockImplementation((r) => r === "Pembimbing 1");
+      mockRoles.isPembimbing2.mockImplementation((r) => r === "Pembimbing 2");
+
+      await expect(
+        validateMilestone("ms-4", "pembimbing-2-id", "Notes")
+      ).rejects.toMatchObject({ 
+        statusCode: 403, 
+        message: "Hanya Pembimbing 1 yang memiliki hak untuk memvalidasi milestone" 
+      });
     });
   });
 

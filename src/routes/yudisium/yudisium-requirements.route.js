@@ -8,14 +8,14 @@ import {
     moveTop,
     moveBottom,
     remove,
-} from "../controllers/yudisiumRequirement.controller.js";
-import { validate } from "../middlewares/validation.middleware.js";
+} from "../../controllers/yudisium/yudisiumRequirement.controller.js";
+import { validate } from "../../middlewares/validation.middleware.js";
 import {
     createYudisiumRequirementSchema,
     updateYudisiumRequirementSchema,
-} from "../validators/yudisiumRequirement.validator.js";
-import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
-import { ROLES } from "../constants/roles.js";
+} from "../../validators/yudisiumRequirement.validator.js";
+import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
+import { ROLES } from "../../constants/roles.js";
 
 const router = express.Router();
 

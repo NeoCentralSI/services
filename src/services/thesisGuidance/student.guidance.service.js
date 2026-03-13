@@ -224,18 +224,6 @@ export async function getGuidanceDetailService(userId, guidanceId) {
       fileName: guidance.document.fileName,
       filePath: guidance.document.filePath,
     };
-  } else {
-    // Fallback: show thesis-level document if no guidance-specific document
-    try {
-      const t = await prisma.thesis.findUnique({ where: { id: guidance.thesisId }, include: { document: true } });
-      if (t?.document) {
-        flat.document = {
-          id: t.document.id,
-          fileName: t.document.fileName,
-          filePath: t.document.filePath,
-        };
-      }
-    } catch { }
   }
   return { guidance: flat };
 }

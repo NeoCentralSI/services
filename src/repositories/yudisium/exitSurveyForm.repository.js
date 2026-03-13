@@ -1,4 +1,4 @@
-import prisma from "../config/prisma.js";
+import prisma from "../../config/prisma.js";
 
 export const findAll = async () => {
   return await prisma.exitSurveyForm.findMany({
@@ -37,4 +37,16 @@ export const remove = async (id) => {
   return await prisma.exitSurveyForm.delete({
     where: { id },
   });
+};
+
+export const hasLinkedResponses = async (formId) => {
+  const count = await prisma.studentExitSurveyResponse.count({
+    where: {
+      yudisium: {
+        exitSurveyFormId: formId,
+      },
+    },
+  });
+
+  return count > 0;
 };

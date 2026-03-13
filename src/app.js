@@ -28,6 +28,9 @@ try {
   // Protect thesis uploads with authGuard and custom access logic
   app.use("/uploads/thesis", authGuard, checkThesisFileAccess, express.static(path.join(uploadsDir, "thesis")));
 
+  // Protect yudisium uploads with authGuard
+  app.use("/uploads/yudisium", authGuard, express.static(path.join(uploadsDir, "yudisium")));
+
   // Serve internship and general uploads statically
   app.use("/uploads/internship", express.static(path.join(uploadsDir, "internship")));
   app.use("/uploads/general", express.static(path.join(uploadsDir, "general")));

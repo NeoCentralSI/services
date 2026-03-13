@@ -58,6 +58,7 @@ export const uploadThesisFile = thesisUpload.single("file");
 export const uploadInternshipFile = thesisUpload.single("file");
 export const uploadSeminarDocFile = seminarDocUpload.single("file");
 export const uploadGuideFile = guideUpload.single("file");
+export const uploadYudisiumDocFile = thesisUpload.single("file");
 
 export default upload;
 

@@ -218,7 +218,7 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
     data: {
       oauthProvider: "microsoft",
       oauthId,
-      oauthRefreshToken: refreshToken,
+      oauthRefreshToken: refreshToken || user.oauthRefreshToken,
       // Password TETAP ADA (tidak dihapus) untuk fallback/development
       // fullName dan identityNumber tidak diupdate (preserve existing data)
     },

@@ -60,6 +60,10 @@ const THESIS_DETAIL = {
   thesisSupervisors: [],
   thesisMilestones: [],
   thesisGuidances: [],
+  thesisSeminars: [],
+  thesisDefences: [],
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -102,7 +106,17 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
   describe("getThesesList", () => {
     it("returns paginated thesis list with filters", async () => {
       mockRepo.getThesesOverview.mockResolvedValue({
-        theses: [{ id: "t1", title: "Thesis 1", thesisMilestones: [], thesisSupervisors: [], student: { user: { fullName: "Budi" } }, thesisTopic: { name: "ML" }, thesisStatus: { name: "Bimbingan" } }],
+        theses: [{ 
+          id: "t1", 
+          title: "Thesis 1", 
+          thesisMilestones: [], 
+          thesisSupervisors: [], 
+          student: { user: { fullName: "Budi" } }, 
+          thesisTopic: { name: "ML" }, 
+          thesisStatus: { name: "Bimbingan" },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }],
         total: 1,
         page: 1,
         pageSize: 10,
@@ -180,6 +194,38 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       const result = await getThesisDetail("thesis-1");
 
       expect(result).toHaveProperty("title", "AI Research");
+    });
+
+    it("calculates lastActivity correctly prioritizing the newest date from multiple sources", async () => {
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 86400000);
+      const twoDaysAgo = new Date(now.getTime() - 172800000);
+
+      mockRepo.getThesisDetailById.mockResolvedValue({
+        ...THESIS_DETAIL,
+        updatedAt: twoDaysAgo,
+        thesisGuidances: [{ approvedDate: yesterday }],
+        thesisMilestones: [{ status: "completed", updatedAt: now }], // This is the newest
+        thesisSeminars: [{ updatedAt: yesterday }],
+        thesisDefences: [],
+      });
+
+      const result = await getThesisDetail("thesis-1");
+      expect(result.lastActivity).toBe(now.toISOString());
+    });
+
+    it("falls back to thesis updatedAt if no specific activities exist", async () => {
+      const updatedAt = new Date();
+      mockRepo.getThesisDetailById.mockResolvedValue({
+        ...THESIS_DETAIL,
+        updatedAt,
+        thesisGuidances: [],
+        thesisMilestones: [],
+        thesisSeminars: [],
+      });
+
+      const result = await getThesisDetail("thesis-1");
+      expect(result.lastActivity).toBe(updatedAt.toISOString());
     });
 
     it("throws 404 if thesis not found", async () => {
