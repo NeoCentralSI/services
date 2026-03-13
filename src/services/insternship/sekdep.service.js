@@ -1,5 +1,6 @@
 import * as sekdepRepository from "../../repositories/insternship/sekdep.repository.js";
 import * as adminRepository from "../../repositories/insternship/admin.repository.js";
+import * as notificationRepository from "../../repositories/notification.repository.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
@@ -560,20 +561,42 @@ export async function assignSupervisorsBulk({ internshipIds, supervisorId }) {
     // 1. Perform bulk update
     const result = await sekdepRepository.bulkUpdateInternshipSupervisor(internshipIds, supervisorId);
 
-    // 2. Send Notifications to Supervisor (Lecturer)
+    // 2. Send Notifications to Supervisor (Lecturer) and Students
     try {
-        // Get student names for message
+        // Get data for messages
         const internships = await sekdepRepository.findInternshipsWithStudents(internshipIds);
+        const supervisor = await adminRepository.findLecturerById(supervisorId);
+        const supervisorName = supervisor?.user?.fullName || "Dosen Pembimbing";
+
+        const lecturerTitle = "Penugasan Pembimbing KP Baru";
+        const studentTitle = "Pembimbing KP Telah Ditetapkan";
+
         const studentNames = internships.map(i => i.student?.user?.fullName || "Mahasiswa").join(", ");
+        const lecturerMessage = `Anda telah ditugaskan menjadi pembimbing Kerja Praktik untuk: ${studentNames}.`;
 
-        const title = "Penugasan Pembimbing KP Baru";
-        const message = `Anda telah ditugaskan menjadi pembimbing Kerja Praktik untuk: ${studentNames}.`;
+        // Create in-app notification & FCM for Supervisor
+        await createNotificationsForUsers([supervisorId], { title: lecturerTitle, message: lecturerMessage });
+        await sendFcmToUsers([supervisorId], {
+            title: lecturerTitle,
+            body: lecturerMessage,
+            data: { type: 'internship_supervisor_assigned' }
+        });
 
-        // Create in-app notification
-        await createNotificationsForUsers([supervisorId], { title, message });
+        // Create notifications for each Student
+        const studentNotifications = internships.map(i => ({
+            userId: i.studentId,
+            title: studentTitle,
+            message: `Dosen pembimbing Kerja Praktik Anda telah ditetapkan: ${supervisorName}.`
+        }));
 
-        // Send FCM (Push Notification)
-        await sendFcmToUsers([supervisorId], { title, body: message });
+        for (const notif of studentNotifications) {
+            await createNotificationsForUsers([notif.userId], { title: notif.title, message: notif.message });
+            await sendFcmToUsers([notif.userId], {
+                title: notif.title,
+                body: notif.message,
+                data: { type: 'internship_supervisor_assigned' }
+            });
+        }
     } catch (error) {
         console.error("[assignSupervisorsBulk] Notification failed:", error.message);
         // We don't throw here to avoid failing the main transaction if notification fails
