@@ -1,4 +1,4 @@
-﻿import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent } from "../services/adminfeatures.service.js";
+﻿import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, createRoom, updateRoom, getRooms, deleteRoom } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -80,6 +80,51 @@ export async function getActiveAcademicYearController(req, res, next) {
 	try {
 		const active = await getActiveAcademicYear();
 		res.status(200).json({ success: true, academicYear: active });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function createRoomController(req, res, next) {
+	try {
+		const body = req.validated ?? req.body ?? {};
+		const { name, location, capacity } = body;
+		const room = await createRoom({ name, location, capacity });
+		res.status(201).json({ success: true, room });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function updateRoomController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const body = req.validated ?? req.body ?? {};
+		const { name, location, capacity } = body;
+		const room = await updateRoom(id, { name, location, capacity });
+		res.status(200).json({ success: true, room });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getRoomsController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const pageSize = parseInt(req.query.pageSize) || 10;
+		const search = req.query.search || "";
+		const result = await getRooms({ page, pageSize, search });
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function deleteRoomController(req, res, next) {
+	try {
+		const { id } = req.params;
+		await deleteRoom(id);
+		res.status(200).json({ success: true, message: "Ruangan berhasil dihapus" });
 	} catch (err) {
 		next(err);
 	}

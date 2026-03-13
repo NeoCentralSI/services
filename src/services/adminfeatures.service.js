@@ -605,6 +605,210 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 	};
 }
 
+// ==================== Room (Admin) ====================
+
+export async function getRooms({ page = 1, pageSize = 10, search = "" } = {}) {
+	const skip = (page - 1) * pageSize;
+	const take = pageSize;
+
+	const where = search
+		? {
+			OR: [
+				{ name: { contains: search } },
+				{ location: { contains: search } },
+			],
+		}
+		: {};
+
+	const [rooms, total] = await Promise.all([
+		prisma.room.findMany({
+			where,
+			skip,
+			take,
+			orderBy: [{ name: "asc" }, { createdAt: "desc" }],
+			include: {
+				_count: {
+					select: {
+						internshipSeminars: true,
+						thesisSeminars: true,
+						thesisDefences: true,
+						yudisiums: true,
+					},
+				},
+			},
+		}),
+		prisma.room.count({ where }),
+	]);
+
+	const mappedRooms = rooms.map((room) => {
+		const relationCount =
+			room._count.internshipSeminars +
+			room._count.thesisSeminars +
+			room._count.thesisDefences +
+			room._count.yudisiums;
+
+		return {
+			id: room.id,
+			name: room.name,
+			location: room.location,
+			capacity: room.capacity,
+			createdAt: room.createdAt,
+			updatedAt: room.updatedAt,
+			canDelete: relationCount === 0,
+		};
+	});
+
+	return {
+		rooms: mappedRooms,
+		meta: {
+			page,
+			pageSize,
+			total,
+			totalPages: Math.ceil(total / pageSize),
+		},
+	};
+}
+
+export async function createRoom({ name, location, capacity }) {
+	if (!name || !String(name).trim()) {
+		const err = new Error("Nama ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const normalizedName = String(name).trim();
+	const normalizedLocation = typeof location === "string" && location.trim() ? location.trim() : null;
+	const normalizedCapacity = Number.isInteger(capacity) ? capacity : null;
+
+	if (normalizedCapacity !== null && normalizedCapacity <= 0) {
+		const err = new Error("Kapasitas harus lebih dari 0");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const existing = await prisma.room.findFirst({
+		where: {
+			name: normalizedName,
+			location: normalizedLocation,
+		},
+	});
+
+	if (existing) {
+		const err = new Error("Ruangan dengan nama dan lokasi yang sama sudah ada");
+		err.statusCode = 409;
+		throw err;
+	}
+
+	return prisma.room.create({
+		data: {
+			name: normalizedName,
+			location: normalizedLocation,
+			capacity: normalizedCapacity,
+		},
+	});
+}
+
+export async function updateRoom(id, { name, location, capacity } = {}) {
+	if (!id) {
+		const err = new Error("Id ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const existing = await prisma.room.findUnique({ where: { id } });
+	if (!existing) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const data = {};
+	if (name !== undefined) {
+		const trimmedName = String(name).trim();
+		if (!trimmedName) {
+			const err = new Error("Nama ruangan wajib diisi");
+			err.statusCode = 400;
+			throw err;
+		}
+		data.name = trimmedName;
+	}
+	if (location !== undefined) data.location = typeof location === "string" && location.trim() ? location.trim() : null;
+	if (capacity !== undefined) {
+		if (capacity !== null && (!Number.isInteger(capacity) || capacity <= 0)) {
+			const err = new Error("Kapasitas harus lebih dari 0");
+			err.statusCode = 400;
+			throw err;
+		}
+		data.capacity = capacity;
+	}
+
+	if (Object.keys(data).length === 0) {
+		return existing;
+	}
+
+	const candidateName = data.name ?? existing.name;
+	const candidateLocation = data.location !== undefined ? data.location : existing.location;
+
+	const duplicate = await prisma.room.findFirst({
+		where: {
+			id: { not: id },
+			name: candidateName,
+			location: candidateLocation,
+		},
+	});
+
+	if (duplicate) {
+		const err = new Error("Ruangan dengan nama dan lokasi yang sama sudah ada");
+		err.statusCode = 409;
+		throw err;
+	}
+
+	return prisma.room.update({ where: { id }, data });
+}
+
+export async function deleteRoom(id) {
+	if (!id) {
+		const err = new Error("Id ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const room = await prisma.room.findUnique({
+		where: { id },
+		include: {
+			_count: {
+				select: {
+					internshipSeminars: true,
+					thesisSeminars: true,
+					thesisDefences: true,
+					yudisiums: true,
+				},
+			},
+		},
+	});
+
+	if (!room) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const relationCount =
+		room._count.internshipSeminars +
+		room._count.thesisSeminars +
+		room._count.thesisDefences +
+		room._count.yudisiums;
+
+	if (relationCount > 0) {
+		const err = new Error("Ruangan tidak dapat dihapus karena sudah memiliki relasi data");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	await prisma.room.delete({ where: { id } });
+	return { success: true };
+}
+
 // Get all Users with pagination
 export async function getUsers({ page = 1, pageSize = 10, search = "", identityType = "", role = "", isVerified = undefined, enrollmentYear = undefined } = {}) {
 	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;
