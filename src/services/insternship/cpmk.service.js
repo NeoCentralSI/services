@@ -193,7 +193,36 @@ export async function bulkUpdateRubrics(cpmkId, rubrics) {
     const cpmk = await repository.findCpmkById(cpmkId);
     if (!cpmk) throw new NotFoundError("CPMK tidak ditemukan");
 
-    // Optional: Validation of scores ranges or overlapping could be added here
+    // Validation of scores ranges: No overlaps, min < max, non-negative
+    if (rubrics.length > 0) {
+        // Sort by minScore to ease overlap checking
+        const sorted = [...rubrics].sort((a, b) => parseFloat(a.minScore) - parseFloat(b.minScore));
+
+        for (let i = 0; i < sorted.length; i++) {
+            const current = sorted[i];
+            const min = parseFloat(current.minScore);
+            const max = parseFloat(current.maxScore);
+
+            if (isNaN(min) || isNaN(max)) {
+                throw new ValidationError(`Skor pada level "${current.levelName}" harus berupa angka`);
+            }
+            if (min < 0 || max < 0) {
+                throw new ValidationError(`Skor pada level "${current.levelName}" tidak boleh negatif`);
+            }
+            if (min >= max) {
+                throw new ValidationError(`Skor minimum (${min}) harus lebih kecil dari skor maksimum (${max}) pada level "${current.levelName}"`);
+            }
+
+            // Check overlap with next rubric
+            if (i < sorted.length - 1) {
+                const next = sorted[i + 1];
+                const nextMin = parseFloat(next.minScore);
+                if (max > nextMin) {
+                    throw new ValidationError(`Range skor tumpang tindih antara level "${current.levelName}" (${min}-${max}) dan "${next.levelName}" (mulai dari ${nextMin})`);
+                }
+            }
+        }
+    }
 
     const formattedRubrics = rubrics.map(r => ({
         levelName: r.levelName,
@@ -203,4 +232,59 @@ export async function bulkUpdateRubrics(cpmkId, rubrics) {
     }));
 
     return await repository.replaceRubrics(cpmkId, formattedRubrics);
+}
+
+/**
+ * Duplicates all CPMKs and their rubrics from one academic year to another.
+ */
+export async function copyCpmks(fromYearId, toYearId) {
+    if (!fromYearId || !toYearId) throw new ValidationError("Tahun ajaran asal dan tujuan wajib diisi");
+    if (fromYearId === toYearId) throw new ValidationError("Tahun ajaran asal dan tujuan tidak boleh sama");
+
+    // Check if target year exists
+    const targetYear = await prisma.academicYear.findUnique({ where: { id: toYearId } });
+    if (!targetYear) throw new NotFoundError("Tahun ajaran tujuan tidak ditemukan");
+
+    // Get source CPMKs with rubrics
+    const sourceCpmks = await prisma.internshipCpmk.findMany({
+        where: { academicYearId: fromYearId },
+        include: { rubrics: true }
+    });
+
+    if (sourceCpmks.length === 0) throw new ValidationError("Tidak ada data CPMK untuk diduplikasi dari tahun ajaran asal");
+
+    // Transaction to ensure atomicity
+    return await prisma.$transaction(async (tx) => {
+        const results = [];
+
+        for (const sourceCpmk of sourceCpmks) {
+            // Create new CPMK
+            const newCpmk = await tx.internshipCpmk.create({
+                data: {
+                    code: sourceCpmk.code,
+                    name: sourceCpmk.name,
+                    weight: sourceCpmk.weight,
+                    assessorType: sourceCpmk.assessorType,
+                    academicYearId: toYearId
+                }
+            });
+
+            // Create rubrics for the new CPMK
+            if (sourceCpmk.rubrics && sourceCpmk.rubrics.length > 0) {
+                await tx.internshipAssessmentRubric.createMany({
+                    data: sourceCpmk.rubrics.map(r => ({
+                        cpmkId: newCpmk.id,
+                        levelName: r.levelName,
+                        rubricLevelDescription: r.rubricLevelDescription,
+                        minScore: r.minScore,
+                        maxScore: r.maxScore
+                    }))
+                });
+            }
+
+            results.push(newCpmk);
+        }
+
+        return results;
+    });
 }

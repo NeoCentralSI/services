@@ -28,6 +28,7 @@ export async function getPendingLetters(academicYearId) {
         coordinatorNim: p.coordinator?.user?.identityNumber,
         coordinatorStudentId: p.coordinatorId,
         companyName: p.targetCompany?.companyName || "—",
+        coordinatorStatus: p.internships.find(i => i.studentId === p.coordinatorId)?.status || 'PENDING',
         members: p.internships
             .filter(i => i.studentId !== p.coordinatorId)
             .map(i => ({
@@ -36,6 +37,7 @@ export async function getPendingLetters(academicYearId) {
                 nim: i.student?.user?.identityNumber,
                 status: i.status
             })),
+        acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
         createdAt: p.createdAt,
         signedById: p.appLetterSignedById,
         document: p.appLetterDoc ? {
@@ -53,6 +55,7 @@ export async function getPendingLetters(academicYearId) {
         coordinatorNim: p.coordinator?.user?.identityNumber,
         coordinatorStudentId: p.coordinatorId,
         companyName: p.targetCompany?.companyName || "—",
+        coordinatorStatus: p.internships.find(i => i.studentId === p.coordinatorId)?.status || 'PENDING',
         members: p.internships
             .filter(i => i.studentId !== p.coordinatorId)
             .map(i => ({
@@ -61,6 +64,7 @@ export async function getPendingLetters(academicYearId) {
                 nim: i.student?.user?.identityNumber,
                 status: i.status
             })),
+        acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
         createdAt: p.createdAt,
         signedById: p.assignLetterSignedById,
         document: p.assignLetterDoc ? {

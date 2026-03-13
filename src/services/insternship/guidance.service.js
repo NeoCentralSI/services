@@ -182,15 +182,24 @@ export async function getStudentGuidance(studentId) {
     const startDate = new Date(internship.actualStartDate);
     const today = new Date();
 
-    // Fetch master questions and existing sessions
-    const masterQuestions = await guidanceRepo.findAllQuestions(internship.academicYearId);
-    const sessions = await guidanceRepo.findGuidanceSessions(internship.id);
+    // 3. Identify weeks that have data (questions, criteria, or existing sessions)
+    const ayId = internship.proposal?.academicYearId;
+    const [questions, criteria, sessions] = await Promise.all([
+        guidanceRepo.findAllQuestions(ayId),
+        guidanceRepo.findAllCriteria(ayId),
+        guidanceRepo.findGuidanceSessions(internship.id)
+    ]);
 
-    // Get the maximum week number defined by Sekdep
-    const maxWeek = masterQuestions.reduce((max, q) => Math.max(max, q.weekNumber), 0);
+    const activeWeeksSet = new Set([
+        ...questions.map(q => q.weekNumber),
+        ...criteria.map(c => c.weekNumber),
+        ...sessions.map(s => s.weekNumber)
+    ]);
+
+    const activeWeeks = Array.from(activeWeeksSet).sort((a, b) => a - b);
 
     const timeline = [];
-    for (let w = 1; w <= maxWeek; w++) {
+    for (const w of activeWeeks) {
         const weekStartDate = new Date(startDate);
         weekStartDate.setDate(startDate.getDate() + (w - 1) * 7);
 
@@ -198,7 +207,8 @@ export async function getStudentGuidance(studentId) {
         weekEndDate.setDate(weekStartDate.getDate() + 6);
 
         const session = sessions.find(s => s.weekNumber === w);
-        const questions = masterQuestions.filter(q => q.weekNumber === w);
+        const weekQuestions = questions.filter(q => q.weekNumber === w);
+        const weekCriteria = criteria.filter(c => c.weekNumber === w);
 
         let status = "NOT_AVAILABLE";
         if (today >= weekStartDate) {
@@ -216,7 +226,7 @@ export async function getStudentGuidance(studentId) {
             startDate: weekStartDate,
             endDate: weekEndDate,
             status,
-            questions: questions.map(q => ({
+            questions: weekQuestions.map(q => ({
                 id: q.id,
                 questionText: q.questionText,
                 answer: session?.studentAnswers?.find(a => a.questionId === q.id)?.answerText || ""
@@ -231,10 +241,12 @@ export async function getStudentGuidance(studentId) {
         });
     }
 
+    const currentWeekIdx = Math.floor((today - startDate) / (7 * 24 * 60 * 60 * 1000)) + 1;
+
     return {
         internshipId: internship.id,
         supervisorName: internship.supervisor?.user?.fullName || null,
-        currentWeek: Math.floor((today - startDate) / (7 * 24 * 60 * 60 * 1000)) + 1,
+        currentWeek: currentWeekIdx,
         timeline
     };
 }
@@ -354,50 +366,44 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
         };
     }
 
-    // 2. Fetch configured weeks from questions and criteria
-    const [questions, criteria] = await Promise.all([
-        guidanceRepo.findAllQuestions(internship.academicYearId),
-        guidanceRepo.findAllCriteria(internship.academicYearId)
+    // 2. Fetch configured weeks/sessions
+    const ayId = internship.proposal?.academicYearId;
+    const [questions, criteria, sessions] = await Promise.all([
+        guidanceRepo.findAllQuestions(ayId),
+        guidanceRepo.findAllCriteria(ayId),
+        guidanceRepo.findGuidanceSessions(internshipId)
     ]);
 
-    const maxQuestionsWeek = questions.reduce((max, q) => Math.max(max, q.weekNumber), 0);
-    const maxCriteriaWeek = criteria.reduce((max, c) => Math.max(max, c.weekNumber), 0);
-    const maxConfiguredWeek = Math.max(maxQuestionsWeek, maxCriteriaWeek);
+    const activeWeeksSet = new Set([
+        ...questions.map(q => q.weekNumber),
+        ...criteria.map(c => c.weekNumber),
+        ...sessions.map(s => s.weekNumber)
+    ]);
 
-    // 3. Generate generic timeline calculation for students
+    const activeWeeks = Array.from(activeWeeksSet).sort((a, b) => a - b);
+
     const startDate = new Date(internship.actualStartDate);
-    const endDate = new Date(internship.actualEndDate);
-    const internshipWeeksCount = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7));
-    
-    // Limits the timeline to the maximum configured week
-    const totalWeeksCount = Math.min(internshipWeeksCount, maxConfiguredWeek);
-
-    const currentWeekIdx = Math.ceil((new Date().getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7));
-    const currentWeek = currentWeekIdx > totalWeeksCount ? totalWeeksCount : (currentWeekIdx < 1 ? 1 : currentWeekIdx);
-
-    const sessions = await guidanceRepo.findGuidanceSessions(internshipId);
+    const today = new Date();
+    const currentWeekIdx = Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7));
 
     const timeline = [];
-    for (let i = 1; i <= totalWeeksCount; i++) {
+    for (const w of activeWeeks) {
         const weekStart = new Date(startDate);
-        weekStart.setDate(startDate.getDate() + (i - 1) * 7);
+        weekStart.setDate(startDate.getDate() + (w - 1) * 7);
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
 
-        const session = sessions.find(s => s.weekNumber === i);
+        const session = sessions.find(s => s.weekNumber === w);
         let status = "NOT_AVAILABLE";
         
         if (session) {
             status = session.status;
-        } else if (i <= currentWeek) {
-            status = "OPEN";
-            if (i < currentWeek) {
-                status = "LATE";
-            }
+        } else if (today >= weekStart) {
+            status = today > weekEnd ? "LATE" : "OPEN";
         }
 
         timeline.push({
-            weekNumber: i,
+            weekNumber: w,
             startDate: weekStart.toISOString(),
             endDate: weekEnd.toISOString(),
             status,
@@ -409,7 +415,7 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
         internshipId,
         studentName: internship.student.user.fullName,
         studentNim: internship.student.user.identityNumber,
-        currentWeek,
+        currentWeek: currentWeekIdx,
         timeline
     };
 }
@@ -432,7 +438,8 @@ export async function getGuidanceWeekDetail(lecturerId, internshipId, weekNumber
     const session = await guidanceRepo.findGuidanceSessionWithDetails(internshipId, numWeek);
     
     // 3. Fetch master criteria for this week
-    const allCriteria = await guidanceRepo.findAllCriteria(internship.academicYearId);
+    const ayId = internship.proposal?.academicYearId;
+    const allCriteria = await guidanceRepo.findAllCriteria(ayId);
     const weekCriteria = allCriteria.filter(c => c.weekNumber === numWeek);
 
     // 4. Transform data for FE
@@ -516,4 +523,68 @@ export async function submitLecturerEvaluation(lecturerId, internshipId, weekNum
     }
 
     return updatedSession;
+}
+
+/**
+ * Duplicates all guidance questions and lecturer criteria from one academic year to another.
+ */
+export async function copyGuidance(fromYearId, toYearId) {
+    if (!fromYearId || !toYearId) throw new Error("Tahun ajaran asal dan tujuan wajib diisi");
+    if (fromYearId === toYearId) throw new Error("Tahun ajaran asal dan tujuan tidak boleh sama");
+
+    // Check if target year exists
+    const targetYear = await prisma.academicYear.findUnique({ where: { id: toYearId } });
+    if (!targetYear) throw new Error("Tahun ajaran tujuan tidak ditemukan");
+
+    const sourceQuestions = await prisma.internshipGuidanceQuestion.findMany({
+        where: { academicYearId: fromYearId }
+    });
+
+    const sourceCriteria = await prisma.internshipGuidanceLecturerCriteria.findMany({
+        where: { academicYearId: fromYearId },
+        include: { options: true }
+    });
+
+    if (sourceQuestions.length === 0 && sourceCriteria.length === 0) {
+        throw new Error("Tidak ada data bimbingan untuk diduplikasi dari tahun ajaran asal");
+    }
+
+    return await prisma.$transaction(async (tx) => {
+        // Copy Questions
+        if (sourceQuestions.length > 0) {
+            await tx.internshipGuidanceQuestion.createMany({
+                data: sourceQuestions.map(q => ({
+                    weekNumber: q.weekNumber,
+                    questionText: q.questionText,
+                    orderIndex: q.orderIndex,
+                    academicYearId: toYearId
+                }))
+            });
+        }
+
+        // Copy Criteria & Options
+        for (const criteria of sourceCriteria) {
+            const newCriteria = await tx.internshipGuidanceLecturerCriteria.create({
+                data: {
+                    criteriaName: criteria.criteriaName,
+                    weekNumber: criteria.weekNumber,
+                    inputType: criteria.inputType,
+                    orderIndex: criteria.orderIndex,
+                    academicYearId: toYearId
+                }
+            });
+
+            if (criteria.options && criteria.options.length > 0) {
+                await tx.internshipGuidanceLecturerCriteriaOption.createMany({
+                    data: criteria.options.map(o => ({
+                        criteriaId: newCriteria.id,
+                        optionText: o.optionText,
+                        orderIndex: o.orderIndex
+                    }))
+                });
+            }
+        }
+
+        return { questionsCopied: sourceQuestions.length, criteriaCopied: sourceCriteria.length };
+    });
 }

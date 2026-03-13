@@ -150,3 +150,20 @@ export const bulkUpdateRubrics = async (req, res, next) => {
         next(error);
     }
 };
+
+/**
+ * Duplicate CPMKs from one year to another.
+ */
+export const duplicateCpmks = async (req, res, next) => {
+    try {
+        const { fromYearId, toYearId } = req.body;
+        const data = await service.copyCpmks(fromYearId, toYearId);
+        res.status(200).json({
+            success: true,
+            message: "Berhasil menduplikasi data CPMK",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+};

@@ -141,6 +141,11 @@ export async function findStudentInternshipWithGuidance(studentId) {
             actualStartDate: true,
             actualEndDate: true,
             supervisorId: true,
+            proposal: {
+                select: {
+                    academicYearId: true
+                }
+            },
             supervisor: {
                 select: {
                     user: {
@@ -280,6 +285,11 @@ export async function findSupervisedInternshipById(internshipId, supervisorId) {
     return prisma.internship.findFirst({
         where: { id: internshipId, supervisorId },
         include: {
+            proposal: {
+                select: {
+                    academicYearId: true
+                }
+            },
             student: {
                 include: { user: { select: { fullName: true, identityNumber: true } } }
             }

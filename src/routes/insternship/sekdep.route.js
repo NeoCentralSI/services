@@ -98,11 +98,13 @@ router.get("/guidance/criteria", guidanceController.getCriteria);
 router.post("/guidance/criteria", guidanceController.createCriteria);
 router.put("/guidance/criteria/:id", guidanceController.updateCriteria);
 router.delete("/guidance/criteria/:id", guidanceController.deleteCriteria);
+router.post("/guidance/copy", guidanceController.duplicateGuidance);
 
 // ==================== CPMK Master Data ====================
 router.get("/cpmk", cpmkController.getAllCpmks);
 router.get("/cpmk/:id", cpmkController.getCpmkById);
 router.post("/cpmk", cpmkController.createCpmk);
+router.post("/cpmk/copy", cpmkController.duplicateCpmks);
 router.put("/cpmk/:id", cpmkController.updateCpmk);
 router.delete("/cpmk/:id", cpmkController.deleteCpmk);
 

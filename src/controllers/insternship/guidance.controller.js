@@ -191,3 +191,20 @@ export async function submitLecturerEvaluation(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Duplicate guidance data from one year to another.
+ */
+export async function duplicateGuidance(req, res, next) {
+    try {
+        const { fromYearId, toYearId } = req.body;
+        const data = await guidanceService.copyGuidance(fromYearId, toYearId);
+        res.status(200).json({
+            success: true,
+            message: "Berhasil menduplikasi data bimbingan",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}

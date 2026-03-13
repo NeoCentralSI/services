@@ -1391,6 +1391,8 @@ model InternshipAssessmentRubric {
   internshipLecturerScores InternshipLecturerScore[]
   internshipFieldScores    InternshipFieldScore[]
 
+  @@unique([cpmkId, minScore])
+  @@unique([cpmkId, maxScore])
   @@index([cpmkId], map: "internship_assessment_rubrics_cpmk_id_fkey")
   @@map("internship_assessment_rubrics")
 }
