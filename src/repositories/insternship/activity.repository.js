@@ -13,6 +13,24 @@ export async function getStudentInternship(studentId) {
                 include: {
                     targetCompany: true
                 }
+            },
+            seminars: {
+                include: {
+                    room: true,
+                    moderatorStudent: {
+                        include: {
+                            user: true
+                        }
+                    }
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            },
+            supervisor: {
+                include: {
+                    user: true
+                }
             }
         }
     });
@@ -93,6 +111,121 @@ export async function createReport(data) {
         },
         include: {
             reportDocument: true
+        }
+    });
+}
+
+/**
+ * Update internship completion certificate.
+ * @param {string} studentId 
+ * @param {string} documentId 
+ * @returns {Promise<Object>}
+ */
+export async function updateCompletionCertificate(studentId, documentId) {
+    const internship = await prisma.internship.findFirst({
+        where: { studentId, status: 'ONGOING' }
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+    }
+
+    if (internship.completionCertificateStatus === 'APPROVED') {
+        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    }
+
+    return prisma.internship.update({
+        where: { id: internship.id },
+        data: {
+            completionCertificateDocId: documentId,
+            completionCertificateStatus: 'SUBMITTED'
+        },
+        include: {
+            completionCertificateDoc: true
+        }
+    });
+}
+
+/**
+ * Update internship company receipt (KP-004).
+ * @param {string} studentId 
+ * @param {string} documentId 
+ * @returns {Promise<Object>}
+ */
+export async function updateCompanyReceipt(studentId, documentId) {
+    const internship = await prisma.internship.findFirst({
+        where: { studentId, status: 'ONGOING' }
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+    }
+
+    if (internship.companyReceiptStatus === 'APPROVED') {
+        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    }
+
+    return prisma.internship.update({
+        where: { id: internship.id },
+        data: {
+            companyReceiptDocId: documentId,
+            companyReceiptStatus: 'SUBMITTED'
+        },
+        include: {
+            companyReceiptDoc: true
+        }
+    });
+}
+
+/**
+ * Update internship logbook document (the administrative file).
+ * @param {string} studentId 
+ * @param {string} documentId 
+ * @returns {Promise<Object>}
+ */
+export async function updateLogbookDocument(studentId, documentId) {
+    const internship = await prisma.internship.findFirst({
+        where: { studentId, status: 'ONGOING' }
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+    }
+
+    if (internship.logbookDocumentStatus === 'APPROVED') {
+        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    }
+
+    return prisma.internship.update({
+        where: { id: internship.id },
+        data: {
+            logbookDocumentId: documentId,
+            logbookDocumentStatus: 'SUBMITTED'
+        },
+        include: {
+            logbookDocument: true
+        }
+    });
+}
+
+/**
+ * Create a new internship seminar request.
+ * @param {string} studentId 
+ * @returns {Promise<Object>}
+ */
+export async function createSeminarRequest(studentId) {
+    const internship = await prisma.internship.findFirst({
+        where: { studentId, status: 'ONGOING' }
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+    }
+
+    return prisma.internshipSeminar.create({
+        data: {
+            internshipId: internship.id,
+            status: 'REQUESTED'
         }
     });
 }

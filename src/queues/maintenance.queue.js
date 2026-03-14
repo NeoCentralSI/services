@@ -7,6 +7,7 @@ import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
+import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -207,6 +208,22 @@ export async function scheduleYudisiumFinalize() {
   console.log(`🗓️  Scheduled yudisium-finalize job with cron: "${pattern}" tz="${tz}"`);
 }
 
+export async function scheduleDailyInternshipStatus() {
+  // Run daily at 00:00 WIB to enforce internship reporting/seminar deadlines
+  const pattern = ENV.INTERNSHIP_STATUS_CRON || "0 0 * * *";
+  const tz = ENV.INTERNSHIP_STATUS_TZ || "Asia/Jakarta";
+  await maintenanceQueue.add(
+    "internship-status",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: true,
+      removeOnFail: true,
+    }
+  );
+  console.log(`🗓️  Scheduled repeatable internship-status job with cron: "${pattern}" tz="${tz}"`);
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -229,6 +246,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "yudisium-finalize":
         await finalizeCompletedYudisium();
+        break;
+      case "internship-status":
+        await runInternshipStatusJob();
         break;
       default:
         // no-op

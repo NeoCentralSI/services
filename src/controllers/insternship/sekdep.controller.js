@@ -331,3 +331,47 @@ export async function exportLecturersWorkloadPdf(req, res, next) {
         next(error);
     }
 }
+/**
+ * Controller to verify an internship document.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function verifyDocument(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { documentType, status, notes } = req.body;
+        await sekdepService.verifyInternshipDocument(id, { documentType, status, notes });
+        res.status(200).json({
+            success: true,
+            message: "Verifikasi dokumen berhasil disimpan."
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to bulk verify multiple internship documents.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function bulkVerifyDocuments(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { documents, status, notes } = req.body;
+        
+        if (!documents || !Array.isArray(documents) || documents.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Dokumen yang akan diverifikasi harus berupa array dan tidak boleh kosong."
+            });
+        }
+
+        const result = await sekdepService.bulkVerifyInternshipDocuments(id, { documents, status, notes });
+        res.status(200).json(result);
+    } catch (error) {
+        next(error);
+    }
+}

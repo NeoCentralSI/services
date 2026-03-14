@@ -193,6 +193,36 @@ export async function submitLecturerEvaluation(req, res, next) {
 }
 
 /**
+ * Verify final report by supervisor.
+ */
+export async function verifyFinalReport(req, res, next) {
+    try {
+        const { internshipId } = req.params;
+        const lecturerId = req.user.sub;
+        const { status, notes } = req.body;
+        const feedbackFile = req.file; // File dari multer middleware
+        
+        const data = await guidanceService.verifyFinalReport(lecturerId, internshipId, { 
+            status, 
+            notes,
+            feedbackFile: feedbackFile ? {
+                buffer: feedbackFile.buffer,
+                originalName: feedbackFile.originalname,
+                mimeType: feedbackFile.mimetype,
+                size: feedbackFile.size
+            } : null
+        });
+        res.status(200).json({ 
+            success: true, 
+            message: status === 'APPROVED' ? "Laporan akhir berhasil disetujui." : "Laporan akhir ditandai perlu revisi.",
+            data 
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * Duplicate guidance data from one year to another.
  */
 export async function duplicateGuidance(req, res, next) {
