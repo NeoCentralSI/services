@@ -243,10 +243,25 @@ export async function getStudentGuidance(studentId) {
 
     const currentWeekIdx = Math.floor((today - startDate) / (7 * 24 * 60 * 60 * 1000)) + 1;
 
+    // Format report data for student guidance
+    const reportData = {
+        status: internship.reportStatus || null,
+        title: internship.reportTitle || null,
+        notes: internship.reportNotes || null,
+        uploadedAt: internship.reportUploadedAt ? internship.reportUploadedAt.toISOString() : null,
+        document: internship.reportDocument || null,
+        feedbackDocument: internship.reportFeedbackDocument || null
+    };
+
     return {
         internshipId: internship.id,
+        studentName: internship.student.user.fullName,
+        studentNim: internship.student.user.identityNumber,
         supervisorName: internship.supervisor?.user?.fullName || null,
         currentWeek: currentWeekIdx,
+        report: reportData,
+        finalScore: internship.finalNumericScore || null,
+        finalGrade: internship.finalGrade || null,
         timeline
     };
 }
@@ -326,11 +341,17 @@ export async function getSupervisedStudents(lecturerId) {
         const submittedCount = sessions.filter(s => s.status === "SUBMITTED").length;
         const approvedCount = sessions.filter(s => s.status === "APPROVED").length;
 
+        const academicYear = internship.proposal?.academicYear;
+        const academicYearName = academicYear
+            ? `${academicYear.year} ${academicYear.semester.charAt(0).toUpperCase() + academicYear.semester.slice(1)}`
+            : '-';
+
         return {
             internshipId: internship.id,
             studentName: student.fullName,
             studentNim: student.identityNumber,
             companyName: internship.proposal.targetCompany?.companyName || "N/A",
+            academicYearName,
             startDate: internship.actualStartDate,
             endDate: internship.actualEndDate,
             status: internship.status,
@@ -338,7 +359,16 @@ export async function getSupervisedStudents(lecturerId) {
                 totalWeeks,
                 submittedCount,
                 approvedCount
-            }
+            },
+            report: {
+                status: internship.reportStatus,
+                title: internship.reportTitle,
+                notes: internship.reportNotes,
+                uploadedAt: internship.reportUploadedAt,
+                document: internship.reportDocument
+            },
+            finalScore: internship.finalNumericScore,
+            finalGrade: internship.finalGrade
         };
     });
 }
@@ -356,13 +386,26 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
         throw err;
     }
 
+    // Format report data (always include, even if dates are missing)
+    const reportData = {
+        status: internship.reportStatus || null,
+        title: internship.reportTitle || null,
+        notes: internship.reportNotes || null,
+        uploadedAt: internship.reportUploadedAt ? internship.reportUploadedAt.toISOString() : null,
+        document: internship.reportDocument || null,
+        feedbackDocument: internship.reportFeedbackDocument || null
+    };
+
     if (!internship.actualStartDate || !internship.actualEndDate) {
         return {
             internshipId,
             studentName: internship.student.user.fullName,
             studentNim: internship.student.user.identityNumber,
             currentWeek: 0,
-            timeline: []
+            timeline: [],
+            report: reportData,
+            finalScore: internship.finalNumericScore || null,
+            finalGrade: internship.finalGrade || null
         };
     }
 
@@ -416,6 +459,9 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
         studentName: internship.student.user.fullName,
         studentNim: internship.student.user.identityNumber,
         currentWeek: currentWeekIdx,
+        report: reportData,
+        finalScore: internship.finalNumericScore || null,
+        finalGrade: internship.finalGrade || null,
         timeline
     };
 }
@@ -523,6 +569,146 @@ export async function submitLecturerEvaluation(lecturerId, internshipId, weekNum
     }
 
     return updatedSession;
+}
+
+/**
+ * Verify final report by supervisor (lecturer).
+ * @param {string} lecturerId 
+ * @param {string} internshipId 
+ * @param {Object} data - { status, notes }
+ * @returns {Promise<Object>}
+ */
+export async function verifyFinalReport(lecturerId, internshipId, { status, notes, feedbackFile }) {
+    if (!['APPROVED', 'REVISION_NEEDED'].includes(status)) {
+        const error = new Error("Status verifikasi tidak valid.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Verify internship belongs to this lecturer
+    const internship = await guidanceRepo.findSupervisedInternshipById(internshipId, lecturerId);
+    if (!internship) {
+        const error = new Error("Internship tidak ditemukan atau bukan bimbingan Anda.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    // Check if report exists
+    if (!internship.reportStatus || internship.reportStatus !== 'SUBMITTED') {
+        const error = new Error("Laporan akhir belum diunggah atau tidak dalam status SUBMITTED.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Handle feedback file upload (only for REVISION_NEEDED)
+    let feedbackDocumentId = null;
+    if (feedbackFile && status === 'REVISION_NEEDED') {
+        const fs = await import('fs');
+        const path = await import('path');
+        
+        // Delete old feedback file if exists
+        if (internship.reportFeedbackDocumentId) {
+            try {
+                const oldDoc = await prisma.document.findUnique({
+                    where: { id: internship.reportFeedbackDocumentId },
+                    select: { filePath: true }
+                });
+                if (oldDoc?.filePath) {
+                    const oldFilePath = path.join(process.cwd(), oldDoc.filePath);
+                    if (fs.existsSync(oldFilePath)) {
+                        fs.unlinkSync(oldFilePath);
+                    }
+                }
+                await prisma.document.delete({
+                    where: { id: internship.reportFeedbackDocumentId }
+                });
+            } catch (delErr) {
+                console.warn("Gagal menghapus file feedback lama:", delErr.message);
+            }
+        }
+
+        // Create upload directory
+        const uploadsDir = path.join(process.cwd(), "uploads", "internship", internshipId, "feedback");
+        if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+
+        // Generate unique filename
+        const uniqueId = Date.now().toString(36);
+        const fileName = `${uniqueId}-${feedbackFile.originalName}`;
+        const relativeFilePath = `uploads/internship/${internshipId}/feedback/${fileName}`;
+        const filePath = path.join(uploadsDir, fileName);
+
+        // Write file to disk
+        fs.writeFileSync(filePath, feedbackFile.buffer);
+
+        // Create document record
+        const document = await prisma.document.create({
+            data: {
+                userId: lecturerId,
+                fileName: feedbackFile.originalName,
+                filePath: relativeFilePath,
+            }
+        });
+
+        feedbackDocumentId = document.id;
+    } else if (status === 'APPROVED' && internship.reportFeedbackDocumentId) {
+        // If approving, optionally delete feedback file (or keep for history)
+        // For now, we keep it for history
+    }
+
+    // Update report verification
+    const updateData = {
+        reportStatus: status,
+        reportNotes: notes || null
+    };
+    
+    if (feedbackDocumentId !== null) {
+        updateData.reportFeedbackDocumentId = feedbackDocumentId;
+    }
+
+    const updatedInternship = await prisma.internship.update({
+        where: { id: internshipId },
+        data: updateData,
+        include: {
+            reportFeedbackDocument: true
+        }
+    });
+
+    // Notify student
+    try {
+        const statusLabel = status === 'APPROVED' ? 'DISETUJUI' : 'PERLU REVISI';
+        const title = `Verifikasi Laporan Akhir`;
+        let message = `Laporan Akhir Anda telah ${statusLabel.toLowerCase()} oleh Dosen Pembimbing.`;
+        if (notes) {
+            message += ` Catatan: ${notes}`;
+        }
+        if (feedbackFile && status === 'REVISION_NEEDED') {
+            message += ` Dosen telah mengunggah file PDF dengan highlight untuk referensi Anda.`;
+        }
+
+        await notificationService.createNotificationsMany([{
+            userId: internship.studentId,
+            title,
+            message
+        }]);
+
+        await sendFcmToUsers([internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_final_report_verification',
+                role: 'student',
+                status,
+                internshipId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi verifikasi laporan akhir:", err);
+    }
+
+    return updatedInternship;
 }
 
 /**

@@ -651,8 +651,61 @@ export async function findInternshipById(id) {
                 select: {
                     id: true
                 }
+            },
+            reportDocument: true,
+            logbookDocument: true,
+            completionCertificateDoc: true,
+            companyReceiptDoc: true
+        }
+    });
+}
+
+/**
+ * Update verification status and notes for an internship document.
+ * @param {string} internshipId 
+ * @param {Object} data - { documentType, status, notes }
+ * @returns {Promise<Object>}
+ */
+export async function updateDocumentVerification(internshipId, { documentType, status, notes }) {
+    const data = {};
+    const statusField = `${documentType}Status`;
+    const notesField = `${documentType}Notes`;
+    
+    data[statusField] = status;
+    data[notesField] = notes;
+
+    return prisma.internship.update({
+        where: { id: internshipId },
+        data
+    });
+}
+
+/**
+ * Bulk update verification status and notes for multiple internship documents in a single transaction.
+ * @param {string} internshipId 
+ * @param {Array<Object>} documents - [{ documentType, status, notes }]
+ * @returns {Promise<Object>}
+ */
+export async function bulkUpdateDocumentVerification(internshipId, documents) {
+    return prisma.$transaction(async (tx) => {
+        const data = {};
+        
+        // Build data object with all document updates
+        for (const doc of documents) {
+            const statusField = `${doc.documentType}Status`;
+            const notesField = `${doc.documentType}Notes`;
+            
+            data[statusField] = doc.status;
+            if (doc.notes !== undefined) {
+                data[notesField] = doc.notes;
             }
         }
+
+        // Single update query for all documents
+        return tx.internship.update({
+            where: { id: internshipId },
+            data
+        });
     });
 }
 /**

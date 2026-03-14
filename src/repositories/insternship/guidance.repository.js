@@ -141,6 +141,12 @@ export async function findStudentInternshipWithGuidance(studentId) {
             actualStartDate: true,
             actualEndDate: true,
             supervisorId: true,
+            reportStatus: true,
+            reportTitle: true,
+            reportNotes: true,
+            reportUploadedAt: true,
+            finalNumericScore: true,
+            finalGrade: true,
             proposal: {
                 select: {
                     academicYearId: true
@@ -153,6 +159,30 @@ export async function findStudentInternshipWithGuidance(studentId) {
                             fullName: true
                         }
                     }
+                }
+            },
+            student: {
+                include: {
+                    user: {
+                        select: {
+                            fullName: true,
+                            identityNumber: true
+                        }
+                    }
+                }
+            },
+            reportDocument: {
+                select: {
+                    id: true,
+                    fileName: true,
+                    filePath: true
+                }
+            },
+            reportFeedbackDocument: {
+                select: {
+                    id: true,
+                    fileName: true,
+                    filePath: true
                 }
             }
         },
@@ -182,6 +212,12 @@ export async function findSupervisedInternships(supervisorId) {
                         select: {
                             companyName: true
                         }
+                    },
+                    academicYear: {
+                        select: {
+                            year: true,
+                            semester: true
+                        }
                     }
                 }
             },
@@ -192,6 +228,13 @@ export async function findSupervisedInternships(supervisorId) {
                     status: true,
                     submissionDate: true,
                     approvedAt: true
+                }
+            },
+            reportDocument: {
+                select: {
+                    id: true,
+                    fileName: true,
+                    filePath: true
                 }
             }
         },
@@ -282,7 +325,7 @@ export async function updateSessionStatus(sessionId, status) {
  * Find a specific supervised internship by ID and lecturer ID.
  */
 export async function findSupervisedInternshipById(internshipId, supervisorId) {
-    return prisma.internship.findFirst({
+    const result = await prisma.internship.findFirst({
         where: { id: internshipId, supervisorId },
         include: {
             proposal: {
@@ -292,9 +335,25 @@ export async function findSupervisedInternshipById(internshipId, supervisorId) {
             },
             student: {
                 include: { user: { select: { fullName: true, identityNumber: true } } }
+            },
+            reportDocument: {
+                select: {
+                    id: true,
+                    fileName: true,
+                    filePath: true
+                }
+            },
+            reportFeedbackDocument: {
+                select: {
+                    id: true,
+                    fileName: true,
+                    filePath: true
+                }
             }
         }
     });
+
+    return result;
 }
 
 /**

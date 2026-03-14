@@ -74,6 +74,8 @@ router.get("/internships", sekdepController.getInternshipList);
  * @desc Get full detail of an internship
  */
 router.get("/internships/:id", sekdepController.getInternshipDetail);
+router.put("/internships/:id/verify-document", sekdepController.verifyDocument);
+router.put("/internships/:id/verify-documents-bulk", sekdepController.bulkVerifyDocuments);
 
 /**
  * @route PATCH /insternship/sekdep/internships/bulk-assign

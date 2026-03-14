@@ -1,17 +1,21 @@
 import express from "express";
-import { getLogbooks, updateLogbook, updateInternshipDetails, downloadLogbookPdf, downloadLogbookDocx, submitReport } from "../../controllers/insternship/activity.controller.js";
-import { getStudentGuidance, submitStudentGuidance, getSupervisedStudents, getSupervisedStudentTimeline, getSupervisedStudentWeekDetail, submitLecturerEvaluation } from "../../controllers/insternship/guidance.controller.js";
+import * as activityController from "../../controllers/insternship/activity.controller.js";
+import { getStudentGuidance, submitStudentGuidance, getSupervisedStudents, getSupervisedStudentTimeline, getSupervisedStudentWeekDetail, submitLecturerEvaluation, verifyFinalReport } from "../../controllers/insternship/guidance.controller.js";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { LECTURER_ROLES } from "../../constants/roles.js";
+import { uploadThesisFile } from "../../middlewares/file.middleware.js";
 
 const router = express.Router();
 
-router.get("/logbook", authGuard, getLogbooks);
-router.get("/logbook/download", authGuard, downloadLogbookPdf);
-router.get("/logbook/download-docx", authGuard, downloadLogbookDocx);
-router.put("/logbook/:id", authGuard, updateLogbook);
-router.put("/update-details", authGuard, updateInternshipDetails);
-router.post("/report", authGuard, submitReport);
+router.get("/logbook", authGuard, activityController.getLogbooks);
+router.get("/logbook/download", authGuard, activityController.downloadLogbookPdf);
+router.get("/download-docx", authGuard, activityController.downloadLogbookDocx);
+router.put("/logbook/:id", authGuard, activityController.updateLogbook);
+router.put("/details", authGuard, activityController.updateInternshipDetails);
+router.post("/report", authGuard, activityController.submitReport);
+router.post("/certificate", authGuard, activityController.updateCompletionCertificate);
+router.post("/receipt", authGuard, activityController.updateCompanyReceipt);
+router.post("/logbook-doc", authGuard, activityController.submitLogbook);
 
 // Guidance / Bimbingan (Student)
 router.get("/guidance", authGuard, getStudentGuidance);
@@ -22,5 +26,7 @@ router.get("/guidance/lecturer/students", authGuard, requireAnyRole(LECTURER_ROL
 router.get("/guidance/lecturer/students/:internshipId", authGuard, requireAnyRole(LECTURER_ROLES), getSupervisedStudentTimeline);
 router.get("/guidance/lecturer/students/:internshipId/week/:weekNumber", authGuard, requireAnyRole(LECTURER_ROLES), getSupervisedStudentWeekDetail);
 router.post("/guidance/lecturer/students/:internshipId/week/:weekNumber/evaluate", authGuard, requireAnyRole(LECTURER_ROLES), submitLecturerEvaluation);
+router.put("/guidance/lecturer/students/:internshipId/verify-report", authGuard, requireAnyRole(LECTURER_ROLES), uploadThesisFile, verifyFinalReport);
+router.post("/register-seminar", authGuard, activityController.registerSeminar);
 
 export default router;

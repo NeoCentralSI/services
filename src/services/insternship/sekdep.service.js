@@ -528,9 +528,188 @@ export async function getInternshipDetail(id) {
         academicYearName: internship.proposal?.academicYear
             ? `${internship.proposal.academicYear.year} ${internship.proposal.academicYear.semester.charAt(0).toUpperCase() + internship.proposal.academicYear.semester.slice(1)}`
             : '-',
+        reportingDocuments: {
+            report: {
+                document: internship.reportDocument,
+                status: internship.reportStatus,
+                notes: internship.reportNotes,
+                uploadedAt: internship.reportUploadedAt
+            },
+            completionCertificate: {
+                document: internship.completionCertificateDoc,
+                status: internship.completionCertificateStatus,
+                notes: internship.completionCertificateNotes
+            },
+            companyReceipt: {
+                document: internship.companyReceiptDoc,
+                status: internship.companyReceiptStatus,
+                notes: internship.companyReceiptNotes
+            },
+            logbookDocument: {
+                document: internship.logbookDocument,
+                status: internship.logbookDocumentStatus,
+                notes: internship.logbookDocumentNotes
+            }
+        },
         createdAt: internship.createdAt
     };
 }
+
+/**
+ * Verify an internship document (Report, Certificate, Receipt, or Logbook).
+ * @param {string} internshipId 
+ * @param {Object} data - { documentType, status, notes }
+ * @returns {Promise<Object>}
+ */
+export async function verifyInternshipDocument(internshipId, { documentType, status, notes }) {
+    // Laporan akhir tidak bisa diverifikasi oleh sekdep, hanya dosen pembimbing
+    if (!['completionCertificate', 'companyReceipt', 'logbookDocument'].includes(documentType)) {
+        throw new Error("Jenis dokumen tidak valid.");
+    }
+
+    if (!['APPROVED', 'REVISION_NEEDED'].includes(status)) {
+        throw new Error("Status verifikasi tidak valid.");
+    }
+
+    const internship = await sekdepRepository.findInternshipById(internshipId);
+    if (!internship) {
+        throw new Error("Data Kerja Praktik tidak ditemukan.");
+    }
+
+    const updatedInternship = await sekdepRepository.updateDocumentVerification(internshipId, { documentType, status, notes });
+
+    // Notify student
+    try {
+        const docLabelMap = {
+            report: 'Laporan Akhir',
+            completionCertificate: 'Sertifikat Selesai KP',
+            companyReceipt: 'Tanda Terima (KP-004)',
+            logbookDocument: 'Laporan Kegiatan (KP-002)'
+        };
+
+        const docLabel = docLabelMap[documentType];
+        const statusLabel = status === 'APPROVED' ? 'DISETUJUI' : 'PERLU REVISI';
+        
+        const title = `Verifikasi ${docLabel}`;
+        let message = `Dokumen ${docLabel} Anda telah ${statusLabel.toLowerCase()} oleh Sekdep.`;
+        if (notes) {
+            message += ` Catatan: ${notes}`;
+        }
+
+        await notificationRepository.createNotificationsMany([{
+            userId: internship.studentId,
+            title,
+            message
+        }]);
+
+        await sendFcmToUsers([internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_document_verification',
+                status,
+                documentType,
+                internshipId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi verifikasi dokumen:", err);
+    }
+
+    return updatedInternship;
+}
+
+/**
+ * Bulk verify multiple internship documents at once.
+ * @param {string} internshipId 
+ * @param {Object} data - { documents: [{ documentType, status, notes }], status, notes }
+ * @returns {Promise<Object>}
+ */
+export async function bulkVerifyInternshipDocuments(internshipId, { documents, status, notes }) {
+    if (!Array.isArray(documents) || documents.length === 0) {
+        throw new Error("Dokumen yang akan diverifikasi harus berupa array dan tidak boleh kosong.");
+    }
+
+    // Validate all document types - laporan akhir tidak bisa diverifikasi oleh sekdep
+    const validDocTypes = ['completionCertificate', 'companyReceipt', 'logbookDocument'];
+    for (const doc of documents) {
+        if (!validDocTypes.includes(doc.documentType)) {
+            throw new Error(`Jenis dokumen tidak valid: ${doc.documentType}`);
+        }
+        if (!['APPROVED', 'REVISION_NEEDED'].includes(doc.status || status)) {
+            throw new Error("Status verifikasi tidak valid.");
+        }
+    }
+
+    const internship = await sekdepRepository.findInternshipById(internshipId);
+    if (!internship) {
+        throw new Error("Data Kerja Praktik tidak ditemukan.");
+    }
+
+    // Prepare documents data for bulk update
+    const documentsToUpdate = documents.map(doc => ({
+        documentType: doc.documentType,
+        status: doc.status || status,
+        notes: doc.notes !== undefined ? doc.notes : notes
+    }));
+
+    // Update all documents in a single transaction
+    await sekdepRepository.bulkUpdateDocumentVerification(internshipId, documentsToUpdate);
+
+    // Build results array
+    const results = documentsToUpdate.map(doc => ({
+        documentType: doc.documentType,
+        status: doc.status,
+        success: true
+    }));
+
+    // Notify student once for all documents
+    try {
+        const docLabelMap = {
+            report: 'Laporan Akhir',
+            completionCertificate: 'Sertifikat Selesai KP',
+            companyReceipt: 'Tanda Terima (KP-004)',
+            logbookDocument: 'Laporan Kegiatan (KP-002)'
+        };
+
+        const verifiedDocs = documents.map(doc => docLabelMap[doc.documentType] || doc.documentType).join(", ");
+        const statusLabel = (documents[0]?.status || status) === 'APPROVED' ? 'DISETUJUI' : 'PERLU REVISI';
+        
+        const title = `Verifikasi Dokumen Pelaporan`;
+        let message = `Dokumen pelaporan Anda (${verifiedDocs}) telah ${statusLabel.toLowerCase()} oleh Sekdep.`;
+        if (notes) {
+            message += ` Catatan: ${notes}`;
+        }
+
+        await notificationRepository.createNotificationsMany([{
+            userId: internship.studentId,
+            title,
+            message
+        }]);
+
+        await sendFcmToUsers([internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_document_bulk_verification',
+                status: documents[0]?.status || status,
+                internshipId,
+                documentCount: documents.length
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi verifikasi dokumen bulk:", err);
+    }
+
+    return {
+        success: true,
+        message: `Berhasil memverifikasi ${documents.length} dokumen.`,
+        results
+    };
+}
+
 /**
  * List lecturers with their active internship workload for Sekdep.
  * @param {Object} params - { q, skip, take }

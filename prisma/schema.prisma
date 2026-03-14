@@ -1015,7 +1015,11 @@ model Document {
   internshipSupLetterDocs         Internship[]                     @relation("InternshipSupLetterDocument")
   internshipFieldAssessmentDocs   Internship[]                     @relation("InternshipFieldAssessmentDoc")
   internshipReportDocs            Internship[]                     @relation("InternshipReportDocument")
+  internshipReportFeedbackDocs    Internship[]                     @relation("InternshipReportFeedbackDocument")
+  internshipCompletionCertificateDocs Internship[]                   @relation("InternshipCompletionCertificateDoc")
+  internshipCompanyReceiptDocs    Internship[]                     @relation("InternshipCompanyReceiptDoc")
   internshipSeminarBeritaAcara    InternshipSeminar[]              @relation("InternshipSeminarBeritaAcara")
+  internshipLogbookDoc        Internship[] @relation("InternshipLogbookDoc")
   thesis                          Thesis[]
   thesisFinalDocument             Thesis[]                         @relation("FinalThesisDocument")
   thesisGuidances                 ThesisGuidance[]
@@ -1204,21 +1208,37 @@ model Internship {
   // Report fields (merged from InternshipReport)
   reportTitle      String?                @map("report_title")
   reportDocumentId String?                @map("report_document_id")
-  reportStatus     InternshipReportStatus @default(SUBMITTED) @map("report_status")
+  reportStatus     InternshipReportStatus? @map("report_status")
   reportNotes      String?                @map("report_notes") @db.Text
   reportUploadedAt DateTime?              @map("report_uploaded_at")
+  reportFeedbackDocumentId String?        @map("report_feedback_document_id")
 
   reportDocument   Document?                   @relation("InternshipReportDocument", fields: [reportDocumentId], references: [id])
+  reportFeedbackDocument Document?             @relation("InternshipReportFeedbackDocument", fields: [reportFeedbackDocumentId], references: [id])
   logbooks         InternshipLogbook[]
   guidanceSessions InternshipGuidanceSession[]
   seminars         InternshipSeminar[]
 
   // Assessment fields (merged from InternshipAssessment)
-  lecturerAssessmentStatus InternshipAssessmentStatus @default(PENDING) @map("lecturer_assessment_status")
-  fieldAssessmentStatus    InternshipAssessmentStatus @default(PENDING) @map("field_assessment_status")
+  lecturerAssessmentStatus InternshipAssessmentStatus? @map("lecturer_assessment_status")
+  fieldAssessmentStatus    InternshipAssessmentStatus? @map("field_assessment_status")
   fieldAssessmentDocId     String?                    @map("field_assessment_doc_id")
+  completionCertificateDocId String?                  @map("completion_certificate_doc_id")
+  completionCertificateStatus InternshipReportStatus? @map("completion_certificate_status")
+  completionCertificateNotes  String?                 @map("completion_certificate_notes") @db.Text
+  
+  companyReceiptDocId      String?                    @map("company_receipt_doc_id")
+  companyReceiptStatus     InternshipReportStatus?    @map("company_receipt_status")
+  companyReceiptNotes      String?                    @map("company_receipt_notes") @db.Text
+  
+  logbookDocumentId        String?                    @map("logbook_document_id")
+  logbookDocumentStatus    InternshipReportStatus?    @map("logbook_document_status")
+  logbookDocumentNotes     String?                    @map("logbook_document_notes") @db.Text
 
   fieldAssessmentDoc Document? @relation("InternshipFieldAssessmentDoc", fields: [fieldAssessmentDocId], references: [id])
+  completionCertificateDoc Document? @relation("InternshipCompletionCertificateDoc", fields: [completionCertificateDocId], references: [id])
+  companyReceiptDoc Document? @relation("InternshipCompanyReceiptDoc", fields: [companyReceiptDocId], references: [id])
+  logbookDocument   Document? @relation("InternshipLogbookDoc", fields: [logbookDocumentId], references: [id])
 
   lecturerScores InternshipLecturerScore[]
   fieldScores    InternshipFieldScore[]
@@ -1233,7 +1253,10 @@ model Internship {
   @@index([supLetterDocId], map: "internships_sup_letter_doc_id_fkey")
   @@index([supLetterSignedAsRoleId], map: "internships_sup_letter_signed_as_role_id_fkey")
   @@index([fieldAssessmentDocId], map: "internships_field_assessment_doc_id_fkey")
+  @@index([completionCertificateDocId], map: "internships_completion_certificate_doc_id_fkey")
+  @@index([companyReceiptDocId], map: "internships_company_receipt_doc_id_fkey")
   @@index([reportDocumentId], map: "internships_report_document_id_fkey")
+  @@index([reportFeedbackDocumentId], map: "internships_report_feedback_document_id_fkey")
   @@map("internships")
 }
 
@@ -1779,6 +1802,7 @@ enum InternshipActiveStatus {
   REJECTED_BY_COMPANY
   ONGOING
   COMPLETED
+  FAILED
 }
 
 enum InternshipGuidanceSessionStatus {
