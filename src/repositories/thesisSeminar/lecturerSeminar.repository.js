@@ -347,12 +347,10 @@ export async function findSeminarAssessmentCpmks() {
   return prisma.cpmk.findMany({
     where: {
       type: "thesis",
-      isActive: true,
       assessmentCriterias: {
         some: {
           appliesTo: "seminar",
           role: "default",
-          isActive: true,
         },
       },
     },
@@ -361,7 +359,6 @@ export async function findSeminarAssessmentCpmks() {
         where: {
           appliesTo: "seminar",
           role: "default",
-          isActive: true,
         },
         include: {
           assessmentRubrics: {
@@ -494,13 +491,12 @@ export async function findSeminarSupervisorRole(seminarId, lecturerId) {
 /**
  * Finalize seminar result (status + final score metadata).
  */
-export async function finalizeSeminarResult({ seminarId, status, finalScore, grade }) {
+export async function finalizeSeminarResult({ seminarId, status, finalScore }) {
   return prisma.thesisSeminar.update({
     where: { id: seminarId },
     data: {
       status,
       finalScore,
-      grade,
       resultFinalizedAt: new Date(),
     },
   });
@@ -631,7 +627,6 @@ export async function findSeminarAudiences(seminarId) {
       thesisSeminarId: true,
       studentId: true,
       registeredAt: true,
-      isPresent: true,
       approvedAt: true,
       approvedBy: true,
       student: {
@@ -685,7 +680,6 @@ export async function resetAudienceApproval(seminarId, studentId) {
     data: {
       approvedBy: null,
       approvedAt: null,
-      isPresent: false,
     },
   });
 }
@@ -701,6 +695,6 @@ export async function toggleAudiencePresence(seminarId, studentId, isPresent) {
         studentId,
       },
     },
-    data: { isPresent },
+    data: { approvedAt: isPresent ? new Date() : null },
   });
 }

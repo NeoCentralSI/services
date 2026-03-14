@@ -395,8 +395,8 @@ export async function getStudentRevisions(userId) {
   }
 
   const totalRevisions = revisions.length;
-  const finishedRevisions = revisions.filter((r) => r.isFinished).length;
-  const pendingApproval = revisions.filter((r) => r.studentSubmittedAt && !r.isFinished).length;
+  const finishedRevisions = revisions.filter((r) => isRevisionFinished(r)).length;
+  const pendingApproval = revisions.filter((r) => r.studentSubmittedAt && !isRevisionFinished(r)).length;
 
   return {
     seminarId: seminar.id,
@@ -413,7 +413,7 @@ export async function getStudentRevisions(userId) {
       examinerName: lecturerMap.get(item.seminarExaminer?.lecturerId) || "-",
       description: item.description,
       revisionAction: item.revisionAction,
-      isFinished: item.isFinished,
+      isFinished: isRevisionFinished(item),
       studentSubmittedAt: item.studentSubmittedAt,
       supervisorApprovedAt: item.supervisorApprovedAt,
       approvedBySupervisorName: item.supervisor?.lecturer?.user?.fullName || null,
@@ -498,7 +498,7 @@ export async function submitStudentRevisionAction(userId, revisionId, body) {
     throw err;
   }
 
-  if (revision.isFinished) {
+  if (isRevisionFinished(revision)) {
     const err = new Error("Revisi ini sudah disetujui dan tidak dapat diubah.");
     err.statusCode = 400;
     throw err;
@@ -639,15 +639,15 @@ export async function getStudentSeminarDetail(userId, seminarId) {
       examinerName: lecturerMap.get(item.seminarExaminer?.lecturerId) || "-",
       description: item.description,
       revisionAction: item.revisionAction,
-      isFinished: item.isFinished,
+      isFinished: isRevisionFinished(item),
       studentSubmittedAt: item.studentSubmittedAt,
       supervisorApprovedAt: item.supervisorApprovedAt,
       approvedBySupervisorName: item.supervisor?.lecturer?.user?.fullName || null,
     }));
     revisionSummary = {
       total: revisions.length,
-      finished: revisions.filter((r) => r.isFinished).length,
-      pendingApproval: revisions.filter((r) => r.studentSubmittedAt && !r.isFinished).length,
+      finished: revisions.filter((r) => isRevisionFinished(r)).length,
+      pendingApproval: revisions.filter((r) => r.studentSubmittedAt && !isRevisionFinished(r)).length,
     };
   }
 
@@ -721,6 +721,10 @@ function mapScoreToGrade(score) {
   if (score >= 65) return "C";
   if (score >= 60) return "D";
   return "E";
+}
+
+function isRevisionFinished(revision) {
+  return Boolean(revision?.supervisorApprovedAt);
 }
 
 /**
@@ -860,7 +864,7 @@ export async function saveStudentRevisionAction(userId, revisionId, body) {
     throw err;
   }
 
-  if (revision.isFinished) {
+  if (isRevisionFinished(revision)) {
     const err = new Error("Revisi ini sudah disetujui dan tidak dapat diubah.");
     err.statusCode = 400;
     throw err;
@@ -925,7 +929,7 @@ export async function submitStudentRevision(userId, revisionId) {
     throw err;
   }
 
-  if (revision.isFinished) {
+  if (isRevisionFinished(revision)) {
     const err = new Error("Revisi ini sudah disetujui.");
     err.statusCode = 400;
     throw err;
@@ -979,7 +983,7 @@ export async function cancelStudentRevisionSubmission(userId, revisionId) {
     throw err;
   }
 
-  if (revision.isFinished) {
+  if (isRevisionFinished(revision)) {
     const err = new Error("Revisi yang sudah disetujui tidak dapat dibatalkan.");
     err.statusCode = 400;
     throw err;
@@ -1033,7 +1037,7 @@ export async function deleteStudentRevision(userId, revisionId) {
     throw err;
   }
 
-  if (revision.isFinished) {
+  if (isRevisionFinished(revision)) {
     const err = new Error("Revisi yang sudah disetujui tidak dapat dihapus.");
     err.statusCode = 400;
     throw err;
