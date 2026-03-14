@@ -2,7 +2,8 @@ import * as service from "../services/cpmk.service.js";
 
 export const getAll = async (req, res, next) => {
     try {
-        const data = await service.getAllCpmks();
+        const { academicYearId } = req.query;
+        const data = await service.getAllCpmks({ academicYearId });
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil data CPMK",
@@ -47,20 +48,6 @@ export const update = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: "Berhasil mengubah data CPMK",
-            data,
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-export const toggle = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const data = await service.toggleCpmk(id);
-        res.status(200).json({
-            success: true,
-            message: data.isActive ? "CPMK berhasil diaktifkan" : "CPMK berhasil dinonaktifkan",
             data,
         });
     } catch (error) {

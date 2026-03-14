@@ -12,7 +12,6 @@ export const findCpmkById = async (id) => {
             code: true,
             description: true,
             type: true,
-            isActive: true,
         },
     });
 };
@@ -25,7 +24,6 @@ export const findConfiguredSeminarCpmks = async () => {
     return await prisma.cpmk.findMany({
         where: {
             type: "thesis",
-            isActive: true,
             assessmentCriterias: {
                 some: {
                     appliesTo: "seminar",
@@ -82,7 +80,6 @@ export const findCriteriaById = async (id) => {
                     code: true,
                     description: true,
                     type: true,
-                    isActive: true,
                 },
             },
             assessmentRubrics: {
@@ -259,14 +256,13 @@ export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) 
 // ────────────────────────────────────────────
 
 /**
- * Get total maxScore of all active seminar/default criteria.
+ * Get total maxScore of all seminar/default criteria.
  * Optionally exclude a specific criteria (for update validation).
  */
 export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null) => {
     const where = {
         appliesTo: "seminar",
         role: "default",
-        isActive: true,
     };
     if (excludeCriteriaId) {
         where.id = { not: excludeCriteriaId };
@@ -276,16 +272,6 @@ export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null) => {
         _sum: { maxScore: true },
     });
     return result._sum.maxScore || 0;
-};
-
-/**
- * Toggle isActive for a criteria.
- */
-export const toggleCriteriaActive = async (id, isActive) => {
-    return await prisma.assessmentCriteria.update({
-        where: { id },
-        data: { isActive },
-    });
 };
 
 /**
@@ -320,7 +306,6 @@ export const getSeminarWeightSummary = async () => {
     const cpmks = await prisma.cpmk.findMany({
         where: {
             type: "thesis",
-            isActive: true,
             assessmentCriterias: {
                 some: {
                     appliesTo: "seminar",
@@ -341,7 +326,6 @@ export const getSeminarWeightSummary = async () => {
                     id: true,
                     name: true,
                     maxScore: true,
-                    isActive: true,
                     assessmentRubrics: { select: { id: true } },
                 },
                 orderBy: { displayOrder: "asc" },
@@ -352,12 +336,10 @@ export const getSeminarWeightSummary = async () => {
 
     let totalCriteriaScore = 0;
     const details = cpmks.map((c) => {
-        const criteriaScore = c.assessmentCriterias
-            .filter((criteria) => criteria.isActive)
-            .reduce(
-                (sum, criteria) => sum + (criteria.maxScore || 0),
-                0,
-            );
+        const criteriaScore = c.assessmentCriterias.reduce(
+            (sum, criteria) => sum + (criteria.maxScore || 0),
+            0,
+        );
 
         totalCriteriaScore += criteriaScore;
 

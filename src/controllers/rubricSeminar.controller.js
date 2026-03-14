@@ -125,24 +125,6 @@ export const deleteRubric = async (req, res, next) => {
 };
 
 // ────────────────────────────────────────────
-// Toggle Criteria Active
-// ────────────────────────────────────────────
-
-export const toggleCriteriaActive = async (req, res, next) => {
-    try {
-        const { criteriaId } = req.params;
-        const data = await service.toggleCriteriaActive(criteriaId, req.validated);
-        res.status(200).json({
-            success: true,
-            message: "Berhasil mengubah status kriteria",
-            data,
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// ────────────────────────────────────────────
 // Reorder
 // ────────────────────────────────────────────
 

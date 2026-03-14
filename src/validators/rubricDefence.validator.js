@@ -69,10 +69,6 @@ export const updateRubricSchema = z.object({
         .optional(),
 });
 
-export const toggleCriteriaSchema = z.object({
-    isActive: z.boolean({ required_error: "Status aktif wajib diisi" }),
-});
-
 export const reorderCriteriaSchema = z.object({
     cpmkId: z.string({ required_error: "CPMK wajib dipilih" }).uuid("CPMK tidak valid"),
     orderedIds: z

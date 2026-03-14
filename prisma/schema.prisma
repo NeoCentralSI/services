@@ -223,7 +223,6 @@ model Cpmk {
   code           String        @db.VarChar(255)
   description    String        @db.VarChar(255)
   type           CpmkType
-  isActive       Boolean       @default(true) @map("is_active")
   displayOrder   Int           @default(0) @map("display_order")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
@@ -242,7 +241,6 @@ model AssessmentCriteria {
   appliesTo    AssessmentAppliesTo @map("applies_to")
   role         AssessmentRole      @default(default)
   maxScore     Int?                @map("max_score")
-  isActive     Boolean             @default(true) @map("is_active")
   displayOrder Int                 @default(0) @map("display_order")
   createdAt    DateTime            @default(now()) @map("created_at")
   updatedAt    DateTime            @updatedAt @map("updated_at")

@@ -9,7 +9,6 @@ import {
     updateRubric,
     deleteRubric,
     getWeightSummary,
-    toggleCriteriaActive,
     reorderCriteria,
     reorderRubrics,
 } from "../controllers/rubricDefence.controller.js";
@@ -19,7 +18,6 @@ import {
     updateCriteriaSchema,
     createRubricSchema,
     updateRubricSchema,
-    toggleCriteriaSchema,
     reorderCriteriaSchema,
     reorderRubricsSchema,
 } from "../validators/rubricDefence.validator.js";
@@ -38,7 +36,6 @@ router.get("/cpmks", getCpmksWithRubrics);
 router.post("/criteria", validate(createCriteriaSchema), createCriteria);
 router.patch("/criteria/reorder", validate(reorderCriteriaSchema), reorderCriteria);
 router.patch("/criteria/:criteriaId", validate(updateCriteriaSchema), updateCriteria);
-router.patch("/criteria/:criteriaId/toggle", validate(toggleCriteriaSchema), toggleCriteriaActive);
 router.delete("/criteria/:criteriaId", deleteCriteria);
 
 // ── Reorder rubrics ──────────────────────────

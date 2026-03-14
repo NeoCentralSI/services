@@ -4,7 +4,6 @@ import {
     getById,
     create,
     update,
-    toggle,
     remove,
 } from "../controllers/cpmk.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
@@ -21,7 +20,6 @@ router.get("/", getAll);
 router.get("/:id", getById);
 router.post("/", validate(createCpmkSchema), create);
 router.patch("/:id", validate(updateCpmkSchema), update);
-router.patch("/:id/toggle", toggle);
 router.delete("/:id", remove);
 
 export default router;
