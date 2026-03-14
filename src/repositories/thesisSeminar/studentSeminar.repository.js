@@ -282,7 +282,7 @@ export async function getStudentSeminarRevisions(seminarId) {
       },
     },
     orderBy: [
-      { isFinished: "asc" },
+      { supervisorApprovedAt: "asc" },
       { studentSubmittedAt: "desc" },
       { id: "asc" },
     ],

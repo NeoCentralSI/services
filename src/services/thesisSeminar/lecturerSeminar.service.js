@@ -445,7 +445,7 @@ export async function getLecturerSeminarDetail(seminarId, lecturerId) {
     studentName: a.student?.user?.fullName || "-",
     nim: a.student?.user?.identityNumber || "-",
     registeredAt: a.registeredAt,
-    isPresent: a.isPresent,
+    isPresent: Boolean(a.approvedAt),
     approvedAt: a.approvedAt,
   }));
 
@@ -458,7 +458,7 @@ export async function getLecturerSeminarDetail(seminarId, lecturerId) {
     endTime: seminar.endTime,
     meetingLink: seminar.meetingLink,
     finalScore: seminar.finalScore,
-    grade: seminar.grade,
+    grade: mapScoreToGrade(seminar.finalScore),
     room: seminar.room
       ? { id: seminar.room.id, name: seminar.room.name }
       : null,
@@ -725,7 +725,7 @@ export async function getSupervisorFinalizationData(seminarId, lecturerId) {
       id: seminar.id,
       status: effectiveStatus,
       finalScore: seminar.finalScore,
-      grade: seminar.grade,
+      grade: mapScoreToGrade(seminar.finalScore),
       resultFinalizedAt: seminar.resultFinalizedAt,
       revisionFinalizedAt: seminar.revisionFinalizedAt,
       studentName: seminar.thesis?.student?.user?.fullName || "-",
@@ -838,7 +838,6 @@ export async function finalizeSeminarBySupervisor(seminarId, lecturerId, payload
     seminarId,
     status: payload.status,
     finalScore: averageScore,
-    grade: finalGrade,
   });
 
   // If failed, reset seminarReady for all supervisors so student can re-register
@@ -856,7 +855,7 @@ export async function finalizeSeminarBySupervisor(seminarId, lecturerId, payload
     seminarId: finalized.id,
     status: finalized.status,
     finalScore: finalized.finalScore,
-    grade: finalized.grade,
+    grade: finalGrade,
     resultFinalizedAt: finalized.resultFinalizedAt,
   };
 }
@@ -1142,7 +1141,7 @@ export async function getSeminarAudienceList(seminarId, lecturerId) {
     studentName: a.student?.user?.fullName || "-",
     nim: a.student?.user?.identityNumber || "-",
     registeredAt: a.registeredAt,
-    isPresent: a.isPresent,
+    isPresent: Boolean(a.approvedAt),
     approvedAt: a.approvedAt,
     approvedByName: a.supervisor?.lecturer?.user?.fullName || null,
   }));
