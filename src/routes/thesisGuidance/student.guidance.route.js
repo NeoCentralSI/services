@@ -29,6 +29,7 @@ import {
 	getMyThesis,
 	updateMyThesisTitle,
 	proposeThesis,
+	generateGuidanceLog,
 } from "../../controllers/thesisGuidance/student.guidance.controller.js";
 import {
 	getAvailableSupervisor2,
@@ -64,7 +65,7 @@ router.patch("/progress/complete", validate(completeComponentsSchema), completeP
 
 // History
 router.get("/history", guidanceHistory);
-router.get("/history/theses", thesisHistory);
+router.get("/thesis-history", thesisHistory);
 
 // Session Summary (after guidance)
 router.get("/needs-summary", needsSummary);
@@ -72,6 +73,7 @@ router.post("/guidance/:guidanceId/submit-summary", submitSummary);
 router.post("/guidance/:guidanceId/complete", markSessionComplete); // Quick complete without lecturer approval
 router.get("/completed-history", completedHistory);
 router.get("/guidance/:guidanceId/export", exportGuidance);
+router.post("/guidance/generate-log", generateGuidanceLog);
 
 // Supervisors info
 router.get("/supervisors", listSupervisors);

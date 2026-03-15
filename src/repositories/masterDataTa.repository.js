@@ -70,7 +70,8 @@ export const createThesis = async (data) => {
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
                 deadlineDate: data.deadlineDate,
-                rating: "ONGOING"
+                rating: "ONGOING",
+                isProposal: data.isProposal ?? false
             }
         });
 
@@ -98,7 +99,8 @@ export const updateThesis = async (id, data) => {
                 thesisStatusId: data.thesisStatusId,
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
-                rating: data.rating
+                rating: data.rating,
+                isProposal: data.isProposal
             }
         });
 
@@ -121,5 +123,46 @@ export const updateThesis = async (id, data) => {
         }
 
         return thesis;
+    });
+};
+
+export const findStudentByNim = async (nim) => {
+    return await prisma.student.findFirst({
+        where: { user: { identityNumber: nim } },
+        include: { user: true }
+    });
+};
+
+export const findLecturerByIdentity = async (identity) => {
+    return await prisma.lecturer.findFirst({
+        where: { user: { identityNumber: identity } },
+        include: { user: true }
+    });
+};
+
+export const findTopicByName = async (name) => {
+    return await prisma.thesisTopic.findFirst({
+        where: { name: { contains: name } }
+    });
+};
+
+export const findAcademicYearByYearAndSemester = async (year, semester) => {
+    return await prisma.academicYear.findFirst({
+        where: {
+            year: year,
+            semester: semester
+        }
+    });
+};
+
+export const findThesisStatusByName = async (name) => {
+    return await prisma.thesisStatus.findFirst({
+        where: { name: { contains: name } }
+    });
+};
+
+export const findThesisByStudentId = async (studentId) => {
+    return await prisma.thesis.findFirst({
+        where: { studentId }
     });
 };

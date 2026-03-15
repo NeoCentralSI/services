@@ -296,8 +296,10 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
         where: {
           supervisor: {
             is: {
-              user: {
-                id: userId,
+              lecturer: {
+                is: {
+                  user: { id: userId },
+                },
               },
             },
           },

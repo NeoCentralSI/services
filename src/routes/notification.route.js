@@ -32,14 +32,14 @@ router.patch("/read-all", markAllRead);
 // DELETE /notification/all - Delete all notifications (must be before /:id)
 router.delete("/all", deleteAllNotifications);
 
+// FCM endpoints (must be before /:id)
+router.post("/fcm/register", registerFcm);
+router.delete("/fcm/unregister", unregisterFcm);
+
 // PATCH /notification/:id/read - Mark notification as read
 router.patch("/:id/read", markNotificationRead);
 
 // DELETE /notification/:id - Delete notification
 router.delete("/:id", deleteNotification);
-
-// FCM endpoints
-router.post("/fcm/register", registerFcm);
-router.delete("/fcm/unregister", unregisterFcm);
 
 export default router;

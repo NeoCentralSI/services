@@ -187,7 +187,7 @@ model ScienceGroup {
 model AcademicYear {
   id                  String               @id @default(uuid())
   semester            Semester             @default(ganjil)
-  year                Int?
+  year                String?              @db.VarChar(20)
   startDate           DateTime?            @map("start_date")
   endDate             DateTime?            @map("end_date")
   isActive            Boolean              @default(false) @map("is_active")
@@ -348,13 +348,14 @@ model ExitSurveyOption {
 
 model Thesis {
   id                      String                @id @default(uuid())
+  isProposal              Boolean               @default(true) @map("is_proposal")
   rating                  ThesisRating          @default(ONGOING)
   studentId               String                @map("student_id")
   thesisTopicId           String?               @map("thesis_topic_id")
   thesisStatusId          String?               @map("thesis_status_id")
   academicYearId          String?               @map("academic_year_id")
   documentId              String?               @map("document_id")
-  title                   String?
+  title                   String?               @db.Text
   startDate               DateTime?             @map("start_date")
   deadlineDate            DateTime?             @map("deadline_date")
   finalThesisDocumentId   String?               @map("final_thesis_document_id")
@@ -449,6 +450,10 @@ model ThesisSupervisors {
   thesis       Thesis   @relation(fields: [thesisId], references: [id])
   thesisSeminarAudienceApprovals ThesisSeminarAudience[]
   thesisSeminarRevisionApprovals ThesisSeminarRevision[]
+  thesisSeminarResultFinalizations ThesisSeminar[] @relation("SeminarResultFinalizedBy")
+  thesisSeminarRevisionFinalizations ThesisSeminar[] @relation("SeminarRevisionFinalizedBy")
+  thesisDefenceResultFinalizations ThesisDefence[] @relation("DefenceResultFinalizedBy")
+  thesisDefenceRevisionFinalizations ThesisDefence[] @relation("DefenceRevisionFinalizedBy")
   thesisDefenceRevisionApprovals ThesisDefenceRevision[]
 
   @@index([lecturerId], map: "thesis_participants_lecturer_id_fkey")
@@ -685,6 +690,7 @@ model ThesisGuidance {
   approvedDate  DateTime? @map("approved_date")
   duration      Int       @default(60)
 
+  documentId   String? @map("document_id")
   documentUrl        String? @map("document_url")
   studentNotes       String? @map("student_notes") @db.Text
   supervisorFeedback String? @map("supervisor_feedback") @db.Text
@@ -703,12 +709,14 @@ model ThesisGuidance {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  document   Document? @relation(fields: [documentId], references: [id])
   supervisor Lecturer? @relation(fields: [supervisorId], references: [id])
   thesis     Thesis    @relation(fields: [thesisId], references: [id], onDelete: Cascade)
 
   milestones ThesisGuidanceMilestone[]
 
   @@index([thesisId])
+  @@index([documentId], map: "thesis_guidances_document_id_fkey")
   @@index([supervisorId], map: "thesis_guidances_supervisor_id_fkey")
   @@map("thesis_guidances")
 }
@@ -723,21 +731,28 @@ model ThesisSeminar {
   endTime            DateTime?           @map("end_time") @db.Time(0)
   meetingLink        String?             @map("meeting_link") @db.VarChar(255)
   status             ThesisSeminarStatus @default(registered)
-  // finalScore removed — computed dynamically from examiner scores
+  finalScore         Float?              @map("final_score")
   grade              String?             @db.VarChar(10)
   resultFinalizedAt  DateTime?           @map("result_finalized_at")
+  resultFinalizedBy  String?             @map("result_finalized_by") @db.VarChar(255)
+  revisionFinalizedAt DateTime?          @map("revision_finalized_at")
+  revisionFinalizedBy String?            @map("revision_finalized_by") @db.VarChar(255)
   cancelledReason    String?             @map("cancelled_reason") @db.Text
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
   thesis    Thesis                 @relation(fields: [thesisId], references: [id])
   room      Room?                  @relation(fields: [roomId], references: [id])
+  resultFinalizer ThesisSupervisors? @relation("SeminarResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
+  revisionFinalizer ThesisSupervisors? @relation("SeminarRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
   audiences ThesisSeminarAudience[]
   examiners ThesisSeminarExaminer[]
   documents ThesisSeminarDocument[]
 
   @@index([thesisId], map: "thesis_seminars_thesis_id_fkey")
   @@index([roomId], map: "thesis_seminars_room_id_fkey")
+  @@index([resultFinalizedBy], map: "thesis_seminars_result_finalized_by_fkey")
+  @@index([revisionFinalizedBy], map: "thesis_seminars_finalized_by_fkey")
   @@map("thesis_seminars")
 }
 
@@ -856,21 +871,29 @@ model ThesisDefence {
   status               ThesisDefenceStatus  @default(registered)
   examinerAverageScore Float?               @map("examiner_average_score")
   supervisorScore      Float?               @map("supervisor_score")
-  // finalScore removed — computed dynamically from examiner + supervisor scores
+  supervisorNotes      String?              @map("supervisor_notes") @db.Text
+  finalScore           Float?               @map("final_score")
   grade                String?              @db.VarChar(10)
   resultFinalizedAt    DateTime?            @map("result_finalized_at")
+  resultFinalizedBy    String?              @map("result_finalized_by") @db.VarChar(255)
+  revisionFinalizedAt  DateTime?            @map("revision_finalized_at")
+  revisionFinalizedBy  String?              @map("revision_finalized_by") @db.VarChar(255)
   cancelledReason      String?              @map("cancelled_reason") @db.Text
   createdAt            DateTime             @default(now()) @map("created_at")
   updatedAt            DateTime             @updatedAt @map("updated_at")
 
   thesis    Thesis                                    @relation(fields: [thesisId], references: [id])
   room      Room?                                     @relation(fields: [roomId], references: [id])
+  resultFinalizer ThesisSupervisors?                  @relation("DefenceResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
+  revisionFinalizer ThesisSupervisors?                @relation("DefenceRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
   examiners ThesisDefenceExaminer[]
   documents ThesisDefenceDocument[]
   supervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
 
   @@index([thesisId], map: "thesis_defences_thesis_id_fkey")
   @@index([roomId], map: "thesis_defences_room_id_fkey")
+  @@index([resultFinalizedBy], map: "thesis_defences_result_finalized_by_fkey")
+  @@index([revisionFinalizedBy], map: "thesis_defences_finalized_by_fkey")
   @@map("thesis_defences")
 }
 
@@ -1153,8 +1176,9 @@ model Document {
   thesisFinalDocument          Thesis[]                      @relation("FinalThesisDocument")
   thesisProposalDocument       Thesis[]                      @relation("ProposalDocument")
   thesisTitleApprovalDocs      Thesis[]                      @relation("TitleApprovalDocument")
-  seminarDocuments             ThesisSeminarDocument[]        @relation("SeminarDocDocument")
-  defenceDocuments             ThesisDefenceDocument[]        @relation("DefenceDocDocument")
+  thesisGuidances              ThesisGuidance[]
+  seminarDocuments             ThesisSeminarDocument[]       @relation("SeminarDocDocument")
+  defenceDocuments             ThesisDefenceDocument[]       @relation("DefenceDocDocument")
   yudisiums                    Yudisium[]
   yudisiumParticipantRequirements  YudisiumParticipantRequirement[]
   milestoneTemplateAttachments    MilestoneTemplateAttachment[]
@@ -1192,7 +1216,7 @@ model Notification {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
   title     String?
-  message   String?
+  message   String?  @db.Text
   type      String?  @db.VarChar(50)
   isRead    Boolean  @default(false) @map("is_read")
   data      Json?

@@ -12,6 +12,7 @@ export async function findMyStudents(lecturerId, roles) {
 	const where = {
 		lecturerId,
 		thesis: {
+			isProposal: false,
 			thesisStatus: {
 				name: { notIn: ["Gagal", "Failed", "failed"] }
 			}
@@ -110,6 +111,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 	const where = {
 		supervisorId: lecturerId,
 		status: "requested",
+		thesis: { isProposal: false },
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -129,6 +131,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 						document: true,
 					},
 				},
+				document: { select: { id: true, fileName: true, filePath: true } },
 				supervisor: { include: { user: true } },
 				milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 			},
@@ -142,9 +145,10 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 
 export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 	return prisma.thesisGuidance.findFirst({
-		where: { id: guidanceId, supervisorId: lecturerId },
+		where: { id: guidanceId, supervisorId: lecturerId, thesis: { isProposal: false } },
 		include: {
 			thesis: { include: { student: { include: { user: true } }, document: true } },
+			document: { select: { id: true, fileName: true, filePath: true } },
 			supervisor: { include: { user: true } },
 			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 		},
@@ -219,7 +223,7 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 
 export async function getLecturerTheses(lecturerId) {
 	const parts = await prisma.ThesisSupervisors.findMany({
-		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
+		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } }, thesis: { isProposal: false } },
 		select: { thesisId: true },
 	});
 	return parts.map((p) => p.thesisId);
@@ -243,6 +247,7 @@ export async function getStudentActiveThesis(studentId, lecturerId) {
 	return prisma.thesis.findFirst({
 		where: {
 			studentId,
+			isProposal: false,
 			thesisSupervisors: { some: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } } },
 		},
 		include: { thesisProgressCompletions: true },
@@ -299,8 +304,8 @@ export async function upsertCompletionsValidated(thesisId, componentIds = []) {
 export async function listGuidanceHistory(studentId, lecturerId) {
 	return prisma.thesisGuidance.findMany({
 		where: {
-			thesis: { studentId },
-			supervisorId: lecturerId,
+			thesis: { studentId, isProposal: false },
+			status: { not: "deleted" },
 		},
 		include: {
 			supervisor: { include: { user: true } },
@@ -376,6 +381,7 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 		where: {
 			thesisId,
 			lecturerId,
+			thesis: { isProposal: false }
 		},
 	});
 	if (!participant) return null;
@@ -422,6 +428,7 @@ export async function findGuidancesPendingApproval(lecturerId, { page = 1, pageS
 	const where = {
 		supervisorId: lecturerId,
 		status: "summary_pending",
+		thesis: { isProposal: false }
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -487,6 +494,7 @@ export async function findPendingGuidanceById(guidanceId, lecturerId) {
 			id: guidanceId,
 			supervisorId: lecturerId,
 			status: "summary_pending",
+			thesis: { isProposal: false }
 		},
 		include: {
 			thesis: {
@@ -504,13 +512,14 @@ export async function findPendingGuidanceById(guidanceId, lecturerId) {
  * Find scheduled guidances (accepted or summary_pending) for a lecturer
  */
 export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 10 } = {}) {
-	const take = Math.max(1, Math.min(50, Number(pageSize) || 10));
+	const take = Math.max(1, Math.min(200, Number(pageSize) || 10));
 	const currentPage = Math.max(1, Number(page) || 1);
 	const skip = (currentPage - 1) * take;
 
 	const where = {
 		supervisorId: lecturerId,
-		status: { in: ["accepted", "summary_pending"] },
+		status: { in: ["accepted", "summary_pending", "completed", "cancelled", "rejected"] },
+		thesis: { isProposal: false }
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -518,8 +527,9 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 		prisma.thesisGuidance.findMany({
 			where,
 			orderBy: [
-				{ approvedDate: "asc" }, // Upcoming first
-				{ requestedDate: "asc" },
+				{ createdAt: "desc" },
+				{ approvedDate: "desc" },
+				{ requestedDate: "desc" },
 				{ id: "desc" },
 			],
 			include: {
@@ -529,6 +539,7 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 						document: true,
 					},
 				},
+				document: { select: { id: true, fileName: true, filePath: true } },
 				supervisor: { include: { user: true } },
 				milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
 			},
@@ -588,6 +599,7 @@ export async function findSupervisorRecords(thesisIds, lecturerId) {
 		where: {
 			thesisId: { in: thesisIds },
 			lecturerId,
+			thesis: { isProposal: false }
 		},
 		include: {
 			role: { select: { id: true, name: true } },
@@ -699,5 +711,107 @@ export async function markNotificationRead(notificationId) {
 export async function createInfoNotification(userId, title, message) {
 	return prisma.notification.create({
 		data: { userId, title, message, isRead: false },
+	});
+}
+
+// ==================== KADEP TRANSFER APPROVAL ====================
+
+/**
+ * Find all users with the Ketua Departemen role (active)
+ */
+export async function findKadepUsers() {
+	const kadepUsers = await prisma.user.findMany({
+		where: {
+			userHasRoles: {
+				some: {
+					role: { name: ROLES.KETUA_DEPARTEMEN },
+					status: "active",
+				},
+			},
+		},
+		select: { id: true, fullName: true },
+	});
+	return kadepUsers;
+}
+
+/**
+ * Create a transfer notification for Kadep (title: [TRANSFER_REQUEST_KADEP])
+ */
+export async function createKadepTransferNotification(kadepUserId, message) {
+	return prisma.notification.create({
+		data: {
+			userId: kadepUserId,
+			title: "[TRANSFER_REQUEST_KADEP]",
+			message,
+			isRead: false,
+		},
+	});
+}
+
+/**
+ * Find pending (unread) kadep transfer notifications
+ */
+export async function findPendingKadepTransferNotifications(kadepUserId) {
+	return prisma.notification.findMany({
+		where: {
+			userId: kadepUserId,
+			title: "[TRANSFER_REQUEST_KADEP]",
+			isRead: false,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+}
+
+/**
+ * Find ALL kadep transfer notifications (for history - both read and unread)
+ */
+export async function findAllKadepTransferNotifications(kadepUserId, { page = 1, pageSize = 10, search = "" } = {}) {
+	const where = {
+		userId: kadepUserId,
+		title: "[TRANSFER_REQUEST_KADEP]",
+	};
+
+	const [notifications, total] = await Promise.all([
+		prisma.notification.findMany({
+			where,
+			orderBy: { createdAt: "desc" },
+			skip: (page - 1) * pageSize,
+			take: pageSize,
+		}),
+		prisma.notification.count({ where }),
+	]);
+
+	return { notifications, total };
+}
+
+/**
+ * Update a notification's message field (used to update JSON payload state)
+ */
+export async function updateNotificationMessage(notificationId, message) {
+	return prisma.notification.update({
+		where: { id: notificationId },
+		data: { message },
+	});
+}
+
+/**
+ * Find kadep transfer notifications that match a specific src+tgt+refs combo
+ * Used to find all kadep copies of the same transfer request
+ */
+export async function findKadepTransferNotificationsBySrcTgt(srcLecturerId, tgtLecturerId) {
+	const notifications = await prisma.notification.findMany({
+		where: {
+			title: "[TRANSFER_REQUEST_KADEP]",
+			isRead: false,
+		},
+	});
+	// Filter by payload content
+	return notifications.filter((n) => {
+		try {
+			const p = JSON.parse(n.message);
+			return p.t === "TX_KADEP" && p.src === srcLecturerId && p.tgt === tgtLecturerId;
+		} catch {
+			return false;
+		}
 	});
 }

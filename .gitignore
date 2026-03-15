@@ -9,8 +9,8 @@ node_modules
 # Prisma client output (custom path)
 src/generated/prisma
 
-uploads/
 
+uploads/
 # Logs
 logs
 *.log

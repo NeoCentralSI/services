@@ -4,6 +4,7 @@ import {
 	getRequestsService,
 	getScheduledGuidancesService,
 	rejectGuidanceService,
+	cancelGuidanceByLecturerService,
 	approveGuidanceService,
 	getAllProgressService,
 	getStudentProgressDetailService,
@@ -98,6 +99,17 @@ export async function approveGuidance(req, res, next) {
 		const { guidanceId } = req.params;
 		const { feedback, approvedDate, duration } = req.body || {};
 		const result = await approveGuidanceService(req.user.sub, guidanceId, { feedback, approvedDate, duration });
+		res.json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function cancelGuidance(req, res, next) {
+	try {
+		const { guidanceId } = req.params;
+		const { reason } = req.body || {};
+		const result = await cancelGuidanceByLecturerService(req.user.sub, guidanceId, { reason });
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

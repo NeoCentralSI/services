@@ -1,4 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, getMetopenDuplicateEnrollments, resolveMetopenDuplicateEnrollmentByAdmin } from "../services/adminfeatures.service.js";
+import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, getMetopenDuplicateEnrollments, resolveMetopenDuplicateEnrollmentByAdmin } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -88,12 +88,13 @@ export async function getActiveAcademicYearController(req, res, next) {
 export async function getUsersController(req, res, next) {
 	try {
 		const page = parseInt(req.query.page) || 1;
-		const pageSize = parseInt(req.query.pageSize) || 10;
+		const pageSize = req.query.pageSize !== undefined ? parseInt(req.query.pageSize) : 10;
 		const search = req.query.search || "";
 		const identityType = req.query.identityType || "";
 		const role = req.query.role || "";
 		const isVerified = req.query.isVerified !== undefined ? req.query.isVerified === 'true' : undefined;
-		const result = await getUsers({ page, pageSize, search, identityType, role, isVerified });
+		const enrollmentYear = req.query.enrollmentYear;
+		const result = await getUsers({ page, pageSize, search, identityType, role, isVerified, enrollmentYear });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -103,11 +104,11 @@ export async function getUsersController(req, res, next) {
 export async function getStudentsController(req, res, next) {
 	try {
 		const page = parseInt(req.query.page) || 1;
-		const pageSize = parseInt(req.query.pageSize) || 10;
+		const pageSize = req.query.pageSize !== undefined ? parseInt(req.query.pageSize) : 10;
 		const search = req.query.search || "";
 		const programFilter = req.query.programFilter || "";
 		const statusFilter = req.query.statusFilter || "";
-		const enrollmentYearFilter = req.query.enrollmentYearFilter || "";
+		const enrollmentYearFilter = req.query.enrollmentYearFilter || req.query.enrollmentYear || "";
 		const academicYearFilter = req.query.academicYearFilter || "";
 		const sortBy = req.query.sortBy || "";
 		const sortOrder = req.query.sortOrder === "asc" ? "asc" : "desc";
@@ -223,3 +224,39 @@ export async function getFailedThesesController(req, res, next) {
 export async function updateLecturerByAdminController(req, res, next) { try { const result = await adminUpdateLecturer(req.params.id, req.body); res.status(200).json({ success: true, data: result }); } catch (err) { next(err); } }
 
 export async function updateStudentByAdminController(req, res, next) { try { const result = await adminUpdateStudent(req.params.id, req.body); res.status(200).json({ success: true, data: result }); } catch (err) { next(err); } }
+
+export async function importStudentsExcelController(req, res, next) {
+	try {
+		const result = await importStudentsExcel(req.body);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importLecturersExcelController(req, res, next) {
+	try {
+		const result = await importLecturersExcel(req.body);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importUsersExcelController(req, res, next) {
+	try {
+		const result = await importUsersExcel(req.body);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importAcademicYearsExcelController(req, res, next) {
+	try {
+		const result = await importAcademicYearsExcel(req.body);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}

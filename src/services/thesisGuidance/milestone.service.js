@@ -519,7 +519,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
 
   // Auto-update status based on progress
   let statusUpdate = null;
-  if (progressPercentage > 0 && milestone.status === "not_started") {
+  if (progressPercentage > 0 && progressPercentage < 100 && milestone.status === "not_started") {
     statusUpdate = "in_progress";
     await milestoneRepo.update(milestoneId, {
       status: "in_progress",
@@ -527,8 +527,15 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     });
   }
 
-  // Send FCM notification to supervisors when progress reaches 100%
+  // Auto-submit for review when progress reaches 100%
   if (progressPercentage === 100 && previousProgress < 100) {
+    if (milestone.status !== "completed" && milestone.status !== "pending_review") {
+      statusUpdate = "pending_review";
+      await milestoneRepo.update(milestoneId, {
+        status: "pending_review",
+      });
+    }
+
     const { thesis } = await getMilestoneWithAccess(milestoneId, userId);
     const supervisors = thesis.thesisSupervisors.filter((p) =>
       isSupervisorRole(p.role?.name)
@@ -543,16 +550,17 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     if (supervisorUserIds.length > 0) {
       // Send FCM notification
       await sendFcmToUsers(supervisorUserIds, {
-        title: "Milestone Selesai 100%",
-        body: `${studentName} telah menyelesaikan milestone "${milestoneTitle}"`,
+        title: "Milestone Siap Direview",
+        body: `${studentName} telah menyelesaikan milestone "${milestoneTitle}" (100%)`,
+        data: { type: "milestone:pending_review" },
       });
 
       // Create in-app notifications
       for (const supervisorUserId of supervisorUserIds) {
         await createNotification({
           userId: supervisorUserId,
-          title: "Milestone Selesai 100%",
-          message: `${studentName} telah menyelesaikan milestone "${milestoneTitle}"`,
+          title: "Milestone Siap Direview",
+          message: `${studentName} telah menyelesaikan milestone "${milestoneTitle}" (100%)`,
         });
       }
     }
@@ -1436,4 +1444,26 @@ export async function requestDefence(thesisId, userId, documentId) {
       requestedAt: updated.defenceRequestedAt,
     },
   };
+}
+
+/**
+ * Get all pending_review milestones across all theses supervised by this user.
+ * Uses a single DB query instead of N+1 client-side aggregation.
+ */
+export async function getPendingReviewForSupervisor(userId) {
+  const milestones = await milestoneRepo.findPendingReviewBySupervisor(userId);
+  return milestones.map((m) => ({
+    id: m.id,
+    title: m.title,
+    description: m.description,
+    progressPercentage: m.progressPercentage,
+    status: m.status,
+    studentNotes: m.studentNotes,
+    targetDate: m.targetDate,
+    updatedAt: m.updatedAt,
+    thesisId: m.thesis?.id,
+    thesisTitle: m.thesis?.title ?? "-",
+    studentName: m.thesis?.student?.user?.fullName ?? "-",
+    studentNim: m.thesis?.student?.user?.identityNumber ?? "",
+  }));
 }

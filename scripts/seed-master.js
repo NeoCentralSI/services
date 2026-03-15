@@ -445,17 +445,17 @@ async function seedUsers(roleMap) {
       const existingStudent = await prisma.student.findUnique({
         where: { id: user.id },
       });
-      if (!existingStudent) {
-        await prisma.student.create({
-          data: {
-            id: user.id,
-            status: "active",
-            enrollmentYear: userData.enrollmentYear || 2022,
-            skscompleted: userData.sksCompleted,
-          },
-        });
-        console.log(`    🎓 Created Student record (SKS: ${userData.sksCompleted})`);
-      }
+    if (!existingStudent) {
+      await prisma.student.create({
+        data: {
+          id: user.id,
+          status: "active",
+          enrollmentYear: userData.enrollmentYear || 2022,
+          sksCompleted: userData.sksCompleted,
+        },
+      });
+      console.log(`    🎓 Created Student record (SKS: ${userData.sksCompleted})`);
+    }
     }
 
     // Create Lecturer record if needed
@@ -1017,7 +1017,7 @@ async function seedMetopenEligibleStudents(roleMap, thesisStatusMap, academicYea
           id: user.id,
           status: "active",
           enrollmentYear: studentData.enrollmentYear,
-          skscompleted: studentData.sksCompleted,
+          sksCompleted: studentData.sksCompleted,
         },
       });
     }
@@ -1045,6 +1045,29 @@ async function seedMetopenEligibleStudents(roleMap, thesisStatusMap, academicYea
 }
 
 // ============================================================
+// SEED ROOMS
+// ============================================================
+async function seedRooms() {
+  console.log("\n" + "=".repeat(60));
+  console.log("🏛️  STEP 11: Seeding Rooms...");
+  console.log("=".repeat(60));
+
+  const roomNames = ["Ruangan Seminar DSI", "Laboratorium Dasar"];
+
+  for (const name of roomNames) {
+    const existing = await prisma.room.findFirst({ where: { name } });
+    if (existing) {
+      console.log(`  ⏭️  Room already exists: ${name}`);
+    } else {
+      await prisma.room.create({ data: { name } });
+      console.log(`  ✅ Room created: ${name}`);
+    }
+  }
+
+  return roomNames;
+}
+
+// ============================================================
 // MAIN EXECUTION
 // ============================================================
 async function main() {
@@ -1063,6 +1086,7 @@ async function main() {
     await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);
     await seedMetopenEligibleStudents(roleMap, thesisStatusMap, academicYearMap);
+    await seedRooms();
 
     console.log("\n" + "=".repeat(60));
     console.log("✨ MASTER SEED COMPLETED SUCCESSFULLY!");

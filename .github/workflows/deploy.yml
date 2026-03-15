@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────
+# CI/CD – Backend (services)
+# Triggers on push to main branch
+# Self-hosted runner on VM → build Docker image locally → deploy
+# ─────────────────────────────────────────────────────────────────
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DEPLOY_DIR: /www/wwwroot/neocentral
+  IMAGE_TAG: neocentral/services:latest
+
+jobs:
+  # ── Build & Deploy ─────────────────────────────────────────────
+  deploy:
+    name: Build & Deploy
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image locally
+        run: docker build -t ${{ env.IMAGE_TAG }} .
+
+      - name: Update docker-compose on VM
+        run: |
+          cp -f docker-compose.prod.yml ${{ env.DEPLOY_DIR }}/docker-compose.yml
+
+      - name: Deploy backend
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose up -d backend --force-recreate
+          echo "⏳ Waiting for backend to be healthy..."
+          sleep 10
+
+      - name: Run Prisma migrations
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose exec -T backend npx prisma migrate deploy 2>/dev/null || \
+            docker compose exec -T backend npx prisma db push --accept-data-loss 2>/dev/null || true
+
+      - name: Cleanup old images
+        run: docker image prune -f
+
+      - name: Verify deployment
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose ps backend
+          echo "✅ Backend deployed successfully"

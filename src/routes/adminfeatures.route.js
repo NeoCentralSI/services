@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireRole, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { uploadCsv } from "../middlewares/file.middleware.js";
-import { importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getKadepQuickActionsController, getFailedThesesController, updateLecturerByAdminController, updateStudentByAdminController, getMetopenDuplicateEnrollmentsController, resolveMetopenDuplicateEnrollmentController } from "../controllers/adminfeatures.controller.js";
+import { importStudentsExcelController, importLecturersExcelController, importUsersExcelController, importAcademicYearsExcelController, importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getKadepQuickActionsController, getFailedThesesController, updateLecturerByAdminController, updateStudentByAdminController, getMetopenDuplicateEnrollmentsController, resolveMetopenDuplicateEnrollmentController } from "../controllers/adminfeatures.controller.js";
 import { updateUserSchema, createUserSchema } from "../validators/user.validator.js";
 import { resolveMetopenDuplicateEnrollmentSchema } from "../validators/adminfeatures.validator.js";
 import { validate } from "../middlewares/validation.middleware.js";
@@ -29,6 +29,12 @@ router.get("/academic-years", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETU
 router.get("/academic-years/active", authGuard, getActiveAcademicYearController);
 router.post("/academic-years", authGuard, requireRole(ROLES.ADMIN), validate(createAcademicYearSchema), createAcademicYearController);
 router.patch("/academic-years/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateAcademicYearSchema), updateAcademicYearController);
+
+// Excel Import Routes (JSON payload from frontend)
+router.post("/students/import-excel", authGuard, requireRole(ROLES.ADMIN), importStudentsExcelController);
+router.post("/lecturers/import-excel", authGuard, requireRole(ROLES.ADMIN), importLecturersExcelController);
+router.post("/users/import-excel", authGuard, requireRole(ROLES.ADMIN), importUsersExcelController);
+router.post("/academic-years/import-excel", authGuard, requireRole(ROLES.ADMIN), importAcademicYearsExcelController);
 
 // Kadep quick actions
 router.get("/kadep/quick-actions", authGuard, requireRole(ROLES.KETUA_DEPARTEMEN), getKadepQuickActionsController);

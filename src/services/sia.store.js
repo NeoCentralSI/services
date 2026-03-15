@@ -6,9 +6,21 @@ const statusKey = "sia:sync:status";
 const studentKey = (nim) => `sia:student:${nim}`;
 const metaKey = (nim) => `sia:student:${nim}:meta`;
 
-// RedisJSON module not required — always use plain JSON.stringify/parse.
-// If RedisJSON becomes available in production, this can be revisited.
-const hasJson = false;
+// Lazy-probe whether the Redis server supports RedisJSON.
+// The client library exposes json.set() even if the server lacks the module.
+let _hasJson = null;
+async function hasJsonSupport() {
+  if (_hasJson !== null) return _hasJson;
+  try {
+    await redisClient.json.set("sia:json:probe", "$", { ok: true });
+    await redisClient.del("sia:json:probe");
+    _hasJson = true;
+  } catch {
+    _hasJson = false;
+    console.log("RedisJSON module not available; falling back to plain STRING storage");
+  }
+  return _hasJson;
+}
 
 export async function saveStudents(students) {
   let updated = 0;
@@ -26,8 +38,14 @@ export async function saveStudents(students) {
       continue;
     }
 
+    const useJson = await hasJsonSupport();
     const multi = redisClient.multi();
-    multi.set(studentKey(nim), JSON.stringify(student.data));
+
+    if (useJson) {
+      multi.json.set(studentKey(nim), "$", student.data);
+    } else {
+      multi.set(studentKey(nim), JSON.stringify(student.data));
+    }
     multi.hSet(metaKey(nim), { hash: incomingHash, fetchedAt: student.fetchedAt });
     multi.sAdd(indexKey, nim);
 
@@ -53,6 +71,10 @@ export async function getAllCachedStudents() {
   const nims = await redisClient.sMembers(indexKey);
   if (!nims || nims.length === 0) return [];
 
+  if (await hasJsonSupport()) {
+    const values = await redisClient.json.mGet(nims.map(studentKey), "$");
+    return values.map((v) => (Array.isArray(v) ? v[0] : v)).filter(Boolean);
+  }
   const values = await redisClient.mGet(nims.map(studentKey));
   return values
     .map((v) => {

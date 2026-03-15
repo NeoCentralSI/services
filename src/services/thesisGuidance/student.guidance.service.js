@@ -29,9 +29,13 @@ import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
+import PizZip from "pizzip";
+import Docxtemplater from "docxtemplater";
+import { convertDocxToPdf, addGuidanceTablePages } from "../../utils/pdf.util.js";
 const writeFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
 const unlink = promisify(fs.unlink);
+const readFile = promisify(fs.readFile);
 
 async function ensureThesisAcademicYear(thesis) {
   if (thesis.academicYearId) return thesis;
@@ -166,22 +170,18 @@ export async function listMyGuidancesService(userId, status) {
     duration: g.duration || 60,
     supervisorId: g.supervisorId || null,
     supervisorName: g?.supervisor?.user?.fullName || null,
+    // Additional fields for merged view (history data in main table)
+    studentNotes: g.studentNotes || null,
+    rejectionReason: g.rejectionReason || null,
+    sessionSummary: g.sessionSummary || null,
+    actionItems: g.actionItems || null,
+    completedAt: g.completedAt || null,
+    completedAtFormatted: g.completedAt ? formatDateTimeJakarta(g.completedAt, { withDay: true }) : null,
+    document: g.document
+      ? { id: g.document.id, fileName: g.document.fileName, filePath: g.document.filePath }
+      : null,
   }));
-  let doc = null;
-  try {
-    const t = await prisma.thesis.findUnique({ where: { id: thesis.id }, include: { document: true } });
-    if (t?.document) {
-      doc = {
-        id: t.document.id,
-        fileName: t.document.fileName,
-        filePath: t.document.filePath, // relative path served under /uploads
-      };
-    }
-  } catch (e) {
-    console.warn("Failed to load thesis document:", e?.message || e);
-  }
-  const withDoc = items.map((it) => ({ ...it, document: doc }));
-  return { count: withDoc.length, items: withDoc };
+  return { count: items.length, items };
 }
 
 export async function getGuidanceDetailService(userId, guidanceId) {
@@ -212,20 +212,31 @@ export async function getGuidanceDetailService(userId, guidanceId) {
     notes: guidance.studentNotes || null,
     supervisorFeedback: guidance.supervisorFeedback || null,
     rejectionReason: guidance.rejectionReason || null,
+    sessionSummary: guidance.sessionSummary || null,
+    actionItems: guidance.actionItems || null,
     milestoneIds,
     milestoneTitles,
   };
-  // attach thesis document
-  try {
-    const t = await prisma.thesis.findUnique({ where: { id: guidance.thesisId }, include: { document: true } });
-    if (t?.document) {
-      flat.document = {
-        id: t.document.id,
-        fileName: t.document.fileName,
-        filePath: t.document.filePath,
-      };
-    }
-  } catch { }
+  // attach guidance-level document (uploaded during this specific guidance request)
+  if (guidance.document) {
+    flat.document = {
+      id: guidance.document.id,
+      fileName: guidance.document.fileName,
+      filePath: guidance.document.filePath,
+    };
+  } else {
+    // Fallback: show thesis-level document if no guidance-specific document
+    try {
+      const t = await prisma.thesis.findUnique({ where: { id: guidance.thesisId }, include: { document: true } });
+      if (t?.document) {
+        flat.document = {
+          id: t.document.id,
+          fileName: t.document.fileName,
+          filePath: t.document.filePath,
+        };
+      }
+    } catch { }
+  }
   return { guidance: flat };
 }
 
@@ -409,20 +420,28 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
       const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesis.id);
       await mkdir(uploadsRoot, { recursive: true });
 
-      // Delete old file and document if exists
-      if (thesis.documentId && thesis.document?.filePath) {
-        try {
-          const oldFilePath = path.join(process.cwd(), thesis.document.filePath);
-          await unlink(oldFilePath);
-          await prisma.document.delete({ where: { id: thesis.documentId } });
-        } catch (delErr) {
-          // Ignore if old file doesn't exist or deletion fails
-          console.warn("Could not delete old document:", delErr.message);
+      // Build versioned filename: nim_Name_LaporanTA_v{n}.{ext}
+      const nim = studentUser?.identityNumber || "NIM";
+      const cleanName = (studentUser?.fullName || "Mahasiswa").replace(/[^a-zA-Z0-9]/g, "_");
+      const baseName = `${nim}_${cleanName}_LaporanTA`;
+      const ext = path.extname(file.originalname).toLowerCase() || ".pdf";
+
+      // Auto-increment version based on existing files in the directory
+      let version = 1;
+      if (fs.existsSync(uploadsRoot)) {
+        const existingFiles = fs.readdirSync(uploadsRoot);
+        const versionRegex = new RegExp(`^${baseName}_v(\\d+)\\${ext}$`, "i");
+        for (const f of existingFiles) {
+          const match = f.match(versionRegex);
+          if (match) {
+            const v = parseInt(match[1]);
+            if (v >= version) version = v + 1;
+          }
         }
       }
 
-      const safeName = `thesis-document.pdf`; // Simple fixed name, always overwrite
-      const filePath = path.join(uploadsRoot, safeName);
+      const versionedName = `${baseName}_v${version}${ext}`;
+      const filePath = path.join(uploadsRoot, versionedName);
       await writeFile(filePath, file.buffer);
 
       const relPath = path.relative(process.cwd(), filePath).replace(/\\/g, "/");
@@ -437,7 +456,11 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
         },
       });
 
+      // Point thesis to the latest document (previous versions remain on disk + in DB)
       await prisma.thesis.update({ where: { id: thesis.id }, data: { documentId: doc.id } });
+
+      // Also link this document to the specific guidance record
+      await prisma.thesisGuidance.update({ where: { id: created.id }, data: { documentId: doc.id } });
     } catch (err) {
       console.error("Failed to store uploaded thesis file:", err.message || err);
     }
@@ -598,9 +621,18 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     throw err;
   }
 
-  // Only allow canceling "requested" status
-  if (guidance.status !== "requested") {
-    const err = new Error("Can only cancel pending guidance requests");
+  // Allow canceling "requested" or "accepted" status
+  if (!["requested", "accepted"].includes(guidance.status)) {
+    const err = new Error("Hanya bimbingan berstatus 'menunggu' atau 'diterima' yang dapat dibatalkan");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const isAccepted = guidance.status === "accepted";
+
+  // For accepted guidance, reason is required
+  if (isAccepted && (!reason || !reason.trim())) {
+    const err = new Error("Alasan pembatalan wajib diisi untuk bimbingan yang sudah disetujui");
     err.statusCode = 400;
     throw err;
   }
@@ -622,7 +654,7 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
   const studentUser = await prisma.user.findUnique({ where: { id: userId } });
   const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
 
-  // Send FCM notification to supervisor
+  // Send notification to supervisor
   try {
     if (guidance.supervisor?.user?.id) {
       const supervisorUserId = guidance.supervisor.user.id;
@@ -630,10 +662,17 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
         ? formatDateTimeJakarta(new Date(guidance.requestedDate), { withDay: true })
         : "belum ditentukan";
 
+      const notifTitle = isAccepted
+        ? "Bimbingan terjadwal dibatalkan"
+        : "Pengajuan bimbingan dibatalkan";
+      const notifMessage = isAccepted
+        ? `${studentName} membatalkan bimbingan terjadwal untuk ${dateStr}. Alasan: ${reason}`
+        : `${studentName} membatalkan pengajuan bimbingan untuk ${dateStr}${reason ? `. Alasan: ${reason}` : ""}`;
+
       // Persist notification
       await createNotificationsForUsers([supervisorUserId], {
-        title: "Pengajuan bimbingan dibatalkan",
-        message: `${studentName} membatalkan pengajuan bimbingan untuk ${dateStr}${reason ? `. Alasan: ${reason}` : ""}`,
+        title: notifTitle,
+        message: notifMessage,
       });
 
       // Send FCM
@@ -647,8 +686,8 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
         playSound: "true",
       };
       await sendFcmToUsers([supervisorUserId], {
-        title: "Pengajuan bimbingan dibatalkan",
-        body: `${studentName} membatalkan pengajuan untuk ${dateStr}`,
+        title: notifTitle,
+        body: notifMessage,
         data,
         dataOnly: true,
       });
@@ -657,12 +696,25 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     console.warn("FCM notify failed (guidance cancelled):", e?.message || e);
   }
 
-  // Delete the guidance record
-  await prisma.thesisGuidance.delete({
-    where: { id: guidance.id }
-  });
-
-  return { success: true, message: "Guidance request deleted successfully" };
+  if (isAccepted) {
+    // For accepted guidance: update status to cancelled, keep the record
+    await prisma.thesisGuidance.update({
+      where: { id: guidance.id },
+      data: {
+        status: "cancelled",
+        rejectionReason: reason || null,
+        studentCalendarEventId: null,
+        supervisorCalendarEventId: null,
+      },
+    });
+    return { success: true, message: "Bimbingan berhasil dibatalkan" };
+  } else {
+    // For requested guidance: delete the record
+    await prisma.thesisGuidance.delete({
+      where: { id: guidance.id },
+    });
+    return { success: true, message: "Pengajuan bimbingan berhasil dibatalkan" };
+  }
 }
 
 export async function updateStudentNotesService(userId, guidanceId, studentNotes) {
@@ -816,7 +868,7 @@ export async function listSupervisorsService(userId) {
   // Fall back to most recent thesis (including Gagal/Dibatalkan) for overview display
   if (!thesis) {
     thesis = await prisma.thesis.findFirst({
-      where: { studentId: student.id },
+      where: { studentId: student.id, isProposal: false },
       orderBy: { createdAt: 'desc' },
       include: {
         thesisStatus: { select: { id: true, name: true } },
@@ -1258,7 +1310,7 @@ export async function getMyThesisDetailService(userId) {
   // so the frontend can display the appropriate status message
   if (!thesis) {
     thesis = await prisma.thesis.findFirst({
-      where: { studentId: student.id },
+      where: { studentId: student.id, isProposal: false },
       orderBy: { createdAt: 'desc' },
       include: {
         document: { select: { id: true, filePath: true, fileName: true } },
@@ -1292,6 +1344,7 @@ export async function getMyThesisDetailService(userId) {
       thesisStatus: true,
       academicYear: true,
       document: true,
+      proposalDocument: true,
       thesisSupervisors: {
         include: {
           lecturer: {
@@ -1339,6 +1392,25 @@ export async function getMyThesisDetailService(userId) {
   const milestoneProgress = totalMilestones > 0
     ? Math.round((completedMilestones / totalMilestones) * 100)
     : 0;
+
+  // Count completed guidances (only status === 'completed')
+  const guidanceRows = await prisma.thesisGuidance.findMany({
+    where: { thesisId: thesis.id },
+    select: { status: true },
+  });
+  const completedGuidanceCount = guidanceRows.filter(g => g.status === 'completed').length;
+
+  // Get per-guidance uploaded documents (file versions)
+  const guidanceDocuments = await prisma.thesisGuidance.findMany({
+    where: { thesisId: thesis.id, documentId: { not: null } },
+    select: {
+      id: true,
+      requestedDate: true,
+      approvedDate: true,
+      document: { select: { id: true, fileName: true, filePath: true, createdAt: true } },
+    },
+    orderBy: { requestedDate: 'desc' },
+  });
 
   // Format supervisors
   const supervisors = fullThesis.thesisSupervisors
@@ -1394,15 +1466,32 @@ export async function getMyThesisDetailService(userId) {
       // Document
       document: fullThesis.document ? {
         id: fullThesis.document.id,
-        fileName: fullThesis.document.fileName,
+        fileName: path.basename(fullThesis.document.filePath || "") || fullThesis.document.fileName,
         filePath: fullThesis.document.filePath,
       } : null,
+      // Proposal Document
+      proposalDocument: fullThesis.proposalDocument ? {
+        id: fullThesis.proposalDocument.id,
+        fileName: path.basename(fullThesis.proposalDocument.filePath || "") || fullThesis.proposalDocument.fileName,
+        filePath: fullThesis.proposalDocument.filePath,
+      } : null,
+      // Per-guidance uploaded file versions
+      uploadedFiles: (guidanceDocuments || [])
+        .filter(g => g.document)
+        .map(g => ({
+          id: g.document.id,
+          fileName: path.basename(g.document.filePath || "") || g.document.fileName,
+          filePath: g.document.filePath,
+          uploadedAt: g.document.createdAt,
+          guidanceDate: g.approvedDate || g.requestedDate,
+        })),
       // Participants
       supervisors,
       examiners,
       // Progress stats
       stats: {
         totalGuidances: fullThesis._count.thesisGuidances,
+        completedGuidances: completedGuidanceCount,
         totalSessions: fullThesis._count.thesisGuidances,
         totalMilestones: totalMilestones,
         completedMilestones: completedMilestones,
@@ -1483,14 +1572,14 @@ export async function getThesisHistoryService(userId) {
       rating: t.rating || "ONGOING",
       topic: t.thesisTopic?.name || "-",
       academicYear: t.academicYear
-        ? `${t.academicYear.year}/${t.academicYear.year + 1} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
+        ? `${t.academicYear.year.includes('/') ? t.academicYear.year : `${t.academicYear.year}/${parseInt(t.academicYear.year) + 1}`} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
         : "-",
       createdAt: t.createdAt,
       stats: {
         guidances: t._count.thesisGuidances,
         completedMilestones: ["Dibatalkan", "Gagal"].includes(t.thesisStatus?.name)
-          ? `0/${t._count.thesisMilestones}`
-          : t._count.thesisMilestones,
+          ? `0/${t.thesisMilestones?.length || 0}`
+          : t.thesisMilestones?.filter((m) => m.status === "completed").length || 0,
       },
       supervisors: (t.thesisSupervisors || []).map(s => ({
         id: s.lecturerId,
@@ -1527,7 +1616,7 @@ export async function proposeThesisService(userId, { title, topicId }) {
   // 1b. Block re-registration for students with FAILED thesis
   // They must go to the department in person to re-register
   const latestThesis = await prisma.thesis.findFirst({
-    where: { studentId: student.id },
+    where: { studentId: student.id, isProposal: false },
     orderBy: { createdAt: 'desc' },
     include: { thesisStatus: { select: { name: true } } },
   });
@@ -1548,7 +1637,7 @@ export async function proposeThesisService(userId, { title, topicId }) {
   // 3. Get supervisors from previous thesis (if any)
   // We need to look at the MAJOR previous thesis (the one that was cancelled/failed most recently)
   const previousTheses = await prisma.thesis.findMany({
-    where: { studentId: student.id },
+    where: { studentId: student.id, isProposal: false },
     orderBy: { createdAt: 'desc' },
     take: 1,
     include: {
@@ -1604,3 +1693,173 @@ export async function proposeThesisService(userId, { title, topicId }) {
     }
   };
 }
+
+// ==================== GENERATE GUIDANCE LOG PDF ====================
+
+/**
+ * Generate a PDF log of thesis guidance sessions using the TA-06 DOCX template.
+ *
+ * Flow:
+ *  1. Docxtemplater fills identity placeholders in the DOCX template
+ *  2. Gotenberg converts the clean DOCX → PDF (header / identity page)
+ *  3. pdf-lib appends table pages + signature directly into the PDF
+ *
+ * @param {string} userId
+ * @param {string[]|undefined} guidanceIds
+ * @returns {Promise<{buffer: Buffer, filename: string}>}
+ */
+export async function generateGuidanceLogPdfService(userId, guidanceIds) {
+  const student = await getStudentByUserId(userId);
+  ensureStudent(student);
+
+  const thesis = await getActiveThesisForStudent(student.id);
+  if (!thesis) {
+    const err = new Error("Tugas akhir aktif tidak ditemukan");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const templatePath = path.join(process.cwd(), "uploads", "sop", "logcatatantemplate.docx");
+  if (!fs.existsSync(templatePath)) {
+    const err = new Error(
+      "Template log catatan (TA-06) belum diupload oleh Sekretaris Departemen. Silakan hubungi Sekretaris Departemen untuk mengupload template."
+    );
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // --- Fetch completed guidances ---
+  const where = { thesisId: thesis.id, status: "completed" };
+  if (guidanceIds && guidanceIds.length > 0) where.id = { in: guidanceIds };
+
+  const guidances = await prisma.thesisGuidance.findMany({
+    where,
+    include: { supervisor: { include: { user: { select: { fullName: true } } } } },
+    orderBy: [{ approvedDate: "asc" }, { completedAt: "asc" }],
+  });
+
+  if (guidances.length === 0) {
+    const err = new Error("Tidak ada data bimbingan yang selesai untuk di-generate");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // --- Gather student & supervisor info ---
+  const studentUser = await prisma.user.findUnique({ where: { id: userId } });
+  const studentName = toTitleCaseName(studentUser?.fullName || "Mahasiswa");
+  const studentNim = studentUser?.identityNumber || "-";
+
+  const supervisors = await getSupervisorsForThesis(thesis.id);
+  const sup1 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_1);
+  const sup2 = supervisors.find((p) => p.role?.name === ROLES.PEMBIMBING_2);
+  const dospem1Name = toTitleCaseName(sup1?.lecturer?.user?.fullName || "-");
+  const hasDospem2 = !!sup2 && !!sup2.lecturer?.user?.fullName;
+  const dospem2Name = hasDospem2 ? toTitleCaseName(sup2.lecturer.user.fullName) : "-";
+
+  const nip1 = sup1?.lecturer?.user?.identityNumber || "-";
+  const nip2 = hasDospem2 ? (sup2?.lecturer?.user?.identityNumber || "-") : "-";
+
+  const formatDateId = (date) => {
+    if (!date) return "-";
+    return new Date(date).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  // --- 1. Fill template placeholders with Docxtemplater (NO XML surgery) ---
+  //     Then strip "Catatan Asistensi" + signature from DOCX so Gotenberg
+  //     only converts the identity/header page. Table + signature will be
+  //     appended later by pdf-lib.
+  let docxBuffer;
+  try {
+    const content = await readFile(templatePath);
+    const zip = new PizZip(content);
+
+    // Strip signature + empty area AFTER "Catatan Asistensi" heading.
+    // Strip "Catatan Asistensi" paragraph and everything after it.
+    // Gotenberg only renders the identity/header page.
+    // "B. Catatan Asistensi" heading + table + signature → pdf-lib.
+    const docXmlFile = zip.file("word/document.xml");
+    if (docXmlFile) {
+      let docXml = docXmlFile.asText();
+      const cataIdx = docXml.toLowerCase().indexOf("catatan");
+      if (cataIdx !== -1) {
+        // Cut from the <w:p> that contains "Catatan"
+        const pStart = docXml.lastIndexOf("<w:p ", cataIdx);
+        const bodyEnd = docXml.indexOf("</w:body>");
+        if (pStart !== -1 && bodyEnd !== -1) {
+          // Extract sectPr (contains header/kop ref + page size)
+          const tail = docXml.substring(pStart, bodyEnd);
+          const sectMatch = tail.match(/<w:sectPr[\s\S]*<\/w:sectPr>/);
+          docXml = docXml.substring(0, pStart) +
+            (sectMatch ? sectMatch[0] : "") +
+            "</w:body></w:document>";
+        }
+      }
+      zip.file("word/document.xml", docXml);
+    }
+
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+    });
+    doc.render({
+      nama: studentName,
+      nim: studentNim,
+      title: thesis.title || "-",
+      dospem1: dospem1Name,
+      dospem2: hasDospem2 ? dospem2Name : "-",
+      dategenerated: formatDateId(new Date()),
+      namapembimbing1: dospem1Name,
+      namapembimbing2: hasDospem2 ? dospem2Name : "-",
+      nippembimbing1: nip1,
+      nippembimbing2: hasDospem2 ? nip2 : "-",
+      items: [],
+    });
+
+    docxBuffer = doc
+      .getZip()
+      .generate({ type: "nodebuffer", compression: "DEFLATE" });
+  } catch (err) {
+    console.error("Guidance log template error:", err);
+    throw new Error(
+      "Gagal generate dokumen dari template: " + (err.message || err)
+    );
+  }
+
+  // --- 2. Convert clean DOCX → PDF via Gotenberg (identity / header page) ---
+  const basePdfBuffer = await convertDocxToPdf(
+    docxBuffer,
+    `Log_Bimbingan_${studentNim}.docx`
+  );
+
+  // --- 3. Append guidance table pages + signature using pdf-lib ---
+  const tableRows = guidances.map((g, idx) => {
+    const parts = [];
+    if (g.sessionSummary) parts.push(g.sessionSummary.trim());
+    if (g.actionItems) parts.push("Arahan/Saran: " + g.actionItems.trim());
+    return {
+      no: String(idx + 1),
+      tanggal: formatDateId(g.approvedDate || g.completedAt),
+      notes: parts.join("\n\n") || "-",
+    };
+  });
+
+  const pdfBuffer = await addGuidanceTablePages(basePdfBuffer, {
+    rows: tableRows,
+    dateGenerated: formatDateId(new Date()),
+    dospem1Name,
+    nip1,
+    hasDospem2,
+    dospem2Name,
+    nip2,
+  });
+
+  return {
+    buffer: pdfBuffer,
+    filename: `Log_Bimbingan_${studentNim}_${new Date().toISOString().slice(0, 10)}.pdf`,
+  };
+}
+

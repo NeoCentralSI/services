@@ -73,6 +73,12 @@ export const ENV = {
   DAILY_THESIS_REMINDER_TZ: process.env.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
 
   // ===============================
+  // 🎓 SEMINAR THRESHOLDS (Testing)
+  // ===============================
+  SEMINAR_MIN_BIMBINGAN: toNum(process.env.SEMINAR_MIN_BIMBINGAN, 8),
+  SEMINAR_MIN_KEHADIRAN: toNum(process.env.SEMINAR_MIN_KEHADIRAN, 8),
+
+  // ===============================
   // 🧰 LOGGING
   // ===============================
   LOG_LEVEL: process.env.LOG_LEVEL || "debug",

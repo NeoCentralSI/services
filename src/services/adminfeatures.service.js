@@ -472,7 +472,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 		return {
 			id: u.id,
 			enrollmentYear: e.enrollmentYear ?? null,
-			skscompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
+			sksCompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
 		};
 	});
 	await prisma.student.createMany({ data: studentData, skipDuplicates: true });
@@ -499,7 +499,7 @@ export async function createAcademicYear({ semester = "ganjil", year, startDate,
 	}
 
 	// Prevent duplicates by (semester, year) when year provided
-	if (typeof year === "number") {
+	if (typeof year === "string") {
 		const existing = await prisma.academicYear.findFirst({ where: { semester, year } });
 		if (existing) {
 			const err = new Error("Academic year already exists for this semester and year");
@@ -511,7 +511,7 @@ export async function createAcademicYear({ semester = "ganjil", year, startDate,
 	const created = await prisma.academicYear.create({
 		data: {
 			semester,
-			year: typeof year === "number" ? year : null,
+			year: typeof year === "string" ? year : null,
 			startDate: startDate ? new Date(startDate) : null,
 			endDate: endDate ? new Date(endDate) : null,
 		},
@@ -564,7 +564,7 @@ export async function updateAcademicYear(id, { semester, year, startDate, endDat
 	}
 
 	// When both semester & year provided, prevent duplicates
-	if (semester && typeof year === "number") {
+	if (semester && typeof year === "string") {
 		const dup = await prisma.academicYear.findFirst({ where: { semester, year, NOT: { id } } });
 		if (dup) {
 			const err = new Error("Another academic year with the same semester and year already exists");
@@ -575,7 +575,7 @@ export async function updateAcademicYear(id, { semester, year, startDate, endDat
 
 	const data = {};
 	if (semester) data.semester = semester;
-	if (typeof year === "number") data.year = year;
+	if (typeof year === "string") data.year = year;
 	if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
 	if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
 
@@ -598,7 +598,7 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 	const where = search
 		? {
 			OR: [
-				{ year: !isNaN(parseInt(search)) ? parseInt(search) : undefined },
+				{ year: { contains: search } },
 				{ semester: { contains: search } },
 			].filter((condition) => condition.year !== undefined || condition.semester !== undefined),
 		}
@@ -644,9 +644,9 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 }
 
 // Get all Users with pagination
-export async function getUsers({ page = 1, pageSize = 10, search = "", identityType = "", role = "", isVerified = undefined } = {}) {
-	const skip = (page - 1) * pageSize;
-	const take = pageSize;
+export async function getUsers({ page = 1, pageSize = 10, search = "", identityType = "", role = "", isVerified = undefined, enrollmentYear = undefined } = {}) {
+	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;
+	const take = pageSize > 0 ? pageSize : undefined;
 
 	// Build where clause with all filters
 	const where = {
@@ -673,6 +673,12 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 					}
 				}
 			} : {},
+			// Enrollment year filter (via student relation)
+			enrollmentYear ? {
+				student: {
+					enrollmentYear: parseInt(enrollmentYear)
+				}
+			} : {},
 		].filter(condition => Object.keys(condition).length > 0) // Remove empty conditions
 	};
 
@@ -688,6 +694,7 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 						role: true,
 					},
 				},
+				student: true,
 			},
 		}),
 		prisma.user.count({ where }),
@@ -710,15 +717,17 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 			page,
 			pageSize,
 			total,
-			totalPages: Math.ceil(total / pageSize),
+			totalPages: pageSize > 0 ? Math.ceil(total / pageSize) : 1,
 		},
 	};
 }
 
 // Get all Students with detailed information
-export async function getStudents({ page = 1, pageSize = 10, search = "", programFilter = "", statusFilter = "", enrollmentYearFilter = "", academicYearFilter = "", sortBy = "", sortOrder = "desc" } = {}) {
-	const skip = (page - 1) * pageSize;
-	const take = pageSize;
+export async function getStudents({ page = 1, pageSize = 10, search = "", programFilter = "", statusFilter = "", enrollmentYearFilter = "", enrollmentYear = undefined, academicYearFilter = "", sortBy = "", sortOrder = "desc" } = {}) {
+	const normalizedEnrollmentYearFilter = enrollmentYearFilter || enrollmentYear || "";
+	const normalizedSortOrder = sortOrder === "asc" ? "asc" : "desc";
+	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;
+	const take = pageSize > 0 ? pageSize : undefined;
 	const activeAcademicYear = await getActiveAcademicYear();
 
 	// Build student filter: Prisma relation filter hanya menerima is/isNot, tidak bisa campur isNot:null dengan field Student
@@ -765,8 +774,8 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", progra
 	if (statusFilter && validStatuses.includes(statusFilter)) {
 		studentFilter.status = statusFilter;
 	}
-	if (enrollmentYearFilter) {
-		const year = parseInt(enrollmentYearFilter, 10);
+	if (normalizedEnrollmentYearFilter) {
+		const year = parseInt(normalizedEnrollmentYearFilter, 10);
 		if (!isNaN(year)) {
 			studentFilter.enrollmentYear = year;
 		}
@@ -787,13 +796,13 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", progra
 
 	// Build orderBy (User model - student is relation)
 	const validSortColumns = {
-		fullName: { fullName: sortOrder },
-		identityNumber: { identityNumber: sortOrder },
-		email: { email: sortOrder },
-		enrollmentYear: { student: { enrollmentYear: sortOrder } },
-		sksCompleted: { student: { sksCompleted: sortOrder } },
-		status: { student: { status: sortOrder } },
-		createdAt: { createdAt: sortOrder },
+		fullName: { fullName: normalizedSortOrder },
+		identityNumber: { identityNumber: normalizedSortOrder },
+		email: { email: normalizedSortOrder },
+		enrollmentYear: { student: { enrollmentYear: normalizedSortOrder } },
+		sksCompleted: { student: { sksCompleted: normalizedSortOrder } },
+		status: { student: { status: normalizedSortOrder } },
+		createdAt: { createdAt: normalizedSortOrder },
 	};
 	const orderBy = validSortColumns[sortBy] ?? { createdAt: "desc" };
 
@@ -905,7 +914,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", progra
 				? {
 					id: user.student.id,
 					enrollmentYear: user.student.enrollmentYear,
-					sksCompleted: user.student.skscompleted,
+					sksCompleted: user.student.sksCompleted ?? user.student.skscompleted,
 					mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
 					mkwuCompleted: user.student.mkwuCompleted,
 					internshipCompleted: user.student.internshipCompleted,
@@ -933,9 +942,231 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", progra
 			page,
 			pageSize,
 			total,
-			totalPages: Math.ceil(total / pageSize),
+			totalPages: pageSize > 0 ? Math.ceil(total / pageSize) : 1,
 		},
 	};
+}
+
+export async function importStudentsExcel(rows) {
+	const results = { success: 0, updated: 0, failed: 0, errors: [] };
+	const studentRole = await getOrCreateRole(ROLES.MAHASISWA);
+
+	for (let i = 0; i < rows.length; i++) {
+		const row = rows[i];
+		const rowNum = i + 2;
+		try {
+			const nim = clean(row["NIM"]);
+			const email = clean(row["Email"]).toLowerCase();
+			const fullName = clean(row["Nama"]);
+			const sks = parseInt(row["SKS Selesai"]) || 0;
+			const enrollmentYear = parseInt(row["Tahun Masuk"]) || deriveEnrollmentYearFromNIM(nim);
+
+			if (!nim || !email) throw new Error("NIM dan Email wajib diisi");
+
+			const existingUser = await findUserByEmailOrIdentity(email, nim);
+			if (existingUser) {
+				// Update existing student
+				await prisma.user.update({
+					where: { id: existingUser.id },
+					data: { fullName, identityNumber: nim, identityType: "NIM" }
+				});
+				await prisma.student.upsert({
+					where: { id: existingUser.id },
+					create: { id: existingUser.id, enrollmentYear, sksCompleted: sks, status: "active" },
+					update: { enrollmentYear, sksCompleted: sks }
+				});
+				results.updated++;
+			} else {
+				// Create new student
+				const plainPassword = generatePassword(12);
+				const hash = await bcrypt.hash(plainPassword, 10);
+				const user = await prisma.user.create({
+					data: {
+						fullName,
+						email,
+						password: hash,
+						identityNumber: nim,
+						identityType: "NIM",
+						isVerified: false
+					}
+				});
+				await upsertUserRole(user.id, studentRole.id, "active");
+				await prisma.student.create({
+					data: { id: user.id, enrollmentYear, sksCompleted: sks, status: "active" }
+				});
+				results.success++;
+
+				// Optional: send invite (ommited for brevity in bulk import unless requested)
+			}
+		} catch (err) {
+			results.failed++;
+			results.errors.push(`Baris ${rowNum}: ${err.message}`);
+		}
+	}
+	return results;
+}
+
+export async function importLecturersExcel(rows) {
+	const results = { success: 0, updated: 0, failed: 0, errors: [] };
+
+	for (let i = 0; i < rows.length; i++) {
+		const row = rows[i];
+		const rowNum = i + 2;
+		try {
+			const nip = clean(row["NIP"]);
+			const email = clean(row["Email"]).toLowerCase();
+			const fullName = clean(row["Nama"]);
+			const phone = clean(row["Telepon"]);
+			const scienceGroupName = clean(row["Kelompok Keilmuan"]);
+
+			if (!nip || !email) throw new Error("NIP dan Email wajib diisi");
+
+			let scienceGroupId = null;
+			if (scienceGroupName && scienceGroupName !== "-") {
+				const sg = await prisma.scienceGroup.findFirst({ where: { name: { contains: scienceGroupName } } });
+				if (sg) scienceGroupId = sg.id;
+			}
+
+			const existingUser = await findUserByEmailOrIdentity(email, nip);
+			if (existingUser) {
+				await prisma.user.update({
+					where: { id: existingUser.id },
+					data: { fullName, identityNumber: nip, identityType: "NIP", phone }
+				});
+				await prisma.lecturer.upsert({
+					where: { id: existingUser.id },
+					create: { id: existingUser.id, scienceGroupId },
+					update: { scienceGroupId }
+				});
+				results.updated++;
+			} else {
+				const plainPassword = generatePassword(12);
+				const hash = await bcrypt.hash(plainPassword, 10);
+				const user = await prisma.user.create({
+					data: {
+						fullName,
+						email,
+						password: hash,
+						identityNumber: nip,
+						identityType: "NIP",
+						isVerified: false,
+						phone
+					}
+				});
+				// Default to Pembimbing 1 role if not specified
+				const role = await getOrCreateRole(ROLES.PEMBIMBING_1);
+				await upsertUserRole(user.id, role.id, "active");
+				await prisma.lecturer.create({
+					data: { id: user.id, scienceGroupId }
+				});
+				results.success++;
+			}
+		} catch (err) {
+			results.failed++;
+			results.errors.push(`Baris ${rowNum}: ${err.message}`);
+		}
+	}
+	return results;
+}
+
+export async function importUsersExcel(rows) {
+	const results = { success: 0, updated: 0, failed: 0, errors: [] };
+
+	for (let i = 0; i < rows.length; i++) {
+		const row = rows[i];
+		const rowNum = i + 2;
+		try {
+			const email = clean(row["Email"]).toLowerCase();
+			const fullName = clean(row["Nama Lengkap"]);
+			const identityNumber = clean(row["NIM/NIP"]);
+			const identityType = clean(row["Tipe Identitas"]).toUpperCase() || "OTHER";
+			const rolesStr = clean(row["Role"]);
+
+			if (!email) throw new Error("Email wajib diisi");
+
+			const existingUser = await prisma.user.findUnique({ where: { email } });
+			let user;
+			if (existingUser) {
+				user = await prisma.user.update({
+					where: { id: existingUser.id },
+					data: { fullName, identityNumber, identityType }
+				});
+				results.updated++;
+			} else {
+				const plainPassword = generatePassword(12);
+				const hash = await bcrypt.hash(plainPassword, 10);
+				user = await prisma.user.create({
+					data: { fullName, email, password: hash, identityNumber, identityType, isVerified: true }
+				});
+				results.success++;
+			}
+
+			// Sync Roles
+			if (rolesStr) {
+				const roleNames = rolesStr.split(";").map(s => s.trim());
+				for (const rn of roleNames) {
+					const role = await getOrCreateRole(rn);
+					await upsertUserRole(user.id, role.id, "active");
+				}
+			}
+
+			// Ensure Student/Lecturer records
+			if (identityType === "NIM") {
+				await prisma.student.upsert({
+					where: { id: user.id },
+					create: { id: user.id, enrollmentYear: deriveEnrollmentYearFromNIM(identityNumber), status: "active", sksCompleted: 0 },
+					update: {}
+				});
+			} else if (identityType === "NIP") {
+				await prisma.lecturer.upsert({
+					where: { id: user.id },
+					create: { id: user.id },
+					update: {}
+				});
+			}
+		} catch (err) {
+			results.failed++;
+			results.errors.push(`Baris ${rowNum}: ${err.message}`);
+		}
+	}
+	return results;
+}
+
+export async function importAcademicYearsExcel(rows) {
+	const results = { success: 0, updated: 0, failed: 0, errors: [] };
+
+	for (let i = 0; i < rows.length; i++) {
+		const row = rows[i];
+		const rowNum = i + 2;
+		try {
+			const year = clean(row["Tahun"]);
+			const semester = clean(row["Semester"]).toLowerCase();
+			const startStr = clean(row["Tanggal Mulai"]);
+			const endStr = clean(row["Tanggal Selesai"]);
+
+			if (!year || !semester) throw new Error("Tahun dan Semester wajib diisi");
+
+			const existing = await prisma.academicYear.findFirst({ where: { year, semester } });
+			const data = {
+				year,
+				semester,
+				startDate: startStr ? new Date(startStr) : null,
+				endDate: endStr ? new Date(endStr) : null
+			};
+
+			if (existing) {
+				await prisma.academicYear.update({ where: { id: existing.id }, data });
+				results.updated++;
+			} else {
+				await prisma.academicYear.create({ data });
+				results.success++;
+			}
+		} catch (err) {
+			results.failed++;
+			results.errors.push(`Baris ${rowNum}: ${err.message}`);
+		}
+	}
+	return results;
 }
 
 // Get all Lecturers with detailed information
@@ -974,7 +1205,13 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "", scien
 						_count: {
 							select: {
 								thesisGuidances: true,
-								thesisSupervisors: true,
+								thesisSupervisors: {
+									where: {
+										thesis: {
+											thesisStatus: { name: "Bimbingan" },
+										},
+									},
+								},
 							},
 						},
 					},
@@ -1002,7 +1239,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "", scien
 		lecturer: user.lecturer
 			? {
 				id: user.lecturer.id,
-				activeGuidances: user.lecturer._count?.thesisGuidances || 0,
+				activeGuidances: user.lecturer._count?.thesisSupervisors || 0,
 				participations: user.lecturer._count?.thesisSupervisors || 0,
 				scienceGroup: user.lecturer.scienceGroup?.name || null,
 				scienceGroupId: user.lecturer.scienceGroupId || null,
@@ -1240,7 +1477,7 @@ export async function getStudentDetail(userId) {
 		createdAt: user.createdAt,
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
-			sksCompleted: user.student.skscompleted,
+			sksCompleted: user.student.sksCompleted ?? user.student.skscompleted,
 			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
 			mkwuCompleted: user.student.mkwuCompleted,
 			internshipCompleted: user.student.internshipCompleted,
@@ -1444,6 +1681,12 @@ export async function adminUpdateLecturer(id, data) {
 
 export async function adminUpdateStudent(id, data) {
 	const updateData = {};
+	const parseBoolean = (value) => {
+		if (typeof value === "string") {
+			return value.toLowerCase() === "true";
+		}
+		return Boolean(value);
+	};
 
 	if (data.status !== undefined) {
 		updateData.status = data.status;
@@ -1457,13 +1700,28 @@ export async function adminUpdateStudent(id, data) {
 		}
 	}
 
-	if (data.enrollmentYear !== undefined) {
-		updateData.enrollmentYear = Number(data.enrollmentYear);
+	if (data.enrollmentYear !== undefined && data.enrollmentYear !== "") {
+		const parsed = Number.parseInt(data.enrollmentYear, 10);
+		if (!Number.isNaN(parsed)) {
+			updateData.enrollmentYear = parsed;
+		}
 	}
 
 	if (data.currentSemester !== undefined) {
-		updateData.currentSemester = Number(data.currentSemester);
+		if (data.currentSemester === "") {
+			updateData.currentSemester = null;
+		} else {
+			const parsed = Number.parseInt(data.currentSemester, 10);
+			if (!Number.isNaN(parsed)) {
+				updateData.currentSemester = parsed;
+			}
+		}
 	}
+
+	if (data.mandatoryCoursesCompleted !== undefined) updateData.mandatoryCoursesCompleted = parseBoolean(data.mandatoryCoursesCompleted);
+	if (data.mkwuCompleted !== undefined) updateData.mkwuCompleted = parseBoolean(data.mkwuCompleted);
+	if (data.internshipCompleted !== undefined) updateData.internshipCompleted = parseBoolean(data.internshipCompleted);
+	if (data.kknCompleted !== undefined) updateData.kknCompleted = parseBoolean(data.kknCompleted);
 
 	if (Object.keys(updateData).length === 0) {
 		throw new Error("Tidak ada data yang valid untuk diupdate");

@@ -376,7 +376,7 @@ export async function hasCalendarAccess(userId) {
 
   if (user?.oauthProvider !== "microsoft" || !user?.oauthRefreshToken) {
     console.log("[OutlookCalendar] hasCalendarAccess: No Microsoft connection for user", userId);
-    return false;
+    return { hasAccess: false, needsReconnect: false };
   }
 
   // Try to get a fresh token and verify calendar access
@@ -400,10 +400,11 @@ export async function hasCalendarAccess(userId) {
     }
 
     console.log("[OutlookCalendar] hasCalendarAccess: Token valid for user", userId);
-    return true;
+    return { hasAccess: true, needsReconnect: false };
   } catch (error) {
     console.error("[OutlookCalendar] Calendar access check failed:", error.message);
-    return false;
+    // Token expired or revoked — user needs to re-authenticate
+    return { hasAccess: false, needsReconnect: true };
   }
 }
 
@@ -466,7 +467,8 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
   }
 
   // Create event for SUPERVISOR (if connected to Microsoft)
-  const supervisorHasAccess = await hasCalendarAccess(supervisor.userId);
+  const supervisorAccessResult = await hasCalendarAccess(supervisor.userId);
+  const supervisorHasAccess = typeof supervisorAccessResult === 'object' ? supervisorAccessResult.hasAccess : supervisorAccessResult;
   console.log("[OutlookCalendar] Supervisor calendar access:", supervisorHasAccess);
   
   if (supervisorHasAccess) {
@@ -487,7 +489,8 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
   }
 
   // Create event for STUDENT (if connected to Microsoft)
-  const studentHasAccess = await hasCalendarAccess(student.userId);
+  const studentAccessResult = await hasCalendarAccess(student.userId);
+  const studentHasAccess = typeof studentAccessResult === 'object' ? studentAccessResult.hasAccess : studentAccessResult;
   console.log("[OutlookCalendar] Student calendar access:", studentHasAccess);
   
   if (studentHasAccess) {
@@ -571,10 +574,11 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
   };
 
   // Create event for supervisor (if connected to Microsoft)
-  const supervisorHasAccess = await hasCalendarAccess(supervisor.userId);
-  console.log("[OutlookCalendar] Supervisor calendar access:", supervisorHasAccess);
+  const supervisorAccessResult2 = await hasCalendarAccess(supervisor.userId);
+  const supervisorHasAccess2 = typeof supervisorAccessResult2 === 'object' ? supervisorAccessResult2.hasAccess : supervisorAccessResult2;
+  console.log("[OutlookCalendar] Supervisor calendar access:", supervisorHasAccess2);
   
-  if (supervisorHasAccess) {
+  if (supervisorHasAccess2) {
     try {
       const supervisorEvent = await createCalendarEvent(supervisor.userId, {
         ...eventData,
@@ -590,10 +594,11 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
   }
 
   // Create event for student (if connected to Microsoft)
-  const studentHasAccess = await hasCalendarAccess(student.userId);
-  console.log("[OutlookCalendar] Student calendar access:", studentHasAccess);
+  const studentAccessResult2 = await hasCalendarAccess(student.userId);
+  const studentHasAccess2 = typeof studentAccessResult2 === 'object' ? studentAccessResult2.hasAccess : studentAccessResult2;
+  console.log("[OutlookCalendar] Student calendar access:", studentHasAccess2);
   
-  if (studentHasAccess) {
+  if (studentHasAccess2) {
     try {
       const studentEvent = await createCalendarEvent(student.userId, {
         ...eventData,
