@@ -1,14 +1,26 @@
 import * as sekdepService from "../../services/insternship/sekdep.service.js";
 
 /**
- * Controller to get all internship proposals ready for Sekdep review.
+ * Controller to get all internship proposals for Sekdep review and assignment.
  * @param {import('express').Request} req 
  * @param {import('express').Response} res 
  * @param {import('express').NextFunction} next 
  */
-export async function getProposals(req, res, next) {
+export async function getAllProposals(req, res, next) {
     try {
-        const data = await sekdepService.listProposals();
+        const { academicYear } = req.query;
+        let academicYearId = academicYear;
+
+        // If not provided, optionally get active academic year
+        if (!academicYearId) {
+            const activeAy = await req.prisma?.academicYear?.findFirst({ where: { status: 'ACTIVE' } }) ||
+                await import('../../repositories/insternship/registration.repository.js').then(m => m.getActiveAcademicYear());
+            if (activeAy) {
+                academicYearId = activeAy.id;
+            }
+        }
+
+        const data = await sekdepService.listAllProposals(academicYearId);
         res.status(200).json({
             success: true,
             data
@@ -17,6 +29,61 @@ export async function getProposals(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Controller to get pending internship proposals.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getPendingProposals(req, res, next) {
+    try {
+        const { academicYear, q, page = 1, pageSize = 10, sortBy, sortOrder } = req.query;
+        let academicYearId = academicYear;
+
+        if (!academicYearId) {
+            const activeAy = await req.prisma?.academicYear?.findFirst({ where: { status: 'ACTIVE' } }) ||
+                await import('../../repositories/insternship/registration.repository.js').then(m => m.getActiveAcademicYear());
+            if (activeAy) academicYearId = activeAy.id;
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await sekdepService.listPendingProposals({ academicYearId, q, skip, take, sortBy, sortOrder });
+        res.status(200).json({ success: true, data, total });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to get proposals waiting for response verification.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getPendingResponses(req, res, next) {
+    try {
+        const { academicYear, q, page = 1, pageSize = 10, sortBy, sortOrder } = req.query;
+        let academicYearId = academicYear;
+
+        if (!academicYearId) {
+            const activeAy = await req.prisma?.academicYear?.findFirst({ where: { status: 'ACTIVE' } }) ||
+                await import('../../repositories/insternship/registration.repository.js').then(m => m.getActiveAcademicYear());
+            if (activeAy) academicYearId = activeAy.id;
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await sekdepService.listPendingResponses({ academicYearId, q, skip, take, sortBy, sortOrder });
+        res.status(200).json({ success: true, data, total });
+    } catch (error) {
+        next(error);
+    }
+}
+
 
 /**
  * Controller to get full detail of a specific internship proposal for Sekdep.
@@ -45,10 +112,15 @@ export async function getProposalDetail(req, res, next) {
  */
 export async function getCompaniesWithStats(req, res, next) {
     try {
-        const data = await sekdepService.getCompaniesStats();
+        const { q, page = 1, pageSize = 10, sortBy, sortOrder, status } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await sekdepService.getCompaniesStats({ q, skip, take, sortBy, sortOrder, status });
         res.status(200).json({
             success: true,
-            data
+            data,
+            total
         });
     } catch (error) {
         next(error);
@@ -126,30 +198,14 @@ export async function respondToProposal(req, res, next) {
         await sekdepService.respondToProposal(id, response, notes);
         res.status(200).json({
             success: true,
-            message: `Proposal berhasil ${response === 'APPROVED_BY_SEKDEP' ? 'disetujui' : 'ditolak'}.`
+            message: `Proposal berhasil ${response === 'APPROVED_PROPOSAL' ? 'disetujui' : 'ditolak'}.`
         });
     } catch (error) {
         next(error);
     }
 }
 
-/**
- * Controller to get all internship proposals with uploaded company responses for Sekdep.
- * @param {import('express').Request} req 
- * @param {import('express').Response} res 
- * @param {import('express').NextFunction} next 
- */
-export async function getCompanyResponses(req, res, next) {
-    try {
-        const data = await sekdepService.listCompanyResponses();
-        res.status(200).json({
-            success: true,
-            data
-        });
-    } catch (error) {
-        next(error);
-    }
-}
+
 
 /**
  * Controller to verify a company response.
@@ -159,13 +215,162 @@ export async function getCompanyResponses(req, res, next) {
  */
 export async function verifyCompanyResponse(req, res, next) {
     try {
-        const { id: responseId } = req.params;
+        const { id: proposalId } = req.params;
         const { status, notes, acceptedMemberIds } = req.body;
-        await sekdepService.verifyCompanyResponse(responseId, status, notes, acceptedMemberIds);
+        await sekdepService.verifyCompanyResponse(proposalId, status, notes, acceptedMemberIds);
         res.status(200).json({
             success: true,
-            message: `Surat balasan berhasil ${status === 'APPROVED_BY_SEKDEP' ? 'diverifikasi' : 'ditolak'}.`
+            message: `Surat balasan berhasil ${status === 'APPROVED_PROPOSAL' ? 'diverifikasi' : 'ditolak'}.`
         });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to get all internships for Sekdep.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getInternshipList(req, res, next) {
+    try {
+        const { academicYear, status, q, page = 1, pageSize = 10, sortBy, sortOrder } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await sekdepService.listInternships({
+            academicYearId: academicYear,
+            status,
+            q,
+            skip,
+            take,
+            sortBy,
+            sortOrder
+        });
+        res.status(200).json({
+            success: true,
+            data,
+            total
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to assign supervisor to multiple internships in bulk.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function bulkAssignSupervisor(req, res, next) {
+    try {
+        const { internshipIds, supervisorId } = req.body;
+        await sekdepService.assignSupervisorsBulk({ internshipIds, supervisorId });
+        res.status(200).json({
+            success: true,
+            message: "Pembimbing berhasil di-assign untuk mahasiswa terpilih."
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to get full detail of an internship for Sekdep.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getInternshipDetail(req, res, next) {
+    try {
+        const { id } = req.params;
+        const data = await sekdepService.getInternshipDetail(id);
+        res.status(200).json({
+            success: true,
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+/**
+ * Controller to get lecturers with their internship workload.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getLecturersWorkload(req, res, next) {
+    try {
+        const { q, page = 1, pageSize = 10, sortBy, sortOrder } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await sekdepService.getLecturersWorkloadList({ q, skip, take, sortBy, sortOrder });
+        res.status(200).json({ success: true, data, total });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Export lecturer workload to PDF.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function exportLecturersWorkloadPdf(req, res, next) {
+    try {
+        const pdfBuffer = await sekdepService.exportLecturerWorkloadPdf();
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", 'attachment; filename="Daftar_Bimbingan_KP.pdf"');
+        res.send(pdfBuffer);
+    } catch (error) {
+        next(error);
+    }
+}
+/**
+ * Controller to verify an internship document.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function verifyDocument(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { documentType, status, notes } = req.body;
+        await sekdepService.verifyInternshipDocument(id, { documentType, status, notes });
+        res.status(200).json({
+            success: true,
+            message: "Verifikasi dokumen berhasil disimpan."
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to bulk verify multiple internship documents.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function bulkVerifyDocuments(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { documents, status, notes } = req.body;
+        
+        if (!documents || !Array.isArray(documents) || documents.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Dokumen yang akan diverifikasi harus berupa array dan tidak boleh kosong."
+            });
+        }
+
+        const result = await sekdepService.bulkVerifyInternshipDocuments(id, { documents, status, notes });
+        res.status(200).json(result);
     } catch (error) {
         next(error);
     }

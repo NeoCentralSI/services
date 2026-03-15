@@ -5,11 +5,13 @@ import { ROLES } from "../../constants/roles.js";
 
 /**
  * Get and format internship proposals for a specific student.
+ * After consolidation, uses `internships` instead of `members`, and flat letter fields.
  * @param {string} studentId 
+ * @param {string} [academicYearId]
  * @returns {Promise<Array>}
  */
-export async function getStudentProposals(studentId) {
-    const proposals = await registrationRepository.getProposalsByStudentId(studentId);
+export async function getStudentProposals(studentId, academicYearId) {
+    const proposals = await registrationRepository.getProposalsByStudentId(studentId, academicYearId);
 
     return proposals.map(proposal => {
         const isCoordinator = proposal.coordinatorId === studentId;
@@ -18,20 +20,39 @@ export async function getStudentProposals(studentId) {
         let name = proposal.coordinator?.user?.fullName || "Unknown";
         let nim = proposal.coordinator?.user?.identityNumber || "N/A";
 
-        // If the user is a member, show their own name and NIM instead of the coordinator's
+        // If the user is a member, show their own name and NIM
         if (!isCoordinator) {
-            const memberInfo = proposal.members.find(m => m.studentId === studentId);
-            if (memberInfo?.student?.user) {
-                name = memberInfo.student.user.fullName;
-                nim = memberInfo.student.user.identityNumber;
+            const internshipInfo = proposal.internships.find(i => i.studentId === studentId);
+            if (internshipInfo?.student?.user) {
+                name = internshipInfo.student.user.fullName;
+                nim = internshipInfo.student.user.identityNumber;
             }
         }
 
         const companyName = proposal.targetCompany?.companyName || "N/A";
         const proposalDoc = proposal.proposalDocument;
 
-        const appLetter = proposal.applicationLetters?.[0];
-        const appLetterDoc = appLetter?.document;
+        const coordinatorInternship = proposal.internships.find(i => i.studentId === proposal.coordinatorId);
+        const coordinatorStatus = coordinatorInternship ? coordinatorInternship.status : 'ACCEPTED';
+
+        const membersList = [
+            {
+                id: proposal.coordinatorId,
+                name: proposal.coordinator?.user?.fullName || "Unknown",
+                nim: proposal.coordinator?.user?.identityNumber || "N/A",
+                role: 'KOORDINATOR',
+                status: coordinatorStatus
+            },
+            ...proposal.internships
+                .filter(i => i.studentId !== proposal.coordinatorId) // just in case coordinator is in internships
+                .map(i => ({
+                    id: i.studentId,
+                    name: i.student?.user?.fullName || "Unknown",
+                    nim: i.student?.user?.identityNumber || "N/A",
+                    role: 'MEMBER',
+                    status: i.status
+                }))
+        ];
 
         return {
             id: proposal.id,
@@ -39,31 +60,35 @@ export async function getStudentProposals(studentId) {
             nim: nim,
             koordinatorAtauMember: roleInProposal,
             namaCompany: companyName,
+            targetCompanyId: proposal.targetCompanyId,
             dokumenProposal: proposalDoc ? {
                 id: proposalDoc.id,
                 fileName: proposalDoc.fileName,
                 filePath: proposalDoc.filePath
             } : null,
-            dokumenSuratPermohonan: appLetterDoc ? {
-                id: appLetterDoc.id,
-                fileName: appLetterDoc.fileName,
-                filePath: appLetterDoc.filePath
+            dokumenSuratPermohonan: proposal.appLetterDoc ? {
+                id: proposal.appLetterDoc.id,
+                fileName: proposal.appLetterDoc.fileName,
+                filePath: proposal.appLetterDoc.filePath
             } : null,
-            dokumenSuratBalasan: proposal.companyResponses?.[0]?.document ? {
-                id: proposal.companyResponses[0].document.id,
-                fileName: proposal.companyResponses[0].document.fileName,
-                filePath: proposal.companyResponses[0].document.filePath
+            dokumenSuratBalasan: proposal.companyResponseDoc ? {
+                id: proposal.companyResponseDoc.id,
+                fileName: proposal.companyResponseDoc.fileName,
+                filePath: proposal.companyResponseDoc.filePath
             } : null,
-            dokumenSuratTugas: (proposal.assignmentLetters?.[0]?.document && proposal.assignmentLetters?.[0]?.signedById) ? {
-                id: proposal.assignmentLetters[0].document.id,
-                fileName: proposal.assignmentLetters[0].document.fileName,
-                filePath: proposal.assignmentLetters[0].document.filePath
+            dokumenSuratTugas: proposal.assignLetterDoc ? {
+                id: proposal.assignLetterDoc.id,
+                fileName: proposal.assignLetterDoc.fileName,
+                filePath: proposal.assignLetterDoc.filePath
             } : null,
+            isSigned: !!proposal.appLetterSignedById,
+            isAssignmentSigned: !!proposal.assignLetterSignedById,
+            academicYearName: proposal.academicYear
+                ? `${proposal.academicYear.year} ${proposal.academicYear.semester.charAt(0).toUpperCase() + proposal.academicYear.semester.slice(1)}`
+                : '-',
             status: proposal.status,
-            responseStatus: proposal.companyResponses?.[0]?.status || 'PENDING',
-            isSigned: !!appLetter?.signedById,
-            isAssignmentSigned: !!proposal.assignmentLetters?.[0]?.signedById,
-            memberStatus: isCoordinator ? 'ACCEPTED' : (proposal.members.find(m => m.studentId === studentId)?.status || 'PENDING')
+            memberStatus: isCoordinator ? coordinatorStatus : (proposal.internships.find(i => i.studentId === studentId)?.status || 'PENDING'),
+            members: membersList
         };
     }).filter(p => p.memberStatus !== 'REJECTED');
 }
@@ -167,50 +192,117 @@ export async function submitProposal(data) {
                 message: memberMessage
             });
 
-            // Send Push Notifications to members
             await sendFcmToUsers(memberIds, {
                 title: memberTitle,
                 body: memberMessage,
                 data: {
                     type: 'internship_invitation',
                     proposalId: proposal.id
-                }
+                },
+                dataOnly: true
             });
         }
 
-        // B. Notify Sekdep
-        const sekdeps = await registrationRepository.findUsersByRole(ROLES.SEKRETARIS_DEPARTEMEN);
-        const sekdepIds = sekdeps.map(s => s.id);
-
-        if (sekdepIds.length > 0) {
-            const sekdepTitle = "Pengajuan KP Baru";
-            const sekdepMessage = `Ada pengajuan KP baru untuk ${proposalCompany} yang memerlukan review.`;
-
-            await notificationService.createNotificationsForUsers(sekdepIds, {
-                title: sekdepTitle,
-                message: sekdepMessage
-            });
-
-            // Send Push Notifications to Sekdep
-            await sendFcmToUsers(sekdepIds, {
-                title: sekdepTitle,
-                body: sekdepMessage,
-                data: {
-                    type: 'internship_new_proposal',
-                    proposalId: proposal.id
-                }
-            });
-        }
+        // B. Notify Sekdep if ready (all members accepted/solo)
+        await notifySekdepIfReady(proposal.id);
     } catch (notifyError) {
         console.error("Failed to send notifications:", notifyError);
-        // We don't throw here to ensure the proposal creation itself is considered successful
     }
 
     return proposal;
 }
 
 /**
+ * Update an internship proposal (for re-submission after rejection).
+ * @param {string} proposalId 
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function updateProposal(proposalId, data) {
+    const { coordinatorId, proposalDocumentId, targetCompanyId, companyName, companyAddress, memberIds = [] } = data;
+
+    // 1. Verify existence and state
+    const proposal = await registrationRepository.findProposalById(proposalId);
+    if (!proposal) {
+        const err = new Error("Proposal tidak ditemukan.");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    if (proposal.coordinatorId !== coordinatorId) {
+        const err = new Error("Hanya koordinator yang dapat mengubah proposal.");
+        err.statusCode = 403;
+        throw err;
+    }
+
+    if (proposal.status !== 'REJECTED_BY_SEKDEP') {
+        const err = new Error("Hanya proposal yang ditolak Sekdep yang dapat diubah.");
+        err.statusCode = 400;
+        throw err;
+    }
+
+    // 2. Validate member eligibility (excluding current members of THIS proposal)
+    const existingMemberIds = proposal.internships.map(i => i.studentId);
+    if (memberIds.length > 0) {
+        for (const memberId of memberIds) {
+            // If they are already in this proposal, skip eligibility check against THIS proposal
+            if (existingMemberIds.includes(memberId)) continue;
+
+            const active = await registrationRepository.findActiveProposalOrInternship(memberId);
+            if (active) {
+                const typeLabel = active.type === 'INTERNSHIP' ? 'magang yang sedang berjalan' : 'proposal aktif';
+                const error = new Error(`Mahasiswa tersebut (ID: ${memberId}) masih memiliki ${typeLabel}.`);
+                error.statusCode = 400;
+                throw error;
+            }
+        }
+    }
+
+    let finalCompanyId = targetCompanyId;
+    if (!finalCompanyId && companyName) {
+        const newCompany = await registrationRepository.createCompany({
+            companyName,
+            companyAddress: companyAddress || "Alamat tidak tersedia"
+        });
+        finalCompanyId = newCompany.id;
+    }
+
+    if (!finalCompanyId) {
+        throw new Error("Perusahaan harus dipilih.");
+    }
+
+    // 3. Perform update
+    const updated = await registrationRepository.updateProposal(proposalId, {
+        proposalDocumentId,
+        targetCompanyId: finalCompanyId,
+        memberIds
+    });
+
+    // 4. Notifications
+    try {
+        const proposalCompany = companyName || updated.targetCompany?.companyName || "perusahaan";
+
+        // Notify new members (those who weren't in the original proposal)
+        const newMemberIds = memberIds.filter(id => !existingMemberIds.includes(id));
+        if (newMemberIds.length > 0) {
+            const title = "Undangan Grup Kerja Praktik";
+            const message = `Anda telah ditambahkan sebagai anggota untuk pengajuan KP di ${proposalCompany}.`;
+            await notificationService.createNotificationsForUsers(newMemberIds, { title, message });
+            await sendFcmToUsers(newMemberIds, { title, body: message, data: { type: 'internship_invitation', proposalId }, dataOnly: true });
+        }
+
+        // Notify Sekdep about re-submission if ready
+        await notifySekdepIfReady(proposalId);
+    } catch (err) {
+        console.error("Failed to send re-submission notifications:", err);
+    }
+
+    return updated;
+}
+
+/**
  * Get full detail of an internship proposal.
+ * After consolidation, letter data is flat fields on the proposal.
  * @param {string} id 
  * @returns {Promise<Object>}
  */
@@ -222,20 +314,52 @@ export async function getProposalDetail(id) {
         throw error;
     }
 
-    const appLetter = proposal.applicationLetters?.[0];
+    const filteredInternships = proposal.internships.filter(i => i.studentId !== proposal.coordinatorId);
 
     return {
         ...proposal,
-        isSigned: !!appLetter?.signedById,
-        companyResponses: proposal.companyResponses?.map(res => ({
-            ...res,
-            updatedAt: res.updatedAt
-        }))
+        internships: filteredInternships,
+        academicYearName: proposal.academicYear
+            ? `${proposal.academicYear.year} ${proposal.academicYear.semester.charAt(0).toUpperCase() + proposal.academicYear.semester.slice(1)}`
+            : '-',
+        isSigned: !!proposal.appLetterSignedById,
+        isAssignmentSigned: !!proposal.assignLetterSignedById
     };
 }
 
 /**
+ * Delete an internship proposal.
+ * Only rejected proposals can be deleted by the coordinator.
+ * @param {string} proposalId 
+ * @param {string} coordinatorId 
+ * @returns {Promise<Object>}
+ */
+export async function deleteProposal(proposalId, coordinatorId) {
+    const proposal = await registrationRepository.findProposalById(proposalId);
+    if (!proposal) {
+        const err = new Error("Proposal tidak ditemukan.");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    if (proposal.coordinatorId !== coordinatorId) {
+        const err = new Error("Hanya koordinator yang dapat menghapus proposal.");
+        err.statusCode = 403;
+        throw err;
+    }
+
+    if (proposal.status !== 'REJECTED_BY_SEKDEP') {
+        const err = new Error("Hanya proposal yang ditolak Sekdep yang dapat dihapus.");
+        err.statusCode = 400;
+        throw err;
+    }
+
+    return registrationRepository.deleteProposal(proposalId);
+}
+
+/**
  * Respond to an internship proposal invitation.
+ * After consolidation, member status is on the Internship record.
  * @param {string} studentId 
  * @param {string} proposalId 
  * @param {string} response 
@@ -248,13 +372,13 @@ export async function respondToInvitation(studentId, proposalId, response) {
         throw error;
     }
 
-    const updatedMember = await registrationRepository.updateMemberStatus(proposalId, studentId, response);
+    const updatedInternship = await registrationRepository.updateMemberStatus(proposalId, studentId, response);
 
     // Notify Coordinator
     try {
-        const coordinatorId = updatedMember.proposal.coordinatorId;
-        const studentName = updatedMember.student.user.fullName;
-        const companyName = updatedMember.proposal.targetCompany?.companyName || "perusahaan";
+        const coordinatorId = updatedInternship.proposal.coordinatorId;
+        const studentName = updatedInternship.student.user.fullName;
+        const companyName = updatedInternship.proposal.targetCompany?.companyName || "perusahaan";
         const actionLabel = response === 'ACCEPTED' ? 'menyetujui' : 'menolak';
 
         const title = `Respon Undangan KP: ${actionLabel}`;
@@ -265,7 +389,6 @@ export async function respondToInvitation(studentId, proposalId, response) {
             message
         });
 
-        // Send Push Notification to Coordinator
         await sendFcmToUsers([coordinatorId], {
             title,
             body: message,
@@ -273,17 +396,23 @@ export async function respondToInvitation(studentId, proposalId, response) {
                 type: 'internship_invitation_response',
                 proposalId: proposalId,
                 response: response
-            }
+            },
+            dataOnly: true
         });
+
+        // Notify Sekdep if this was the last response needed
+        await notifySekdepIfReady(proposalId);
     } catch (err) {
         console.error("Failed to notify coordinator:", err);
     }
 
-    return updatedMember;
+    return updatedInternship;
 }
 
 /**
  * Submit a company response letter for a proposal.
+ * After consolidation, updates companyResponseDocId on the proposal
+ * and internship statuses.
  * @param {string} proposalId 
  * @param {string} documentId 
  * @param {string} studentId 
@@ -291,7 +420,7 @@ export async function respondToInvitation(studentId, proposalId, response) {
  * @returns {Promise<Object>}
  */
 export async function submitCompanyResponse(proposalId, documentId, studentId, acceptedMemberIds = []) {
-    // 1. Get proposal to verify members
+    // 1. Get proposal to verify internships
     const proposal = await registrationRepository.findProposalById(proposalId);
     if (!proposal) {
         const error = new Error("Proposal tidak ditemukan.");
@@ -299,24 +428,31 @@ export async function submitCompanyResponse(proposalId, documentId, studentId, a
         throw error;
     }
 
-    // 2. Prepare member updates
-    const memberUpdates = [];
-    if (proposal.members && proposal.members.length > 0) {
-        for (const member of proposal.members) {
-            const isAccepted = acceptedMemberIds.includes(member.studentId);
-            memberUpdates.push({
-                studentId: member.studentId,
-                status: isAccepted ? 'ACCEPTED_BY_COMPANY' : 'REJECTED_BY_COMPANY'
-            });
-        }
+    if (!proposal.appLetterSignedById) {
+        const error = new Error("Surat balasan hanya bisa diunggah jika surat permohonan sudah ditandatangani oleh Kadep.");
+        error.statusCode = 400;
+        throw error;
     }
 
-    // 3. Create response and update members transactionally
-    const response = await registrationRepository.createCompanyResponseTransaction({
+    // 2. Prepare internship status updates
+    const internshipUpdates = [];
+
+    // Include coordinator and all members
+    const allStudentIds = [...new Set([proposal.coordinatorId, ...proposal.internships.map(i => i.studentId)])];
+
+    for (const studentId of allStudentIds) {
+        const isAccepted = acceptedMemberIds.includes(studentId);
+        internshipUpdates.push({
+            studentId,
+            status: isAccepted ? 'ACCEPTED_BY_COMPANY' : 'REJECTED_BY_COMPANY'
+        });
+    }
+
+    // 3. Update proposal and internship statuses transactionally
+    const updatedProposal = await registrationRepository.createCompanyResponseTransaction({
         proposalId,
-        documentId,
-        status: 'PENDING'
-    }, memberUpdates);
+        documentId
+    }, internshipUpdates);
 
     // Notify Sekdep
     try {
@@ -338,12 +474,60 @@ export async function submitCompanyResponse(proposalId, documentId, studentId, a
                 data: {
                     type: 'internship_company_response',
                     proposalId: proposalId
-                }
+                },
+                dataOnly: true
             });
         }
     } catch (err) {
         console.error("Failed to notify sekdep about company response:", err);
     }
 
-    return response;
+    return updatedProposal;
+}
+
+/**
+ * Helper to notify Sekdep only if the proposal is "ready" 
+ * (all members have responded to their invitations).
+ * @param {string} proposalId 
+ */
+async function notifySekdepIfReady(proposalId) {
+    const proposal = await registrationRepository.findProposalById(proposalId);
+    if (!proposal) return;
+
+    // Check if any member is still PENDING
+    const hasPendingMember = proposal.internships.some(i => i.status === 'PENDING');
+    if (hasPendingMember) return;
+
+    // Ready! Notify Sekdep
+    try {
+        const sekdeps = await registrationRepository.findUsersByRole(ROLES.SEKRETARIS_DEPARTEMEN);
+        const sekdepIds = sekdeps.map(s => s.id);
+
+        if (sekdepIds.length > 0) {
+            const proposalCompany = proposal.targetCompany?.companyName || "perusahaan";
+
+            // Check if this proposal has undergone a rejection before
+            // We can check if it has a history or if it's currently PENDING but has appLetterDoc which points to re-submission
+            // Actually, a more reliable way is checking if it ever had sekdep notes or just flag it
+            const isReSubmission = !!proposal.appLetterDocId && proposal.status === 'PENDING' && proposal.updatedAt > proposal.createdAt;
+
+            const title = isReSubmission ? "Pengajuan Kembali Proposal KP" : "Pengajuan KP Baru";
+            const message = isReSubmission
+                ? `Ada proposal KP ke ${proposalCompany} yang diajukan kembali setelah perbaikan.`
+                : `Ada pengajuan KP baru untuk ${proposalCompany} yang memerlukan review.`;
+
+            await notificationService.createNotificationsForUsers(sekdepIds, { title, message });
+            await sendFcmToUsers(sekdepIds, {
+                title,
+                body: message,
+                data: {
+                    type: 'internship_new_proposal',
+                    proposalId: proposal.id
+                },
+                dataOnly: true
+            });
+        }
+    } catch (err) {
+        console.error("Failed to notify Sekdep in notifySekdepIfReady:", err);
+    }
 }

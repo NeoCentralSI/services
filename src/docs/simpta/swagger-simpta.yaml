@@ -1,0 +1,614 @@
+paths:
+  /advisorRequest/access-state:
+    get:
+      tags: [AdvisorRequest]
+      summary: Get canonical advisor access state
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Advisor access state resolved
+        '401':
+          description: Unauthorized
+
+  /advisorRequest/catalog:
+    get:
+      tags: [AdvisorRequest]
+      summary: Browse lecturer advisor catalog with quota traffic light
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lecturer catalog returned
+
+  /advisorRequest:
+    post:
+      tags: [AdvisorRequest]
+      summary: Submit advisor request
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lecturerId, topicId]
+              properties:
+                lecturerId:
+                  type: string
+                  format: uuid
+                topicId:
+                  type: string
+                  format: uuid
+                proposedTitle:
+                  type: string
+                backgroundSummary:
+                  type: string
+                justificationText:
+                  type: string
+      responses:
+        '200':
+          description: Advisor request submitted
+
+  /metopen/my-tasks:
+    get:
+      tags: [Metopen]
+      summary: Get current student Metopen tasks
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Metopen task list returned
+
+  /metopen/submit/{milestoneId}:
+    post:
+      tags: [Metopen]
+      summary: Submit Metopen task with optional linked guidances
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: milestoneId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                guidanceIds:
+                  type: string
+      responses:
+        '200':
+          description: Task submission accepted
+
+  /metopen/seminar-eligibility:
+    get:
+      tags: [Metopen]
+      summary: Check Seminar Hasil eligibility under canonical SIMPTA rules
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Eligibility evaluation returned
+
+  /metopen/title-report:
+    post:
+      tags: [Metopen]
+      summary: Submit final thesis title for KaDep review
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201':
+          description: Title report submitted
+
+  /metopen/title-reports/pending:
+    get:
+      tags: [Metopen]
+      summary: List pending title reports for KaDep review
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Pending title reports returned
+
+  /metopen/title-reports/{thesisId}/review:
+    post:
+      tags: [Metopen]
+      summary: Review title report as KaDep
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [accept, reject]
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Title report reviewed
+
+  /metopen/grading/supervisor-score:
+    post:
+      tags: [Metopen]
+      summary: Submit TA-03A supervisor score
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thesisId]
+              properties:
+                thesisId:
+                  type: string
+                  format: uuid
+                score:
+                  type: integer
+                criteriaScores:
+                  type: array
+                  items:
+                    type: object
+                    required: [criteriaId, score]
+                    properties:
+                      criteriaId:
+                        type: string
+                        format: uuid
+                      score:
+                        type: integer
+      responses:
+        '200':
+          description: TA-03A score stored
+
+  /metopen/grading/lecturer-score:
+    post:
+      tags: [Metopen]
+      summary: Submit TA-03B lecturer score
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thesisId]
+              properties:
+                thesisId:
+                  type: string
+                  format: uuid
+                score:
+                  type: integer
+                criteriaScores:
+                  type: array
+                  items:
+                    type: object
+                    required: [criteriaId, score]
+                    properties:
+                      criteriaId:
+                        type: string
+                        format: uuid
+                      score:
+                        type: integer
+      responses:
+        '200':
+          description: TA-03B score stored
+
+  /assessment/admin/criteria:
+    get:
+      tags: [MetopenAssessmentAdmin]
+      summary: List Metopen assessment criteria
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: role
+          schema:
+            type: string
+            enum: [default, supervisor]
+      responses:
+        '200':
+          description: Criteria list returned
+    post:
+      tags: [MetopenAssessmentAdmin]
+      summary: Create Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cpmkId, name, role, maxScore]
+              properties:
+                cpmkId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [default, supervisor]
+                maxScore:
+                  type: integer
+                displayOrder:
+                  type: integer
+                isActive:
+                  type: boolean
+      responses:
+        '201':
+          description: Criterion created
+
+  /assessment/admin/criteria/{id}:
+    get:
+      tags: [MetopenAssessmentAdmin]
+      summary: Get Metopen assessment criterion detail
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Criterion returned
+    patch:
+      tags: [MetopenAssessmentAdmin]
+      summary: Update Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Criterion updated
+    delete:
+      tags: [MetopenAssessmentAdmin]
+      summary: Soft-delete Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Criterion soft-deleted
+
+  /assessment/admin/criteria/{criteriaId}/rubrics:
+    get:
+      tags: [MetopenAssessmentAdmin]
+      summary: List rubrics for a Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: criteriaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rubrics returned
+
+  /assessment/admin/rubrics:
+    post:
+      tags: [MetopenAssessmentAdmin]
+      summary: Create Metopen assessment rubric
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assessmentCriteriaId, minScore, maxScore, description]
+              properties:
+                assessmentCriteriaId:
+                  type: string
+                  format: uuid
+                minScore:
+                  type: integer
+                maxScore:
+                  type: integer
+                description:
+                  type: string
+                displayOrder:
+                  type: integer
+      responses:
+        '201':
+          description: Rubric created
+
+  /assessment/admin/rubrics/{id}:
+    patch:
+      tags: [MetopenAssessmentAdmin]
+      summary: Update Metopen assessment rubric
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rubric updated
+    delete:
+      tags: [MetopenAssessmentAdmin]
+      summary: Soft-delete Metopen assessment rubric
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rubric soft-deleted
+
+  /supervision-quota/default/{academicYearId}:
+    get:
+      tags: [SupervisionQuota]
+      summary: Get default supervision quota configuration
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Default quota returned
+    put:
+      tags: [SupervisionQuota]
+      summary: Set default supervision quota configuration
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Default quota saved and propagated
+
+  /supervision-quota/lecturers/{academicYearId}:
+    get:
+      tags: [SupervisionQuota]
+      summary: List lecturer quotas for an academic year
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lecturer quota list returned
+
+  /supervision-quota/lecturers/{lecturerId}/{academicYearId}:
+    patch:
+      tags: [SupervisionQuota]
+      summary: Update lecturer-specific quota override
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: lecturerId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lecturer quota updated
+
+  /thesisChangeRequest:
+    post:
+      tags: [ThesisChangeRequest]
+      summary: Submit thesis change request (TA-05: topic, supervisor, or both)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requestType, reason]
+              properties:
+                requestType:
+                  type: string
+                  enum: [topic, supervisor, both]
+                reason:
+                  type: string
+                  minLength: 20
+                newTitle:
+                  type: string
+                  description: Required for topic and both
+                newTopicId:
+                  type: string
+                  format: uuid
+                  description: Required for topic and both
+                newSupervisorId:
+                  type: string
+                  format: uuid
+                  description: Required for supervisor and both
+      responses:
+        '201':
+          description: Thesis change request submitted
+
+  /thesisChangeRequest/my:
+    get:
+      tags: [ThesisChangeRequest]
+      summary: Get current student's thesis change requests
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Thesis change request history returned
+
+  /thesisChangeRequest/pending:
+    get:
+      tags: [ThesisChangeRequest]
+      summary: List pending thesis change requests for KaDep
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Pending requests returned
+
+  # ─── Thesis Supervisors (FR-CHG-02 Co-advisor, FR-EVL-01 TA-17) ───
+  /thesis-supervisors/co-advisor:
+    post:
+      tags: [ThesisSupervisors]
+      summary: KaDep/Admin assigns Pembimbing 2 (co-advisor)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thesisId, lecturerId]
+              properties:
+                thesisId:
+                  type: string
+                  format: uuid
+                lecturerId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Co-advisor assigned
+        '400':
+          description: Already has Pembimbing 2 or invalid lecturer
+
+  /thesis-supervisors/evaluations:
+    post:
+      tags: [ThesisSupervisors]
+      summary: Dosen submit evaluasi bimbingan (TA-17)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thesisId, evaluationType, recommendation]
+              properties:
+                thesisId:
+                  type: string
+                  format: uuid
+                evaluationType:
+                  type: string
+                  enum: [6_month, 1_year]
+                recommendation:
+                  type: string
+                  enum: [extend_1_month, revise_proposal, terminate_supervision]
+                notes:
+                  type: string
+      responses:
+        '201':
+          description: Evaluasi submitted
+        '400':
+          description: Invalid type/recommendation combination
+
+  /thesis-supervisors/evaluations/pending:
+    get:
+      tags: [ThesisSupervisors]
+      summary: KaDep list evaluasi tertunda
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Pending evaluations returned
+
+  /thesis-supervisors/evaluations/{id}/review:
+    post:
+      tags: [ThesisSupervisors]
+      summary: KaDep approve/reject evaluasi TA-17
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+                kadepNotes:
+                  type: string
+      responses:
+        '200':
+          description: Review completed
+
+  /thesis-supervisors/evaluations/thesis/{thesisId}:
+    get:
+      tags: [ThesisSupervisors]
+      summary: Dosen list evaluasi untuk thesis
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Evaluation history returned

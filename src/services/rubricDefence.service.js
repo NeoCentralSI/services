@@ -64,9 +64,6 @@ export const getCpmksWithRubrics = async (role) => {
 export const createCriteria = async (data) => {
     const cpmk = await repository.findCpmkById(data.cpmkId);
     if (!cpmk) throw new NotFoundError("CPMK tidak ditemukan");
-    if (!cpmk.isActive) {
-        throw new ValidationError("CPMK tidak aktif");
-    }
     if (cpmk.type !== "thesis") {
         throw new ValidationError("Hanya CPMK bertipe thesis yang dapat digunakan");
     }
@@ -127,14 +124,12 @@ export const updateCriteria = async (criteriaId, data) => {
         }
 
         // Validate 100-point cap (exclude current criteria from total)
-        if (existing.isActive) {
-            const currentTotal = await repository.getActiveCriteriaTotalScore(criteriaId);
-            const remaining = 100 - currentTotal;
-            if (data.maxScore > remaining) {
-                throw new ValidationError(
-                    `Skor melebihi batas. Sisa skor yang tersedia: ${remaining} dari 100`
-                );
-            }
+        const currentTotal = await repository.getActiveCriteriaTotalScore(criteriaId);
+        const remaining = 100 - currentTotal;
+        if (data.maxScore > remaining) {
+            throw new ValidationError(
+                `Skor melebihi batas. Sisa skor yang tersedia: ${remaining} dari 100`
+            );
         }
 
         updateData.maxScore = data.maxScore;
@@ -255,28 +250,6 @@ export const deleteRubric = async (id) => {
     ensureDefenceCriteria(existing.assessmentCriteria);
 
     await repository.removeRubric(id);
-};
-
-// ────────────────────────────────────────────
-// Toggle Criteria Active
-// ────────────────────────────────────────────
-
-export const toggleCriteriaActive = async (criteriaId, data) => {
-    const existing = await repository.findCriteriaById(criteriaId);
-    ensureDefenceCriteria(existing);
-
-    // If activating, validate 100-point cap (shared across both roles)
-    if (data.isActive && !existing.isActive) {
-        const currentTotal = await repository.getActiveCriteriaTotalScore();
-        const remaining = 100 - currentTotal;
-        if ((existing.maxScore || 0) > remaining) {
-            throw new ValidationError(
-                `Tidak dapat mengaktifkan kriteria. Skor (${existing.maxScore}) melebihi sisa yang tersedia (${remaining} dari 100)`
-            );
-        }
-    }
-
-    return await repository.toggleCriteriaActive(criteriaId, data.isActive);
 };
 
 // ────────────────────────────────────────────

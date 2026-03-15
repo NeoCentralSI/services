@@ -40,7 +40,6 @@ export async function getStudentThesisWithSeminarInfo(studentId) {
           endTime: true,
           meetingLink: true,
           finalScore: true,
-          grade: true,
           resultFinalizedAt: true,
           cancelledReason: true,
           room: { select: { id: true, name: true } },
@@ -93,7 +92,7 @@ export async function countSeminarAttendance(studentId) {
   return prisma.thesisSeminarAudience.count({
     where: {
       studentId,
-      isPresent: true,
+      approvedAt: { not: null },
     },
   });
 }
@@ -106,7 +105,6 @@ export async function getSeminarAttendanceHistory(studentId) {
     where: { studentId },
     select: {
       thesisSeminarId: true,
-      isPresent: true,
       approvedAt: true,
       registeredAt: true,
       supervisor: {
@@ -191,7 +189,7 @@ export async function getAllAnnouncedSeminars(studentId) {
       },
       audiences: {
         where: { studentId },
-        select: { studentId: true, isPresent: true, registeredAt: true },
+        select: { studentId: true, approvedAt: true, registeredAt: true },
       },
     },
     orderBy: { date: "desc" },
@@ -216,7 +214,6 @@ export async function createAudienceRegistration(seminarId, studentId) {
       thesisSeminarId: seminarId,
       studentId,
       registeredAt: new Date(),
-      isPresent: false,
     },
   });
 }
@@ -285,7 +282,7 @@ export async function getStudentSeminarRevisions(seminarId) {
       },
     },
     orderBy: [
-      { isFinished: "asc" },
+      { supervisorApprovedAt: "asc" },
       { studentSubmittedAt: "desc" },
       { id: "asc" },
     ],
@@ -365,7 +362,6 @@ export async function getAllStudentSeminars(studentId) {
       startTime: true,
       endTime: true,
       finalScore: true,
-      grade: true,
       resultFinalizedAt: true,
       cancelledReason: true,
       meetingLink: true,
@@ -401,7 +397,6 @@ export async function findStudentSeminarDetail(seminarId) {
       endTime: true,
       meetingLink: true,
       finalScore: true,
-      grade: true,
       resultFinalizedAt: true,
       cancelledReason: true,
       room: { select: { id: true, name: true } },
@@ -449,7 +444,6 @@ export async function findStudentSeminarDetail(seminarId) {
         select: {
           studentId: true,
           registeredAt: true,
-          isPresent: true,
           approvedAt: true,
           student: {
             select: {
@@ -481,7 +475,6 @@ export async function getSeminarAudiences(seminarId) {
     select: {
       studentId: true,
       registeredAt: true,
-      isPresent: true,
       approvedAt: true,
       approvedBy: true,
       student: {

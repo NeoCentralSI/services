@@ -16,8 +16,10 @@ export async function getProposals(req, res, next) {
             err.statusCode = 401;
             throw err;
         }
+        const { academicYear } = req.query;
+        const academicYearId = academicYear;
 
-        const data = await registrationService.getStudentProposals(studentId);
+        const data = await registrationService.getStudentProposals(studentId, academicYearId);
 
         res.status(200).json({
             success: true,
@@ -73,7 +75,9 @@ export async function listEligibleStudents(req, res, next) {
 export async function submitProposal(req, res, next) {
     try {
         const studentId = req.user.sub;
-        const { targetCompanyId, companyName, companyAddress, proposalDocumentId, memberIds } = req.body;
+        const { targetCompanyId, newCompany, proposalDocumentId, memberIds } = req.body;
+        const companyName = newCompany?.companyName;
+        const companyAddress = newCompany?.address;
 
         if (!proposalDocumentId) {
             const err = new Error("Dokumen proposal harus diunggah.");
@@ -94,6 +98,61 @@ export async function submitProposal(req, res, next) {
             success: true,
             message: "Pendaftaran KP berhasil dikirim!",
             data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to update/resubmit an internship proposal.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function updateProposal(req, res, next) {
+    try {
+        const studentId = req.user.sub;
+        const { id: proposalId } = req.params;
+        const { targetCompanyId, newCompany, proposalDocumentId, memberIds = [] } = req.body;
+        const companyName = newCompany?.companyName;
+        const companyAddress = newCompany?.address;
+
+        const data = await registrationService.updateProposal(proposalId, {
+            coordinatorId: studentId,
+            targetCompanyId,
+            companyName,
+            companyAddress,
+            proposalDocumentId,
+            memberIds
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Proposal berhasil diperbarui dan diajukan kembali.",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to delete an internship proposal.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function deleteProposal(req, res, next) {
+    try {
+        const studentId = req.user.sub;
+        const { id: proposalId } = req.params;
+
+        await registrationService.deleteProposal(proposalId, studentId);
+
+        res.status(200).json({
+            success: true,
+            message: "Proposal berhasil dihapus."
         });
     } catch (error) {
         next(error);

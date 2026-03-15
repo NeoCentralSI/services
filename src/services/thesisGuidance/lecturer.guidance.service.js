@@ -78,12 +78,9 @@ function toFlatGuidance(g) {
 		notes: g.studentNotes || null,
 		studentNotes: g.studentNotes || null, // Alias for clarity
 		supervisorFeedback: g.supervisorFeedback || null,
-		// Prefer guidance-level document; fallback to thesis-level document
 		document: g.document
 			? { id: g.document.id, fileName: g.document.fileName, filePath: g.document.filePath }
-			: g?.thesis?.document
-				? { id: g.thesis.document.id, fileName: g.thesis.document.fileName, filePath: g.thesis.document.filePath }
-				: null,
+			: null,
 		createdAt: g.createdAt || null,
 		createdAtFormatted: g.createdAt ? formatDateTimeJakarta(g.createdAt, { withDay: true }) : null,
 		updatedAt: g.updatedAt || null,
@@ -237,6 +234,7 @@ export async function getStudentDetailService(userId, thesisId) {
 		})(),
 		startDateFormatted: thesis.startDate ? formatDateTimeJakarta(thesis.startDate) : null,
 		deadlineDateFormatted: thesis.deadlineDate ? formatDateTimeJakarta(thesis.deadlineDate) : null,
+		userRole: thesis.thesisSupervisors?.find(p => p.lecturer?.user?.id === userId)?.role?.name || null,
 	};
 }
 
@@ -817,20 +815,13 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 		milestoneIds: (guidance.milestones || []).map((m) => m.milestoneId),
 		milestoneTitles,
 		milestoneName: milestoneTitles.length > 0 ? milestoneTitles[0] : null,
-		// Document - prefer guidance-level; fallback to thesis-level
 		document: guidance.document
 			? {
 				id: guidance.document.id,
 				fileName: guidance.document.fileName,
 				filePath: guidance.document.filePath,
 			}
-			: guidance.thesis?.document
-				? {
-					id: guidance.thesis.document.id,
-					fileName: guidance.thesis.document.fileName,
-					filePath: guidance.thesis.document.filePath,
-				}
-				: null,
+			: null,
 		// Timestamps
 		createdAt: guidance.createdAt || null,
 		createdAtFormatted: guidance.createdAt

@@ -1,4 +1,4 @@
-import * as service from "../services/yudisiumRequirement.service.js";
+import * as service from "../../services/yudisium/yudisiumRequirement.service.js";
 
 export const getAll = async (req, res, next) => {
     try {

@@ -1,4 +1,4 @@
-import * as repository from "../repositories/yudisiumRequirement.repository.js";
+import * as repository from "../../repositories/yudisium/yudisiumRequirement.repository.js";
 
 class NotFoundError extends Error {
     constructor(message) {

@@ -1,7 +1,7 @@
 import app from "./app.js";
 import { ENV } from "./config/env.js";
 import { initConnections } from "./config/db.js";
-import { scheduleDailyThesisStatus, scheduleSiaSync, scheduleGuidanceReminder, scheduleDailyThesisReminder, scheduleAcademicYearSync } from "./queues/maintenance.queue.js";
+import { scheduleDailyThesisStatus, scheduleSiaSync, scheduleGuidanceReminder, scheduleDailyThesisReminder, scheduleAcademicYearSync, scheduleYudisiumFinalize, scheduleDailyInternshipStatus } from "./queues/maintenance.queue.js";
 // removed password queue worker; using user-initiated account activation instead
 
 const PORT = ENV.PORT || 3000;
@@ -19,6 +19,10 @@ async function startServer() {
     await scheduleGuidanceReminder();
     // Schedule daily thesis reminder for active thesis students (09:00 WIB)
     await scheduleDailyThesisReminder();
+    // Schedule yudisium auto-finalize (00:15 WIB daily)
+    await scheduleYudisiumFinalize();
+    // Schedule internship status enforcement (00:00 WIB daily)
+    await scheduleDailyInternshipStatus();
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running at http://localhost:${PORT}`);
     });

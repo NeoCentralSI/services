@@ -11,55 +11,85 @@ import path from "path";
 
 /**
  * Get all pending letters for Kadep.
+ * After consolidation, letters are flat fields on InternshipProposal.
  * @returns {Promise<Object>}
  */
-export async function getPendingLetters() {
+export async function getPendingLetters(academicYearId) {
     const [appLetters, assignLetters] = await Promise.all([
-        kadepRepository.findPendingApplicationLetters(),
-        kadepRepository.findPendingAssignmentLetters()
+        kadepRepository.findPendingApplicationLetters(academicYearId),
+        kadepRepository.findPendingAssignmentLetters(academicYearId)
     ]);
 
-    const formatLetter = (l, type) => ({
-        id: l.id,
-        type, // 'APPLICATION' or 'ASSIGNMENT'
-        documentNumber: l.documentNumber,
-        coordinatorName: l.proposal.coordinator?.user?.fullName,
-        coordinatorNim: l.proposal.coordinator?.user?.identityNumber,
-        coordinatorStudentId: l.proposal.coordinatorId,
-        coordinatorStatus: l.proposal.members.find(m => m.studentId === l.proposal.coordinatorId)?.status || 'ACCEPTED',
-        companyName: l.proposal.targetCompany?.companyName || "—",
-        members: l.proposal.members
-            .filter(m => m.studentId !== l.proposal.coordinatorId) // Exclude coordinator from members list to avoid double counting
-            .map(m => ({
-                studentId: m.studentId,
-                name: m.student?.user?.fullName,
-                nim: m.student?.user?.identityNumber,
-                status: m.status
+    const formatAppLetter = (p) => ({
+        id: p.id,
+        type: 'APPLICATION',
+        documentNumber: p.appLetterDocNumber,
+        coordinatorName: p.coordinator?.user?.fullName,
+        coordinatorNim: p.coordinator?.user?.identityNumber,
+        coordinatorStudentId: p.coordinatorId,
+        companyName: p.targetCompany?.companyName || "—",
+        coordinatorStatus: p.internships.find(i => i.studentId === p.coordinatorId)?.status || 'PENDING',
+        members: p.internships
+            .filter(i => i.studentId !== p.coordinatorId)
+            .map(i => ({
+                studentId: i.studentId,
+                name: i.student?.user?.fullName,
+                nim: i.student?.user?.identityNumber,
+                status: i.status
             })),
-        createdAt: l.createdAt,
-        signedById: l.signedById,
-        document: l.document ? {
-            id: l.document.id,
-            fileName: l.document.fileName,
-            filePath: l.document.filePath
+        acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
+        createdAt: p.createdAt,
+        signedById: p.appLetterSignedById,
+        document: p.appLetterDoc ? {
+            id: p.appLetterDoc.id,
+            fileName: p.appLetterDoc.fileName,
+            filePath: p.appLetterDoc.filePath
+        } : null
+    });
+
+    const formatAssignLetter = (p) => ({
+        id: p.id,
+        type: 'ASSIGNMENT',
+        documentNumber: p.assignLetterDocNumber,
+        coordinatorName: p.coordinator?.user?.fullName,
+        coordinatorNim: p.coordinator?.user?.identityNumber,
+        coordinatorStudentId: p.coordinatorId,
+        companyName: p.targetCompany?.companyName || "—",
+        coordinatorStatus: p.internships.find(i => i.studentId === p.coordinatorId)?.status || 'PENDING',
+        members: p.internships
+            .filter(i => i.studentId !== p.coordinatorId)
+            .map(i => ({
+                studentId: i.studentId,
+                name: i.student?.user?.fullName,
+                nim: i.student?.user?.identityNumber,
+                status: i.status
+            })),
+        acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
+        createdAt: p.createdAt,
+        signedById: p.assignLetterSignedById,
+        document: p.assignLetterDoc ? {
+            id: p.assignLetterDoc.id,
+            fileName: p.assignLetterDoc.fileName,
+            filePath: p.assignLetterDoc.filePath
         } : null
     });
 
     return {
-        applicationLetters: appLetters.map(l => formatLetter(l, 'APPLICATION')),
-        assignmentLetters: assignLetters.map(l => formatLetter(l, 'ASSIGNMENT'))
+        applicationLetters: appLetters.map(formatAppLetter),
+        assignmentLetters: assignLetters.map(formatAssignLetter)
     };
 }
 
 /**
  * Approve (Sign) an internship letter.
+ * After consolidation, letters are fields on InternshipProposal.
  * @param {string} userId - ID of the Kadep
  * @param {string} type - 'APPLICATION' or 'ASSIGNMENT'
- * @param {string} letterId 
+ * @param {string} proposalId - ID of the proposal
  * @param {Object|Array<Object>} signaturePositions - { x, y, pageNumber } or array of them
  * @returns {Promise<Object>}
  */
-export async function approveLetter(userId, type, letterId, signaturePositions = null) {
+export async function approveLetter(userId, type, proposalId, signaturePositions = null) {
     // 1. Get Kadep's Role ID
     const kadepRole = await prisma.userRole.findFirst({
         where: { name: ROLES.KETUA_DEPARTEMEN }
@@ -67,88 +97,82 @@ export async function approveLetter(userId, type, letterId, signaturePositions =
 
     if (!kadepRole) throw new Error("Role Ketua Departemen tidak ditemukan.");
 
-    // 2. Fetch letter with document info
-    let letter;
-    if (type === 'APPLICATION') {
-        letter = await prisma.internshipApplicationLetter.findUnique({
-            where: { id: letterId },
-            include: { document: true, proposal: { include: { coordinator: { include: { user: true } } } } }
-        });
-    } else {
-        letter = await prisma.internshipAssignmentLetter.findUnique({
-            where: { id: letterId },
-            include: { document: true, proposal: { include: { coordinator: { include: { user: true } } } } }
-        });
-    }
+    // 2. Fetch proposal with document info
+    const proposal = await prisma.internshipProposal.findUnique({
+        where: { id: proposalId },
+        include: {
+            appLetterDoc: true,
+            assignLetterDoc: true,
+            coordinator: { include: { user: true } },
+            targetCompany: true
+        }
+    });
 
-    if (!letter) throw new Error("Surat tidak ditemukan.");
+    if (!proposal) throw new Error("Proposal tidak ditemukan.");
 
-    // Check if already signed
-    if (letter.signedById) {
-        throw new Error("Surat ini sudah ditandatangani.");
-    }
+    // Determine which letter fields to check
+    const isApp = type === 'APPLICATION';
+    const signedById = isApp ? proposal.appLetterSignedById : proposal.assignLetterSignedById;
+    const letterDoc = isApp ? proposal.appLetterDoc : proposal.assignLetterDoc;
+    const docNumber = isApp ? proposal.appLetterDocNumber : proposal.assignLetterDocNumber;
+
+    if (!docNumber) throw new Error("Surat belum dibuat.");
+    if (signedById) throw new Error("Surat ini sudah ditandatangani.");
 
     // 3. Sign & Stamp PDF if position is provided
-    if (signaturePositions && letter.document?.filePath) {
+    if (signaturePositions && letterDoc?.filePath) {
         try {
-            const absolutePath = path.resolve(letter.document.filePath);
+            const absolutePath = path.resolve(letterDoc.filePath);
             const pdfBuffer = await fs.readFile(absolutePath);
 
-            // Construct verification URL
-            const verifyUrl = `${ENV.FRONTEND_URL}/verify/internship-letter/${letter.id}`;
-
+            const verifyUrl = `${ENV.FRONTEND_URL}/verify/internship-letter/${proposalId}`;
             const signedPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, signaturePositions);
 
-            // Save the signed version
             await fs.writeFile(absolutePath, signedPdfBuffer);
         } catch (error) {
             console.error("[kadep-service] PDF Stamping failed:", error);
-            // Non-critical error at this point, but we should probably inform the user or log it heavily
-            // For now, continue with DB update even if stamping fails (legacy fallback)
         }
     }
 
     // 4. Sign in DB
-    let signedLetter;
-    if (type === 'APPLICATION') {
-        signedLetter = await kadepRepository.signApplicationLetter(letterId, userId, kadepRole.id);
+    let signedProposal;
+    if (isApp) {
+        signedProposal = await kadepRepository.signApplicationLetter(proposalId, userId, kadepRole.id);
     } else if (type === 'ASSIGNMENT') {
-        signedLetter = await kadepRepository.signAssignmentLetter(letterId, userId, kadepRole.id);
+        signedProposal = await kadepRepository.signAssignmentLetter(proposalId, userId, kadepRole.id);
 
         // Auto-generate Logbooks for all members
         try {
-            const workingDays = getWorkingDays(letter.startDateActual, letter.endDateActual);
+            const workingDays = getWorkingDays(proposal.startDateActual, proposal.endDateActual);
             await kadepRepository.initializeInternshipsAndLogbooks(
-                letter.proposalId,
-                letter.id,
+                proposalId,
                 workingDays
             );
         } catch (genError) {
             console.error("[kadep-service] Auto logbook generation failed:", genError);
-            // We don't throw here to avoid potentially causing the signature to "fail" 
-            // from the user's perspective, but it's recorded in logs.
         }
     } else {
         throw new Error("Tipe surat tidak valid.");
     }
 
     // 5. Notify Student (Coordinator) and Admin
-    await notifyAfterSignature(signedLetter, type);
+    await notifyAfterSignature(signedProposal, type);
 
-    return signedLetter;
+    return signedProposal;
 }
 
 /**
  * Notify relevant parties after a letter is signed.
- * @param {Object} letter 
+ * @param {Object} proposal 
  * @param {string} type 
  */
-async function notifyAfterSignature(letter, type) {
+async function notifyAfterSignature(proposal, type) {
     try {
-        const coordinatorId = letter.proposal.coordinator.user.id;
+        const coordinatorId = proposal.coordinator.user.id;
         const letterTypeLabel = type === 'APPLICATION' ? 'Surat Permohonan' : 'Surat Tugas';
+        const docNumber = type === 'APPLICATION' ? proposal.appLetterDocNumber : proposal.assignLetterDocNumber;
         const title = `${letterTypeLabel} Disetujui`;
-        const message = `Kadep telah menandatangani ${letterTypeLabel} (${letter.documentNumber}) untuk KP ke ${letter.proposal.targetCompany?.companyName || "perusahaan"}.`;
+        const message = `Kadep telah menandatangani ${letterTypeLabel} (${docNumber}) untuk KP ke ${proposal.targetCompany?.companyName || "perusahaan"}.`;
 
         // Notify Coordinator
         await createNotificationsForUsers([coordinatorId], { title, message });
@@ -157,7 +181,7 @@ async function notifyAfterSignature(letter, type) {
             body: message,
             data: {
                 type: 'internship_letter_signed',
-                letterId: letter.id,
+                proposalId: proposal.id,
                 letterType: type
             }
         });
@@ -179,7 +203,7 @@ async function notifyAfterSignature(letter, type) {
         if (adminIds.length > 0) {
             await createNotificationsForUsers(adminIds, {
                 title: `${letterTypeLabel} Telah Ditandatangani`,
-                message: `Kadep telah menyetujui ${letterTypeLabel} (${letter.documentNumber}). Silakan diproses lebih lanjut.`
+                message: `Kadep telah menyetujui ${letterTypeLabel} (${docNumber}). Silakan diproses lebih lanjut.`
             });
         }
 

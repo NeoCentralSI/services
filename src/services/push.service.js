@@ -7,6 +7,8 @@ const REVERSE_KEY_PREFIX = "fcm:token-owner:"; // reverse index: token → userI
 export async function registerFcmToken(userId, token, platform = "unknown") {
   if (!userId || !token) return { registered: 0 };
   if (!redisClient.isOpen) await redisClient.connect();
+  const res = await redisClient.sAdd(KEY_PREFIX + userId, token);
+  return { registered: res };
 
   // ── Dedup: ensure a device token belongs to only ONE user ──
   const previousOwner = await redisClient.get(REVERSE_KEY_PREFIX + token);
@@ -92,6 +94,7 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
     console.warn(`[FCM] No tokens for users: ${userIds.join(",")}`);
     return { success: true, sent: 0 };
   }
+
   console.log(`[FCM] Preparing to send to ${tokens.length} token(s), users=${userIds.join(",")}, targetPlatform=${targetPlatform}, dataOnly=${Boolean(dataOnly)}`);
   // For web, to ensure foreground onMessage fires, it's safer to send data-only payloads.
   const payloadData = Object.fromEntries(
@@ -123,7 +126,7 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
   if (invalidTokens.length) {
     if (!redisClient.isOpen) await redisClient.connect();
     for (const uid of userIds) {
-      if (invalidTokens.length) await redisClient.sRem(KEY_PREFIX + uid, invalidTokens);
+      await redisClient.sRem(KEY_PREFIX + uid, invalidTokens);
     }
   }
   return { success: true, sent: resp.successCount, failed: resp.failureCount };

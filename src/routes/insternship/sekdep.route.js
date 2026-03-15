@@ -1,5 +1,7 @@
 import express from "express";
 import * as sekdepController from "../../controllers/insternship/sekdep.controller.js";
+import * as guidanceController from "../../controllers/insternship/guidance.controller.js";
+import * as cpmkController from "../../controllers/insternship/cpmk.controller.js";
 import { authGuard, requireRole } from "../../middlewares/auth.middleware.js";
 import { ROLES } from "../../constants/roles.js";
 
@@ -10,9 +12,12 @@ router.use(authGuard, requireRole(ROLES.SEKRETARIS_DEPARTEMEN));
 
 /**
  * @route GET /insternship/sekdep/proposals
- * @desc Get all internship proposals ready for Sekdep review
+ * @desc Get all internship proposals for Sekdep review and assignment
  */
-router.get("/proposals", sekdepController.getProposals);
+router.get("/proposals", sekdepController.getAllProposals);
+router.get("/proposals/pending", sekdepController.getPendingProposals);
+router.get("/proposals/responses", sekdepController.getPendingResponses);
+
 
 /**
  * @route GET /insternship/sekdep/proposals/:id
@@ -50,16 +55,64 @@ router.delete("/companies/:id", sekdepController.deleteCompany);
  */
 router.post("/proposals/:id/respond", sekdepController.respondToProposal);
 
-/**
- * @route GET /insternship/sekdep/company-responses
- * @desc Get all internship proposals with uploaded company responses
- */
-router.get("/company-responses", sekdepController.getCompanyResponses);
+
 
 /**
  * @route POST /insternship/sekdep/company-responses/:id/verify
  * @desc Verify a company response
  */
 router.post("/company-responses/:id/verify", sekdepController.verifyCompanyResponse);
+
+/**
+ * @route GET /insternship/sekdep/internships
+ * @desc Get all internships (Ongoing/Completed) for Sekdep
+ */
+router.get("/internships", sekdepController.getInternshipList);
+
+/**
+ * @route GET /insternship/sekdep/internships/:id
+ * @desc Get full detail of an internship
+ */
+router.get("/internships/:id", sekdepController.getInternshipDetail);
+router.put("/internships/:id/verify-document", sekdepController.verifyDocument);
+router.put("/internships/:id/verify-documents-bulk", sekdepController.bulkVerifyDocuments);
+
+/**
+ * @route PATCH /insternship/sekdep/internships/bulk-assign
+ * @desc Assign supervisor to multiple internships in bulk
+ */
+router.patch("/internships/bulk-assign", sekdepController.bulkAssignSupervisor);
+
+/**
+ * @route GET /insternship/sekdep/lecturers/workload
+ * @desc Get all lecturers with their active internship workload
+ */
+router.get("/lecturers/workload", sekdepController.getLecturersWorkload);
+router.get("/lecturers/workload/export", sekdepController.exportLecturersWorkloadPdf);
+
+// ==================== Guidance Master Data ====================
+router.get("/guidance/questions", guidanceController.getQuestions);
+router.post("/guidance/questions", guidanceController.createQuestion);
+router.put("/guidance/questions/:id", guidanceController.updateQuestion);
+router.delete("/guidance/questions/:id", guidanceController.deleteQuestion);
+
+router.get("/guidance/criteria", guidanceController.getCriteria);
+router.post("/guidance/criteria", guidanceController.createCriteria);
+router.put("/guidance/criteria/:id", guidanceController.updateCriteria);
+router.delete("/guidance/criteria/:id", guidanceController.deleteCriteria);
+router.post("/guidance/copy", guidanceController.duplicateGuidance);
+
+// ==================== CPMK Master Data ====================
+router.get("/cpmk", cpmkController.getAllCpmks);
+router.get("/cpmk/:id", cpmkController.getCpmkById);
+router.post("/cpmk", cpmkController.createCpmk);
+router.post("/cpmk/copy", cpmkController.duplicateCpmks);
+router.put("/cpmk/:id", cpmkController.updateCpmk);
+router.delete("/cpmk/:id", cpmkController.deleteCpmk);
+
+router.post("/rubrics", cpmkController.createRubric);
+router.post("/cpmk/:cpmkId/rubrics/bulk", cpmkController.bulkUpdateRubrics);
+router.put("/rubrics/:id", cpmkController.updateRubric);
+router.delete("/rubrics/:id", cpmkController.deleteRubric);
 
 export default router;

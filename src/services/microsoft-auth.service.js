@@ -4,7 +4,6 @@ import axios from "axios";
 import { ENV } from "../config/env.js";
 import prisma from "../config/prisma.js";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 const MICROSOFT_TOKEN_URL = `https://login.microsoftonline.com/${ENV.TENANT_ID}/oauth2/v2.0/token`;
@@ -206,14 +205,20 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
     throw err;
   }
 
-  // ✅ USER SUDAH ADA - UPDATE dengan OAuth info + auto-verify (identity confirmed by Microsoft)
+  // ✅ CHECK: Apakah akun sudah aktif?
+  if (!user.isVerified) {
+    const err = new Error("Akun belum diaktivasi. Silakan aktivasi akun terlebih dahulu.");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  // ✅ USER SUDAH ADA & AKTIF - UPDATE dengan OAuth info (tidak buat row baru)
   user = await prisma.user.update({
     where: { id: user.id },
     data: {
       oauthProvider: "microsoft",
       oauthId,
-      oauthRefreshToken: refreshToken,
-      isVerified: true, // Auto-verify: Microsoft has already confirmed identity
+      oauthRefreshToken: refreshToken || user.oauthRefreshToken,
       // Password TETAP ADA (tidak dihapus) untuk fallback/development
       // fullName dan identityNumber tidak diupdate (preserve existing data)
     },
@@ -241,11 +246,10 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
     { expiresIn: ENV.REFRESH_TOKEN_EXPIRES_IN }
   );
 
-  // Update refresh token in database (store as bcrypt hash, consistent with password login)
-  const refreshHash = await bcrypt.hash(jwtRefreshToken, 10);
+  // Update refresh token in database
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshToken: refreshHash },
+    data: { refreshToken: jwtRefreshToken },
   });
 
   // Format user response

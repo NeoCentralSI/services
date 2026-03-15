@@ -201,6 +201,7 @@ model AcademicYear {
   metopenClassStudents    MetopenClassStudent[]
   advisorRequests         ThesisAdvisorRequest[]
   yudisiums               Yudisium[]
+  cpmks                   Cpmk[]
 
   @@map("academic_years")
 }
@@ -228,7 +229,6 @@ model Cpl {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  cpmks                      Cpmk[]
   studentCplScores           StudentCplScore[]
   yudisiumCplRecommendations YudisiumCplRecommendation[]
 
@@ -236,20 +236,19 @@ model Cpl {
 }
 
 model Cpmk {
-  id           String   @id @default(uuid()) @db.VarChar(255)
-  cplId        String?  @map("cpl_id") @db.VarChar(255)
-  code         String   @db.VarChar(255)
-  description  String   @db.VarChar(255)
-  type         CpmkType
-  isActive     Boolean  @default(true) @map("is_active")
-  displayOrder Int      @default(0) @map("display_order")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid()) @db.VarChar(255)
+  academicYearId String?  @map("academic_year_id") @db.VarChar(255)
+  code           String   @db.VarChar(255)
+  description    String   @db.VarChar(255)
+  type           CpmkType
+  displayOrder   Int      @default(0) @map("display_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  cpl                 Cpl?                 @relation(fields: [cplId], references: [id])
+  academicYear        AcademicYear?        @relation(fields: [academicYearId], references: [id])
   assessmentCriterias AssessmentCriteria[]
 
-  @@index([cplId])
+  @@index([academicYearId], map: "cpmks_academic_year_id_fkey")
   @@map("cpmks")
 }
 

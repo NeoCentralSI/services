@@ -643,6 +643,823 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 	};
 }
 
+// ==================== Room (Admin) ====================
+
+export async function getRooms({ page = 1, pageSize = 10, search = "" } = {}) {
+	const skip = (page - 1) * pageSize;
+	const take = pageSize;
+
+	const where = search
+		? {
+			OR: [
+				{ name: { contains: search } },
+				{ location: { contains: search } },
+			],
+		}
+		: {};
+
+	const [rooms, total] = await Promise.all([
+		prisma.room.findMany({
+			where,
+			skip,
+			take,
+			orderBy: [{ name: "asc" }, { createdAt: "desc" }],
+			include: {
+				_count: {
+					select: {
+						internshipSeminars: true,
+						thesisSeminars: true,
+						thesisDefences: true,
+						yudisiums: true,
+					},
+				},
+			},
+		}),
+		prisma.room.count({ where }),
+	]);
+
+	const mappedRooms = rooms.map((room) => {
+		const relationCount =
+			room._count.internshipSeminars +
+			room._count.thesisSeminars +
+			room._count.thesisDefences +
+			room._count.yudisiums;
+
+		return {
+			id: room.id,
+			name: room.name,
+			location: room.location,
+			capacity: room.capacity,
+			createdAt: room.createdAt,
+			updatedAt: room.updatedAt,
+			canDelete: relationCount === 0,
+		};
+	});
+
+	return {
+		rooms: mappedRooms,
+		meta: {
+			page,
+			pageSize,
+			total,
+			totalPages: Math.ceil(total / pageSize),
+		},
+	};
+}
+
+export async function createRoom({ name, location, capacity }) {
+	if (!name || !String(name).trim()) {
+		const err = new Error("Nama ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const normalizedName = String(name).trim();
+	const normalizedLocation = typeof location === "string" && location.trim() ? location.trim() : null;
+	const normalizedCapacity = Number.isInteger(capacity) ? capacity : null;
+
+	if (normalizedCapacity !== null && normalizedCapacity <= 0) {
+		const err = new Error("Kapasitas harus lebih dari 0");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const existing = await prisma.room.findFirst({
+		where: {
+			name: normalizedName,
+			location: normalizedLocation,
+		},
+	});
+
+	if (existing) {
+		const err = new Error("Ruangan dengan nama dan lokasi yang sama sudah ada");
+		err.statusCode = 409;
+		throw err;
+	}
+
+	return prisma.room.create({
+		data: {
+			name: normalizedName,
+			location: normalizedLocation,
+			capacity: normalizedCapacity,
+		},
+	});
+}
+
+export async function updateRoom(id, { name, location, capacity } = {}) {
+	if (!id) {
+		const err = new Error("Id ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const existing = await prisma.room.findUnique({ where: { id } });
+	if (!existing) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const data = {};
+	if (name !== undefined) {
+		const trimmedName = String(name).trim();
+		if (!trimmedName) {
+			const err = new Error("Nama ruangan wajib diisi");
+			err.statusCode = 400;
+			throw err;
+		}
+		data.name = trimmedName;
+	}
+	if (location !== undefined) data.location = typeof location === "string" && location.trim() ? location.trim() : null;
+	if (capacity !== undefined) {
+		if (capacity !== null && (!Number.isInteger(capacity) || capacity <= 0)) {
+			const err = new Error("Kapasitas harus lebih dari 0");
+			err.statusCode = 400;
+			throw err;
+		}
+		data.capacity = capacity;
+	}
+
+	if (Object.keys(data).length === 0) {
+		return existing;
+	}
+
+	const candidateName = data.name ?? existing.name;
+	const candidateLocation = data.location !== undefined ? data.location : existing.location;
+
+	const duplicate = await prisma.room.findFirst({
+		where: {
+			id: { not: id },
+			name: candidateName,
+			location: candidateLocation,
+		},
+	});
+
+	if (duplicate) {
+		const err = new Error("Ruangan dengan nama dan lokasi yang sama sudah ada");
+		err.statusCode = 409;
+		throw err;
+	}
+
+	return prisma.room.update({ where: { id }, data });
+}
+
+export async function deleteRoom(id) {
+	if (!id) {
+		const err = new Error("Id ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const room = await prisma.room.findUnique({
+		where: { id },
+		include: {
+			_count: {
+				select: {
+					internshipSeminars: true,
+					thesisSeminars: true,
+					thesisDefences: true,
+					yudisiums: true,
+				},
+			},
+		},
+	});
+
+	if (!room) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const relationCount =
+		room._count.internshipSeminars +
+		room._count.thesisSeminars +
+		room._count.thesisDefences +
+		room._count.yudisiums;
+
+	if (relationCount > 0) {
+		const err = new Error("Ruangan tidak dapat dihapus karena sudah memiliki relasi data");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	await prisma.room.delete({ where: { id } });
+	return { success: true };
+}
+
+// ==================== Seminar Result Master (Admin) ====================
+
+const SEMINAR_RESULT_ALLOWED_STATUSES = ["passed", "passed_with_revision", "failed"];
+
+async function validateExaminerLecturers({ thesisId, examinerLecturerIds }) {
+	const uniqueLecturerIds = [...new Set(examinerLecturerIds || [])];
+	if (uniqueLecturerIds.length < 1) {
+		const err = new Error("Minimal 1 dosen penguji harus dipilih");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const [thesisSupervisors, lecturers] = await Promise.all([
+		prisma.thesisSupervisors.findMany({
+			where: { thesisId },
+			select: { lecturerId: true },
+		}),
+		prisma.lecturer.findMany({
+			where: { id: { in: uniqueLecturerIds } },
+			select: { id: true },
+		}),
+	]);
+
+	if (lecturers.length !== uniqueLecturerIds.length) {
+		const err = new Error("Terdapat dosen penguji yang tidak valid");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const supervisorSet = new Set(thesisSupervisors.map((s) => s.lecturerId));
+	const conflicts = uniqueLecturerIds.filter((id) => supervisorSet.has(id));
+	if (conflicts.length > 0) {
+		const err = new Error("Dosen pembimbing tidak boleh menjadi dosen penguji");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	return uniqueLecturerIds;
+}
+
+async function getSeminarResultDetailById(seminarId) {
+	const seminar = await prisma.thesisSeminar.findUnique({
+		where: { id: seminarId },
+		include: {
+			thesis: {
+				select: {
+					id: true,
+					title: true,
+					student: {
+						select: {
+							id: true,
+							user: {
+								select: {
+									fullName: true,
+									identityNumber: true,
+								},
+							},
+						},
+					},
+				},
+			},
+			room: {
+				select: {
+					id: true,
+					name: true,
+					location: true,
+				},
+			},
+			examiners: {
+				orderBy: { order: "asc" },
+				select: {
+					id: true,
+					lecturerId: true,
+					order: true,
+				},
+			},
+			_count: {
+				select: {
+					audiences: true,
+				},
+			},
+		},
+	});
+
+	if (!seminar) return null;
+
+	const lecturerIds = seminar.examiners.map((e) => e.lecturerId);
+	const lecturerMap = new Map();
+	if (lecturerIds.length > 0) {
+		const lecturers = await prisma.lecturer.findMany({
+			where: { id: { in: lecturerIds } },
+			select: {
+				id: true,
+				user: { select: { fullName: true } },
+			},
+		});
+		lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
+	}
+
+	return {
+		id: seminar.id,
+		thesisId: seminar.thesisId,
+		thesisTitle: seminar.thesis?.title || "-",
+		student: {
+			id: seminar.thesis?.student?.id || null,
+			fullName: seminar.thesis?.student?.user?.fullName || "-",
+			nim: seminar.thesis?.student?.user?.identityNumber || "-",
+		},
+		date: seminar.date,
+		room: seminar.room,
+		status: seminar.status,
+		audienceCount: seminar._count.audiences,
+		examiners: seminar.examiners.map((e) => ({
+			id: e.id,
+			lecturerId: e.lecturerId,
+			lecturerName: lecturerMap.get(e.lecturerId) || "-",
+			order: e.order,
+		})),
+		createdAt: seminar.createdAt,
+		updatedAt: seminar.updatedAt,
+	};
+}
+
+export async function getSeminarResultThesisOptions() {
+	const [theses, seminars] = await Promise.all([
+		prisma.thesis.findMany({
+			select: {
+				id: true,
+				title: true,
+				studentId: true,
+				student: {
+					select: {
+						user: { select: { fullName: true, identityNumber: true } },
+					},
+				},
+			},
+			orderBy: { createdAt: "desc" },
+		}),
+		prisma.thesisSeminar.findMany({ select: { id: true, thesisId: true } }),
+	]);
+
+	const seminarByThesis = new Map(seminars.map((s) => [s.thesisId, s.id]));
+
+	return theses.map((t) => ({
+		id: t.id,
+		title: t.title || "(Tanpa Judul)",
+		studentName: t.student?.user?.fullName || "-",
+		studentNim: t.student?.user?.identityNumber || "-",
+		hasSeminarResult: seminarByThesis.has(t.id),
+		seminarResultId: seminarByThesis.get(t.id) || null,
+	}));
+}
+
+export async function getSeminarResultLecturerOptions() {
+	const lecturers = await prisma.lecturer.findMany({
+		select: {
+			id: true,
+			user: {
+				select: {
+					fullName: true,
+					identityNumber: true,
+				},
+			},
+		},
+		orderBy: {
+			user: {
+				fullName: "asc",
+			},
+		},
+	});
+
+	return lecturers.map((l) => ({
+		id: l.id,
+		fullName: l.user?.fullName || "-",
+		nip: l.user?.identityNumber || "-",
+	}));
+}
+
+export async function getSeminarResultStudentOptions() {
+	const students = await prisma.student.findMany({
+		select: {
+			id: true,
+			user: {
+				select: {
+					fullName: true,
+					identityNumber: true,
+				},
+			},
+		},
+		orderBy: {
+			user: {
+				fullName: "asc",
+			},
+		},
+	});
+
+	return students.map((s) => ({
+		id: s.id,
+		fullName: s.user?.fullName || "-",
+		nim: s.user?.identityNumber || "-",
+	}));
+}
+
+export async function getSeminarResults({ page = 1, pageSize = 10, search = "" } = {}) {
+	const skip = (page - 1) * pageSize;
+	const take = pageSize;
+
+	const where = search
+		? {
+			OR: [
+				{ thesis: { title: { contains: search } } },
+				{ thesis: { student: { user: { fullName: { contains: search } } } } },
+				{ thesis: { student: { user: { identityNumber: { contains: search } } } } },
+			],
+		}
+		: {};
+
+	const [seminars, total] = await Promise.all([
+		prisma.thesisSeminar.findMany({
+			where,
+			skip,
+			take,
+			orderBy: { createdAt: "desc" },
+			select: {
+				id: true,
+				thesisId: true,
+				date: true,
+				status: true,
+				createdAt: true,
+				updatedAt: true,
+				thesis: {
+					select: {
+						title: true,
+						student: {
+							select: {
+								id: true,
+								user: { select: { fullName: true, identityNumber: true } },
+							},
+						},
+					},
+				},
+				room: { select: { id: true, name: true, location: true } },
+				examiners: {
+					select: {
+						id: true,
+						lecturerId: true,
+						order: true,
+					},
+					orderBy: { order: "asc" },
+				},
+				_count: { select: { audiences: true } },
+			},
+		}),
+		prisma.thesisSeminar.count({ where }),
+	]);
+
+	const lecturerIds = seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId));
+	const uniqueLecturerIds = [...new Set(lecturerIds)];
+	const lecturerMap = new Map();
+	if (uniqueLecturerIds.length > 0) {
+		const lecturers = await prisma.lecturer.findMany({
+			where: { id: { in: uniqueLecturerIds } },
+			select: { id: true, user: { select: { fullName: true } } },
+		});
+		lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
+	}
+
+	return {
+		seminars: seminars.map((s) => ({
+			id: s.id,
+			thesisId: s.thesisId,
+			thesisTitle: s.thesis?.title || "-",
+			student: {
+				id: s.thesis?.student?.id || null,
+				fullName: s.thesis?.student?.user?.fullName || "-",
+				nim: s.thesis?.student?.user?.identityNumber || "-",
+			},
+			date: s.date,
+			room: s.room,
+			status: s.status,
+			audienceCount: s._count.audiences,
+			examiners: s.examiners.map((e) => ({
+				id: e.id,
+				lecturerId: e.lecturerId,
+				lecturerName: lecturerMap.get(e.lecturerId) || "-",
+				order: e.order,
+			})),
+			createdAt: s.createdAt,
+			updatedAt: s.updatedAt,
+		})),
+		meta: {
+			page,
+			pageSize,
+			total,
+			totalPages: Math.ceil(total / pageSize),
+		},
+	};
+}
+
+export async function createSeminarResult({ thesisId, date, roomId, status, examinerLecturerIds, assignedByUserId }) {
+	if (!SEMINAR_RESULT_ALLOWED_STATUSES.includes(status)) {
+		const err = new Error("Status seminar hasil tidak valid");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const [thesis, room, existingSeminar] = await Promise.all([
+		prisma.thesis.findUnique({ where: { id: thesisId }, select: { id: true } }),
+		prisma.room.findUnique({ where: { id: roomId }, select: { id: true } }),
+		prisma.thesisSeminar.findFirst({ where: { thesisId }, select: { id: true } }),
+	]);
+
+	if (!thesis) {
+		const err = new Error("Thesis tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	if (!room) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	if (existingSeminar) {
+		const err = new Error("Thesis ini sudah memiliki data seminar hasil");
+		err.statusCode = 409;
+		throw err;
+	}
+
+	const uniqueLecturerIds = await validateExaminerLecturers({ thesisId, examinerLecturerIds });
+
+	const created = await prisma.$transaction(async (tx) => {
+		const seminar = await tx.thesisSeminar.create({
+			data: {
+				thesisId,
+				roomId,
+				date: new Date(date),
+				status,
+				registeredAt: new Date(),
+			},
+		});
+
+		await tx.thesisSeminarExaminer.createMany({
+			data: uniqueLecturerIds.map((lecturerId, index) => ({
+				thesisSeminarId: seminar.id,
+				lecturerId,
+				assignedBy: assignedByUserId,
+				order: index + 1,
+				assignedAt: new Date(),
+			})),
+		});
+
+		return seminar;
+	});
+
+	return getSeminarResultDetailById(created.id);
+}
+
+export async function updateSeminarResult(seminarId, { thesisId, date, roomId, status, examinerLecturerIds, assignedByUserId }) {
+	if (!SEMINAR_RESULT_ALLOWED_STATUSES.includes(status)) {
+		const err = new Error("Status seminar hasil tidak valid");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const existing = await prisma.thesisSeminar.findUnique({ where: { id: seminarId }, select: { id: true } });
+	if (!existing) {
+		const err = new Error("Data seminar hasil tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const [thesis, room, duplicateSeminar] = await Promise.all([
+		prisma.thesis.findUnique({ where: { id: thesisId }, select: { id: true } }),
+		prisma.room.findUnique({ where: { id: roomId }, select: { id: true } }),
+		prisma.thesisSeminar.findFirst({
+			where: { thesisId, id: { not: seminarId } },
+			select: { id: true },
+		}),
+	]);
+
+	if (!thesis) {
+		const err = new Error("Thesis tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	if (!room) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	if (duplicateSeminar) {
+		const err = new Error("Thesis ini sudah memiliki data seminar hasil lain");
+		err.statusCode = 409;
+		throw err;
+	}
+
+	const uniqueLecturerIds = await validateExaminerLecturers({ thesisId, examinerLecturerIds });
+
+	await prisma.$transaction(async (tx) => {
+		await tx.thesisSeminar.update({
+			where: { id: seminarId },
+			data: {
+				thesisId,
+				roomId,
+				date: new Date(date),
+				status,
+			},
+		});
+
+		await tx.thesisSeminarExaminer.deleteMany({ where: { thesisSeminarId: seminarId } });
+
+		await tx.thesisSeminarExaminer.createMany({
+			data: uniqueLecturerIds.map((lecturerId, index) => ({
+				thesisSeminarId: seminarId,
+				lecturerId,
+				assignedBy: assignedByUserId,
+				order: index + 1,
+				assignedAt: new Date(),
+			})),
+		});
+	});
+
+	return getSeminarResultDetailById(seminarId);
+}
+
+export async function deleteSeminarResult(seminarId) {
+	const existing = await prisma.thesisSeminar.findUnique({
+		where: { id: seminarId },
+		select: { id: true },
+	});
+
+	if (!existing) {
+		const err = new Error("Data seminar hasil tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	await prisma.thesisSeminar.delete({ where: { id: seminarId } });
+	return { success: true };
+}
+
+export async function getSeminarResultAudienceLinks({ page = 1, pageSize = 10, search = "" } = {}) {
+	const skip = (page - 1) * pageSize;
+	const take = pageSize;
+
+	const where = search
+		? {
+			OR: [
+				{ student: { user: { fullName: { contains: search } } } },
+				{ student: { user: { identityNumber: { contains: search } } } },
+				{ seminar: { thesis: { title: { contains: search } } } },
+				{ seminar: { thesis: { student: { user: { fullName: { contains: search } } } } } },
+			],
+		}
+		: {};
+
+	const [links, total] = await Promise.all([
+		prisma.thesisSeminarAudience.findMany({
+			where,
+			skip,
+			take,
+			orderBy: { createdAt: "desc" },
+			select: {
+				thesisSeminarId: true,
+				studentId: true,
+				createdAt: true,
+				seminar: {
+					select: {
+						id: true,
+						date: true,
+						thesis: {
+							select: {
+								title: true,
+								student: {
+									select: {
+										user: { select: { fullName: true, identityNumber: true } },
+									},
+								},
+							},
+						},
+					},
+				},
+				student: {
+					select: {
+						id: true,
+						user: { select: { fullName: true, identityNumber: true } },
+					},
+				},
+			},
+		}),
+		prisma.thesisSeminarAudience.count({ where }),
+	]);
+
+	return {
+		links: links.map((item) => ({
+			seminarId: item.thesisSeminarId,
+			studentId: item.studentId,
+			createdAt: item.createdAt,
+			student: {
+				id: item.student.id,
+				fullName: item.student.user?.fullName || "-",
+				nim: item.student.user?.identityNumber || "-",
+			},
+			seminar: {
+				id: item.seminar.id,
+				date: item.seminar.date,
+				thesisTitle: item.seminar.thesis?.title || "-",
+				ownerName: item.seminar.thesis?.student?.user?.fullName || "-",
+				ownerNim: item.seminar.thesis?.student?.user?.identityNumber || "-",
+			},
+		})),
+		meta: {
+			page,
+			pageSize,
+			total,
+			totalPages: Math.ceil(total / pageSize),
+		},
+	};
+}
+
+export async function assignSeminarResultAudiences({ studentId, seminarIds }) {
+	const uniqueSeminarIds = [...new Set(seminarIds || [])];
+
+	const [student, seminars] = await Promise.all([
+		prisma.student.findUnique({ where: { id: studentId }, select: { id: true } }),
+		prisma.thesisSeminar.findMany({
+			where: { id: { in: uniqueSeminarIds } },
+			select: { id: true, thesis: { select: { studentId: true } } },
+		}),
+	]);
+
+	if (!student) {
+		const err = new Error("Mahasiswa tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	if (seminars.length !== uniqueSeminarIds.length) {
+		const err = new Error("Terdapat seminar hasil yang tidak valid");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const ownSeminarIds = seminars
+		.filter((s) => s.thesis?.studentId === studentId)
+		.map((s) => s.id);
+
+	const targetSeminarIds = seminars
+		.filter((s) => s.thesis?.studentId !== studentId)
+		.map((s) => s.id);
+
+	if (targetSeminarIds.length === 0) {
+		return {
+			created: 0,
+			skippedOwnSeminarIds: ownSeminarIds,
+			skippedDuplicate: 0,
+		};
+	}
+
+	const existingLinks = await prisma.thesisSeminarAudience.findMany({
+		where: {
+			studentId,
+			thesisSeminarId: { in: targetSeminarIds },
+		},
+		select: { thesisSeminarId: true },
+	});
+	const existingSet = new Set(existingLinks.map((e) => e.thesisSeminarId));
+
+	const toCreate = targetSeminarIds.filter((id) => !existingSet.has(id));
+
+	if (toCreate.length > 0) {
+		await prisma.thesisSeminarAudience.createMany({
+			data: toCreate.map((seminarId) => ({
+				thesisSeminarId: seminarId,
+				studentId,
+			})),
+			skipDuplicates: true,
+		});
+	}
+
+	return {
+		created: toCreate.length,
+		skippedOwnSeminarIds: ownSeminarIds,
+		skippedDuplicate: targetSeminarIds.length - toCreate.length,
+	};
+}
+
+export async function removeSeminarResultAudienceLink({ seminarId, studentId }) {
+	try {
+		await prisma.thesisSeminarAudience.delete({
+			where: {
+				thesisSeminarId_studentId: {
+					thesisSeminarId: seminarId,
+					studentId,
+				},
+			},
+		});
+	} catch (err) {
+		if (err?.code === "P2025") {
+			const e = new Error("Relasi audience tidak ditemukan");
+			e.statusCode = 404;
+			throw e;
+		}
+		throw err;
+	}
+
+	return { success: true };
+}
+
 // Get all Users with pagination
 export async function getUsers({ page = 1, pageSize = 10, search = "", identityType = "", role = "", isVerified = undefined, enrollmentYear = undefined } = {}) {
 	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;

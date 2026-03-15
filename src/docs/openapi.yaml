@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: NeoCentral SIMPTA API
+  version: 1.0.0
+  description: >
+    Surface area SIMPTA untuk advisor request, Metopen, guidance,
+    quota pembimbing, dan perubahan judul/pembimbing.
+servers:
+  - url: /
+    description: Local API root
+tags:
+  - name: AdvisorRequest
+  - name: Metopen
+  - name: MetopenAssessmentAdmin
+  - name: SupervisionQuota
+  - name: ThesisChangeRequest
+  - name: ThesisSupervisors
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        status:
+          type: integer
+          example: 400
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        path:
+          type: string
+paths:
+  $ref: ./simpta/swagger-simpta.yaml#/paths

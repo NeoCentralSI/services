@@ -1,6 +1,6 @@
-import * as formRepo from "../repositories/exitSurveyForm.repository.js";
-import * as questionRepo from "../repositories/exitSurveyQuestion.repository.js";
-import prisma from "../config/prisma.js";
+import * as formRepo from "../../repositories/yudisium/exitSurveyForm.repository.js";
+import * as questionRepo from "../../repositories/yudisium/exitSurveyQuestion.repository.js";
+import prisma from "../../config/prisma.js";
 
 class NotFoundError extends Error {
   constructor(message) {
@@ -72,6 +72,13 @@ export const updateForm = async (id, data) => {
   const existing = await formRepo.findById(id);
   if (!existing) throw new NotFoundError("Form exit survey tidak ditemukan");
 
+  const hasLinkedResponses = await formRepo.hasLinkedResponses(id);
+  if (hasLinkedResponses) {
+    throw new ConflictError(
+      "Form exit survey tidak dapat diubah karena sudah digunakan mahasiswa"
+    );
+  }
+
   const updateData = {};
   if (data.name !== undefined) updateData.name = data.name;
   if (data.description !== undefined) updateData.description = data.description;
@@ -83,12 +90,28 @@ export const updateForm = async (id, data) => {
 export const toggleForm = async (id) => {
   const existing = await formRepo.findById(id);
   if (!existing) throw new NotFoundError("Form exit survey tidak ditemukan");
+
+  const hasLinkedResponses = await formRepo.hasLinkedResponses(id);
+  if (hasLinkedResponses) {
+    throw new ConflictError(
+      "Status form exit survey tidak dapat diubah karena sudah digunakan mahasiswa"
+    );
+  }
+
   return await formRepo.update(id, { isActive: !existing.isActive });
 };
 
 export const deleteForm = async (id) => {
   const existing = await formRepo.findById(id);
   if (!existing) throw new NotFoundError("Form exit survey tidak ditemukan");
+
+  const hasLinkedResponses = await formRepo.hasLinkedResponses(id);
+  if (hasLinkedResponses) {
+    throw new ConflictError(
+      "Form exit survey tidak dapat dihapus karena sudah digunakan mahasiswa"
+    );
+  }
+
   const linkedYudisiums = existing._count?.yudisiums ?? 0;
   if (linkedYudisiums > 0) {
     throw new ConflictError(

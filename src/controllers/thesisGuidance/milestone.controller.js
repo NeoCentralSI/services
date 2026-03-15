@@ -547,6 +547,20 @@ export async function getStudentsReadyForSeminar(req, res, next) {
   }
 }
 
+/**
+ * POST /thesis/:thesisId/seminar-readiness/remind
+ * Send reminder to supervisors to approve seminar readiness
+ */
+export async function remindSeminarReadiness(req, res, next) {
+  try {
+    const { thesisId } = req.params;
+    const result = await milestoneService.remindSeminarReadiness(thesisId, req.user.sub);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ============================================
 // Defence Readiness Approval Controllers
 // ============================================

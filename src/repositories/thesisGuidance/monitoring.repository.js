@@ -118,6 +118,14 @@ export async function getThesesOverview(filters = {}) {
             completedAt: true,
           },
         },
+        thesisSeminars: {
+          orderBy: { updatedAt: "desc" },
+          take: 1,
+          select: {
+            status: true,
+            updatedAt: true,
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
@@ -334,7 +342,20 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
   const atRisk = theses
     .map((t) => {
       const latestGuidance = t.thesisGuidances?.[0];
-      const lastActivity = latestGuidance?.approvedDate || latestGuidance?.completedAt || t.updatedAt;
+      const latestMilestone = t.thesisMilestones?.[0];
+      const latestSeminar = t.thesisSeminars?.[0];
+
+      const activityDates = [
+        latestGuidance?.approvedDate || latestGuidance?.completedAt,
+        latestMilestone?.updatedAt,
+        latestSeminar?.updatedAt,
+        t.updatedAt
+      ].filter(Boolean).map(d => new Date(d).getTime());
+
+      const lastActivity = activityDates.length > 0
+        ? new Date(Math.max(...activityDates)).toISOString()
+        : t.updatedAt;
+
       const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
 
       return {
@@ -427,7 +448,20 @@ export async function getSlowStudents(limit = 10, academicYear) {
   const slow = theses
     .map((t) => {
       const latestGuidance = t.thesisGuidances?.[0];
-      const lastActivity = latestGuidance?.approvedDate || latestGuidance?.completedAt || t.updatedAt;
+      const latestMilestone = t.thesisMilestones?.[0];
+      const latestSeminar = t.thesisSeminars?.[0];
+
+      const activityDates = [
+        latestGuidance?.approvedDate || latestGuidance?.completedAt,
+        latestMilestone?.updatedAt,
+        latestSeminar?.updatedAt,
+        t.updatedAt
+      ].filter(Boolean).map(d => new Date(d).getTime());
+
+      const lastActivity = activityDates.length > 0
+        ? new Date(Math.max(...activityDates)).toISOString()
+        : t.updatedAt;
+
       const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
 
       return {

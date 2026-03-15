@@ -1,7 +1,23 @@
 import prisma from "../config/prisma.js";
 
-export const findAll = async () => {
+export const findAll = async ({ academicYearId = null } = {}) => {
+    const where = {};
+    if (academicYearId) {
+        where.academicYearId = academicYearId;
+    }
+
     return await prisma.cpmk.findMany({
+        where,
+        include: {
+            academicYear: {
+                select: {
+                    id: true,
+                    semester: true,
+                    year: true,
+                    isActive: true,
+                },
+            },
+        },
         orderBy: { code: "asc" },
     });
 };
@@ -9,11 +25,25 @@ export const findAll = async () => {
 export const findById = async (id) => {
     return await prisma.cpmk.findUnique({
         where: { id },
+        include: {
+            academicYear: {
+                select: {
+                    id: true,
+                    semester: true,
+                    year: true,
+                    isActive: true,
+                },
+            },
+        },
     });
 };
 
-export const findByCode = async (code, excludeId = null) => {
-    const where = { code };
+export const findByCode = async (code, type, academicYearId, excludeId = null) => {
+    const where = {
+        code,
+        type,
+        academicYearId,
+    };
     if (excludeId) {
         where.id = { not: excludeId };
     }
