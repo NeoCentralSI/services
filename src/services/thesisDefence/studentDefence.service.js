@@ -56,6 +56,8 @@ const sortGroupedDetails = (grouped) => {
   );
 };
 
+const isRevisionFinished = (revision) => Boolean(revision?.supervisorApprovedAt);
+
 /**
  * Get student defence overview: checklist, status, documents
  */
@@ -652,9 +654,9 @@ export const getCurrentStudentDefenceRevisionsService = async (userId) => {
     }));
 
   const totalRevisions = revisions.length;
-  const finishedRevisions = revisions.filter((revision) => revision.isFinished).length;
+  const finishedRevisions = revisions.filter((revision) => isRevisionFinished(revision)).length;
   const pendingApproval = revisions.filter(
-    (revision) => revision.studentSubmittedAt && !revision.isFinished
+    (revision) => revision.studentSubmittedAt && !isRevisionFinished(revision)
   ).length;
 
   return {
@@ -672,7 +674,7 @@ export const getCurrentStudentDefenceRevisionsService = async (userId) => {
       examinerName: lecturerNameMap.get(revision.defenceExaminer?.lecturerId) || "-",
       description: revision.description,
       revisionAction: revision.revisionAction,
-      isFinished: revision.isFinished,
+      isFinished: isRevisionFinished(revision),
       studentSubmittedAt: revision.studentSubmittedAt,
       supervisorApprovedAt: revision.supervisorApprovedAt,
       approvedBySupervisorName: revision.supervisor?.lecturer?.user?.fullName || null,
@@ -877,7 +879,7 @@ export const deleteStudentDefenceRevisionService = async (userId, revisionId) =>
     throw err;
   }
 
-  if (revision.isFinished) {
+  if (isRevisionFinished(revision)) {
     const err = new Error("Revisi yang sudah disetujui tidak dapat dihapus.");
     err.statusCode = 400;
     throw err;

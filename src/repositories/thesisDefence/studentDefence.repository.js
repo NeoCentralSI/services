@@ -137,7 +137,7 @@ export const countSeminarRevisions = async (seminarId) => {
         seminarExaminer: {
           seminar: { id: seminarId },
         },
-        isFinished: true,
+        supervisorApprovedAt: { not: null },
       },
     }),
   ]);
@@ -495,7 +495,6 @@ export const createStudentDefenceRevision = async ({ defenceExaminerId, descript
     data: {
       defenceExaminerId,
       description,
-      isFinished: false,
     },
   });
 };
