@@ -669,7 +669,6 @@ export async function getThesisDetailById(thesisId) {
           thesisId: true,
           status: true,
           finalScore: true,
-          grade: true,
           date: true,
           startTime: true,
           endTime: true,

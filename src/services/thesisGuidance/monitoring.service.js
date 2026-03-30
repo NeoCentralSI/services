@@ -353,7 +353,6 @@ export async function getThesisDetail(thesisId) {
       startTime: s.startTime,
       endTime: s.endTime,
       finalScore: s.finalScore,
-      grade: s.grade,
       examinerCount: examiners.length,
       scoredCount: scoredExaminers.length,
       averageScore: scoredExaminers.length > 0
