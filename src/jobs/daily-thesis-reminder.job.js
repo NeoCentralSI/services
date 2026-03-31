@@ -17,17 +17,10 @@ export async function runDailyThesisReminderJob() {
     // Excluded statuses: thesis that are completed/graduated
     const activeTheses = await prisma.thesis.findMany({
       where: {
-        // Active thesis - not completed, not cancelled
-        OR: [
-          { thesisStatusId: null },
-          {
-            thesisStatus: {
-              name: {
-                notIn: ["Lulus", "Selesai", "Dibatalkan", "Cancelled", "Completed", "Graduated"]
-              }
-            }
-          }
-        ]
+        // Active thesis - only send reminder if status is "Bimbingan"
+        thesisStatus: {
+          name: "Bimbingan"
+        }
       },
       include: {
         student: {
