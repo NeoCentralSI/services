@@ -12,12 +12,9 @@ import {
   sendWarningNotification,
   sendBatchWarnings,
   getProgressReport,
+  progressReport,
   downloadProgressReport,
-  // Kadep Transfer
-  getKadepPendingTransfers,
-  getKadepAllTransfers,
-  kadepApproveTransfer,
-  kadepRejectTransfer,
+  downloadProgressReport,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
 
 const router = express.Router();
@@ -60,10 +57,6 @@ router.post("/theses/:thesisId/send-warning", sendWarningNotification);
 // Send batch warning notifications
 router.post("/batch-warning", sendBatchWarnings);
 
-// Kadep Transfer Approval (only Ketua Departemen)
-router.get("/transfers/pending", requireRole(ROLES.KETUA_DEPARTEMEN), getKadepPendingTransfers);
-router.get("/transfers/all", requireRole(ROLES.KETUA_DEPARTEMEN), getKadepAllTransfers);
-router.patch("/transfers/:notificationId/approve", requireRole(ROLES.KETUA_DEPARTEMEN), kadepApproveTransfer);
-router.patch("/transfers/:notificationId/reject", requireRole(ROLES.KETUA_DEPARTEMEN), kadepRejectTransfer);
+
 
 export default router;

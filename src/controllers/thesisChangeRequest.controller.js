@@ -94,6 +94,23 @@ export const getAllRequests = async (req, res, next) => {
 };
 
 /**
+ * Download Change Request Report (PDF for Kadep)
+ */
+export const downloadChangeRequestReport = async (req, res, next) => {
+  try {
+    const { status = '', search = '' } = req.query;
+    
+    const { buffer, filename } = await thesisChangeRequestService.generateChangeRequestReportPdfService(status, search);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get request detail by ID
  */
 export const getRequestById = async (req, res, next) => {

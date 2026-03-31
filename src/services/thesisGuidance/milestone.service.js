@@ -1438,6 +1438,10 @@ export async function requestDefence(thesisId, userId, documentId) {
           role: { select: { id: true, name: true } },
         },
       },
+      thesisSeminars: {
+        select: { id: true, status: true, revisionFinalizedAt: true },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 
@@ -1450,12 +1454,11 @@ export async function requestDefence(thesisId, userId, documentId) {
     throw forbidden("Anda tidak memiliki akses ke thesis ini");
   }
 
-  // Check thesis status eligibility
-  const statusName = thesis.thesisStatus?.name?.toLowerCase() || "";
-  if (!isDefenceEligibleStatus(statusName)) {
+  // Check thesis eligibility via seminar completion
+  if (!isSeminarCompleted(thesis.thesisSeminars)) {
     throw createError(
-      `Status thesis "${thesis.thesisStatus?.name || "Unknown"}" tidak memenuhi syarat untuk sidang. ` +
-      `Status harus "Revisi Seminar" atau "Selesai Seminar".`
+      `Mahasiswa belum memenuhi syarat untuk sidang. ` +
+      `Seminar hasil belum dinyatakan lulus atau revisi belum diselesaikan.`
     );
   }
 

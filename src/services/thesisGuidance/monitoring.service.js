@@ -1,4 +1,5 @@
 import * as monitoringRepository from "../../repositories/thesisGuidance/monitoring.repository.js";
+import { getKadepAllTransfersService } from "./lecturer.guidance.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
@@ -890,54 +891,26 @@ function buildMonitoringReportXml(reportData) {
     <w:p>
       <w:pPr>
         <w:jc w:val="right"/>
+        <w:keepLines/>
         <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
       </w:pPr>
       <w:r>
         <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t>Padang, ${escapeXml(formatDateLong(generatedAt))}</w:t>
-      </w:r>
-    </w:p>
-    <w:p>
-      <w:pPr>
-        <w:jc w:val="right"/>
-        <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
-      </w:pPr>
-      <w:r>
-        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+        <w:br/>
         <w:t>Mengetahui,</w:t>
-      </w:r>
-    </w:p>
-    <w:p>
-      <w:pPr>
-        <w:jc w:val="right"/>
-        <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
-      </w:pPr>
-      <w:r>
-        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+        <w:br/>
         <w:t>Ketua Departemen,</w:t>
+        <w:br/>
+        <w:br/>
+        <w:br/>
+        <w:br/>
       </w:r>
-    </w:p>
-    <w:p><w:pPr><w:spacing w:before="1000"/></w:pPr></w:p>
-    <w:p>
-      <w:pPr>
-        <w:jc w:val="right"/>
-        <w:spacing w:after="0"/>
-        <w:rPr><w:b/><w:bCs/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
-      </w:pPr>
       <w:r>
         <w:rPr><w:b/><w:bCs/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t>Ricky Akbar M.Kom</w:t>
+        <w:br/>
       </w:r>
-    </w:p>
-    <w:p>
-      <w:pPr>
-        <w:jc w:val="right"/>
-        <w:spacing w:after="0"/>
-        <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
-      </w:pPr>
       <w:r>
         <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t>NIP. 198410062012121001</w:t>
@@ -1093,5 +1066,177 @@ export async function generateProgressReportPdfService(options = {}) {
   return {
     buffer: pdfBuffer,
     filename: `Laporan_Progress_TA_${semester}_${new Date().toISOString().slice(0, 10)}.pdf`,
+  };
+}
+
+/**
+ * Build OOXML for Supervisor Transfer Report
+ */
+function buildTransferReportXml(transfers) {
+  const tableRows = [];
+
+  // Header Row
+  tableRows.push(`
+    <w:tr>
+      ${makeCell("No", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Dosen Asal", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Dosen Tujuan", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Mahasiswa (NIM & Nama)", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Alasan", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Tanggal", { bold: true, center: true, fontSize: 20 })}
+    </w:tr>`);
+
+  // Data Rows
+  transfers.forEach((tr, index) => {
+    const studentList = tr.students.map(s => `${s.studentNim} - ${s.studentName}`).join("\n");
+    const dateFormatted = new Date(tr.createdAt).toLocaleDateString("id-ID", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric"
+    });
+
+    tableRows.push(`
+      <w:tr>
+        ${makeCell((index + 1).toString(), { center: true })}
+        ${makeCell(tr.sourceLecturerName)}
+        ${makeCell(tr.targetLecturerName)}
+        ${makeCell(studentList)}
+        ${makeCell(tr.reason)}
+        ${makeCell(dateFormatted)}
+      </w:tr>`);
+  });
+
+  const tableXml = `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="0" w:type="auto"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+        </w:tblBorders>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="600"/>
+        <w:gridCol w:w="2500"/>
+        <w:gridCol w:w="2500"/>
+        <w:gridCol w:w="3500"/>
+        <w:gridCol w:w="3500"/>
+        <w:gridCol w:w="2000"/>
+      </w:tblGrid>
+      ${tableRows.join("")}
+    </w:tbl>`;
+
+  const titleXml = `
+    <w:p>
+      <w:pPr><w:jc w:val="center"/></w:pPr>
+      <w:r>
+        <w:rPr><w:b/><w:sz w:val="28"/></w:rPr>
+        <w:t>LAPORAN RIWAYAT TRANSFER DOSEN PEMBIMBING</w:t>
+      </w:r>
+    </w:p>
+    <w:p><w:r><w:t></w:t></w:r></w:p>`;
+
+  // Signature Block
+  const today = new Date().toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const signatureXml = `
+    <w:p/>
+    <w:p/>
+    <w:p>
+      <w:pPr>
+        <w:keepLines/>
+        <w:ind w:left="10000"/>
+      </w:pPr>
+      <w:r><w:t>Semarang, ${today}</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:keepLines/>
+        <w:ind w:left="10000"/>
+      </w:pPr>
+      <w:r><w:t>Ketua Departemen Informatika,</w:t></w:r>
+    </w:p>
+    <w:p/>
+    <w:p/>
+    <w:p/>
+    <w:p>
+      <w:pPr>
+        <w:keepLines/>
+        <w:ind w:left="10000"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:b/><w:u w:val="single"/></w:rPr>
+        <w:t>Dr. Aris Puji Widodo, S.Si, M.T.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:keepLines/>
+        <w:ind w:left="10000"/>
+      </w:pPr>
+      <w:r><w:t>NIP. 197404011999031002</w:t></w:r>
+    </w:p>`;
+
+  return titleXml + tableXml + signatureXml;
+}
+
+/**
+ * Generate PDF for Supervisor Transfer History
+ */
+export async function generateTransferReportPdfService() {
+  // Fetch all transfers (pagination large enough to get all history for report)
+  const resultData = await getKadepAllTransfersService(null, { page: 1, pageSize: 1000 });
+  const transfers = resultData.data || [];
+
+  const templatePath = path.join(
+    process.cwd(),
+    "uploads",
+    "templates",
+    "catatan_bimbingan_template.docx"
+  );
+  if (!fs.existsSync(templatePath)) {
+    throw new Error("Template header tidak ditemukan.");
+  }
+
+  const content = await readFile(templatePath);
+  const zip = new PizZip(content);
+  const docXmlFile = zip.file("word/document.xml");
+  if (!docXmlFile) throw new Error("Invalid template");
+
+  let docXml = docXmlFile.asText();
+  const bodyStartTag = "<w:body>";
+  const bodyStart = docXml.indexOf(bodyStartTag) + bodyStartTag.length;
+  const bodyEnd = docXml.lastIndexOf("</w:body>");
+  const body = docXml.substring(bodyStart, bodyEnd);
+
+  const sectPrMatch = body.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
+  let sectPr = sectPrMatch ? sectPrMatch[0] : "";
+  if (sectPr) {
+    sectPr = sectPr.replace(/<w:pgSz[^>]*\/>/, '<w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/>');
+  } else {
+    sectPr = `<w:sectPr><w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/></w:sectPr>`;
+  }
+
+  const headerXml = extractHeaderFromDocXml(body);
+  const reportContentXml = buildTransferReportXml(transfers);
+  const newBody = headerXml + reportContentXml + sectPr;
+
+  const newDocXml = docXml.substring(0, bodyStart) + newBody + docXml.substring(bodyEnd);
+  zip.file("word/document.xml", newDocXml);
+
+  const docxBuffer = zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+  const pdfBuffer = await convertDocxToPdf(docxBuffer, "Laporan_Transfer_Dospem.docx");
+
+  return {
+    buffer: pdfBuffer,
+    filename: `Laporan_Transfer_Dospem_${new Date().toISOString().slice(0, 10)}.pdf`,
   };
 }

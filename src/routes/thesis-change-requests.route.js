@@ -47,6 +47,13 @@ router.get(
 );
 
 router.get(
+  '/report/download',
+  authGuard,
+  requireRole(ROLES.KETUA_DEPARTEMEN),
+  controller.downloadChangeRequestReport
+);
+
+router.get(
   '/pending-count',
   authGuard,
   requireRole(ROLES.KETUA_DEPARTEMEN),
