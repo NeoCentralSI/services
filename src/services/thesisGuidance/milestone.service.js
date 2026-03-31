@@ -1125,15 +1125,27 @@ export async function remindSeminarReadiness(thesisId, userId) {
 // Defence Readiness Approval Services
 // ============================================
 
-// Valid thesis statuses for defence request
-const DEFENCE_ELIGIBLE_STATUSES = ["revisi seminar", "selesai seminar"];
-
 /**
- * Check if thesis status is eligible for defence request
+ * Check if student has completed the seminar through ThesisSeminar table
  */
-function isDefenceEligibleStatus(statusName) {
-  if (!statusName) return false;
-  return DEFENCE_ELIGIBLE_STATUSES.includes(statusName.toLowerCase());
+function isSeminarCompleted(thesisSeminars = []) {
+  if (!thesisSeminars || thesisSeminars.length === 0) return false;
+  
+  // Get latest seminar attempt
+  const latestSeminar = thesisSeminars[0];
+  if (!latestSeminar) return false;
+
+  const { status, revisionFinalizedAt } = latestSeminar;
+
+  if (status === "passed") {
+    return true;
+  }
+  
+  if (status === "passed_with_revision" && revisionFinalizedAt) {
+    return true;
+  }
+  
+  return false;
 }
 
 /**
@@ -1147,8 +1159,7 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
     throw notFound("Thesis tidak ditemukan");
   }
 
-  const statusName = thesis.thesisStatus?.name?.toLowerCase() || "";
-  const isEligibleStatus = isDefenceEligibleStatus(statusName);
+  const isEligibleStatus = isSeminarCompleted(thesis.thesisSeminars);
   const hasFinalDocument = !!thesis.finalThesisDocumentId;
   const hasRequestedDefence = !!thesis.defenceRequestedAt;
 
@@ -1224,13 +1235,12 @@ export async function approveDefenceReadiness(thesisId, userId, notes = null) {
     throw forbidden("Hanya dosen pembimbing yang dapat memberikan approval");
   }
 
-  // Check thesis status eligibility
+  // Check thesis status eligibility directly from seminars
   const thesisWithStatus = await milestoneRepo.getThesisDefenceReadiness(thesisId);
-  const statusName = thesisWithStatus?.thesisStatus?.name?.toLowerCase() || "";
-  if (!isDefenceEligibleStatus(statusName)) {
+  if (!isSeminarCompleted(thesisWithStatus?.thesisSeminars)) {
     throw createError(
-      `Status thesis "${thesisWithStatus?.thesisStatus?.name || "Unknown"}" tidak memenuhi syarat untuk sidang. ` +
-      `Status harus "Revisi Seminar" atau "Selesai Seminar".`
+      `Mahasiswa belum memenuhi syarat untuk sidang. ` +
+      `Seminar hasil belum dinyatakan lulus atau revisi belum diselesaikan.`
     );
   }
 
