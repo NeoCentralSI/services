@@ -12,8 +12,6 @@ import {
   sendWarningNotification,
   sendBatchWarnings,
   getProgressReport,
-  progressReport,
-  downloadProgressReport,
   downloadProgressReport,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
 
