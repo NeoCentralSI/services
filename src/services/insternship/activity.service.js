@@ -36,7 +36,13 @@ export async function getStudentLogbooks(studentId) {
             },
             proposal: {
                 include: {
-                    targetCompany: true
+                    targetCompany: true,
+                    internships: {
+                        where: { status: 'ONGOING' },
+                        include: {
+                            student: { include: { user: true } }
+                        }
+                    }
                 }
             },
             seminars: {
@@ -383,10 +389,458 @@ export async function submitLogbookDocument(studentId, documentId) {
 }
 
 /**
- * Register student for internship seminar.
+ * Register student for internship seminar with schedule data.
+ * Supports bulk registration for group members with the same supervisor.
  * @param {string} studentId 
+ * @param {Object} scheduleData - { seminarDate, startTime, endTime, roomId, linkMeeting, moderatorStudentId, memberInternshipIds }
+ * @returns {Promise<Array>}
+ */
+export async function registerSeminar(studentId, scheduleData) {
+    const { seminarDate, startTime, endTime, roomId, moderatorStudentId, memberInternshipIds = [] } = scheduleData;
+
+    // 1. Basic Validation
+    if (!seminarDate || !startTime || !endTime || !roomId || !moderatorStudentId) {
+        const error = new Error("Semua field wajib harus diisi (tanggal, waktu mulai, waktu selesai, ruangan, moderator).");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const start = new Date(`1970-01-01T${startTime}:00Z`);
+    const end = new Date(`1970-01-01T${endTime}:00Z`);
+    if (start >= end) {
+        const error = new Error("Waktu mulai harus lebih awal dari waktu selesai.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const date = new Date(seminarDate);
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+        const error = new Error("Seminar hanya dapat dijadwalkan pada hari kerja (Senin-Jumat).");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // 2. Get Requester's Internship & Group Info
+    const requesterInternship = await activityRepository.getStudentInternship(studentId);
+    if (!requesterInternship) {
+        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    // 3. Check for existing active seminars for the requester
+    const existingActive = requesterInternship.seminars.find(s => ['REQUESTED', 'APPROVED'].includes(s.status));
+    if (existingActive) {
+        const error = new Error("Anda sudah memiliki pengajuan seminar yang aktif.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // 4. Conflict Check (Room & Moderator)
+    const conflict = await activityRepository.checkSeminarConflict({
+        roomId,
+        moderatorStudentId,
+        seminarDate,
+        startTime,
+        endTime
+    });
+
+    if (conflict) {
+        if (conflict.roomId === roomId) {
+            const error = new Error(`Ruangan ${conflict.room.name} sudah dipesan oleh ${conflict.internship.student.user.fullName} pada waktu tersebut.`);
+            error.statusCode = 409;
+            throw error;
+        }
+        if (conflict.moderatorStudentId === moderatorStudentId) {
+            const error = new Error(`Mahasiswa ${conflict.moderatorStudent.user.fullName} sudah terjadwal menjadi moderator di ruangan lain pada waktu tersebut.`);
+            error.statusCode = 409;
+            throw error;
+        }
+    }
+
+    // 5. Bulk Members Validation (Same Supervisor Rule)
+    const targetInternshipIds = [requesterInternship.id];
+    
+    if (memberInternshipIds.length > 0) {
+        // Fetch group info
+        const internshipWithGroup = await activityRepository.getInternshipWithGroup(requesterInternship.id);
+        const allGroupMembers = internshipWithGroup.proposal.internships;
+        
+        for (const memberId of memberInternshipIds) {
+            const member = allGroupMembers.find(m => m.id === memberId);
+            if (!member) continue;
+            
+            // Validate same supervisor
+            if (member.supervisorId !== requesterInternship.supervisorId) {
+                const error = new Error(`Mahasiswa ${member.student.user.fullName} tidak dapat didaftarkan karena memiliki dosen pembimbing yang berbeda.`);
+                error.statusCode = 400;
+                throw error;
+            }
+            
+            // Check if member already has active seminar
+            const hasSeminar = await prisma.internshipSeminar.findFirst({
+                where: {
+                    internshipId: member.id,
+                    status: { in: ['REQUESTED', 'APPROVED'] }
+                }
+            });
+            
+            if (!hasSeminar) {
+                targetInternshipIds.push(member.id);
+            }
+        }
+    }
+
+    return activityRepository.createSeminarRequests(targetInternshipIds, scheduleData);
+}
+
+/**
+ * Get upcoming seminars (public list).
+ * @returns {Promise<Array>}
+ */
+export async function getUpcomingSeminars() {
+    return activityRepository.getUpcomingSeminars();
+}
+
+/**
+ * Update seminar proposal.
+ * @param {string} seminarId
+ * @param {string} studentId
+ * @param {Object} scheduleData
  * @returns {Promise<Object>}
  */
-export async function registerSeminar(studentId) {
-    return activityRepository.createSeminarRequest(studentId);
+export async function updateSeminarProposal(seminarId, studentId, scheduleData) {
+    const { seminarDate, startTime, endTime, roomId, moderatorStudentId } = scheduleData;
+
+    if (!seminarDate || !startTime || !endTime || !roomId || !moderatorStudentId) {
+        const error = new Error("Semua field wajib harus diisi.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const date = new Date(seminarDate);
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+        const error = new Error("Seminar hanya dapat dijadwalkan pada hari kerja (Senin-Jumat).");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (startTime >= endTime) {
+        const error = new Error("Waktu mulai harus lebih awal dari waktu selesai.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Conflict Check (Room & Moderator)
+    const conflict = await activityRepository.checkSeminarConflict({
+        roomId,
+        moderatorStudentId,
+        seminarDate,
+        startTime,
+        endTime,
+        excludeSeminarId: seminarId
+    });
+
+    if (conflict) {
+        if (conflict.roomId === roomId) {
+            const error = new Error(`Ruangan ${conflict.room.name} sudah dipesan oleh ${conflict.internship.student.user.fullName} pada waktu tersebut.`);
+            error.statusCode = 409;
+            throw error;
+        }
+        if (conflict.moderatorStudentId === moderatorStudentId) {
+            const error = new Error(`Mahasiswa ${conflict.moderatorStudent.user.fullName} sudah terjadwal menjadi moderator di ruangan lain pada waktu tersebut.`);
+            error.statusCode = 409;
+            throw error;
+        }
+    }
+
+    return activityRepository.updateSeminarProposal(seminarId, studentId, scheduleData);
 }
+
+/**
+ * Approve a seminar request (by supervisor/lecturer).
+ * @param {string} seminarId
+ * @param {string} userId - Lecturer's user ID
+ * @returns {Promise<Object>}
+ */
+export async function approveSeminar(seminarId, userId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (seminar.status !== 'REQUESTED') {
+        const error = new Error("Hanya seminar dengan status 'Menunggu' yang dapat disetujui.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Verify that the lecturer is the supervisor of this internship
+    if (seminar.internship.supervisor?.user?.id !== userId) {
+        const error = new Error("Anda bukan dosen pembimbing mahasiswa ini.");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return activityRepository.approveSeminar(seminarId, userId);
+}
+
+/**
+ * Bulk approve seminar requests.
+ * @param {string[]} seminarIds 
+ * @param {string} userId - Lecturer's user ID
+ * @returns {Promise<Object>}
+ */
+export async function bulkApproveSeminars(seminarIds, userId) {
+    if (!Array.isArray(seminarIds) || seminarIds.length === 0) {
+        throw new Error("Daftar ID seminar tidak valid.");
+    }
+
+    // Verify each seminar
+    for (const id of seminarIds) {
+        const seminar = await activityRepository.findSeminarById(id);
+        
+        if (!seminar) {
+            const error = new Error(`Seminar (ID: ${id}) tidak ditemukan.`);
+            error.statusCode = 404;
+            throw error;
+        }
+
+        if (seminar.status !== 'REQUESTED') {
+            const error = new Error(`Seminar ${seminar.internship.student.user.fullName} bukan dalam status 'Menunggu'.`);
+            error.statusCode = 400;
+            throw error;
+        }
+
+        if (seminar.internship.supervisor?.user?.id !== userId) {
+            const error = new Error(`Anda bukan dosen pembimbing untuk ${seminar.internship.student.user.fullName}.`);
+            error.statusCode = 403;
+            throw error;
+        }
+    }
+
+    return activityRepository.bulkApproveSeminars(seminarIds, userId);
+}
+
+/**
+ * Reject a seminar request (by supervisor/lecturer).
+ * @param {string} seminarId
+ * @param {string} userId - Lecturer's user ID
+ * @param {string} notes - Rejection reason
+ * @returns {Promise<Object>}
+ */
+export async function rejectSeminar(seminarId, userId, notes) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (seminar.status !== 'REQUESTED') {
+        const error = new Error("Hanya seminar dengan status 'Menunggu' yang dapat ditolak.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (seminar.internship.supervisor?.user?.id !== userId) {
+        const error = new Error("Anda bukan dosen pembimbing mahasiswa ini.");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return activityRepository.rejectSeminar(seminarId, notes);
+}
+
+/**
+ * Get seminar detail with audience info.
+ * @param {string} seminarId 
+ * @param {string} studentId 
+ */
+export async function getSeminarDetail(seminarId, studentId) {
+    const seminar = await activityRepository.getSeminarDetail(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    const isOwnSeminar = seminar.internship.studentId === studentId;
+    const isRegistered = seminar.audiences.some(a => a.studentId === studentId);
+    const myRegistration = seminar.audiences.find(a => a.studentId === studentId);
+
+    // Group members logic (similar to calendarEvents in frontend)
+    // We can fetch group members if needed, but for now we rely on what's in the repo
+    
+    return {
+        ...seminar,
+        isOwnSeminar,
+        isRegistered,
+        myRegistrationStatus: myRegistration?.status || null
+    };
+}
+
+/**
+ * Register student as audience for a seminar.
+ * @param {string} seminarId 
+ * @param {string} studentId 
+ */
+export async function registerAsAudience(seminarId, studentId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (!['APPROVED', 'COMPLETED'].includes(seminar.status)) {
+        const error = new Error("Anda hanya dapat mendaftar pada seminar yang sudah disetujui atau selesai.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (seminar.internship.studentId === studentId) {
+        const error = new Error("Anda tidak dapat mendaftar pada seminar Anda sendiri.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Time validation: Only allow registration after the seminar has started AND on the same day
+    if (seminar.status === 'APPROVED') {
+        const now = new Date();
+        const start = new Date(seminar.seminarDate);
+        const time = new Date(seminar.startTime);
+        
+        const isSameDay = 
+            now.getFullYear() === start.getFullYear() && 
+            now.getMonth() === start.getMonth() && 
+            now.getDate() === start.getDate();
+
+        // Combine date and time using UTC digits from database to match the literal intent
+        start.setHours(time.getUTCHours(), time.getUTCMinutes(), 0, 0);
+
+        if (!isSameDay || now < start) {
+            const error = new Error("Absen hanya dapat dibuat pada hari pelaksanaan seminar mulai dari waktu mulai.");
+            error.statusCode = 400;
+            throw error;
+        }
+    }
+
+    // Check existing registration
+    const existing = await prisma.internshipSeminarAudience.findUnique({
+        where: {
+            seminarId_studentId: { seminarId, studentId }
+        }
+    });
+
+    if (existing) {
+        const error = new Error("Anda sudah terdaftar pada seminar ini.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return activityRepository.registerSeminarAudience(seminarId, studentId);
+}
+
+/**
+ * Unregister student from a seminar audience list.
+ * @param {string} seminarId 
+ * @param {string} studentId 
+ */
+export async function unregisterFromAudience(seminarId, studentId) {
+    const existing = await prisma.internshipSeminarAudience.findUnique({
+        where: {
+            seminarId_studentId: { seminarId, studentId }
+        }
+    });
+
+    if (!existing) {
+        const error = new Error("Pendaftaran tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (existing.status === 'VALIDATED') {
+        const error = new Error("Pendaftaran yang sudah divalidasi tidak dapat dibatalkan.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return activityRepository.unregisterSeminarAudience(seminarId, studentId);
+}
+
+/**
+ * Validate audience attendance (Lecturer).
+ * @param {string} seminarId 
+ * @param {string} targetStudentId 
+ * @param {string} lecturerUserId 
+ */
+export async function validateAudience(seminarId, targetStudentId, lecturerUserId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (seminar.internship.supervisor?.user?.id !== lecturerUserId) {
+        const error = new Error("Anda bukan dosen pembimbing untuk seminar ini.");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return activityRepository.validateSeminarAudience(seminarId, targetStudentId);
+}
+
+/**
+ * Bulk validate audience attendance (Lecturer).
+ * @param {string} seminarId
+ * @param {string[]} targetStudentIds
+ * @param {string} lecturerUserId
+ */
+export async function bulkValidateAudience(seminarId, targetStudentIds, lecturerUserId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (seminar.internship.supervisor?.user?.id !== lecturerUserId) {
+        const error = new Error("Anda bukan dosen pembimbing untuk seminar ini.");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return activityRepository.bulkValidateSeminarAudience(seminarId, targetStudentIds);
+}
+
+/**
+ * Unvalidate audience attendance (Lecturer).
+ * @param {string} seminarId 
+ * @param {string} targetStudentId 
+ * @param {string} lecturerUserId 
+ */
+export async function unvalidateAudience(seminarId, targetStudentId, lecturerUserId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (seminar.internship.supervisor?.user?.id !== lecturerUserId) {
+        const error = new Error("Anda bukan dosen pembimbing untuk seminar ini.");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return activityRepository.unvalidateSeminarAudience(seminarId, targetStudentId);
+}
+
