@@ -17,6 +17,22 @@ router.post("/certificate", authGuard, activityController.updateCompletionCertif
 router.post("/receipt", authGuard, activityController.updateCompanyReceipt);
 router.post("/logbook-doc", authGuard, activityController.submitLogbook);
 
+// Seminar (Student)
+router.get("/seminars", authGuard, activityController.getUpcomingSeminars);
+router.get("/seminars/:id", authGuard, activityController.getSeminarDetail);
+router.post("/seminars/:id/audience", authGuard, activityController.registerSeminarAudience);
+router.delete("/seminars/:id/audience", authGuard, activityController.unregisterSeminarAudience);
+router.post("/register-seminar", authGuard, activityController.registerSeminar);
+router.put("/seminar/:id", authGuard, activityController.updateSeminarProposal);
+
+// Seminar (Lecturer approval)
+router.post("/guidance/lecturer/seminar/:id/approve", authGuard, requireAnyRole(LECTURER_ROLES), activityController.approveSeminar);
+router.post("/guidance/lecturer/seminar/:id/reject", authGuard, requireAnyRole(LECTURER_ROLES), activityController.rejectSeminar);
+router.post("/guidance/lecturer/seminar/bulk-approve", authGuard, requireAnyRole(LECTURER_ROLES), activityController.bulkApproveSeminars);
+router.post("/guidance/lecturer/seminar/:id/audience/:studentId/validate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.validateSeminarAudience);
+router.post("/guidance/lecturer/seminar/:id/audience/:studentId/unvalidate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.unvalidateSeminarAudience);
+router.post("/guidance/lecturer/seminar/:id/audience/bulk-validate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.bulkValidateSeminarAudience);
+
 // Guidance / Bimbingan (Student)
 router.get("/guidance", authGuard, getStudentGuidance);
 router.post("/guidance/submit", authGuard, submitStudentGuidance);
@@ -27,6 +43,6 @@ router.get("/guidance/lecturer/students/:internshipId", authGuard, requireAnyRol
 router.get("/guidance/lecturer/students/:internshipId/week/:weekNumber", authGuard, requireAnyRole(LECTURER_ROLES), getSupervisedStudentWeekDetail);
 router.post("/guidance/lecturer/students/:internshipId/week/:weekNumber/evaluate", authGuard, requireAnyRole(LECTURER_ROLES), submitLecturerEvaluation);
 router.put("/guidance/lecturer/students/:internshipId/verify-report", authGuard, requireAnyRole(LECTURER_ROLES), uploadThesisFile, verifyFinalReport);
-router.post("/register-seminar", authGuard, activityController.registerSeminar);
 
 export default router;
+

@@ -346,6 +346,10 @@ export async function getSupervisedStudents(lecturerId) {
             ? `${academicYear.year} ${academicYear.semester.charAt(0).toUpperCase() + academicYear.semester.slice(1)}`
             : '-';
 
+        const latestSeminar = internship.seminars && internship.seminars.length > 0 
+            ? internship.seminars[0] 
+            : null;
+
         return {
             internshipId: internship.id,
             studentName: student.fullName,
@@ -367,6 +371,7 @@ export async function getSupervisedStudents(lecturerId) {
                 uploadedAt: internship.reportUploadedAt,
                 document: internship.reportDocument
             },
+            seminar: latestSeminar,
             finalScore: internship.finalNumericScore,
             finalGrade: internship.finalGrade
         };
@@ -404,6 +409,7 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
             currentWeek: 0,
             timeline: [],
             report: reportData,
+            seminars: internship.seminars || [],
             finalScore: internship.finalNumericScore || null,
             finalGrade: internship.finalGrade || null
         };
@@ -458,8 +464,10 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
         internshipId,
         studentName: internship.student.user.fullName,
         studentNim: internship.student.user.identityNumber,
+        supervisorName: internship.supervisor?.user?.fullName || null,
         currentWeek: currentWeekIdx,
         report: reportData,
+        seminars: internship.seminars || [],
         finalScore: internship.finalNumericScore || null,
         finalGrade: internship.finalGrade || null,
         timeline

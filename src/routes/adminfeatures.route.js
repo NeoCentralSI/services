@@ -29,7 +29,7 @@ router.get("/academic-years/active", authGuard, getActiveAcademicYearController)
 router.post("/academic-years", authGuard, requireRole(ROLES.ADMIN), validate(createAcademicYearSchema), createAcademicYearController);
 router.patch("/academic-years/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateAcademicYearSchema), updateAcademicYearController);
 
-router.get("/rooms", authGuard, requireRole(ROLES.ADMIN), getRoomsController);
+router.get("/rooms", authGuard, getRoomsController);
 router.post("/rooms", authGuard, requireRole(ROLES.ADMIN), validate(createRoomSchema), createRoomController);
 router.patch("/rooms/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateRoomSchema), updateRoomController);
 router.delete("/rooms/:id", authGuard, requireRole(ROLES.ADMIN), deleteRoomController);
