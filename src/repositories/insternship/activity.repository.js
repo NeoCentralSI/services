@@ -582,3 +582,14 @@ export async function unvalidateSeminarAudience(seminarId, studentId) {
         }
     });
 }
+/**
+ * Update seminar supervisor notes.
+ * @param {string} seminarId 
+ * @param {string} notes 
+ */
+export async function updateSeminarNotes(seminarId, notes) {
+    return prisma.internshipSeminar.update({
+        where: { id: seminarId },
+        data: { supervisorNotes: notes }
+    });
+}

@@ -492,7 +492,37 @@ export async function registerSeminar(studentId, scheduleData) {
         }
     }
 
-    return activityRepository.createSeminarRequests(targetInternshipIds, scheduleData);
+    const result = await activityRepository.createSeminarRequests(targetInternshipIds, scheduleData);
+
+    // Notify Supervisor
+    try {
+        if (requesterInternship.supervisorId) {
+            const studentInfo = await prisma.student.findUnique({
+                where: { id: studentId },
+                include: { user: true }
+            });
+
+            const studentName = studentInfo?.user?.fullName || "Mahasiswa";
+            const title = "Pendaftaran Seminar KP Baru";
+            const message = `${studentName} telah menjadwalkan seminar KP. Silakan lakukan review jadwal.`;
+
+            await createNotificationsForUsers([requesterInternship.supervisorId], { title, message });
+            await sendFcmToUsers([requesterInternship.supervisorId], {
+                title,
+                body: message,
+                data: {
+                    type: 'internship_seminar_scheduled',
+                    role: 'supervisor',
+                    internshipId: requesterInternship.id
+                },
+                dataOnly: true
+            });
+        }
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi pendaftaran seminar:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -844,3 +874,31 @@ export async function unvalidateAudience(seminarId, targetStudentId, lecturerUse
     return activityRepository.unvalidateSeminarAudience(seminarId, targetStudentId);
 }
 
+/**
+ * Update seminar notes (berita acara) by lecturer.
+ * @param {string} seminarId 
+ * @param {string} notes 
+ * @param {string} lecturerUserId 
+ */
+export async function updateSeminarNotes(seminarId, notes, lecturerUserId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (seminar.internship.supervisor?.user?.id !== lecturerUserId) {
+        const error = new Error("Anda bukan dosen pembimbing untuk seminar ini.");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    if (seminar.status === 'COMPLETED') {
+        const error = new Error("Catatan tidak dapat diubah setelah seminar selesai.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return activityRepository.updateSeminarNotes(seminarId, notes);
+}

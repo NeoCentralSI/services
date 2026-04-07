@@ -124,3 +124,20 @@ export async function updateAssignmentLetter(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Controller to verify a company response.
+ */
+export async function verifyCompanyResponse(req, res, next) {
+    try {
+        const { id: proposalId } = req.params;
+        const { status, notes, acceptedMemberIds } = req.body;
+        await adminService.verifyCompanyResponse(proposalId, status, notes, acceptedMemberIds);
+        res.status(200).json({
+            success: true,
+            message: `Surat balasan berhasil ${status === 'APPROVED_PROPOSAL' ? 'diverifikasi' : 'ditolak'}.`
+        });
+    } catch (error) {
+        next(error);
+    }
+}

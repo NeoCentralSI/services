@@ -25,9 +25,6 @@ export async function findApprovedProposals() {
                 }
             },
             internships: {
-                where: {
-                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY', 'REJECTED_BY_COMPANY'] }
-                },
                 include: {
                     student: {
                         include: {
@@ -91,9 +88,6 @@ export async function findProposalForLetter(id) {
                 }
             },
             internships: {
-                where: {
-                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY', 'REJECTED_BY_COMPANY'] }
-                },
                 include: {
                     student: {
                         include: {
@@ -157,6 +151,7 @@ export async function findProposalsForAssignment() {
     return prisma.internshipProposal.findMany({
         where: {
             OR: [
+                { status: 'WAITING_FOR_VERIFICATION' },
                 { status: 'ACCEPTED_BY_COMPANY' },
                 { status: 'PARTIALLY_ACCEPTED' },
                 { assignLetterDocNumber: { not: null } }
@@ -174,9 +169,6 @@ export async function findProposalsForAssignment() {
                 }
             },
             internships: {
-                where: {
-                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
-                },
                 include: {
                     student: {
                         include: {
@@ -220,9 +212,6 @@ export async function findProposalForAssignment(id) {
                 }
             },
             internships: {
-                where: {
-                    status: { in: ['ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
-                },
                 include: {
                     student: {
                         include: {

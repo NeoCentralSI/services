@@ -1,5 +1,6 @@
 import * as adminRepository from "../../repositories/insternship/admin.repository.js";
 import * as sekdepRepository from "../../repositories/insternship/sekdep.repository.js";
+import * as notificationRepository from "../../repositories/notification.repository.js";
 import * as documentService from "../document.service.js";
 import prisma from "../../config/prisma.js";
 import { sendFcmToUsers } from "../push.service.js";
@@ -211,10 +212,19 @@ export async function getProposalsForAssignment() {
             coordinatorNim: p.coordinator?.user?.identityNumber,
             companyName: p.targetCompany?.companyName || "—",
             members: p.internships.map(i => ({
-                name: i.student?.user?.fullName,
-                nim: i.student?.user?.identityNumber,
+                id: i.studentId,
+                name: i.student?.user?.fullName || "N/A",
+                nim: i.student?.user?.identityNumber || "N/A",
+                status: i.status,
+                role: i.studentId === p.coordinatorId ? 'Koordinator' : 'Anggota',
                 isCoordinator: i.studentId === p.coordinatorId
             })),
+            status: p.status,
+            companyResponseFile: p.companyResponseDoc ? {
+                id: p.companyResponseDoc.id,
+                fileName: p.companyResponseDoc.fileName,
+                filePath: p.companyResponseDoc.filePath
+            } : null,
             letterNumber: p.assignLetterDocNumber || "—",
             letterFile: p.assignLetterDoc ? {
                 id: p.assignLetterDoc.id,
@@ -361,4 +371,117 @@ async function notifyKadepForAssignmentLetter(proposal, documentNumber) {
     } catch (error) {
         console.error('[admin-service] Failed to notify kadep for assignment letter generation:', error);
     }
+}
+
+/**
+ * Verify company response and update related statuses.
+ * @param {string} proposalId 
+ * @param {string} status - 'APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', or 'REJECTED_BY_COMPANY'
+ * @param {string} [notes] 
+ * @param {string[]} [acceptedMemberIds] 
+ */
+export async function verifyCompanyResponse(proposalId, status, notes, acceptedMemberIds) {
+    const proposal = await sekdepRepository.findCompanyResponseById(proposalId);
+    if (!proposal) {
+        throw new Error("Pengajuan tidak ditemukan.");
+    }
+
+    const allRelevantStudentIds = [proposal.coordinatorId, ...proposal.internships.map(i => i.studentId)];
+
+    let proposalStatus, internshipUpdates;
+
+    if (status === 'REJECTED_BY_COMPANY') {
+        proposalStatus = 'REJECTED_BY_COMPANY';
+        internshipUpdates = allRelevantStudentIds.map(sid => ({
+            studentId: sid,
+            status: 'REJECTED_BY_COMPANY'
+        }));
+    } else if (status === 'REJECTED_PROPOSAL') {
+        proposalStatus = null; // invalid doc, only keep WAITING status
+    } else {
+        if (acceptedMemberIds && Array.isArray(acceptedMemberIds)) {
+            const acceptedSet = new Set(acceptedMemberIds);
+            const acceptedCount = allRelevantStudentIds.filter(sid => acceptedSet.has(sid)).length;
+
+            if (acceptedCount === allRelevantStudentIds.length) {
+                proposalStatus = 'ACCEPTED_BY_COMPANY';
+            } else if (acceptedCount > 0) {
+                proposalStatus = 'PARTIALLY_ACCEPTED';
+            } else {
+                proposalStatus = 'REJECTED_BY_COMPANY';
+            }
+
+            internshipUpdates = allRelevantStudentIds.map(sid => ({
+                studentId: sid,
+                status: acceptedSet.has(sid) ? 'ACCEPTED_BY_COMPANY' : 'REJECTED_BY_COMPANY'
+            }));
+        } else {
+            proposalStatus = 'ACCEPTED_BY_COMPANY';
+            internshipUpdates = allRelevantStudentIds.map(sid => ({
+                studentId: sid,
+                status: 'ACCEPTED_BY_COMPANY'
+            }));
+        }
+    }
+
+    const updatedProposal = await sekdepRepository.verifyCompanyResponseTransaction(
+        proposalId,
+        proposalStatus,
+        internshipUpdates,
+        notes
+    );
+
+    // Notifications
+    try {
+        let title, message, notifType;
+
+        if (status === 'REJECTED_PROPOSAL') {
+            title = "Surat Balasan Ditolak Admin";
+            message = "Dokumen surat balasan Anda ditolak oleh Admin (Tidak Valid/Buram). Silakan upload ulang.";
+            notifType = 'internship_company_response_rejected_sekdep'; // Reusing type
+        } else if (proposalStatus === 'ACCEPTED_BY_COMPANY') {
+            title = "Lamaran KP Diterima Perusahaan";
+            message = `Selamat! Lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah diterima oleh perusahaan.`;
+            notifType = 'internship_proposal_accepted';
+        } else if (proposalStatus === 'PARTIALLY_ACCEPTED') {
+            title = "Lamaran KP Diterima Sebagian";
+            message = `Lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah diterima sebagian. Cek status Anda di dashboard.`;
+            notifType = 'internship_proposal_partially_accepted';
+        } else if (proposalStatus === 'REJECTED_BY_COMPANY') {
+            title = "Lamaran KP Ditolak Perusahaan";
+            message = `Mohon maaf, lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah ditolak oleh perusahaan.`;
+            notifType = 'internship_proposal_rejected_company';
+        }
+
+        if (notes) {
+            message += ` Catatan: ${notes}`;
+        }
+
+        if (title && message) {
+            const recipientIds = [updatedProposal.coordinatorId, ...updatedProposal.internships.map(i => i.studentId)];
+            const uniqueRecipients = [...new Set(recipientIds)];
+
+            const notifications = uniqueRecipients.map(uid => ({
+                userId: uid,
+                title,
+                message
+            }));
+
+            await notificationRepository.createNotificationsMany(notifications);
+            await sendFcmToUsers(uniqueRecipients, {
+                title,
+                body: message,
+                data: {
+                    type: notifType,
+                    status: proposalStatus || status,
+                    proposalId: updatedProposal.id
+                },
+                dataOnly: true
+            });
+        }
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi verifikasi surat balasan:", err);
+    }
+
+    return updatedProposal;
 }

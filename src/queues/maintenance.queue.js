@@ -8,6 +8,7 @@ import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js"
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
+import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -224,6 +225,24 @@ export async function scheduleDailyInternshipStatus() {
   console.log(`🗓️  Scheduled repeatable internship-status job with cron: "${pattern}" tz="${tz}"`);
 }
 
+/**
+ * Schedule internship seminar reminder job (every minute)
+ */
+export async function scheduleInternshipSeminarReminder() {
+  const pattern = "* * * * *"; // Every minute
+  const tz = "Asia/Jakarta";
+  await maintenanceQueue.add(
+    "internship-seminar-reminder",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: true,
+      removeOnFail: true,
+    }
+  );
+  console.log(`🗓️  Scheduled repeatable internship-seminar-reminder job with cron: "${pattern}"`);
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -249,6 +268,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "internship-status":
         await runInternshipStatusJob();
+        break;
+      case "internship-seminar-reminder":
+        await runInternshipSeminarReminderJob();
         break;
       default:
         // no-op
