@@ -4,6 +4,8 @@ import * as notificationRepository from "../../repositories/notification.reposit
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
+import * as documentService from "../document.service.js";
+import prisma from "../../config/prisma.js";
 
 /**
  * List all internship proposals with full lifecycle data for Sekdep.
@@ -28,18 +30,7 @@ export async function listPendingProposals({ academicYearId, q, skip, take, sort
     };
 }
 
-/**
- * List proposals waiting for response verification for Sekdep.
- * @param {Object} params
- */
-export async function listPendingResponses({ academicYearId, q, skip, take, sortBy, sortOrder }) {
-    const proposals = await sekdepRepository.findPendingResponses({ academicYearId, q, skip, take, sortBy, sortOrder });
-    const total = await sekdepRepository.countPendingResponses({ academicYearId, q });
-    return {
-        data: proposals.map(mapSekdepProposal),
-        total
-    };
-}
+
 
 /**
  * Helper to map proposal data for Sekdep.
@@ -290,171 +281,17 @@ export async function deleteCompany(id) {
 
 
 
-/**
- * Verify a company response.
- * After consolidation, takes proposalId instead of responseId. Updates proposal
- * status and internship statuses.
- * @param {string} proposalId 
- * @param {string} status - 'APPROVED_BY_SEKDEP', 'REJECTED_BY_SEKDEP', 'REJECTED_BY_COMPANY'
- * @param {string} [notes] 
- * @param {string[]} [acceptedMemberIds]
- * @returns {Promise<Object>}
- */
-export async function verifyCompanyResponse(proposalId, status, notes, acceptedMemberIds) {
-    if (!['APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', 'REJECTED_BY_COMPANY'].includes(status)) {
-        throw new Error("Status verifikasi tidak valid.");
-    }
 
-    const proposal = await sekdepRepository.findCompanyResponseById(proposalId);
-    if (!proposal) {
-        throw new Error("Proposal tidak ditemukan.");
-    }
-
-    let proposalStatus = null;
-    let internshipUpdates = [];
-    const currentInternships = proposal.internships;
-
-    // Ensure coordinator is included in updates if needed
-    const allRelevantStudentIds = [...new Set([proposal.coordinatorId, ...currentInternships.map(i => i.studentId)])];
-
-    if (status === 'REJECTED_BY_COMPANY') {
-        proposalStatus = 'REJECTED_BY_COMPANY';
-        internshipUpdates = allRelevantStudentIds.map(sid => ({
-            studentId: sid,
-            status: 'REJECTED_BY_COMPANY'
-        }));
-    } else if (status === 'REJECTED_PROPOSAL') {
-        // Doc Invalid — no proposal/member status changes
-        proposalStatus = null;
-    } else {
-        // APPROVED_PROPOSAL (Acceptance Letter)
-        if (acceptedMemberIds && Array.isArray(acceptedMemberIds)) {
-            const acceptedSet = new Set(acceptedMemberIds);
-
-            // Note: Coordinator is usually implicitly accepted if they are the one uploading, 
-            // but we follow the provided acceptedMemberIds which should include them.
-            const acceptedCount = allRelevantStudentIds.filter(sid => acceptedSet.has(sid)).length;
-
-            if (acceptedCount === allRelevantStudentIds.length) {
-                proposalStatus = 'ACCEPTED_BY_COMPANY';
-            } else if (acceptedCount > 0) {
-                proposalStatus = 'PARTIALLY_ACCEPTED';
-            } else {
-                proposalStatus = 'REJECTED_BY_COMPANY';
-            }
-
-            internshipUpdates = allRelevantStudentIds.map(sid => ({
-                studentId: sid,
-                status: acceptedSet.has(sid) ? 'ACCEPTED_BY_COMPANY' : 'REJECTED_BY_COMPANY'
-            }));
-        } else {
-            // Accept All
-            proposalStatus = 'ACCEPTED_BY_COMPANY';
-            internshipUpdates = allRelevantStudentIds.map(sid => ({
-                studentId: sid,
-                status: 'ACCEPTED_BY_COMPANY'
-            }));
-        }
-    }
-
-    const updatedProposal = await sekdepRepository.verifyCompanyResponseTransaction(
-        proposalId,
-        proposalStatus,
-        internshipUpdates,
-        notes
-    );
-
-    // Notify students
-    try {
-        let title, message, notifType;
-
-        if (status === 'REJECTED_PROPOSAL') {
-            title = "Surat Balasan Ditolak Sekdep";
-            message = "Dokumen surat balasan Anda ditolak oleh Sekdep (Tidak Valid/Buram). Silakan upload ulang.";
-            notifType = 'internship_company_response_rejected_sekdep';
-        } else if (proposalStatus === 'ACCEPTED_BY_COMPANY') {
-            title = "Lamaran KP Diterima Perusahaan";
-            message = `Selamat! Lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah diterima oleh perusahaan.`;
-            notifType = 'internship_proposal_accepted';
-        } else if (proposalStatus === 'PARTIALLY_ACCEPTED') {
-            title = "Lamaran KP Diterima Sebagian";
-            message = `Lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah diterima sebagian. Cek status Anda di dashboard.`;
-            notifType = 'internship_proposal_partially_accepted';
-        } else if (proposalStatus === 'REJECTED_BY_COMPANY') {
-            title = "Lamaran KP Ditolak Perusahaan";
-            message = `Mohon maaf, lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah ditolak oleh perusahaan.`;
-            notifType = 'internship_proposal_rejected_company';
-        }
-
-        if (notes) {
-            message += ` Catatan: ${notes}`;
-        }
-
-        if (title && message) {
-            const recipientIds = [updatedProposal.coordinatorId, ...updatedProposal.internships.map(i => i.studentId)];
-            const uniqueRecipients = [...new Set(recipientIds)];
-
-            const notifications = uniqueRecipients.map(uid => ({
-                userId: uid,
-                title,
-                message
-            }));
-
-            await notificationRepository.createNotificationsMany(notifications);
-            await sendFcmToUsers(uniqueRecipients, {
-                title,
-                body: message,
-                data: {
-                    type: notifType,
-                    status: proposalStatus || status,
-                    proposalId: updatedProposal.id
-                },
-                dataOnly: true
-            });
-        }
-
-        // Notify Admin if Accepted (Full or Partial)
-        if (['ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED'].includes(proposalStatus)) {
-            const admins = await adminRepository.findAdmins();
-            const adminTitle = "Surat Balasan Disetujui (Diterima Perusahaan)";
-            const adminMessage = `Surat balasan dari ${updatedProposal.targetCompany?.companyName} diterima. Silakan proses Surat Tugas.`;
-            const adminUserIds = admins.map(a => a.id);
-
-            const adminNotifications = admins.map(admin => ({
-                userId: admin.id,
-                title: adminTitle,
-                message: adminMessage
-            }));
-
-            if (adminNotifications.length > 0) {
-                await notificationRepository.createNotificationsMany(adminNotifications);
-                await sendFcmToUsers(adminUserIds, {
-                    title: adminTitle,
-                    body: adminMessage,
-                    data: {
-                        type: 'internship_company_response_approved_admin',
-                        proposalId: updatedProposal.id
-                    },
-                    dataOnly: true
-                });
-            }
-        }
-    } catch (err) {
-        console.error("Gagal mengirim notifikasi verifikasi surat balasan:", err);
-    }
-
-    return updatedProposal;
-}
 
 /**
  * List all internships with mapping for Sekdep.
  * @param {Object} params
  * @returns {Promise<Object>} - { data, total }
  */
-export async function listInternships({ academicYearId, status, q, skip, take, sortBy, sortOrder }) {
+export async function listInternships({ academicYearId, status, supervisorId, q, skip, take, sortBy, sortOrder }) {
     const [internships, total] = await Promise.all([
-        sekdepRepository.findInternships({ academicYearId, status, q, skip, take, sortBy, sortOrder }),
-        sekdepRepository.countInternships({ academicYearId, status, q })
+        sekdepRepository.findInternships({ academicYearId, status, supervisorId, q, skip, take, sortBy, sortOrder }),
+        sekdepRepository.countInternships({ academicYearId, status, supervisorId, q })
     ]);
 
     const data = internships.map(i => ({
@@ -472,6 +309,11 @@ export async function listInternships({ academicYearId, status, q, skip, take, s
             total: i.logbooks?.length || 0
         },
         status: i.status,
+        supervisorLetter: i.supLetterDoc ? {
+            id: i.supLetterDoc.id,
+            fileName: i.supLetterDoc.fileName,
+            filePath: i.supLetterDoc.filePath
+        } : null,
         createdAt: i.createdAt
     }));
 
@@ -725,7 +567,8 @@ export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrde
         id: l.id,
         name: l.user?.fullName || "Unknown",
         nip: l.user?.identityNumber || "-",
-        activeInternshipCount: l._count?.internshipsSupervisored || 0
+        activeInternshipCount: l._count?.internshipsSupervisored || 0,
+        supervisorLetterStatus: `${l.internshipsSupervisored.filter(i => i.supLetterDocId).length}/${l._count?.internshipsSupervisored || 0}`
     }));
 
     return { data, total };
@@ -859,4 +702,100 @@ export async function exportLecturerWorkloadPdf() {
     `;
 
     return convertHtmlToPdf(html);
+}
+
+/**
+ * Get detailed data for managing supervisor letter for a lecturer.
+ * @param {string} supervisorId 
+ * @returns {Promise<Object>}
+ */
+export async function getSupervisorLetterDetail(supervisorId) {
+    const lecturer = await sekdepRepository.findLecturerForLetter(supervisorId);
+    
+    if (!lecturer) {
+        throw new Error("Dosen tidak ditemukan");
+    }
+
+    return {
+        id: lecturer.id,
+        lecturerName: lecturer.user?.fullName,
+        lecturerNip: lecturer.user?.identityNumber,
+        assignedStudents: lecturer.internshipsSupervisored.map(i => ({
+            internshipId: i.id,
+            nim: i.student?.user?.identityNumber,
+            name: i.student?.user?.fullName,
+            companyName: i.proposal?.targetCompany?.companyName || "Unknown Company",
+            documents: {
+                appLetterDocNumber: i.proposal?.appLetterDocNumber || null,
+                assignLetterDocNumber: i.proposal?.assignLetterDocNumber || null,
+                supLetterDocNumber: i.supLetterDocNumber || null,
+                supLetterDocDateIssued: i.supLetterDateIssued || null,
+                supLetterStartDate: i.actualStartDate || null,
+                supLetterEndDate: i.actualEndDate || null,
+                supLetterDocId: i.supLetterDocId || null,
+                supLetterFile: i.supLetterDoc ? {
+                    id: i.supLetterDoc.id,
+                    fileName: i.supLetterDoc.fileName,
+                    filePath: i.supLetterDoc.filePath
+                } : null
+            }
+        }))
+    };
+}
+
+/**
+ * Save and generate Supervisor Letter for selected internships.
+ * @param {string} supervisorId 
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function saveSupervisorLetter(supervisorId, data) {
+    const { documentNumber, startDate, endDate, internshipIds } = data;
+
+    if (!internshipIds || internshipIds.length === 0) {
+        throw new Error("Pilih minimal satu mahasiswa untuk di-assign surat tugas");
+    }
+
+    // 1. Fetch lecturer & selected internships
+    const lecturer = await sekdepRepository.findLecturerForLetter(supervisorId);
+    if (!lecturer) {
+        throw new Error("Dosen tidak ditemukan");
+    }
+
+    const selectedInternships = lecturer.internshipsSupervisored.filter(i => internshipIds.includes(i.id));
+
+    if (selectedInternships.length === 0) {
+        throw new Error("Mahasiswa yang dipilih tidak valid atau bukan bimbingan dosen tersebut");
+    }
+
+    // 2. Format data for document generation
+    const genData = {
+        documentNumber,
+        dateIssued: new Date(),
+        lecturerName: lecturer.user?.fullName,
+        lecturerNip: lecturer.user?.identityNumber,
+        startDate,
+        endDate,
+        members: selectedInternships.map(i => ({
+            nim: i.student?.user?.identityNumber,
+            name: i.student?.user?.fullName,
+            companyName: i.proposal?.targetCompany?.companyName || "Unknown"
+        }))
+    };
+
+    // 3. Generate document (PDF)
+    const documentId = await documentService.generateSupervisorLetter(genData);
+
+    // 4. Update the internships with the generated document details
+    const result = await sekdepRepository.updateSupervisorLetterBulk(internshipIds, {
+        documentNumber,
+        startDate,
+        endDate,
+        docId: documentId
+    });
+
+    return {
+        message: "Surat Tugas Pembimbing berhasil digenerate dan disimpan",
+        updatedCount: result.count
+    };
 }

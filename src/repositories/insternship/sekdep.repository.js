@@ -446,6 +446,7 @@ export async function verifyCompanyResponseTransaction(proposalId, proposalStatu
  * @param {Object} params
  * @param {string} [params.academicYearId]
  * @param {string} [params.status]
+ * @param {string} [params.supervisorId]
  * @param {string} [params.q]
  * @param {number} [params.skip]
  * @param {number} [params.take]
@@ -453,7 +454,7 @@ export async function verifyCompanyResponseTransaction(proposalId, proposalStatu
  * @param {string} [params.sortOrder]
  * @returns {Promise<Array>}
  */
-export async function findInternships({ academicYearId, status, q, skip, take, sortBy, sortOrder }) {
+export async function findInternships({ academicYearId, status, supervisorId, q, skip, take, sortBy, sortOrder }) {
     const whereClause = {};
 
     if (academicYearId && academicYearId !== 'all') {
@@ -468,6 +469,10 @@ export async function findInternships({ academicYearId, status, q, skip, take, s
         whereClause.status = {
             in: ['ONGOING', 'COMPLETED', 'ACCEPTED_BY_COMPANY']
         };
+    }
+
+    if (supervisorId) {
+        whereClause.supervisorId = supervisorId;
     }
 
     if (q) {
@@ -532,6 +537,7 @@ export async function findInternships({ academicYearId, status, q, skip, take, s
                     user: true
                 }
             },
+            supLetterDoc: true,
             _count: {
                 select: {
                     logbooks: {
@@ -553,8 +559,13 @@ export async function findInternships({ academicYearId, status, q, skip, take, s
 /**
  * Count internships for Sekdep.
  * @param {Object} params
+ * @param {string} [params.academicYearId]
+ * @param {string} [params.status]
+ * @param {string} [params.supervisorId]
+ * @param {string} [params.q]
+ * @returns {Promise<number>}
  */
-export async function countInternships({ academicYearId, status, q }) {
+export async function countInternships({ academicYearId, status, supervisorId, q }) {
     const whereClause = {};
 
     if (academicYearId && academicYearId !== 'all') {
@@ -565,6 +576,10 @@ export async function countInternships({ academicYearId, status, q }) {
         whereClause.status = status;
     } else {
         whereClause.status = { in: ['ONGOING', 'COMPLETED', 'ACCEPTED_BY_COMPANY'] };
+    }
+
+    if (supervisorId) {
+        whereClause.supervisorId = supervisorId;
     }
 
     if (q) {
@@ -745,6 +760,12 @@ export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrd
                     identityNumber: true
                 }
             },
+            internshipsSupervisored: {
+                where: { status: 'ONGOING' },
+                select: {
+                    supLetterDocId: true
+                }
+            },
             _count: {
                 select: {
                     internshipsSupervisored: {
@@ -836,6 +857,67 @@ export async function findAllLecturerWorkload() {
             user: {
                 fullName: 'asc'
             }
+        }
+    });
+}
+
+/**
+ * Find a lecturer with their ongoing internships assigned for supervisor letter generation.
+ * @param {string} lecturerId 
+ * @returns {Promise<Object|null>}
+ */
+export async function findLecturerForLetter(lecturerId) {
+    return prisma.lecturer.findUnique({
+        where: { id: lecturerId },
+        include: {
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true
+                }
+            },
+            internshipsSupervisored: {
+                where: { status: 'ONGOING' },
+                include: {
+                    student: {
+                        include: {
+                            user: {
+                                select: {
+                                    fullName: true,
+                                    identityNumber: true
+                                }
+                            }
+                        }
+                    },
+                    proposal: {
+                        include: {
+                            targetCompany: true
+                        }
+                    },
+                    supLetterDoc: true
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Update supervisor letter details for multiple internships in bulk.
+ * @param {Array<string>} internshipIds 
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function updateSupervisorLetterBulk(internshipIds, data) {
+    const { documentNumber, startDate, endDate, docId } = data;
+
+    return prisma.internship.updateMany({
+        where: { id: { in: internshipIds } },
+        data: {
+            supLetterDocNumber: documentNumber,
+            supLetterDateIssued: new Date(),
+            actualStartDate: startDate ? new Date(startDate) : null,
+            actualEndDate: endDate ? new Date(endDate) : null,
+            supLetterDocId: docId
         }
     });
 }

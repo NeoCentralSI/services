@@ -1,9 +1,11 @@
 import express from "express";
 import * as activityController from "../../controllers/insternship/activity.controller.js";
 import { getStudentGuidance, submitStudentGuidance, getSupervisedStudents, getSupervisedStudentTimeline, getSupervisedStudentWeekDetail, submitLecturerEvaluation, verifyFinalReport } from "../../controllers/insternship/guidance.controller.js";
+import { getAssessment, submitAssessment } from "../../controllers/insternship/assessment.controller.js";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { LECTURER_ROLES } from "../../constants/roles.js";
 import { uploadThesisFile } from "../../middlewares/file.middleware.js";
+
 
 const router = express.Router();
 
@@ -32,6 +34,7 @@ router.post("/guidance/lecturer/seminar/bulk-approve", authGuard, requireAnyRole
 router.post("/guidance/lecturer/seminar/:id/audience/:studentId/validate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.validateSeminarAudience);
 router.post("/guidance/lecturer/seminar/:id/audience/:studentId/unvalidate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.unvalidateSeminarAudience);
 router.post("/guidance/lecturer/seminar/:id/audience/bulk-validate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.bulkValidateSeminarAudience);
+router.patch("/guidance/lecturer/seminar/:id/notes", authGuard, requireAnyRole(LECTURER_ROLES), activityController.updateSeminarNotes);
 
 // Guidance / Bimbingan (Student)
 router.get("/guidance", authGuard, getStudentGuidance);
@@ -43,6 +46,11 @@ router.get("/guidance/lecturer/students/:internshipId", authGuard, requireAnyRol
 router.get("/guidance/lecturer/students/:internshipId/week/:weekNumber", authGuard, requireAnyRole(LECTURER_ROLES), getSupervisedStudentWeekDetail);
 router.post("/guidance/lecturer/students/:internshipId/week/:weekNumber/evaluate", authGuard, requireAnyRole(LECTURER_ROLES), submitLecturerEvaluation);
 router.put("/guidance/lecturer/students/:internshipId/verify-report", authGuard, requireAnyRole(LECTURER_ROLES), uploadThesisFile, verifyFinalReport);
+
+// Assessment / Penilaian (Lecturer)
+router.get("/guidance/lecturer/assessment/:internshipId", authGuard, requireAnyRole(LECTURER_ROLES), getAssessment);
+router.post("/guidance/lecturer/assessment/:internshipId", authGuard, requireAnyRole(LECTURER_ROLES), submitAssessment);
+
 
 export default router;
 

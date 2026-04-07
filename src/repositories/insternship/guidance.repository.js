@@ -244,7 +244,13 @@ export async function findSupervisedInternships(supervisorId) {
                     seminarDate: true,
                     startTime: true,
                     endTime: true,
-                    roomId: true
+                    roomId: true,
+                    room: {
+                        select: {
+                            name: true,
+                            location: true
+                        }
+                    }
                 },
                 orderBy: {
                     createdAt: "desc"

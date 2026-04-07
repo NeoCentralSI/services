@@ -337,3 +337,17 @@ export async function bulkValidateSeminarAudience(req, res, next) {
     }
 }
 
+/**
+ * Update seminar notes (berita acara) - Lecturer.
+ */
+export async function updateSeminarNotes(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const { id } = req.params;
+        const { notes } = req.body;
+        const data = await activityService.updateSeminarNotes(id, notes, userId);
+        res.json({ success: true, message: "Catatan seminar berhasil disimpan.", data });
+    } catch (error) {
+        next(error);
+    }
+}

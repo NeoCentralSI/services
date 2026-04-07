@@ -46,4 +46,10 @@ router.get("/proposals/:id", adminController.getProposalLetterDetail);
  */
 router.patch("/proposals/:id/letter", adminController.updateProposalLetter);
 
+/**
+ * @route POST /insternship/admin/company-responses/:id/verify
+ * @desc Verify a company response
+ */
+router.post("/company-responses/:id/verify", adminController.verifyCompanyResponse);
+
 export default router;
