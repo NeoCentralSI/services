@@ -35,9 +35,9 @@ export async function updateLogbook(req, res, next) {
 export async function updateInternshipDetails(req, res, next) {
     try {
         const userId = req.user.sub;
-        const { fieldSupervisorName, unitSection } = req.body;
+        const { fieldSupervisorName, fieldSupervisorEmail, unitSection } = req.body;
 
-        const data = await activityService.updateInternshipDetails(userId, { fieldSupervisorName, unitSection });
+        const data = await activityService.updateInternshipDetails(userId, { fieldSupervisorName, fieldSupervisorEmail, unitSection });
         res.json({ success: true, message: "Informasi KP berhasil diperbarui", data });
     } catch (error) {
         next(error);
@@ -134,6 +134,27 @@ export async function updateCompanyReceipt(req, res, next) {
 
         const data = await activityService.updateCompanyReceipt(userId, documentId);
         res.json({ success: true, message: "Tanda terima berhasil diunggah", data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Submit company report document (laporan akhir untuk instansi).
+ */
+export async function submitCompanyReport(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const { documentId } = req.body;
+
+        if (!documentId) {
+            const error = new Error("File laporan akhir instansi wajib diisi.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        const data = await activityService.submitCompanyReport(userId, documentId);
+        res.json({ success: true, message: "Laporan akhir instansi berhasil diunggah. Email ke pembimbing lapangan telah dikirim.", data });
     } catch (error) {
         next(error);
     }

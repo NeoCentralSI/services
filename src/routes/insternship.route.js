@@ -6,6 +6,8 @@ import templateRouter from "./insternship/template.route.js";
 import kadepRouter from "./insternship/kadep.route.js";
 import activityRouter from "./insternship/activity.route.js";
 import publicRouter from "./insternship/public.route.js";
+import overviewRouter from "./insternship/overview.route.js";
+import fieldAssessmentRouter from "./insternship/field-assessment.route.js";
 
 const router = express.Router();
 
@@ -16,5 +18,7 @@ router.use("/templates", templateRouter);
 router.use("/kadep", kadepRouter);
 router.use("/activity", activityRouter);
 router.use("/public", publicRouter);
+router.use("/overview", overviewRouter);
+router.use("/field-assessment", fieldAssessmentRouter);
 
 export default router;

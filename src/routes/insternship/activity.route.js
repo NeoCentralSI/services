@@ -17,6 +17,7 @@ router.put("/details", authGuard, activityController.updateInternshipDetails);
 router.post("/report", authGuard, activityController.submitReport);
 router.post("/certificate", authGuard, activityController.updateCompletionCertificate);
 router.post("/receipt", authGuard, activityController.updateCompanyReceipt);
+router.post("/company-report", authGuard, activityController.submitCompanyReport);
 router.post("/logbook-doc", authGuard, activityController.submitLogbook);
 
 // Seminar (Student)

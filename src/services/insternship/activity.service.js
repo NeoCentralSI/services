@@ -3,12 +3,15 @@ import Docxtemplater from "docxtemplater";
 import fs from "fs/promises";
 import path from "path";
 import prisma from "../../config/prisma.js";
+import { ENV } from "../../config/env.js";
 import { convertDocxToPdf } from "../../utils/pdf.util.js";
+import { getWorkingDays } from "../../utils/internship-date.util.js";
 import * as activityRepository from "../../repositories/insternship/activity.repository.js";
 import * as registrationRepository from "../../repositories/insternship/registration.repository.js";
 import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
+import { sendFieldAssessmentRequest } from "./sekdep.service.js";
 
 /**
  * Get logbooks for current student.
@@ -64,18 +67,44 @@ export async function getStudentLogbooks(studentId) {
                 }
             },
             reportDocument: true,
-            reportFeedbackDocument: true
+            reportFeedbackDocument: true,
+            completionCertificateDoc: true,
+            companyReceiptDoc: true,
+            companyReportDoc: true,
+            logbookDocument: true,
+            fieldAssessmentTokens: {
+                where: {
+                    isUsed: false,
+                    expiresAt: { gt: new Date() }
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 1
+            }
         }
     });
 
     const logbooks = await activityRepository.getLogbooks(internship.id);
+    
+    // Calculate progress
+    const daysTotal = (internshipWithStudent.actualStartDate && internshipWithStudent.actualEndDate)
+        ? getWorkingDays(internshipWithStudent.actualStartDate, internshipWithStudent.actualEndDate).length
+        : 0;
+    const daysFilled = logbooks.filter(lb => lb.activityDescription && lb.activityDescription.trim().length > 0).length;
+
     return { 
         internship: {
             ...internshipWithStudent,
             actualStartDate: internshipWithStudent.actualStartDate,
             actualEndDate: internshipWithStudent.actualEndDate,
+            activeAssessmentUrl: internshipWithStudent.fieldAssessmentTokens?.[0]
+                ? `${ENV.FRONTEND_URL}/field-assessment/${internshipWithStudent.fieldAssessmentTokens[0].token}`
+                : null
         }, 
-        logbooks 
+        logbooks,
+        logbookProgress: {
+            filled: daysFilled,
+            total: daysTotal
+        }
     };
 }
 
@@ -298,6 +327,61 @@ export async function updateCompletionCertificate(studentId, documentId) {
     }
 
     return result;
+}
+
+/**
+ * Submit internship company report document (laporan akhir instansi).
+ * Triggers the magic link generation for field supervisor assessment.
+ * @param {string} studentId 
+ * @param {string} documentId 
+ */
+export async function submitCompanyReport(studentId, documentId) {
+    const result = await activityRepository.updateCompanyReport(studentId, documentId);
+
+    // Notify Sekdep
+    let assessmentInfo = null;
+    try {
+        const internshipWithStudent = await prisma.internship.findFirst({
+            where: { studentId, status: 'ONGOING' },
+            include: { student: { include: { user: true } } }
+        });
+
+        if (internshipWithStudent) {
+            // Trigger automatic magic link email
+            try {
+                assessmentInfo = await sendFieldAssessmentRequest(internshipWithStudent.id);
+                console.log(`Berhasil mengirim magic link secara otomatis untuk internship: ${internshipWithStudent.id}`);
+            } catch (emailErr) {
+                console.error("Gagal mengirim magic link otomatis:", emailErr);
+                // Kita tidak throw error agar proses upload tetap berhasil meskipun email gagal sementara
+            }
+
+            const sekdeps = await registrationRepository.findUsersByRole(ROLES.SEKRETARIS_DEPARTEMEN);
+            const sekdepIds = sekdeps.map(s => s.id);
+
+            if (sekdepIds.length > 0) {
+                const studentName = internshipWithStudent.student?.user?.fullName || "Mahasiswa";
+                const titleNotif = "Laporan Akhir (Instansi) Baru";
+                const message = `${studentName} telah mengunggah Laporan Akhir untuk instansi. Link penilaian pembimbing lapangan otomatis dikirim.`;
+
+                await createNotificationsForUsers(sekdepIds, { title: titleNotif, message });
+                await sendFcmToUsers(sekdepIds, {
+                    title: titleNotif,
+                    body: message,
+                    data: {
+                        type: 'internship_reporting_document_uploaded',
+                        documentType: 'companyReport',
+                        internshipId: internshipWithStudent.id
+                    },
+                    dataOnly: true
+                });
+            }
+        }
+    } catch (err) {
+        console.error("Gagal memproses post-upload laporan akhir instansi:", err);
+    }
+
+    return { ...result, assessmentInfo };
 }
 
 /**

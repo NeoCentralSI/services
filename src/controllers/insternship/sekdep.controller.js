@@ -264,11 +264,11 @@ export async function getInternshipDetail(req, res, next) {
  */
 export async function getLecturersWorkload(req, res, next) {
     try {
-        const { q, page = 1, pageSize = 10, sortBy, sortOrder } = req.query;
+        const { q, page = 1, pageSize = 10, sortBy, sortOrder, academicYearId } = req.query;
         const skip = (parseInt(page) - 1) * parseInt(pageSize);
         const take = parseInt(pageSize);
 
-        const { data, total } = await sekdepService.getLecturersWorkloadList({ q, skip, take, sortBy, sortOrder });
+        const { data, total } = await sekdepService.getLecturersWorkloadList({ q, skip, take, sortBy, sortOrder, academicYearId });
         res.status(200).json({ success: true, data, total });
     } catch (error) {
         next(error);
@@ -463,6 +463,20 @@ export async function previewTemplate(req, res, next) {
                 console.warn("Failed to delete temp preview file:", e);
             }
         });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Send field assessment link to field supervisor.
+ * POST /sekdep/internships/:id/send-field-assessment
+ */
+export async function sendFieldAssessment(req, res, next) {
+    try {
+        const { id } = req.params;
+        const result = await sekdepService.sendFieldAssessmentRequest(id);
+        res.status(200).json({ success: true, ...result });
     } catch (error) {
         next(error);
     }
