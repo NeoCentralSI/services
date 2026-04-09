@@ -6,6 +6,11 @@ import { createNotificationsForUsers } from "../notification.service.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import * as documentService from "../document.service.js";
 import prisma from "../../config/prisma.js";
+import { getWorkingDays } from "../../utils/internship-date.util.js";
+import crypto from "crypto";
+import { sendMail } from "../../config/mailer.js";
+import { fieldAssessmentRequestTemplate } from "../../utils/emailTemplate.js";
+import { ENV } from "../../config/env.js";
 
 /**
  * List all internship proposals with full lifecycle data for Sekdep.
@@ -306,14 +311,18 @@ export async function listInternships({ academicYearId, status, supervisorId, q,
         fieldSupervisorName: i.fieldSupervisorName || "-",
         logbookProgress: {
             filled: i._count?.logbooks || 0,
-            total: i.logbooks?.length || 0
+            total: (i.actualStartDate && i.actualEndDate) 
+                ? getWorkingDays(i.actualStartDate, i.actualEndDate).length 
+                : 0
         },
         status: i.status,
-        supervisorLetter: i.supLetterDoc ? {
-            id: i.supLetterDoc.id,
-            fileName: i.supLetterDoc.fileName,
-            filePath: i.supLetterDoc.filePath
+        supervisorLetter: i.supLetter ? {
+            id: i.supLetter.document?.id,
+            fileName: i.supLetter.document?.fileName,
+            filePath: i.supLetter.document?.filePath
         } : null,
+        finalScore: i.finalNumericScore,
+        finalGrade: i.finalGrade,
         createdAt: i.createdAt
     }));
 
@@ -332,6 +341,16 @@ export async function getInternshipDetail(id) {
         throw new Error("Data Kerja Praktik tidak ditemukan");
     }
 
+    const guidanceItems = internship.proposal?.academicYear?.internshipGuidanceQuestions || [];
+    const uniqueWeeks = [...new Set(guidanceItems.map(q => q.weekNumber))];
+    const guidanceTotal = uniqueWeeks.length > 0 ? Math.max(...uniqueWeeks) : 8;
+
+    const formatTime = (timeStr) => {
+        if (!timeStr) return null;
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\./g, ':');
+    };
+
     return {
         id: internship.id,
         student: {
@@ -346,26 +365,44 @@ export async function getInternshipDetail(id) {
         },
         supervisor: {
             name: internship.supervisor?.user?.fullName || "Belum Ditentukan",
-            fieldSupervisor: internship.fieldSupervisorName || "Belum Ditentukan"
+            fieldSupervisor: internship.fieldSupervisorName || "Belum Ditentukan",
+            fieldSupervisorEmail: internship.fieldSupervisorEmail || null
         },
         logbookProgress: {
             filled: internship._count?.logbooks || 0,
-            total: internship.logbooks?.length || 0
+            total: (internship.actualStartDate && internship.actualEndDate)
+                ? getWorkingDays(internship.actualStartDate, internship.actualEndDate).length
+                : 0
         },
         guidanceProgress: {
             filled: internship.guidanceSessions?.length || 0,
-            total: 8 // Assuming 8 is standard, can adjust
+            total: guidanceTotal
         },
-        seminar: internship.seminars?.[0] ? {
-            id: internship.seminars[0].id,
-            status: "Selesai" // Placeholder logic
-        } : null,
         assessment: {
             lecturerStatus: internship.lecturerAssessmentStatus,
             fieldStatus: internship.fieldAssessmentStatus,
             finalScore: internship.finalNumericScore,
             finalGrade: internship.finalGrade
         },
+        logbooks: internship.logbooks || [],
+        guidanceSessions: internship.guidanceSessions || [],
+        seminars: (internship.seminars || []).map(s => ({
+            ...s,
+            time: formatTime(s.startTime),
+            moderatorName: s.moderatorStudent?.user?.fullName || "-"
+        })),
+        lecturerScores: (internship.lecturerScores || []).map(s => ({
+            id: `${s.internshipId}-${s.chosenRubricId}`,
+            score: s.score,
+            cpmk: s.chosenRubric?.cpmk,
+            rubricLevel: s.chosenRubric
+        })),
+        fieldScores: (internship.fieldScores || []).map(s => ({
+            id: `${s.internshipId}-${s.chosenRubricId}`,
+            score: s.score,
+            cpmk: s.chosenRubric?.cpmk,
+            rubricLevel: s.chosenRubric
+        })),
         status: internship.status,
         academicYearName: internship.proposal?.academicYear
             ? `${internship.proposal.academicYear.year} ${internship.proposal.academicYear.semester.charAt(0).toUpperCase() + internship.proposal.academicYear.semester.slice(1)}`
@@ -393,6 +430,13 @@ export async function getInternshipDetail(id) {
                 notes: internship.logbookDocumentNotes
             }
         },
+        supervisorLetter: internship.supLetter ? {
+            document: internship.supLetter.document,
+            documentNumber: internship.supLetter.documentNumber,
+            dateIssued: internship.supLetter.dateIssued,
+            startDate: internship.supLetter.startDate,
+            endDate: internship.supLetter.endDate
+        } : null,
         createdAt: internship.createdAt
     };
 }
@@ -557,10 +601,10 @@ export async function bulkVerifyInternshipDocuments(internshipId, { documents, s
  * @param {Object} params - { q, skip, take }
  * @returns {Promise<Object>} - { data, total }
  */
-export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrder }) {
+export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrder, academicYearId }) {
     const [lecturers, total] = await Promise.all([
-        sekdepRepository.findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder }),
-        sekdepRepository.countLecturersWithWorkload({ q })
+        sekdepRepository.findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder, academicYearId }),
+        sekdepRepository.countLecturersWithWorkload({ q, academicYearId })
     ]);
 
     const data = lecturers.map(l => ({
@@ -568,7 +612,7 @@ export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrde
         name: l.user?.fullName || "Unknown",
         nip: l.user?.identityNumber || "-",
         activeInternshipCount: l._count?.internshipsSupervisored || 0,
-        supervisorLetterStatus: `${l.internshipsSupervisored.filter(i => i.supLetterDocId).length}/${l._count?.internshipsSupervisored || 0}`
+        supervisorLetterStatus: `${l.internshipsSupervisored.filter(i => i.supLetterId).length}/${l._count?.internshipsSupervisored || 0}`
     }));
 
     return { data, total };
@@ -728,15 +772,15 @@ export async function getSupervisorLetterDetail(supervisorId) {
             documents: {
                 appLetterDocNumber: i.proposal?.appLetterDocNumber || null,
                 assignLetterDocNumber: i.proposal?.assignLetterDocNumber || null,
-                supLetterDocNumber: i.supLetterDocNumber || null,
-                supLetterDocDateIssued: i.supLetterDateIssued || null,
-                supLetterStartDate: i.actualStartDate || null,
-                supLetterEndDate: i.actualEndDate || null,
-                supLetterDocId: i.supLetterDocId || null,
-                supLetterFile: i.supLetterDoc ? {
-                    id: i.supLetterDoc.id,
-                    fileName: i.supLetterDoc.fileName,
-                    filePath: i.supLetterDoc.filePath
+                supLetterDocNumber: i.supLetter?.documentNumber || null,
+                supLetterDocDateIssued: i.supLetter?.dateIssued || null,
+                supLetterStartDate: i.supLetter?.startDate || null,
+                supLetterEndDate: i.supLetter?.endDate || null,
+                supLetterDocId: i.supLetter?.documentId || null,
+                supLetterFile: i.supLetter?.document ? {
+                    id: i.supLetter.document.id,
+                    fileName: i.supLetter.document.fileName,
+                    filePath: i.supLetter.document.filePath
                 } : null
             }
         }))
@@ -783,19 +827,107 @@ export async function saveSupervisorLetter(supervisorId, data) {
         }))
     };
 
-    // 3. Generate document (PDF)
+    // 3. Document Number Validation
+    const existingLetter = await sekdepRepository.findSupervisorLetterByNumber(documentNumber);
+    if (existingLetter && existingLetter.supervisorId !== supervisorId) {
+        const error = new Error(`Nomor surat "${documentNumber}" sudah digunakan untuk dosen lain: ${existingLetter.supervisor?.user?.fullName}.`);
+        error.statusCode = 409;
+        throw error;
+    }
+
+    // 4. Generate document (PDF)
     const documentId = await documentService.generateSupervisorLetter(genData);
 
-    // 4. Update the internships with the generated document details
-    const result = await sekdepRepository.updateSupervisorLetterBulk(internshipIds, {
+    // 5. Upsert the letter object
+    const supLetter = await sekdepRepository.upsertSupervisorLetter({
         documentNumber,
-        startDate,
-        endDate,
-        docId: documentId
+        dateIssued: new Date(),
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        supervisorId,
+        documentId
     });
+
+    // 6. Link selected internships to the letter
+    const result = await sekdepRepository.linkInternshipsToLetter(internshipIds, supLetter.id);
 
     return {
         message: "Surat Tugas Pembimbing berhasil digenerate dan disimpan",
         updatedCount: result.count
+    };
+}
+
+/**
+ * Generate a field assessment token and send email to field supervisor.
+ */
+export async function sendFieldAssessmentRequest(internshipId) {
+    const internship = await prisma.internship.findUnique({
+        where: { id: internshipId },
+        include: {
+            student: {
+                include: { user: { select: { fullName: true, identityNumber: true } } },
+            },
+            proposal: {
+                include: {
+                    targetCompany: { select: { companyName: true } },
+                    academicYear: { select: { year: true, semester: true } },
+                },
+            },
+        },
+    });
+
+    if (!internship) {
+        throw Object.assign(new Error("Internship tidak ditemukan."), { statusCode: 404 });
+    }
+
+    if (!internship.fieldSupervisorEmail) {
+        throw Object.assign(new Error("Email pembimbing lapangan belum diisi oleh mahasiswa."), { statusCode: 400 });
+    }
+
+    // Invalidate existing unused tokens
+    await prisma.fieldAssessmentToken.updateMany({
+        where: { internshipId, isUsed: false },
+        data: { isUsed: true, usedAt: new Date() },
+    });
+
+    // Generate new token
+    const token = crypto.randomUUID();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+    await prisma.fieldAssessmentToken.create({
+        data: {
+            internshipId,
+            token,
+            expiresAt,
+        },
+    });
+
+    // Construct assessment URL
+    const assessmentUrl = `${ENV.FRONTEND_URL}/field-assessment/${token}`;
+
+    // Send email
+    const emailHtml = fieldAssessmentRequestTemplate({
+        appName: ENV.APP_NAME || "Neo Central DSI",
+        supervisorName: internship.fieldSupervisorName || "Bapak/Ibu",
+        studentName: internship.student.user.fullName,
+        studentNim: internship.student.user.identityNumber,
+        companyName: internship.proposal.targetCompany?.companyName || "-",
+        academicYear: `${internship.proposal.academicYear.year} - ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`,
+        assessmentUrl,
+        expiresInDays: 7,
+    });
+
+    await sendMail({
+        to: internship.fieldSupervisorEmail,
+        subject: `Permintaan Penilaian Kerja Praktik - ${internship.student.user.fullName}`,
+        html: emailHtml,
+    });
+
+    return {
+        message: "Link penilaian berhasil dikirim ke email pembimbing lapangan.",
+        email: internship.fieldSupervisorEmail,
+        assessmentUrl,
+        expiresAt,
     };
 }

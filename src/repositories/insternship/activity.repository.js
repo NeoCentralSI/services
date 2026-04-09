@@ -78,7 +78,7 @@ export async function updateLogbook(logbookId, studentId, activityDescription) {
  * @param {Object} data 
  * @returns {Promise<Object>}
  */
-export async function updateInternshipDetails(studentId, { fieldSupervisorName, unitSection }) {
+export async function updateInternshipDetails(studentId, { fieldSupervisorName, fieldSupervisorEmail, unitSection }) {
     const internship = await prisma.internship.findFirst({
         where: { studentId, status: 'ONGOING' }
     });
@@ -89,7 +89,7 @@ export async function updateInternshipDetails(studentId, { fieldSupervisorName, 
 
     return prisma.internship.update({
         where: { id: internship.id },
-        data: { fieldSupervisorName, unitSection }
+        data: { fieldSupervisorName, fieldSupervisorEmail, unitSection }
     });
 }
 
@@ -173,6 +173,37 @@ export async function updateCompanyReceipt(studentId, documentId) {
         },
         include: {
             companyReceiptDoc: true
+        }
+    });
+}
+
+/**
+ * Update internship company report document (laporan akhir instansi).
+ * @param {string} studentId 
+ * @param {string} documentId 
+ * @returns {Promise<Object>}
+ */
+export async function updateCompanyReport(studentId, documentId) {
+    const internship = await prisma.internship.findFirst({
+        where: { studentId, status: 'ONGOING' }
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+    }
+
+    if (internship.companyReportStatus === 'APPROVED') {
+        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    }
+
+    return prisma.internship.update({
+        where: { id: internship.id },
+        data: {
+            companyReportDocId: documentId,
+            companyReportStatus: 'SUBMITTED'
+        },
+        include: {
+            companyReportDoc: true
         }
     });
 }

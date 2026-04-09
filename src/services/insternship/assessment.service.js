@@ -58,14 +58,14 @@ export async function calculateFinalResults(internshipId) {
     
     // Grade Mapping (Standard)
     let finalGrade = "E";
-    if (finalNumericScore >= 85) finalGrade = "A";
-    else if (finalNumericScore >= 80) finalGrade = "A-";
-    else if (finalNumericScore >= 75) finalGrade = "B+";
-    else if (finalNumericScore >= 70) finalGrade = "B";
-    else if (finalNumericScore >= 65) finalGrade = "B-";
-    else if (finalNumericScore >= 60) finalGrade = "C+";
-    else if (finalNumericScore >= 55) finalGrade = "C";
-    else if (finalNumericScore >= 40) finalGrade = "D";
+    if (finalNumericScore >= 80) finalGrade = "A";
+    else if (finalNumericScore >= 75) finalGrade = "A-";
+    else if (finalNumericScore >= 70) finalGrade = "B+";
+    else if (finalNumericScore >= 65) finalGrade = "B";
+    else if (finalNumericScore >= 60) finalGrade = "B-";
+    else if (finalNumericScore >= 55) finalGrade = "C+";
+    else if (finalNumericScore >= 50) finalGrade = "C";
+    else if (finalNumericScore >= 45) finalGrade = "D";
 
     return {
         finalNumericScore: parseFloat(finalNumericScore.toFixed(2)),

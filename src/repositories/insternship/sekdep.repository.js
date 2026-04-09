@@ -537,7 +537,11 @@ export async function findInternships({ academicYearId, status, supervisorId, q,
                     user: true
                 }
             },
-            supLetterDoc: true,
+            supLetter: {
+                include: {
+                    document: true
+                }
+            },
             _count: {
                 select: {
                     logbooks: {
@@ -634,7 +638,15 @@ export async function findInternshipById(id) {
             proposal: {
                 include: {
                     targetCompany: true,
-                    academicYear: true
+                    academicYear: {
+                        include: {
+                            internshipGuidanceQuestions: {
+                                select: {
+                                    weekNumber: true
+                                }
+                            }
+                        }
+                    }
                 }
             },
             supervisor: {
@@ -654,17 +666,61 @@ export async function findInternshipById(id) {
             logbooks: {
                 select: {
                     id: true,
-                    activityDate: true
+                    activityDate: true,
+                    activityDescription: true,
+                    createdAt: true
+                },
+                orderBy: {
+                    activityDate: 'desc'
                 }
             },
             guidanceSessions: {
-                select: {
-                    id: true
+                include: {
+                    studentAnswers: {
+                        include: {
+                            question: true
+                        }
+                    },
+                    lecturerAnswers: {
+                        include: {
+                            criteria: {
+                                include: {
+                                    options: true
+                                }
+                            }
+                        }
+                    }
+                },
+                orderBy: {
+                    weekNumber: 'asc'
                 }
             },
             seminars: {
-                select: {
-                    id: true
+                include: {
+                    room: true,
+                    moderatorStudent: {
+                        include: {
+                            user: true
+                        }
+                    }
+                }
+            },
+            lecturerScores: {
+                include: {
+                    chosenRubric: {
+                        include: {
+                            cpmk: true
+                        }
+                    }
+                }
+            },
+            fieldScores: {
+                include: {
+                    chosenRubric: {
+                        include: {
+                            cpmk: true
+                        }
+                    }
                 }
             },
             reportDocument: true,
@@ -727,7 +783,7 @@ export async function bulkUpdateDocumentVerification(internshipId, documents) {
  * Find lecturers with their active internship workload counts for Sekdep.
  * @param {Object} params
  */
-export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder }) {
+export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder, academicYearId }) {
     const whereClause = {};
 
     if (q) {
@@ -761,16 +817,20 @@ export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrd
                 }
             },
             internshipsSupervisored: {
-                where: { status: 'ONGOING' },
+                where: { 
+                    status: 'ONGOING',
+                    ...(academicYearId ? { proposal: { academicYearId } } : {})
+                },
                 select: {
-                    supLetterDocId: true
+                    supLetterId: true
                 }
             },
             _count: {
                 select: {
                     internshipsSupervisored: {
                         where: {
-                            status: 'ONGOING'
+                            status: 'ONGOING',
+                            ...(academicYearId ? { proposal: { academicYearId } } : {})
                         }
                     }
                 }
@@ -784,7 +844,7 @@ export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrd
  * Count lecturers for Sekdep workload panel.
  * @param {Object} params
  */
-export async function countLecturersWithWorkload({ q }) {
+export async function countLecturersWithWorkload({ q, academicYearId }) {
     const whereClause = {};
 
     if (q) {
@@ -894,7 +954,11 @@ export async function findLecturerForLetter(lecturerId) {
                             targetCompany: true
                         }
                     },
-                    supLetterDoc: true
+                    supLetter: {
+                        include: {
+                            document: true
+                        }
+                    }
                 }
             }
         }
@@ -902,22 +966,66 @@ export async function findLecturerForLetter(lecturerId) {
 }
 
 /**
- * Update supervisor letter details for multiple internships in bulk.
- * @param {Array<string>} internshipIds 
- * @param {Object} data 
- * @returns {Promise<Object>}
+ * Find a supervisor letter by its document number.
+ * @param {string} documentNumber 
  */
-export async function updateSupervisorLetterBulk(internshipIds, data) {
-    const { documentNumber, startDate, endDate, docId } = data;
+export async function findSupervisorLetterByNumber(documentNumber) {
+    return prisma.internshipSupervisorLetter.findUnique({
+        where: { documentNumber },
+        include: {
+            supervisor: {
+                include: { user: true }
+            }
+        }
+    });
+}
 
+/**
+ * Upsert a supervisor letter.
+ * @param {Object} data 
+ */
+export async function upsertSupervisorLetter(data) {
+    const { documentNumber, dateIssued, startDate, endDate, supervisorId, documentId } = data;
+    
+    return prisma.internshipSupervisorLetter.upsert({
+        where: { documentNumber },
+        update: {
+            dateIssued,
+            startDate,
+            endDate,
+            supervisorId,
+            documentId
+        },
+        create: {
+            documentNumber,
+            dateIssued,
+            startDate,
+            endDate,
+            supervisorId,
+            documentId
+        }
+    });
+}
+
+/**
+ * Link internships to a supervisor letter.
+ * @param {Array<string>} internshipIds 
+ * @param {string} supLetterId 
+ */
+export async function linkInternshipsToLetter(internshipIds, supLetterId) {
     return prisma.internship.updateMany({
         where: { id: { in: internshipIds } },
         data: {
-            supLetterDocNumber: documentNumber,
-            supLetterDateIssued: new Date(),
-            actualStartDate: startDate ? new Date(startDate) : null,
-            actualEndDate: endDate ? new Date(endDate) : null,
-            supLetterDocId: docId
+            supLetterId
         }
     });
+}
+
+/**
+ * Update supervisor letter details for multiple internships in bulk.
+ * @deprecated Use upsertSupervisorLetter and linkInternshipsToLetter instead.
+ */
+export async function updateSupervisorLetterBulk(internshipIds, data) {
+    // This is now handled by the service using newer methods
+    throw new Error("Deprecated: Use upsertSupervisorLetter and linkInternshipsToLetter in the service layer.");
 }

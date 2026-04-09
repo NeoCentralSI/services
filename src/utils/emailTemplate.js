@@ -196,3 +196,25 @@ export function passwordAssignedTemplate({ appName, fullName, email, password, l
 	return getEmailWrapper(content, { appName, headerTitle: "Your Password" });
 }
 
+export function fieldAssessmentRequestTemplate({ appName, supervisorName, studentName, studentNim, companyName, academicYear, assessmentUrl, expiresInDays = 7 }) {
+	const content = `
+		<p style="margin: 0 0 16px 0; font-size: 15px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			<strong>Yth. ${supervisorName},</strong>
+		</p>
+		<p style="margin: 0 0 16px 0; font-size: 15px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			Kami dari Departemen Sistem Informasi mengundang Bapak/Ibu untuk memberikan penilaian terhadap mahasiswa yang telah melaksanakan Kerja Praktik di bawah bimbingan Bapak/Ibu.
+		</p>
+		${getCredentialsBox([
+			{ label: "Mahasiswa", value: studentName },
+			{ label: "NIM", value: studentNim },
+			{ label: "Perusahaan", value: companyName },
+			{ label: "Tahun Akademik", value: academicYear },
+		])}
+		<p style="margin: 0 0 8px 0; font-size: 14px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			Silakan klik tombol di bawah ini untuk mengisi formulir penilaian. Bapak/Ibu <strong>tidak perlu membuat akun atau login</strong> — cukup buka link berikut:
+		</p>
+		${getPrimaryButton("Mulai Penilaian", assessmentUrl)}
+		${getSecurityNotice(`Link ini berlaku selama ${expiresInDays} hari dan hanya dapat digunakan satu kali. Jika link sudah kedaluwarsa, silakan hubungi pihak kampus untuk mendapatkan link baru.`)}
+	`;
+	return getEmailWrapper(content, { appName, headerTitle: "Penilaian Kerja Praktik" });
+}

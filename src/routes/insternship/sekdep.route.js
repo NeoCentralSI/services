@@ -101,6 +101,7 @@ router.get("/internships", sekdepController.getInternshipList);
 router.get("/internships/:id", sekdepController.getInternshipDetail);
 router.put("/internships/:id/verify-document", sekdepController.verifyDocument);
 router.put("/internships/:id/verify-documents-bulk", sekdepController.bulkVerifyDocuments);
+router.post("/internships/:id/send-field-assessment", sekdepController.sendFieldAssessment);
 
 /**
  * @route PATCH /insternship/sekdep/internships/bulk-assign
