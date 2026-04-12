@@ -12,6 +12,7 @@ import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { sendFieldAssessmentRequest } from "./sekdep.service.js";
+import { checkAndUpdateInternshipStatus } from "./internship-automation.service.js";
 
 /**
  * Get logbooks for current student.
@@ -798,6 +799,37 @@ export async function getSeminarDetail(seminarId, studentId) {
         isRegistered,
         myRegistrationStatus: myRegistration?.status || null
     };
+}
+
+/**
+ * Mark a seminar as completed.
+ * Only the supervisor (lecturer) for this internship can do this or a moderator.
+ * For now, we allow the supervisor to do it from the dashboard.
+ * @param {string} seminarId 
+ * @param {string} userId - Lecturer User ID
+ */
+export async function completeSeminar(seminarId, userId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (seminar.status !== 'APPROVED') {
+        throw new Error("Hanya seminar yang sudah disetujui yang dapat diselesaikan.");
+    }
+
+    if (seminar.internship.supervisor?.user?.id !== userId) {
+        throw new Error("Anda bukan dosen pembimbing mahasiswa ini.");
+    }
+
+    const updatedSeminar = await activityRepository.completeSeminar(seminarId);
+
+    // Call automation check
+    await checkAndUpdateInternshipStatus(seminar.internshipId);
+
+    return updatedSeminar;
 }
 
 /**

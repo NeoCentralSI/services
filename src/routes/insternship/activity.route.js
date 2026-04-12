@@ -31,6 +31,7 @@ router.put("/seminar/:id", authGuard, activityController.updateSeminarProposal);
 // Seminar (Lecturer approval)
 router.post("/guidance/lecturer/seminar/:id/approve", authGuard, requireAnyRole(LECTURER_ROLES), activityController.approveSeminar);
 router.post("/guidance/lecturer/seminar/:id/reject", authGuard, requireAnyRole(LECTURER_ROLES), activityController.rejectSeminar);
+router.post("/guidance/lecturer/seminar/:id/complete", authGuard, requireAnyRole(LECTURER_ROLES), activityController.completeSeminar);
 router.post("/guidance/lecturer/seminar/bulk-approve", authGuard, requireAnyRole(LECTURER_ROLES), activityController.bulkApproveSeminars);
 router.post("/guidance/lecturer/seminar/:id/audience/:studentId/validate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.validateSeminarAudience);
 router.post("/guidance/lecturer/seminar/:id/audience/:studentId/unvalidate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.unvalidateSeminarAudience);

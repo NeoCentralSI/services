@@ -2,6 +2,7 @@ import prisma from "../../config/prisma.js";
 import * as repository from "../../repositories/insternship/assessment.repository.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
+import { checkAndUpdateInternshipStatus } from "./internship-automation.service.js";
 
 /**
  * Get assessment criteria and existing scores for a lecturer.
@@ -139,6 +140,9 @@ export async function submitLecturerAssessment(lecturerId, internshipId, scores)
             console.error("Gagal mengirim notifikasi penilaian selesai:", err);
         }
     }
+
+    // Call automation check
+    await checkAndUpdateInternshipStatus(internshipId);
 
     return result;
 }

@@ -2,6 +2,7 @@ import prisma from "../../config/prisma.js";
 import * as guidanceRepo from "../../repositories/insternship/guidance.repository.js";
 import * as notificationService from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
+import { checkAndUpdateInternshipStatus } from "./internship-automation.service.js";
 
 /**
  * Get active academic year helper.
@@ -682,6 +683,11 @@ export async function verifyFinalReport(lecturerId, internshipId, { status, note
             reportFeedbackDocument: true
         }
     });
+
+    // Call automation check if report was approved
+    if (status === 'APPROVED') {
+        await checkAndUpdateInternshipStatus(internshipId);
+    }
 
     // Notify student
     try {

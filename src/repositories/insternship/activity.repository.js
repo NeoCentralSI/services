@@ -468,6 +468,18 @@ export async function approveSeminar(seminarId, approvedBy) {
 }
 
 /**
+ * Mark a seminar as completed.
+ * @param {string} seminarId 
+ * @returns {Promise<Object>}
+ */
+export async function completeSeminar(seminarId) {
+    return prisma.internshipSeminar.update({
+        where: { id: seminarId },
+        data: { status: 'COMPLETED' }
+    });
+}
+
+/**
  * Reject a seminar request.
  * @param {string} seminarId
  * @param {string} notes - Rejection reason

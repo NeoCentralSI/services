@@ -4,6 +4,7 @@ import { calculateFinalResults } from "./assessment.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { generateFieldAssessmentPdf } from "../../utils/field-assessment-pdf.util.js";
+import { checkAndUpdateInternshipStatus } from "./internship-automation.service.js";
 
 /**
  * Validate a field assessment token.
@@ -277,6 +278,9 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
                 fieldAssessmentStatus: assessmentComplete ? "COMPLETED" : "APPROVED",
             },
         });
+
+        // Call automation check
+        await checkAndUpdateInternshipStatus(internshipId);
     } catch (calcError) {
         console.error("Gagal menghitung nilai akhir:", calcError);
     }

@@ -260,6 +260,20 @@ export async function rejectSeminar(req, res, next) {
 }
 
 /**
+ * Mark a seminar as completed (lecturer).
+ */
+export async function completeSeminar(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const { id } = req.params;
+        const data = await activityService.completeSeminar(id, userId);
+        res.json({ success: true, message: "Seminar telah ditandai sebagai selesai.", data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * Bulk approve seminar requests (lecturer).
  */
 export async function bulkApproveSeminars(req, res, next) {
