@@ -67,3 +67,36 @@ export const remove = async (req, res, next) => {
         next(error);
     }
 };
+
+export const getHierarchy = async (req, res, next) => {
+    try {
+        const { academicYearId, appliesTo, role, type } = req.query;
+        const data = await service.getCpmkHierarchy({
+            academicYearId,
+            appliesTo,
+            role,
+            type,
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Berhasil mengambil struktur CPMK, kriteria, dan rubrik",
+            data,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const copyTemplate = async (req, res, next) => {
+    try {
+        const data = await service.copyTemplateCpmk(req.body);
+        res.status(201).json({
+            success: true,
+            message: "Berhasil menyalin template CPMK ke tahun ajaran tujuan",
+            data,
+        });
+    } catch (error) {
+        next(error);
+    }
+};

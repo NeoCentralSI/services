@@ -12,6 +12,7 @@ export const findCpmkById = async (id) => {
             code: true,
             description: true,
             type: true,
+            academicYearId: true,
         },
     });
 };
@@ -20,17 +21,17 @@ export const findCpmkById = async (id) => {
  * Returns active thesis CPMKs that are already configured for defence + given role,
  * including criteria and rubrics.
  */
-export const findConfiguredDefenceCpmks = async (role) => {
+export const findConfiguredDefenceCpmks = async (role, academicYearId = null) => {
+    const where = {
+        type: "thesis",
+    };
+
+    if (academicYearId) {
+        where.academicYearId = academicYearId;
+    }
+
     return await prisma.cpmk.findMany({
-        where: {
-            type: "thesis",
-            assessmentCriterias: {
-                some: {
-                    appliesTo: "defence",
-                    role,
-                },
-            },
-        },
+        where,
         include: {
             assessmentCriterias: {
                 where: {
@@ -80,6 +81,7 @@ export const findCriteriaById = async (id) => {
                     code: true,
                     description: true,
                     type: true,
+                    academicYearId: true,
                 },
             },
             assessmentRubrics: {
@@ -180,6 +182,11 @@ export const findRubricById = async (id) => {
                     cpmkId: true,
                     appliesTo: true,
                     role: true,
+                    cpmk: {
+                        select: {
+                            academicYearId: true,
+                        },
+                    },
                 },
             },
         },
@@ -241,10 +248,11 @@ export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) 
  * Get total maxScore of all defence criteria across BOTH roles.
  * The 100-point cap is shared between examiner and supervisor.
  */
-export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null) => {
+export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null, academicYearId = null) => {
     const where = {
         appliesTo: "defence",
         role: { in: ["examiner", "supervisor"] },
+        cpmk: academicYearId ? { academicYearId } : undefined,
     };
     if (excludeCriteriaId) {
         where.id = { not: excludeCriteriaId };
@@ -253,6 +261,19 @@ export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null) => {
         where,
         _sum: { maxScore: true },
     });
+    return result._sum.maxScore || 0;
+};
+
+export const getActiveCriteriaTotalScoreByRole = async (role, academicYearId = null) => {
+    const result = await prisma.assessmentCriteria.aggregate({
+        where: {
+            appliesTo: "defence",
+            role,
+            ...(academicYearId ? { cpmk: { academicYearId } } : {}),
+        },
+        _sum: { maxScore: true },
+    });
+
     return result._sum.maxScore || 0;
 };
 
@@ -286,17 +307,14 @@ export const reorderRubrics = async (criteriaId, orderedIds) => {
 // Summary
 // ────────────────────────────────────────────
 
-export const getDefenceWeightSummary = async (role) => {
+export const getDefenceWeightSummary = async (role, academicYearId = null) => {
+    const cpmkWhere = {
+        type: "thesis",
+        ...(academicYearId ? { academicYearId } : {}),
+    };
+
     const cpmks = await prisma.cpmk.findMany({
-        where: {
-            type: "thesis",
-            assessmentCriterias: {
-                some: {
-                    appliesTo: "defence",
-                    role,
-                },
-            },
-        },
+        where: cpmkWhere,
         select: {
             id: true,
             code: true,

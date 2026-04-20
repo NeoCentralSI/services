@@ -1,4 +1,4 @@
-import * as service from "../services/rubricDefence.service.js";
+import * as service from "../services/defenceRubric.service.js";
 
 const VALID_ROLES = ["examiner", "supervisor"];
 
@@ -16,9 +16,9 @@ const validateRoleQuery = (role) => {
 
 export const getCpmksWithRubrics = async (req, res, next) => {
     try {
-        const { role } = req.query;
+        const { role, academicYearId } = req.query;
         validateRoleQuery(role);
-        const data = await service.getCpmksWithRubrics(role);
+        const data = await service.getCpmksWithRubrics(role, { academicYearId });
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil data CPMK dan rubrik sidang",
@@ -63,10 +63,11 @@ export const updateCriteria = async (req, res, next) => {
 export const deleteCriteria = async (req, res, next) => {
     try {
         const { criteriaId } = req.params;
-        await service.deleteCriteria(criteriaId);
+        const data = await service.deleteCriteria(criteriaId);
         res.status(200).json({
             success: true,
             message: "Berhasil menghapus kriteria sidang",
+            data,
         });
     } catch (error) {
         next(error);
@@ -140,10 +141,11 @@ export const deleteRubric = async (req, res, next) => {
 
 export const reorderCriteria = async (req, res, next) => {
     try {
-        await service.reorderCriteria(req.validated);
+        const data = await service.reorderCriteria(req.validated);
         res.status(200).json({
             success: true,
             message: "Berhasil mengubah urutan kriteria sidang",
+            data,
         });
     } catch (error) {
         next(error);
@@ -168,20 +170,14 @@ export const reorderRubrics = async (req, res, next) => {
 
 export const getWeightSummary = async (req, res, next) => {
     try {
-        const { role } = req.query;
+        const { role, academicYearId } = req.query;
         validateRoleQuery(role);
-        const data = await service.getWeightSummary(role);
-
-        // Also return the global total across both roles for cap display
-        const globalTotal = await service.getTotalActiveScore();
+        const data = await service.getWeightSummary(role, { academicYearId });
 
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil ringkasan bobot penilaian sidang",
-            data: {
-                ...data,
-                globalTotalScore: globalTotal,
-            },
+            data,
         });
     } catch (error) {
         next(error);

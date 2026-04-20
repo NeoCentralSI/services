@@ -12,6 +12,7 @@ export const findCpmkById = async (id) => {
             code: true,
             description: true,
             type: true,
+            academicYearId: true,
         },
     });
 };
@@ -20,17 +21,17 @@ export const findCpmkById = async (id) => {
  * Returns active thesis CPMKs that are already configured for seminar/default,
  * including criteria and rubrics.
  */
-export const findConfiguredSeminarCpmks = async () => {
+export const findConfiguredSeminarCpmks = async (academicYearId = null) => {
+    const where = {
+        type: "thesis",
+    };
+
+    if (academicYearId) {
+        where.academicYearId = academicYearId;
+    }
+
     return await prisma.cpmk.findMany({
-        where: {
-            type: "thesis",
-            assessmentCriterias: {
-                some: {
-                    appliesTo: "seminar",
-                    role: "default",
-                },
-            },
-        },
+        where,
         include: {
             assessmentCriterias: {
                 where: {
@@ -80,6 +81,7 @@ export const findCriteriaById = async (id) => {
                     code: true,
                     description: true,
                     type: true,
+                    academicYearId: true,
                 },
             },
             assessmentRubrics: {
@@ -259,10 +261,11 @@ export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) 
  * Get total maxScore of all seminar/default criteria.
  * Optionally exclude a specific criteria (for update validation).
  */
-export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null) => {
+export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null, academicYearId = null) => {
     const where = {
         appliesTo: "seminar",
         role: "default",
+        cpmk: academicYearId ? { academicYearId } : undefined,
     };
     if (excludeCriteriaId) {
         where.id = { not: excludeCriteriaId };
@@ -302,17 +305,14 @@ export const reorderRubrics = async (criteriaId, orderedIds) => {
     );
 };
 
-export const getSeminarWeightSummary = async () => {
+export const getSeminarWeightSummary = async (academicYearId = null) => {
+    const cpmkWhere = {
+        type: "thesis",
+        ...(academicYearId ? { academicYearId } : {}),
+    };
+
     const cpmks = await prisma.cpmk.findMany({
-        where: {
-            type: "thesis",
-            assessmentCriterias: {
-                some: {
-                    appliesTo: "seminar",
-                    role: "default",
-                },
-            },
-        },
+        where: cpmkWhere,
         select: {
             id: true,
             code: true,

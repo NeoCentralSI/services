@@ -11,7 +11,7 @@ import {
     getWeightSummary,
     reorderCriteria,
     reorderRubrics,
-} from "../controllers/rubricDefence.controller.js";
+} from "../controllers/defenceRubric.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import {
     createCriteriaSchema,
@@ -20,14 +20,14 @@ import {
     updateRubricSchema,
     reorderCriteriaSchema,
     reorderRubricsSchema,
-} from "../validators/rubricDefence.validator.js";
+} from "../validators/defenceRubric.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
 router.use(authGuard);
-router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]));
+router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN]));
 
 // ── CPMK listing with rubrics (per role) ─────
 router.get("/cpmks", getCpmksWithRubrics);
