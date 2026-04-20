@@ -152,7 +152,6 @@ model LecturerAvailability {
   endTime    DateTime  @map("end_time") @db.Time(0)
   validFrom  DateTime  @map("valid_from") @db.Date
   validUntil DateTime  @map("valid_until") @db.Date
-  isActive   Boolean   @default(true) @map("is_active")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 

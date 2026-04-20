@@ -10,13 +10,7 @@ export const createAvailabilitySchema = z.object({
     endTime: z.string().regex(timeRegex, "Format waktu harus HH:mm"),
     validFrom: z.string().date("Format tanggal harus YYYY-MM-DD"),
     validUntil: z.string().date("Format tanggal harus YYYY-MM-DD"),
-}).refine(
-    (data) => {
-        const today = new Date().toISOString().split("T")[0];
-        return data.validFrom >= today;
-    },
-    { message: "Tanggal berlaku tidak boleh sebelum hari ini", path: ["validFrom"] }
-);
+});
 
 export const updateAvailabilitySchema = z.object({
     day: dayOfWeekEnum.optional(),

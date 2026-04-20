@@ -1,9 +1,9 @@
 import express from "express";
 import {
     getMyAvailabilities,
+    getAvailabilityById,
     createAvailability,
     updateAvailability,
-    toggleAvailability,
     deleteAvailability
 } from "../controllers/lecturerAvailability.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
@@ -17,9 +17,9 @@ router.use(authGuard);
 router.use(requireAnyRole(LECTURER_ROLES));
 
 router.get("/", getMyAvailabilities);
+router.get("/:id", getAvailabilityById);
 router.post("/", validate(createAvailabilitySchema), createAvailability);
 router.patch("/:id", validate(updateAvailabilitySchema), updateAvailability);
-router.patch("/:id/toggle", toggleAvailability);
 router.delete("/:id", deleteAvailability);
 
 export default router;

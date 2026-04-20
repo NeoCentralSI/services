@@ -33,12 +33,22 @@ export const remove = async (id) => {
     });
 };
 
-export const findOverlapping = async (lecturerId, day, startTime, endTime, excludeId = null) => {
+export const findOverlapping = async (
+    lecturerId,
+    day,
+    startTime,
+    endTime,
+    validFrom,
+    validUntil,
+    excludeId = null
+) => {
     const where = {
         lecturerId,
         day,
         startTime: { lt: endTime },
-        endTime: { gt: startTime }
+        endTime: { gt: startTime },
+        validFrom: { lt: validUntil },
+        validUntil: { gt: validFrom }
     };
     if (excludeId) {
         where.id = { not: excludeId };
