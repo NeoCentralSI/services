@@ -24,67 +24,130 @@ class ForbiddenError extends Error {
     }
 }
 
-/**
- * Parse "HH:mm" string into a Date with only time component (1970-01-01) in UTC.
- * Prisma @db.Time(0) stores/returns time in UTC, so we must construct UTC dates.
- */
 const parseTime = (timeStr) => {
     const [hours, minutes] = timeStr.split(":").map(Number);
     return new Date(Date.UTC(1970, 0, 1, hours, minutes, 0));
 };
 
-/**
- * Parse "YYYY-MM-DD" date string into a Date object.
- */
 const parseDate = (dateStr) => {
     return new Date(dateStr);
 };
 
-export const getMyAvailabilities = async (lecturerId) => {
-    const data = await repository.findAllByLecturerId(lecturerId);
+const DAY_ORDER = {
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5
+};
 
-    return data.map((item) => ({
+const startOfLocalDay = (date) => {
+    const value = new Date(date);
+    value.setHours(0, 0, 0, 0);
+    return value;
+};
+
+const validateCreateValidFromNotPast = (validFrom) => {
+    const today = startOfLocalDay(new Date());
+    if (startOfLocalDay(validFrom) < today) {
+        throw new ValidationError("Tanggal mulai berlaku tidak boleh sebelum hari ini");
+    }
+};
+
+const mapAvailabilityResponse = (item) => {
+    const today = startOfLocalDay(new Date());
+    const validFrom = startOfLocalDay(item.validFrom);
+    const validUntil = startOfLocalDay(item.validUntil);
+
+    return {
         id: item.id,
         day: item.day,
         startTime: item.startTime,
         endTime: item.endTime,
         validFrom: item.validFrom,
         validUntil: item.validUntil,
-        isActive: item.isActive,
+        isActive: today >= validFrom && today <= validUntil,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt
-    }));
+    };
+};
+
+const ensureOwnedAvailability = async (id, lecturerId) => {
+    const availability = await repository.findById(id);
+    if (!availability) {
+        throw new NotFoundError("Jadwal ketersediaan tidak ditemukan");
+    }
+    if (availability.lecturerId !== lecturerId) {
+        throw new ForbiddenError("Anda tidak memiliki akses pada jadwal ini");
+    }
+    return availability;
+};
+
+const validateTimeRange = (startTime, endTime) => {
+    if (startTime >= endTime) {
+        throw new ValidationError("Waktu selesai harus setelah waktu mulai");
+    }
+};
+
+const validateDateRange = (validFrom, validUntil) => {
+    if (validFrom >= validUntil) {
+        throw new ValidationError("Tanggal selesai berlaku harus setelah tanggal mulai berlaku");
+    }
+};
+
+const validateNoOverlap = async ({
+    lecturerId,
+    day,
+    startTime,
+    endTime,
+    validFrom,
+    validUntil,
+    excludeId = null
+}) => {
+    const overlap = await repository.findOverlapping(
+        lecturerId,
+        day,
+        startTime,
+        endTime,
+        validFrom,
+        validUntil,
+        excludeId
+    );
+    if (overlap) {
+        throw new ValidationError(
+            "Jadwal tumpang tindih dengan ketersediaan lain pada hari, waktu, dan periode berlaku yang beririsan"
+        );
+    }
+};
+
+export const getAvailabilities = async (lecturerId) => {
+    const data = await repository.findAllByLecturerId(lecturerId);
+    return data
+        .slice()
+        .sort((a, b) => {
+            const dayCompare = (DAY_ORDER[a.day] ?? 99) - (DAY_ORDER[b.day] ?? 99);
+            if (dayCompare !== 0) return dayCompare;
+            return a.startTime - b.startTime;
+        })
+        .map(mapAvailabilityResponse);
+};
+
+export const getAvailabilityById = async (id, lecturerId) => {
+    const availability = await ensureOwnedAvailability(id, lecturerId);
+    return mapAvailabilityResponse(availability);
 };
 
 export const createAvailability = async (lecturerId, data) => {
     const startTime = parseTime(data.startTime);
     const endTime = parseTime(data.endTime);
-
-    if (startTime >= endTime) {
-        throw new ValidationError("Waktu mulai harus sebelum waktu selesai");
-    }
+    validateTimeRange(startTime, endTime);
 
     const validFrom = parseDate(data.validFrom);
     const validUntil = parseDate(data.validUntil);
+    validateDateRange(validFrom, validUntil);
+    validateCreateValidFromNotPast(validFrom);
 
-    if (validFrom >= validUntil) {
-        throw new ValidationError("Tanggal mulai berlaku harus sebelum tanggal selesai berlaku");
-    }
-
-    // Validate: validFrom must not be in the past
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (validFrom < today) {
-        throw new ValidationError("Tanggal mulai berlaku tidak boleh di masa lalu");
-    }
-
-    // Check for overlapping availability on the same day
-    const overlap = await repository.findOverlapping(lecturerId, data.day, startTime, endTime);
-    if (overlap) {
-        throw new ValidationError("Jadwal tumpang tindih dengan ketersediaan yang sudah ada pada hari yang sama");
-    }
-
-    return await repository.create({
+    await validateNoOverlap({
         lecturerId,
         day: data.day,
         startTime,
@@ -92,75 +155,53 @@ export const createAvailability = async (lecturerId, data) => {
         validFrom,
         validUntil
     });
+
+    const created = await repository.create({
+        lecturerId,
+        day: data.day,
+        startTime,
+        endTime,
+        validFrom,
+        validUntil
+    });
+    return mapAvailabilityResponse(created);
 };
 
 export const updateAvailability = async (id, lecturerId, data) => {
-    const existing = await repository.findById(id);
-    if (!existing) {
-        throw new NotFoundError("Jadwal ketersediaan tidak ditemukan");
-    }
-    if (existing.lecturerId !== lecturerId) {
-        throw new ForbiddenError("Anda tidak memiliki akses untuk mengubah jadwal ini");
-    }
+    const existing = await ensureOwnedAvailability(id, lecturerId);
 
     const updateData = {};
+    const nextDay = data.day ?? existing.day;
+    const nextStartTime = data.startTime ? parseTime(data.startTime) : existing.startTime;
+    const nextEndTime = data.endTime ? parseTime(data.endTime) : existing.endTime;
+    const nextValidFrom = data.validFrom ? parseDate(data.validFrom) : existing.validFrom;
+    const nextValidUntil = data.validUntil ? parseDate(data.validUntil) : existing.validUntil;
+
+    validateTimeRange(nextStartTime, nextEndTime);
+    validateDateRange(nextValidFrom, nextValidUntil);
 
     if (data.day !== undefined) updateData.day = data.day;
+    if (data.startTime !== undefined) updateData.startTime = nextStartTime;
+    if (data.endTime !== undefined) updateData.endTime = nextEndTime;
+    if (data.validFrom !== undefined) updateData.validFrom = nextValidFrom;
+    if (data.validUntil !== undefined) updateData.validUntil = nextValidUntil;
 
-    if (data.startTime !== undefined || data.endTime !== undefined) {
-        const startTime = data.startTime ? parseTime(data.startTime) : existing.startTime;
-        const endTime = data.endTime ? parseTime(data.endTime) : existing.endTime;
+    await validateNoOverlap({
+        lecturerId,
+        day: nextDay,
+        startTime: nextStartTime,
+        endTime: nextEndTime,
+        validFrom: nextValidFrom,
+        validUntil: nextValidUntil,
+        excludeId: id
+    });
 
-        if (startTime >= endTime) {
-            throw new ValidationError("Waktu mulai harus sebelum waktu selesai");
-        }
-
-        if (data.startTime !== undefined) updateData.startTime = startTime;
-        if (data.endTime !== undefined) updateData.endTime = endTime;
-
-        // Check overlap with new times
-        const day = data.day || existing.day;
-        const overlap = await repository.findOverlapping(lecturerId, day, startTime, endTime, id);
-        if (overlap) {
-            throw new ValidationError("Jadwal tumpang tindih dengan ketersediaan yang sudah ada pada hari yang sama");
-        }
-    }
-
-    if (data.validFrom !== undefined || data.validUntil !== undefined) {
-        const validFrom = data.validFrom ? parseDate(data.validFrom) : existing.validFrom;
-        const validUntil = data.validUntil ? parseDate(data.validUntil) : existing.validUntil;
-
-        if (validFrom >= validUntil) {
-            throw new ValidationError("Tanggal mulai berlaku harus sebelum tanggal selesai berlaku");
-        }
-
-        if (data.validFrom !== undefined) updateData.validFrom = validFrom;
-        if (data.validUntil !== undefined) updateData.validUntil = validUntil;
-    }
-
-    return await repository.update(id, updateData);
-};
-
-export const toggleAvailability = async (id, lecturerId) => {
-    const existing = await repository.findById(id);
-    if (!existing) {
-        throw new NotFoundError("Jadwal ketersediaan tidak ditemukan");
-    }
-    if (existing.lecturerId !== lecturerId) {
-        throw new ForbiddenError("Anda tidak memiliki akses untuk mengubah jadwal ini");
-    }
-
-    return await repository.update(id, { isActive: !existing.isActive });
+    const updated = await repository.update(id, updateData);
+    return mapAvailabilityResponse(updated);
 };
 
 export const deleteAvailability = async (id, lecturerId) => {
-    const existing = await repository.findById(id);
-    if (!existing) {
-        throw new NotFoundError("Jadwal ketersediaan tidak ditemukan");
-    }
-    if (existing.lecturerId !== lecturerId) {
-        throw new ForbiddenError("Anda tidak memiliki akses untuk menghapus jadwal ini");
-    }
+    await ensureOwnedAvailability(id, lecturerId);
 
     return await repository.remove(id);
 };

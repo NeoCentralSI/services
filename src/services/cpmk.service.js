@@ -1,5 +1,6 @@
 import * as repository from "../repositories/cpmk.repository.js";
 import { getActiveAcademicYearId } from "../helpers/academicYear.helper.js";
+import prisma from "../config/prisma.js";
 
 class NotFoundError extends Error {
     constructor(message) {
@@ -25,6 +26,86 @@ class ConflictError extends Error {
     }
 }
 
+const toCpmkResponse = (item) => {
+    const hasAssessmentDetails = Boolean(item.hasAssessmentDetails);
+    return ({
+    id: item.id,
+    academicYearId: item.academicYearId,
+    academicYear: item.academicYear
+        ? {
+            id: item.academicYear.id,
+            semester: item.academicYear.semester,
+            year: item.academicYear.year,
+            isActive: item.academicYear.isActive,
+        }
+        : null,
+    code: item.code,
+    description: item.description,
+    type: item.type,
+    maxScore: null,
+    hasCriteria:
+        item.hasCriteria !== undefined
+            ? item.hasCriteria
+            : (item._count?.assessmentCriterias ?? 0) > 0,
+    hasAssessmentDetails,
+    canEditCode:
+        item.canEditCode !== undefined
+            ? item.canEditCode
+            : !hasAssessmentDetails,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    });
+};
+
+const getCriteriaByCpmkIds = async (cpmkIds) => {
+    if (cpmkIds.length === 0) return [];
+    return await prisma.assessmentCriteria.findMany({
+        where: { cpmkId: { in: cpmkIds } },
+        select: { id: true, cpmkId: true },
+    });
+};
+
+const getAssessmentDetailCriteriaIdSet = async (criteriaIds) => {
+    if (criteriaIds.length === 0) return new Set();
+
+    const [seminarDetails, defenceDetails] = await Promise.all([
+        prisma.thesisSeminarExaminerAssessmentDetail.findMany({
+            where: { assessmentCriteriaId: { in: criteriaIds } },
+            select: { assessmentCriteriaId: true },
+        }),
+        prisma.thesisDefenceExaminerAssessmentDetail.findMany({
+            where: { assessmentCriteriaId: { in: criteriaIds } },
+            select: { assessmentCriteriaId: true },
+        }),
+    ]);
+
+    return new Set(
+        [...seminarDetails, ...defenceDetails].map((item) => item.assessmentCriteriaId)
+    );
+};
+
+const buildCpmkAssessmentDetailMap = async (cpmkIds) => {
+    const criteriaRows = await getCriteriaByCpmkIds(cpmkIds);
+    const criteriaIds = criteriaRows.map((row) => row.id);
+    const criteriaWithDetails = await getAssessmentDetailCriteriaIdSet(criteriaIds);
+
+    const cpmkMap = new Map(cpmkIds.map((id) => [id, false]));
+    for (const row of criteriaRows) {
+        if (criteriaWithDetails.has(row.id)) {
+            cpmkMap.set(row.cpmkId, true);
+        }
+    }
+
+    return cpmkMap;
+};
+
+const hasCpmkAssessmentDetails = async (cpmkId) => {
+    const criteriaRows = await getCriteriaByCpmkIds([cpmkId]);
+    const criteriaIds = criteriaRows.map((row) => row.id);
+    const criteriaWithDetails = await getAssessmentDetailCriteriaIdSet(criteriaIds);
+    return criteriaRows.some((row) => criteriaWithDetails.has(row.id));
+};
+
 async function resolveAcademicYearId(inputAcademicYearId) {
     if (inputAcademicYearId) return inputAcademicYearId;
     return await getActiveAcademicYearId();
@@ -37,26 +118,14 @@ export const getAllCpmks = async ({ academicYearId } = {}) => {
     }
 
     const data = await repository.findAll({ academicYearId: resolvedAcademicYearId });
+    const detailMap = await buildCpmkAssessmentDetailMap(data.map((item) => item.id));
 
-    return data.map((item) => ({
-        id: item.id,
-        academicYearId: item.academicYearId,
-        academicYear: item.academicYear
-            ? {
-                id: item.academicYear.id,
-                semester: item.academicYear.semester,
-                year: item.academicYear.year,
-                isActive: item.academicYear.isActive,
-            }
-            : null,
-        code: item.code,
-        description: item.description,
-        type: item.type,
-        maxScore: null,
-        displayOrder: item.displayOrder,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-    }));
+    return data.map((item) =>
+        toCpmkResponse({
+            ...item,
+            hasAssessmentDetails: detailMap.get(item.id) ?? false,
+        })
+    );
 };
 
 export const getCpmkById = async (id) => {
@@ -64,7 +133,11 @@ export const getCpmkById = async (id) => {
     if (!data) {
         throw new NotFoundError("Data CPMK tidak ditemukan");
     }
-    return data;
+    const hasAssessmentDetails = await hasCpmkAssessmentDetails(data.id);
+    return toCpmkResponse({
+        ...data,
+        hasAssessmentDetails,
+    });
 };
 
 export const createCpmk = async (data) => {
@@ -81,12 +154,14 @@ export const createCpmk = async (data) => {
         }
     }
 
-    return await repository.create({
+    const created = await repository.create({
         academicYearId: resolvedAcademicYearId,
         code: data.code,
         description: data.description,
         type: data.type,
     });
+    const withRelations = await repository.findById(created.id);
+    return toCpmkResponse(withRelations);
 };
 
 export const updateCpmk = async (id, data) => {
@@ -98,6 +173,17 @@ export const updateCpmk = async (id, data) => {
     const targetAcademicYearId = await resolveAcademicYearId(data.academicYearId || existing.academicYearId);
     if (!targetAcademicYearId) {
         throw new ValidationError("Tahun ajaran aktif tidak ditemukan. Silakan pilih tahun ajaran terlebih dahulu.");
+    }
+
+    const hasAssessmentDetails = await hasCpmkAssessmentDetails(id);
+    if (
+        hasAssessmentDetails
+        && data.code !== undefined
+        && data.code !== existing.code
+    ) {
+        throw new ValidationError(
+            "Kode CPMK tidak dapat diubah karena sudah memiliki detail penilaian turunan"
+        );
     }
 
     const updateData = {};
@@ -123,7 +209,19 @@ export const updateCpmk = async (id, data) => {
     if (data.type !== undefined) updateData.type = data.type;
     if (data.academicYearId !== undefined) updateData.academicYearId = targetAcademicYearId;
 
-    return await repository.update(id, updateData);
+    if (Object.keys(updateData).length === 0) {
+        return toCpmkResponse({
+            ...existing,
+            hasAssessmentDetails,
+        });
+    }
+
+    const updated = await repository.update(id, updateData);
+    const withRelations = await repository.findById(updated.id);
+    return toCpmkResponse({
+        ...withRelations,
+        hasAssessmentDetails,
+    });
 };
 
 export const deleteCpmk = async (id) => {
@@ -132,12 +230,95 @@ export const deleteCpmk = async (id) => {
         throw new NotFoundError("Data CPMK tidak ditemukan");
     }
 
-    const hasRelated = await repository.hasRelatedData(id);
-    if (hasRelated) {
-        throw new ConflictError(
-            "Tidak dapat menghapus CPMK karena sudah memiliki data terkait (kriteria penilaian)"
+    const hasAssessmentDetails = await hasCpmkAssessmentDetails(id);
+    if (hasAssessmentDetails) {
+        throw new ValidationError(
+            "Tidak dapat menghapus CPMK karena sudah memiliki detail penilaian turunan"
         );
     }
 
-    return await repository.remove(id);
+    return await prisma.$transaction(async (tx) => {
+        const criteriaRows = await tx.assessmentCriteria.findMany({
+            where: { cpmkId: id },
+            select: { id: true },
+        });
+
+        const criteriaIds = criteriaRows.map((row) => row.id);
+
+        if (criteriaIds.length > 0) {
+            await tx.assessmentRubric.deleteMany({
+                where: { assessmentCriteriaId: { in: criteriaIds } },
+            });
+            await tx.assessmentCriteria.deleteMany({
+                where: { id: { in: criteriaIds } },
+            });
+        }
+
+        return await tx.cpmk.delete({ where: { id } });
+    });
+};
+
+export const getCpmkHierarchy = async ({
+    academicYearId,
+    appliesTo,
+    role,
+    type = "thesis",
+} = {}) => {
+    const resolvedAcademicYearId = await resolveAcademicYearId(academicYearId);
+    if (!resolvedAcademicYearId) {
+        return [];
+    }
+
+    if (!["seminar", "defence"].includes(appliesTo)) {
+        throw new ValidationError("Parameter appliesTo harus bernilai 'seminar' atau 'defence'");
+    }
+
+    if (appliesTo === "defence" && !["examiner", "supervisor"].includes(role)) {
+        throw new ValidationError("Role untuk defence harus 'examiner' atau 'supervisor'");
+    }
+
+    const cpmks = await repository.findCpmksWithCriteriaRubrics({
+        academicYearId: resolvedAcademicYearId,
+        appliesTo,
+        role: appliesTo === "defence" ? role : null,
+        type,
+    });
+
+    const allCriteria = cpmks.flatMap((item) => item.assessmentCriterias);
+    const criteriaWithDetails = await getAssessmentDetailCriteriaIdSet(
+        allCriteria.map((criteria) => criteria.id)
+    );
+
+    return cpmks.map((item) => {
+        const assessmentCriterias = item.assessmentCriterias.map((criteria) => ({
+            ...criteria,
+            hasAssessmentDetails: criteriaWithDetails.has(criteria.id),
+        }));
+
+        return {
+            ...toCpmkResponse({
+                ...item,
+                hasAssessmentDetails: assessmentCriterias.some((criteria) => criteria.hasAssessmentDetails),
+            }),
+            assessmentCriterias,
+        };
+    });
+};
+
+export const copyTemplateCpmk = async ({
+    sourceAcademicYearId,
+    targetAcademicYearId,
+}) => {
+    if (!sourceAcademicYearId || !targetAcademicYearId) {
+        throw new ValidationError("sourceAcademicYearId dan targetAcademicYearId wajib diisi");
+    }
+
+    if (sourceAcademicYearId === targetAcademicYearId) {
+        throw new ValidationError("Tahun ajaran sumber dan tujuan tidak boleh sama");
+    }
+
+    return await repository.copyTemplateAcrossAcademicYears({
+        sourceAcademicYearId,
+        targetAcademicYearId,
+    });
 };

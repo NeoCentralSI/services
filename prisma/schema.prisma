@@ -80,6 +80,7 @@ model Student {
   mkwuCompleted                  Boolean              @default(false) @map("mkwu_completed")
   internshipCompleted            Boolean              @default(false) @map("internship_completed")
   kknCompleted                   Boolean              @default(false) @map("kkn_completed")
+  researchMethodCompleted        Boolean              @default(false) @map("research_method_completed")
   currentSemester                Int?                 @map("current_semester")
   createdAt                      DateTime             @default(now()) @map("created_at")
   updatedAt                      DateTime             @updatedAt @map("updated_at")
@@ -89,6 +90,7 @@ model Student {
   internshipSeminarModerator InternshipSeminar[]         @relation("InternshipSeminarModerator")
   internshipSeminarAudiences InternshipSeminarAudience[] @relation("InternshipSeminarAudience")
   researchMethodGrades       ResearchMethodGrade[]
+  studentCplScores           StudentCplScore[]
   user                       User                        @relation(fields: [id], references: [id], onDelete: Cascade)
   thesis                     Thesis[]
   thesisProposal             ThesisProposal[]
@@ -111,9 +113,10 @@ model StudentCplScore {
   finalizedAt DateTime?      @map("finalized_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  cpl       Cpl   @relation(fields: [cplId], references: [id])
-  inputUser User? @relation("CplScoreInputBy", fields: [inputBy], references: [id])
-  verifier  User? @relation("CplScoreVerifiedBy", fields: [verifiedBy], references: [id])
+  cpl       Cpl     @relation(fields: [cplId], references: [id])
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  inputUser User?   @relation("CplScoreInputBy", fields: [inputBy], references: [id])
+  verifier  User?   @relation("CplScoreVerifiedBy", fields: [verifiedBy], references: [id])
 
   @@id([studentId, cplId])
   @@index([cplId], map: "student_cpl_scores_cpl_id_fkey")
@@ -152,7 +155,6 @@ model LecturerAvailability {
   endTime    DateTime  @map("end_time") @db.Time(0)
   validFrom  DateTime  @map("valid_from") @db.Date
   validUntil DateTime  @map("valid_until") @db.Date
-  isActive   Boolean   @default(true) @map("is_active")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
@@ -224,7 +226,6 @@ model Cpmk {
   code           String        @db.VarChar(255)
   description    String        @db.VarChar(255)
   type           CpmkType
-  displayOrder   Int           @default(0) @map("display_order")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 

@@ -3,10 +3,25 @@ import * as service from "../services/lecturerAvailability.service.js";
 export const getMyAvailabilities = async (req, res, next) => {
     try {
         const lecturerId = req.user.sub;
-        const data = await service.getMyAvailabilities(lecturerId);
+        const data = await service.getAvailabilities(lecturerId);
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil jadwal ketersediaan",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getAvailabilityById = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const lecturerId = req.user.sub;
+        const data = await service.getAvailabilityById(id, lecturerId);
+        res.status(200).json({
+            success: true,
+            message: "Berhasil mengambil detail jadwal ketersediaan",
             data
         });
     } catch (error) {
@@ -36,21 +51,6 @@ export const updateAvailability = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: "Berhasil mengubah jadwal ketersediaan",
-            data
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-export const toggleAvailability = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const lecturerId = req.user.sub;
-        const data = await service.toggleAvailability(id, lecturerId);
-        res.status(200).json({
-            success: true,
-            message: data.isActive ? "Jadwal berhasil diaktifkan" : "Jadwal berhasil dinonaktifkan",
             data
         });
     } catch (error) {

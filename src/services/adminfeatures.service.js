@@ -1588,6 +1588,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 				mkwuCompleted: user.student.mkwuCompleted,
 				internshipCompleted: user.student.internshipCompleted,
 				kknCompleted: user.student.kknCompleted,
+				researchMethodCompleted: user.student.researchMethodCompleted,
 				currentSemester: user.student.currentSemester,
 				status: user.student.status || null,
 				activeTheses: user.student.thesis.map((thesis) => ({
@@ -2028,7 +2029,7 @@ export async function getStudentDetail(userId) {
 			},
 		},
 		orderBy: [
-			{ cpl: { displayOrder: "asc" } },
+			{ cpl: { code: "asc" } },
 			{ cplId: "asc" },
 		],
 	});
@@ -2108,6 +2109,7 @@ export async function getStudentDetail(userId) {
 			mkwuCompleted: user.student.mkwuCompleted,
 			internshipCompleted: user.student.internshipCompleted,
 			kknCompleted: user.student.kknCompleted,
+			researchMethodCompleted: user.student.researchMethodCompleted,
 			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
 		},
@@ -2302,6 +2304,7 @@ export async function adminUpdateStudent(id, data) {
 	if (data.mkwuCompleted !== undefined) updateData.mkwuCompleted = !!data.mkwuCompleted;
 	if (data.internshipCompleted !== undefined) updateData.internshipCompleted = !!data.internshipCompleted;
 	if (data.kknCompleted !== undefined) updateData.kknCompleted = !!data.kknCompleted;
+	if (data.researchMethodCompleted !== undefined) updateData.researchMethodCompleted = !!data.researchMethodCompleted;
 
 	return prisma.student.update({
 		where: { id },

@@ -1,4 +1,4 @@
-import * as service from "../services/rubricSeminar.service.js";
+import * as service from "../services/seminarRubric.service.js";
 
 // ────────────────────────────────────────────
 // CPMK Listing
@@ -6,7 +6,8 @@ import * as service from "../services/rubricSeminar.service.js";
 
 export const getCpmksWithRubrics = async (req, res, next) => {
     try {
-        const data = await service.getCpmksWithRubrics();
+        const { academicYearId } = req.query;
+        const data = await service.getCpmksWithRubrics({ academicYearId });
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil data CPMK dan rubrik seminar",
@@ -158,7 +159,8 @@ export const reorderRubrics = async (req, res, next) => {
 
 export const getWeightSummary = async (req, res, next) => {
     try {
-        const data = await service.getWeightSummary();
+        const { academicYearId } = req.query;
+        const data = await service.getWeightSummary({ academicYearId });
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil ringkasan bobot penilaian seminar",
