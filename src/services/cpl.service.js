@@ -16,25 +16,23 @@ class ValidationError extends Error {
     }
 }
 
-class ConflictError extends Error {
-    constructor(message) {
-        super(message);
-        this.name = "ConflictError";
-        this.statusCode = 409;
-    }
-}
+const toCplResponse = (item) => ({
+    id: item.id,
+    code: item.code,
+    description: item.description,
+    minimalScore: item.minimalScore,
+    isActive: item.isActive,
+    hasRelatedScores:
+        item.hasRelatedScores !== undefined
+            ? item.hasRelatedScores
+            : item._count?.studentCplScores > 0,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+});
 
 export const getAllCpls = async () => {
     const data = await repository.findAll();
-    return data.map((item) => ({
-        id: item.id,
-        code: item.code,
-        description: item.description,
-        minimalScore: item.minimalScore,
-        isActive: item.isActive,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-    }));
+    return data.map(toCplResponse);
 };
 
 export const getCplById = async (id) => {
@@ -42,23 +40,27 @@ export const getCplById = async (id) => {
     if (!data) {
         throw new NotFoundError("Data CPL tidak ditemukan");
     }
-    return data;
+    return toCplResponse(data);
 };
 
 export const createCpl = async (data) => {
-    // Check code uniqueness
     if (data.code) {
-        const existing = await repository.findByCode(data.code);
+        const existing = await repository.findActiveByCode(data.code);
         if (existing) {
-            throw new ConflictError(`Kode CPL "${data.code}" sudah digunakan`);
+            throw new ValidationError(
+                `Tidak dapat membuat CPL. Versi aktif dengan kode "${data.code}" sudah ada`
+            );
         }
     }
 
-    return await repository.create({
+    const created = await repository.create({
         code: data.code,
         description: data.description,
         minimalScore: data.minimalScore,
     });
+
+    const createdWithRelations = await repository.findById(created.id);
+    return toCplResponse(createdWithRelations);
 };
 
 export const updateCpl = async (id, data) => {
@@ -67,13 +69,23 @@ export const updateCpl = async (id, data) => {
         throw new NotFoundError("Data CPL tidak ditemukan");
     }
 
+    const hasRelatedScores = existing._count.studentCplScores > 0;
+    if (hasRelatedScores && (data.code !== undefined || data.minimalScore !== undefined)) {
+        throw new ValidationError(
+            "CPL yang sudah memiliki nilai mahasiswa hanya dapat diubah pada field deskripsi"
+        );
+    }
+
     const updateData = {};
 
     if (data.code !== undefined) {
-        // Check code uniqueness (exclude self)
-        const duplicate = await repository.findByCode(data.code, id);
-        if (duplicate) {
-            throw new ConflictError(`Kode CPL "${data.code}" sudah digunakan`);
+        if (existing.isActive) {
+            const activeDuplicate = await repository.findActiveByCode(data.code, id);
+            if (activeDuplicate) {
+                throw new ValidationError(
+                    `Tidak dapat mengubah kode. Versi aktif dengan kode "${data.code}" sudah ada`
+                );
+            }
         }
         updateData.code = data.code;
     }
@@ -81,7 +93,16 @@ export const updateCpl = async (id, data) => {
     if (data.description !== undefined) updateData.description = data.description;
     if (data.minimalScore !== undefined) updateData.minimalScore = data.minimalScore;
 
-    return await repository.update(id, updateData);
+    if (Object.keys(updateData).length === 0) {
+        return toCplResponse({
+            ...existing,
+            hasRelatedScores,
+        });
+    }
+
+    const updated = await repository.update(id, updateData);
+    const updatedWithRelations = await repository.findById(updated.id);
+    return toCplResponse(updatedWithRelations);
 };
 
 export const toggleCpl = async (id) => {
@@ -90,7 +111,20 @@ export const toggleCpl = async (id) => {
         throw new NotFoundError("Data CPL tidak ditemukan");
     }
 
-    return await repository.update(id, { isActive: !existing.isActive });
+    const nextIsActive = !existing.isActive;
+
+    if (nextIsActive && existing.code) {
+        const activeDuplicate = await repository.findActiveByCode(existing.code, id);
+        if (activeDuplicate) {
+            throw new ValidationError(
+                `Tidak dapat mengaktifkan ulang CPL. Versi aktif dengan kode "${existing.code}" sudah ada`
+            );
+        }
+    }
+
+    const updated = await repository.update(id, { isActive: nextIsActive });
+    const updatedWithRelations = await repository.findById(updated.id);
+    return toCplResponse(updatedWithRelations);
 };
 
 export const deleteCpl = async (id) => {
@@ -99,10 +133,10 @@ export const deleteCpl = async (id) => {
         throw new NotFoundError("Data CPL tidak ditemukan");
     }
 
-    const hasRelated = await repository.hasRelatedData(id);
+    const hasRelated = await repository.hasRelatedScores(id);
     if (hasRelated) {
-        throw new ConflictError(
-            "Tidak dapat menghapus CPL karena sudah memiliki data terkait (nilai mahasiswa atau rekomendasi yudisium)"
+        throw new ValidationError(
+            "Tidak dapat menghapus CPL karena sudah memiliki nilai CPL mahasiswa"
         );
     }
 
