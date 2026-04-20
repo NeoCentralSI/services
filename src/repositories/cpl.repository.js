@@ -3,12 +3,26 @@ import prisma from "../config/prisma.js";
 export const findAll = async () => {
     return await prisma.cpl.findMany({
         orderBy: { code: "asc" },
+        include: {
+            _count: {
+                select: {
+                    studentCplScores: true,
+                },
+            },
+        },
     });
 };
 
 export const findById = async (id) => {
     return await prisma.cpl.findUnique({
         where: { id },
+        include: {
+            _count: {
+                select: {
+                    studentCplScores: true,
+                },
+            },
+        },
     });
 };
 
@@ -17,6 +31,19 @@ export const findByCode = async (code, excludeId = null) => {
     if (excludeId) {
         where.id = { not: excludeId };
     }
+    return await prisma.cpl.findFirst({ where });
+};
+
+export const findActiveByCode = async (code, excludeId = null) => {
+    const where = {
+        code,
+        isActive: true,
+    };
+
+    if (excludeId) {
+        where.id = { not: excludeId };
+    }
+
     return await prisma.cpl.findFirst({ where });
 };
 
@@ -37,10 +64,7 @@ export const remove = async (id) => {
     });
 };
 
-export const hasRelatedData = async (id) => {
-    const [scoresCount, recommendationsCount] = await Promise.all([
-        prisma.studentCplScore.count({ where: { cplId: id } }),
-        prisma.yudisiumCplRecommendation.count({ where: { cplId: id } }),
-    ]);
-    return scoresCount > 0 || recommendationsCount > 0;
+export const hasRelatedScores = async (id) => {
+    const scoresCount = await prisma.studentCplScore.count({ where: { cplId: id } });
+    return scoresCount > 0;
 };
