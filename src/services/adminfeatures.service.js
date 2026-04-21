@@ -652,6 +652,7 @@ export async function getRooms({ page = 1, pageSize = 10, search = "" } = {}) {
 			name: room.name,
 			location: room.location,
 			capacity: room.capacity,
+			relationCount,
 			createdAt: room.createdAt,
 			updatedAt: room.updatedAt,
 			canDelete: relationCount === 0,
