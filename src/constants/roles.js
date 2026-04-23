@@ -13,7 +13,6 @@ export const ROLES = {
   MAHASISWA: "Mahasiswa",
   GKM: "GKM",
   KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
-  TIM_PENGELOLA_CPL: "Tim Pengelola CPL",
 };
 
 // Role categories for easy checking
@@ -21,7 +20,7 @@ export const SUPERVISOR_ROLES = [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2];
 export const EXAMINER_ROLES = [ROLES.PENGUJI];
 export const STUDENT_ROLES = [ROLES.MAHASISWA];
 export const ADMIN_ROLES = [ROLES.ADMIN];
-export const DEPARTMENT_ROLES = [ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.GKM, ROLES.KOORDINATOR_YUDISIUM, ROLES.TIM_PENGELOLA_CPL];
+export const DEPARTMENT_ROLES = [ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.GKM, ROLES.KOORDINATOR_YUDISIUM];
 
 // All lecturer-related roles (non-student roles that create Lecturer record)
 export const LECTURER_ROLES = [
@@ -32,7 +31,6 @@ export const LECTURER_ROLES = [
   ROLES.SEKRETARIS_DEPARTEMEN,
   ROLES.GKM,
   ROLES.KOORDINATOR_YUDISIUM,
-  ROLES.TIM_PENGELOLA_CPL,
 ];
 
 // Helper functions

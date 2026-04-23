@@ -24,7 +24,6 @@ const ROLES = {
   MAHASISWA: "Mahasiswa",
   GKM: "GKM",
   KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
-  TIM_PENGELOLA_CPL: "Tim Pengelola CPL",
 };
 
 const DEFAULT_PASSWORD = "password123";
@@ -217,7 +216,7 @@ async function seedUsers(roleMap) {
       fullName: "Aina Hubby Aziira, M.Eng",
       identityType: "NIP",
       identityNumber: "199504302022032013",
-      roles: [ROLES.PENGUJI, ROLES.TIM_PENGELOLA_CPL, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
+      roles: [ROLES.PENGUJI, ROLES.GKM, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
@@ -225,7 +224,7 @@ async function seedUsers(roleMap) {
       fullName: "Ullya Mega Wahyuni, M.Kom",
       identityType: "NIP",
       identityNumber: "199011032019032008",
-      roles: [ROLES.GKM, ROLES.TIM_PENGELOLA_CPL, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
+      roles: [ROLES.GKM, ROLES.GKM, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
@@ -246,10 +245,10 @@ async function seedUsers(roleMap) {
     },
     {
       email: "cpl_si@fti.unand.ac.id",
-      fullName: "Tim Pengelola CPL",
+      fullName: "GKM User",
       identityType: "NIP",
       identityNumber: "199107282019031005",
-      roles: [ROLES.TIM_PENGELOLA_CPL, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+      roles: [ROLES.GKM, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
