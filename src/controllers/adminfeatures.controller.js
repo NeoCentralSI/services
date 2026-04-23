@@ -1,4 +1,4 @@
-﻿import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, createRoom, updateRoom, getRooms, deleteRoom, getSeminarResultThesisOptions, getSeminarResultLecturerOptions, getSeminarResultStudentOptions, getSeminarResults, createSeminarResult, updateSeminarResult, deleteSeminarResult, getSeminarResultAudienceLinks, assignSeminarResultAudiences, removeSeminarResultAudienceLink } from "../services/adminfeatures.service.js";
+import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, createRoom, updateRoom, getRooms, deleteRoom, getSeminarResultThesisOptions, getSeminarResultLecturerOptions, getSeminarResultStudentOptions, getSeminarResults, getSeminarResultDetail, createSeminarResult, updateSeminarResult, deleteSeminarResult, getSeminarResultAudienceLinks, assignSeminarResultAudiences, removeSeminarResultAudienceLink } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -203,6 +203,16 @@ export async function deleteSeminarResultController(req, res, next) {
 		const { id } = req.params;
 		await deleteSeminarResult(id);
 		res.status(200).json({ success: true, message: "Data seminar hasil berhasil dihapus" });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getSeminarResultDetailController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const data = await getSeminarResultDetail(id);
+		res.status(200).json({ success: true, data });
 	} catch (err) {
 		next(err);
 	}

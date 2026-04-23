@@ -1109,6 +1109,81 @@ export async function getSeminarResults({ page = 1, pageSize = 10, search = "" }
 	};
 }
 
+export async function getSeminarResultDetail(id) {
+	const seminar = await prisma.thesisSeminar.findUnique({
+		where: { id },
+		select: {
+			id: true,
+			thesisId: true,
+			date: true,
+			status: true,
+			createdAt: true,
+			updatedAt: true,
+			thesis: {
+				select: {
+					title: true,
+					student: {
+						select: {
+							id: true,
+							user: { select: { fullName: true, identityNumber: true, email: true } },
+						},
+					},
+				},
+			},
+			room: { select: { id: true, name: true, location: true } },
+			examiners: {
+				select: {
+					id: true,
+					lecturerId: true,
+					order: true,
+				},
+				orderBy: { order: "asc" },
+			},
+			_count: { select: { audiences: true } },
+		},
+	});
+
+	if (!seminar) {
+		const err = new Error("Data seminar hasil tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const lecturerIds = seminar.examiners.map((e) => e.lecturerId);
+	const lecturerMap = new Map();
+	if (lecturerIds.length > 0) {
+		const lecturers = await prisma.lecturer.findMany({
+			where: { id: { in: lecturerIds } },
+			select: { id: true, user: { select: { fullName: true } } },
+		});
+		lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
+	}
+
+	return {
+		id: seminar.id,
+		thesisId: seminar.thesisId,
+		thesisTitle: seminar.thesis?.title || "-",
+		student: {
+			id: seminar.thesis?.student?.id || null,
+			fullName: seminar.thesis?.student?.user?.fullName || "-",
+			nim: seminar.thesis?.student?.user?.identityNumber || "-",
+			email: seminar.thesis?.student?.user?.email || "-",
+		},
+		date: seminar.date,
+		room: seminar.room,
+		status: seminar.status,
+		audienceCount: seminar._count.audiences,
+		examiners: seminar.examiners.map((e) => ({
+			id: e.id,
+			lecturerId: e.lecturerId,
+			lecturerName: lecturerMap.get(e.lecturerId) || "-",
+			order: e.order,
+		})),
+		createdAt: seminar.createdAt,
+		updatedAt: seminar.updatedAt,
+	};
+}
+
 export async function createSeminarResult({ thesisId, date, roomId, status, examinerLecturerIds, assignedByUserId }) {
 	if (!SEMINAR_RESULT_ALLOWED_STATUSES.includes(status)) {
 		const err = new Error("Status seminar hasil tidak valid");
