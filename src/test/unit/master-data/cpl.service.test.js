@@ -28,7 +28,7 @@ const { mockPrisma } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 
 import {
   getAllCpls as getCpls,
@@ -37,7 +37,7 @@ import {
   updateCpl,
   toggleCpl,
   deleteCpl,
-} from "../../services/cpl.service.js";
+} from "../../../services/cpl.service.js";
 
 const NOW = new Date("2026-04-20T09:00:00.000Z");
 

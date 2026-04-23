@@ -14,14 +14,14 @@ const { mockPrisma } = vi.hoisted(() => ({
 	},
 }));
 
-vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 
 import {
 	getRooms,
 	createRoom,
 	updateRoom,
 	deleteRoom,
-} from "../../services/adminfeatures.service.js";
+} from "../../../services/adminfeatures.service.js";
 
 describe("Room Service", () => {
 	beforeEach(() => {

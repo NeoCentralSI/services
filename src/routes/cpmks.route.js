@@ -9,7 +9,7 @@ import {
     copyTemplate,
 } from "../controllers/cpmk.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { createCpmkSchema, updateCpmkSchema } from "../validators/cpmk.validator.js";
+import { createCpmkSchema, updateCpmkSchema } from "../validators/master-data/cpmk.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
 

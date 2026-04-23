@@ -66,23 +66,23 @@ import {
   unapproveAudienceCtrl,
   toggleAudiencePresenceCtrl,
 } from "../controllers/thesis-seminar/lecturer.controller.js";
-import { scheduleSchema } from "../validators/admin-seminar.validator.js";
+import { scheduleSchema } from "../validators/thesis-seminar/admin-seminar.validator.js";
 import {
   createSeminarResultSchema,
   updateSeminarResultSchema,
   assignSeminarAudienceSchema,
-} from "../validators/seminar-result-master.validator.js";
+} from "../validators/thesis-seminar/seminar-result-master.validator.js";
 import {
   createRevisionSchema,
   submitRevisionActionSchema,
   saveRevisionActionSchema,
-} from "../validators/student-seminar.validator.js";
+} from "../validators/thesis-seminar/student-seminar.validator.js";
 import {
   assignExaminersSchema,
   respondAssignmentSchema,
   submitExaminerAssessmentSchema,
   finalizeSeminarSchema,
-} from "../validators/lecturer-seminar.validator.js";
+} from "../validators/thesis-seminar/lecturer-seminar.validator.js";
 
 const router = express.Router();
 const THESIS_SEMINAR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];

@@ -7,7 +7,7 @@ import {
     deleteAvailability
 } from "../controllers/lecturer-availability.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { createAvailabilitySchema, updateAvailabilitySchema } from "../validators/lecturer-availability.validator.js";
+import { createAvailabilitySchema, updateAvailabilitySchema } from "../validators/master-data/lecturer-availability.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { LECTURER_ROLES } from "../constants/roles.js";
 

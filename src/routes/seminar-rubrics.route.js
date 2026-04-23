@@ -20,7 +20,7 @@ import {
     updateRubricSchema,
     reorderCriteriaSchema,
     reorderRubricsSchema,
-} from "../validators/seminar-rubric.validator.js";
+} from "../validators/master-data/seminar-rubric.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
 

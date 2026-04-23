@@ -48,8 +48,8 @@ const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
   mockGetActiveAcademicYearId: vi.fn(),
 }));
 
-vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../../helpers/academicYear.helper.js", () => ({
+vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../../helpers/academicYear.helper.js", () => ({
   getActiveAcademicYearId: mockGetActiveAcademicYearId,
 }));
 
@@ -60,7 +60,7 @@ import {
   getAllCpmks,
   getCpmkById,
   updateCpmk,
-} from "../../services/cpmk.service.js";
+} from "../../../services/cpmk.service.js";
 
 const NOW = new Date("2026-04-20T00:00:00.000Z");
 

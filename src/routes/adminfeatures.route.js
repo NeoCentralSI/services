@@ -5,8 +5,8 @@ import { importStudentsExcelController, importLecturersExcelController, importUs
 import { updateUserSchema, createUserSchema } from "../validators/user.validator.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
-import { createRoomSchema, updateRoomSchema } from "../validators/room.validator.js";
-import { createSeminarResultSchema, updateSeminarResultSchema, assignSeminarAudienceSchema } from "../validators/seminar-result-master.validator.js";
+import { createRoomSchema, updateRoomSchema } from "../validators/master-data/room.validator.js";
+import { createSeminarResultSchema, updateSeminarResultSchema, assignSeminarAudienceSchema } from "../validators/thesis-seminar/seminar-result-master.validator.js";
 
 
 import { ROLES } from "../constants/roles.js";

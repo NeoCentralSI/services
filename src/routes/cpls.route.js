@@ -8,7 +8,7 @@ import {
     remove,
 } from "../controllers/cpl.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { createCplSchema, updateCplSchema } from "../validators/cpl.validator.js";
+import { createCplSchema, updateCplSchema } from "../validators/master-data/cpl.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
 

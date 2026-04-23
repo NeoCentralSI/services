@@ -44,20 +44,20 @@ import {
 } from "../controllers/yudisium/lecturer-yudisium.controller.js";
 import * as exitSurveyFormController from "../controllers/yudisium/exit-survey-form.controller.js";
 import * as exitSurveyQuestionController from "../controllers/yudisium/exit-survey-question.controller.js";
-import { createYudisiumSchema, updateYudisiumSchema } from "../validators/yudisium.validator.js";
+import { createYudisiumSchema, updateYudisiumSchema } from "../validators/yudisium/yudisium.validator.js";
 import {
   createYudisiumRequirementSchema,
   updateYudisiumRequirementSchema,
-} from "../validators/yudisium-requirement.validator.js";
+} from "../validators/yudisium/yudisium-requirement.validator.js";
 import { submitStudentExitSurveySchema } from "../validators/student-exit-survey.validator.js";
 import {
   createExitSurveyFormSchema,
   updateExitSurveyFormSchema,
-} from "../validators/exit-survey-form.validator.js";
+} from "../validators/yudisium/exit-survey-form.validator.js";
 import {
   createExitSurveyQuestionSchema,
   updateExitSurveyQuestionSchema,
-} from "../validators/exit-survey-question.validator.js";
+} from "../validators/yudisium/exit-survey-question.validator.js";
 
 const router = express.Router();
 

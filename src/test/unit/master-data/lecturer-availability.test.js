@@ -11,7 +11,7 @@ const { mockRepository } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../../repositories/lecturer-availability.repository.js", () => mockRepository);
+vi.mock("../../../repositories/lecturer-availability.repository.js", () => mockRepository);
 
 import {
   getAvailabilities,
@@ -19,7 +19,7 @@ import {
   createAvailability,
   updateAvailability,
   deleteAvailability,
-} from "../../services/lecturer-availability.service.js";
+} from "../../../services/lecturer-availability.service.js";
 
 const lecturerId = "lecturer-1";
 const anotherLecturerId = "lecturer-2";

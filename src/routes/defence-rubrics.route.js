@@ -20,7 +20,7 @@ import {
     updateRubricSchema,
     reorderCriteriaSchema,
     reorderRubricsSchema,
-} from "../validators/defence-rubric.validator.js";
+} from "../validators/master-data/defence-rubric.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
 
