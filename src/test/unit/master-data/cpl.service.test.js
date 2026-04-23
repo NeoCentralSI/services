@@ -20,7 +20,9 @@ const { mockPrisma } = vi.hoisted(() => ({
       delete: vi.fn(),
       findFirst: vi.fn(),
       findUnique: vi.fn(),
+      count: vi.fn(),
     },
+    $transaction: vi.fn(),
     studentCplScore: {
       findFirst: vi.fn(),
       count: vi.fn(),
@@ -78,29 +80,23 @@ describe("CPL Service", () => {
 
   describe("getCpls", () => {
     it("returns active CPLs (default), ordered by code, paginated, with hasRelatedScores", async () => {
-      mockPrisma.cpl.findMany.mockResolvedValue([
+      const mockData = [
         { ...CPL_ACTIVE_1, _count: { studentCplScores: 1 } },
         { ...CPL_ACTIVE_2, _count: { studentCplScores: 0 } },
-      ]);
-
-      // required mock boilerplate
-      mockPrisma.studentCplScore.findFirst
-        .mockResolvedValueOnce({ studentId: "mhs-1", cplId: CPL_ACTIVE_1.id })
-        .mockResolvedValueOnce(null);
+      ];
+      mockPrisma.$transaction.mockResolvedValue([mockData, 2]);
 
       const result = await getCpls({ status: "active", page: 1, limit: 10 });
 
-      expect(mockPrisma.cpl.findMany).toHaveBeenCalledWith({
-        orderBy: { code: "asc" },
-        include: { _count: { select: { studentCplScores: true } } },
-      });
-      expect(result).toHaveLength(2);
-      expect(result[0]).toMatchObject({
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(result.data).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(result.data[0]).toMatchObject({
         id: "cpl-1",
         code: "CPL-01",
         hasRelatedScores: true,
       });
-      expect(result[1]).toMatchObject({
+      expect(result.data[1]).toMatchObject({
         id: "cpl-2",
         code: "CPL-02",
         hasRelatedScores: false,
@@ -108,40 +104,39 @@ describe("CPL Service", () => {
     });
 
     it("applies inactive filter and returns only inactive CPLs", async () => {
-      mockPrisma.cpl.findMany.mockResolvedValue([
-        { ...CPL_INACTIVE, _count: { studentCplScores: 0 } },
-      ]);
+      const mockData = [{ ...CPL_INACTIVE, _count: { studentCplScores: 0 } }];
+      mockPrisma.$transaction.mockResolvedValue([mockData, 1]);
 
       const result = await getCpls({ status: "inactive", page: 1, limit: 10 });
 
-      expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toMatchObject({
         id: CPL_INACTIVE.id,
         isActive: false,
       });
     });
 
     it("applies all filter and returns active + inactive CPLs", async () => {
-      mockPrisma.cpl.findMany.mockResolvedValue([
+      const mockData = [
         { ...CPL_ACTIVE_1, _count: { studentCplScores: 0 } },
         { ...CPL_INACTIVE, _count: { studentCplScores: 1 } },
-      ]);
+      ];
+      mockPrisma.$transaction.mockResolvedValue([mockData, 2]);
 
       const result = await getCpls({ status: "all", page: 1, limit: 10 });
 
-      expect(result).toHaveLength(2);
-      expect(result.map((x) => x.isActive)).toEqual([true, false]);
+      expect(result.data).toHaveLength(2);
+      expect(result.data.map((x) => x.isActive)).toEqual([true, false]);
     });
 
     it("applies search query against code/description", async () => {
-      mockPrisma.cpl.findMany.mockResolvedValue([
-        { ...CPL_ACTIVE_1, _count: { studentCplScores: 0 } },
-      ]);
+      const mockData = [{ ...CPL_ACTIVE_1, _count: { studentCplScores: 0 } }];
+      mockPrisma.$transaction.mockResolvedValue([mockData, 1]);
 
       const result = await getCpls({ status: "active", search: "kritis", page: 1, limit: 10 });
 
-      expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toMatchObject({
         code: "CPL-01",
         description: "Berpikir kritis",
       });
@@ -292,32 +287,19 @@ describe("CPL Service", () => {
       });
     });
 
-    it("updates inactive CPL when payload is valid", async () => {
-      mockPrisma.cpl.findUnique
-        .mockResolvedValueOnce({
-          ...CPL_INACTIVE,
-          _count: { studentCplScores: 0 },
+    it("rejects (400) when attempting to update an inactive CPL", async () => {
+      mockPrisma.cpl.findUnique.mockResolvedValue({
+        ...CPL_INACTIVE,
+        _count: { studentCplScores: 0 },
+      });
+
+      await expect(
+        updateCpl(CPL_INACTIVE.id, {
+          description: "Tidak boleh diubah",
         })
-        .mockResolvedValueOnce({
-          ...CPL_INACTIVE,
-          description: "Boleh diubah saat nonaktif",
-          _count: { studentCplScores: 0 },
-        });
-      mockPrisma.cpl.update.mockResolvedValue({ ...CPL_INACTIVE });
+      ).rejects.toMatchObject({ statusCode: 400, message: "CPL non-aktif tidak dapat diubah" });
 
-      const result = await updateCpl(CPL_INACTIVE.id, {
-        description: "Boleh diubah saat nonaktif",
-      });
-
-      expect(mockPrisma.cpl.update).toHaveBeenCalledWith({
-        where: { id: CPL_INACTIVE.id },
-        data: { description: "Boleh diubah saat nonaktif" },
-      });
-      expect(result).toMatchObject({
-        id: CPL_INACTIVE.id,
-        isActive: false,
-        description: "Boleh diubah saat nonaktif",
-      });
+      expect(mockPrisma.cpl.update).not.toHaveBeenCalled();
     });
   });
 

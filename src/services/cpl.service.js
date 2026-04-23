@@ -30,9 +30,12 @@ const toCplResponse = (item) => ({
     updatedAt: item.updatedAt,
 });
 
-export const getAllCpls = async () => {
-    const data = await repository.findAll();
-    return data.map(toCplResponse);
+export const getAllCpls = async (params) => {
+    const { data, total } = await repository.findAll(params);
+    return {
+        data: data.map(toCplResponse),
+        total,
+    };
 };
 
 export const getCplById = async (id) => {
@@ -67,6 +70,10 @@ export const updateCpl = async (id, data) => {
     const existing = await repository.findById(id);
     if (!existing) {
         throw new NotFoundError("Data CPL tidak ditemukan");
+    }
+
+    if (!existing.isActive) {
+        throw new ValidationError("CPL non-aktif tidak dapat diubah");
     }
 
     const hasRelatedScores = existing._count.studentCplScores > 0;
