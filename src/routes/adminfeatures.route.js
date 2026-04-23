@@ -6,7 +6,7 @@ import { updateUserSchema, createUserSchema } from "../validators/user.validator
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
 import { createRoomSchema, updateRoomSchema } from "../validators/room.validator.js";
-import { createSeminarResultSchema, updateSeminarResultSchema, assignSeminarAudienceSchema } from "../validators/seminarResultMaster.validator.js";
+import { createSeminarResultSchema, updateSeminarResultSchema, assignSeminarAudienceSchema } from "../validators/seminar-result-master.validator.js";
 
 
 import { ROLES } from "../constants/roles.js";
