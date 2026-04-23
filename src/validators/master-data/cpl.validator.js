@@ -14,6 +14,7 @@ export const createCplSchema = z.object({
         .int("Skor minimal harus bilangan bulat")
         .min(0, "Skor minimal tidak boleh negatif")
         .max(100, "Skor minimal maksimal 100"),
+    isActive: z.boolean().optional(),
 });
 
 export const updateCplSchema = z.object({

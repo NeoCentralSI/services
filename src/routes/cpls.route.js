@@ -15,14 +15,13 @@ import { ROLES } from "../constants/roles.js";
 const router = express.Router();
 
 router.use(authGuard);
-const adminOnly = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN]);
-const allStaff = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]);
+router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]));
 
-router.get("/", allStaff, getAll);
-router.get("/:id", allStaff, getById);
-router.post("/", adminOnly, validate(createCplSchema), create);
-router.patch("/:id", adminOnly, validate(updateCplSchema), update);
-router.patch("/:id/toggle", allStaff, toggle);
-router.delete("/:id", adminOnly, remove);
+router.get("/", getAll);
+router.get("/:id", getById);
+router.post("/", validate(createCplSchema), create);
+router.patch("/:id", validate(updateCplSchema), update);
+router.patch("/:id/toggle", toggle);
+router.delete("/:id", remove);
 
 export default router;

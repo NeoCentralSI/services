@@ -26,6 +26,7 @@ const toCplResponse = (item) => ({
         item.hasRelatedScores !== undefined
             ? item.hasRelatedScores
             : item._count?.studentCplScores > 0,
+    studentCplScoreCount: item._count?.studentCplScores ?? 0,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
 });
@@ -47,7 +48,8 @@ export const getCplById = async (id) => {
 };
 
 export const createCpl = async (data) => {
-    if (data.code) {
+    const newIsActive = data.isActive !== false;
+    if (newIsActive && data.code) {
         const existing = await repository.findActiveByCode(data.code);
         if (existing) {
             throw new ValidationError(
@@ -60,6 +62,7 @@ export const createCpl = async (data) => {
         code: data.code,
         description: data.description,
         minimalScore: data.minimalScore,
+        isActive: data.isActive !== undefined ? data.isActive : true,
     });
 
     const createdWithRelations = await repository.findById(created.id);
@@ -77,9 +80,9 @@ export const updateCpl = async (id, data) => {
     }
 
     const hasRelatedScores = existing._count.studentCplScores > 0;
-    if (hasRelatedScores && (data.code !== undefined || data.minimalScore !== undefined)) {
+    if (hasRelatedScores) {
         throw new ValidationError(
-            "CPL yang sudah memiliki nilai mahasiswa hanya dapat diubah pada field deskripsi"
+            "CPL yang sudah memiliki nilai mahasiswa tidak dapat diubah sama sekali"
         );
     }
 
