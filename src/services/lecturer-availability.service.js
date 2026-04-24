@@ -29,35 +29,53 @@ const parseTime = (timeStr) => {
     return new Date(Date.UTC(1970, 0, 1, hours, minutes, 0));
 };
 
+/**
+ * Parse YYYY-MM-DD as a calendar date at UTC midnight (matches @db.Date, avoids local TZ shifts).
+ */
 const parseDate = (dateStr) => {
-    return new Date(dateStr);
+    const parts = String(dateStr).split("T")[0].split("-").map(Number);
+    const [y, m, d] = parts;
+    if (!y || !m || !d) {
+        throw new ValidationError("Format tanggal tidak valid");
+    }
+    return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
 };
+
+const calendarUtcStamp = (d) =>
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
 const DAY_ORDER = {
     monday: 1,
     tuesday: 2,
     wednesday: 3,
     thursday: 4,
-    friday: 5
-};
-
-const startOfLocalDay = (date) => {
-    const value = new Date(date);
-    value.setHours(0, 0, 0, 0);
-    return value;
+    friday: 5,
 };
 
 const validateCreateValidFromNotPast = (validFrom) => {
-    const today = startOfLocalDay(new Date());
-    if (startOfLocalDay(validFrom) < today) {
+    const today = repository.utcTodayCalendarStart();
+    if (calendarUtcStamp(validFrom) < calendarUtcStamp(today)) {
         throw new ValidationError("Tanggal mulai berlaku tidak boleh sebelum hari ini");
     }
 };
 
+/**
+ * On update: new validFrom may be before "today", but not earlier than this row's current
+ * valid-from (the start of the validity window as stored — same as "first saved" until moved).
+ */
+const validateUpdateValidFromNotBeforeExisting = (existingValidFrom, nextValidFrom) => {
+    if (calendarUtcStamp(nextValidFrom) < calendarUtcStamp(existingValidFrom)) {
+        throw new ValidationError(
+            "Tanggal mulai berlaku tidak boleh lebih awal dari tanggal mulai berlaku yang sudah tercatat untuk jadwal ini"
+        );
+    }
+};
+
 const mapAvailabilityResponse = (item) => {
-    const today = startOfLocalDay(new Date());
-    const validFrom = startOfLocalDay(item.validFrom);
-    const validUntil = startOfLocalDay(item.validUntil);
+    const today = repository.utcTodayCalendarStart();
+    const t0 = calendarUtcStamp(today);
+    const vf = calendarUtcStamp(new Date(item.validFrom));
+    const vu = calendarUtcStamp(new Date(item.validUntil));
 
     return {
         id: item.id,
@@ -66,9 +84,9 @@ const mapAvailabilityResponse = (item) => {
         endTime: item.endTime,
         validFrom: item.validFrom,
         validUntil: item.validUntil,
-        isActive: today >= validFrom && today <= validUntil,
+        isActive: t0 >= vf && t0 <= vu,
         createdAt: item.createdAt,
-        updatedAt: item.updatedAt
+        updatedAt: item.updatedAt,
     };
 };
 
@@ -90,8 +108,33 @@ const validateTimeRange = (startTime, endTime) => {
 };
 
 const validateDateRange = (validFrom, validUntil) => {
-    if (validFrom >= validUntil) {
+    if (calendarUtcStamp(validFrom) >= calendarUtcStamp(validUntil)) {
         throw new ValidationError("Tanggal selesai berlaku harus setelah tanggal mulai berlaku");
+    }
+};
+
+const validateNoDuplicateSlot = async ({
+    lecturerId,
+    day,
+    startTime,
+    endTime,
+    validFrom,
+    validUntil,
+    excludeId = null,
+}) => {
+    const dup = await repository.findExactDuplicate(
+        lecturerId,
+        day,
+        startTime,
+        endTime,
+        validFrom,
+        validUntil,
+        excludeId
+    );
+    if (dup) {
+        throw new ValidationError(
+            "Jadwal dengan hari, waktu, dan periode berlaku yang sama sudah ada"
+        );
     }
 };
 
@@ -102,7 +145,7 @@ const validateNoOverlap = async ({
     endTime,
     validFrom,
     validUntil,
-    excludeId = null
+    excludeId = null,
 }) => {
     const overlap = await repository.findOverlapping(
         lecturerId,
@@ -120,16 +163,36 @@ const validateNoOverlap = async ({
     }
 };
 
-export const getAvailabilities = async (lecturerId) => {
-    const data = await repository.findAllByLecturerId(lecturerId);
-    return data
-        .slice()
-        .sort((a, b) => {
-            const dayCompare = (DAY_ORDER[a.day] ?? 99) - (DAY_ORDER[b.day] ?? 99);
-            if (dayCompare !== 0) return dayCompare;
-            return a.startTime - b.startTime;
-        })
-        .map(mapAvailabilityResponse);
+const sortAvailabilities = (rows) =>
+    rows.slice().sort((a, b) => {
+        const dayCompare = (DAY_ORDER[a.day] ?? 99) - (DAY_ORDER[b.day] ?? 99);
+        if (dayCompare !== 0) return dayCompare;
+        return a.startTime - b.startTime;
+    });
+
+/**
+ * @param {string} lecturerId
+ * @param {{ page?: number; limit?: number; search?: string; status?: string }} params
+ */
+export const getAvailabilities = async (lecturerId, params = {}) => {
+    const parsedPage = parseInt(String(params.page), 10) || 1;
+    const parsedLimit = parseInt(String(params.limit), 10) || 10;
+    const search = String(params.search || "").trim();
+    const status = ["all", "active", "inactive"].includes(params.status) ? params.status : "all";
+
+    const [total, rows] = await repository.findAvailabilitiesListTransaction(lecturerId, {
+        status,
+        search,
+    });
+
+    const sorted = sortAvailabilities(rows);
+    const skip = (parsedPage - 1) * parsedLimit;
+    const pageRows = sorted.slice(skip, skip + parsedLimit);
+
+    return {
+        data: pageRows.map(mapAvailabilityResponse),
+        total,
+    };
 };
 
 export const getAvailabilityById = async (id, lecturerId) => {
@@ -147,13 +210,22 @@ export const createAvailability = async (lecturerId, data) => {
     validateDateRange(validFrom, validUntil);
     validateCreateValidFromNotPast(validFrom);
 
+    await validateNoDuplicateSlot({
+        lecturerId,
+        day: data.day,
+        startTime,
+        endTime,
+        validFrom,
+        validUntil,
+    });
+
     await validateNoOverlap({
         lecturerId,
         day: data.day,
         startTime,
         endTime,
         validFrom,
-        validUntil
+        validUntil,
     });
 
     const created = await repository.create({
@@ -162,7 +234,7 @@ export const createAvailability = async (lecturerId, data) => {
         startTime,
         endTime,
         validFrom,
-        validUntil
+        validUntil,
     });
     return mapAvailabilityResponse(created);
 };
@@ -180,11 +252,29 @@ export const updateAvailability = async (id, lecturerId, data) => {
     validateTimeRange(nextStartTime, nextEndTime);
     validateDateRange(nextValidFrom, nextValidUntil);
 
+    if (data.validFrom !== undefined) {
+        validateUpdateValidFromNotBeforeExisting(existing.validFrom, nextValidFrom);
+    }
+
     if (data.day !== undefined) updateData.day = data.day;
     if (data.startTime !== undefined) updateData.startTime = nextStartTime;
     if (data.endTime !== undefined) updateData.endTime = nextEndTime;
     if (data.validFrom !== undefined) updateData.validFrom = nextValidFrom;
     if (data.validUntil !== undefined) updateData.validUntil = nextValidUntil;
+
+    if (Object.keys(updateData).length === 0) {
+        return mapAvailabilityResponse(existing);
+    }
+
+    await validateNoDuplicateSlot({
+        lecturerId,
+        day: nextDay,
+        startTime: nextStartTime,
+        endTime: nextEndTime,
+        validFrom: nextValidFrom,
+        validUntil: nextValidUntil,
+        excludeId: id,
+    });
 
     await validateNoOverlap({
         lecturerId,
@@ -193,7 +283,7 @@ export const updateAvailability = async (id, lecturerId, data) => {
         endTime: nextEndTime,
         validFrom: nextValidFrom,
         validUntil: nextValidUntil,
-        excludeId: id
+        excludeId: id,
     });
 
     const updated = await repository.update(id, updateData);

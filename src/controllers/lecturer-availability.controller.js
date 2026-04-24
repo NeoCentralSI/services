@@ -3,11 +3,21 @@ import * as service from "../services/lecturer-availability.service.js";
 export const getMyAvailabilities = async (req, res, next) => {
     try {
         const lecturerId = req.user.sub;
-        const data = await service.getAvailabilities(lecturerId);
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const search = req.query.search || "";
+        const status = req.query.status || "all";
+        const { data, total } = await service.getAvailabilities(lecturerId, {
+            page,
+            limit,
+            search,
+            status,
+        });
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil jadwal ketersediaan",
-            data
+            data,
+            total,
         });
     } catch (error) {
         next(error);
