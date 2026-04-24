@@ -1,16 +1,43 @@
 import prisma from "../config/prisma.js";
 
-export const findAll = async () => {
-    return await prisma.cpl.findMany({
-        orderBy: { code: "asc" },
-        include: {
-            _count: {
-                select: {
-                    studentCplScores: true,
+export const findAll = async ({ status = "active", search = "", page = 1, limit = 10 } = {}) => {
+    const where = {};
+    const parsedPage = parseInt(page) || 1;
+    const parsedLimit = parseInt(limit) || 10;
+
+    if (status === "active") {
+        where.isActive = true;
+    } else if (status === "inactive") {
+        where.isActive = false;
+    }
+
+    if (search) {
+        where.OR = [
+            { code: { contains: search, mode: "insensitive" } },
+            { description: { contains: search, mode: "insensitive" } },
+        ];
+    }
+
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    const [data, total] = await prisma.$transaction([
+        prisma.cpl.findMany({
+            where,
+            orderBy: { code: "asc" },
+            include: {
+                _count: {
+                    select: {
+                        studentCplScores: true,
+                    },
                 },
             },
-        },
-    });
+            skip,
+            take: parsedLimit,
+        }),
+        prisma.cpl.count({ where }),
+    ]);
+
+    return { data, total };
 };
 
 export const findById = async (id) => {

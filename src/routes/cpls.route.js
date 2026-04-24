@@ -15,7 +15,7 @@ import { ROLES } from "../constants/roles.js";
 const router = express.Router();
 
 router.use(authGuard);
-router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN]));
+router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]));
 
 router.get("/", getAll);
 router.get("/:id", getById);

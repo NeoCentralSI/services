@@ -2,11 +2,12 @@ import * as service from "../services/cpl.service.js";
 
 export const getAll = async (req, res, next) => {
     try {
-        const data = await service.getAllCpls();
+        const { data, total } = await service.getAllCpls(req.query);
         res.status(200).json({
             success: true,
             message: "Berhasil mengambil data CPL",
             data,
+            total,
         });
     } catch (error) {
         next(error);

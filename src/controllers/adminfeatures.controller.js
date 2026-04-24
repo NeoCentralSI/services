@@ -110,11 +110,18 @@ export async function updateRoomController(req, res, next) {
 
 export async function getRoomsController(req, res, next) {
 	try {
-		const page = parseInt(req.query.page) || 1;
-		const pageSize = parseInt(req.query.pageSize) || 10;
+		const page = parseInt(req.query.page, 10) || 1;
+		const limitRaw = req.query.limit ?? req.query.pageSize;
+		const limit = parseInt(limitRaw, 10) || 10;
 		const search = req.query.search || "";
-		const result = await getRooms({ page, pageSize, search });
-		res.status(200).json({ success: true, ...result });
+		const status = req.query.status || "all";
+		const result = await getRooms({ page, limit, search, status });
+		res.status(200).json({
+			success: true,
+			message: "Berhasil mengambil data ruangan",
+			data: result.data,
+			total: result.total,
+		});
 	} catch (err) {
 		next(err);
 	}
