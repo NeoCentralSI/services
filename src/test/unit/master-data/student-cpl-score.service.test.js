@@ -55,9 +55,46 @@ describe("Student CPL Score Manual Service", () => {
             "user-gkm"
         );
 
-        expect(mockPrisma.studentCplScore.create).toHaveBeenCalled();
+        expect(mockPrisma.studentCplScore.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    status: "finalized",
+                }),
+            })
+        );
         expect(result.source).toBe("manual");
         expect(result.score).toBe(88);
+    });
+
+    it("create allows inactive CPL for archive data", async () => {
+        mockPrisma.student.findUnique.mockResolvedValue({ id: "student-1", user: { fullName: "Satu" } });
+        mockPrisma.cpl.findUnique.mockResolvedValue({
+            id: "cpl-legacy",
+            code: "CPL-OLD",
+            isActive: false,
+            description: "Legacy CPL",
+            minimalScore: 60,
+        });
+        mockPrisma.studentCplScore.findUnique
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({
+                studentId: "student-1",
+                cplId: "cpl-legacy",
+                source: "manual",
+                status: "finalized",
+                score: 77,
+                student: { id: "student-1", user: { fullName: "Satu", identityNumber: "135" } },
+                cpl: { id: "cpl-legacy", code: "CPL-OLD", description: "Legacy CPL", minimalScore: 60, isActive: false },
+            });
+        mockPrisma.studentCplScore.create.mockResolvedValue({});
+
+        const result = await createStudentCplScoreManual(
+            { studentId: "student-1", cplId: "cpl-legacy", score: 77 },
+            "user-gkm"
+        );
+
+        expect(result.cpl?.isActive).toBe(false);
+        expect(result.score).toBe(77);
     });
 
     it("create rejects when score already exists (SIA or MANUAL)", async () => {
@@ -156,5 +193,12 @@ describe("Student CPL Score Manual Service", () => {
         expect(result.success).toBe(1);
         expect(result.failed).toBe(1);
         expect(result.failedRows.length).toBe(1);
+        expect(mockPrisma.studentCplScore.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    status: "finalized",
+                }),
+            })
+        );
     });
 });

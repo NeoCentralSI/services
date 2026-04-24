@@ -81,10 +81,9 @@ const ensureStudentExists = async (studentId) => {
     return student;
 };
 
-const ensureActiveCplExists = async (cplId) => {
+const ensureCplExists = async (cplId) => {
     const cpl = await repository.findCplById(cplId);
     if (!cpl) throw new NotFoundError("CPL tidak ditemukan");
-    if (!cpl.isActive) throw new ValidationError("CPL tidak aktif");
     return cpl;
 };
 
@@ -116,6 +115,28 @@ export const getStudentCplScores = async (filters = {}) => {
     return { data: rows.map(mapScore), total: rows.length };
 };
 
+export const getStudentCplScoreOptions = async () => {
+    const [students, cpls] = await Promise.all([
+        repository.findAllStudents(),
+        repository.findAllCpls(),
+    ]);
+
+    return {
+        students: students.map((item) => ({
+            id: item.id,
+            fullName: item.user?.fullName ?? null,
+            identityNumber: item.user?.identityNumber ?? null,
+        })),
+        cpls: cpls.map((item) => ({
+            id: item.id,
+            code: item.code,
+            description: item.description,
+            minimalScore: item.minimalScore,
+            isActive: item.isActive,
+        })),
+    };
+};
+
 export const getStudentCplScoreDetail = async (studentId, cplId) => {
     const row = await repository.findById(studentId, cplId);
     if (!row) throw new NotFoundError("Data nilai CPL mahasiswa tidak ditemukan");
@@ -125,7 +146,7 @@ export const getStudentCplScoreDetail = async (studentId, cplId) => {
 export const createStudentCplScoreManual = async (payload, actorUserId) => {
     validateScoreValue(payload.score);
     await ensureStudentExists(payload.studentId);
-    await ensureActiveCplExists(payload.cplId);
+    await ensureCplExists(payload.cplId);
     await ensureNoExistingScore(payload.studentId, payload.cplId);
 
     await repository.create({
@@ -133,9 +154,10 @@ export const createStudentCplScoreManual = async (payload, actorUserId) => {
         cplId: payload.cplId,
         score: payload.score,
         source: "manual",
-        status: "calculated",
+        status: "finalized",
         inputBy: actorUserId,
         inputAt: new Date(),
+        finalizedAt: new Date(),
     });
 
     const created = await repository.findById(payload.studentId, payload.cplId);
@@ -198,7 +220,7 @@ export const importStudentCplScoresManual = async (rows, actorUserId) => {
 
             await ensureStudentExists(studentId);
             const cpl = await repository.findCplByCode(cplCode);
-            if (!cpl) throw new ValidationError(`CPL aktif dengan kode ${cplCode} tidak ditemukan`);
+            if (!cpl) throw new ValidationError(`CPL dengan kode ${cplCode} tidak ditemukan`);
             await ensureNoExistingScore(studentId, cpl.id);
 
             await repository.create({
@@ -206,9 +228,10 @@ export const importStudentCplScoresManual = async (rows, actorUserId) => {
                 cplId: cpl.id,
                 score,
                 source: "manual",
-                status: "calculated",
+                status: "finalized",
                 inputBy: actorUserId,
                 inputAt: new Date(),
+                finalizedAt: new Date(),
             });
 
             result.success += 1;

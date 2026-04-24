@@ -130,7 +130,6 @@ export const findCplByCode = async (cplCode) => {
     return await prisma.cpl.findFirst({
         where: {
             code: cplCode,
-            isActive: true,
         },
         select: {
             id: true,
@@ -138,6 +137,40 @@ export const findCplByCode = async (cplCode) => {
             description: true,
             minimalScore: true,
             isActive: true,
+        },
+    });
+};
+
+export const findAllStudents = async () => {
+    return await prisma.student.findMany({
+        select: {
+            id: true,
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true,
+                },
+            },
+        },
+        orderBy: {
+            user: {
+                fullName: "asc",
+            },
+        },
+    });
+};
+
+export const findAllCpls = async () => {
+    return await prisma.cpl.findMany({
+        select: {
+            id: true,
+            code: true,
+            description: true,
+            minimalScore: true,
+            isActive: true,
+        },
+        orderBy: {
+            code: "asc",
         },
     });
 };

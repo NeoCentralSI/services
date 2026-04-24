@@ -9,6 +9,7 @@ import {
 } from "../validators/master-data/student-cpl-score.validator.js";
 import {
     getAllStudentCplScores,
+    getStudentCplScoreOptions,
     getStudentCplScoreById,
     createStudentCplScore,
     updateStudentCplScore,
@@ -24,6 +25,7 @@ router.use(authGuard);
 router.use(requireAnyRole([ROLES.GKM]));
 
 router.get("/", getAllStudentCplScores);
+router.get("/options", getStudentCplScoreOptions);
 router.get("/template", downloadStudentCplScoreTemplate);
 router.get("/export", exportStudentCplScores);
 router.get("/:studentId/:cplId", getStudentCplScoreById);

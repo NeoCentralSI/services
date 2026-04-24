@@ -13,6 +13,19 @@ export const getAllStudentCplScores = async (req, res, next) => {
     }
 };
 
+export const getStudentCplScoreOptions = async (req, res, next) => {
+    try {
+        const data = await service.getStudentCplScoreOptions();
+        res.status(200).json({
+            success: true,
+            message: "Berhasil mengambil opsi mahasiswa dan CPL",
+            data,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const getStudentCplScoreById = async (req, res, next) => {
     try {
         const { studentId, cplId } = req.params;
