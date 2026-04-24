@@ -57,16 +57,16 @@ const ensureDefenceCriteria = (criteria) => {
 };
 
 const criteriaHasAssessmentDetails = async (criteriaId) => {
-    const [seminarDetails, defenceDetails] = await Promise.all([
-        prisma.thesisSeminarExaminerAssessmentDetail.count({
+    const [defenceExaminerDetails, defenceSupervisorDetails] = await Promise.all([
+        prisma.thesisDefenceExaminerAssessmentDetail.count({
             where: { assessmentCriteriaId: criteriaId },
         }),
-        prisma.thesisDefenceExaminerAssessmentDetail.count({
+        prisma.thesisDefenceSupervisorAssessmentDetail.count({
             where: { assessmentCriteriaId: criteriaId },
         }),
     ]);
 
-    return seminarDetails + defenceDetails > 0;
+    return defenceExaminerDetails + defenceSupervisorDetails > 0;
 };
 
 const mapCriteriaWithLock = async (criteria) => {
