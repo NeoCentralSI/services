@@ -16,6 +16,8 @@ const { mockPrisma } = vi.hoisted(() => ({
 
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 
+import * as adminRepo from "../../../repositories/adminfeatures.repository.js";
+
 import {
 	getRooms,
 	createRoom,
@@ -26,70 +28,79 @@ import {
 describe("Room Service", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.restoreAllMocks();
 	});
 
 	describe("getRooms", () => {
-		it("returns mapped rooms with relationCount and computed canDelete", async () => {
-			mockPrisma.room.findMany.mockResolvedValue([
-				{
-					id: "room-1",
-					name: "Ruang A",
-					location: "Gedung 1",
-					capacity: 40,
-					createdAt: new Date("2026-01-01T00:00:00.000Z"),
-					updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-					_count: {
-						internshipSeminars: 1,
-						thesisSeminars: 0,
-						thesisDefences: 1,
-						yudisiums: 0,
-					},
-				},
-				{
-					id: "room-2",
-					name: "Ruang B",
-					location: "Gedung 2",
-					capacity: 20,
-					createdAt: new Date("2026-01-03T00:00:00.000Z"),
-					updatedAt: new Date("2026-01-04T00:00:00.000Z"),
-					_count: {
-						internshipSeminars: 0,
-						thesisSeminars: 0,
-						thesisDefences: 0,
-						yudisiums: 0,
-					},
-				},
-			]);
-			mockPrisma.room.count.mockResolvedValue(2);
+		const roomRow = (overrides = {}) => ({
+			id: "room-1",
+			name: "Ruang A",
+			location: "Gedung 1",
+			capacity: 40,
+			createdAt: new Date("2026-01-01T00:00:00.000Z"),
+			updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+			_count: {
+				internshipSeminars: 1,
+				thesisSeminars: 0,
+				thesisDefences: 1,
+				yudisiums: 0,
+			},
+			...overrides,
+		});
 
-			const result = await getRooms({ page: 1, pageSize: 10, search: "" });
+		it("returns data + total mapped from findRoomsPaginated", async () => {
+			vi.spyOn(adminRepo, "findRoomsPaginated").mockResolvedValue({
+				rooms: [
+					roomRow(),
+					roomRow({
+						id: "room-2",
+						name: "Ruang B",
+						_count: {
+							internshipSeminars: 0,
+							thesisSeminars: 0,
+							thesisDefences: 0,
+							yudisiums: 0,
+						},
+					}),
+				],
+				total: 2,
+			});
 
-			expect(result.rooms).toHaveLength(2);
-			expect(result.rooms[0]).toMatchObject({
+			const result = await getRooms({ page: 1, limit: 10, search: "", status: "all" });
+
+			expect(result.data).toHaveLength(2);
+			expect(result.total).toBe(2);
+			expect(result.data[0]).toMatchObject({
 				id: "room-1",
 				relationCount: 2,
 				canDelete: false,
 			});
-			expect(result.rooms[1]).toMatchObject({
+			expect(result.data[1]).toMatchObject({
 				id: "room-2",
 				relationCount: 0,
 				canDelete: true,
 			});
 		});
 
-		it("applies search filter with Prisma OR for name and location", async () => {
-			mockPrisma.room.findMany.mockResolvedValue([]);
-			mockPrisma.room.count.mockResolvedValue(0);
+		it("calls findRoomsPaginated with normalized status and pageSize as limit fallback", async () => {
+			const spy = vi.spyOn(adminRepo, "findRoomsPaginated").mockResolvedValue({ rooms: [], total: 0 });
 
-			await getRooms({ page: 1, pageSize: 10, search: "Lab" });
+			await getRooms({ page: 2, pageSize: 15, search: "  Lab  ", status: "available" });
 
-			expect(mockPrisma.room.findMany).toHaveBeenCalledWith(
-				expect.objectContaining({
-					where: {
-						OR: [{ name: { contains: "Lab" } }, { location: { contains: "Lab" } }],
-					},
-				})
-			);
+			expect(spy).toHaveBeenCalledWith({
+				status: "available",
+				search: "Lab",
+				page: 2,
+				limit: 15,
+			});
+		});
+
+		it("defaults invalid status to all", async () => {
+			const spy = vi.spyOn(adminRepo, "findRoomsPaginated").mockResolvedValue({ rooms: [], total: 0 });
+
+			await getRooms({ status: "unknown" });
+
+			expect(spy).toHaveBeenCalledWith(expect.objectContaining({ status: "all" }));
 		});
 	});
 
@@ -141,6 +152,13 @@ describe("Room Service", () => {
 	});
 
 	describe("updateRoom", () => {
+		const emptyCount = {
+			internshipSeminars: 0,
+			thesisSeminars: 0,
+			thesisDefences: 0,
+			yudisiums: 0,
+		};
+
 		it("throws 404 when room id does not exist", async () => {
 			mockPrisma.room.findUnique.mockResolvedValue(null);
 
@@ -149,12 +167,13 @@ describe("Room Service", () => {
 			).rejects.toMatchObject({ statusCode: 404 });
 		});
 
-		it("updates name, location, and capacity when payload is valid", async () => {
+		it("updates name, location, and capacity when payload is valid and room has no relations", async () => {
 			mockPrisma.room.findUnique.mockResolvedValue({
 				id: "room-1",
 				name: "Ruang Lama",
 				location: "Gedung Lama",
 				capacity: 20,
+				_count: emptyCount,
 			});
 			mockPrisma.room.findFirst.mockResolvedValue(null);
 			mockPrisma.room.update.mockResolvedValue({
@@ -183,12 +202,70 @@ describe("Room Service", () => {
 				name: "Ruang A",
 				location: "Gedung 1",
 				capacity: 20,
+				_count: emptyCount,
 			});
 			mockPrisma.room.findFirst.mockResolvedValue({ id: "room-2" });
 
 			await expect(
 				updateRoom("room-1", { name: "Ruang B", location: "Gedung 2", capacity: 25 })
 			).rejects.toMatchObject({ statusCode: 409 });
+		});
+
+		it("throws 400 when room has relations and name is changed", async () => {
+			mockPrisma.room.findUnique.mockResolvedValue({
+				id: "room-used",
+				name: "Ruang X",
+				location: "Lt.1",
+				capacity: 30,
+				_count: {
+					internshipSeminars: 1,
+					thesisSeminars: 0,
+					thesisDefences: 0,
+					yudisiums: 0,
+				},
+			});
+
+			await expect(
+				updateRoom("room-used", { name: "Ruang Y", location: "Lt.1", capacity: 30 })
+			).rejects.toMatchObject({
+				statusCode: 400,
+				message: "Ruangan yang sudah digunakan untuk penjadwalan tidak dapat mengubah nama",
+			});
+			expect(mockPrisma.room.update).not.toHaveBeenCalled();
+		});
+
+		it("allows location and capacity updates when room has relations but name unchanged", async () => {
+			mockPrisma.room.findUnique.mockResolvedValue({
+				id: "room-used",
+				name: "Ruang X",
+				location: "Lt.1",
+				capacity: 30,
+				_count: {
+					internshipSeminars: 0,
+					thesisSeminars: 1,
+					thesisDefences: 0,
+					yudisiums: 0,
+				},
+			});
+			mockPrisma.room.findFirst.mockResolvedValue(null);
+			mockPrisma.room.update.mockResolvedValue({
+				id: "room-used",
+				name: "Ruang X",
+				location: "Lt.2",
+				capacity: 40,
+			});
+
+			const result = await updateRoom("room-used", {
+				name: "Ruang X",
+				location: "Lt.2",
+				capacity: 40,
+			});
+
+			expect(mockPrisma.room.update).toHaveBeenCalledWith({
+				where: { id: "room-used" },
+				data: { name: "Ruang X", location: "Lt.2", capacity: 40 },
+			});
+			expect(result).toMatchObject({ location: "Lt.2", capacity: 40 });
 		});
 	});
 
