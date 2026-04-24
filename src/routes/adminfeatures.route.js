@@ -6,8 +6,6 @@ import { updateUserSchema, createUserSchema } from "../validators/user.validator
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
 import { createRoomSchema, updateRoomSchema } from "../validators/master-data/room.validator.js";
-import { createSeminarResultSchema, updateSeminarResultSchema, assignSeminarAudienceSchema } from "../validators/thesis-seminar/seminar-result-master.validator.js";
-
 
 import { ROLES } from "../constants/roles.js";
 
@@ -34,18 +32,7 @@ router.post("/rooms", authGuard, requireRole(ROLES.ADMIN), validate(createRoomSc
 router.patch("/rooms/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateRoomSchema), updateRoomController);
 router.delete("/rooms/:id", authGuard, requireRole(ROLES.ADMIN), deleteRoomController);
 
-router.get("/seminar-results/options/theses", authGuard, requireRole(ROLES.ADMIN), getSeminarResultThesisOptionsController);
-router.get("/seminar-results/options/lecturers", authGuard, requireRole(ROLES.ADMIN), getSeminarResultLecturerOptionsController);
-router.get("/seminar-results/options/students", authGuard, requireRole(ROLES.ADMIN), getSeminarResultStudentOptionsController);
-router.get("/seminar-results/audiences", authGuard, requireRole(ROLES.ADMIN), getSeminarResultAudienceLinksController);
-router.post("/seminar-results/audiences/assign", authGuard, requireRole(ROLES.ADMIN), validate(assignSeminarAudienceSchema), assignSeminarResultAudiencesController);
-router.delete("/seminar-results/audiences/:seminarId/:studentId", authGuard, requireRole(ROLES.ADMIN), removeSeminarResultAudienceLinkController);
 
-router.get("/seminar-results", authGuard, requireRole(ROLES.ADMIN), getSeminarResultsController);
-router.get("/seminar-results/:id", authGuard, requireRole(ROLES.ADMIN), getSeminarResultDetailController);
-router.post("/seminar-results", authGuard, requireRole(ROLES.ADMIN), validate(createSeminarResultSchema), createSeminarResultController);
-router.patch("/seminar-results/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateSeminarResultSchema), updateSeminarResultController);
-router.delete("/seminar-results/:id", authGuard, requireRole(ROLES.ADMIN), deleteSeminarResultController);
 
 // Excel Import Routes (JSON payload from frontend)
 router.post("/students/import-excel", authGuard, requireRole(ROLES.ADMIN), importStudentsExcelController);
