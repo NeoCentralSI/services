@@ -13,8 +13,8 @@ export const findAll = async ({ status = "active", search = "", page = 1, limit 
 
     if (search) {
         where.OR = [
-            { code: { contains: search, mode: "insensitive" } },
-            { description: { contains: search, mode: "insensitive" } },
+            { code: { contains: search } },
+            { description: { contains: search } },
         ];
     }
 

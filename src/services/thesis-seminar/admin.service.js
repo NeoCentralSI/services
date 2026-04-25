@@ -9,14 +9,9 @@ import {
   findAllRooms,
   findRoomScheduleConflict,
   updateSeminarSchedule,
-  countAudienceLinks,
   countSeminarResults,
-  createSeminarResultAudienceLinks,
   createSeminarResultWithExaminers,
-  deleteSeminarResultAudienceLinkById,
   deleteSeminarResultById,
-  findAudienceLinksPaginated,
-  findExistingAudienceLinks,
   findLecturersByIds,
   findLecturersForSeminarOptions,
   findRoomById,
@@ -26,15 +21,28 @@ import {
   findSeminarResultByThesisId,
   findSeminarResultByThesisIdExcludingId,
   findSeminarResultsPaginated,
-  findSeminarsByIdsForAudience,
   findSeminarsForThesisResultOptions,
-  findStudentById,
   findStudentsForSeminarResultOptions,
   findThesesForSeminarResultOptions,
   findThesisById,
   findThesisSupervisorsByThesisId,
   updateSeminarResultWithExaminers,
+  findAllSeminarResultsForExport,
+  findStudentByNim,
+  findActiveThesisByStudentId,
+  findRoomByNameLike,
+  findLecturerByNameLike,
+  findSeminarForAudienceCheck,
+  findFirstSupervisorByThesisId,
+  findSeminarAudiences,
+  findStudentOptionsForAudience,
+  findAudienceByKey,
+  createSeminarAudience,
+  createSeminarAudiencesMany,
+  deleteSeminarAudience,
+  findStudentByNameOrNim,
 } from "../../repositories/thesis-seminar/admin.repository.js";
+import * as xlsx from "xlsx";
 import { getSeminarDocumentTypes } from "../../repositories/thesis-seminar/document.repository.js";
 import { getSeminarAudiences } from "../../repositories/thesis-seminar/student.repository.js";
 import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
@@ -369,13 +377,13 @@ export async function getSchedulingData(seminarId) {
     lecturerAvailabilities: enrichedAvailabilities,
     currentSchedule: seminar.date
       ? {
-          date: seminar.date,
-          startTime: seminar.startTime,
-          endTime: seminar.endTime,
-          meetingLink: seminar.meetingLink,
-          isOnline: !seminar.roomId,
-          room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
-        }
+        date: seminar.date,
+        startTime: seminar.startTime,
+        endTime: seminar.endTime,
+        meetingLink: seminar.meetingLink,
+        isOnline: !seminar.roomId,
+        room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
+      }
       : null,
   };
 }
@@ -507,6 +515,7 @@ export async function getSeminarResultThesisOptions() {
     studentNim: t.student?.user?.identityNumber || "-",
     hasSeminarResult: seminarByThesis.has(t.id),
     seminarResultId: seminarByThesis.get(t.id) || null,
+    supervisorIds: (t.thesisSupervisors || []).map((s) => s.lecturerId),
   }));
 }
 
@@ -528,64 +537,70 @@ export async function getSeminarResultStudentOptions() {
   }));
 }
 
-export async function getSeminarResults({ page = 1, pageSize = 10, search = "" } = {}) {
-  const skip = (page - 1) * pageSize;
-  const take = pageSize;
+  export async function getSeminarResults({ page = 1, pageSize = 10, search = "" } = {}) {
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
 
-  const where = search
-    ? {
+    const baseWhere = {
+      status: { in: ['passed', 'passed_with_revision', 'failed'] },
+    };
+
+    const where = search
+      ? {
+        ...baseWhere,
         OR: [
           { thesis: { title: { contains: search } } },
           { thesis: { student: { user: { fullName: { contains: search } } } } },
           { thesis: { student: { user: { identityNumber: { contains: search } } } } },
         ],
       }
-    : {};
+      : baseWhere;
 
-  const [seminars, total] = await Promise.all([
-    findSeminarResultsPaginated({ where, skip, take }),
-    countSeminarResults(where),
-  ]);
+    const [seminars, total] = await Promise.all([
+      findSeminarResultsPaginated({ where, skip, take }),
+      countSeminarResults(where),
+    ]);
 
-  const lecturerIds = seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId));
-  const uniqueLecturerIds = [...new Set(lecturerIds)];
-  const lecturerMap = new Map();
-  if (uniqueLecturerIds.length > 0) {
-    const lecturers = await findLecturersByIds(uniqueLecturerIds);
-    lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
-  }
+    const lecturerIds = seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId));
+    const uniqueLecturerIds = [...new Set(lecturerIds)];
+    const lecturerMap = new Map();
+    if (uniqueLecturerIds.length > 0) {
+      const lecturers = await findLecturersByIds(uniqueLecturerIds);
+      lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
+    }
 
-  return {
-    seminars: seminars.map((s) => ({
-      id: s.id,
-      thesisId: s.thesisId,
-      thesisTitle: s.thesis?.title || "-",
-      student: {
-        id: s.thesis?.student?.id || null,
-        fullName: s.thesis?.student?.user?.fullName || "-",
-        nim: s.thesis?.student?.user?.identityNumber || "-",
-      },
-      date: s.date,
-      room: s.room,
-      status: s.status,
-      audienceCount: s._count.audiences,
-      examiners: s.examiners.map((e) => ({
-        id: e.id,
-        lecturerId: e.lecturerId,
-        lecturerName: lecturerMap.get(e.lecturerId) || "-",
-        order: e.order,
+    return {
+      seminars: seminars.map((s) => ({
+        id: s.id,
+        thesisId: s.thesisId,
+        thesisTitle: s.thesis?.title || "-",
+        student: {
+          id: s.thesis?.student?.id || null,
+          fullName: s.thesis?.student?.user?.fullName || "-",
+          nim: s.thesis?.student?.user?.identityNumber || "-",
+        },
+        date: s.date,
+        room: s.room,
+        status: s.status,
+        isEditable: s.registeredAt === null,
+        audienceCount: s._count.audiences,
+        examiners: s.examiners.map((e) => ({
+          id: e.id,
+          lecturerId: e.lecturerId,
+          lecturerName: lecturerMap.get(e.lecturerId) || "-",
+          order: e.order,
+        })),
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
       })),
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-    })),
-    meta: {
-      page,
-      pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
-    },
-  };
-}
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
 
 export async function getSeminarResultDetail(id) {
   const seminar = await findSeminarResultByIdForArchiveDetail(id);
@@ -615,6 +630,7 @@ export async function getSeminarResultDetail(id) {
     date: seminar.date,
     room: seminar.room,
     status: seminar.status,
+    isEditable: seminar.registeredAt === null,
     audienceCount: seminar._count.audiences,
     examiners: seminar.examiners.map((e) => ({
       id: e.id,
@@ -747,116 +763,374 @@ export async function deleteSeminarResult(seminarId) {
   return { success: true };
 }
 
-export async function getSeminarResultAudienceLinks({ page = 1, pageSize = 10, search = "" } = {}) {
-  const skip = (page - 1) * pageSize;
-  const take = pageSize;
 
-  const where = search
-    ? {
-        OR: [
-          { student: { user: { fullName: { contains: search } } } },
-          { student: { user: { identityNumber: { contains: search } } } },
-          { seminar: { thesis: { title: { contains: search } } } },
-          { seminar: { thesis: { student: { user: { fullName: { contains: search } } } } } },
-        ],
-      }
-    : {};
 
-  const [links, total] = await Promise.all([
-    findAudienceLinksPaginated({ where, skip, take }),
-    countAudienceLinks(where),
-  ]);
-
-  return {
-    links: links.map((item) => ({
-      seminarId: item.thesisSeminarId,
-      studentId: item.studentId,
-      createdAt: item.createdAt,
-      student: {
-        id: item.student.id,
-        fullName: item.student.user?.fullName || "-",
-        nim: item.student.user?.identityNumber || "-",
-      },
-      seminar: {
-        id: item.seminar.id,
-        date: item.seminar.date,
-        thesisTitle: item.seminar.thesis?.title || "-",
-        ownerName: item.seminar.thesis?.student?.user?.fullName || "-",
-        ownerNim: item.seminar.thesis?.student?.user?.identityNumber || "-",
-      },
-    })),
-    meta: {
-      page,
-      pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
-    },
+export async function exportSeminarArchive() {
+  const where = {
+    status: { in: ['passed', 'passed_with_revision', 'failed'] },
   };
+
+  const seminars = await findAllSeminarResultsForExport(where);
+
+  const data = seminars.map((s, index) => {
+    const supervisors = s.thesis?.thesisSupervisors || [];
+    const supervisorNames = supervisors.map(sup => sup.lecturer?.user?.fullName).filter(Boolean).join(", ");
+
+    const examiners = s.examiners || [];
+    const examinerNames = examiners.map(e => e.lecturerName).filter(Boolean).join("; ");
+
+    let hasil = "-";
+    if (s.status === "passed") hasil = "Lulus";
+    else if (s.status === "passed_with_revision") hasil = "Lulus dengan Revisi";
+    else if (s.status === "failed") hasil = "Gagal";
+
+    const localDate = s.date ? new Date(s.date) : null;
+    const dateStr = localDate
+      ? `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`
+      : "-";
+
+    return {
+      "No": index + 1,
+      "Nama": s.thesis?.student?.user?.fullName || "-",
+      "NIM": s.thesis?.student?.user?.identityNumber || "-",
+      "Judul TA": s.thesis?.title || "-",
+      "Pembimbing": supervisorNames || "-",
+      "Tanggal": dateStr,
+      "Ruangan": s.room?.name || "-",
+      "Hasil": hasil,
+      "Dosen Penguji": examinerNames || "-",
+    };
+  });
+
+  const ws = xlsx.utils.json_to_sheet(data);
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, "Arsip Seminar");
+
+  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 }
 
-export async function assignSeminarResultAudiences({ studentId, seminarIds }) {
-  const uniqueSeminarIds = [...new Set(seminarIds || [])];
+export async function exportSeminarArchiveTemplate() {
+  const data = [
+    {
+      "No": 1,
+      "Nama": "Mahasiswa Contoh",
+      "NIM": "12345678",
+      "Judul TA": "Judul Tugas Akhir Contoh",
+      "Tanggal": "2026-04-30",
+      "Ruangan": "Ruang Seminar 1",
+      "Hasil": "Lulus / Lulus dengan Revisi / Gagal",
+      "Dosen Penguji 1": "Nama Dosen 1",
+      "Dosen Penguji 2": "Nama Dosen 2",
+      "Dosen Penguji 3": "Nama Dosen 3 (Opsional)",
+    }
+  ];
 
-  const [student, seminars] = await Promise.all([
-    findStudentById(studentId),
-    findSeminarsByIdsForAudience(uniqueSeminarIds),
-  ]);
+  const ws = xlsx.utils.json_to_sheet(data);
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, "Template Import");
 
-  if (!student) {
-    const err = new Error("Mahasiswa tidak ditemukan");
+  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+}
+
+export async function importSeminarArchive(fileBuffer, userId) {
+  const wb = xlsx.read(fileBuffer, { type: "buffer" });
+  const sheetName = wb.SheetNames[0];
+  const data = xlsx.utils.sheet_to_json(wb.Sheets[sheetName]);
+
+  const results = {
+    total: data.length,
+    successCount: 0,
+    failed: 0,
+    failedRows: [],
+  };
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    try {
+      const nim = String(row["NIM"] || "").trim();
+      const tanggalStr = String(row["Tanggal"] || "").trim();
+      const ruanganName = String(row["Ruangan"] || "").trim();
+      const hasil = String(row["Hasil"] || "").trim();
+      const p1 = String(row["Dosen Penguji 1"] || "").trim();
+      const p2 = String(row["Dosen Penguji 2"] || "").trim();
+      const p3 = String(row["Dosen Penguji 3"] || "").trim();
+
+      if (!nim) throw new Error("NIM kosong");
+
+      const student = await findStudentByNim(nim);
+      if (!student) throw new Error(`Mahasiswa dengan NIM ${nim} tidak ditemukan`);
+
+      const thesis = await findActiveThesisByStudentId(student.id);
+      if (!thesis) throw new Error(`Tugas akhir aktif untuk mahasiswa ${nim} tidak ditemukan`);
+
+      const existingSeminar = await findSeminarResultByThesisId(thesis.id);
+      if (existingSeminar) throw new Error("Mahasiswa ini sudah memiliki data seminar hasil yang valid (tidak gagal)");
+
+      let roomId = null;
+      if (ruanganName && ruanganName !== "-") {
+        const room = await findRoomByNameLike(ruanganName);
+        if (!room) throw new Error(`Ruangan "${ruanganName}" tidak ditemukan`);
+        roomId = room.id;
+      }
+
+      let status = "failed";
+      if (hasil.toLowerCase().includes("dengan revisi")) status = "passed_with_revision";
+      else if (hasil.toLowerCase().includes("lulus")) status = "passed";
+
+      let date = null;
+      if (tanggalStr && tanggalStr !== "-") {
+        const parsed = new Date(tanggalStr);
+        if (!isNaN(parsed.getTime())) date = parsed.toISOString();
+      }
+
+      const examinerIds = [];
+      const pengujiNames = [p1, p2, p3].filter(name => name && name !== "-" && !name.includes("(Opsional)"));
+
+      for (const name of pengujiNames) {
+        const lec = await findLecturerByNameLike(name);
+        if (lec) {
+          examinerIds.push(lec.id);
+        } else {
+          throw new Error(`Dosen Penguji "${name}" tidak ditemukan`);
+        }
+      }
+
+      if (examinerIds.length < 2) {
+        throw new Error("Minimal 2 Dosen Penguji diperlukan");
+      }
+
+      await createSeminarResultWithExaminers({
+        thesisId: thesis.id,
+        date,
+        roomId,
+        status,
+        examinerLecturerIds: examinerIds,
+        assignedByUserId: userId
+      });
+
+      results.successCount++;
+    } catch (err) {
+      results.failed++;
+      let msg = err.message;
+      // Clean up technical errors for users
+      if (msg.includes('Invalid `prisma')) {
+        msg = "Format data tidak valid untuk database.";
+      }
+      results.failedRows.push({ row: i + 2, error: msg });
+    }
+  }
+
+  return results;
+}
+
+// ==================== Audience Management (Nested) ====================
+
+async function resolveSeminarForAudience(seminarId) {
+  const seminar = await findSeminarForAudienceCheck(seminarId);
+  if (!seminar) {
+    const err = new Error("Seminar tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
+  return seminar;
+}
 
-  if (seminars.length !== uniqueSeminarIds.length) {
-    const err = new Error("Terdapat seminar hasil yang tidak valid");
-    err.statusCode = 400;
+export async function getSeminarAudienceList(seminarId) {
+  await resolveSeminarForAudience(seminarId);
+  const rows = await findSeminarAudiences(seminarId);
+  return rows.map((r) => ({
+    studentId: r.studentId,
+    fullName: r.student?.user?.fullName || "-",
+    nim: r.student?.user?.identityNumber || "-",
+    approvedAt: r.approvedAt,
+    approvedByName: r.supervisor?.lecturer?.user?.fullName || "-",
+    registeredAt: r.registeredAt,
+    createdAt: r.createdAt,
+  }));
+}
+
+export async function getStudentOptionsForSeminarAudience(seminarId) {
+  await resolveSeminarForAudience(seminarId);
+  const students = await findStudentOptionsForAudience(seminarId);
+  return students.map((s) => ({
+    id: s.id,
+    fullName: s.user?.fullName || "-",
+    nim: s.user?.identityNumber || "-",
+  }));
+}
+
+export async function addSeminarAudience(seminarId, studentId) {
+  const seminar = await resolveSeminarForAudience(seminarId);
+
+  if (seminar.registeredAt !== null) {
+    const err = new Error("Seminar ini merupakan seminar aktif dan tidak dapat dikelola audiens-nya secara manual");
+    err.statusCode = 403;
     throw err;
   }
 
-  const ownSeminarIds = seminars
-    .filter((s) => s.thesis?.studentId === studentId)
-    .map((s) => s.id);
-
-  const targetSeminarIds = seminars
-    .filter((s) => s.thesis?.studentId !== studentId)
-    .map((s) => s.id);
-
-  if (targetSeminarIds.length === 0) {
-    return {
-      created: 0,
-      skippedOwnSeminarIds: ownSeminarIds,
-      skippedDuplicate: 0,
-    };
+  const existing = await findAudienceByKey(seminarId, studentId);
+  if (existing) {
+    const err = new Error("Mahasiswa sudah terdaftar sebagai audience seminar ini");
+    err.statusCode = 409;
+    throw err;
   }
 
-  const existingLinks = await findExistingAudienceLinks(studentId, targetSeminarIds);
-  const existingSet = new Set(existingLinks.map((e) => e.thesisSeminarId));
+  const supervisor = await findFirstSupervisorByThesisId(seminar.thesisId);
 
-  const toCreate = targetSeminarIds.filter((id) => !existingSet.has(id));
+  await createSeminarAudience({
+    seminarId,
+    studentId,
+    supervisorId: supervisor?.id || null,
+    seminarDate: seminar.date,
+  });
 
-  if (toCreate.length > 0) {
-    await createSeminarResultAudienceLinks(studentId, toCreate);
-  }
-
-  return {
-    created: toCreate.length,
-    skippedOwnSeminarIds: ownSeminarIds,
-    skippedDuplicate: targetSeminarIds.length - toCreate.length,
-  };
+  return { success: true };
 }
 
-export async function removeSeminarResultAudienceLink({ seminarId, studentId }) {
+export async function removeSeminarAudience(seminarId, studentId) {
+  const seminar = await resolveSeminarForAudience(seminarId);
+
+  if (seminar.registeredAt !== null) {
+    const err = new Error("Seminar ini merupakan seminar aktif dan tidak dapat dikelola audiens-nya secara manual");
+    err.statusCode = 403;
+    throw err;
+  }
+
   try {
-    await deleteSeminarResultAudienceLinkById(seminarId, studentId);
+    await deleteSeminarAudience(seminarId, studentId);
   } catch (err) {
     if (err?.code === "P2025") {
-      const e = new Error("Relasi audience tidak ditemukan");
+      const e = new Error("Data audience tidak ditemukan");
       e.statusCode = 404;
       throw e;
     }
     throw err;
   }
-
   return { success: true };
+}
+
+export async function importSeminarAudiences(seminarId, file) {
+  const seminar = await resolveSeminarForAudience(seminarId);
+
+  if (seminar.registeredAt !== null) {
+    const err = new Error("Seminar ini merupakan seminar aktif dan tidak dapat dikelola audiens-nya secara manual");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const workbook = xlsx.read(file.buffer, { type: "buffer" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
+
+  const results = {
+    success: true,
+    total: rows.length,
+    successCount: 0,
+    failed: 0,
+    failedRows: [],
+  };
+
+  const supervisor = await findFirstSupervisorByThesisId(seminar.thesisId);
+  const supervisorId = supervisor?.id || null;
+  const seminarDate = seminar.date;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rawName = String(row["Nama Mahasiswa"] || "").trim();
+    const rawNim = String(row["NIM"] || "").trim();
+
+    if (!rawName && !rawNim) {
+      results.failed++;
+      results.failedRows.push({ row: i + 2, error: "Nama dan NIM tidak boleh kosong" });
+      continue;
+    }
+
+    try {
+      const student = await findStudentByNameOrNim({ fullName: rawName, nim: rawNim });
+      if (!student) {
+        results.failed++;
+        results.failedRows.push({ row: i + 2, error: `Mahasiswa tidak ditemukan: ${rawName} / ${rawNim}` });
+        continue;
+      }
+
+      const existing = await findAudienceByKey(seminarId, student.id);
+      if (existing) {
+        results.failed++;
+        results.failedRows.push({ row: i + 2, error: `Mahasiswa ${rawName} sudah terdaftar sebagai audience` });
+        continue;
+      }
+
+      await createSeminarAudience({
+        seminarId,
+        studentId: student.id,
+        supervisorId,
+        seminarDate,
+      });
+
+      results.successCount++;
+    } catch (err) {
+      results.failed++;
+      // Prevent raw Prisma errors from showing to user
+      const errorMsg = err.message.includes("prisma.") 
+        ? "Terjadi kesalahan internal pada database saat memproses data mahasiswa ini." 
+        : err.message;
+      results.failedRows.push({ row: i + 2, error: errorMsg });
+    }
+  }
+
+  return results;
+}
+
+export async function exportSeminarAudiences(seminarId, format = "excel") {
+  const seminar = await resolveSeminarForAudience(seminarId);
+  const rows = await findSeminarAudiences(seminarId);
+
+  const data = rows.map((r, idx) => ({
+    No: idx + 1,
+    "Nama Mahasiswa": r.student?.user?.fullName || "-",
+    "NIM": r.student?.user?.identityNumber || "-",
+    "Disetujui Pada": r.approvedAt ? new Date(r.approvedAt).toLocaleDateString("id-ID") : "-",
+    "Disetujui Oleh": r.supervisor?.lecturer?.user?.fullName || "-",
+  }));
+
+  if (format === "pdf") {
+    return { type: "pdf", data, seminar };
+  }
+
+  // Excel
+  const wb = xlsx.utils.book_new();
+  const ws = xlsx.utils.json_to_sheet(data);
+  ws["!cols"] = [
+    { wch: 5 }, { wch: 35 }, { wch: 18 }, { wch: 20 }, { wch: 30 },
+  ];
+  xlsx.utils.book_append_sheet(wb, ws, "Audience");
+  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+}
+
+export async function exportSeminarAudienceTemplate() {
+  const data = [
+    {
+      "No": 1,
+      "Nama Mahasiswa": "John Doe",
+      "NIM": "2111521001",
+    },
+    {
+      "No": 2,
+      "Nama Mahasiswa": "Jane Smith",
+      "NIM": "2111522002",
+    },
+  ];
+
+  const wb = xlsx.utils.book_new();
+  const ws = xlsx.utils.json_to_sheet(data);
+  
+  // Set column widths
+  ws["!cols"] = [
+    { wch: 5 },  // No
+    { wch: 35 }, // Nama Mahasiswa
+    { wch: 18 }, // NIM
+  ];
+
+  xlsx.utils.book_append_sheet(wb, ws, "Template_Audience");
+  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 }
