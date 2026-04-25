@@ -537,70 +537,70 @@ export async function getSeminarResultStudentOptions() {
   }));
 }
 
-export async function getSeminarResults({ page = 1, pageSize = 10, search = "" } = {}) {
-  const skip = (page - 1) * pageSize;
-  const take = pageSize;
+  export async function getSeminarResults({ page = 1, pageSize = 10, search = "" } = {}) {
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
 
-  const baseWhere = {
-    status: { in: ['passed', 'passed_with_revision', 'failed'] },
-  };
+    const baseWhere = {
+      status: { in: ['passed', 'passed_with_revision', 'failed'] },
+    };
 
-  const where = search
-    ? {
-      ...baseWhere,
-      OR: [
-        { thesis: { title: { contains: search } } },
-        { thesis: { student: { user: { fullName: { contains: search } } } } },
-        { thesis: { student: { user: { identityNumber: { contains: search } } } } },
-      ],
+    const where = search
+      ? {
+        ...baseWhere,
+        OR: [
+          { thesis: { title: { contains: search } } },
+          { thesis: { student: { user: { fullName: { contains: search } } } } },
+          { thesis: { student: { user: { identityNumber: { contains: search } } } } },
+        ],
+      }
+      : baseWhere;
+
+    const [seminars, total] = await Promise.all([
+      findSeminarResultsPaginated({ where, skip, take }),
+      countSeminarResults(where),
+    ]);
+
+    const lecturerIds = seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId));
+    const uniqueLecturerIds = [...new Set(lecturerIds)];
+    const lecturerMap = new Map();
+    if (uniqueLecturerIds.length > 0) {
+      const lecturers = await findLecturersByIds(uniqueLecturerIds);
+      lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
     }
-    : baseWhere;
 
-  const [seminars, total] = await Promise.all([
-    findSeminarResultsPaginated({ where, skip, take }),
-    countSeminarResults(where),
-  ]);
-
-  const lecturerIds = seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId));
-  const uniqueLecturerIds = [...new Set(lecturerIds)];
-  const lecturerMap = new Map();
-  if (uniqueLecturerIds.length > 0) {
-    const lecturers = await findLecturersByIds(uniqueLecturerIds);
-    lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
-  }
-
-  return {
-    seminars: seminars.map((s) => ({
-      id: s.id,
-      thesisId: s.thesisId,
-      thesisTitle: s.thesis?.title || "-",
-      student: {
-        id: s.thesis?.student?.id || null,
-        fullName: s.thesis?.student?.user?.fullName || "-",
-        nim: s.thesis?.student?.user?.identityNumber || "-",
-      },
-      date: s.date,
-      room: s.room,
-      status: s.status,
-      isEditable: s.registeredAt === null,
-      audienceCount: s._count.audiences,
-      examiners: s.examiners.map((e) => ({
-        id: e.id,
-        lecturerId: e.lecturerId,
-        lecturerName: lecturerMap.get(e.lecturerId) || "-",
-        order: e.order,
+    return {
+      seminars: seminars.map((s) => ({
+        id: s.id,
+        thesisId: s.thesisId,
+        thesisTitle: s.thesis?.title || "-",
+        student: {
+          id: s.thesis?.student?.id || null,
+          fullName: s.thesis?.student?.user?.fullName || "-",
+          nim: s.thesis?.student?.user?.identityNumber || "-",
+        },
+        date: s.date,
+        room: s.room,
+        status: s.status,
+        isEditable: s.registeredAt === null,
+        audienceCount: s._count.audiences,
+        examiners: s.examiners.map((e) => ({
+          id: e.id,
+          lecturerId: e.lecturerId,
+          lecturerName: lecturerMap.get(e.lecturerId) || "-",
+          order: e.order,
+        })),
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
       })),
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-    })),
-    meta: {
-      page,
-      pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
-    },
-  };
-}
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
 
 export async function getSeminarResultDetail(id) {
   const seminar = await findSeminarResultByIdForArchiveDetail(id);
