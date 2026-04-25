@@ -6,8 +6,10 @@ import { createNotificationsForUsers } from "../notification.service.js";
 import { stampQRCode } from "../../utils/pdf-sign.util.js";
 import { ENV } from "../../config/env.js";
 import { getWorkingDays } from "../../utils/internship-date.util.js";
+import { getHolidayDatesInRange } from "./holiday.service.js";
 import fs from "fs/promises";
 import path from "path";
+import crypto from "crypto";
 
 /**
  * Get all pending letters for Kadep.
@@ -38,6 +40,10 @@ export async function getPendingLetters(academicYearId) {
                 status: i.status
             })),
         acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
+        period: p.startDatePlanned ? {
+            start: p.startDatePlanned,
+            end: p.endDatePlanned
+        } : null,
         createdAt: p.createdAt,
         signedById: p.appLetterSignedById,
         document: p.appLetterDoc ? {
@@ -65,6 +71,10 @@ export async function getPendingLetters(academicYearId) {
                 status: i.status
             })),
         acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
+        period: p.startDateActual ? {
+            start: p.startDateActual,
+            end: p.endDateActual
+        } : null,
         createdAt: p.createdAt,
         signedById: p.assignLetterSignedById,
         document: p.assignLetterDoc ? {
@@ -128,9 +138,18 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
             const verifyUrl = `${ENV.FRONTEND_URL}/verify/internship-letter/${proposalId}`;
             const signedPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, signaturePositions);
 
+            // Calculate SHA-256 Hash for file integrity verification
+            const fileHash = crypto.createHash('sha256').update(signedPdfBuffer).digest('hex');
+
+            // Save Hash to DB
+            await prisma.document.update({
+                where: { id: letterDoc.id },
+                data: { fileHash }
+            });
+
             await fs.writeFile(absolutePath, signedPdfBuffer);
         } catch (error) {
-            console.error("[kadep-service] PDF Stamping failed:", error);
+            console.error("[kadep-service] PDF Stamping and Hashing failed:", error);
         }
     }
 
@@ -143,7 +162,8 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
 
         // Auto-generate Logbooks for all members
         try {
-            const workingDays = getWorkingDays(proposal.startDateActual, proposal.endDateActual);
+            const holidays = await getHolidayDatesInRange(proposal.startDateActual, proposal.endDateActual);
+            const workingDays = getWorkingDays(proposal.startDateActual, proposal.endDateActual, holidays);
             await kadepRepository.initializeInternshipsAndLogbooks(
                 proposalId,
                 workingDays

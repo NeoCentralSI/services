@@ -8,6 +8,7 @@ import activityRouter from "./insternship/activity.route.js";
 import publicRouter from "./insternship/public.route.js";
 import overviewRouter from "./insternship/overview.route.js";
 import fieldAssessmentRouter from "./insternship/field-assessment.route.js";
+import holidayRouter from "./insternship/holiday.route.js";
 
 const router = express.Router();
 
@@ -20,5 +21,7 @@ router.use("/activity", activityRouter);
 router.use("/public", publicRouter);
 router.use("/overview", overviewRouter);
 router.use("/field-assessment", fieldAssessmentRouter);
+router.use("/holidays", holidayRouter);
 
 export default router;
+

@@ -19,6 +19,7 @@ router.post("/certificate", authGuard, activityController.updateCompletionCertif
 router.post("/receipt", authGuard, activityController.updateCompanyReceipt);
 router.post("/company-report", authGuard, activityController.submitCompanyReport);
 router.post("/logbook-doc", authGuard, activityController.submitLogbook);
+router.post("/final-fix-report", authGuard, activityController.submitFinalReport);
 
 // Seminar (Student)
 router.get("/seminars", authGuard, activityController.getUpcomingSeminars);
@@ -36,6 +37,8 @@ router.post("/guidance/lecturer/seminar/:id/audience/:studentId/validate", authG
 router.post("/guidance/lecturer/seminar/:id/audience/:studentId/unvalidate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.unvalidateSeminarAudience);
 router.post("/guidance/lecturer/seminar/:id/audience/bulk-validate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.bulkValidateSeminarAudience);
 router.patch("/guidance/lecturer/seminar/:id/notes", authGuard, requireAnyRole(LECTURER_ROLES), activityController.updateSeminarNotes);
+router.get("/guidance/lecturer/seminar/:id/berita-acara", authGuard, requireAnyRole(LECTURER_ROLES), activityController.downloadBeritaAcara);
+
 
 // Guidance / Bimbingan (Student)
 router.get("/guidance", authGuard, getStudentGuidance);

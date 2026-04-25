@@ -98,6 +98,27 @@ export async function submitReport(req, res, next) {
 }
 
 /**
+ * Submit final fixed internship report.
+ */
+export async function submitFinalReport(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const { documentId } = req.body;
+
+        if (!documentId) {
+            const error = new Error("File laporan final wajib diisi.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        const data = await activityService.submitFinalReport(userId, documentId);
+        res.json({ success: true, message: "Laporan final berhasil diunggah", data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * Update completion certificate.
  */
 export async function updateCompletionCertificate(req, res, next) {
@@ -372,3 +393,21 @@ export async function updateSeminarNotes(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Generate and download Berita Acara PDF - Lecturer.
+ */
+export async function downloadBeritaAcara(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const { id } = req.params;
+        const { buffer, fileName } = await activityService.generateBeritaAcaraPdf(id, userId);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.send(buffer);
+    } catch (error) {
+        next(error);
+    }
+}
+

@@ -172,7 +172,7 @@ export async function deleteCriteria(id) {
 export async function getStudentGuidance(studentId) {
     const internship = await guidanceRepo.findStudentInternshipWithGuidance(studentId);
     if (!internship) {
-        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        return { internshipId: null, timeline: [] };
     }
 
     if (!internship.actualStartDate) {

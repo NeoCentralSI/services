@@ -6,12 +6,18 @@ import prisma from "../../config/prisma.js";
 import { ENV } from "../../config/env.js";
 import { convertDocxToPdf } from "../../utils/pdf.util.js";
 import { getWorkingDays } from "../../utils/internship-date.util.js";
+import { getHolidayDatesInRange } from "./holiday.service.js";
 import * as activityRepository from "../../repositories/insternship/activity.repository.js";
 import * as registrationRepository from "../../repositories/insternship/registration.repository.js";
 import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { sendFieldAssessmentRequest } from "./sekdep.service.js";
+import { terbilang, getIndonesianDayName, getIndonesianMonthName } from "../../utils/internship-document.util.js";
+import { stampQRCode } from "../../utils/pdf-sign.util.js";
+import crypto from "crypto";
+import { generateSeminarMinutesDocx } from "../document.service.js";
+
 
 /**
  * Get logbooks for current student.
@@ -41,7 +47,7 @@ export async function getStudentLogbooks(studentId) {
                 include: {
                     targetCompany: true,
                     internships: {
-                        where: { status: 'ONGOING' },
+                        where: { status: { in: ['ONGOING', 'COMPLETED', 'FAILED'] } },
                         include: {
                             student: { include: { user: true } }
                         }
@@ -85,9 +91,13 @@ export async function getStudentLogbooks(studentId) {
 
     const logbooks = await activityRepository.getLogbooks(internship.id);
     
-    // Calculate progress
+    // Calculate progress (with holidays excluded)
+    let holidays = [];
+    if (internshipWithStudent.actualStartDate && internshipWithStudent.actualEndDate) {
+        holidays = await getHolidayDatesInRange(internshipWithStudent.actualStartDate, internshipWithStudent.actualEndDate);
+    }
     const daysTotal = (internshipWithStudent.actualStartDate && internshipWithStudent.actualEndDate)
-        ? getWorkingDays(internshipWithStudent.actualStartDate, internshipWithStudent.actualEndDate).length
+        ? getWorkingDays(internshipWithStudent.actualStartDate, internshipWithStudent.actualEndDate, holidays).length
         : 0;
     const daysFilled = logbooks.filter(lb => lb.activityDescription && lb.activityDescription.trim().length > 0).length;
 
@@ -280,6 +290,51 @@ export async function submitInternshipReport(studentId, title, documentId) {
         }
     } catch (err) {
         console.error("Gagal mengirim notifikasi upload laporan akhir:", err);
+    }
+
+    return result;
+}
+
+/**
+ * Submit the final fixed internship report post-seminar.
+ * @param {string} studentId 
+ * @param {string} documentId 
+ * @returns {Promise<Object>}
+ */
+export async function submitFinalReport(studentId, documentId) {
+    const internship = await activityRepository.getStudentInternship(studentId);
+    if (!internship) {
+        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    const result = await activityRepository.updateFinalReport(studentId, documentId);
+
+    // Notify Sekdep
+    try {
+        const sekdeps = await registrationRepository.findUsersByRole(ROLES.SEKRETARIS_DEPARTEMEN);
+        const sekdepIds = sekdeps.map(s => s.id);
+
+        if (sekdepIds.length > 0) {
+            const studentName = internship.student?.user?.fullName || "Mahasiswa";
+            const titleNotif = "Laporan Final KP Baru (Post-Seminar)";
+            const message = `${studentName} telah mengunggah Laporan Final Fix beserta lembar pengesahan.`;
+
+            await createNotificationsForUsers(sekdepIds, { title: titleNotif, message });
+            await sendFcmToUsers(sekdepIds, {
+                title: titleNotif,
+                body: message,
+                data: {
+                    type: 'internship_reporting_document_uploaded',
+                    documentType: 'reportFinal',
+                    internshipId: internship.id
+                },
+                dataOnly: true
+            });
+        }
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi upload laporan final:", err);
     }
 
     return result;
@@ -986,3 +1041,109 @@ export async function updateSeminarNotes(seminarId, notes, lecturerUserId) {
 
     return activityRepository.updateSeminarNotes(seminarId, notes);
 }
+
+/**
+ * Generate Berita Acara Seminar KP.
+ * @param {string} seminarId 
+ * @param {string} lecturerUserId 
+ */
+export async function generateBeritaAcaraPdf(seminarId, lecturerUserId) {
+    // 1. Get Seminar with all related data
+    const seminar = await prisma.internshipSeminar.findUnique({
+        where: { id: seminarId },
+        include: {
+            internship: {
+                include: {
+                    student: { include: { user: true } },
+                    proposal: { include: { targetCompany: true } },
+                    supervisor: { include: { user: true } }
+                }
+            },
+            moderatorStudent: { include: { user: true } },
+            audiences: { where: { status: 'VALIDATED' } }
+        }
+    });
+
+    if (!seminar) throw new Error("Seminar tidak ditemukan.");
+    if (seminar.internship.supervisor?.user?.id !== lecturerUserId) {
+        throw new Error("Hanya dosen pembimbing yang dapat menerbitkan berita acara.");
+    }
+
+    // 2. Prepare Data
+    const date = new Date(seminar.seminarDate);
+    const audienceCount = seminar.audiences.length;
+
+    const templateData = {
+        hari: getIndonesianDayName(date),
+        tanggal: date.getDate(),
+        bulan: getIndonesianMonthName(date),
+        tahun: date.getFullYear(),
+        nama: seminar.internship.student.user.fullName,
+        nim: seminar.internship.student.user.identityNumber,
+        judul: seminar.internship.proposal?.title || "-",
+        jumlah_peserta: audienceCount,
+        terbilang_peserta: terbilang(audienceCount),
+        catatan: seminar.supervisorNotes || "-",
+        moderator_nama: seminar.moderatorStudent?.user?.fullName || "-",
+        moderator_nim: seminar.moderatorStudent?.user?.identityNumber || "-",
+        pembimbing_nama: seminar.internship.supervisor?.user?.fullName || "-",
+        pembimbing_nip: seminar.internship.supervisor?.user?.identityNumber || "-",
+    };
+
+    // 3. Generate DOCX and Convert to PDF
+    // We pass templateData to document service
+    const { pdfBuffer, fileName, filePath, relativePath } = await generateSeminarMinutesDocx(seminarId, templateData);
+
+    // 4. Digital Signing (QR Code)
+    // For Berita Acara, we stamp the QR code at the bottom right near the supervisor signature.
+    // Standard coordinates for KP-006: Page 1, bottom right.
+    const verifyUrl = `${ENV.FRONTEND_URL}/verify/seminar-minutes/${seminarId}`;
+    
+    // Positioning: x=400, y=650 (Approx bottom right signature area)
+    const signaturePositions = [
+        { x: 450, y: 680, pageNumber: 1, size: 60 }
+    ];
+
+    let finalPdfBuffer = pdfBuffer;
+    try {
+        finalPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, signaturePositions);
+        
+        // Calculate SHA-256 Hash for file integrity verification
+        const fileHash = crypto.createHash('sha256').update(finalPdfBuffer).digest('hex');
+
+        // Write the signed/hashed file back to disk
+        await fs.writeFile(path.resolve(filePath), finalPdfBuffer);
+
+        // Save Hash to the Document entry
+        // The generateSeminarMinutesDocx should have created a Document entry.
+        // We'll update it.
+        const docRecord = await prisma.document.findFirst({
+            where: { filePath: relativePath },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        if (docRecord) {
+            await prisma.document.update({
+                where: { id: docRecord.id },
+                data: { fileHash }
+            });
+
+            // Link the document to the InternshipSeminar
+            await prisma.internshipSeminar.update({
+                where: { id: seminarId },
+                data: { 
+                    beritaAcaraDocumentId: docRecord.id,
+                    status: 'COMPLETED' // Mark as completed when BA is generated
+                }
+            });
+        }
+    } catch (err) {
+        console.error("Gagal menstempel QR Code pada Berita Acara:", err);
+    }
+
+    return { 
+        buffer: finalPdfBuffer, 
+        fileName: fileName 
+    };
+}
+

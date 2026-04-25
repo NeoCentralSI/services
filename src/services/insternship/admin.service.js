@@ -102,6 +102,8 @@ export async function getProposalLetterDetail(id) {
             start: p.startDatePlanned,
             end: p.endDatePlanned
         } : null,
+        proposedStartDate: p.proposedStartDate,
+        proposedEndDate: p.proposedEndDate,
         letterFile: p.appLetterDoc ? {
             id: p.appLetterDoc.id,
             fileName: p.appLetterDoc.fileName,
@@ -266,6 +268,7 @@ export async function getAssignmentLetterDetail(id) {
             isCoordinator: i.studentId === p.coordinatorId
         })),
         letterNumber: p.assignLetterDocNumber || "",
+        appLetterNumber: p.appLetterDocNumber || "",
         period: p.startDateActual ? {
             start: p.startDateActual,
             end: p.endDateActual
@@ -275,7 +278,17 @@ export async function getAssignmentLetterDetail(id) {
             fileName: p.assignLetterDoc.fileName,
             filePath: p.assignLetterDoc.filePath
         } : null,
-        isSigned: !!p.assignLetterSignedById
+        isSigned: !!p.assignLetterSignedById,
+        startDatePlanned: p.startDatePlanned,
+        endDatePlanned: p.endDatePlanned,
+        proposedStartDate: p.proposedStartDate,
+        proposedEndDate: p.proposedEndDate,
+        companyResponseFile: p.companyResponseDoc ? {
+            id: p.companyResponseDoc.id,
+            fileName: p.companyResponseDoc.fileName,
+            filePath: p.companyResponseDoc.filePath
+        } : null,
+        companyResponseNotes: p.companyResponseNotes
     };
 }
 
