@@ -32,12 +32,12 @@ router.use(authGuard);
 router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]));
 
 router.get("/", getAll);
+router.get("/export", exportAllCplScores);
 router.get("/:id", getById);
 router.post("/", validate(createCplSchema), create);
 router.patch("/:id", validate(updateCplSchema), update);
 router.patch("/:id/toggle", toggle);
 router.delete("/:id", remove);
-router.get("/export", exportAllCplScores);
 router.get("/:id/students", getCplStudents);
 router.get("/:id/students/options", getCplStudentOptions);
 router.post("/:id/students", validate(createCplStudentScoreSchema), createCplStudentScore);

@@ -44,7 +44,7 @@ const normalizeSource = (source) => {
 const normalizeStatus = (status) => {
     if (!status) return undefined;
     const value = String(status).toLowerCase();
-    if (["draft", "pending", "finalized", "failed"].includes(value)) return value;
+    if (["calculated", "verified", "finalized"].includes(value)) return value;
     return undefined;
 };
 
