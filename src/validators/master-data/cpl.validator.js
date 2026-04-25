@@ -35,3 +35,20 @@ export const updateCplSchema = z.object({
         .max(100, "Skor minimal maksimal 100")
         .optional(),
 });
+
+export const createCplStudentScoreSchema = z.object({
+    studentId: z.string({ required_error: "studentId wajib diisi" }).uuid("studentId tidak valid"),
+    score: z
+        .number({ required_error: "score wajib diisi" })
+        .int("score harus bilangan bulat")
+        .max(100, "score maksimal 100"),
+    status: z.enum(["calculated", "verified", "finalized"]).optional(),
+});
+
+export const updateCplStudentScoreSchema = z.object({
+    score: z
+        .number({ required_error: "score wajib diisi" })
+        .int("score harus bilangan bulat")
+        .max(100, "score maksimal 100"),
+    status: z.enum(["calculated", "verified", "finalized"]).optional(),
+});
