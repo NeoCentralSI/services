@@ -15,6 +15,9 @@ import {
   getSeminarResultAudienceLinks,
   assignSeminarResultAudiences,
   removeSeminarResultAudienceLink,
+  exportSeminarArchive,
+  exportSeminarArchiveTemplate,
+  importSeminarArchive,
 } from "../../services/thesis-seminar/admin.service.js";
 
 /**
@@ -219,6 +222,43 @@ export async function removeSeminarResultAudienceLinkController(req, res, next) 
     const { seminarId, studentId } = req.params;
     await removeSeminarResultAudienceLink({ seminarId, studentId });
     res.status(200).json({ success: true, message: "Relasi audience berhasil dihapus" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exportSeminarArchiveTemplateController(req, res, next) {
+  try {
+    const buffer = await exportSeminarArchiveTemplate();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=Template_Arsip_Seminar.xlsx");
+    res.status(200).send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exportSeminarArchiveController(req, res, next) {
+  try {
+    const buffer = await exportSeminarArchive();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=Arsip_Seminar.xlsx");
+    res.status(200).send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function importSeminarArchiveController(req, res, next) {
+  try {
+    const file = req.file;
+    if (!file) {
+      const err = new Error("File Excel (.xlsx) diperlukan.");
+      err.statusCode = 400;
+      throw err;
+    }
+    const results = await importSeminarArchive(file.buffer, req.user.sub);
+    res.status(200).json({ success: true, ...results });
   } catch (err) {
     next(err);
   }

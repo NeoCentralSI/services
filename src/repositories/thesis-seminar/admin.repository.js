@@ -290,6 +290,17 @@ export function findLecturersByIds(lecturerIds) {
 
 export function findLecturersForSeminarOptions() {
   return prisma.lecturer.findMany({
+    where: {
+      user: {
+        userHasRoles: {
+          some: {
+            role: {
+              name: "Penguji",
+            },
+          },
+        },
+      },
+    },
     select: {
       id: true,
       user: {
@@ -398,13 +409,19 @@ export function findThesesForSeminarResultOptions() {
           user: { select: { fullName: true, identityNumber: true } },
         },
       },
+      thesisSupervisors: {
+        select: { lecturerId: true },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export function findSeminarsForThesisResultOptions() {
-  return prisma.thesisSeminar.findMany({ select: { id: true, thesisId: true } });
+  return prisma.thesisSeminar.findMany({ 
+    where: { status: { notIn: ["failed", "cancelled"] } },
+    select: { id: true, thesisId: true } 
+  });
 }
 
 export function findStudentsForSeminarResultOptions() {
@@ -437,6 +454,7 @@ export function findSeminarResultsPaginated({ where, skip, take }) {
       thesisId: true,
       date: true,
       status: true,
+      registeredAt: true,
       createdAt: true,
       updatedAt: true,
       thesis: {
@@ -477,12 +495,15 @@ export function findRoomById(id) {
 }
 
 export function findSeminarResultByThesisId(thesisId) {
-  return prisma.thesisSeminar.findFirst({ where: { thesisId }, select: { id: true } });
+  return prisma.thesisSeminar.findFirst({ 
+    where: { thesisId, status: { notIn: ["failed", "cancelled"] } }, 
+    select: { id: true } 
+  });
 }
 
 export function findSeminarResultByThesisIdExcludingId(thesisId, seminarId) {
   return prisma.thesisSeminar.findFirst({
-    where: { thesisId, id: { not: seminarId } },
+    where: { thesisId, id: { not: seminarId }, status: { notIn: ["failed", "cancelled"] } },
     select: { id: true },
   });
 }
@@ -504,9 +525,8 @@ export async function createSeminarResultWithExaminers({
       data: {
         thesisId,
         roomId,
-        date: new Date(date),
+        date: date ? new Date(date) : null,
         status,
-        registeredAt: new Date(),
       },
     });
 
@@ -517,6 +537,8 @@ export async function createSeminarResultWithExaminers({
         assignedBy: assignedByUserId,
         order: index + 1,
         assignedAt: new Date(),
+        availabilityStatus: "available",
+        respondedAt: date ? new Date(date) : null,
       })),
     });
 
@@ -553,6 +575,8 @@ export async function updateSeminarResultWithExaminers({
         assignedBy: assignedByUserId,
         order: index + 1,
         assignedAt: new Date(),
+        availabilityStatus: "available",
+        respondedAt: date ? new Date(date) : null,
       })),
     });
   });
@@ -641,5 +665,75 @@ export function deleteSeminarResultAudienceLinkById(seminarId, studentId) {
         studentId,
       },
     },
+  });
+}
+
+export async function findAllSeminarResultsForExport(where) {
+  const seminars = await prisma.thesisSeminar.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    include: {
+      thesis: {
+        include: {
+          student: {
+            include: { user: true }
+          },
+          thesisSupervisors: {
+            include: {
+              lecturer: { include: { user: true } },
+              role: true
+            }
+          }
+        }
+      },
+      room: true,
+      examiners: {
+        orderBy: { order: "asc" },
+      }
+    }
+  });
+
+  const enrichedSeminars = await Promise.all(
+    seminars.map(async (s) => {
+      const examinersWithNames = await Promise.all(
+        (s.examiners || []).map(async (e) => {
+          const lecturer = await prisma.lecturer.findUnique({
+            where: { id: e.lecturerId },
+            select: { user: { select: { fullName: true } } },
+          });
+          return { ...e, lecturerName: lecturer?.user?.fullName || "-" };
+        })
+      );
+      return { ...s, examiners: examinersWithNames };
+    })
+  );
+
+  return enrichedSeminars;
+}
+
+export function findStudentByNim(nim) {
+  return prisma.student.findFirst({
+    where: { user: { identityNumber: nim } },
+    include: { user: true }
+  });
+}
+
+export function findActiveThesisByStudentId(studentId) {
+  return prisma.thesis.findFirst({
+    where: { studentId },
+    orderBy: { createdAt: "desc" }
+  });
+}
+
+export function findRoomByNameLike(name) {
+  return prisma.room.findFirst({
+    where: { name: { contains: name } }
+  });
+}
+
+export function findLecturerByNameLike(name) {
+  return prisma.lecturer.findFirst({
+    where: { user: { fullName: { contains: name } } },
+    include: { user: true }
   });
 }

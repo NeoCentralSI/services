@@ -13,8 +13,8 @@ function buildRoomListWhere({ search = "", status = "all" } = {}) {
 	if (search) {
 		and.push({
 			OR: [
-				{ name: { contains: search, mode: "insensitive" } },
-				{ location: { contains: search, mode: "insensitive" } },
+				{ name: { contains: search } },
+				{ location: { contains: search } },
 			],
 		});
 	}

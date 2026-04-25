@@ -2,6 +2,7 @@ import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { uploadSeminarDocFile } from "../middlewares/file.middleware.js";
+import upload from "../middlewares/file.middleware.js";
 import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
 import { getThesisSeminarsHome } from "../controllers/thesis-seminar/dispatcher.controller.js";
 import {
@@ -21,6 +22,9 @@ import {
   createSeminarResultController,
   updateSeminarResultController,
   deleteSeminarResultController,
+  exportSeminarArchiveController,
+  exportSeminarArchiveTemplateController,
+  importSeminarArchiveController,
 } from "../controllers/thesis-seminar/admin.controller.js";
 import {
   getSeminarOverview,
@@ -66,12 +70,12 @@ import {
   unapproveAudienceCtrl,
   toggleAudiencePresenceCtrl,
 } from "../controllers/thesis-seminar/lecturer.controller.js";
-import { scheduleSchema } from "../validators/thesis-seminar/admin.validator.js";
 import {
+  scheduleSchema,
   createSeminarResultSchema,
   updateSeminarResultSchema,
   assignSeminarAudienceSchema,
-} from "../validators/thesis-seminar/seminar-result-master.validator.js";
+} from "../validators/thesis-seminar/admin.validator.js";
 import {
   createRevisionSchema,
   submitRevisionActionSchema,
@@ -85,11 +89,28 @@ import {
 } from "../validators/thesis-seminar/lecturer-seminar.validator.js";
 
 const router = express.Router();
+console.log("✅ Thesis Seminar routes loaded");
 const THESIS_SEMINAR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 
 router.get("/", authGuard, requireAnyRole(THESIS_SEMINAR_ACCESS_ROLES), getThesisSeminarsHome);
 
 // Admin routes
+// Thesis Seminar Archive
+router.use("/archive", authGuard, requireAnyRole([ROLES.ADMIN]));
+router.get("/archive/options/theses", getSeminarResultThesisOptionsController);
+router.get("/archive/options/lecturers", getSeminarResultLecturerOptionsController);
+router.get("/archive/options/students", getSeminarResultStudentOptionsController);
+router.get("/archive/audiences", getSeminarResultAudienceLinksController);
+router.post("/archive/audiences/assign", validate(assignSeminarAudienceSchema), assignSeminarResultAudiencesController);
+router.delete("/archive/audiences/:seminarId/:studentId", removeSeminarResultAudienceLinkController);
+router.get("/archive/template", exportSeminarArchiveTemplateController);
+router.get("/archive/export", exportSeminarArchiveController);
+router.post("/archive/import", upload.single("file"), importSeminarArchiveController);
+router.get("/archive", getSeminarResultsController);
+router.post("/archive", validate(createSeminarResultSchema), createSeminarResultController);
+router.get("/archive/:id", getSeminarResultDetailController);
+router.patch("/archive/:id", validate(updateSeminarResultSchema), updateSeminarResultController);
+router.delete("/archive/:id", deleteSeminarResultController);
 
 // Thesis Seminar Validation
 router.use("/admin", authGuard, requireAnyRole([ROLES.ADMIN]));
@@ -98,18 +119,6 @@ router.get("/admin/:seminarId", getSeminarDetail);
 router.post("/admin/:seminarId/documents/:documentTypeId/validate", validateDocument);
 router.get("/admin/:seminarId/scheduling-data", getSchedulingDataController);
 router.post("/admin/:seminarId/schedule", validate(scheduleSchema), setSchedule);
-// Thesis Seminar Archive
-router.get("/admin/seminar-results/options/theses", getSeminarResultThesisOptionsController);
-router.get("/admin/seminar-results/options/lecturers", getSeminarResultLecturerOptionsController);
-router.get("/admin/seminar-results/options/students", getSeminarResultStudentOptionsController);
-router.get("/admin/seminar-results/audiences", getSeminarResultAudienceLinksController);
-router.post("/admin/seminar-results/audiences/assign", validate(assignSeminarAudienceSchema), assignSeminarResultAudiencesController);
-router.delete("/admin/seminar-results/audiences/:seminarId/:studentId", removeSeminarResultAudienceLinkController);
-router.get("/admin/seminar-results", getSeminarResultsController);
-router.get("/admin/seminar-results/:id", getSeminarResultDetailController);
-router.post("/admin/seminar-results", validate(createSeminarResultSchema), createSeminarResultController);
-router.patch("/admin/seminar-results/:id", validate(updateSeminarResultSchema), updateSeminarResultController);
-router.delete("/admin/seminar-results/:id", deleteSeminarResultController);
 
 // Student routes
 router.use("/student", authGuard, requireAnyRole([ROLES.MAHASISWA]));
