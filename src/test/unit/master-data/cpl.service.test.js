@@ -343,19 +343,38 @@ describe("CPL Service", () => {
       expect(mockPrisma.cpl.update).not.toHaveBeenCalled();
     });
 
-    it("rejects (400) when attempting to update an inactive CPL", async () => {
-      mockPrisma.cpl.findUnique.mockResolvedValue({
+    it("updates inactive CPL when there are no related StudentCplScore records", async () => {
+      mockPrisma.cpl.findUnique
+        .mockResolvedValueOnce({
+          ...CPL_INACTIVE,
+          _count: { studentCplScores: 0 },
+        })
+        .mockResolvedValueOnce({
+          ...CPL_INACTIVE,
+          description: "Kepemimpinan kolaboratif",
+          _count: { studentCplScores: 0 },
+        });
+
+      mockPrisma.cpl.update.mockResolvedValue({
         ...CPL_INACTIVE,
-        _count: { studentCplScores: 0 },
+        description: "Kepemimpinan kolaboratif",
       });
 
-      await expect(
-        updateCpl(CPL_INACTIVE.id, {
-          description: "Tidak boleh diubah",
-        })
-      ).rejects.toMatchObject({ statusCode: 400, message: "CPL non-aktif tidak dapat diubah" });
+      const result = await updateCpl(CPL_INACTIVE.id, {
+        description: "Kepemimpinan kolaboratif",
+      });
 
-      expect(mockPrisma.cpl.update).not.toHaveBeenCalled();
+      expect(mockPrisma.cpl.update).toHaveBeenCalledWith({
+        where: { id: CPL_INACTIVE.id },
+        data: {
+          description: "Kepemimpinan kolaboratif",
+        },
+      });
+
+      expect(result).toMatchObject({
+        id: CPL_INACTIVE.id,
+        description: "Kepemimpinan kolaboratif",
+      });
     });
   });
 

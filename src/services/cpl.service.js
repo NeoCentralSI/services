@@ -75,10 +75,6 @@ export const updateCpl = async (id, data) => {
         throw new NotFoundError("Data CPL tidak ditemukan");
     }
 
-    if (!existing.isActive) {
-        throw new ValidationError("CPL non-aktif tidak dapat diubah");
-    }
-
     const hasRelatedScores = existing._count.studentCplScores > 0;
     if (hasRelatedScores) {
         throw new ValidationError(
