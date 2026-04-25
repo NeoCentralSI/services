@@ -1,5 +1,11 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
 import QRCode from 'qrcode';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * Stamps one or more QR codes onto a PDF document.
@@ -27,6 +33,16 @@ export async function stampQRCode(pdfBuffer, qrText, positions) {
     const pages = pdfDoc.getPages();
     const qrImage = await pdfDoc.embedPng(qrImageBuffer);
 
+    // 2.5 Load Logo if exists
+    let logoImage = null;
+    try {
+        const logoPath = path.resolve(__dirname, '../assets/unand-logo.png');
+        const logoBuffer = await fs.readFile(logoPath);
+        logoImage = await pdfDoc.embedPng(logoBuffer);
+    } catch (err) {
+        console.warn("[pdf-sign] Logo UNAND tidak ditemukan, menggunakan QR standar:", err.message);
+    }
+
     // 3. Draw each QR code
     for (const pos of posArray) {
         const { x, y, pageNumber = 1, size = 60 } = pos;
@@ -41,12 +57,36 @@ export async function stampQRCode(pdfBuffer, qrText, positions) {
         const pdfX = x - (size / 2);
         const pdfY = height - y - (size / 2);
 
+        // Draw QR Code
         page.drawImage(qrImage, {
             x: pdfX,
             y: pdfY,
             width: size,
             height: size,
         });
+
+        // Draw Logo in center if available
+        if (logoImage) {
+            const logoSize = size * 0.28; // Slightly larger for visibility
+            const padding = size * 0.05; // White background padding
+
+            // Draw white background for logo to make it stand out
+            page.drawRectangle({
+                x: pdfX + (size - (logoSize + padding)) / 2,
+                y: pdfY + (size - (logoSize + padding)) / 2,
+                width: logoSize + padding,
+                height: logoSize + padding,
+                color: rgb(1, 1, 1),
+            });
+
+            // Draw the actual logo
+            page.drawImage(logoImage, {
+                x: pdfX + (size - logoSize) / 2,
+                y: pdfY + (size - logoSize) / 2,
+                width: logoSize,
+                height: logoSize
+            });
+        }
     }
 
     const signedPdfBytes = await pdfDoc.save();

@@ -57,6 +57,11 @@ export async function findPendingProposals({ academicYearId, q, skip, take, sort
     const whereClause = {
         status: {
             in: ['PENDING', 'APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', 'WAITING_FOR_VERIFICATION', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'REJECTED_BY_COMPANY']
+        },
+        internships: {
+            none: {
+                status: 'PENDING'
+            }
         }
     };
 
@@ -93,6 +98,8 @@ export async function findPendingProposals({ academicYearId, q, skip, take, sort
             targetCompany: true,
             proposalDocument: true,
             appLetterDoc: true,
+            companyResponseDoc: true,
+            assignLetterDoc: true,
             academicYear: true
         },
         orderBy
@@ -107,6 +114,11 @@ export async function countPendingProposals({ academicYearId, q }) {
     const whereClause = {
         status: {
             in: ['PENDING', 'APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', 'WAITING_FOR_VERIFICATION', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'REJECTED_BY_COMPANY']
+        },
+        internships: {
+            none: {
+                status: 'PENDING'
+            }
         }
     };
 
@@ -343,6 +355,7 @@ export async function createCompany(data) {
         data: {
             companyName: data.companyName,
             companyAddress: data.companyAddress,
+            alasan: data.alasan,
             status: data.status || 'save'
         }
     });
@@ -360,6 +373,7 @@ export async function updateCompany(id, data) {
         data: {
             companyName: data.companyName,
             companyAddress: data.companyAddress,
+            alasan: data.alasan,
             status: data.status
         }
     });
@@ -411,7 +425,7 @@ export async function verifyCompanyResponseTransaction(proposalId, proposalStatu
             where: { id: proposalId },
             data: {
                 status: proposalStatus,
-                companyResponseSekdepNotes: notes
+                companyResponseNotes: notes
             },
             include: {
                 coordinator: true,
@@ -741,7 +755,7 @@ export async function updateDocumentVerification(internshipId, { documentType, s
     const data = {};
     const statusField = `${documentType}Status`;
     const notesField = `${documentType}Notes`;
-    
+
     data[statusField] = status;
     data[notesField] = notes;
 
@@ -760,12 +774,12 @@ export async function updateDocumentVerification(internshipId, { documentType, s
 export async function bulkUpdateDocumentVerification(internshipId, documents) {
     return prisma.$transaction(async (tx) => {
         const data = {};
-        
+
         // Build data object with all document updates
         for (const doc of documents) {
             const statusField = `${doc.documentType}Status`;
             const notesField = `${doc.documentType}Notes`;
-            
+
             data[statusField] = doc.status;
             if (doc.notes !== undefined) {
                 data[notesField] = doc.notes;
@@ -817,7 +831,7 @@ export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrd
                 }
             },
             internshipsSupervisored: {
-                where: { 
+                where: {
                     status: 'ONGOING',
                     ...(academicYearId ? { proposal: { academicYearId } } : {})
                 },
@@ -986,7 +1000,7 @@ export async function findSupervisorLetterByNumber(documentNumber) {
  */
 export async function upsertSupervisorLetter(data) {
     const { documentNumber, dateIssued, startDate, endDate, supervisorId, documentId } = data;
-    
+
     return prisma.internshipSupervisorLetter.upsert({
         where: { documentNumber },
         update: {

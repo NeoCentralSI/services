@@ -108,7 +108,15 @@ export async function getEligibleStudents() {
  * @returns {Promise<Object>}
  */
 export async function createCompany(data) {
-    return prisma.company.create({ data });
+    const { companyName, companyAddress, alasan, status } = data;
+    return prisma.company.create({
+        data: {
+            companyName,
+            companyAddress,
+            alasan,
+            status: status || 'save'
+        }
+    });
 }
 
 /**
@@ -128,7 +136,7 @@ export async function getActiveAcademicYear() {
  * @returns {Promise<Object>}
  */
 export async function createProposal(data) {
-    const { coordinatorId, proposalDocumentId, academicYearId, targetCompanyId, memberIds = [] } = data;
+    const { coordinatorId, proposalDocumentId, academicYearId, targetCompanyId, proposedStartDate, proposedEndDate, memberIds = [] } = data;
 
     return prisma.internshipProposal.create({
         data: {
@@ -136,6 +144,8 @@ export async function createProposal(data) {
             proposalDocumentId,
             academicYearId,
             targetCompanyId,
+            proposedStartDate: new Date(proposedStartDate),
+            proposedEndDate: new Date(proposedEndDate),
             status: 'PENDING',
             internships: {
                 create: [
@@ -162,7 +172,7 @@ export async function createProposal(data) {
  * @returns {Promise<Object>}
  */
 export async function updateProposal(proposalId, data) {
-    const { proposalDocumentId, targetCompanyId, memberIds = [] } = data;
+    const { coordinatorId, proposalDocumentId, targetCompanyId, memberIds = [] } = data;
 
     return prisma.$transaction(async (tx) => {
         // 1. Get old document info for deletion
@@ -177,6 +187,8 @@ export async function updateProposal(proposalId, data) {
             data: {
                 proposalDocumentId,
                 targetCompanyId,
+                proposedStartDate: new Date(data.proposedStartDate),
+                proposedEndDate: new Date(data.proposedEndDate),
                 status: 'PENDING',
                 updatedAt: new Date(),
                 proposalSekdepNotes: null

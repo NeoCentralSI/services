@@ -135,7 +135,7 @@ export async function deleteCriteria(id) {
  */
 export async function findStudentInternshipWithGuidance(studentId) {
     return prisma.internship.findFirst({
-        where: { studentId, status: "ONGOING" },
+        where: { studentId, status: { in: ["ONGOING", "COMPLETED", "FAILED"] } },
         select: {
             id: true,
             actualStartDate: true,

@@ -75,9 +75,10 @@ export async function listEligibleStudents(req, res, next) {
 export async function submitProposal(req, res, next) {
     try {
         const studentId = req.user.sub;
-        const { targetCompanyId, newCompany, proposalDocumentId, memberIds } = req.body;
+        const { targetCompanyId, newCompany, proposalDocumentId, memberIds, proposedStartDate, proposedEndDate } = req.body;
         const companyName = newCompany?.companyName;
         const companyAddress = newCompany?.address;
+        const companyReason = newCompany?.alasan;
 
         if (!proposalDocumentId) {
             const err = new Error("Dokumen proposal harus diunggah.");
@@ -90,7 +91,10 @@ export async function submitProposal(req, res, next) {
             targetCompanyId,
             companyName,
             companyAddress,
+            companyReason,
             proposalDocumentId,
+            proposedStartDate,
+            proposedEndDate,
             memberIds
         });
 
@@ -114,16 +118,20 @@ export async function updateProposal(req, res, next) {
     try {
         const studentId = req.user.sub;
         const { id: proposalId } = req.params;
-        const { targetCompanyId, newCompany, proposalDocumentId, memberIds = [] } = req.body;
+        const { targetCompanyId, newCompany, proposalDocumentId, memberIds = [], proposedStartDate, proposedEndDate } = req.body;
         const companyName = newCompany?.companyName;
         const companyAddress = newCompany?.address;
+        const companyReason = newCompany?.alasan;
 
         const data = await registrationService.updateProposal(proposalId, {
             coordinatorId: studentId,
             targetCompanyId,
             companyName,
             companyAddress,
+            companyReason,
             proposalDocumentId,
+            proposedStartDate,
+            proposedEndDate,
             memberIds
         });
 
@@ -227,6 +235,25 @@ export async function submitCompanyResponse(req, res, next) {
             message: "Surat balasan berhasil diunggah.",
             data
         });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to calculate working days.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getWorkingDays(req, res, next) {
+    try {
+        const { startDate, endDate } = req.query;
+        if (!startDate || !endDate) {
+            return res.status(400).json({ success: false, message: "Start date and end date are required." });
+        }
+        const count = await registrationService.calculateWorkingDays(startDate, endDate);
+        res.status(200).json({ success: true, data: count });
     } catch (error) {
         next(error);
     }
