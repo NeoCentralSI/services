@@ -61,9 +61,6 @@ export const updateSeminarResultSchema = z.object({
     .min(1, { message: "Minimal 1 dosen penguji harus dipilih" }),
 });
 
-export const assignSeminarAudienceSchema = z.object({
+export const addSeminarAudienceSchema = z.object({
   studentId: z.string().uuid({ message: "studentId harus UUID valid" }),
-  seminarIds: z
-    .array(z.string().uuid({ message: "seminarIds harus berisi UUID valid" }))
-    .min(1, { message: "Minimal 1 seminar harus dipilih" }),
 });

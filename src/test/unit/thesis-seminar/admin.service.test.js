@@ -63,6 +63,11 @@ const {
     findThesesForSeminarResultOptions: vi.fn(),
     findAllSeminarResultsForExport: vi.fn(),
     updateSeminarResultWithExaminers: vi.fn(),
+    findSeminarForAudienceCheck: vi.fn(),
+    findFirstSupervisorByThesisId: vi.fn(),
+    findAudienceByKey: vi.fn(),
+    createSeminarAudience: vi.fn(),
+    deleteSeminarAudience: vi.fn(),
   },
   mockDocRepo: { getSeminarDocumentTypes: vi.fn() },
   mockStudentRepo: { getSeminarAudiences: vi.fn() },
@@ -97,6 +102,13 @@ import {
   deleteSeminarResult,
   exportSeminarArchiveTemplate,
   importSeminarArchive,
+  getSeminarAudienceList,
+  getStudentOptionsForSeminarAudience,
+  addSeminarAudience,
+  removeSeminarAudience,
+  importSeminarAudiences,
+  exportSeminarAudiences,
+  exportSeminarAudienceTemplate,
 } from "../../../services/thesis-seminar/admin.service.js";
 
 // ── helpers ───────────────────────────────────────────────────
@@ -442,5 +454,96 @@ describe("importSeminarArchive", () => {
 
     expect(result.failed).toBe(1);
     expect(result.failedRows[0].error).toMatch(/Minimal 2 Dosen Penguji/i);
+  });
+});
+
+describe("addSeminarAudience", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("throws 403 if seminar is not an archive data", async () => {
+    mockRepo.findSeminarForAudienceCheck.mockResolvedValue({ id: "sem-1", registeredAt: new Date() });
+    await expect(addSeminarAudience("sem-1", "student-1")).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Seminar ini merupakan seminar aktif dan tidak dapat dikelola audiens-nya secara manual",
+    });
+  });
+
+  it("throws 400 if student is already an audience", async () => {
+    mockRepo.findSeminarForAudienceCheck.mockResolvedValue({ id: "sem-1", registeredAt: null, date: new Date(), thesisId: "t-1" });
+    mockRepo.findAudienceByKey.mockResolvedValue({ thesisSeminarId: "sem-1", studentId: "student-1" });
+    await expect(addSeminarAudience("sem-1", "student-1")).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Mahasiswa sudah terdaftar sebagai audience seminar ini",
+    });
+  });
+
+  it("successfully adds an audience", async () => {
+    mockRepo.findSeminarForAudienceCheck.mockResolvedValue({ id: "sem-1", registeredAt: null, date: new Date(), thesisId: "t-1" });
+    mockRepo.findAudienceByKey.mockResolvedValue(null);
+    mockRepo.findFirstSupervisorByThesisId.mockResolvedValue({ id: "lec-1" });
+    mockRepo.createSeminarAudience.mockResolvedValue({});
+
+    const result = await addSeminarAudience("sem-1", "student-1");
+    expect(result.success).toBe(true);
+    expect(mockRepo.createSeminarAudience).toHaveBeenCalled();
+  });
+});
+
+describe("removeSeminarAudience", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("throws 403 if seminar is not an archive data", async () => {
+    mockRepo.findSeminarForAudienceCheck.mockResolvedValue({ id: "sem-1", registeredAt: new Date() });
+    await expect(removeSeminarAudience("sem-1", "student-1")).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Seminar ini merupakan seminar aktif dan tidak dapat dikelola audiens-nya secara manual",
+    });
+  });
+
+  it("successfully removes an audience", async () => {
+    mockRepo.findSeminarForAudienceCheck.mockResolvedValue({ id: "sem-1", registeredAt: null });
+    mockRepo.deleteSeminarAudience.mockResolvedValue({});
+
+    const result = await removeSeminarAudience("sem-1", "student-1");
+    expect(result.success).toBe(true);
+    expect(mockRepo.deleteSeminarAudience).toHaveBeenCalledWith("sem-1", "student-1");
+  });
+});
+
+describe("importSeminarAudiences", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("throws 403 if seminar is not an archive data", async () => {
+    mockRepo.findSeminarForAudienceCheck.mockResolvedValue({ id: "sem-1", registeredAt: new Date() });
+    await expect(importSeminarAudiences("sem-1", { buffer: Buffer.from("fake") })).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Seminar ini merupakan seminar aktif dan tidak dapat dikelola audiens-nya secara manual",
+    });
+  });
+
+  it("handles multiple rows correctly", async () => {
+    mockRepo.findSeminarForAudienceCheck.mockResolvedValue({ id: "sem-1", registeredAt: null, date: new Date(), thesisId: "t-1" });
+    mockRepo.findFirstSupervisorByThesisId.mockResolvedValue({ id: "lec-1" });
+    
+    // Simulate xlsx parsed data
+    mockXlsx.utils.sheet_to_json.mockReturnValue([
+      { "Nama Mahasiswa": "Mahasiswa A", NIM: "111" },
+      { "Nama Mahasiswa": "Mahasiswa B", NIM: "222" },
+      { "Nama Mahasiswa": "", NIM: "" }, // should fail
+    ]);
+
+    // First student found, second not found
+    mockRepo.findStudentByNameOrNim = vi.fn()
+      .mockResolvedValueOnce({ id: "student-1" })
+      .mockResolvedValueOnce(null);
+    
+    // First student not existing audience yet
+    mockRepo.findAudienceByKey.mockResolvedValue(null);
+
+    const result = await importSeminarAudiences("sem-1", { buffer: Buffer.from("fake") });
+    
+    expect(result.total).toBe(3);
+    expect(result.successCount).toBe(1);
+    expect(result.failed).toBe(2);
   });
 });

@@ -369,6 +369,7 @@ export function findSeminarResultByIdForArchiveDetail(id) {
     select: {
       id: true,
       thesisId: true,
+      registeredAt: true,
       date: true,
       status: true,
       createdAt: true,
@@ -586,87 +587,121 @@ export function deleteSeminarResultById(seminarId) {
   return prisma.thesisSeminar.delete({ where: { id: seminarId } });
 }
 
-export function findAudienceLinksPaginated({ where, skip, take }) {
+// ==================== Audience (Nested) ====================
+
+export function findSeminarForAudienceCheck(seminarId) {
+  return prisma.thesisSeminar.findUnique({
+    where: { id: seminarId },
+    select: {
+      id: true,
+      registeredAt: true,
+      date: true,
+      thesisId: true,
+    },
+  });
+}
+
+export function findFirstSupervisorByThesisId(thesisId) {
+  return prisma.thesisSupervisors.findFirst({
+    where: { thesisId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+}
+
+export function findSeminarAudiences(seminarId) {
   return prisma.thesisSeminarAudience.findMany({
-    where,
-    skip,
-    take,
-    orderBy: { createdAt: "desc" },
+    where: { thesisSeminarId: seminarId },
+    orderBy: { createdAt: "asc" },
     select: {
       thesisSeminarId: true,
       studentId: true,
+      registeredAt: true,
+      approvedAt: true,
       createdAt: true,
-      seminar: {
-        select: {
-          id: true,
-          date: true,
-          thesis: {
-            select: {
-              title: true,
-              student: {
-                select: {
-                  user: { select: { fullName: true, identityNumber: true } },
-                },
-              },
-            },
-          },
-        },
-      },
       student: {
         select: {
           id: true,
           user: { select: { fullName: true, identityNumber: true } },
         },
       },
-    },
-  });
-}
-
-export function countAudienceLinks(where) {
-  return prisma.thesisSeminarAudience.count({ where });
-}
-
-export function findStudentById(studentId) {
-  return prisma.student.findUnique({ where: { id: studentId }, select: { id: true } });
-}
-
-export function findSeminarsByIdsForAudience(seminarIds) {
-  return prisma.thesisSeminar.findMany({
-    where: { id: { in: seminarIds } },
-    select: { id: true, thesis: { select: { studentId: true } } },
-  });
-}
-
-export function findExistingAudienceLinks(studentId, seminarIds) {
-  return prisma.thesisSeminarAudience.findMany({
-    where: {
-      studentId,
-      thesisSeminarId: { in: seminarIds },
-    },
-    select: { thesisSeminarId: true },
-  });
-}
-
-export function createSeminarResultAudienceLinks(studentId, seminarIds) {
-  return prisma.thesisSeminarAudience.createMany({
-    data: seminarIds.map((seminarId) => ({
-      thesisSeminarId: seminarId,
-      studentId,
-    })),
-    skipDuplicates: true,
-  });
-}
-
-export function deleteSeminarResultAudienceLinkById(seminarId, studentId) {
-  return prisma.thesisSeminarAudience.delete({
-    where: {
-      thesisSeminarId_studentId: {
-        thesisSeminarId: seminarId,
-        studentId,
+      supervisor: {
+        select: {
+          id: true,
+          lecturer: {
+            select: { user: { select: { fullName: true } } },
+          },
+        },
       },
     },
   });
 }
+
+export function findStudentOptionsForAudience(seminarId) {
+  return prisma.student.findMany({
+    where: {
+      NOT: {
+        thesisSeminarAudiences: { some: { thesisSeminarId: seminarId } },
+      },
+      thesis: { some: {} }, // must have a thesis
+    },
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+    orderBy: { user: { fullName: "asc" } },
+  });
+}
+
+export function findAudienceByKey(seminarId, studentId) {
+  return prisma.thesisSeminarAudience.findUnique({
+    where: { thesisSeminarId_studentId: { thesisSeminarId: seminarId, studentId } },
+    select: { thesisSeminarId: true, studentId: true },
+  });
+}
+
+export function createSeminarAudience({ seminarId, studentId, supervisorId, seminarDate }) {
+  return prisma.thesisSeminarAudience.create({
+    data: {
+      thesisSeminarId: seminarId,
+      studentId,
+      approvedBy: supervisorId,
+      registeredAt: seminarDate,
+      approvedAt: seminarDate,
+    },
+  });
+}
+
+export function createSeminarAudiencesMany(records) {
+  return prisma.thesisSeminarAudience.createMany({
+    data: records,
+    skipDuplicates: true,
+  });
+}
+
+export function deleteSeminarAudience(seminarId, studentId) {
+  return prisma.thesisSeminarAudience.delete({
+    where: { thesisSeminarId_studentId: { thesisSeminarId: seminarId, studentId } },
+  });
+}
+
+export function findStudentByNameOrNim({ fullName, nim }) {
+  return prisma.student.findFirst({
+    where: {
+      user: {
+        OR: [
+          { fullName: { equals: fullName } },
+          { identityNumber: { equals: nim } },
+        ],
+      },
+    },
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+  });
+}
+
 
 export async function findAllSeminarResultsForExport(where) {
   const seminars = await prisma.thesisSeminar.findMany({

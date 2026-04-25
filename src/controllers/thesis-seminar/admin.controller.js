@@ -12,12 +12,16 @@ import {
   getSeminarResultThesisOptions,
   getSeminarResultLecturerOptions,
   getSeminarResultStudentOptions,
-  getSeminarResultAudienceLinks,
-  assignSeminarResultAudiences,
-  removeSeminarResultAudienceLink,
   exportSeminarArchive,
   exportSeminarArchiveTemplate,
   importSeminarArchive,
+  getSeminarAudienceList,
+  getStudentOptionsForSeminarAudience,
+  addSeminarAudience,
+  removeSeminarAudience,
+  importSeminarAudiences,
+  exportSeminarAudiences,
+  exportSeminarAudienceTemplate,
 } from "../../services/thesis-seminar/admin.service.js";
 
 /**
@@ -195,37 +199,6 @@ export async function getSeminarResultDetailController(req, res, next) {
   }
 }
 
-export async function getSeminarResultAudienceLinksController(req, res, next) {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = parseInt(req.query.pageSize) || 10;
-    const search = req.query.search || "";
-    const result = await getSeminarResultAudienceLinks({ page, pageSize, search });
-    res.status(200).json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function assignSeminarResultAudiencesController(req, res, next) {
-  try {
-    const body = req.validated ?? req.body ?? {};
-    const result = await assignSeminarResultAudiences(body);
-    res.status(200).json({ success: true, data: result });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function removeSeminarResultAudienceLinkController(req, res, next) {
-  try {
-    const { seminarId, studentId } = req.params;
-    await removeSeminarResultAudienceLink({ seminarId, studentId });
-    res.status(200).json({ success: true, message: "Relasi audience berhasil dihapus" });
-  } catch (err) {
-    next(err);
-  }
-}
 
 export async function exportSeminarArchiveTemplateController(req, res, next) {
   try {
@@ -259,6 +232,110 @@ export async function importSeminarArchiveController(req, res, next) {
     }
     const results = await importSeminarArchive(file.buffer, req.user.sub);
     res.status(200).json({ success: true, ...results });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ==================== Audience Controllers ====================
+
+export async function getSeminarAudienceListController(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const data = await getSeminarAudienceList(seminarId);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getStudentOptionsForSeminarAudienceController(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const data = await getStudentOptionsForSeminarAudience(seminarId);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function addSeminarAudienceController(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const { studentId } = req.validated ?? req.body ?? {};
+    const result = await addSeminarAudience(seminarId, studentId);
+    res.status(201).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function removeSeminarAudienceController(req, res, next) {
+  try {
+    const { seminarId, studentId } = req.params;
+    const result = await removeSeminarAudience(seminarId, studentId);
+    res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function importSeminarAudiencesController(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const file = req.file;
+    if (!file) {
+      const err = new Error("File Excel (.xlsx) diperlukan.");
+      err.statusCode = 400;
+      throw err;
+    }
+    const results = await importSeminarAudiences(seminarId, file);
+    res.status(200).json({ success: true, ...results });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exportSeminarAudienceTemplateController(req, res, next) {
+  try {
+    const buffer = await exportSeminarAudienceTemplate();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=Template_Audience_Seminar.xlsx");
+    res.status(200).send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exportSeminarAudiencesController(req, res, next) {
+  try {
+    const { seminarId } = req.params;
+    const format = req.query.format || "excel";
+    const result = await exportSeminarAudiences(seminarId, format);
+
+    if (format === "pdf") {
+      // Build simple PDF-like HTML for presentation
+      const { data, seminar } = result;
+      const rows = data.map((r, i) =>
+        `<tr><td>${r.No}</td><td>${r["Nama Mahasiswa"]}</td><td>${r["NIM"]}</td><td>${r["Disetujui Pada"]}</td><td>${r["Disetujui Oleh"]}</td></tr>`
+      ).join("");
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Daftar Audience Seminar</title>
+<style>body{font-family:Arial,sans-serif;padding:24px}h2{margin-bottom:4px}p{margin:2px 0;color:#555}
+table{border-collapse:collapse;width:100%;margin-top:16px}th,td{border:1px solid #ccc;padding:8px 10px;text-align:left}th{background:#f0f0f0}</style>
+</head><body>
+<h2>Daftar Audience Seminar Hasil</h2>
+<p>Tanggal Seminar: ${seminar.date ? new Date(seminar.date).toLocaleDateString("id-ID") : "-"}</p>
+<table><thead><tr><th>No</th><th>Nama Mahasiswa</th><th>NIM</th><th>Disetujui Pada</th><th>Disetujui Oleh</th></tr></thead>
+<tbody>${rows}</tbody></table>
+</body></html>`;
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=Audience_Seminar_${seminarId}.html`);
+      return res.status(200).send(html);
+    }
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=Audience_Seminar.xlsx`);
+    res.status(200).send(result);
   } catch (err) {
     next(err);
   }
