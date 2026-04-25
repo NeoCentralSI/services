@@ -1,4 +1,4 @@
-﻿import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, createRoom, updateRoom, getRooms, deleteRoom, getSeminarResultThesisOptions, getSeminarResultLecturerOptions, getSeminarResultStudentOptions, getSeminarResults, createSeminarResult, updateSeminarResult, deleteSeminarResult, getSeminarResultAudienceLinks, assignSeminarResultAudiences, removeSeminarResultAudienceLink } from "../services/adminfeatures.service.js";
+import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, adminUpdateLecturer, adminUpdateStudent, createRoom, updateRoom, getRooms, deleteRoom, getSeminarResultThesisOptions, getSeminarResultLecturerOptions, getSeminarResultStudentOptions, getSeminarResults, getSeminarResultDetail, createSeminarResult, updateSeminarResult, deleteSeminarResult, getSeminarResultAudienceLinks, assignSeminarResultAudiences, removeSeminarResultAudienceLink } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -110,11 +110,18 @@ export async function updateRoomController(req, res, next) {
 
 export async function getRoomsController(req, res, next) {
 	try {
-		const page = parseInt(req.query.page) || 1;
-		const pageSize = parseInt(req.query.pageSize) || 10;
+		const page = parseInt(req.query.page, 10) || 1;
+		const limitRaw = req.query.limit ?? req.query.pageSize;
+		const limit = parseInt(limitRaw, 10) || 10;
 		const search = req.query.search || "";
-		const result = await getRooms({ page, pageSize, search });
-		res.status(200).json({ success: true, ...result });
+		const status = req.query.status || "all";
+		const result = await getRooms({ page, limit, search, status });
+		res.status(200).json({
+			success: true,
+			message: "Berhasil mengambil data ruangan",
+			data: result.data,
+			total: result.total,
+		});
 	} catch (err) {
 		next(err);
 	}
@@ -203,6 +210,16 @@ export async function deleteSeminarResultController(req, res, next) {
 		const { id } = req.params;
 		await deleteSeminarResult(id);
 		res.status(200).json({ success: true, message: "Data seminar hasil berhasil dihapus" });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getSeminarResultDetailController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const data = await getSeminarResultDetail(id);
+		res.status(200).json({ success: true, data });
 	} catch (err) {
 		next(err);
 	}

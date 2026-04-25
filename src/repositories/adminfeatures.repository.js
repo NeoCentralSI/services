@@ -1,5 +1,73 @@
 import prisma from "../config/prisma.js";
 
+const roomListCountSelect = {
+	internshipSeminars: true,
+	thesisSeminars: true,
+	thesisDefences: true,
+	yudisiums: true,
+};
+
+function buildRoomListWhere({ search = "", status = "all" } = {}) {
+	const and = [];
+
+	if (search) {
+		and.push({
+			OR: [
+				{ name: { contains: search, mode: "insensitive" } },
+				{ location: { contains: search, mode: "insensitive" } },
+			],
+		});
+	}
+
+	if (status === "available") {
+		and.push({
+			internshipSeminars: { none: {} },
+			thesisSeminars: { none: {} },
+			thesisDefences: { none: {} },
+			yudisiums: { none: {} },
+		});
+	} else if (status === "in_use") {
+		and.push({
+			OR: [
+				{ internshipSeminars: { some: {} } },
+				{ thesisSeminars: { some: {} } },
+				{ thesisDefences: { some: {} } },
+				{ yudisiums: { some: {} } },
+			],
+		});
+	}
+
+	if (and.length === 0) return {};
+	return { AND: and };
+}
+
+/**
+ * Paginated room list: findMany + count in a single transaction (consistent snapshot).
+ */
+export async function findRoomsPaginated({ status = "all", search = "", page = 1, limit = 10 } = {}) {
+	const parsedPage = parseInt(String(page), 10) || 1;
+	const parsedLimit = parseInt(String(limit), 10) || 10;
+	const skip = (parsedPage - 1) * parsedLimit;
+	const where = buildRoomListWhere({ search, status });
+
+	const [rooms, total] = await prisma.$transaction([
+		prisma.room.findMany({
+			where,
+			orderBy: [{ name: "asc" }, { createdAt: "desc" }],
+			include: {
+				_count: {
+					select: roomListCountSelect,
+				},
+			},
+			skip,
+			take: parsedLimit,
+		}),
+		prisma.room.count({ where }),
+	]);
+
+	return { rooms, total };
+}
+
 export function findUserByEmailOrIdentity(email, identityNumber) {
 	const or = [];
 	if (email) or.push({ email: String(email).toLowerCase() });

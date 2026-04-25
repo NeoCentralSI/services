@@ -32,9 +32,7 @@ import {
 	createStudentForUser,
 	findLecturerByUserId,
 	createLecturerForUser,
-} from "../repositories/adminfeatures.repository.js";
-// Switch admin service to use only adminfeatures.repository for admin operations
-import {
+	findRoomsPaginated,
 	findUserById,
 	updateUserById as repoUpdateUserById,
 	findRoleByName,
@@ -607,65 +605,44 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 
 // ==================== Room (Admin) ====================
 
-export async function getRooms({ page = 1, pageSize = 10, search = "" } = {}) {
-	const skip = (page - 1) * pageSize;
-	const take = pageSize;
+function mapRoomRow(room) {
+	const relationCount =
+		room._count.internshipSeminars +
+		room._count.thesisSeminars +
+		room._count.thesisDefences +
+		room._count.yudisiums;
 
-	const where = search
-		? {
-			OR: [
-				{ name: { contains: search } },
-				{ location: { contains: search } },
-			],
-		}
-		: {};
+	return {
+		id: room.id,
+		name: room.name,
+		location: room.location,
+		capacity: room.capacity,
+		relationCount,
+		createdAt: room.createdAt,
+		updatedAt: room.updatedAt,
+		canDelete: relationCount === 0,
+	};
+}
 
-	const [rooms, total] = await Promise.all([
-		prisma.room.findMany({
-			where,
-			skip,
-			take,
-			orderBy: [{ name: "asc" }, { createdAt: "desc" }],
-			include: {
-				_count: {
-					select: {
-						internshipSeminars: true,
-						thesisSeminars: true,
-						thesisDefences: true,
-						yudisiums: true,
-					},
-				},
-			},
-		}),
-		prisma.room.count({ where }),
-	]);
+/**
+ * @param {{ page?: number; limit?: number; pageSize?: number; search?: string; status?: string }} params
+ * status: all | available | in_use — "available" = no scheduling relations; "in_use" = has at least one.
+ */
+export async function getRooms({ page = 1, limit: limitArg, pageSize, search = "", status = "all" } = {}) {
+	const limit = parseInt(String(limitArg ?? pageSize ?? 10), 10) || 10;
+	const parsedPage = parseInt(String(page), 10) || 1;
+	const normalizedStatus = ["all", "available", "in_use"].includes(status) ? status : "all";
 
-	const mappedRooms = rooms.map((room) => {
-		const relationCount =
-			room._count.internshipSeminars +
-			room._count.thesisSeminars +
-			room._count.thesisDefences +
-			room._count.yudisiums;
-
-		return {
-			id: room.id,
-			name: room.name,
-			location: room.location,
-			capacity: room.capacity,
-			createdAt: room.createdAt,
-			updatedAt: room.updatedAt,
-			canDelete: relationCount === 0,
-		};
+	const { rooms, total } = await findRoomsPaginated({
+		status: normalizedStatus,
+		search: String(search || "").trim(),
+		page: parsedPage,
+		limit,
 	});
 
 	return {
-		rooms: mappedRooms,
-		meta: {
-			page,
-			pageSize,
-			total,
-			totalPages: Math.ceil(total / pageSize),
-		},
+		data: rooms.map(mapRoomRow),
+		total,
 	};
 }
 
@@ -715,18 +692,43 @@ export async function updateRoom(id, { name, location, capacity } = {}) {
 		throw err;
 	}
 
-	const existing = await prisma.room.findUnique({ where: { id } });
+	const existing = await prisma.room.findUnique({
+		where: { id },
+		include: {
+			_count: {
+				select: {
+					internshipSeminars: true,
+					thesisSeminars: true,
+					thesisDefences: true,
+					yudisiums: true,
+				},
+			},
+		},
+	});
 	if (!existing) {
 		const err = new Error("Ruangan tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
 
+	const relationCount =
+		existing._count.internshipSeminars +
+		existing._count.thesisSeminars +
+		existing._count.thesisDefences +
+		existing._count.yudisiums;
+
 	const data = {};
 	if (name !== undefined) {
 		const trimmedName = String(name).trim();
 		if (!trimmedName) {
 			const err = new Error("Nama ruangan wajib diisi");
+			err.statusCode = 400;
+			throw err;
+		}
+		if (relationCount > 0 && trimmedName !== existing.name) {
+			const err = new Error(
+				"Ruangan yang sudah digunakan untuk penjadwalan tidak dapat mengubah nama"
+			);
 			err.statusCode = 400;
 			throw err;
 		}
@@ -1105,6 +1107,81 @@ export async function getSeminarResults({ page = 1, pageSize = 10, search = "" }
 			total,
 			totalPages: Math.ceil(total / pageSize),
 		},
+	};
+}
+
+export async function getSeminarResultDetail(id) {
+	const seminar = await prisma.thesisSeminar.findUnique({
+		where: { id },
+		select: {
+			id: true,
+			thesisId: true,
+			date: true,
+			status: true,
+			createdAt: true,
+			updatedAt: true,
+			thesis: {
+				select: {
+					title: true,
+					student: {
+						select: {
+							id: true,
+							user: { select: { fullName: true, identityNumber: true, email: true } },
+						},
+					},
+				},
+			},
+			room: { select: { id: true, name: true, location: true } },
+			examiners: {
+				select: {
+					id: true,
+					lecturerId: true,
+					order: true,
+				},
+				orderBy: { order: "asc" },
+			},
+			_count: { select: { audiences: true } },
+		},
+	});
+
+	if (!seminar) {
+		const err = new Error("Data seminar hasil tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	const lecturerIds = seminar.examiners.map((e) => e.lecturerId);
+	const lecturerMap = new Map();
+	if (lecturerIds.length > 0) {
+		const lecturers = await prisma.lecturer.findMany({
+			where: { id: { in: lecturerIds } },
+			select: { id: true, user: { select: { fullName: true } } },
+		});
+		lecturers.forEach((l) => lecturerMap.set(l.id, l.user?.fullName || "-"));
+	}
+
+	return {
+		id: seminar.id,
+		thesisId: seminar.thesisId,
+		thesisTitle: seminar.thesis?.title || "-",
+		student: {
+			id: seminar.thesis?.student?.id || null,
+			fullName: seminar.thesis?.student?.user?.fullName || "-",
+			nim: seminar.thesis?.student?.user?.identityNumber || "-",
+			email: seminar.thesis?.student?.user?.email || "-",
+		},
+		date: seminar.date,
+		room: seminar.room,
+		status: seminar.status,
+		audienceCount: seminar._count.audiences,
+		examiners: seminar.examiners.map((e) => ({
+			id: e.id,
+			lecturerId: e.lecturerId,
+			lecturerName: lecturerMap.get(e.lecturerId) || "-",
+			order: e.order,
+		})),
+		createdAt: seminar.createdAt,
+		updatedAt: seminar.updatedAt,
 	};
 }
 
@@ -1588,6 +1665,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 				mkwuCompleted: user.student.mkwuCompleted,
 				internshipCompleted: user.student.internshipCompleted,
 				kknCompleted: user.student.kknCompleted,
+				researchMethodCompleted: user.student.researchMethodCompleted,
 				currentSemester: user.student.currentSemester,
 				status: user.student.status || null,
 				activeTheses: user.student.thesis.map((thesis) => ({
@@ -2028,7 +2106,7 @@ export async function getStudentDetail(userId) {
 			},
 		},
 		orderBy: [
-			{ cpl: { displayOrder: "asc" } },
+			{ cpl: { code: "asc" } },
 			{ cplId: "asc" },
 		],
 	});
@@ -2108,6 +2186,7 @@ export async function getStudentDetail(userId) {
 			mkwuCompleted: user.student.mkwuCompleted,
 			internshipCompleted: user.student.internshipCompleted,
 			kknCompleted: user.student.kknCompleted,
+			researchMethodCompleted: user.student.researchMethodCompleted,
 			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
 		},
@@ -2302,6 +2381,7 @@ export async function adminUpdateStudent(id, data) {
 	if (data.mkwuCompleted !== undefined) updateData.mkwuCompleted = !!data.mkwuCompleted;
 	if (data.internshipCompleted !== undefined) updateData.internshipCompleted = !!data.internshipCompleted;
 	if (data.kknCompleted !== undefined) updateData.kknCompleted = !!data.kknCompleted;
+	if (data.researchMethodCompleted !== undefined) updateData.researchMethodCompleted = !!data.researchMethodCompleted;
 
 	return prisma.student.update({
 		where: { id },
