@@ -95,3 +95,189 @@ export const hasRelatedScores = async (id) => {
     const scoresCount = await prisma.studentCplScore.count({ where: { cplId: id } });
     return scoresCount > 0;
 };
+
+const studentScoreInclude = {
+    student: {
+        select: {
+            id: true,
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true,
+                    email: true,
+                },
+            },
+        },
+    },
+    cpl: {
+        select: {
+            id: true,
+            code: true,
+            description: true,
+            minimalScore: true,
+            isActive: true,
+        },
+    },
+    inputUser: {
+        select: {
+            id: true,
+            fullName: true,
+            identityNumber: true,
+        },
+    },
+    verifier: {
+        select: {
+            id: true,
+            fullName: true,
+            identityNumber: true,
+        },
+    },
+};
+
+export const findStudentScoresByCplId = async (cplId, { search = "", source, status } = {}) => {
+    const where = {
+        cplId,
+        ...(source ? { source } : {}),
+        ...(status ? { status } : {}),
+        ...(search
+            ? {
+                  student: {
+                      user: {
+                          OR: [
+                              { fullName: { contains: search } },
+                              { identityNumber: { contains: search } },
+                          ],
+                      },
+                  },
+              }
+            : {}),
+    };
+
+    return await prisma.studentCplScore.findMany({
+        where,
+        include: studentScoreInclude,
+        orderBy: [{ student: { user: { fullName: "asc" } } }],
+    });
+};
+
+export const findStudentScoreByCplAndStudent = async (cplId, studentId) => {
+    return await prisma.studentCplScore.findUnique({
+        where: {
+            studentId_cplId: { studentId, cplId },
+        },
+        include: studentScoreInclude,
+    });
+};
+
+export const createStudentScore = async (data) => {
+    return await prisma.studentCplScore.create({ data });
+};
+
+export const updateStudentScore = async (cplId, studentId, data) => {
+    return await prisma.studentCplScore.update({
+        where: {
+            studentId_cplId: { studentId, cplId },
+        },
+        data,
+    });
+};
+
+export const removeStudentScore = async (cplId, studentId) => {
+    return await prisma.studentCplScore.delete({
+        where: {
+            studentId_cplId: { studentId, cplId },
+        },
+    });
+};
+
+export const findStudentsNotInCpl = async (cplId, search = "") => {
+    const linkedRows = await prisma.studentCplScore.findMany({
+        where: { cplId },
+        select: { studentId: true },
+    });
+    const linkedStudentIds = linkedRows.map((row) => row.studentId);
+
+    const where = {
+        ...(linkedStudentIds.length ? { id: { notIn: linkedStudentIds } } : {}),
+        ...(search
+            ? {
+                  user: {
+                      OR: [
+                          { fullName: { contains: search } },
+                          { identityNumber: { contains: search } },
+                      ],
+                  },
+              }
+            : {}),
+    };
+
+    return await prisma.student.findMany({
+        where,
+        select: {
+            id: true,
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true,
+                    email: true,
+                },
+            },
+        },
+        orderBy: {
+            user: {
+                fullName: "asc",
+            },
+        },
+    });
+};
+
+export const findStudentByIdentityNumber = async (identityNumber) => {
+    return await prisma.student.findFirst({
+        where: {
+            user: {
+                identityNumber,
+            },
+        },
+        select: {
+            id: true,
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true,
+                    email: true,
+                },
+            },
+        },
+    });
+};
+
+export const findStudentById = async (studentId) => {
+    return await prisma.student.findUnique({
+        where: { id: studentId },
+        select: {
+            id: true,
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true,
+                    email: true,
+                },
+            },
+        },
+    });
+};
+
+export const findCplScoresForExport = async (cplId) => {
+    return await prisma.studentCplScore.findMany({
+        where: { cplId },
+        include: studentScoreInclude,
+        orderBy: [{ student: { user: { fullName: "asc" } } }],
+    });
+};
+
+export const findAllCplScoresForExport = async () => {
+    return await prisma.studentCplScore.findMany({
+        include: studentScoreInclude,
+        orderBy: [{ cpl: { code: "asc" } }, { student: { user: { fullName: "asc" } } }],
+    });
+};

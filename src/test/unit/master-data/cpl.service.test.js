@@ -25,7 +25,19 @@ const { mockPrisma } = vi.hoisted(() => ({
     $transaction: vi.fn(),
     studentCplScore: {
       findFirst: vi.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
       count: vi.fn(),
+    },
+    student: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+    },
+    user: {
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -39,6 +51,11 @@ import {
   updateCpl,
   toggleCpl,
   deleteCpl,
+  getCplStudents,
+  createCplStudentScore,
+  updateCplStudentScore,
+  deleteCplStudentScore,
+  buildAllCplScoresExportWorkbookBuffer,
 } from "../../../services/cpl.service.js";
 
 const NOW = new Date("2026-04-20T09:00:00.000Z");
@@ -330,8 +347,8 @@ describe("CPL Service", () => {
 
     it("rejects (400) when attempting to update a CPL with related scores", async () => {
       mockPrisma.cpl.findUnique.mockResolvedValue({
-          ...CPL_ACTIVE_1,
-          _count: { studentCplScores: 1 },
+        ...CPL_ACTIVE_1,
+        _count: { studentCplScores: 1 },
       });
 
       await expect(
@@ -473,6 +490,133 @@ describe("CPL Service", () => {
 
       await expect(deleteCpl(CPL_ACTIVE_1.id)).rejects.toMatchObject({ statusCode: 400 });
       expect(mockPrisma.cpl.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("student cpl score", () => {
+    it("returns cpl students list with computed result", async () => {
+      mockPrisma.cpl.findUnique.mockResolvedValueOnce({
+        ...CPL_ACTIVE_1,
+        _count: { studentCplScores: 1 },
+      });
+      mockPrisma.studentCplScore.findMany.mockResolvedValueOnce([
+        {
+          cplId: CPL_ACTIVE_1.id,
+          studentId: "std-1",
+          score: 80,
+          source: "manual",
+          status: "finalized",
+          createdAt: NOW,
+          updatedAt: NOW,
+          finalizedAt: NOW,
+          verifiedAt: null,
+          cpl: {
+            id: CPL_ACTIVE_1.id,
+            code: CPL_ACTIVE_1.code,
+            description: CPL_ACTIVE_1.description,
+            minimalScore: 70,
+            isActive: true,
+          },
+          student: {
+            id: "std-1",
+            user: {
+              fullName: "Budi",
+              identityNumber: "5025221001",
+              email: "budi@example.com",
+            },
+          },
+          inputUser: null,
+          verifier: null,
+        },
+      ]);
+
+      const result = await getCplStudents(CPL_ACTIVE_1.id, {});
+      expect(result.total).toBe(1);
+      expect(result.data[0]).toMatchObject({
+        studentId: "std-1",
+        result: "Lulus",
+      });
+    });
+
+    it("rejects create when relation already exists", async () => {
+      mockPrisma.cpl.findUnique.mockResolvedValueOnce({
+        ...CPL_ACTIVE_1,
+        _count: { studentCplScores: 1 },
+      });
+      mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+      });
+
+      await expect(
+        createCplStudentScore(CPL_ACTIVE_1.id, { studentId: "std-1", score: 90 }, "admin-1")
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects update for SIA source", async () => {
+      mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+        source: "SIA",
+      });
+
+      await expect(
+        updateCplStudentScore(CPL_ACTIVE_1.id, "std-1", { score: 85 }, "admin-1")
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(mockPrisma.studentCplScore.update).not.toHaveBeenCalled();
+    });
+
+    it("deletes manual score", async () => {
+      mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+        source: "manual",
+      });
+      mockPrisma.studentCplScore.delete.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+      });
+
+      await deleteCplStudentScore(CPL_ACTIVE_1.id, "std-1");
+      expect(mockPrisma.studentCplScore.delete).toHaveBeenCalled();
+    });
+
+    it("builds global export workbook buffer", async () => {
+      mockPrisma.studentCplScore.findMany.mockResolvedValueOnce([
+        {
+          cplId: CPL_ACTIVE_1.id,
+          studentId: "std-1",
+          score: 75,
+          source: "manual",
+          status: "finalized",
+          createdAt: NOW,
+          updatedAt: NOW,
+          finalizedAt: NOW,
+          verifiedAt: null,
+          cpl: {
+            id: CPL_ACTIVE_1.id,
+            code: CPL_ACTIVE_1.code,
+            description: CPL_ACTIVE_1.description,
+            minimalScore: 70,
+            isActive: true,
+          },
+          student: {
+            id: "std-1",
+            user: {
+              fullName: "Budi",
+              identityNumber: "5025221001",
+              email: "budi@example.com",
+            },
+          },
+          inputUser: null,
+          verifier: null,
+        },
+      ]);
+
+      const result = await buildAllCplScoresExportWorkbookBuffer();
+      expect(result.filename).toBe("nilai-cpl-semua.xlsx");
+      expect(Buffer.isBuffer(result.buffer)).toBe(true);
     });
   });
 });
