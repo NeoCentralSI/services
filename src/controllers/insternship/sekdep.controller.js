@@ -481,3 +481,24 @@ export async function sendFieldAssessment(req, res, next) {
         next(error);
     }
 }
+
+/**
+ * Reject the final fixed internship report (Sekdep).
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function rejectFinalReport(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { notes } = req.body;
+        
+        await sekdepService.rejectFinalReport(id, notes);
+        res.status(200).json({
+            success: true,
+            message: "Laporan final berhasil ditolak dan dikembalikan ke mahasiswa."
+        });
+    } catch (error) {
+        next(error);
+    }
+}

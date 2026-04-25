@@ -2,6 +2,8 @@ import * as registrationRepository from "../../repositories/insternship/registra
 import * as notificationService from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { ROLES } from "../../constants/roles.js";
+import { getHolidayDatesInRange } from "./holiday.service.js";
+import { getWorkingDays } from "../../utils/internship-date.util.js";
 
 /**
  * Get and format internship proposals for a specific student.
@@ -88,7 +90,9 @@ export async function getStudentProposals(studentId, academicYearId) {
                 : '-',
             status: proposal.status,
             memberStatus: isCoordinator ? coordinatorStatus : (proposal.internships.find(i => i.studentId === studentId)?.status || 'PENDING'),
-            members: membersList
+            members: membersList,
+            proposedStartDate: proposal.proposedStartDate,
+            proposedEndDate: proposal.proposedEndDate
         };
     }).filter(p => p.memberStatus !== 'REJECTED');
 }
@@ -121,7 +125,17 @@ export async function getEligibleStudents() {
  * @returns {Promise<Object>}
  */
 export async function submitProposal(data) {
-    const { coordinatorId, proposalDocumentId, targetCompanyId, companyName, companyAddress, memberIds = [] } = data;
+    const { 
+        coordinatorId, 
+        proposalDocumentId, 
+        targetCompanyId, 
+        companyName, 
+        companyAddress, 
+        companyReason,
+        proposedStartDate,
+        proposedEndDate,
+        memberIds = [] 
+    } = data;
 
     // 1. Validate coordinator state
     const activeCoordinator = await registrationRepository.findActiveProposalOrInternship(coordinatorId);
@@ -145,13 +159,32 @@ export async function submitProposal(data) {
         }
     }
 
+    // Get active academic year
+    const activeAY = await registrationRepository.getActiveAcademicYear();
+    if (!activeAY) {
+        const error = new Error("Tidak ada tahun akademik yang aktif saat ini.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // 3. Validate working days (min 30 days)
+    const holidays = await getHolidayDatesInRange(proposedStartDate, proposedEndDate);
+    const workingDays = getWorkingDays(proposedStartDate, proposedEndDate, holidays);
+    if (workingDays.length < 30) {
+        const error = new Error(`Jumlah hari kerja minimal adalah 30 hari. Saat ini hanya ${workingDays.length} hari.`);
+        error.statusCode = 400;
+        throw error;
+    }
+
     let finalCompanyId = targetCompanyId;
 
     // Handle manual company input
     if (!finalCompanyId && companyName) {
         const newCompany = await registrationRepository.createCompany({
             companyName,
-            companyAddress: companyAddress || "Alamat tidak tersedia"
+            companyAddress: companyAddress || "Alamat tidak tersedia",
+            alasan: companyReason,
+            status: 'diajukan'
         });
         finalCompanyId = newCompany.id;
     }
@@ -162,19 +195,13 @@ export async function submitProposal(data) {
         throw error;
     }
 
-    // Get active academic year
-    const activeAY = await registrationRepository.getActiveAcademicYear();
-    if (!activeAY) {
-        const error = new Error("Tidak ada tahun akademik yang aktif saat ini.");
-        error.statusCode = 400;
-        throw error;
-    }
-
     const proposal = await registrationRepository.createProposal({
         coordinatorId,
         proposalDocumentId,
         academicYearId: activeAY.id,
         targetCompanyId: finalCompanyId,
+        proposedStartDate,
+        proposedEndDate,
         memberIds
     });
 
@@ -219,7 +246,17 @@ export async function submitProposal(data) {
  * @returns {Promise<Object>}
  */
 export async function updateProposal(proposalId, data) {
-    const { coordinatorId, proposalDocumentId, targetCompanyId, companyName, companyAddress, memberIds = [] } = data;
+    const { 
+        coordinatorId, 
+        proposalDocumentId, 
+        targetCompanyId, 
+        companyName, 
+        companyAddress, 
+        companyReason,
+        proposedStartDate,
+        proposedEndDate,
+        memberIds = [] 
+    } = data;
 
     // 1. Verify existence and state
     const proposal = await registrationRepository.findProposalById(proposalId);
@@ -258,6 +295,15 @@ export async function updateProposal(proposalId, data) {
         }
     }
 
+    // 3. Validate working days (min 30 days)
+    const holidays = await getHolidayDatesInRange(proposedStartDate, proposedEndDate);
+    const workingDays = getWorkingDays(proposedStartDate, proposedEndDate, holidays);
+    if (workingDays.length < 30) {
+        const error = new Error(`Jumlah hari kerja minimal adalah 30 hari. Saat ini hanya ${workingDays.length} hari.`);
+        error.statusCode = 400;
+        throw error;
+    }
+
     let finalCompanyId = targetCompanyId;
     if (!finalCompanyId && companyName) {
         const newCompany = await registrationRepository.createCompany({
@@ -275,6 +321,8 @@ export async function updateProposal(proposalId, data) {
     const updated = await registrationRepository.updateProposal(proposalId, {
         proposalDocumentId,
         targetCompanyId: finalCompanyId,
+        proposedStartDate,
+        proposedEndDate,
         memberIds
     });
 
@@ -530,4 +578,17 @@ async function notifySekdepIfReady(proposalId) {
     } catch (err) {
         console.error("Failed to notify Sekdep in notifySekdepIfReady:", err);
     }
+}
+
+/**
+ * Calculate working days between two dates, excluding holidays and weekends.
+ * @param {string} startDate 
+ * @param {string} endDate 
+ * @returns {Promise<number>}
+ */
+export async function calculateWorkingDays(startDate, endDate) {
+    if (!startDate || !endDate) return 0;
+    const holidays = await getHolidayDatesInRange(startDate, endDate);
+    const workingDays = getWorkingDays(startDate, endDate, holidays);
+    return workingDays.length;
 }

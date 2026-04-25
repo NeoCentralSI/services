@@ -116,6 +116,18 @@ export async function findProposalForLetter(id) {
 export async function updateApplicationLetter(proposalId, data) {
     const { documentNumber, startDatePlanned, endDatePlanned } = data;
 
+    // Strict validation: Check if appLetterDocNumber is same as assignLetterDocNumber
+    const proposal = await prisma.internshipProposal.findUnique({
+        where: { id: proposalId },
+        select: { assignLetterDocNumber: true }
+    });
+
+    if (proposal && proposal.assignLetterDocNumber === documentNumber) {
+        const error = new Error("Nomor surat permohonan tidak boleh sama dengan nomor surat tugas.");
+        error.statusCode = 400;
+        throw error;
+    }
+
     return prisma.internshipProposal.update({
         where: { id: proposalId },
         data: {
@@ -240,6 +252,18 @@ export async function findProposalForAssignment(id) {
  */
 export async function updateAssignmentLetter(proposalId, data) {
     const { documentNumber, startDateActual, endDateActual } = data;
+
+    // Strict validation: Check if assignLetterDocNumber is same as appLetterDocNumber
+    const proposal = await prisma.internshipProposal.findUnique({
+        where: { id: proposalId },
+        select: { appLetterDocNumber: true }
+    });
+
+    if (proposal && proposal.appLetterDocNumber === documentNumber) {
+        const error = new Error("Nomor surat tugas tidak boleh sama dengan nomor surat permohonan.");
+        error.statusCode = 400;
+        throw error;
+    }
 
     return prisma.internshipProposal.update({
         where: { id: proposalId },

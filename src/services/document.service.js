@@ -517,3 +517,81 @@ export async function generateSupervisorLetter(data) {
         throw new Error("Gagal membuat dokumen surat tugas pembimbing: " + error.message);
     }
 }
+export async function generateSeminarMinutesDocx(seminarId, templateData) {
+    try {
+        const TEMPLATE_NAME = "INTERNSHIP_BERITA_ACARA_SEMINAR";
+        const dbTemplate = await prisma.documentTemplate.findUnique({
+            where: { name: TEMPLATE_NAME }
+        });
+
+        let buf;
+
+        if (dbTemplate && dbTemplate.type === "DOCX" && dbTemplate.filePath) {
+            try {
+                const templatePath = path.resolve(dbTemplate.filePath);
+                const content = await fs.readFile(templatePath);
+                const zip = new PizZip(content);
+                const doc = new Docxtemplater(zip, {
+                    paragraphLoop: true,
+                    linebreaks: true,
+                });
+
+                doc.render(templateData);
+
+                buf = doc.getZip().generate({
+                    type: "nodebuffer",
+                    compression: "DEFLATE",
+                });
+            } catch (error) {
+                console.error("Docxtemplater error:", error);
+                throw new Error("Gagal generate dokumen dari template DOCX: " + error.message);
+            }
+        } else {
+            // Fallback: If no template, just generate a simple message as PDF
+            throw new Error("Template Berita Acara Seminar (KP-006) belum diunggah oleh Admin/Sekdep.");
+        }
+
+        const pdfBuffer = await convertDocxToPdf(buf, `Berita_Acara_Seminar_${templateData.nama}.docx`);
+
+        const uploadsDir = path.join(process.cwd(), "uploads", "internship", "generated");
+        await fs.mkdir(uploadsDir, { recursive: true });
+
+        const fileName = `Berita_Acara_${templateData.nama.replace(/[\/\\?%*:|"<>]/g, "-")}_${Date.now()}.pdf`;
+        const filePath = path.join(uploadsDir, fileName);
+        const relativeFilePath = `uploads/internship/generated/${fileName}`;
+
+        await fs.writeFile(filePath, pdfBuffer);
+
+        let docType = await prisma.documentType.findFirst({ where: { name: "Berita Acara Seminar KP" } });
+        if (!docType) {
+            docType = await prisma.documentType.create({ data: { name: "Berita Acara Seminar KP" } });
+        }
+
+        // We don't link it to a specific user as owner in Document table for now, 
+        // or we could link it to the student.
+        const studentInfo = await prisma.internshipSeminar.findUnique({
+            where: { id: seminarId },
+            include: { internship: true }
+        });
+
+        await prisma.document.create({
+            data: {
+                fileName: fileName,
+                filePath: relativeFilePath,
+                documentTypeId: docType.id,
+                userId: studentInfo?.internship?.studentId || null
+            }
+        });
+
+        return { 
+            pdfBuffer, 
+            fileName, 
+            filePath, 
+            relativePath: relativeFilePath 
+        };
+
+    } catch (error) {
+        console.error("Error generating seminar minutes document:", error);
+        throw new Error(error.message);
+    }
+}
