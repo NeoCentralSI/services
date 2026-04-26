@@ -43,6 +43,8 @@ model User {
   defenceExaminerAssignments ThesisDefenceExaminer[]          @relation("DefenceExaminerAssignedBy")
   defenceDocVerifications    ThesisDefenceDocument[]          @relation("DefenceDocVerifiedBy")
 
+  internshipSupLetterSigned  InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
+
   @@map("users")
 }
 
@@ -1196,10 +1198,12 @@ model InternshipSupervisorLetter {
   endDate        DateTime @map("end_date") @db.Date
   supervisorId   String   @map("supervisor_id")
   documentId     String?  @map("document_id")
+  signedById     String?  @map("signed_by_id")
   signedAsRoleId String?  @map("signed_as_role_id")
 
   supervisor   Lecturer  @relation(fields: [supervisorId], references: [id], onDelete: Cascade)
   document     Document? @relation("InternshipSupLetterDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  signedBy     User?     @relation("InternshipSupLetterSigner", fields: [signedById], references: [id])
   signedAsRole UserRole? @relation("InternshipSupLetterRole", fields: [signedAsRoleId], references: [id])
 
   internships Internship[]
@@ -1223,6 +1227,8 @@ model Internship {
   actualStartDate      DateTime?              @map("actual_start_date") @db.Date
   actualEndDate        DateTime?              @map("actual_end_date") @db.Date
   status               InternshipActiveStatus @default(PENDING)
+  isLogbookLocked      Boolean                @default(false) @map("is_logbook_locked")
+  logbookLockedAt      DateTime?              @map("logbook_locked_at")
   createdAt            DateTime               @default(now()) @map("created_at")
   updatedAt            DateTime               @default(now()) @map("updated_at")
   student              Student                @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -1284,9 +1290,11 @@ model Internship {
   fieldScores    InternshipFieldScore[]
 
   // Field assessment submission metadata
-  fieldAssessmentSignatureHash String?                @map("field_assessment_signature_hash") @db.VarChar(255)
   fieldAssessmentSubmittedAt   DateTime?              @map("field_assessment_submitted_at")
   fieldAssessmentTokens        FieldAssessmentToken[]
+
+  logbookFieldSignatureHash String?   @map("logbook_field_signature_hash") @db.VarChar(255)
+  logbookFieldSignedAt      DateTime? @map("logbook_field_signed_at")
 
   finalNumericScore Float?  @map("final_numeric_score")
   finalGrade        String? @map("final_grade") @db.VarChar(10)
@@ -1532,6 +1540,7 @@ model FieldAssessmentToken {
   id           String    @id @default(uuid())
   internshipId String    @map("internship_id")
   token        String    @unique @db.VarChar(255)
+  pin          String?   @db.VarChar(6)
   expiresAt    DateTime  @map("expires_at")
   isUsed       Boolean   @default(false) @map("is_used")
   usedAt       DateTime? @map("used_at")

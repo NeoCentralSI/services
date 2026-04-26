@@ -67,24 +67,50 @@ export async function stampQRCode(pdfBuffer, qrText, positions) {
 
         // Draw Logo in center if available
         if (logoImage) {
-            const logoSize = size * 0.28; // Slightly larger for visibility
-            const padding = size * 0.05; // White background padding
+            const logoScaleFactor = 0.22; // Slightly smaller weight for better aesthetics
+            const logoSize = size * logoScaleFactor;
+            const padding = size * 0.04; 
 
-            // Draw white background for logo to make it stand out
-            page.drawRectangle({
-                x: pdfX + (size - (logoSize + padding)) / 2,
-                y: pdfY + (size - (logoSize + padding)) / 2,
-                width: logoSize + padding,
-                height: logoSize + padding,
-                color: rgb(1, 1, 1),
-            });
+            // Get original dimensions to maintain aspect ratio
+            const { width: origW, height: origH } = logoImage.scale(1);
+            const aspectRatio = origW / origH;
+            
+            let logoWidth = logoSize;
+            let logoHeight = logoSize / aspectRatio;
+            
+            // Adjust if height is the dominant dimension
+            if (logoHeight > logoSize) {
+                logoHeight = logoSize;
+                logoWidth = logoSize * aspectRatio;
+            }
 
-            // Draw the actual logo
+            // Calculate center positions
+            const centerX = pdfX + size / 2;
+            const centerY = pdfY + size / 2;
+
+            // Draw slightly rounded white background for the logo
+            const bgSize = logoSize + padding;
+            const r = bgSize * 0.18; // corner radius
+            const bgX = centerX - bgSize / 2;
+            const bgY = centerY - bgSize / 2;
+
+            // Horizontal rect
+            page.drawRectangle({ x: bgX + r, y: bgY, width: bgSize - 2 * r, height: bgSize, color: rgb(1, 1, 1) });
+            // Vertical rect
+            page.drawRectangle({ x: bgX, y: bgY + r, width: bgSize, height: bgSize - 2 * r, color: rgb(1, 1, 1) });
+            // 4 corners
+            page.drawCircle({ x: bgX + r, y: bgY + r, size: r, color: rgb(1, 1, 1) });
+            page.drawCircle({ x: bgX + bgSize - r, y: bgY + r, size: r, color: rgb(1, 1, 1) });
+            page.drawCircle({ x: bgX + r, y: bgY + bgSize - r, size: r, color: rgb(1, 1, 1) });
+            page.drawCircle({ x: bgX + bgSize - r, y: bgY + bgSize - r, size: r, color: rgb(1, 1, 1) });
+            
+
+            // Draw the actual logo maintaining aspect ratio
             page.drawImage(logoImage, {
-                x: pdfX + (size - logoSize) / 2,
-                y: pdfY + (size - logoSize) / 2,
-                width: logoSize,
-                height: logoSize
+                x: centerX - logoWidth / 2,
+                y: centerY - logoHeight / 2,
+                width: logoWidth,
+                height: logoHeight
             });
         }
     }

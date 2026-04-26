@@ -196,7 +196,7 @@ export function passwordAssignedTemplate({ appName, fullName, email, password, l
 	return getEmailWrapper(content, { appName, headerTitle: "Your Password" });
 }
 
-export function fieldAssessmentRequestTemplate({ appName, supervisorName, studentName, studentNim, companyName, academicYear, assessmentUrl, expiresInDays = 7 }) {
+export function fieldAssessmentRequestTemplate({ appName, supervisorName, studentName, studentNim, companyName, academicYear, assessmentUrl, pin, expiresInDays = 7 }) {
 	const content = `
 		<p style="margin: 0 0 16px 0; font-size: 15px; color: ${TEXT_COLOR}; line-height: 1.6;">
 			<strong>Yth. ${supervisorName},</strong>
@@ -210,11 +210,17 @@ export function fieldAssessmentRequestTemplate({ appName, supervisorName, studen
 			{ label: "Perusahaan", value: companyName },
 			{ label: "Tahun Akademik", value: academicYear },
 		])}
-		<p style="margin: 0 0 8px 0; font-size: 14px; color: ${TEXT_COLOR}; line-height: 1.6;">
-			Silakan klik tombol di bawah ini untuk mengisi formulir penilaian. Bapak/Ibu <strong>tidak perlu membuat akun atau login</strong> — cukup buka link berikut:
+		<p style="margin: 0 0 16px 0; font-size: 15px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			Untuk menjaga keamanan data mahasiswa, silakan gunakan <strong>PIN</strong> berikut untuk mengakses portal penilaian:
 		</p>
-		${getPrimaryButton("Mulai Penilaian", assessmentUrl)}
-		${getSecurityNotice(`Link ini berlaku selama ${expiresInDays} hari dan hanya dapat digunakan satu kali. Jika link sudah kedaluwarsa, silakan hubungi pihak kampus untuk mendapatkan link baru.`)}
+		<div style="background-color: #F9FAFB; border: 2px dashed ${BORDER_COLOR}; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+			<span style="font-size: 32px; font-weight: 800; color: ${PRIMARY_COLOR}; letter-spacing: 10px; font-family: 'Courier New', monospace;">${pin}</span>
+		</div>
+		<p style="margin: 0 0 8px 0; font-size: 14px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			Silakan klik tombol di bawah ini untuk masuk ke portal penilaian mahasiswa. Di dalam portal ini, Bapak/Ibu dapat <strong>memeriksa logbook harian</strong> mahasiswa dan <strong>memberikan penilaian akhir</strong>.
+		</p>
+		${getPrimaryButton("Akses Portal Penilaian", assessmentUrl)}
+		${getSecurityNotice(`Link ini berlaku selama ${expiresInDays} hari. Jangan memberikan PIN ini kepada mahasiswa atau pihak lain.`)}
 	`;
 	return getEmailWrapper(content, { appName, headerTitle: "Penilaian Kerja Praktik" });
 }

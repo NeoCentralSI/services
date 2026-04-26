@@ -7,7 +7,8 @@ import * as fieldAssessmentService from "../../services/insternship/field-assess
 export async function validateToken(req, res, next) {
     try {
         const { token } = req.params;
-        const data = await fieldAssessmentService.validateToken(token);
+        const { pin } = req.query;
+        const data = await fieldAssessmentService.validateToken(token, pin);
         res.status(200).json({ success: true, data });
     } catch (error) {
         next(error);
@@ -42,6 +43,28 @@ export async function submitAssessment(req, res, next) {
             message: "Penilaian berhasil dikirim. Terima kasih!",
             data,
         });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Verify PIN for field assessment.
+ * POST /api/insternship/field-assessment/verify-pin/:token
+ */
+export async function verifyPin(req, res, next) {
+    try {
+        const { token } = req.params;
+        const { pin } = req.body;
+
+        if (!pin) {
+            const error = new Error("PIN wajib diisi.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        await fieldAssessmentService.verifyPin(token, pin);
+        res.status(200).json({ success: true, message: "PIN berhasil diverifikasi." });
     } catch (error) {
         next(error);
     }

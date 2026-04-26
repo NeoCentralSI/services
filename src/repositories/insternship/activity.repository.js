@@ -94,6 +94,29 @@ export async function updateInternshipDetails(studentId, { fieldSupervisorName, 
 }
 
 /**
+ * Lock logbook for an internship.
+ * @param {string} studentId 
+ * @returns {Promise<Object>}
+ */
+export async function lockLogbook(studentId) {
+    const internship = await prisma.internship.findFirst({
+        where: { studentId, status: 'ONGOING' }
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+    }
+
+    return prisma.internship.update({
+        where: { id: internship.id },
+        data: {
+            isLogbookLocked: true,
+            logbookLockedAt: new Date()
+        }
+    });
+}
+
+/**
  * Create a new internship report record.
  * After consolidation, this updates report fields directly in the Internship model.
  * @param {Object} data 

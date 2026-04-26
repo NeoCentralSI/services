@@ -782,3 +782,46 @@ export async function copyGuidance(fromYearId, toYearId) {
         return { questionsCopied: sourceQuestions.length, criteriaCopied: sourceCriteria.length };
     });
 }
+/**
+ * Get supervisor letter for a lecturer in a specific academic year.
+ * @param {string} lecturerId 
+ * @param {string} academicYearId 
+ * @returns {Promise<Object|null>}
+ */
+export async function getSupervisorLetter(lecturerId, academicYearId) {
+    let ayId = academicYearId;
+    if (!ayId || ayId === 'all') {
+        const active = await getActiveYear();
+        ayId = active.id;
+    }
+
+    const letter = await prisma.internshipSupervisorLetter.findFirst({
+        where: {
+            supervisorId: lecturerId,
+            internships: {
+                some: {
+                    proposal: {
+                        academicYearId: ayId
+                    }
+                }
+            },
+            signedById: { not: null } // Only return signed letters
+        },
+        include: {
+            document: true
+        }
+    });
+
+    if (!letter) return null;
+
+    return {
+        id: letter.id,
+        documentNumber: letter.documentNumber,
+        dateIssued: letter.dateIssued,
+        document: letter.document ? {
+            id: letter.document.id,
+            fileName: letter.document.fileName,
+            filePath: letter.document.filePath
+        } : null
+    };
+}

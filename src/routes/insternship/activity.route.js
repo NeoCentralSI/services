@@ -1,6 +1,6 @@
 import express from "express";
 import * as activityController from "../../controllers/insternship/activity.controller.js";
-import { getStudentGuidance, submitStudentGuidance, getSupervisedStudents, getSupervisedStudentTimeline, getSupervisedStudentWeekDetail, submitLecturerEvaluation, verifyFinalReport } from "../../controllers/insternship/guidance.controller.js";
+import { getStudentGuidance, submitStudentGuidance, getSupervisedStudents, getSupervisedStudentTimeline, getSupervisedStudentWeekDetail, submitLecturerEvaluation, verifyFinalReport, getSupervisorLetter } from "../../controllers/insternship/guidance.controller.js";
 import { getAssessment, submitAssessment } from "../../controllers/insternship/assessment.controller.js";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { LECTURER_ROLES } from "../../constants/roles.js";
@@ -12,6 +12,7 @@ const router = express.Router();
 router.get("/logbook", authGuard, activityController.getLogbooks);
 router.get("/logbook/download", authGuard, activityController.downloadLogbookPdf);
 router.get("/download-docx", authGuard, activityController.downloadLogbookDocx);
+router.post("/logbook/finish", authGuard, activityController.lockLogbook);
 router.put("/logbook/:id", authGuard, activityController.updateLogbook);
 router.put("/details", authGuard, activityController.updateInternshipDetails);
 router.post("/report", authGuard, activityController.submitReport);
@@ -50,6 +51,7 @@ router.get("/guidance/lecturer/students/:internshipId", authGuard, requireAnyRol
 router.get("/guidance/lecturer/students/:internshipId/week/:weekNumber", authGuard, requireAnyRole(LECTURER_ROLES), getSupervisedStudentWeekDetail);
 router.post("/guidance/lecturer/students/:internshipId/week/:weekNumber/evaluate", authGuard, requireAnyRole(LECTURER_ROLES), submitLecturerEvaluation);
 router.put("/guidance/lecturer/students/:internshipId/verify-report", authGuard, requireAnyRole(LECTURER_ROLES), uploadThesisFile, verifyFinalReport);
+router.get("/guidance/lecturer/supervisor-letter", authGuard, requireAnyRole(LECTURER_ROLES), getSupervisorLetter);
 
 // Assessment / Penilaian (Lecturer)
 router.get("/guidance/lecturer/assessment/:internshipId", authGuard, requireAnyRole(LECTURER_ROLES), getAssessment);
