@@ -4,173 +4,115 @@ import { validate } from "../middlewares/validation.middleware.js";
 import { uploadSeminarDocFile } from "../middlewares/file.middleware.js";
 import upload from "../middlewares/file.middleware.js";
 import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
-import { getThesisSeminarsHome } from "../controllers/thesis-seminar/dispatcher.controller.js";
-import {
-  listSeminars,
-  getSeminarDetail,
-  validateDocument,
-  getSchedulingDataController,
-  setSchedule,
-  getSeminarResultThesisOptionsController,
-  getSeminarResultLecturerOptionsController,
-  getSeminarResultStudentOptionsController,
-  getSeminarResultsController,
-  getSeminarResultDetailController,
-  createSeminarResultController,
-  updateSeminarResultController,
-  deleteSeminarResultController,
-  exportSeminarArchiveController,
-  exportSeminarArchiveTemplateController,
-  importSeminarArchiveController,
-  getSeminarAudienceListController,
-  getStudentOptionsForSeminarAudienceController,
-  addSeminarAudienceController,
-  removeSeminarAudienceController,
-  importSeminarAudiencesController,
-  exportSeminarAudiencesController,
-  exportSeminarAudienceTemplateController,
-} from "../controllers/thesis-seminar/admin.controller.js";
-import {
-  getSeminarOverview,
-  getAttendanceHistory,
-  getSeminarAnnouncementsCtrl,
-  registerToSeminarCtrl,
-  cancelSeminarRegistrationCtrl,
-  getStudentRevisionsCtrl,
-  createStudentRevisionCtrl,
-  submitRevisionActionCtrl,
-  getStudentSeminarHistoryCtrl,
-  getStudentSeminarDetailCtrl,
-  getStudentSeminarAssessmentCtrl,
-  saveRevisionActionCtrl,
-  submitRevisionCtrl,
-  cancelRevisionSubmitCtrl,
-  deleteRevisionCtrl,
-} from "../controllers/thesis-seminar/student.controller.js";
-import {
-  getDocumentTypes,
-  getDocuments,
-  uploadDocument,
-  viewDocument,
-} from "../controllers/thesis-seminar/document.controller.js";
-import {
-  listAssignmentSeminars,
-  listEligibleExaminers,
-  assignSeminarExaminers,
-  listExaminerRequests,
-  listSupervisedStudentSeminars,
-  getSeminarDetail as getLecturerSeminarDetail,
-  respondExaminerAssignment,
-  getExaminerAssessment,
-  submitExaminerAssessmentCtrl,
-  getSupervisorFinalization,
-  finalizeSeminarCtrl,
-  getSeminarRevisionsCtrl,
-  approveRevisionCtrl,
-  unapproveRevisionCtrl,
-  finalizeSeminarRevisionsCtrl,
-  getSeminarAudiencesCtrl,
-  approveAudienceCtrl,
-  unapproveAudienceCtrl,
-  toggleAudiencePresenceCtrl,
-} from "../controllers/thesis-seminar/lecturer.controller.js";
+import * as ctrl from "../controllers/thesis-seminar.controller.js";
+
+// Import validators
 import {
   scheduleSchema,
-  createSeminarResultSchema,
-  updateSeminarResultSchema,
-  addSeminarAudienceSchema,
-} from "../validators/thesis-seminar/admin.validator.js";
-import {
+  createSeminarSchema,
+  updateSeminarSchema,
+  addAudienceSchema,
   createRevisionSchema,
-  submitRevisionActionSchema,
-  saveRevisionActionSchema,
-} from "../validators/thesis-seminar/student-seminar.validator.js";
-import {
+  revisionActionSchema,
   assignExaminersSchema,
   respondAssignmentSchema,
-  submitExaminerAssessmentSchema,
+  submitAssessmentSchema,
   finalizeSeminarSchema,
-} from "../validators/thesis-seminar/lecturer-seminar.validator.js";
+} from "../validators/thesis-seminar.validator.js";
 
 const router = express.Router();
-console.log("✅ Thesis Seminar routes loaded");
-const THESIS_SEMINAR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
+const ALL_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 
-router.get("/", authGuard, requireAnyRole(THESIS_SEMINAR_ACCESS_ROLES), getThesisSeminarsHome);
+router.use(authGuard);
+router.use(requireAnyRole(ALL_ROLES));
 
-// Admin routes
-// Thesis Seminar Archive
-router.use("/archive", authGuard, requireAnyRole([ROLES.ADMIN]));
-router.get("/archive/options/theses", getSeminarResultThesisOptionsController);
-router.get("/archive/options/examiners", getSeminarResultLecturerOptionsController);
-router.get("/archive/options/students", getSeminarResultStudentOptionsController);
-router.get("/archive/template", exportSeminarArchiveTemplateController);
-router.get("/archive/export", exportSeminarArchiveController);
-router.post("/archive/import", upload.single("file"), importSeminarArchiveController);
-router.get("/archive", getSeminarResultsController);
-router.post("/archive", validate(createSeminarResultSchema), createSeminarResultController);
-router.get("/archive/:id", getSeminarResultDetailController);
-router.patch("/archive/:id", validate(updateSeminarResultSchema), updateSeminarResultController);
-router.delete("/archive/:id", deleteSeminarResultController);
-// Audience management
-router.get("/archive/:seminarId/audiences", getSeminarAudienceListController);
-router.get("/archive/:seminarId/audiences/options/students", getStudentOptionsForSeminarAudienceController);
-router.get("/archive/:seminarId/audiences/template", exportSeminarAudienceTemplateController);
-router.get("/archive/:seminarId/audiences/export", exportSeminarAudiencesController);
-router.post("/archive/:seminarId/audiences", validate(addSeminarAudienceSchema), addSeminarAudienceController);
-router.post("/archive/:seminarId/audiences/import", upload.single("file"), importSeminarAudiencesController);
-router.delete("/archive/:seminarId/audiences/:studentId", removeSeminarAudienceController);
+// ============================================================
+// GLOBAL OPTIONS & TEMPLATES
+// ============================================================
+router.get("/options/theses", ctrl.getThesisOptions);
+router.get("/options/lecturers", ctrl.getLecturerOptions);
+router.get("/options/students", ctrl.getStudentOptions);
+router.get("/options/rooms", ctrl.getRoomOptions);
+router.get("/template", ctrl.getArchiveTemplate);
+router.get("/export", ctrl.exportArchive);
+router.post("/import", upload.single("file"), ctrl.importArchive);
 
-// Thesis Seminar Validation
-router.use("/admin", authGuard, requireAnyRole([ROLES.ADMIN]));
-router.get("/admin", listSeminars);
-router.get("/admin/:seminarId", getSeminarDetail);
-router.post("/admin/:seminarId/documents/:documentTypeId/validate", validateDocument);
-router.get("/admin/:seminarId/scheduling-data", getSchedulingDataController);
-router.post("/admin/:seminarId/schedule", validate(scheduleSchema), setSchedule);
+// ============================================================
+// USER SPECIFIC (Self)
+// ============================================================
+router.get("/me/overview", ctrl.getStudentOverview);
+router.get("/me/attendance", ctrl.getAttendanceHistory);
+router.get("/me/history", ctrl.getStudentHistory);
+router.get("/announcements", ctrl.getAnnouncements);
 
-// Student routes
-router.use("/student", authGuard, requireAnyRole([ROLES.MAHASISWA]));
-router.get("/student/overview", getSeminarOverview);
-router.get("/student/attendance", getAttendanceHistory);
-router.get("/student/announcements", getSeminarAnnouncementsCtrl);
-router.post("/student/announcements/:seminarId/register", registerToSeminarCtrl);
-router.delete("/student/announcements/:seminarId/register", cancelSeminarRegistrationCtrl);
-router.get("/student/documents/types", getDocumentTypes);
-router.get("/student/documents", getDocuments);
-router.post("/student/documents/upload", uploadSeminarDocFile, uploadDocument);
-router.get("/student/documents/:documentTypeId", viewDocument);
-router.get("/student/revisions", getStudentRevisionsCtrl);
-router.post("/student/revisions", validate(createRevisionSchema), createStudentRevisionCtrl);
-router.put("/student/revisions/:revisionId/submit", validate(submitRevisionActionSchema), submitRevisionActionCtrl);
-router.patch("/student/revisions/:revisionId/action", validate(saveRevisionActionSchema), saveRevisionActionCtrl);
-router.post("/student/revisions/:revisionId/submit", submitRevisionCtrl);
-router.post("/student/revisions/:revisionId/cancel-submit", cancelRevisionSubmitCtrl);
-router.delete("/student/revisions/:revisionId", deleteRevisionCtrl);
-router.get("/student/history", getStudentSeminarHistoryCtrl);
-router.get("/student/seminars/:seminarId", getStudentSeminarDetailCtrl);
-router.get("/student/seminars/:seminarId/assessment", getStudentSeminarAssessmentCtrl);
+// ============================================================
+// DOCUMENTS (Global Types)
+// ============================================================
+router.get("/documents/types", ctrl.getDocumentTypes);
 
-// Lecturer routes
-router.use("/lecturer", authGuard, requireAnyRole(LECTURER_ROLES));
-router.get("/lecturer/examiner-requests", listExaminerRequests);
-router.get("/lecturer/supervised-students", listSupervisedStudentSeminars);
-router.get("/lecturer/seminars/:seminarId", getLecturerSeminarDetail);
-router.get("/lecturer/seminars/:seminarId/assessment", getExaminerAssessment);
-router.post("/lecturer/seminars/:seminarId/assessment", validate(submitExaminerAssessmentSchema), submitExaminerAssessmentCtrl);
-router.get("/lecturer/seminars/:seminarId/finalization", getSupervisorFinalization);
-router.post("/lecturer/seminars/:seminarId/finalize", validate(finalizeSeminarSchema), finalizeSeminarCtrl);
-router.get("/lecturer/seminars/:seminarId/revisions", getSeminarRevisionsCtrl);
-router.put("/lecturer/seminars/:seminarId/revisions/:revisionId/approve", approveRevisionCtrl);
-router.put("/lecturer/seminars/:seminarId/revisions/:revisionId/unapprove", unapproveRevisionCtrl);
-router.post("/lecturer/seminars/:seminarId/revisions/finalize", finalizeSeminarRevisionsCtrl);
-router.get("/lecturer/seminars/:seminarId/audiences", getSeminarAudiencesCtrl);
-router.put("/lecturer/seminars/:seminarId/audiences/:studentId/approve", approveAudienceCtrl);
-router.put("/lecturer/seminars/:seminarId/audiences/:studentId/unapprove", unapproveAudienceCtrl);
-router.put("/lecturer/seminars/:seminarId/audiences/:studentId/presence", toggleAudiencePresenceCtrl);
-router.post("/lecturer/seminars/:examinerId/respond", validate(respondAssignmentSchema), respondExaminerAssignment);
-router.get("/lecturer/assignment", requireAnyRole([ROLES.KETUA_DEPARTEMEN]), listAssignmentSeminars);
-router.get("/lecturer/assignment/:seminarId/eligible-examiners", requireAnyRole([ROLES.KETUA_DEPARTEMEN]), listEligibleExaminers);
-router.post("/lecturer/assignment/:seminarId", requireAnyRole([ROLES.KETUA_DEPARTEMEN]), validate(assignExaminersSchema), assignSeminarExaminers);
+// ============================================================
+// SEMINAR CORE
+// ============================================================
+router.get("/", ctrl.getSeminars);
+router.post("/", validate(createSeminarSchema), ctrl.createArchive);
+
+router.get("/:id", ctrl.getSeminarDetail);
+router.patch("/:id", validate(updateSeminarSchema), ctrl.updateArchive);
+router.delete("/:id", ctrl.deleteArchive);
+
+// ============================================================
+// SCHEDULING
+// ============================================================
+router.get("/:id/scheduling-data", ctrl.getSchedulingData);
+router.post("/:id/schedule", validate(scheduleSchema), ctrl.setSchedule);
+
+// ============================================================
+// DOCUMENTS (Per Seminar)
+// ============================================================
+router.get("/:id/documents", ctrl.getDocuments);
+router.post("/:id/documents", uploadSeminarDocFile, ctrl.uploadDocument);
+router.get("/:id/documents/:documentTypeId", ctrl.viewDocument);
+router.post("/:id/documents/:documentTypeId/validate", ctrl.validateDocument);
+
+// ============================================================
+// EXAMINERS & ASSIGNMENT
+// ============================================================
+router.get("/:id/eligible-examiners", ctrl.getEligibleExaminers);
+router.post("/:id/examiners", validate(assignExaminersSchema), ctrl.assignExaminers);
+router.post("/:id/examiners/:examinerId/respond", validate(respondAssignmentSchema), ctrl.respondAssignment);
+
+// ============================================================
+// ASSESSMENT & FINALIZATION
+// ============================================================
+router.get("/:id/assessment", ctrl.getAssessment);
+router.post("/:id/assessment", validate(submitAssessmentSchema), ctrl.submitAssessment);
+
+router.get("/:id/finalization", ctrl.getFinalizationData);
+router.post("/:id/finalize", validate(finalizeSeminarSchema), ctrl.finalizeSeminar);
+
+// ============================================================
+// REVISIONS
+// ============================================================
+router.get("/:id/revisions", ctrl.getRevisions);
+router.post("/:id/revisions", validate(createRevisionSchema), (req, res, next) => {
+  // Map body.seminarId to req.params.id for consistency if needed, or just let service handle it.
+  // We'll keep ID in params to match RESTful standard.
+  ctrl.createRevision(req, res, next);
+});
+router.patch("/:id/revisions/:revisionId", validate(revisionActionSchema), ctrl.updateRevision);
+router.delete("/:id/revisions/:revisionId", ctrl.deleteRevision);
+router.post("/:id/revisions/finalize", ctrl.finalizeRevisions);
+
+// ============================================================
+// AUDIENCES
+// ============================================================
+router.get("/:id/audiences", ctrl.getAudiences);
+router.get("/:id/audiences/options/students", ctrl.getStudentOptionsForAudience);
+router.get("/:id/audiences/template", ctrl.getAudienceTemplate);
+router.get("/:id/audiences/export", ctrl.exportAudiences);
+router.post("/:id/audiences/import", upload.single("file"), ctrl.importAudiences);
+router.post("/:id/audiences", validate(addAudienceSchema), ctrl.addAudience);
+router.delete("/:id/audiences/:studentId", ctrl.removeAudience);
+router.patch("/:id/audiences/:studentId", ctrl.updateAudience);
 
 export default router;
