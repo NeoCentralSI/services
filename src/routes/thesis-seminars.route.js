@@ -23,8 +23,11 @@ import {
 const router = express.Router();
 const ALL_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 
+import { populateProfile } from "../middlewares/thesis-seminar.middleware.js";
+
 router.use(authGuard);
 router.use(requireAnyRole(ALL_ROLES));
+router.use(populateProfile);
 
 // ============================================================
 // GLOBAL OPTIONS & TEMPLATES
