@@ -9,6 +9,7 @@ import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
+import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -243,6 +244,24 @@ export async function scheduleInternshipSeminarReminder() {
   console.log(`🗓️  Scheduled repeatable internship-seminar-reminder job with cron: "${pattern}"`);
 }
 
+/**
+ * Schedule internship logbook reminder job (16:00 and 17:00 WIB)
+ */
+export async function scheduleInternshipLogbookReminder() {
+  const pattern = "0 16,17 * * *"; 
+  const tz = "Asia/Jakarta";
+  await maintenanceQueue.add(
+    "internship-logbook-reminder",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: true,
+      removeOnFail: true,
+    }
+  );
+  console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -271,6 +290,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "internship-seminar-reminder":
         await runInternshipSeminarReminderJob();
+        break;
+      case "internship-logbook-reminder":
+        await runInternshipLogbookReminderJob();
         break;
       default:
         // no-op

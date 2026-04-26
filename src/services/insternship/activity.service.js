@@ -119,14 +119,111 @@ export async function getStudentLogbooks(studentId) {
 }
 
 /**
- * Update logbook entry.
+ * Update logbook entry with time validation.
  * @param {string} logbookId 
  * @param {string} studentId 
  * @param {string} activityDescription 
  * @returns {Promise<Object>}
  */
 export async function updateLogbook(logbookId, studentId, activityDescription) {
+    const logbook = await prisma.internshipLogbook.findUnique({
+        where: { id: logbookId },
+        include: { internship: true }
+    });
+
+    if (!logbook) throw new Error("Logbook tidak ditemukan.");
+    if (logbook.internship.studentId !== studentId) throw new Error("Akses ditolak.");
+
+    // Check if logbook is locked (student finished it or field assessment submitted)
+    if (logbook.internship.isLogbookLocked) {
+        throw new Error("Logbook sudah dikunci dan tidak dapat diubah lagi.");
+    }
+    if (logbook.internship.fieldAssessmentStatus === "COMPLETED") {
+        throw new Error("Logbook sudah dikunci karena penilaian lapangan telah selesai.");
+    }
+
+    const now = new Date();
+    const logbookDate = new Date(logbook.activityDate);
+    logbookDate.setHours(0, 0, 0, 0);
+
+    // Can fill from the start of activityDate until 24 hours after activityDate ends
+    // If activityDate is 2024-05-20, can fill from 2024-05-20 00:00:00 until 2024-05-21 23:59:59
+    const startOfRange = logbookDate;
+    const endOfRange = new Date(logbookDate);
+    endOfRange.setDate(endOfRange.getDate() + 1);
+    endOfRange.setHours(23, 59, 59, 999);
+
+    if (now < startOfRange || now > endOfRange) {
+        throw new Error("Logbook hanya dapat diisi mulai tanggal kegiatan sampai 24 jam setelah hari tersebut berakhir.");
+    }
+
     return activityRepository.updateLogbook(logbookId, studentId, activityDescription);
+}
+
+/**
+ * Send logbook reminders to students.
+ * Called by cron at 16:00 (today) and 17:00 (yesterday overdue).
+ */
+export async function sendLogbookReminders() {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    // 16:00 -> Remind for today
+    // 17:00 -> Remind for yesterday if not filled
+    const isTodayReminder = currentHour === 16;
+    const isOverdueReminder = currentHour === 17;
+
+    if (!isTodayReminder && !isOverdueReminder) return { sentCount: 0 };
+
+    const targetDate = new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    if (isOverdueReminder) {
+        targetDate.setDate(targetDate.getDate() - 1);
+    }
+
+    const logbooks = await prisma.internshipLogbook.findMany({
+        where: {
+            activityDate: targetDate,
+            internship: { status: 'ONGOING' }
+        },
+        include: {
+            internship: {
+                include: {
+                    student: { include: { user: true } },
+                    proposal: { include: { targetCompany: true } }
+                }
+            }
+        }
+    });
+
+    let sentCount = 0;
+    for (const logbook of logbooks) {
+        const studentUserId = logbook.internship.student.user.id;
+        const companyName = logbook.internship.proposal?.targetCompany?.companyName || 'Perusahaan';
+
+        if (isTodayReminder) {
+            const title = "📝 Isi Logbook Hari Ini";
+            const message = `Sudah selesai kegiatan hari ini di ${companyName}? Jangan lupa isi logbook ya!`;
+            await sendFcmToUsers([studentUserId], {
+                title,
+                body: message,
+                data: { type: 'internship_logbook_reminder' }
+            });
+            sentCount++;
+        } else if (isOverdueReminder && (!logbook.activityDescription || logbook.activityDescription.trim().length === 0)) {
+            const dateStr = targetDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long' });
+            const title = "⚠️ Logbook Belum Diisi!";
+            const message = `Logbook tanggal ${dateStr} belum diisi. Ayo segera isi sebelum batas waktu berakhir malam ini.`;
+            await sendFcmToUsers([studentUserId], {
+                title,
+                body: message,
+                data: { type: 'internship_logbook_overdue' }
+            });
+            sentCount++;
+        }
+    }
+
+    return { sentCount };
 }
 
 /**
@@ -137,6 +234,17 @@ export async function updateLogbook(logbookId, studentId, activityDescription) {
  */
 export async function updateInternshipDetails(studentId, data) {
     return activityRepository.updateInternshipDetails(studentId, data);
+}
+
+/**
+ * Lock student logbook.
+ * @param {string} studentId 
+ * @returns {Promise<Object>}
+ */
+export async function lockLogbook(studentId) {
+    // Check if logbook is sufficiently filled? 
+    // Usually handled by frontend warning, but we can check here too if needed.
+    return activityRepository.lockLogbook(studentId);
 }
 
 /**
@@ -214,12 +322,19 @@ async function generateLogbookDocxBuffer(templateData) {
     });
 }
 
-/**
- * Generate Logbook PDF based on DOCX template.
- * @param {string} studentId 
- * @returns {Promise<Buffer>}
- */
 export async function generateLogbookPdf(studentId) {
+    // 1. Check if a certified logbook already exists
+    const internship = await activityRepository.getStudentInternship(studentId);
+    if (internship?.logbookDocumentId) {
+        const doc = await prisma.document.findUnique({
+            where: { id: internship.logbookDocumentId }
+        });
+        if (doc) {
+            return fs.readFile(path.join(process.cwd(), doc.filePath));
+        }
+    }
+
+    // 2. Otherwise generate from template
     const { templateData } = await prepareLogbookData(studentId);
     const docxBuffer = await generateLogbookDocxBuffer(templateData);
 
@@ -391,6 +506,19 @@ export async function updateCompletionCertificate(studentId, documentId) {
  * @param {string} documentId 
  */
 export async function submitCompanyReport(studentId, documentId) {
+    const internship = await activityRepository.getStudentInternship(studentId);
+    if (!internship) {
+        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (!internship.isLogbookLocked) {
+        const error = new Error("Logbook harus diselesaikan (dikunci) terlebih dahulu sebelum mengunggah laporan instansi.");
+        error.statusCode = 400;
+        throw error;
+    }
+
     const result = await activityRepository.updateCompanyReport(studentId, documentId);
 
     // Notify Sekdep

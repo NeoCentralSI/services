@@ -238,3 +238,16 @@ export async function duplicateGuidance(req, res, next) {
         next(error);
     }
 }
+/**
+ * Get supervisor letter for logged-in lecturer.
+ */
+export async function getSupervisorLetter(req, res, next) {
+    try {
+        const lecturerId = req.user.sub;
+        const { academicYearId } = req.query;
+        const data = await guidanceService.getSupervisorLetter(lecturerId, academicYearId);
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+}

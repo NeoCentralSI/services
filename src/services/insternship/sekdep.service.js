@@ -12,6 +12,7 @@ import crypto from "crypto";
 import { sendMail } from "../../config/mailer.js";
 import { fieldAssessmentRequestTemplate } from "../../utils/emailTemplate.js";
 import { ENV } from "../../config/env.js";
+import { ROLES } from "../../constants/roles.js";
 
 /**
  * List all internship proposals with full lifecycle data for Sekdep.
@@ -877,6 +878,41 @@ export async function saveSupervisorLetter(supervisorId, data) {
     // 6. Link selected internships to the letter
     const result = await sekdepRepository.linkInternshipsToLetter(internshipIds, supLetter.id);
 
+    // 7. Notify Kadep
+    try {
+        const kadeps = await prisma.user.findMany({
+            where: {
+                userHasRoles: {
+                    some: {
+                        role: {
+                            name: ROLES.KETUA_DEPARTEMEN
+                        }
+                    }
+                }
+            },
+            select: { id: true }
+        });
+
+        const kadepUserIds = kadeps.map(k => k.id);
+        if (kadepUserIds.length > 0) {
+            const title = "Surat Tugas Pembimbing Baru";
+            const message = `Sekretaris Departemen telah meng-generate Surat Tugas Pembimbing KP untuk ${lecturer.user?.fullName}. Mohon segera ditandatangani.`;
+
+            await createNotificationsForUsers(kadepUserIds, { title, message });
+            await sendFcmToUsers(kadepUserIds, {
+                title,
+                body: message,
+                data: {
+                    type: 'internship_lecturer_assignment_generated',
+                    supervisorId
+                },
+                dataOnly: true
+            });
+        }
+    } catch (err) {
+        console.error("[saveSupervisorLetter] Gagal mengirim notifikasi ke Kadep:", err);
+    }
+
     return {
         message: "Surat Tugas Pembimbing berhasil digenerate dan disimpan",
         updatedCount: result.count
@@ -916,8 +952,9 @@ export async function sendFieldAssessmentRequest(internshipId) {
         data: { isUsed: true, usedAt: new Date() },
     });
 
-    // Generate new token
+    // Generate new token and 6-digit PIN
     const token = crypto.randomUUID();
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 
@@ -925,6 +962,7 @@ export async function sendFieldAssessmentRequest(internshipId) {
         data: {
             internshipId,
             token,
+            pin,
             expiresAt,
         },
     });
@@ -941,6 +979,7 @@ export async function sendFieldAssessmentRequest(internshipId) {
         companyName: internship.proposal.targetCompany?.companyName || "-",
         academicYear: `${internship.proposal.academicYear.year} - ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`,
         assessmentUrl,
+        pin,
         expiresInDays: 7,
     });
 

@@ -30,6 +30,19 @@ export async function updateLogbook(req, res, next) {
 }
 
 /**
+ * Lock logbook for student.
+ */
+export async function lockLogbook(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const data = await activityService.lockLogbook(userId);
+        res.json({ success: true, message: "Logbook berhasil dikunci. Anda tidak dapat melakukan perubahan lagi.", data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * Update internship details.
  */
 export async function updateInternshipDetails(req, res, next) {
