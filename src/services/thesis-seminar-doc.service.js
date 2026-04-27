@@ -10,7 +10,7 @@ import * as coreRepo from "../repositories/thesis-seminar.repository.js";
 
 const DOC_TYPE_CONFIG = {
   "Laporan Tugas Akhir": { accept: [".pdf", ".docx"], label: "Laporan Tugas Akhir (PDF/DOCX)" },
-  "Slide Presentasi": { accept: [".ppt", ".pptx"], label: "Slide Presentasi (PPT)" },
+  "Slide Presentasi": { accept: [".pdf"], label: "Slide Presentasi (PDF)" },
   "Draft Jurnal TEKNOSI": { accept: [".pdf"], label: "Draft Jurnal TEKNOSI (PDF)" },
 };
 

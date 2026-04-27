@@ -37,7 +37,7 @@ router.get("/options/lecturers", ctrl.getLecturerOptions);
 router.get("/options/students", ctrl.getStudentOptions);
 router.get("/options/rooms", ctrl.getRoomOptions);
 
-router.get("/template", requireAnyRole([ROLES.ADMIN]), ctrl.getArchiveTemplate);
+router.get("/template", requireAnyRole([ROLES.ADMIN]), ctrl.getArchiveTemplate); // TODO: Handle Template Download in Frontend
 router.get("/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportArchive);
 router.post("/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importArchive);
 
@@ -98,11 +98,11 @@ router.post("/:id/examiners", requireAnyRole([ROLES.KETUA_DEPARTEMEN]), validate
 // ============================================================
 router.get("/:id/audiences", requireAnyRole(ALL_ROLES), ctrl.getAudiences);
 router.get("/:id/audiences/options/students", requireAnyRole([ROLES.ADMIN]), ctrl.getStudentOptionsForAudience);
-router.get("/:id/audiences/template", requireAnyRole([ROLES.ADMIN]), ctrl.getAudienceTemplate);
+router.get("/:id/audiences/template", requireAnyRole([ROLES.ADMIN]), ctrl.getAudienceTemplate); // TODO: Handle Template Download in Frontend
 router.get("/:id/audiences/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportAudiences);
 router.post("/:id/audiences/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importAudiences);
-router.post("/:id/audiences", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), validate(addAudienceSchema), ctrl.addAudience);
-router.delete("/:id/audiences/:studentId", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), ctrl.removeAudience);
-router.patch("/:id/audiences/:studentId", requireAnyRole(LECTURER_ROLES), ctrl.updateAudience);
+router.post("/:id/audiences", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), validate(addAudienceSchema), ctrl.addAudience); // TODO: Decide whether Student (Audience) should use it's own route to register as an audience or just use this same endpoint.
+router.delete("/:id/audiences/:studentId", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), ctrl.removeAudience); // TODO: Same as above.
+router.patch("/:id/audiences/:studentId", requireAnyRole(LECTURER_ROLES), ctrl.updateAudience); // This is for approving?
 
 export default router;

@@ -36,6 +36,7 @@ export async function getOverview(userId) {
   const checklist = {
     bimbingan: { met: completedGuidances >= MIN_BIMBINGAN, current: completedGuidances, required: MIN_BIMBINGAN, label: `${MIN_BIMBINGAN} Bimbingan` },
     kehadiran: { met: seminarAttendance >= MIN_KEHADIRAN, current: seminarAttendance, required: MIN_KEHADIRAN, label: `${MIN_KEHADIRAN} Kehadiran Seminar` },
+    metopen: { met: Boolean(student.researchMethodCompleted), label: "Lulus Mata Kuliah Metode Penelitian" },
     pembimbing: { met: allSupervisorsReady, label: "Persetujuan Dosen Pembimbing", supervisors: supervisors.map((s) => ({ name: s.lecturer?.user?.fullName || "-", role: s.role?.name || "-", ready: s.seminarReady })) },
   };
 
@@ -45,14 +46,20 @@ export async function getOverview(userId) {
     enrichedExaminers = await coreRepo.enrichExaminers(currentSeminar.examiners);
   }
 
+  // Map effective status for student display
+  let displayStatus = currentSeminar?.status || null;
+  if (currentSeminar) {
+    displayStatus = computeEffectiveStatus(currentSeminar.status, currentSeminar.date, currentSeminar.startTime, currentSeminar.endTime);
+  }
+
   return {
     thesisId: thesis.id, thesisTitle: thesis.title, checklist,
-    allChecklistMet: checklist.bimbingan.met && checklist.kehadiran.met && checklist.pembimbing.met,
+    allChecklistMet: checklist.bimbingan.met && checklist.kehadiran.met && checklist.metopen.met && checklist.pembimbing.met,
     seminar: currentSeminar ? {
-      id: currentSeminar.id, status: currentSeminar.status, registeredAt: currentSeminar.registeredAt,
+      id: currentSeminar.id, status: displayStatus, registeredAt: currentSeminar.registeredAt,
       date: currentSeminar.date, startTime: currentSeminar.startTime, endTime: currentSeminar.endTime,
       meetingLink: currentSeminar.meetingLink, finalScore: currentSeminar.finalScore,
-      grade: currentSeminar.finalScore != null ? mapScoreToGrade(currentSeminar.finalScore) : null,
+      maxWeight: 100, // Fixed as per requirements
       resultFinalizedAt: currentSeminar.resultFinalizedAt, cancelledReason: currentSeminar.cancelledReason,
       room: currentSeminar.room, documents: currentSeminar.documents, examiners: enrichedExaminers,
     } : null,
@@ -113,7 +120,11 @@ export async function getAttendanceHistory(userId) {
 
 export async function getSeminarHistory(userId) {
   const student = await resolveStudent(userId);
-  const seminars = await coreRepo.getAllStudentSeminars(student.id);
+  let seminars = await coreRepo.getAllStudentSeminars(student.id);
+  
+  // Filter only failed or cancelled as per requirements ("Attempt")
+  seminars = seminars.filter((s) => ["failed", "cancelled"].includes(s.status));
+
   const allLecIds = [...new Set(seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId).filter(Boolean)))];
   const lecMap = new Map();
   if (allLecIds.length > 0) {
@@ -123,7 +134,7 @@ export async function getSeminarHistory(userId) {
   return seminars.map((s) => ({
     id: s.id, status: s.status, registeredAt: s.registeredAt, date: s.date, startTime: s.startTime, endTime: s.endTime,
     meetingLink: s.meetingLink, finalScore: s.finalScore,
-    grade: s.finalScore != null ? mapScoreToGrade(s.finalScore) : null,
+    maxWeight: 100,
     resultFinalizedAt: s.resultFinalizedAt, cancelledReason: s.cancelledReason, room: s.room,
     examiners: s.examiners.map((e) => ({ order: e.order, lecturerName: lecMap.get(e.lecturerId) || "-", assessmentScore: e.assessmentScore })),
   }));
