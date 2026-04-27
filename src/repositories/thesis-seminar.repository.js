@@ -128,8 +128,17 @@ export async function findSeminarsPaginated({ where, skip, take, orderBy = { cre
     prisma.thesisSeminar.count({ where }),
   ]);
 
-  return { data, total };
+  // Enrich all examiners with lecturer names (same as findSeminarById)
+  const enriched = await Promise.all(
+    data.map(async (s) => ({
+      ...s,
+      examiners: await enrichExaminers(s.examiners),
+    }))
+  );
+
+  return { data: enriched, total };
 }
+
 
 // ============================================================
 // DETAIL

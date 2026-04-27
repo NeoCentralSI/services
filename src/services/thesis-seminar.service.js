@@ -6,8 +6,8 @@ import * as xlsx from "xlsx";
 
 function throwError(msg, code) { const e = new Error(msg); e.statusCode = code; throw e; }
 
-const STATUS_PRIORITY = { registered: 0, examiner_assigned: 1, verified: 2, scheduled: 3, passed: 4, passed_with_revision: 4, failed: 4, cancelled: 4 };
-const RESULT_STATUSES = ["passed", "passed_with_revision", "failed"];
+const STATUS_PRIORITY = { registered: 0, examiner_assigned: 1, verified: 2, scheduled: 3, ongoing: 4, passed: 5, passed_with_revision: 5, failed: 5, cancelled: 5 };
+const RESULT_STATUSES = ["passed", "passed_with_revision", "failed", "cancelled"];
 
 function getAssignmentStatus(active, total = 0) {
   if (!active || active.length === 0) return total > 0 ? "rejected" : "unassigned";
@@ -31,6 +31,16 @@ function buildSearchWhere(search) {
   ]};
 }
 
+function parseStatusFilter(status) {
+  if (!status) return { requested: [], database: [] };
+  const requested = String(status)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const database = [...new Set(requested.map((item) => (item === "ongoing" ? "scheduled" : item)))];
+  return { requested, database };
+}
+
 // ==================== LIST ====================
 
 export async function getSeminarList({ search, status, view, page = 1, pageSize = 10 } = {}) {
@@ -40,7 +50,15 @@ export async function getSeminarList({ search, status, view, page = 1, pageSize 
 }
 
 async function getAdminList({ search, status }) {
-  const where = { ...buildSearchWhere(search), ...(status ? { status } : {}) };
+  const statusFilter = parseStatusFilter(status);
+  const where = {
+    ...buildSearchWhere(search),
+    ...(statusFilter.database.length === 1
+      ? { status: statusFilter.database[0] }
+      : statusFilter.database.length > 1
+        ? { status: { in: statusFilter.database } }
+        : {}),
+  };
   const { data } = await coreRepo.findSeminarsPaginated({ where, skip: 0, take: 500 });
   const docTypes = await docRepo.getSeminarDocumentTypes();
   const mapped = data.map((s) => ({
@@ -50,14 +68,26 @@ async function getAdminList({ search, status }) {
     supervisors: (s.thesis?.thesisSupervisors || []).map((ts) => ({ name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
     status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
     registeredAt: s.registeredAt, date: s.date, startTime: s.startTime, endTime: s.endTime,
+    room: s.room ? { id: s.room.id, name: s.room.name } : null,
+    examiners: (s.examiners || []).map((e) => ({
+      id: e.id,
+      lecturerId: e.lecturerId,
+      lecturerName: e.lecturerName || "-",
+      order: e.order,
+      availabilityStatus: e.availabilityStatus,
+    })),
+    audienceCount: s._count?.audiences || 0,
     documentSummary: { total: docTypes.length, submitted: s.documents.filter((d) => d.status === "submitted").length, approved: s.documents.filter((d) => d.status === "approved").length, declined: s.documents.filter((d) => d.status === "declined").length },
   }));
-  mapped.sort((a, b) => {
+  const filtered = statusFilter.requested.length > 0
+    ? mapped.filter((item) => statusFilter.requested.includes(item.status))
+    : mapped;
+  filtered.sort((a, b) => {
     const pa = STATUS_PRIORITY[a.status] ?? 99, pb = STATUS_PRIORITY[b.status] ?? 99;
     if (pa !== pb) return pa - pb;
     return (a.registeredAt ? new Date(a.registeredAt).getTime() : 0) - (b.registeredAt ? new Date(b.registeredAt).getTime() : 0);
   });
-  return mapped;
+  return filtered;
 }
 
 async function getAssignmentList({ search }) {
@@ -80,9 +110,13 @@ async function getAssignmentList({ search }) {
   return mapped;
 }
 
-async function getArchiveList({ search, page, pageSize }) {
+async function getArchiveList({ search, page, pageSize, status }) {
   const skip = (page - 1) * pageSize;
-  const where = { status: { in: RESULT_STATUSES }, ...buildSearchWhere(search) };
+  const statusFilter = parseStatusFilter(status);
+  const archiveStatuses = statusFilter.database.length > 0
+    ? statusFilter.database.filter((item) => RESULT_STATUSES.includes(item))
+    : RESULT_STATUSES;
+  const where = { status: { in: archiveStatuses }, ...buildSearchWhere(search) };
   const { data, total } = await coreRepo.findSeminarsPaginated({ where, skip, take: pageSize });
   return {
     seminars: data.map((s) => ({
