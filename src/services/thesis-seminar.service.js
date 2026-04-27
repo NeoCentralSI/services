@@ -43,10 +43,55 @@ function parseStatusFilter(status) {
 
 // ==================== LIST ====================
 
-export async function getSeminarList({ search, status, view, page = 1, pageSize = 10 } = {}) {
+export async function getSeminarList({ search, status, view, page = 1, pageSize = 10, user = {} } = {}) {
   if (view === "assignment") return getAssignmentList({ search });
   if (view === "archive") return getArchiveList({ search, page, pageSize });
+  if (view === "supervised_students" && user.lecturerId) {
+    const data = await coreRepo.findSeminarsBySupervisor({ lecturerId: user.lecturerId, search });
+    return mapLecturerSeminarList(data, user.lecturerId, "supervisor");
+  }
+  if (view === "examiner_requests" && user.lecturerId) {
+    const data = await coreRepo.findSeminarsByExaminer({ lecturerId: user.lecturerId, search });
+    return mapLecturerSeminarList(data, user.lecturerId, "examiner");
+  }
   return getAdminList({ search, status });
+}
+
+async function mapLecturerSeminarList(data, lecturerId, primaryRole) {
+  const docTypes = await docRepo.getSeminarDocumentTypes();
+  return data.map((s) => {
+    const myExaminer = s.examiners.find((e) => e.lecturerId === lecturerId);
+    const mySupervisor = s.thesis?.thesisSupervisors?.find((ts) => ts.lecturerId === lecturerId);
+    
+    return {
+      id: s.id, thesisId: s.thesis?.id || null,
+      studentName: s.thesis?.student?.user?.fullName || "-", studentNim: s.thesis?.student?.user?.identityNumber || "-",
+      thesisTitle: s.thesis?.title || "-",
+      supervisors: (s.thesis?.thesisSupervisors || []).map((ts) => ({ name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
+      status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
+      registeredAt: s.registeredAt, date: s.date, startTime: s.startTime, endTime: s.endTime,
+      room: s.room ? { id: s.room.id, name: s.room.name } : null,
+      examiners: (s.examiners || []).map((e) => ({
+        id: e.id,
+        lecturerId: e.lecturerId,
+        lecturerName: e.lecturerName || "-",
+        order: e.order,
+        availabilityStatus: e.availabilityStatus,
+      })),
+      audienceCount: s._count?.audiences || 0,
+      documentSummary: { 
+        total: docTypes.length, 
+        submitted: s.documents.filter((d) => d.status === "submitted").length, 
+        approved: s.documents.filter((d) => d.status === "approved").length, 
+        declined: s.documents.filter((d) => d.status === "declined").length 
+      },
+      // Lecturer specific
+      myRole: mySupervisor?.role?.name || (myExaminer ? "Penguji" : "-"),
+      myExaminerStatus: myExaminer?.availabilityStatus || null,
+      myExaminerId: myExaminer?.id || null,
+      myExaminerOrder: myExaminer?.order || null,
+    };
+  });
 }
 
 async function getAdminList({ search, status }) {

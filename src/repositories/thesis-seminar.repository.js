@@ -141,6 +141,77 @@ export async function findSeminarsPaginated({ where, skip, take, orderBy = { cre
 
 
 // ============================================================
+// LECTURER-SPECIFIC LISTS
+// ============================================================
+
+/**
+ * Get seminars where the lecturer is a supervisor (Pembimbing).
+ */
+export async function findSeminarsBySupervisor({ lecturerId, search, status }) {
+  const where = {
+    thesis: {
+      thesisSupervisors: { some: { lecturerId } },
+    },
+    ...whereSearch(search),
+  };
+  if (status) {
+    if (Array.isArray(status)) where.status = { in: status };
+    else where.status = status;
+  }
+
+  const data = await prisma.thesisSeminar.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    include: seminarListInclude,
+  });
+
+  return await Promise.all(
+    data.map(async (s) => ({
+      ...s,
+      examiners: await enrichExaminers(s.examiners),
+    }))
+  );
+}
+
+/**
+ * Get seminars where the lecturer is an examiner (Penguji).
+ */
+export async function findSeminarsByExaminer({ lecturerId, search, status }) {
+  const where = {
+    examiners: { some: { lecturerId } },
+    ...whereSearch(search),
+  };
+  if (status) {
+    if (Array.isArray(status)) where.status = { in: status };
+    else where.status = status;
+  }
+
+  const data = await prisma.thesisSeminar.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    include: seminarListInclude,
+  });
+
+  return await Promise.all(
+    data.map(async (s) => ({
+      ...s,
+      examiners: await enrichExaminers(s.examiners),
+    }))
+  );
+}
+
+function whereSearch(search) {
+  if (!search) return {};
+  return {
+    OR: [
+      { thesis: { title: { contains: search } } },
+      { thesis: { student: { user: { fullName: { contains: search } } } } },
+      { thesis: { student: { user: { identityNumber: { contains: search } } } } },
+    ],
+  };
+}
+
+// ============================================================
 // DETAIL
 // ============================================================
 
