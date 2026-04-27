@@ -56,6 +56,7 @@ import {
   getWeightSummary,
   reorderCriteria,
   reorderRubrics,
+  removeSeminarCpmkConfig,
   updateCriteria,
   updateRubric,
 } from "../../../services/seminar-rubric.service.js";
@@ -443,5 +444,30 @@ describe("Rubric Seminar Service", () => {
     const result = await getWeightSummary({ academicYearId: "ay-1" });
     expect(result.totalScore).toBe(60);
     expect(result.details).toHaveLength(2);
+  });
+
+  it("removeSeminarCpmkConfig succeeds when no downstream assessment details exist", async () => {
+    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1", type: "thesis" });
+    mockPrisma.assessmentCriteria.findMany.mockResolvedValue([
+      { id: "cr-1" },
+      { id: "cr-2" },
+    ]);
+    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
+    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
+    mockPrisma.$transaction.mockResolvedValue([{ count: 2 }, { count: 2 }]);
+
+    await removeSeminarCpmkConfig("cpmk-1");
+    // Since it's inside a transaction using prisma directly in the repository, we just ensure it doesn't throw.
+  });
+
+  it("removeSeminarCpmkConfig rejects (400) when downstream assessment details exist", async () => {
+    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1", type: "thesis" });
+    mockPrisma.assessmentCriteria.findMany.mockResolvedValue([
+      { id: "cr-1" },
+    ]);
+    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
+    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
+
+    await expect(removeSeminarCpmkConfig("cpmk-1")).rejects.toMatchObject({ statusCode: 400 });
   });
 });
