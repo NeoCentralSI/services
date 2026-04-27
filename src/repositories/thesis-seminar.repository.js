@@ -518,7 +518,7 @@ export async function getSeminarAttendanceHistory(studentId) {
               title: true,
               student: {
                 select: {
-                  user: { select: { fullName: true } },
+                  user: { select: { fullName: true, identityNumber: true } },
                 },
               },
             },

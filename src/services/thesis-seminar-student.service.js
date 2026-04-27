@@ -99,8 +99,10 @@ export async function getAttendanceHistory(userId) {
   const attended = records.filter((r) => Boolean(r.approvedAt)).length;
   return {
     summary: { attended, total: records.length, required: MIN_KEHADIRAN, met: attended >= MIN_KEHADIRAN },
-    records: records.map((r) => ({
-      seminarId: r.thesisSeminarId, presenterName: r.seminar?.thesis?.student?.user?.fullName || "-",
+      records: records.map((r) => ({
+      seminarId: r.thesisSeminarId, 
+      presenterName: r.seminar?.thesis?.student?.user?.fullName || "-",
+      presenterNim: r.seminar?.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: r.seminar?.thesis?.title || "-", date: r.seminar?.date,
       isPresent: Boolean(r.approvedAt), approvedAt: r.approvedAt, approvedBy: r.supervisor?.lecturer?.user?.fullName || null,
     })),
