@@ -146,7 +146,7 @@ export async function getSeminarDetail(userId, seminarId) {
   const student = await resolveStudent(userId);
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  if (seminar.thesis?.student?.id !== student.id) throwError("Anda tidak memiliki akses ke seminar ini.", 403);
+  const isPresenter = seminar.thesis?.student?.id === student.id;
 
   const lecMap = new Map();
   const lecIds = [...new Set((seminar.examiners || []).map((e) => e.lecturerId).filter(Boolean))];
@@ -177,13 +177,22 @@ export async function getSeminarDetail(userId, seminarId) {
   return {
     id: seminar.id, status: seminar.status, registeredAt: seminar.registeredAt,
     date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime,
-    meetingLink: seminar.meetingLink, finalScore: seminar.finalScore,
-    grade: seminar.finalScore != null ? mapScoreToGrade(seminar.finalScore) : null,
+    meetingLink: seminar.meetingLink, 
+    finalScore: isPresenter ? seminar.finalScore : null,
+    grade: isPresenter && seminar.finalScore != null ? mapScoreToGrade(seminar.finalScore) : null,
     resultFinalizedAt: seminar.resultFinalizedAt, cancelledReason: seminar.cancelledReason, room: seminar.room,
     thesis: { id: seminar.thesis.id, title: seminar.thesis.title, supervisors: (seminar.thesis.thesisSupervisors || []).map((s) => ({ role: s.role?.name || "-", lecturerName: s.lecturer?.user?.fullName || "-" })) },
-    examiners: (seminar.examiners || []).map((e) => ({ id: e.id, order: e.order, lecturerName: lecMap.get(e.lecturerId) || "-", assessmentScore: e.assessmentScore, assessmentSubmittedAt: e.assessmentSubmittedAt })),
-    documents: docs.map((d) => { const dt = docTypes.find((t) => t.id === d.documentTypeId); return { documentTypeId: d.documentTypeId, documentTypeName: dt?.name || "-", fileName: d.document?.fileName || null, filePath: d.document?.filePath || null, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes }; }),
-    examinerNotes, revisions, revisionSummary,
+    examiners: (seminar.examiners || []).map((e) => ({ 
+      id: e.id, 
+      order: e.order, 
+      lecturerName: lecMap.get(e.lecturerId) || "-", 
+      assessmentScore: isPresenter ? e.assessmentScore : null, 
+      assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null 
+    })),
+    documents: isPresenter ? docs.map((d) => { const dt = docTypes.find((t) => t.id === d.documentTypeId); return { documentTypeId: d.documentTypeId, documentTypeName: dt?.name || "-", fileName: d.document?.fileName || null, filePath: d.document?.filePath || null, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes }; }) : [],
+    examinerNotes: isPresenter ? examinerNotes : [], 
+    revisions: isPresenter ? revisions : [], 
+    revisionSummary: isPresenter ? revisionSummary : { total: 0, finished: 0, pendingApproval: 0 },
     audiences: audiences.map((a) => ({ studentName: a.student?.user?.fullName || "-", nim: a.student?.user?.identityNumber || "-", registeredAt: a.registeredAt, isPresent: Boolean(a.approvedAt), approvedAt: a.approvedAt, approvedByName: a.supervisor?.lecturer?.user?.fullName || null })),
   };
 }
