@@ -116,15 +116,15 @@ export async function submitReport(req, res, next) {
 export async function submitFinalReport(req, res, next) {
     try {
         const userId = req.user.sub;
-        const { documentId } = req.body;
+        const { reportFinalTitle, documentId } = req.body;
 
-        if (!documentId) {
-            const error = new Error("File laporan final wajib diisi.");
+        if (!reportFinalTitle || !documentId) {
+            const error = new Error("Judul dan file laporan final wajib diisi.");
             error.statusCode = 400;
             throw error;
         }
 
-        const data = await activityService.submitFinalReport(userId, documentId);
+        const data = await activityService.submitFinalReport(userId, reportFinalTitle, documentId);
         res.json({ success: true, message: "Laporan final berhasil diunggah", data });
     } catch (error) {
         next(error);

@@ -365,7 +365,7 @@ export async function submitInternshipReport(studentId, title, documentId) {
  * @param {string} documentId 
  * @returns {Promise<Object>}
  */
-export async function submitFinalReport(studentId, documentId) {
+export async function submitFinalReport(studentId, title, documentId) {
     const internship = await activityRepository.getStudentInternship(studentId);
     if (!internship) {
         const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
@@ -373,7 +373,7 @@ export async function submitFinalReport(studentId, documentId) {
         throw error;
     }
 
-    const result = await activityRepository.updateFinalReport(studentId, documentId);
+    const result = await activityRepository.updateFinalReport(studentId, title, documentId);
 
     // Notify Sekdep
     try {
@@ -836,7 +836,30 @@ export async function approveSeminar(seminarId, userId) {
         throw error;
     }
 
-    return activityRepository.approveSeminar(seminarId, userId);
+    const result = await activityRepository.approveSeminar(seminarId, userId);
+
+    // Notify student
+    try {
+        const title = "Seminar KP Disetujui";
+        const message = `Jadwal seminar KP Anda pada tanggal ${new Date(seminar.seminarDate).toLocaleDateString('id-ID')} telah disetujui.`;
+        
+        await createNotificationsForUsers([seminar.internship.studentId], { title, message });
+        await sendFcmToUsers([seminar.internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_response',
+                status: 'APPROVED',
+                internshipId: seminar.internshipId,
+                seminarId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi persetujuan seminar:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -904,7 +927,30 @@ export async function rejectSeminar(seminarId, userId, notes) {
         throw error;
     }
 
-    return activityRepository.rejectSeminar(seminarId, notes);
+    const result = await activityRepository.rejectSeminar(seminarId, notes);
+
+    // Notify student
+    try {
+        const title = "Seminar KP Perlu Revisi Jadwal";
+        const message = `Pengajuan seminar KP Anda ditolak/perlu revisi. Catatan: ${notes || '-'}`;
+        
+        await createNotificationsForUsers([seminar.internship.studentId], { title, message });
+        await sendFcmToUsers([seminar.internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_response',
+                status: 'REJECTED',
+                internshipId: seminar.internshipId,
+                seminarId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi penolakan seminar:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -1050,7 +1096,29 @@ export async function validateAudience(seminarId, targetStudentId, lecturerUserI
         throw error;
     }
 
-    return activityRepository.validateSeminarAudience(seminarId, targetStudentId);
+    const result = await activityRepository.validateSeminarAudience(seminarId, targetStudentId);
+
+    // Notify student
+    try {
+        const title = "Kehadiran Seminar Divalidasi";
+        const message = `Presensi Anda sebagai audiens di seminar ${seminar.internship.student.user.fullName} telah divalidasi oleh dosen.`;
+        
+        await createNotificationsForUsers([targetStudentId], { title, message });
+        await sendFcmToUsers([targetStudentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_audience_validated',
+                seminarId,
+                studentId: targetStudentId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi validasi audiens:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -1073,7 +1141,28 @@ export async function bulkValidateAudience(seminarId, targetStudentIds, lecturer
         throw error;
     }
 
-    return activityRepository.bulkValidateSeminarAudience(seminarId, targetStudentIds);
+    const result = await activityRepository.bulkValidateSeminarAudience(seminarId, targetStudentIds);
+
+    // Notify each student
+    try {
+        const title = "Kehadiran Seminar Divalidasi";
+        const message = `Presensi Anda sebagai audiens di seminar ${seminar.internship.student.user.fullName} telah divalidasi oleh dosen.`;
+        
+        await createNotificationsForUsers(targetStudentIds, { title, message });
+        await sendFcmToUsers(targetStudentIds, {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_audience_validated',
+                seminarId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi bulk validasi audiens:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -1154,6 +1243,26 @@ export async function completeSeminar(seminarId, lecturerUserId) {
     }
 
     const result = await activityRepository.completeSeminar(seminarId);
+
+    // Notify student
+    try {
+        const title = "Seminar KP Selesai";
+        const message = `Seminar KP Anda telah selesai dilaksanakan dan telah divalidasi oleh dosen pembimbing.`;
+        
+        await createNotificationsForUsers([seminar.internship.studentId], { title, message });
+        await sendFcmToUsers([seminar.internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_completed',
+                internshipId: seminar.internshipId,
+                seminarId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi penyelesaian seminar:", err);
+    }
 
     // Holistic Completion Check
     await syncInternshipCompletionStatus(seminar.internshipId);

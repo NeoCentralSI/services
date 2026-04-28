@@ -56,6 +56,27 @@ export async function updateAllInternshipDeadlineStatuses() {
                 where: { id: internship.id },
                 data: { status: 'FAILED' }
             });
+
+            // Notify Student
+            try {
+                const title = "Status Kerja Praktik: GAGAL";
+                const message = `Status KP Anda diubah menjadi GAGAL karena ${failReason === 'Reporting deadline exceeded (1 month)' ? 'batas waktu pelaporan (1 bulan) telah terlampaui' : 'batas waktu seminar (2 bulan) telah terlampaui'}. Silakan hubungi Sekretaris Departemen.`;
+                
+                await createNotificationsForUsers([internship.studentId], { title, message });
+                await sendFcmToUsers([internship.studentId], {
+                    title,
+                    body: message,
+                    data: {
+                        type: 'internship_status_failed',
+                        internshipId: internship.id,
+                        reason: failReason
+                    },
+                    dataOnly: true
+                });
+            } catch (err) {
+                console.error("Gagal mengirim notifikasi kegagalan KP:", err);
+            }
+
             failedCount++;
             console.log(`[internship-status] Internship ${internship.id} marked as FAILED. Reason: ${failReason}`);
         }

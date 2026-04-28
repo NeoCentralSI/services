@@ -162,7 +162,10 @@ export const getOverviewReports = async (req, res) => {
                 select: {
                     id: true,
                     reportTitle: true,
+                    reportFinalTitle: true,
                     reportUploadedAt: true,
+                    reportFinalUploadedAt: true,
+                    reportFinalDocId: true,
                     student: {
                         select: {
                             user: {
@@ -205,13 +208,14 @@ export const getOverviewReports = async (req, res) => {
 
         const formattedReports = reports.map(report => ({
             id: report.id,
-            reportTitle: report.reportTitle,
+            reportTitle: report.reportFinalTitle || report.reportTitle,
             studentName: report.student?.user?.fullName,
             nim: report.student?.user?.identityNumber,
             companyName: report.proposal?.targetCompany?.companyName,
             academicYear: report.proposal?.academicYear ? `${report.proposal.academicYear.year} - ${report.proposal.academicYear.semester === 'ganjil' ? 'Ganjil' : 'Genap'}` : null,
             supervisorName: report.supervisor?.user?.fullName,
-            uploadedAt: report.reportUploadedAt,
+            uploadedAt: report.reportFinalUploadedAt || report.reportUploadedAt,
+            fileId: report.reportFinalDocId,
         }));
 
         res.json({
