@@ -28,7 +28,7 @@ router.get("/download", sopReadMiddleware, downloadSop);
 router.post("/", sopUploadMiddleware, uploadSop);
 
 // PATCH /sop/:id
-router.patch("/:id", authGuard, requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]), patchSop);
+router.patch("/:id", sopUploadMiddleware, patchSop);
 
 // DELETE /sop/:id
 router.delete("/:id", sopDeleteMiddleware, deleteSop);

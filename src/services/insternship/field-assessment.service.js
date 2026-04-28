@@ -216,6 +216,31 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
             orderBy: { code: "desc" },
         });
 
+        // Find "KOP" template from SOP manager
+        const kopTemplate = await prisma.document.findFirst({
+            where: {
+                fileName: { contains: "KOP" }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        let headerPdfBuffer = null;
+        if (kopTemplate) {
+            try {
+                const fs = await import("fs/promises");
+                const path = await import("path");
+                const templateBuffer = await fs.readFile(path.join(process.cwd(), kopTemplate.filePath));
+                if (kopTemplate.filePath.endsWith('.docx')) {
+                    const { convertDocxToPdf } = await import("../../utils/pdf.util.js");
+                    headerPdfBuffer = await convertDocxToPdf(templateBuffer, "KOP.docx");
+                } else if (kopTemplate.filePath.endsWith('.pdf')) {
+                    headerPdfBuffer = templateBuffer;
+                }
+            } catch (err) {
+                console.error("Gagal memuat template KOP untuk penilaian lapangan:", err);
+            }
+        }
+
         const pdfBuffer = await generateFieldAssessmentPdf({
             studentName: internship.student.user.fullName,
             studentNim: internship.student.user.identityNumber,
@@ -229,6 +254,7 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
             signatureBase64,
             signatureHash,
             submittedAt: now,
+            headerPdfBuffer,
         });
 
         // Save PDF as Document
@@ -256,55 +282,7 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
 
     // 3b. Generate Certified Logbook PDF (KP-002)
     try {
-        const logbookPdfBuffer = await generateLogbookPdf(internship.student.user.id);
-        
-        // Stamp signature and hash on the logbook PDF
-        const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
-        const pdfDoc = await PDFDocument.load(logbookPdfBuffer);
-        const pages = pdfDoc.getPages();
-        const lastPage = pages[pages.length - 1];
-        const font = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-        
-        // Embed signature image
-        if (signatureBase64) {
-            const base64Data = signatureBase64.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
-            const sigBytes = Buffer.from(base64Data, "base64");
-            let sigImage;
-            if (signatureBase64.includes("image/png")) {
-                sigImage = await pdfDoc.embedPng(sigBytes);
-            } else {
-                sigImage = await pdfDoc.embedJpg(sigBytes);
-            }
-            
-            const sigW = 100;
-            const sigH = (sigImage.height / sigImage.width) * sigW;
-            
-            // Find signature position in KP-002 (usually bottom right)
-            lastPage.drawImage(sigImage, {
-                x: lastPage.getWidth() - 200,
-                y: 100,
-                width: sigW,
-                height: sigH,
-            });
-        }
-        
-        // Add verification footer
-        lastPage.drawText(`Digitally Signed by Field Supervisor: ${internship.fieldSupervisorName || "-"}`, {
-            x: 50,
-            y: 30,
-            size: 7,
-            font,
-            color: rgb(0.5, 0.5, 0.5),
-        });
-        lastPage.drawText(`Verification Hash: ${signatureHash}`, {
-            x: 50,
-            y: 20,
-            size: 6,
-            font,
-            color: rgb(0.5, 0.5, 0.5),
-        });
-
-        const certifiedLogbookBuffer = await pdfDoc.save();
+        const certifiedLogbookBuffer = await generateLogbookPdf(internship.student.user.id, signatureBase64, signatureHash);
 
         // Save Logbook PDF as Document
         const fs = await import("fs");

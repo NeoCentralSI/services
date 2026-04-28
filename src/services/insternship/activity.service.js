@@ -17,6 +17,7 @@ import { terbilang, getIndonesianDayName, getIndonesianMonthName } from "../../u
 import { stampQRCode } from "../../utils/pdf-sign.util.js";
 import crypto from "crypto";
 import { generateSeminarMinutesDocx } from "../document.service.js";
+import { generateLogbookPdfFromTemplate } from "../../utils/logbook-pdf.util.js";
 
 
 /**
@@ -247,114 +248,61 @@ export async function lockLogbook(studentId) {
     return activityRepository.lockLogbook(studentId);
 }
 
-/**
- * Internal helper to prepare logbook data for templates.
- */
-async function prepareLogbookData(studentId) {
-    const { internship, logbooks } = await getStudentLogbooks(studentId);
-
+export async function generateLogbookPdf(studentId, signatureBase64 = null, signatureHash = null) {
+    // 1. Get internship with all necessary data
+    const internship = await activityRepository.getStudentInternship(studentId);
     if (!internship) {
         throw new Error("Data Kerja Praktik tidak ditemukan.");
     }
-
-    const formatDate = (date) => {
-        if (!date) return "-";
-        return new Date(date).toLocaleDateString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric"
-        });
-    };
-
-    const templateData = {
-        instansi: internship.proposal?.targetCompany?.companyName || "-",
-        nama: internship.student?.user?.fullName || "-",
-        nim: internship.student?.user?.identityNumber || "-",
-        pembimbing: internship.fieldSupervisorName || "( ........................................ )",
-        tanggal_cetak: formatDate(new Date()),
-        a: logbooks.map((log, index) => ({
-            no: index + 1,
-            tanggal: formatDate(log.activityDate),
-            kegiatan: log.activityDescription || "-"
-        }))
-    };
-
-    return { internship, templateData };
-}
-
-/**
- * Internal helper to generate DOCX buffer from template.
- */
-async function generateLogbookDocxBuffer(templateData) {
-    // Find template for logbook
-    const templateDoc = await prisma.document.findFirst({
-        where: {
-            documentType: {
-                name: "Template Kerja Praktik"
-            }
-        },
-        orderBy: {
-            createdAt: 'desc'
-        }
-    });
-
-    if (!templateDoc) {
-        throw new Error("Template Logbook (DOCX) belum diunggah oleh Sekdep.");
-    }
-
-    const templatePath = path.join(process.cwd(), templateDoc.filePath);
-    const content = await fs.readFile(templatePath);
-    const zip = new PizZip(content);
-    const doc = new Docxtemplater(zip, {
-        paragraphLoop: true,
-        linebreaks: true,
-        delimiters: {
-            start: "{",
-            end: "}"
-        }
-    });
-
-    doc.render(templateData);
-
-    return doc.getZip().generate({
-        type: "nodebuffer",
-        compression: "DEFLATE",
-    });
-}
-
-export async function generateLogbookPdf(studentId) {
-    // 1. Check if a certified logbook already exists
-    const internship = await activityRepository.getStudentInternship(studentId);
-    if (internship?.logbookDocumentId) {
+    
+    // If we have no signature provided, check for existing document
+    if (!signatureBase64 && internship.logbookDocumentId) {
         const doc = await prisma.document.findUnique({
             where: { id: internship.logbookDocumentId }
         });
         if (doc) {
-            return fs.readFile(path.join(process.cwd(), doc.filePath));
+            try {
+                return await fs.readFile(path.join(process.cwd(), doc.filePath));
+            } catch (err) {
+                console.error("Existing logbook file not found on disk, will regenerate.");
+            }
         }
     }
 
     // 2. Otherwise generate from template
-    const { templateData } = await prepareLogbookData(studentId);
-    const docxBuffer = await generateLogbookDocxBuffer(templateData);
+    const logbooks = await activityRepository.getLogbooks(internship.id);
+    const kopTemplate = await prisma.document.findFirst({
+        where: {
+            fileName: { contains: "KOP" }
+        },
+        orderBy: { createdAt: 'desc' }
+    });
 
-    // Convert DOCX to PDF
-    return convertDocxToPdf(docxBuffer, `Logbook_${templateData.nama}.docx`);
-}
+    let headerPdfBuffer = null;
+    if (kopTemplate) {
+        try {
+            const templateBuffer = await fs.readFile(path.join(process.cwd(), kopTemplate.filePath));
+            if (kopTemplate.filePath.endsWith('.docx')) {
+                headerPdfBuffer = await convertDocxToPdf(templateBuffer, "KOP.docx");
+            } else if (kopTemplate.filePath.endsWith('.pdf')) {
+                headerPdfBuffer = templateBuffer;
+            }
+        } catch (err) {
+            console.error("Gagal memuat template KOP:", err);
+        }
+    }
 
-/**
- * Generate Logbook DOCX.
- * @param {string} studentId 
- * @returns {Promise<{buffer: Buffer, filename: string}>}
- */
-export async function generateLogbookDocx(studentId) {
-    const { templateData } = await prepareLogbookData(studentId);
-    const buffer = await generateLogbookDocxBuffer(templateData);
-
-    return {
-        buffer,
-        filename: `Logbook_${templateData.nama}.docx`
-    };
+    return generateLogbookPdfFromTemplate({
+        studentName: internship.student.user.fullName,
+        studentNim: internship.student.user.identityNumber,
+        companyName: internship.proposal?.targetCompany?.companyName || "-",
+        fieldSupervisorName: internship.fieldSupervisorName || "-",
+        academicYear: `${internship.proposal?.academicYear?.year} - ${internship.proposal?.academicYear?.semester === "ganjil" ? "Ganjil" : "Genap"}`,
+        logbooks,
+        signatureBase64,
+        signatureHash,
+        headerPdfBuffer
+    });
 }
 
 /**
