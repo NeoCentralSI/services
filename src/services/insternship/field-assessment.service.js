@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import prisma from "../../config/prisma.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 import { calculateFinalResults } from "./assessment.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
@@ -409,6 +410,9 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
     } catch (notifError) {
         console.error("Gagal mengirim notifikasi:", notifError);
     }
+
+    // 7. Holistic Completion Check
+    await syncInternshipCompletionStatus(internshipId);
 
     return { internshipId, signatureHash };
 }

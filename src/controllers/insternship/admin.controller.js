@@ -5,7 +5,8 @@ import * as adminService from "../../services/insternship/admin.service.js";
  */
 export async function getApprovedInternshipProposals(req, res, next) {
     try {
-        const data = await adminService.getApprovedProposals();
+        const { academicYear } = req.query;
+        const data = await adminService.getApprovedProposals(academicYear);
         res.status(200).json({
             success: true,
             data
@@ -82,7 +83,8 @@ export async function updateProposalLetter(req, res, next) {
  */
 export async function getAssignmentProposals(req, res, next) {
     try {
-        const data = await adminService.getProposalsForAssignment();
+        const { academicYear } = req.query;
+        const data = await adminService.getProposalsForAssignment(academicYear);
         res.status(200).json({
             success: true,
             data
@@ -136,6 +138,31 @@ export async function verifyCompanyResponse(req, res, next) {
         res.status(200).json({
             success: true,
             message: `Surat balasan berhasil ${status === 'APPROVED_PROPOSAL' ? 'diverifikasi' : 'ditolak'}.`
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Controller for admin to upload a company response document.
+ * Used when the company sends the response directly to the department.
+ */
+export async function submitCompanyResponse(req, res, next) {
+    try {
+        const { id: proposalId } = req.params;
+        const { documentId } = req.body;
+
+        if (!documentId) {
+            const err = new Error("ID Dokumen harus disertakan.");
+            err.statusCode = 400;
+            throw err;
+        }
+
+        await adminService.adminSubmitCompanyResponse(proposalId, documentId);
+        res.status(200).json({
+            success: true,
+            message: "Surat balasan perusahaan berhasil diunggah."
         });
     } catch (error) {
         next(error);

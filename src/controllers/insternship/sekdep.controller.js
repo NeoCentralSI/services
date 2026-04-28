@@ -502,3 +502,39 @@ export async function rejectFinalReport(req, res, next) {
         next(error);
     }
 }
+/**
+ * Get internship monitoring statistics.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getMonitoringStats(req, res, next) {
+    try {
+        const { academicYearId } = req.query;
+        const data = await sekdepService.getInternshipMonitoringStats(academicYearId);
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Get detailed student monitoring list for deadline tracking.
+ * @param {import('express').Request} req 
+ * @param {import('express').Response} res 
+ * @param {import('express').NextFunction} next 
+ */
+export async function getMonitoringStudents(req, res, next) {
+    try {
+        const { academicYearId, q, page = 1, pageSize = 10 } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const take = parseInt(pageSize);
+
+        const { data, total } = await sekdepService.listMonitoringStudents({ 
+            academicYearId, q, skip, take 
+        });
+        res.status(200).json({ success: true, data, total });
+    } catch (error) {
+        next(error);
+    }
+}

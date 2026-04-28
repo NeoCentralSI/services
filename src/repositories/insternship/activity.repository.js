@@ -157,15 +157,15 @@ export async function updateCompletionCertificate(studentId, documentId) {
         throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
     }
 
-    if (internship.completionCertificateStatus === 'APPROVED') {
-        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    if (['APPROVED', 'SUBMITTED'].includes(internship.completionCertificateStatus)) {
+        throw new Error("Dokumen sudah diunggah dan sedang diproses atau sudah disetujui.");
     }
 
     return prisma.internship.update({
         where: { id: internship.id },
         data: {
             completionCertificateDocId: documentId,
-            completionCertificateStatus: 'SUBMITTED'
+            completionCertificateStatus: 'APPROVED' // Auto-approve
         },
         include: {
             completionCertificateDoc: true
@@ -188,15 +188,15 @@ export async function updateCompanyReceipt(studentId, documentId) {
         throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
     }
 
-    if (internship.companyReceiptStatus === 'APPROVED') {
-        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    if (['APPROVED', 'SUBMITTED'].includes(internship.companyReceiptStatus)) {
+        throw new Error("Dokumen sudah diunggah dan sedang diproses atau sudah disetujui.");
     }
 
     return prisma.internship.update({
         where: { id: internship.id },
         data: {
             companyReceiptDocId: documentId,
-            companyReceiptStatus: 'SUBMITTED'
+            companyReceiptStatus: 'APPROVED' // Auto-approve
         },
         include: {
             companyReceiptDoc: true
@@ -219,8 +219,8 @@ export async function updateCompanyReport(studentId, documentId) {
         throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
     }
 
-    if (internship.companyReportStatus === 'APPROVED') {
-        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    if (['APPROVED', 'SUBMITTED'].includes(internship.companyReportStatus)) {
+        throw new Error("Dokumen sudah diunggah dan sedang diproses atau sudah disetujui.");
     }
 
     return prisma.internship.update({
@@ -689,5 +689,16 @@ export async function updateSeminarNotes(seminarId, notes) {
     return prisma.internshipSeminar.update({
         where: { id: seminarId },
         data: { supervisorNotes: notes }
+    });
+}
+
+/**
+ * Mark a seminar as COMPLETED.
+ * @param {string} seminarId 
+ */
+export async function completeSeminar(seminarId) {
+    return prisma.internshipSeminar.update({
+        where: { id: seminarId },
+        data: { status: 'COMPLETED' }
     });
 }

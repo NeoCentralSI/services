@@ -408,19 +408,15 @@ export async function updateSeminarNotes(req, res, next) {
 }
 
 /**
- * Generate and download Berita Acara PDF - Lecturer.
+ * Complete a seminar - Lecturer.
  */
-export async function downloadBeritaAcara(req, res, next) {
+export async function completeSeminar(req, res, next) {
     try {
         const userId = req.user.sub;
         const { id } = req.params;
-        const { buffer, fileName } = await activityService.generateBeritaAcaraPdf(id, userId);
-
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-        res.send(buffer);
+        const data = await activityService.completeSeminar(id, userId);
+        res.json({ success: true, message: "Seminar telah diselesaikan dan dikunci.", data });
     } catch (error) {
         next(error);
     }
 }
-

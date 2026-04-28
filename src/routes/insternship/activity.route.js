@@ -38,7 +38,8 @@ router.post("/guidance/lecturer/seminar/:id/audience/:studentId/validate", authG
 router.post("/guidance/lecturer/seminar/:id/audience/:studentId/unvalidate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.unvalidateSeminarAudience);
 router.post("/guidance/lecturer/seminar/:id/audience/bulk-validate", authGuard, requireAnyRole(LECTURER_ROLES), activityController.bulkValidateSeminarAudience);
 router.patch("/guidance/lecturer/seminar/:id/notes", authGuard, requireAnyRole(LECTURER_ROLES), activityController.updateSeminarNotes);
-router.get("/guidance/lecturer/seminar/:id/berita-acara", authGuard, requireAnyRole(LECTURER_ROLES), activityController.downloadBeritaAcara);
+router.post("/guidance/lecturer/seminar/:id/complete", authGuard, requireAnyRole(LECTURER_ROLES), activityController.completeSeminar);
+
 
 
 // Guidance / Bimbingan (Student)
