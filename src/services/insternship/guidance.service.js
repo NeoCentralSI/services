@@ -260,8 +260,8 @@ export async function getStudentGuidance(studentId) {
         supervisorName: internship.supervisor?.user?.fullName || null,
         currentWeek: currentWeekIdx,
         report: reportData,
-        finalScore: internship.finalNumericScore || null,
-        finalGrade: internship.finalGrade || null,
+        finalScore: internship.status === 'COMPLETED' ? (internship.finalNumericScore || null) : null,
+        finalGrade: internship.status === 'COMPLETED' ? (internship.finalGrade || null) : null,
         timeline
     };
 }

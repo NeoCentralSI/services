@@ -1274,6 +1274,7 @@ model Internship {
   companyReportNotes  String?                 @map("company_report_notes") @db.Text
 
   // Final Fix Report (post-seminar, with approval/signature page)
+  reportFinalTitle      String?                 @map("report_final_title")
   reportFinalDocId      String?                 @map("report_final_doc_id")
   reportFinalStatus     InternshipReportStatus? @map("report_final_status")
   reportFinalNotes      String?                 @map("report_final_notes") @db.Text

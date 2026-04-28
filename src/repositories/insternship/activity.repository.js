@@ -273,7 +273,7 @@ export async function updateLogbookDocument(studentId, documentId) {
  * @param {string} documentId 
  * @returns {Promise<Object>}
  */
-export async function updateFinalReport(studentId, documentId) {
+export async function updateFinalReport(studentId, title, documentId) {
     const internship = await prisma.internship.findFirst({
         where: { studentId, status: { in: ['ONGOING', 'COMPLETED', 'FAILED'] } },
         include: { seminars: true }
@@ -296,6 +296,7 @@ export async function updateFinalReport(studentId, documentId) {
     return prisma.internship.update({
         where: { id: internship.id },
         data: {
+            reportFinalTitle: title,
             reportFinalDocId: documentId,
             reportFinalStatus: 'APPROVED', // Auto-approve
             reportFinalUploadedAt: new Date()
