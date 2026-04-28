@@ -34,6 +34,8 @@ try {
   // Serve internship and general uploads statically
   app.use("/uploads/internship", express.static(path.join(uploadsDir, "internship")));
   app.use("/uploads/general", express.static(path.join(uploadsDir, "general")));
+  app.use("/uploads/logbooks", express.static(path.join(uploadsDir, "logbooks")));
+  app.use("/uploads/field-assessments", express.static(path.join(uploadsDir, "field-assessments")));
 
   console.log("📁 Serving protected thesis uploads and public internship/general uploads");
 } catch (err) {

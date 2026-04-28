@@ -18,9 +18,16 @@ export async function generateFieldAssessmentPdf(opts) {
         signatureBase64,
         signatureHash,
         submittedAt,
+        headerPdfBuffer, // Added support for KOP
     } = opts;
 
-    const pdfDoc = await PDFDocument.create();
+    let pdfDoc;
+    if (headerPdfBuffer) {
+        pdfDoc = await PDFDocument.load(headerPdfBuffer);
+    } else {
+        pdfDoc = await PDFDocument.create();
+    }
+
     const font = await pdfDoc.embedFont(StandardFonts.TimesRoman);
     const fontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
 
@@ -32,12 +39,17 @@ export async function generateFieldAssessmentPdf(opts) {
     const MB = 60;
     const contentW = W - ML - MR;
 
-    let page = pdfDoc.addPage([W, H]);
+    let pages = pdfDoc.getPages();
+    let page = pages[pages.length - 1];
     let curY = H - MT;
+
+    if (headerPdfBuffer) {
+        curY = H - 155; // Further reduced from 180 to 155
+    }
 
     // Helper: add text
     function drawText(text, x, y, size, f = font, color = rgb(0, 0, 0)) {
-        page.drawText(text, { x, y, size, font: f, color });
+        page.drawText(String(text || ""), { x, y, size, font: f, color });
     }
 
     // Helper: centered text
@@ -79,7 +91,7 @@ export async function generateFieldAssessmentPdf(opts) {
         curY -= 16;
     }
 
-    curY -= 10;
+    curY -= 15;
 
     // ===== ASSESSMENT TABLE =====
     drawText("A. Penilaian Kompetensi", ML, curY, 12, fontBold);
@@ -98,42 +110,58 @@ export async function generateFieldAssessmentPdf(opts) {
     function drawTableRow(cells, y, isHeader = false) {
         const f = isHeader ? fontBold : font;
         const sz = 9;
-        const rowH = 18;
+        
+        // Multi-line support for CPMK Name
+        const maxW_CPMK = colWidths[1] - 8;
+        const cpmkWords = String(cells[1]).split(" ");
+        const cpmkLines = [];
+        let currentLine = "";
+        for (const word of cpmkWords) {
+            const testLine = currentLine ? currentLine + " " + word : word;
+            if (f.widthOfTextAtSize(testLine, sz) > maxW_CPMK) {
+                cpmkLines.push(currentLine);
+                currentLine = word;
+            } else {
+                currentLine = testLine;
+            }
+        }
+        cpmkLines.push(currentLine);
+
+        const rowH = Math.max(20, (cpmkLines.length * 12) + 8);
         let x = ML;
 
         for (let i = 0; i < cells.length; i++) {
-            // Draw cell border
             page.drawRectangle({
-                x,
-                y: y - rowH,
-                width: colWidths[i],
-                height: rowH,
-                borderColor: rgb(0, 0, 0),
-                borderWidth: 0.5,
+                x, y: y - rowH, width: colWidths[i], height: rowH,
+                borderColor: rgb(0, 0, 0), borderWidth: 0.5,
                 color: isHeader ? rgb(0.93, 0.93, 0.93) : rgb(1, 1, 1),
             });
 
-            // Draw text (centered for header, left-aligned for body)
             const text = String(cells[i] || "");
-            const tw = f.widthOfTextAtSize(text, sz);
-            const tx = i === 1 ? x + 4 : x + (colWidths[i] - tw) / 2;
-            page.drawText(text, { x: tx, y: y - 13, size: sz, font: f, color: rgb(0, 0, 0) });
-
+            if (i === 1) { // CPMK column
+                let ly = y - 13;
+                for (const line of cpmkLines) {
+                    page.drawText(line, { x: x + 4, y: ly, size: sz, font: f });
+                    ly -= 12;
+                }
+            } else {
+                const tw = f.widthOfTextAtSize(text, sz);
+                const tx = x + (colWidths[i] - tw) / 2;
+                page.drawText(text, { x: tx, y: y - (rowH + sz) / 2, size: sz, font: f });
+            }
             x += colWidths[i];
         }
         return rowH;
     }
 
     ensureSpace(30);
-    drawTableRow(headers, curY, true);
-    curY -= 18;
+    let rh = drawTableRow(headers, curY, true);
+    curY -= rh;
 
     let totalWeightedScore = 0;
 
     for (let idx = 0; idx < cpmks.length; idx++) {
         const cpmk = cpmks[idx];
-
-        // Find which rubric was chosen for this CPMK
         let chosenRubric = null;
         let chosenScore = 0;
 
@@ -149,18 +177,18 @@ export async function generateFieldAssessmentPdf(opts) {
         const scoreDisplay = chosenScore ? chosenScore.toFixed(0) : "-";
         const weight = (cpmk.weight || 0).toFixed(0) + "%";
 
-        ensureSpace(22);
-        drawTableRow(
+        ensureSpace(30);
+        rh = drawTableRow(
             [
                 String(idx + 1),
-                `${cpmk.code} - ${cpmk.name.length > 30 ? cpmk.name.substring(0, 30) + "..." : cpmk.name}`,
+                `${cpmk.code} - ${cpmk.name}`,
                 levelName,
                 scoreDisplay,
                 weight,
             ],
             curY
         );
-        curY -= 18;
+        curY -= rh;
 
         if (chosenScore && cpmk.weight) {
             totalWeightedScore += (chosenScore * cpmk.weight) / 100;
@@ -168,8 +196,8 @@ export async function generateFieldAssessmentPdf(opts) {
     }
 
     // Total row
-    ensureSpace(22);
-    curY -= 10;
+    ensureSpace(40);
+    curY -= 15;
     drawText(`Total Nilai Tertimbang: ${totalWeightedScore.toFixed(2)}`, ML, curY, 11, fontBold);
     curY -= 30;
 
@@ -180,69 +208,51 @@ export async function generateFieldAssessmentPdf(opts) {
         ? submittedAt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
         : new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 
-    // Right-aligned date
-    const dateText = `Padang, ${sigDate}`;
-    const dateTw = font.widthOfTextAtSize(dateText, 10);
-    drawText(dateText, W - MR - dateTw, curY, 10);
-    curY -= 18;
+    const rightX = W - MR - 150;
+    drawText(`Padang, ${sigDate}`, rightX, curY, 10);
+    curY -= 16;
+    drawText("Pembimbing Lapangan,", rightX, curY, 10);
+    curY -= 5;
 
-    const sigLabel = "Pembimbing Lapangan,";
-    const sigLTw = font.widthOfTextAtSize(sigLabel, 10);
-    drawText(sigLabel, W - MR - sigLTw, curY, 10);
-    curY -= 6;
-
-    // Embed signature image
     if (signatureBase64) {
         try {
-            // Remove data URL prefix if present
             const base64Data = signatureBase64.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
-            const sigBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+            const sigBytes = Buffer.from(base64Data, "base64");
 
-            let sigImage;
-            if (signatureBase64.includes("image/png")) {
-                sigImage = await pdfDoc.embedPng(sigBytes);
-            } else {
-                sigImage = await pdfDoc.embedJpg(sigBytes);
-            }
+            let sigImage = signatureBase64.includes("image/png") ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
 
-            const sigW = 150;
+            const sigW = 100;
             const sigH = (sigImage.height / sigImage.width) * sigW;
-            const sigX = W - MR - sigW;
 
             page.drawImage(sigImage, {
-                x: sigX,
+                x: rightX,
                 y: curY - sigH,
                 width: sigW,
                 height: sigH,
             });
-            curY -= sigH + 4;
+            curY -= sigH + 5;
         } catch (imgErr) {
             console.error("Gagal embed tanda tangan ke PDF:", imgErr);
-            curY -= 50; // leave space for missing signature
+            curY -= 50;
         }
     } else {
         curY -= 50;
     }
 
-    // Supervisor name with underline
     const nameText = fieldSupervisorName;
     const nameTw = fontBold.widthOfTextAtSize(nameText, 10);
-    const nameX = W - MR - nameTw;
-    drawText(nameText, nameX, curY, 10, fontBold);
+    drawText(nameText, rightX, curY, 10, fontBold);
     curY -= 2;
     page.drawLine({
-        start: { x: nameX, y: curY },
-        end: { x: nameX + nameTw, y: curY },
+        start: { x: rightX, y: curY },
+        end: { x: rightX + nameTw, y: curY },
         thickness: 0.5,
-        color: rgb(0, 0, 0),
     });
 
     // ===== VERIFICATION FOOTER =====
-    curY -= 30;
-    ensureSpace(30);
-    drawText("Kode Verifikasi:", ML, curY, 7, font, rgb(0.5, 0.5, 0.5));
-    curY -= 10;
-    drawText(signatureHash, ML, curY, 6, font, rgb(0.5, 0.5, 0.5));
+    curY = MB - 20;
+    drawText("Dokumen ini disahkan secara digital. Kode Verifikasi:", ML, curY, 7, font, rgb(0.5, 0.5, 0.5));
+    drawText(signatureHash || "-", ML, curY - 10, 6, font, rgb(0.5, 0.5, 0.5));
 
     const pdfBytes = await pdfDoc.save();
     return Buffer.from(pdfBytes);

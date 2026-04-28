@@ -1291,6 +1291,7 @@ model Internship {
 
   // Field assessment submission metadata
   fieldAssessmentSubmittedAt   DateTime?              @map("field_assessment_submitted_at")
+  fieldAssessmentSignatureHash String?                @map("field_assessment_signature_hash") @db.VarChar(255)
   fieldAssessmentTokens        FieldAssessmentToken[]
 
   logbookFieldSignatureHash String?   @map("logbook_field_signature_hash") @db.VarChar(255)

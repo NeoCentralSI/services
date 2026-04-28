@@ -9,9 +9,13 @@ export async function getStudentInternship(studentId) {
     return prisma.internship.findFirst({
         where: { studentId, status: { in: ['ONGOING', 'COMPLETED', 'FAILED'] } },
         include: {
+            student: {
+                include: { user: true }
+            },
             proposal: {
                 include: {
-                    targetCompany: true
+                    targetCompany: true,
+                    academicYear: true
                 }
             },
             seminars: {
