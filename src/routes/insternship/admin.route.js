@@ -47,6 +47,12 @@ router.get("/proposals/:id", adminController.getProposalLetterDetail);
 router.patch("/proposals/:id/letter", adminController.updateProposalLetter);
 
 /**
+ * @route POST /insternship/admin/proposals/:id/company-response
+ * @desc Admin uploads a company response document on behalf of a student
+ */
+router.post("/proposals/:id/company-response", adminController.submitCompanyResponse);
+
+/**
  * @route POST /insternship/admin/company-responses/:id/verify
  * @desc Verify a company response
  */

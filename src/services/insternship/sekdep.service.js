@@ -1,4 +1,5 @@
 import * as sekdepRepository from "../../repositories/insternship/sekdep.repository.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 import * as adminRepository from "../../repositories/insternship/admin.repository.js";
 import * as notificationRepository from "../../repositories/notification.repository.js";
 import { sendFcmToUsers } from "../push.service.js";
@@ -409,7 +410,8 @@ export async function getInternshipDetail(id) {
             lecturerStatus: internship.lecturerAssessmentStatus,
             fieldStatus: internship.fieldAssessmentStatus,
             finalScore: internship.finalNumericScore,
-            finalGrade: internship.finalGrade
+            finalGrade: internship.finalGrade,
+            isLogbookLocked: internship.isLogbookLocked
         },
         logbooks: internship.logbooks || [],
         guidanceSessions: internship.guidanceSessions || [],
@@ -455,6 +457,11 @@ export async function getInternshipDetail(id) {
                 document: internship.logbookDocument,
                 status: internship.logbookDocumentStatus,
                 notes: internship.logbookDocumentNotes
+            },
+            fieldAssessmentDocument: {
+                document: internship.fieldAssessmentDoc,
+                status: internship.fieldAssessmentStatus,
+                notes: null
             }
         },
         supervisorLetter: internship.supLetter ? {
@@ -529,6 +536,9 @@ export async function verifyInternshipDocument(internshipId, { documentType, sta
     } catch (err) {
         console.error("Gagal mengirim notifikasi verifikasi dokumen:", err);
     }
+
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(internshipId);
 
     return updatedInternship;
 }
@@ -615,6 +625,9 @@ export async function bulkVerifyInternshipDocuments(internshipId, { documents, s
     } catch (err) {
         console.error("Gagal mengirim notifikasi verifikasi dokumen bulk:", err);
     }
+
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(internshipId);
 
     return {
         success: true,

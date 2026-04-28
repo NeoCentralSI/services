@@ -1,5 +1,6 @@
 import prisma from "../../config/prisma.js";
 import * as repository from "../../repositories/insternship/assessment.repository.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 
@@ -80,11 +81,19 @@ export async function submitLecturerAssessment(lecturerId, internshipId, scores)
     // 1. Verify supervised student
     const internship = await prisma.internship.findUnique({
         where: { id: internshipId },
-        select: { supervisorId: true, proposal: { select: { academicYearId: true } } }
+        select: { 
+            supervisorId: true, 
+            lecturerAssessmentStatus: true,
+            proposal: { select: { academicYearId: true } } 
+        }
     });
 
     if (!internship || internship.supervisorId !== lecturerId) {
         throw new Error("Akses ditolak.");
+    }
+
+    if (internship.lecturerAssessmentStatus === 'COMPLETED') {
+        throw new Error("Penilaian sudah pernah dikirim dan tidak dapat diubah lagi.");
     }
 
     // 2. Save scores
@@ -139,6 +148,9 @@ export async function submitLecturerAssessment(lecturerId, internshipId, scores)
             console.error("Gagal mengirim notifikasi penilaian selesai:", err);
         }
     }
+
+    // 7. Holistic Completion Check
+    await syncInternshipCompletionStatus(internshipId);
 
     return result;
 }

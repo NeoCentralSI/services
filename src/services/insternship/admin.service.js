@@ -12,8 +12,8 @@ import { ROLES } from "../../constants/roles.js";
  * After consolidation, application letter fields are on the proposal itself.
  * @returns {Promise<Array>}
  */
-export async function getApprovedProposals() {
-    const proposals = await adminRepository.findApprovedProposals();
+export async function getApprovedProposals(academicYearId) {
+    const proposals = await adminRepository.findApprovedProposals(academicYearId);
 
     return proposals.map(p => {
         return {
@@ -38,6 +38,7 @@ export async function getApprovedProposals() {
                 end: p.endDatePlanned
             } : null,
             isSigned: !!p.appLetterSignedById,
+            academicYearName: p.academicYear ? `${p.academicYear.year} ${p.academicYear.semester === 'ganjil' ? 'Ganjil' : 'Genap'}` : "—",
             updatedAt: p.updatedAt
         };
     });
@@ -204,8 +205,8 @@ async function notifyKadepForLetterGeneration(proposal, documentNumber) {
  * Get all internship proposals that have an approved company response.
  * @returns {Promise<Array>}
  */
-export async function getProposalsForAssignment() {
-    const proposals = await adminRepository.findProposalsForAssignment();
+export async function getProposalsForAssignment(academicYearId) {
+    const proposals = await adminRepository.findProposalsForAssignment(academicYearId);
 
     return proposals.map(p => {
         return {
@@ -233,11 +234,17 @@ export async function getProposalsForAssignment() {
                 fileName: p.assignLetterDoc.fileName,
                 filePath: p.assignLetterDoc.filePath
             } : null,
+            appLetterFile: p.appLetterDoc ? {
+                id: p.appLetterDoc.id,
+                fileName: p.appLetterDoc.fileName,
+                filePath: p.appLetterDoc.filePath
+            } : null,
             period: p.startDateActual ? {
                 start: p.startDateActual,
                 end: p.endDateActual
             } : null,
             isSigned: !!p.assignLetterSignedById,
+            academicYearName: p.academicYear ? `${p.academicYear.year} ${p.academicYear.semester === 'ganjil' ? 'Ganjil' : 'Genap'}` : "—",
             updatedAt: p.updatedAt
         };
     });
@@ -494,6 +501,77 @@ export async function verifyCompanyResponse(proposalId, status, notes, acceptedM
         }
     } catch (err) {
         console.error("Gagal mengirim notifikasi verifikasi surat balasan:", err);
+    }
+
+    return updatedProposal;
+}
+
+/**
+ * Admin uploads a company response document on behalf of a student.
+ * This is used when the company sends the response directly to the department.
+ * @param {string} proposalId
+ * @param {string} documentId
+ * @returns {Promise<Object>}
+ */
+export async function adminSubmitCompanyResponse(proposalId, documentId) {
+    const proposal = await adminRepository.findProposalForAssignment(proposalId);
+    if (!proposal) {
+        const error = new Error("Pengajuan tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (!proposal.appLetterSignedById) {
+        const error = new Error("Surat permohonan belum ditandatangani oleh Kadep.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (proposal.companyResponseDocId) {
+        const error = new Error("Surat balasan sudah ada. Tidak dapat mengunggah ulang.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // 1. Update the document ID
+    const updatedProposalDoc = await adminRepository.updateCompanyResponseDoc(proposalId, documentId);
+
+    // 2. AUTO VERIFY: Mark as accepted by company for all members
+    const allRelevantStudentIds = [updatedProposalDoc.coordinatorId, ...updatedProposalDoc.internships.map(i => i.studentId)];
+    const uniqueStudentIds = [...new Set(allRelevantStudentIds)];
+    
+    const internshipUpdates = uniqueStudentIds.map(sid => ({
+        studentId: sid,
+        status: 'ACCEPTED_BY_COMPANY'
+    }));
+
+    const updatedProposal = await sekdepRepository.verifyCompanyResponseTransaction(
+        proposalId,
+        'ACCEPTED_BY_COMPANY',
+        internshipUpdates,
+        "Diunggah dan diverifikasi otomatis oleh Admin"
+    );
+
+    // Notify students that admin has uploaded and verified the company response
+    try {
+        const recipientIds = uniqueStudentIds;
+        const companyName = updatedProposal.targetCompany?.companyName || "perusahaan";
+
+        const title = "Lamaran KP Diterima Perusahaan (Admin)";
+        const message = `Admin telah mengunggah surat balasan dari ${companyName} dan mengonfirmasi bahwa lamaran Anda DITERIMA.`;
+
+        await createNotificationsForUsers(recipientIds, { title, message });
+        await sendFcmToUsers(recipientIds, {
+            title,
+            body: message,
+            data: {
+                type: 'internship_proposal_accepted',
+                proposalId: updatedProposal.id
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi upload surat balasan oleh admin:", err);
     }
 
     return updatedProposal;

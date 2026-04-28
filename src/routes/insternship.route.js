@@ -9,6 +9,7 @@ import publicRouter from "./insternship/public.route.js";
 import overviewRouter from "./insternship/overview.route.js";
 import fieldAssessmentRouter from "./insternship/field-assessment.route.js";
 import holidayRouter from "./insternship/holiday.route.js";
+import monitoringRouter from "./insternship/monitoring.route.js";
 
 const router = express.Router();
 
@@ -22,6 +23,7 @@ router.use("/public", publicRouter);
 router.use("/overview", overviewRouter);
 router.use("/field-assessment", fieldAssessmentRouter);
 router.use("/holidays", holidayRouter);
+router.use("/monitoring", monitoringRouter);
 
 export default router;
 

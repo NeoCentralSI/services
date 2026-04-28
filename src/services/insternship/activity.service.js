@@ -9,6 +9,7 @@ import { getWorkingDays } from "../../utils/internship-date.util.js";
 import { getHolidayDatesInRange } from "./holiday.service.js";
 import * as activityRepository from "../../repositories/insternship/activity.repository.js";
 import * as registrationRepository from "../../repositories/insternship/registration.repository.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
@@ -16,7 +17,7 @@ import { sendFieldAssessmentRequest } from "./sekdep.service.js";
 import { terbilang, getIndonesianDayName, getIndonesianMonthName } from "../../utils/internship-document.util.js";
 import { stampQRCode } from "../../utils/pdf-sign.util.js";
 import crypto from "crypto";
-import { generateSeminarMinutesDocx } from "../document.service.js";
+
 import { generateLogbookPdfFromTemplate } from "../../utils/logbook-pdf.util.js";
 
 
@@ -399,6 +400,9 @@ export async function submitFinalReport(studentId, documentId) {
     } catch (err) {
         console.error("Gagal mengirim notifikasi upload laporan final:", err);
     }
+
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(internship.id);
 
     return result;
 }
@@ -917,18 +921,24 @@ export async function getSeminarDetail(seminarId, studentId) {
     }
 
     const isOwnSeminar = seminar.internship.studentId === studentId;
+    const isModerator = seminar.moderatorStudentId === studentId;
     const isRegistered = seminar.audiences.some(a => a.studentId === studentId);
     const myRegistration = seminar.audiences.find(a => a.studentId === studentId);
 
-    // Group members logic (similar to calendarEvents in frontend)
-    // We can fetch group members if needed, but for now we rely on what's in the repo
-    
-    return {
+    const response = {
         ...seminar,
         isOwnSeminar,
+        isModerator,
         isRegistered,
         myRegistrationStatus: myRegistration?.status || null
     };
+
+    // Strip supervisorNotes if not authorized (Presenter or Moderator)
+    if (!isOwnSeminar && !isModerator) {
+        delete response.supervisorNotes;
+    }
+
+    return response;
 }
 
 /**
@@ -1119,107 +1129,37 @@ export async function updateSeminarNotes(seminarId, notes, lecturerUserId) {
 }
 
 /**
- * Generate Berita Acara Seminar KP.
+ * Complete a seminar (Lecturer).
  * @param {string} seminarId 
  * @param {string} lecturerUserId 
  */
-export async function generateBeritaAcaraPdf(seminarId, lecturerUserId) {
-    // 1. Get Seminar with all related data
-    const seminar = await prisma.internshipSeminar.findUnique({
-        where: { id: seminarId },
-        include: {
-            internship: {
-                include: {
-                    student: { include: { user: true } },
-                    proposal: { include: { targetCompany: true } },
-                    supervisor: { include: { user: true } }
-                }
-            },
-            moderatorStudent: { include: { user: true } },
-            audiences: { where: { status: 'VALIDATED' } }
-        }
-    });
+export async function completeSeminar(seminarId, lecturerUserId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
 
-    if (!seminar) throw new Error("Seminar tidak ditemukan.");
     if (seminar.internship.supervisor?.user?.id !== lecturerUserId) {
-        throw new Error("Hanya dosen pembimbing yang dapat menerbitkan berita acara.");
+        const error = new Error("Anda bukan dosen pembimbing untuk seminar ini.");
+        error.statusCode = 403;
+        throw error;
     }
 
-    // 2. Prepare Data
-    const date = new Date(seminar.seminarDate);
-    const audienceCount = seminar.audiences.length;
-
-    const templateData = {
-        hari: getIndonesianDayName(date),
-        tanggal: date.getDate(),
-        bulan: getIndonesianMonthName(date),
-        tahun: date.getFullYear(),
-        nama: seminar.internship.student.user.fullName,
-        nim: seminar.internship.student.user.identityNumber,
-        judul: seminar.internship.proposal?.title || "-",
-        jumlah_peserta: audienceCount,
-        terbilang_peserta: terbilang(audienceCount),
-        catatan: seminar.supervisorNotes || "-",
-        moderator_nama: seminar.moderatorStudent?.user?.fullName || "-",
-        moderator_nim: seminar.moderatorStudent?.user?.identityNumber || "-",
-        pembimbing_nama: seminar.internship.supervisor?.user?.fullName || "-",
-        pembimbing_nip: seminar.internship.supervisor?.user?.identityNumber || "-",
-    };
-
-    // 3. Generate DOCX and Convert to PDF
-    // We pass templateData to document service
-    const { pdfBuffer, fileName, filePath, relativePath } = await generateSeminarMinutesDocx(seminarId, templateData);
-
-    // 4. Digital Signing (QR Code)
-    // For Berita Acara, we stamp the QR code at the bottom right near the supervisor signature.
-    // Standard coordinates for KP-006: Page 1, bottom right.
-    const verifyUrl = `${ENV.FRONTEND_URL}/verify/seminar-minutes/${seminarId}`;
-    
-    // Positioning: x=400, y=650 (Approx bottom right signature area)
-    const signaturePositions = [
-        { x: 450, y: 680, pageNumber: 1, size: 60 }
-    ];
-
-    let finalPdfBuffer = pdfBuffer;
-    try {
-        finalPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, signaturePositions);
-        
-        // Calculate SHA-256 Hash for file integrity verification
-        const fileHash = crypto.createHash('sha256').update(finalPdfBuffer).digest('hex');
-
-        // Write the signed/hashed file back to disk
-        await fs.writeFile(path.resolve(filePath), finalPdfBuffer);
-
-        // Save Hash to the Document entry
-        // The generateSeminarMinutesDocx should have created a Document entry.
-        // We'll update it.
-        const docRecord = await prisma.document.findFirst({
-            where: { filePath: relativePath },
-            orderBy: { createdAt: 'desc' }
-        });
-
-        if (docRecord) {
-            await prisma.document.update({
-                where: { id: docRecord.id },
-                data: { fileHash }
-            });
-
-            // Link the document to the InternshipSeminar
-            await prisma.internshipSeminar.update({
-                where: { id: seminarId },
-                data: { 
-                    beritaAcaraDocumentId: docRecord.id,
-                    status: 'COMPLETED' // Mark as completed when BA is generated
-                }
-            });
-        }
-    } catch (err) {
-        console.error("Gagal menstempel QR Code pada Berita Acara:", err);
+    if (seminar.status !== 'APPROVED') {
+        const error = new Error("Hanya seminar yang berstatus APPROVED yang dapat diselesaikan.");
+        error.statusCode = 400;
+        throw error;
     }
 
-    return { 
-        buffer: finalPdfBuffer, 
-        fileName: fileName 
-    };
+    const result = await activityRepository.completeSeminar(seminarId);
+
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(seminar.internshipId);
+
+    return result;
 }
+
+
 
