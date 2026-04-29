@@ -9,6 +9,7 @@ import { getWorkingDays } from "../../utils/internship-date.util.js";
 import { getHolidayDatesInRange } from "./holiday.service.js";
 import * as activityRepository from "../../repositories/insternship/activity.repository.js";
 import * as registrationRepository from "../../repositories/insternship/registration.repository.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
@@ -16,7 +17,8 @@ import { sendFieldAssessmentRequest } from "./sekdep.service.js";
 import { terbilang, getIndonesianDayName, getIndonesianMonthName } from "../../utils/internship-document.util.js";
 import { stampQRCode } from "../../utils/pdf-sign.util.js";
 import crypto from "crypto";
-import { generateSeminarMinutesDocx } from "../document.service.js";
+
+import { generateLogbookPdfFromTemplate } from "../../utils/logbook-pdf.util.js";
 
 
 /**
@@ -119,14 +121,111 @@ export async function getStudentLogbooks(studentId) {
 }
 
 /**
- * Update logbook entry.
+ * Update logbook entry with time validation.
  * @param {string} logbookId 
  * @param {string} studentId 
  * @param {string} activityDescription 
  * @returns {Promise<Object>}
  */
 export async function updateLogbook(logbookId, studentId, activityDescription) {
+    const logbook = await prisma.internshipLogbook.findUnique({
+        where: { id: logbookId },
+        include: { internship: true }
+    });
+
+    if (!logbook) throw new Error("Logbook tidak ditemukan.");
+    if (logbook.internship.studentId !== studentId) throw new Error("Akses ditolak.");
+
+    // Check if logbook is locked (student finished it or field assessment submitted)
+    if (logbook.internship.isLogbookLocked) {
+        throw new Error("Logbook sudah dikunci dan tidak dapat diubah lagi.");
+    }
+    if (logbook.internship.fieldAssessmentStatus === "COMPLETED") {
+        throw new Error("Logbook sudah dikunci karena penilaian lapangan telah selesai.");
+    }
+
+    const now = new Date();
+    const logbookDate = new Date(logbook.activityDate);
+    logbookDate.setHours(0, 0, 0, 0);
+
+    // Can fill from the start of activityDate until 24 hours after activityDate ends
+    // If activityDate is 2024-05-20, can fill from 2024-05-20 00:00:00 until 2024-05-21 23:59:59
+    const startOfRange = logbookDate;
+    const endOfRange = new Date(logbookDate);
+    endOfRange.setDate(endOfRange.getDate() + 1);
+    endOfRange.setHours(23, 59, 59, 999);
+
+    if (now < startOfRange || now > endOfRange) {
+        throw new Error("Logbook hanya dapat diisi mulai tanggal kegiatan sampai 24 jam setelah hari tersebut berakhir.");
+    }
+
     return activityRepository.updateLogbook(logbookId, studentId, activityDescription);
+}
+
+/**
+ * Send logbook reminders to students.
+ * Called by cron at 16:00 (today) and 17:00 (yesterday overdue).
+ */
+export async function sendLogbookReminders() {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    // 16:00 -> Remind for today
+    // 17:00 -> Remind for yesterday if not filled
+    const isTodayReminder = currentHour === 16;
+    const isOverdueReminder = currentHour === 17;
+
+    if (!isTodayReminder && !isOverdueReminder) return { sentCount: 0 };
+
+    const targetDate = new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    if (isOverdueReminder) {
+        targetDate.setDate(targetDate.getDate() - 1);
+    }
+
+    const logbooks = await prisma.internshipLogbook.findMany({
+        where: {
+            activityDate: targetDate,
+            internship: { status: 'ONGOING' }
+        },
+        include: {
+            internship: {
+                include: {
+                    student: { include: { user: true } },
+                    proposal: { include: { targetCompany: true } }
+                }
+            }
+        }
+    });
+
+    let sentCount = 0;
+    for (const logbook of logbooks) {
+        const studentUserId = logbook.internship.student.user.id;
+        const companyName = logbook.internship.proposal?.targetCompany?.companyName || 'Perusahaan';
+
+        if (isTodayReminder) {
+            const title = "📝 Isi Logbook Hari Ini";
+            const message = `Sudah selesai kegiatan hari ini di ${companyName}? Jangan lupa isi logbook ya!`;
+            await sendFcmToUsers([studentUserId], {
+                title,
+                body: message,
+                data: { type: 'internship_logbook_reminder' }
+            });
+            sentCount++;
+        } else if (isOverdueReminder && (!logbook.activityDescription || logbook.activityDescription.trim().length === 0)) {
+            const dateStr = targetDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long' });
+            const title = "⚠️ Logbook Belum Diisi!";
+            const message = `Logbook tanggal ${dateStr} belum diisi. Ayo segera isi sebelum batas waktu berakhir malam ini.`;
+            await sendFcmToUsers([studentUserId], {
+                title,
+                body: message,
+                data: { type: 'internship_logbook_overdue' }
+            });
+            sentCount++;
+        }
+    }
+
+    return { sentCount };
 }
 
 /**
@@ -140,106 +239,71 @@ export async function updateInternshipDetails(studentId, data) {
 }
 
 /**
- * Internal helper to prepare logbook data for templates.
+ * Lock student logbook.
+ * @param {string} studentId 
+ * @returns {Promise<Object>}
  */
-async function prepareLogbookData(studentId) {
-    const { internship, logbooks } = await getStudentLogbooks(studentId);
+export async function lockLogbook(studentId) {
+    // Check if logbook is sufficiently filled? 
+    // Usually handled by frontend warning, but we can check here too if needed.
+    return activityRepository.lockLogbook(studentId);
+}
 
+export async function generateLogbookPdf(studentId, signatureBase64 = null, signatureHash = null) {
+    // 1. Get internship with all necessary data
+    const internship = await activityRepository.getStudentInternship(studentId);
     if (!internship) {
         throw new Error("Data Kerja Praktik tidak ditemukan.");
     }
-
-    const formatDate = (date) => {
-        if (!date) return "-";
-        return new Date(date).toLocaleDateString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric"
+    
+    // If we have no signature provided, check for existing document
+    if (!signatureBase64 && internship.logbookDocumentId) {
+        const doc = await prisma.document.findUnique({
+            where: { id: internship.logbookDocumentId }
         });
-    };
-
-    const templateData = {
-        instansi: internship.proposal?.targetCompany?.companyName || "-",
-        nama: internship.student?.user?.fullName || "-",
-        nim: internship.student?.user?.identityNumber || "-",
-        pembimbing: internship.fieldSupervisorName || "( ........................................ )",
-        tanggal_cetak: formatDate(new Date()),
-        a: logbooks.map((log, index) => ({
-            no: index + 1,
-            tanggal: formatDate(log.activityDate),
-            kegiatan: log.activityDescription || "-"
-        }))
-    };
-
-    return { internship, templateData };
-}
-
-/**
- * Internal helper to generate DOCX buffer from template.
- */
-async function generateLogbookDocxBuffer(templateData) {
-    // Find template for logbook
-    const templateDoc = await prisma.document.findFirst({
-        where: {
-            documentType: {
-                name: "Template Kerja Praktik"
+        if (doc) {
+            try {
+                return await fs.readFile(path.join(process.cwd(), doc.filePath));
+            } catch (err) {
+                console.error("Existing logbook file not found on disk, will regenerate.");
             }
-        },
-        orderBy: {
-            createdAt: 'desc'
         }
-    });
-
-    if (!templateDoc) {
-        throw new Error("Template Logbook (DOCX) belum diunggah oleh Sekdep.");
     }
 
-    const templatePath = path.join(process.cwd(), templateDoc.filePath);
-    const content = await fs.readFile(templatePath);
-    const zip = new PizZip(content);
-    const doc = new Docxtemplater(zip, {
-        paragraphLoop: true,
-        linebreaks: true,
-        delimiters: {
-            start: "{",
-            end: "}"
+    // 2. Otherwise generate from template
+    const logbooks = await activityRepository.getLogbooks(internship.id);
+    const kopTemplate = await prisma.document.findFirst({
+        where: {
+            fileName: { contains: "KOP" }
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+
+    let headerPdfBuffer = null;
+    if (kopTemplate) {
+        try {
+            const templateBuffer = await fs.readFile(path.join(process.cwd(), kopTemplate.filePath));
+            if (kopTemplate.filePath.endsWith('.docx')) {
+                headerPdfBuffer = await convertDocxToPdf(templateBuffer, "KOP.docx");
+            } else if (kopTemplate.filePath.endsWith('.pdf')) {
+                headerPdfBuffer = templateBuffer;
+            }
+        } catch (err) {
+            console.error("Gagal memuat template KOP:", err);
         }
+    }
+
+    return generateLogbookPdfFromTemplate({
+        studentName: internship.student.user.fullName,
+        studentNim: internship.student.user.identityNumber,
+        companyName: internship.proposal?.targetCompany?.companyName || "-",
+        fieldSupervisorName: internship.fieldSupervisorName || "-",
+        academicYear: `${internship.proposal?.academicYear?.year} - ${internship.proposal?.academicYear?.semester === "ganjil" ? "Ganjil" : "Genap"}`,
+        logbooks,
+        signatureBase64,
+        signatureHash,
+        headerPdfBuffer
     });
-
-    doc.render(templateData);
-
-    return doc.getZip().generate({
-        type: "nodebuffer",
-        compression: "DEFLATE",
-    });
-}
-
-/**
- * Generate Logbook PDF based on DOCX template.
- * @param {string} studentId 
- * @returns {Promise<Buffer>}
- */
-export async function generateLogbookPdf(studentId) {
-    const { templateData } = await prepareLogbookData(studentId);
-    const docxBuffer = await generateLogbookDocxBuffer(templateData);
-
-    // Convert DOCX to PDF
-    return convertDocxToPdf(docxBuffer, `Logbook_${templateData.nama}.docx`);
-}
-
-/**
- * Generate Logbook DOCX.
- * @param {string} studentId 
- * @returns {Promise<{buffer: Buffer, filename: string}>}
- */
-export async function generateLogbookDocx(studentId) {
-    const { templateData } = await prepareLogbookData(studentId);
-    const buffer = await generateLogbookDocxBuffer(templateData);
-
-    return {
-        buffer,
-        filename: `Logbook_${templateData.nama}.docx`
-    };
 }
 
 /**
@@ -301,7 +365,7 @@ export async function submitInternshipReport(studentId, title, documentId) {
  * @param {string} documentId 
  * @returns {Promise<Object>}
  */
-export async function submitFinalReport(studentId, documentId) {
+export async function submitFinalReport(studentId, title, documentId) {
     const internship = await activityRepository.getStudentInternship(studentId);
     if (!internship) {
         const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
@@ -309,7 +373,7 @@ export async function submitFinalReport(studentId, documentId) {
         throw error;
     }
 
-    const result = await activityRepository.updateFinalReport(studentId, documentId);
+    const result = await activityRepository.updateFinalReport(studentId, title, documentId);
 
     // Notify Sekdep
     try {
@@ -336,6 +400,9 @@ export async function submitFinalReport(studentId, documentId) {
     } catch (err) {
         console.error("Gagal mengirim notifikasi upload laporan final:", err);
     }
+
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(internship.id);
 
     return result;
 }
@@ -391,6 +458,19 @@ export async function updateCompletionCertificate(studentId, documentId) {
  * @param {string} documentId 
  */
 export async function submitCompanyReport(studentId, documentId) {
+    const internship = await activityRepository.getStudentInternship(studentId);
+    if (!internship) {
+        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (!internship.isLogbookLocked) {
+        const error = new Error("Logbook harus diselesaikan (dikunci) terlebih dahulu sebelum mengunggah laporan instansi.");
+        error.statusCode = 400;
+        throw error;
+    }
+
     const result = await activityRepository.updateCompanyReport(studentId, documentId);
 
     // Notify Sekdep
@@ -756,7 +836,30 @@ export async function approveSeminar(seminarId, userId) {
         throw error;
     }
 
-    return activityRepository.approveSeminar(seminarId, userId);
+    const result = await activityRepository.approveSeminar(seminarId, userId);
+
+    // Notify student
+    try {
+        const title = "Seminar KP Disetujui";
+        const message = `Jadwal seminar KP Anda pada tanggal ${new Date(seminar.seminarDate).toLocaleDateString('id-ID')} telah disetujui.`;
+        
+        await createNotificationsForUsers([seminar.internship.studentId], { title, message });
+        await sendFcmToUsers([seminar.internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_response',
+                status: 'APPROVED',
+                internshipId: seminar.internshipId,
+                seminarId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi persetujuan seminar:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -824,7 +927,30 @@ export async function rejectSeminar(seminarId, userId, notes) {
         throw error;
     }
 
-    return activityRepository.rejectSeminar(seminarId, notes);
+    const result = await activityRepository.rejectSeminar(seminarId, notes);
+
+    // Notify student
+    try {
+        const title = "Seminar KP Perlu Revisi Jadwal";
+        const message = `Pengajuan seminar KP Anda ditolak/perlu revisi. Catatan: ${notes || '-'}`;
+        
+        await createNotificationsForUsers([seminar.internship.studentId], { title, message });
+        await sendFcmToUsers([seminar.internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_response',
+                status: 'REJECTED',
+                internshipId: seminar.internshipId,
+                seminarId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi penolakan seminar:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -841,18 +967,24 @@ export async function getSeminarDetail(seminarId, studentId) {
     }
 
     const isOwnSeminar = seminar.internship.studentId === studentId;
+    const isModerator = seminar.moderatorStudentId === studentId;
     const isRegistered = seminar.audiences.some(a => a.studentId === studentId);
     const myRegistration = seminar.audiences.find(a => a.studentId === studentId);
 
-    // Group members logic (similar to calendarEvents in frontend)
-    // We can fetch group members if needed, but for now we rely on what's in the repo
-    
-    return {
+    const response = {
         ...seminar,
         isOwnSeminar,
+        isModerator,
         isRegistered,
         myRegistrationStatus: myRegistration?.status || null
     };
+
+    // Strip supervisorNotes if not authorized (Presenter or Moderator)
+    if (!isOwnSeminar && !isModerator) {
+        delete response.supervisorNotes;
+    }
+
+    return response;
 }
 
 /**
@@ -964,7 +1096,29 @@ export async function validateAudience(seminarId, targetStudentId, lecturerUserI
         throw error;
     }
 
-    return activityRepository.validateSeminarAudience(seminarId, targetStudentId);
+    const result = await activityRepository.validateSeminarAudience(seminarId, targetStudentId);
+
+    // Notify student
+    try {
+        const title = "Kehadiran Seminar Divalidasi";
+        const message = `Presensi Anda sebagai audiens di seminar ${seminar.internship.student.user.fullName} telah divalidasi oleh dosen.`;
+        
+        await createNotificationsForUsers([targetStudentId], { title, message });
+        await sendFcmToUsers([targetStudentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_audience_validated',
+                seminarId,
+                studentId: targetStudentId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi validasi audiens:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -987,7 +1141,28 @@ export async function bulkValidateAudience(seminarId, targetStudentIds, lecturer
         throw error;
     }
 
-    return activityRepository.bulkValidateSeminarAudience(seminarId, targetStudentIds);
+    const result = await activityRepository.bulkValidateSeminarAudience(seminarId, targetStudentIds);
+
+    // Notify each student
+    try {
+        const title = "Kehadiran Seminar Divalidasi";
+        const message = `Presensi Anda sebagai audiens di seminar ${seminar.internship.student.user.fullName} telah divalidasi oleh dosen.`;
+        
+        await createNotificationsForUsers(targetStudentIds, { title, message });
+        await sendFcmToUsers(targetStudentIds, {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_audience_validated',
+                seminarId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi bulk validasi audiens:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -1043,107 +1218,57 @@ export async function updateSeminarNotes(seminarId, notes, lecturerUserId) {
 }
 
 /**
- * Generate Berita Acara Seminar KP.
+ * Complete a seminar (Lecturer).
  * @param {string} seminarId 
  * @param {string} lecturerUserId 
  */
-export async function generateBeritaAcaraPdf(seminarId, lecturerUserId) {
-    // 1. Get Seminar with all related data
-    const seminar = await prisma.internshipSeminar.findUnique({
-        where: { id: seminarId },
-        include: {
-            internship: {
-                include: {
-                    student: { include: { user: true } },
-                    proposal: { include: { targetCompany: true } },
-                    supervisor: { include: { user: true } }
-                }
-            },
-            moderatorStudent: { include: { user: true } },
-            audiences: { where: { status: 'VALIDATED' } }
-        }
-    });
+export async function completeSeminar(seminarId, lecturerUserId) {
+    const seminar = await activityRepository.findSeminarById(seminarId);
+    if (!seminar) {
+        const error = new Error("Seminar tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
 
-    if (!seminar) throw new Error("Seminar tidak ditemukan.");
     if (seminar.internship.supervisor?.user?.id !== lecturerUserId) {
-        throw new Error("Hanya dosen pembimbing yang dapat menerbitkan berita acara.");
+        const error = new Error("Anda bukan dosen pembimbing untuk seminar ini.");
+        error.statusCode = 403;
+        throw error;
     }
 
-    // 2. Prepare Data
-    const date = new Date(seminar.seminarDate);
-    const audienceCount = seminar.audiences.length;
+    if (seminar.status !== 'APPROVED') {
+        const error = new Error("Hanya seminar yang berstatus APPROVED yang dapat diselesaikan.");
+        error.statusCode = 400;
+        throw error;
+    }
 
-    const templateData = {
-        hari: getIndonesianDayName(date),
-        tanggal: date.getDate(),
-        bulan: getIndonesianMonthName(date),
-        tahun: date.getFullYear(),
-        nama: seminar.internship.student.user.fullName,
-        nim: seminar.internship.student.user.identityNumber,
-        judul: seminar.internship.proposal?.title || "-",
-        jumlah_peserta: audienceCount,
-        terbilang_peserta: terbilang(audienceCount),
-        catatan: seminar.supervisorNotes || "-",
-        moderator_nama: seminar.moderatorStudent?.user?.fullName || "-",
-        moderator_nim: seminar.moderatorStudent?.user?.identityNumber || "-",
-        pembimbing_nama: seminar.internship.supervisor?.user?.fullName || "-",
-        pembimbing_nip: seminar.internship.supervisor?.user?.identityNumber || "-",
-    };
+    const result = await activityRepository.completeSeminar(seminarId);
 
-    // 3. Generate DOCX and Convert to PDF
-    // We pass templateData to document service
-    const { pdfBuffer, fileName, filePath, relativePath } = await generateSeminarMinutesDocx(seminarId, templateData);
-
-    // 4. Digital Signing (QR Code)
-    // For Berita Acara, we stamp the QR code at the bottom right near the supervisor signature.
-    // Standard coordinates for KP-006: Page 1, bottom right.
-    const verifyUrl = `${ENV.FRONTEND_URL}/verify/seminar-minutes/${seminarId}`;
-    
-    // Positioning: x=400, y=650 (Approx bottom right signature area)
-    const signaturePositions = [
-        { x: 450, y: 680, pageNumber: 1, size: 60 }
-    ];
-
-    let finalPdfBuffer = pdfBuffer;
+    // Notify student
     try {
-        finalPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, signaturePositions);
+        const title = "Seminar KP Selesai";
+        const message = `Seminar KP Anda telah selesai dilaksanakan dan telah divalidasi oleh dosen pembimbing.`;
         
-        // Calculate SHA-256 Hash for file integrity verification
-        const fileHash = crypto.createHash('sha256').update(finalPdfBuffer).digest('hex');
-
-        // Write the signed/hashed file back to disk
-        await fs.writeFile(path.resolve(filePath), finalPdfBuffer);
-
-        // Save Hash to the Document entry
-        // The generateSeminarMinutesDocx should have created a Document entry.
-        // We'll update it.
-        const docRecord = await prisma.document.findFirst({
-            where: { filePath: relativePath },
-            orderBy: { createdAt: 'desc' }
+        await createNotificationsForUsers([seminar.internship.studentId], { title, message });
+        await sendFcmToUsers([seminar.internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_seminar_completed',
+                internshipId: seminar.internshipId,
+                seminarId
+            },
+            dataOnly: true
         });
-
-        if (docRecord) {
-            await prisma.document.update({
-                where: { id: docRecord.id },
-                data: { fileHash }
-            });
-
-            // Link the document to the InternshipSeminar
-            await prisma.internshipSeminar.update({
-                where: { id: seminarId },
-                data: { 
-                    beritaAcaraDocumentId: docRecord.id,
-                    status: 'COMPLETED' // Mark as completed when BA is generated
-                }
-            });
-        }
     } catch (err) {
-        console.error("Gagal menstempel QR Code pada Berita Acara:", err);
+        console.error("Gagal mengirim notifikasi penyelesaian seminar:", err);
     }
 
-    return { 
-        buffer: finalPdfBuffer, 
-        fileName: fileName 
-    };
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(seminar.internshipId);
+
+    return result;
 }
+
+
 

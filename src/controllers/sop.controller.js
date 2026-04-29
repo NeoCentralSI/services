@@ -59,8 +59,17 @@ export async function patchSop(req, res, next) {
   try {
     const { id } = req.params;
     const { type, title } = req.body;
+    const userId = req.user.sub;
 
-    const result = await sopService.updateSop(id, { type, title });
+    const updateParams = { type, title, userId };
+
+    if (req.file) {
+      updateParams.buffer = req.file.buffer;
+      updateParams.originalName = req.file.originalname;
+      updateParams.mimeType = req.file.mimetype;
+    }
+
+    const result = await sopService.updateSop(id, updateParams);
     res.json({
       success: true,
       message: "Panduan berhasil diperbarui",

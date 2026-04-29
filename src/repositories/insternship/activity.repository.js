@@ -9,9 +9,13 @@ export async function getStudentInternship(studentId) {
     return prisma.internship.findFirst({
         where: { studentId, status: { in: ['ONGOING', 'COMPLETED', 'FAILED'] } },
         include: {
+            student: {
+                include: { user: true }
+            },
             proposal: {
                 include: {
-                    targetCompany: true
+                    targetCompany: true,
+                    academicYear: true
                 }
             },
             seminars: {
@@ -94,6 +98,29 @@ export async function updateInternshipDetails(studentId, { fieldSupervisorName, 
 }
 
 /**
+ * Lock logbook for an internship.
+ * @param {string} studentId 
+ * @returns {Promise<Object>}
+ */
+export async function lockLogbook(studentId) {
+    const internship = await prisma.internship.findFirst({
+        where: { studentId, status: 'ONGOING' }
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+    }
+
+    return prisma.internship.update({
+        where: { id: internship.id },
+        data: {
+            isLogbookLocked: true,
+            logbookLockedAt: new Date()
+        }
+    });
+}
+
+/**
  * Create a new internship report record.
  * After consolidation, this updates report fields directly in the Internship model.
  * @param {Object} data 
@@ -130,15 +157,15 @@ export async function updateCompletionCertificate(studentId, documentId) {
         throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
     }
 
-    if (internship.completionCertificateStatus === 'APPROVED') {
-        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    if (['APPROVED', 'SUBMITTED'].includes(internship.completionCertificateStatus)) {
+        throw new Error("Dokumen sudah diunggah dan sedang diproses atau sudah disetujui.");
     }
 
     return prisma.internship.update({
         where: { id: internship.id },
         data: {
             completionCertificateDocId: documentId,
-            completionCertificateStatus: 'SUBMITTED'
+            completionCertificateStatus: 'APPROVED' // Auto-approve
         },
         include: {
             completionCertificateDoc: true
@@ -161,15 +188,15 @@ export async function updateCompanyReceipt(studentId, documentId) {
         throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
     }
 
-    if (internship.companyReceiptStatus === 'APPROVED') {
-        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    if (['APPROVED', 'SUBMITTED'].includes(internship.companyReceiptStatus)) {
+        throw new Error("Dokumen sudah diunggah dan sedang diproses atau sudah disetujui.");
     }
 
     return prisma.internship.update({
         where: { id: internship.id },
         data: {
             companyReceiptDocId: documentId,
-            companyReceiptStatus: 'SUBMITTED'
+            companyReceiptStatus: 'APPROVED' // Auto-approve
         },
         include: {
             companyReceiptDoc: true
@@ -192,8 +219,8 @@ export async function updateCompanyReport(studentId, documentId) {
         throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
     }
 
-    if (internship.companyReportStatus === 'APPROVED') {
-        throw new Error("Dokumen sudah disetujui dan tidak dapat diubah.");
+    if (['APPROVED', 'SUBMITTED'].includes(internship.companyReportStatus)) {
+        throw new Error("Dokumen sudah diunggah dan sedang diproses atau sudah disetujui.");
     }
 
     return prisma.internship.update({
@@ -246,7 +273,7 @@ export async function updateLogbookDocument(studentId, documentId) {
  * @param {string} documentId 
  * @returns {Promise<Object>}
  */
-export async function updateFinalReport(studentId, documentId) {
+export async function updateFinalReport(studentId, title, documentId) {
     const internship = await prisma.internship.findFirst({
         where: { studentId, status: { in: ['ONGOING', 'COMPLETED', 'FAILED'] } },
         include: { seminars: true }
@@ -269,6 +296,7 @@ export async function updateFinalReport(studentId, documentId) {
     return prisma.internship.update({
         where: { id: internship.id },
         data: {
+            reportFinalTitle: title,
             reportFinalDocId: documentId,
             reportFinalStatus: 'APPROVED', // Auto-approve
             reportFinalUploadedAt: new Date()
@@ -662,5 +690,16 @@ export async function updateSeminarNotes(seminarId, notes) {
     return prisma.internshipSeminar.update({
         where: { id: seminarId },
         data: { supervisorNotes: notes }
+    });
+}
+
+/**
+ * Mark a seminar as COMPLETED.
+ * @param {string} seminarId 
+ */
+export async function completeSeminar(seminarId) {
+    return prisma.internshipSeminar.update({
+        where: { id: seminarId },
+        data: { status: 'COMPLETED' }
     });
 }

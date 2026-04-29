@@ -242,7 +242,7 @@ export async function deleteSop(id) {
 /**
  * Update SOP document metadata (Title and Type)
  */
-export async function updateSop(id, { type, title }) {
+export async function updateSop(id, { type, title, buffer, originalName, mimeType, userId }) {
     const document = await prisma.document.findUnique({
         where: { id }
     });
@@ -266,12 +266,56 @@ export async function updateSop(id, { type, title }) {
         });
     }
 
+    const updateData = {
+        fileName: title || document.fileName,
+        documentTypeId: docType.id
+    };
+
+    if (userId) updateData.userId = userId;
+
+    if (buffer) {
+        // Handle file replacement
+        await ensureDir();
+        
+        const staticFile = TEMPLATE_STATIC_FILES[type];
+        let relativePath = document.filePath;
+        let fullPath = path.join(process.cwd(), document.filePath);
+
+        if (staticFile) {
+            // If it's a static template, we use the fixed name
+            const fileName = staticFile;
+            relativePath = `uploads/sop/${fileName}`;
+            fullPath = path.join(SOP_ROOT, fileName);
+        } else {
+            // For dynamic SOPs, we can either keep the same name or create a new one.
+            // Keeping the same path might be simpler if we just overwrite.
+            // But if the extension changed, we might want a new name.
+            const ext = path.extname(originalName);
+            const oldExt = path.extname(document.filePath);
+            
+            if (ext !== oldExt) {
+                // Delete old file if extension changed
+                try {
+                    await fs.unlink(path.join(process.cwd(), document.filePath));
+                } catch (e) {
+                    console.warn("Failed to delete old file:", e.message);
+                }
+                
+                const uniqueId = Date.now().toString(36);
+                const dynamicFileName = `${uniqueId}-${originalName}`;
+                relativePath = `uploads/sop/${dynamicFileName}`;
+                fullPath = path.join(SOP_ROOT, dynamicFileName);
+            }
+        }
+
+        await fs.writeFile(fullPath, buffer);
+        updateData.filePath = relativePath;
+        updateData.fileName = title || originalName;
+    }
+
     const updatedDocument = await prisma.document.update({
         where: { id },
-        data: {
-            fileName: title || document.fileName,
-            documentTypeId: docType.id
-        },
+        data: updateData,
         include: {
             documentType: true
         }

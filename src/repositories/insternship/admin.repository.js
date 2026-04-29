@@ -5,14 +5,20 @@ import prisma from "../../config/prisma.js";
  * After consolidation, application letter data is on the proposal itself.
  * @returns {Promise<Array>}
  */
-export async function findApprovedProposals() {
+export async function findApprovedProposals(academicYearId) {
+    const where = {
+        OR: [
+            { status: 'APPROVED_PROPOSAL' },
+            { appLetterDocNumber: { not: null } }
+        ]
+    };
+
+    if (academicYearId && academicYearId !== 'all') {
+        where.academicYearId = academicYearId;
+    }
+
     return prisma.internshipProposal.findMany({
-        where: {
-            OR: [
-                { status: 'APPROVED_PROPOSAL' },
-                { appLetterDocNumber: { not: null } }
-            ]
-        },
+        where,
         include: {
             coordinator: {
                 include: {
@@ -39,7 +45,8 @@ export async function findApprovedProposals() {
                 }
             },
             targetCompany: true,
-            appLetterDoc: true
+            appLetterDoc: true,
+            academicYear: true
         },
         orderBy: {
             updatedAt: 'desc'
@@ -159,16 +166,27 @@ export async function updateLetterDocumentId(proposalId, documentId) {
  * After consolidation, company response status is tracked via proposal status.
  * @returns {Promise<Array>}
  */
-export async function findProposalsForAssignment() {
+export async function findProposalsForAssignment(academicYearId) {
+    const where = {
+        OR: [
+            { status: 'WAITING_FOR_VERIFICATION' },
+            { status: 'ACCEPTED_BY_COMPANY' },
+            { status: 'PARTIALLY_ACCEPTED' },
+            { assignLetterDocNumber: { not: null } },
+            {
+                appLetterSignedById: { not: null },
+                companyResponseDocId: null,
+                status: 'APPROVED_PROPOSAL'
+            }
+        ]
+    };
+
+    if (academicYearId && academicYearId !== 'all') {
+        where.academicYearId = academicYearId;
+    }
+
     return prisma.internshipProposal.findMany({
-        where: {
-            OR: [
-                { status: 'WAITING_FOR_VERIFICATION' },
-                { status: 'ACCEPTED_BY_COMPANY' },
-                { status: 'PARTIALLY_ACCEPTED' },
-                { assignLetterDocNumber: { not: null } }
-            ]
-        },
+        where,
         include: {
             coordinator: {
                 include: {
@@ -196,10 +214,56 @@ export async function findProposalsForAssignment() {
             },
             targetCompany: true,
             assignLetterDoc: true,
-            companyResponseDoc: true
+            companyResponseDoc: true,
+            appLetterDoc: true,
+            academicYear: true
         },
         orderBy: {
             updatedAt: 'desc'
+        }
+    });
+}
+
+/**
+ * Update the company response document on a proposal (admin upload).
+ * Sets status to WAITING_FOR_VERIFICATION.
+ * @param {string} proposalId
+ * @param {string} documentId
+ * @returns {Promise<Object>}
+ */
+export async function updateCompanyResponseDoc(proposalId, documentId) {
+    return prisma.internshipProposal.update({
+        where: { id: proposalId },
+        data: {
+            companyResponseDocId: documentId,
+            status: 'WAITING_FOR_VERIFICATION'
+        },
+        include: {
+            targetCompany: true,
+            coordinator: {
+                include: {
+                    user: {
+                        select: {
+                            fullName: true,
+                            identityNumber: true
+                        }
+                    }
+                }
+            },
+            internships: {
+                include: {
+                    student: {
+                        include: {
+                            user: {
+                                select: {
+                                    fullName: true,
+                                    identityNumber: true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     });
 }

@@ -1,15 +1,18 @@
 import crypto from "crypto";
 import prisma from "../../config/prisma.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 import { calculateFinalResults } from "./assessment.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { generateFieldAssessmentPdf } from "../../utils/field-assessment-pdf.util.js";
+import { generateLogbookPdf } from "./activity.service.js";
 
 /**
  * Validate a field assessment token.
- * Returns internship info + FIELD-type CPMKs with rubrics.
+ * If pin is provided, verifies it and returns full data (CPMKs, Logbooks, etc).
+ * If no pin or wrong pin, returns minimal student info.
  */
-export async function validateToken(token) {
+export async function validateToken(token, pin = null) {
     const record = await prisma.fieldAssessmentToken.findUnique({
         where: { token },
         include: {
@@ -33,6 +36,9 @@ export async function validateToken(token) {
                             filePath: true,
                         },
                     },
+                    logbooks: {
+                        orderBy: { activityDate: "asc" },
+                    },
                     fieldScores: true,
                 },
             },
@@ -45,12 +51,6 @@ export async function validateToken(token) {
         throw err;
     }
 
-    if (record.isUsed) {
-        const err = new Error("Penilaian sudah pernah dikirim melalui link ini. Link tidak dapat digunakan kembali.");
-        err.statusCode = 410;
-        throw err;
-    }
-
     if (new Date() > record.expiresAt) {
         const err = new Error("Link penilaian sudah kedaluwarsa. Silakan hubungi pihak kampus untuk mendapatkan link baru.");
         err.statusCode = 410;
@@ -58,6 +58,26 @@ export async function validateToken(token) {
     }
 
     const internship = record.internship;
+    const isVerified = pin && record.pin === pin;
+
+    // Minimal data for PIN screen
+    const result = {
+        internship: {
+            id: internship.id,
+            studentName: internship.student.user.fullName,
+            studentNim: internship.student.user.identityNumber,
+            companyName: internship.proposal.targetCompany?.companyName,
+            isUsed: record.isUsed,
+        },
+        needsPin: !isVerified,
+        isVerified,
+    };
+
+    if (!isVerified) {
+        return result;
+    }
+
+    // Full data for authenticated portal
     const academicYearId = internship.proposal.academicYear.id;
 
     // Fetch FIELD-type CPMKs with rubrics
@@ -67,35 +87,60 @@ export async function validateToken(token) {
             assessorType: "FIELD",
         },
         include: {
-            rubrics: { orderBy: { minScore: "asc" } },
+            rubrics: { orderBy: { minScore: "desc" } },
         },
-        orderBy: { code: "asc" },
+        orderBy: { code: "desc" },
     });
 
-    return {
-        internship: {
-            id: internship.id,
-            studentName: internship.student.user.fullName,
-            studentNim: internship.student.user.identityNumber,
-            companyName: internship.proposal.targetCompany?.companyName,
-            companyAddress: internship.proposal.targetCompany?.companyAddress,
-            fieldSupervisorName: internship.fieldSupervisorName,
-            unitSection: internship.unitSection,
-            actualStartDate: internship.actualStartDate,
-            actualEndDate: internship.actualEndDate,
-            academicYear: `${internship.proposal.academicYear.year} - ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`,
-            companyReportDoc: internship.companyReportDoc
-                ? {
-                    id: internship.companyReportDoc.id,
-                    fileName: internship.companyReportDoc.fileName,
-                    filePath: internship.companyReportDoc.filePath,
-                }
-                : null,
-        },
-        cpmks,
-        existingScores: internship.fieldScores,
-    };
+    Object.assign(result.internship, {
+        companyAddress: internship.proposal.targetCompany?.companyAddress,
+        fieldSupervisorName: internship.fieldSupervisorName,
+        unitSection: internship.unitSection,
+        actualStartDate: internship.actualStartDate,
+        actualEndDate: internship.actualEndDate,
+        academicYear: `${internship.proposal.academicYear.year} - ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`,
+        companyReportDoc: internship.companyReportDoc
+            ? {
+                id: internship.companyReportDoc.id,
+                fileName: internship.companyReportDoc.fileName,
+                filePath: internship.companyReportDoc.filePath,
+            }
+            : null,
+        logbooks: internship.logbooks,
+        fieldAssessmentStatus: internship.fieldAssessmentStatus,
+        fieldAssessmentSubmittedAt: internship.fieldAssessmentSubmittedAt,
+    });
+
+    result.cpmks = cpmks;
+    result.existingScores = internship.fieldScores;
+
+    return result;
 }
+
+/**
+ * Verify PIN for a token.
+ */
+export async function verifyPin(token, pin) {
+    const record = await prisma.fieldAssessmentToken.findUnique({
+        where: { token },
+        select: { pin: true },
+    });
+
+    if (!record) {
+        const err = new Error("Token tidak valid.");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    if (record.pin !== pin) {
+        const err = new Error("PIN yang Anda masukkan salah.");
+        err.statusCode = 401;
+        throw err;
+    }
+
+    return true;
+}
+
 
 /**
  * Submit field assessment scores + signature.
@@ -161,15 +206,41 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
         .update(signaturePayload)
         .digest("hex");
 
-    // 3. Generate PDF with embedded signature image
+    // 3. Generate Assessment PDF
     let pdfDocumentId = null;
+    let logbookPdfDocumentId = null;
     try {
         const academicYearId = internship.proposal.academicYear.id;
         const cpmks = await prisma.internshipCpmk.findMany({
             where: { academicYearId, assessorType: "FIELD" },
-            include: { rubrics: { orderBy: { minScore: "asc" } } },
-            orderBy: { code: "asc" },
+            include: { rubrics: { orderBy: { minScore: "desc" } } },
+            orderBy: { code: "desc" },
         });
+
+        // Find "KOP" template from SOP manager
+        const kopTemplate = await prisma.document.findFirst({
+            where: {
+                fileName: { contains: "KOP" }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        let headerPdfBuffer = null;
+        if (kopTemplate) {
+            try {
+                const fs = await import("fs/promises");
+                const path = await import("path");
+                const templateBuffer = await fs.readFile(path.join(process.cwd(), kopTemplate.filePath));
+                if (kopTemplate.filePath.endsWith('.docx')) {
+                    const { convertDocxToPdf } = await import("../../utils/pdf.util.js");
+                    headerPdfBuffer = await convertDocxToPdf(templateBuffer, "KOP.docx");
+                } else if (kopTemplate.filePath.endsWith('.pdf')) {
+                    headerPdfBuffer = templateBuffer;
+                }
+            } catch (err) {
+                console.error("Gagal memuat template KOP untuk penilaian lapangan:", err);
+            }
+        }
 
         const pdfBuffer = await generateFieldAssessmentPdf({
             studentName: internship.student.user.fullName,
@@ -184,6 +255,7 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
             signatureBase64,
             signatureHash,
             submittedAt: now,
+            headerPdfBuffer,
         });
 
         // Save PDF as Document
@@ -207,7 +279,33 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
         pdfDocumentId = doc.id;
     } catch (pdfError) {
         console.error("Gagal membuat PDF penilaian lapangan:", pdfError);
-        // Continue even if PDF fails — scores are more important
+    }
+
+    // 3b. Generate Certified Logbook PDF (KP-002)
+    try {
+        const certifiedLogbookBuffer = await generateLogbookPdf(internship.student.user.id, signatureBase64, signatureHash);
+
+        // Save Logbook PDF as Document
+        const fs = await import("fs");
+        const path = await import("path");
+        const uploadsDir = path.resolve("uploads/logbooks");
+        if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+
+        const fileName = `logbook-certified-${internship.student.user.identityNumber}-${Date.now()}.pdf`;
+        const filePath = path.join(uploadsDir, fileName);
+        fs.writeFileSync(filePath, Buffer.from(certifiedLogbookBuffer));
+
+        const doc = await prisma.document.create({
+            data: {
+                fileName,
+                filePath: `uploads/logbooks/${fileName}`,
+            },
+        });
+        logbookPdfDocumentId = doc.id;
+    } catch (logbookError) {
+        console.error("Gagal membuat PDF logbook tersertifikasi:", logbookError);
     }
 
     // 4. Save scores + update internship in a transaction
@@ -231,10 +329,17 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
             fieldAssessmentStatus: "COMPLETED",
             fieldAssessmentSignatureHash: signatureHash,
             fieldAssessmentSubmittedAt: now,
+            logbookFieldSignatureHash: signatureHash,
+            logbookFieldSignedAt: now,
+            logbookDocumentStatus: "APPROVED",
         };
 
         if (pdfDocumentId) {
             updateData.fieldAssessmentDocId = pdfDocumentId;
+        }
+
+        if (logbookPdfDocumentId) {
+            updateData.logbookDocumentId = logbookPdfDocumentId;
         }
 
         await tx.internship.update({
@@ -305,6 +410,9 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
     } catch (notifError) {
         console.error("Gagal mengirim notifikasi:", notifError);
     }
+
+    // 7. Holistic Completion Check
+    await syncInternshipCompletionStatus(internshipId);
 
     return { internshipId, signatureHash };
 }

@@ -30,6 +30,19 @@ export async function updateLogbook(req, res, next) {
 }
 
 /**
+ * Lock logbook for student.
+ */
+export async function lockLogbook(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const data = await activityService.lockLogbook(userId);
+        res.json({ success: true, message: "Logbook berhasil dikunci. Anda tidak dapat melakukan perubahan lagi.", data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * Update internship details.
  */
 export async function updateInternshipDetails(req, res, next) {
@@ -103,15 +116,15 @@ export async function submitReport(req, res, next) {
 export async function submitFinalReport(req, res, next) {
     try {
         const userId = req.user.sub;
-        const { documentId } = req.body;
+        const { reportFinalTitle, documentId } = req.body;
 
-        if (!documentId) {
-            const error = new Error("File laporan final wajib diisi.");
+        if (!reportFinalTitle || !documentId) {
+            const error = new Error("Judul dan file laporan final wajib diisi.");
             error.statusCode = 400;
             throw error;
         }
 
-        const data = await activityService.submitFinalReport(userId, documentId);
+        const data = await activityService.submitFinalReport(userId, reportFinalTitle, documentId);
         res.json({ success: true, message: "Laporan final berhasil diunggah", data });
     } catch (error) {
         next(error);
@@ -395,19 +408,15 @@ export async function updateSeminarNotes(req, res, next) {
 }
 
 /**
- * Generate and download Berita Acara PDF - Lecturer.
+ * Complete a seminar - Lecturer.
  */
-export async function downloadBeritaAcara(req, res, next) {
+export async function completeSeminar(req, res, next) {
     try {
         const userId = req.user.sub;
         const { id } = req.params;
-        const { buffer, fileName } = await activityService.generateBeritaAcaraPdf(id, userId);
-
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-        res.send(buffer);
+        const data = await activityService.completeSeminar(id, userId);
+        res.json({ success: true, message: "Seminar telah diselesaikan dan dikunci.", data });
     } catch (error) {
         next(error);
     }
 }
-

@@ -143,9 +143,7 @@ export async function countPendingProposals({ academicYearId, q }) {
  */
 export async function findPendingResponses({ academicYearId, q, skip, take, sortBy, sortOrder }) {
     const whereClause = {
-        status: {
-            in: ['ACCEPTED_BY_COMPANY', 'WAITING_FOR_VERIFICATION', 'REJECTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'APPROVED_PROPOSAL']
-        }
+        status: 'PENDING'
     };
 
     if (academicYearId && academicYearId !== 'all') {
@@ -194,9 +192,7 @@ export async function findPendingResponses({ academicYearId, q, skip, take, sort
  */
 export async function countPendingResponses({ academicYearId, q }) {
     const whereClause = {
-        status: {
-            in: ['ACCEPTED_BY_COMPANY', 'WAITING_FOR_VERIFICATION', 'REJECTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'APPROVED_PROPOSAL']
-        }
+        status: 'PENDING'
     };
 
     if (academicYearId && academicYearId !== 'all') {
@@ -685,7 +681,7 @@ export async function findInternshipById(id) {
                     createdAt: true
                 },
                 orderBy: {
-                    activityDate: 'desc'
+                    activityDate: 'asc'
                 }
             },
             guidanceSessions: {
@@ -740,7 +736,8 @@ export async function findInternshipById(id) {
             reportDocument: true,
             logbookDocument: true,
             completionCertificateDoc: true,
-            companyReceiptDoc: true
+            companyReceiptDoc: true,
+            fieldAssessmentDoc: true
         }
     });
 }

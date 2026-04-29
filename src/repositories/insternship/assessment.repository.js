@@ -22,9 +22,12 @@ export async function findInternshipAssessmentData(internshipId) {
 
     const academicYearId = internship.proposal.academicYearId;
 
-    // Fetch CPMKs with rubrics for this academic year
+    // Fetch CPMKs with rubrics for this academic year - Only for LECTURER
     const cpmks = await prisma.internshipCpmk.findMany({
-        where: { academicYearId },
+        where: { 
+            academicYearId,
+            assessorType: 'LECTURER'
+        },
         include: {
             rubrics: {
                 orderBy: { minScore: 'asc' }
@@ -38,16 +41,10 @@ export async function findInternshipAssessmentData(internshipId) {
         where: { internshipId }
     });
 
-    // Fetch existing field scores (optional, but good for context)
-    const fieldScores = await prisma.internshipFieldScore.findMany({
-        where: { internshipId }
-    });
-
     return {
         internship,
         cpmks,
-        lecturerScores,
-        fieldScores
+        lecturerScores
     };
 }
 

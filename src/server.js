@@ -1,7 +1,7 @@
 import app from "./app.js";
 import { ENV } from "./config/env.js";
 import { initConnections } from "./config/db.js";
-import { scheduleDailyThesisStatus, scheduleSiaSync, scheduleGuidanceReminder, scheduleDailyThesisReminder, scheduleAcademicYearSync, scheduleYudisiumFinalize, scheduleDailyInternshipStatus, scheduleInternshipSeminarReminder } from "./queues/maintenance.queue.js";
+import { scheduleDailyThesisStatus, scheduleSiaSync, scheduleGuidanceReminder, scheduleDailyThesisReminder, scheduleAcademicYearSync, scheduleYudisiumFinalize, scheduleDailyInternshipStatus, scheduleInternshipSeminarReminder, scheduleInternshipLogbookReminder } from "./queues/maintenance.queue.js";
 // removed password queue worker; using user-initiated account activation instead
 
 const PORT = ENV.PORT || 3000;
@@ -25,6 +25,8 @@ async function startServer() {
     await scheduleDailyInternshipStatus();
     // Schedule internship seminar reminder (every minute)
     await scheduleInternshipSeminarReminder();
+    // Schedule internship logbook reminder (16:00 and 17:00 WIB daily)
+    await scheduleInternshipLogbookReminder();
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running at http://localhost:${PORT}`);
     });

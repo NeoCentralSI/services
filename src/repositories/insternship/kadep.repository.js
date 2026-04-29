@@ -206,3 +206,70 @@ export async function initializeInternshipsAndLogbooks(proposalId, workingDays) 
         }
     });
 }
+
+/**
+ * Find all lecturer assignment letters that need signing.
+ * @param {string} academicYearId 
+ * @returns {Promise<Array>}
+ */
+export async function findPendingSupervisorLetters(academicYearId) {
+    // Supervisor letters don't have a direct academicYearId in the model, 
+    // but we can join through internships if needed.
+    // However, for now, let's just find those not yet signed.
+    
+    return prisma.internshipSupervisorLetter.findMany({
+        where: {
+            // Remove signedById: null to show both pending and signed letters
+        },
+        include: {
+            supervisor: {
+                include: {
+                    user: true
+                }
+            },
+            document: true,
+            internships: {
+                include: {
+                    student: {
+                        include: {
+                            user: true
+                        }
+                    },
+                    proposal: {
+                        include: {
+                            targetCompany: true
+                        }
+                    }
+                }
+            }
+        },
+        orderBy: {
+            createdAt: 'desc'
+        }
+    });
+}
+
+/**
+ * Update signature for a lecturer supervisor letter.
+ * @param {string} id 
+ * @param {string} signedById 
+ * @param {string} signedAsRoleId 
+ * @returns {Promise<Object>}
+ */
+export async function signSupervisorLetter(id, signedById, signedAsRoleId) {
+    return prisma.internshipSupervisorLetter.update({
+        where: { id },
+        data: {
+            signedById,
+            signedAsRoleId,
+            dateIssued: new Date() // Final date when signed
+        },
+        include: {
+            supervisor: {
+                include: {
+                    user: true
+                }
+            }
+        }
+    });
+}
