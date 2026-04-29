@@ -139,11 +139,12 @@ export async function findExaminerById(examinerId) {
 /**
  * Update examiner availability status (accept/reject assignment).
  */
-export async function updateExaminerAvailability(examinerId, status) {
+export async function updateExaminerAvailability(examinerId, status, unavailableReasons = null) {
   return prisma.thesisSeminarExaminer.update({
     where: { id: examinerId },
     data: {
       availabilityStatus: status,
+      unavailableReasons: status === "unavailable" ? unavailableReasons : null,
       respondedAt: new Date(),
     },
   });

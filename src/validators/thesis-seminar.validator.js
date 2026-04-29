@@ -100,9 +100,7 @@ export const revisionActionSchema = z
 // ============================================================
 
 export const assignExaminersSchema = z.object({
-  examinerIds: z
-    .array(z.string().uuid("ID dosen penguji tidak valid"))
-    .length(2, "Harus menetapkan tepat 2 penguji"),
+  examinerIds: z.array(z.string().uuid("ID dosen penguji tidak valid")),
 });
 
 export const respondAssignmentSchema = z.object({
@@ -111,6 +109,7 @@ export const respondAssignmentSchema = z.object({
       message: "Status harus 'available' atau 'unavailable'",
     }),
   }),
+  unavailableReasons: z.string().optional().nullable(),
 });
 
 // ============================================================

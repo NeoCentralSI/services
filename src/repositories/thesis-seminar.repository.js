@@ -76,7 +76,7 @@ const seminarDetailInclude = {
         },
       },
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { registeredAt: "asc" },
   },
 };
 
@@ -589,7 +589,11 @@ export async function getAllAnnouncedSeminars(studentId) {
 export async function getAllStudentSeminars(studentId) {
   return prisma.thesisSeminar.findMany({
     where: { thesis: { studentId } },
-    orderBy: { createdAt: "desc" },
+    orderBy: [
+      { date: "desc" },
+      { startTime: "desc" },
+      { registeredAt: "desc" },
+    ],
     select: {
       id: true,
       status: true,

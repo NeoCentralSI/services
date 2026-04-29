@@ -4,6 +4,7 @@ import * as audienceService from "../services/thesis-seminar-audience.service.js
 import * as examinerService from "../services/thesis-seminar-examiner.service.js";
 import * as revisionService from "../services/thesis-seminar-revision.service.js";
 import * as studentService from "../services/thesis-seminar-student.service.js";
+import { ROLES } from "../constants/roles.js";
 
 // ============================================================
 // CORE (Admin / Lecturer List)
@@ -26,6 +27,12 @@ export async function getSeminars(req, res, next) {
 
 export async function getSeminarDetail(req, res, next) {
   try {
+    // If user has a student profile, use the student-specific service
+    if (req.user.studentId) {
+      const result = await studentService.getSeminarDetail(req.user.id, req.params.id);
+      return res.json({ success: true, data: result });
+    }
+    
     const result = await coreService.getSeminarDetail(req.params.id);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }

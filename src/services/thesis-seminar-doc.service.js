@@ -9,8 +9,8 @@ import * as coreRepo from "../repositories/thesis-seminar.repository.js";
 // ============================================================
 
 const DOC_TYPE_CONFIG = {
-  "Laporan Tugas Akhir": { accept: [".pdf", ".docx"], label: "Laporan Tugas Akhir (PDF/DOCX)" },
-  "Slide Presentasi": { accept: [".ppt", ".pptx"], label: "Slide Presentasi (PPT)" },
+  "Laporan Tugas Akhir": { accept: [".pdf"], label: "Laporan Tugas Akhir (PDF)" },
+  "Slide Presentasi": { accept: [".pdf"], label: "Slide Presentasi (PDF)" },
   "Draft Jurnal TEKNOSI": { accept: [".pdf"], label: "Draft Jurnal TEKNOSI (PDF)" },
 };
 
@@ -85,15 +85,17 @@ export async function getDocuments(seminarId) {
 
 export async function uploadDocument(seminarId, studentId, file, docTypeName) {
   if (!file || !file.buffer) throwError("File tidak ditemukan.", 400);
+  const originalName = Buffer.from(file.originalname, "latin1").toString("utf8");
+  const normalizedFile = { ...file, originalname: originalName };
 
   const docType = await docRepo.getOrCreateDocumentType(docTypeName);
-  validateFileExtension(file, docTypeName);
+  validateFileExtension(normalizedFile, docTypeName);
 
   // If seminarId provided, use it; otherwise resolve from student
   let targetSeminarId = seminarId;
   let thesisId;
 
-  if (!targetSeminarId) {
+  if (!targetSeminarId || targetSeminarId === "active") {
     const thesis = await coreRepo.getThesisWithSeminar(studentId);
     if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
     thesisId = thesis.id;
@@ -123,7 +125,7 @@ export async function uploadDocument(seminarId, studentId, file, docTypeName) {
     } catch (e) { console.warn("Could not delete old seminar document:", e.message); }
   }
 
-  const ext = path.extname(file.originalname).toLowerCase();
+  const ext = path.extname(originalName).toLowerCase();
   const safeName = `${docTypeName.replace(/\s+/g, "-").toLowerCase()}${ext}`;
   const filePath = path.join(uploadsRoot, safeName);
   await writeFile(filePath, file.buffer);
@@ -133,7 +135,7 @@ export async function uploadDocument(seminarId, studentId, file, docTypeName) {
     userId: studentId,
     documentTypeId: docType.id,
     filePath: relPath,
-    fileName: file.originalname,
+    fileName: originalName,
   });
 
   const now = new Date();
@@ -149,7 +151,7 @@ export async function uploadDocument(seminarId, studentId, file, docTypeName) {
     });
   }
 
-  return { documentTypeId: docType.id, documentId: doc.id, fileName: file.originalname, filePath: relPath, status: "submitted", submittedAt: now };
+  return { documentTypeId: docType.id, documentId: doc.id, fileName: originalName, filePath: relPath, status: "submitted", submittedAt: now };
 }
 
 // ============================================================

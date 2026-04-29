@@ -34,18 +34,151 @@ function mapScoreToGrade(score) {
   return "E";
 }
 
+const DAY_LABELS = {
+  monday: "Senin",
+  tuesday: "Selasa",
+  wednesday: "Rabu",
+  thursday: "Kamis",
+  friday: "Jumat",
+};
+
+function formatTimeHHMM(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+function getWorkloadLevel(count) {
+  if (count <= 2) return "Ringan";
+  if (count <= 5) return "Sedang";
+  return "Berat";
+}
+
 // ============================================================
 // PUBLIC: Get Eligible Examiners
 // ============================================================
 
 export async function getEligibleExaminers(seminarId) {
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+
   const lecturers = await examinerRepo.findEligibleExaminers(seminarId);
-  return lecturers.map((l) => ({
-    id: l.id,
-    fullName: l.user?.fullName || "-",
-    identityNumber: l.user?.identityNumber || "-",
-    scienceGroup: l.scienceGroup?.name || "-",
-  }));
+  const lecturerIds = lecturers.map((l) => l.id);
+  if (lecturerIds.length === 0) return [];
+
+  // Find past failed examiners
+  let previousExaminerIds = [];
+  const currentThesis = await prisma.thesis.findUnique({
+    where: { id: seminar.thesisId },
+    select: { studentId: true },
+  });
+  if (currentThesis?.studentId) {
+    const pastFailedSeminars = await prisma.thesisSeminar.findMany({
+      where: {
+        thesis: { studentId: currentThesis.studentId },
+        status: "failed",
+      },
+      include: { examiners: { select: { lecturerId: true } } },
+    });
+    pastFailedSeminars.forEach((s) => {
+      s.examiners.forEach((e) => {
+        previousExaminerIds.push(e.lecturerId);
+      });
+    });
+  }
+
+  const now = new Date();
+  const oneMonthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const [availabilityRows, upcomingSeminars, upcomingDefences] = await Promise.all([
+    prisma.lecturerAvailability.findMany({
+      where: { lecturerId: { in: lecturerIds } },
+      orderBy: [{ lecturerId: "asc" }, { day: "asc" }, { startTime: "asc" }],
+    }),
+    prisma.thesisSeminarExaminer.findMany({
+      where: {
+        lecturerId: { in: lecturerIds },
+        availabilityStatus: { in: ["pending", "available"] },
+        seminar: {
+          date: { gte: now, lte: oneMonthLater },
+          status: { notIn: ["cancelled"] },
+        },
+      },
+      include: {
+        seminar: {
+          include: { thesis: { include: { student: { include: { user: true } } } } },
+        },
+      },
+    }),
+    prisma.thesisDefenceExaminer.findMany({
+      where: {
+        lecturerId: { in: lecturerIds },
+        availabilityStatus: { in: ["pending", "available"] },
+        defence: {
+          date: { gte: now, lte: oneMonthLater },
+          status: { notIn: ["cancelled"] },
+        },
+      },
+      include: {
+        defence: {
+          include: { thesis: { include: { student: { include: { user: true } } } } },
+        },
+      },
+    }),
+  ]);
+
+  const availabilitiesByLecturer = new Map();
+  availabilityRows.forEach((slot) => {
+    if (!availabilitiesByLecturer.has(slot.lecturerId)) availabilitiesByLecturer.set(slot.lecturerId, []);
+    availabilitiesByLecturer.get(slot.lecturerId).push(slot);
+  });
+
+  return lecturers.map((l) => {
+    const filteredSeminars = upcomingSeminars.filter((s) => s.lecturerId === l.id);
+    const filteredDefences = upcomingDefences.filter((d) => d.lecturerId === l.id);
+    const upcomingCount = filteredSeminars.length + filteredDefences.length;
+
+    const events = [
+      ...filteredSeminars.map((s) => ({
+        type: "seminar",
+        title: "Seminar Hasil",
+        studentName: s.seminar?.thesis?.student?.user?.fullName || "Mahasiswa",
+        date: s.seminar.date,
+        startTime: formatTimeHHMM(s.seminar.startTime),
+        endTime: formatTimeHHMM(s.seminar.endTime),
+      })),
+      ...filteredDefences.map((d) => ({
+        type: "defence",
+        title: "Sidang Tugas Akhir",
+        studentName: d.defence?.thesis?.student?.user?.fullName || "Mahasiswa",
+        date: d.defence.date,
+        startTime: formatTimeHHMM(d.defence.startTime),
+        endTime: formatTimeHHMM(d.defence.endTime),
+      })),
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const availabilityRanges = (availabilitiesByLecturer.get(l.id) || []).map((slot) => ({
+      day: slot.day,
+      dayLabel: DAY_LABELS[slot.day] || slot.day,
+      startTime: formatTimeHHMM(slot.startTime),
+      endTime: formatTimeHHMM(slot.endTime),
+      validFrom: slot.validFrom,
+      validUntil: slot.validUntil,
+      label: `${DAY_LABELS[slot.day] || slot.day}, ${formatTimeHHMM(slot.startTime)}-${formatTimeHHMM(slot.endTime)}`,
+    }));
+
+    return {
+      id: l.id,
+      fullName: l.user?.fullName || "-",
+      identityNumber: l.user?.identityNumber || "-",
+      scienceGroup: l.scienceGroup?.name || "-",
+      upcomingCount,
+      availabilityRanges,
+      events,
+      isPreviousExaminer: previousExaminerIds.includes(l.id),
+      isSelectable: true,
+    };
+  });
 }
 
 // ============================================================
@@ -55,47 +188,87 @@ export async function getEligibleExaminers(seminarId) {
 export async function assignExaminers(seminarId, examinerIds, assignedByUserId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  if (!["verified", "examiner_assigned"].includes(seminar.status)) {
-    throwError("Seminar harus berstatus 'verified' untuk penetapan penguji.", 400);
+  if (!["verified", "examiner_assigned", "scheduled"].includes(seminar.status)) {
+    throwError("Seminar harus berstatus 'verified', 'examiner_assigned', atau 'scheduled' untuk penetapan penguji.", 400);
   }
 
-  if (examinerIds.length !== 2) throwError("Harus menetapkan tepat 2 penguji.", 400);
-  if (examinerIds[0] === examinerIds[1]) throwError("Kedua penguji harus berbeda.", 400);
+  if (examinerIds.length < 1) throwError("Minimal 1 penguji wajib ditetapkan.", 400);
+  if (new Set(examinerIds).size !== examinerIds.length) throwError("Penguji tidak boleh duplikat.", 400);
 
-  const currentActive = await examinerRepo.findActiveExaminersBySeminar(seminarId);
-  const accepted = currentActive.filter((e) => e.availabilityStatus === "available");
-  const acceptedIds = accepted.map((e) => e.lecturerId);
+  const currentAssignments = await prisma.thesisSeminarExaminer.findMany({
+    where: {
+      thesisSeminarId: seminarId,
+      availabilityStatus: { in: ["available", "pending", "unavailable"] },
+    },
+    orderBy: [{ assignedAt: "desc" }, { createdAt: "desc" }],
+  });
+  const assignmentByLecturerId = new Map();
+  currentAssignments.forEach((assignment) => {
+    if (!assignmentByLecturerId.has(assignment.lecturerId)) {
+      assignmentByLecturerId.set(assignment.lecturerId, assignment);
+    }
+  });
+  const currentComparableAssignments = [...assignmentByLecturerId.values()];
+  const requestedIdSet = new Set(examinerIds);
+  const requestedOrderByLecturerId = new Map(examinerIds.map((lecturerId, idx) => [lecturerId, idx + 1]));
 
-  // Cannot replace accepted examiners
-  for (const a of accepted) {
-    if (!examinerIds.includes(a.lecturerId)) throwError("Tidak dapat mengganti penguji yang sudah menyetujui.", 400);
-  }
+  const removedExaminerRecordIds = currentComparableAssignments
+    .filter((examiner) => !requestedIdSet.has(examiner.lecturerId))
+    .map((examiner) => examiner.id);
+  const addedExaminerIds = examinerIds.filter((lecturerId) => !assignmentByLecturerId.has(lecturerId));
+  const keptExaminerUpdates = examinerIds
+    .map((lecturerId, idx) => ({ lecturerId, order: idx + 1, existing: assignmentByLecturerId.get(lecturerId) }))
+    .filter((item) => item.existing);
 
-  const slotsNeeded = 2 - accepted.length;
-  const newExaminerIds = examinerIds.filter((id) => !acceptedIds.includes(id));
-  if (newExaminerIds.length !== slotsNeeded) {
-    throwError(`Harus menetapkan tepat ${slotsNeeded} penguji baru (${accepted.length} sudah diterima).`, 400);
-  }
+  await prisma.$transaction(async (tx) => {
+    if (removedExaminerRecordIds.length > 0) {
+      await tx.thesisSeminarExaminer.deleteMany({
+        where: {
+          id: { in: removedExaminerRecordIds },
+          thesisSeminarId: seminarId,
+          availabilityStatus: { in: ["available", "pending", "unavailable"] },
+        },
+      });
+    }
 
-  // Delete pending examiners
-  if (currentActive.length > 0) await examinerRepo.deletePendingExaminers(seminarId);
+    if (keptExaminerUpdates.length > 0) {
+      await Promise.all(
+        keptExaminerUpdates.map((item) =>
+          tx.thesisSeminarExaminer.update({
+            where: { id: item.existing.id },
+            data: {
+              order: item.order,
+              ...(item.existing.availabilityStatus === "unavailable"
+                ? { availabilityStatus: "pending", respondedAt: null }
+                : {}),
+            },
+          })
+        )
+      );
+    }
 
-  // Build new examiner records
-  const usedOrders = accepted.map((e) => e.order);
-  const availableOrders = [1, 2].filter((o) => !usedOrders.includes(o));
+    if (addedExaminerIds.length > 0) {
+      const now = new Date();
+      await tx.thesisSeminarExaminer.createMany({
+        data: addedExaminerIds.map((lecturerId) => ({
+          thesisSeminarId: seminarId,
+          lecturerId,
+          order: requestedOrderByLecturerId.get(lecturerId),
+          assignedBy: assignedByUserId,
+          assignedAt: now,
+          availabilityStatus: "pending",
+        })),
+      });
+    }
+  });
 
-  const examinersData = newExaminerIds.map((lecturerId, idx) => ({
-    lecturerId,
-    order: availableOrders[idx],
-    availabilityStatus: lecturerId === assignedByUserId ? "available" : "pending",
-  }));
-
-  if (examinersData.length > 0) await examinerRepo.createExaminers(seminarId, examinersData, assignedByUserId);
-
-  // Auto-transition if both available
+  // Auto-transition if all assigned examiners are available
   const activeExaminers = await examinerRepo.findActiveExaminersBySeminar(seminarId);
-  const allAvailable = activeExaminers.length >= 2 && activeExaminers.every((e) => e.availabilityStatus === "available");
-  if (allAvailable) await coreRepo.updateSeminar(seminarId, { status: "examiner_assigned" });
+  const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
+  if (seminar.status !== "scheduled") {
+    const targetStatus = allAvailable ? "examiner_assigned" : "verified";
+    if (seminar.status !== targetStatus) await coreRepo.updateSeminar(seminarId, { status: targetStatus });
+  }
 
   return activeExaminers;
 }
@@ -104,21 +277,24 @@ export async function assignExaminers(seminarId, examinerIds, assignedByUserId) 
 // PUBLIC: Respond to Assignment (Lecturer)
 // ============================================================
 
-export async function respondExaminerAssignment(seminarId, examinerId, { status }, lecturerId) {
+export async function respondExaminerAssignment(seminarId, examinerId, payload, lecturerId) {
+  const { status, unavailableReasons } = payload || {};
   if (!["available", "unavailable"].includes(status)) throwError("Status harus 'available' atau 'unavailable'.", 400);
 
   const examiner = await examinerRepo.findExaminerById(examinerId);
   if (!examiner) throwError("Data penguji tidak ditemukan.", 404);
+  const seminar = await coreRepo.findSeminarBasicById(examiner.thesisSeminarId);
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
   if (examiner.lecturerId !== lecturerId) throwError("Anda bukan penguji yang ditugaskan.", 403);
   if (examiner.availabilityStatus !== "pending") throwError("Anda sudah memberikan respons sebelumnya.", 400);
 
-  await examinerRepo.updateExaminerAvailability(examinerId, status);
+  await examinerRepo.updateExaminerAvailability(examinerId, status, unavailableReasons);
 
-  // Auto-transition if both available
+  // Auto-transition if all assigned examiners are available
   const activeExaminers = await examinerRepo.findActiveExaminersBySeminar(examiner.thesisSeminarId);
-  const bothAvailable = activeExaminers.length >= 2 && activeExaminers.every((e) => e.availabilityStatus === "available");
+  const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
   let seminarTransitioned = false;
-  if (bothAvailable) {
+  if (allAvailable && seminar.status !== "scheduled") {
     await coreRepo.updateSeminar(examiner.thesisSeminarId, { status: "examiner_assigned" });
     seminarTransitioned = true;
   }

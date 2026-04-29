@@ -36,26 +36,67 @@ export async function getOverview(userId) {
   const checklist = {
     bimbingan: { met: completedGuidances >= MIN_BIMBINGAN, current: completedGuidances, required: MIN_BIMBINGAN, label: `${MIN_BIMBINGAN} Bimbingan` },
     kehadiran: { met: seminarAttendance >= MIN_KEHADIRAN, current: seminarAttendance, required: MIN_KEHADIRAN, label: `${MIN_KEHADIRAN} Kehadiran Seminar` },
+    metopen: { met: Boolean(student.researchMethodCompleted), label: "Lulus Mata Kuliah Metode Penelitian" },
     pembimbing: { met: allSupervisorsReady, label: "Persetujuan Dosen Pembimbing", supervisors: supervisors.map((s) => ({ name: s.lecturer?.user?.fullName || "-", role: s.role?.name || "-", ready: s.seminarReady })) },
   };
 
-  const currentSeminar = thesis.thesisSeminars?.[0] || null;
+  let currentSeminar = thesis.thesisSeminars?.[0] || null;
+
+  const allChecklistMet = checklist.bimbingan.met && checklist.kehadiran.met && checklist.metopen.met && checklist.pembimbing.met;
+
+  // If latest seminar is failed/cancelled, treat as inactive for students
+  if (currentSeminar && ["failed", "cancelled"].includes(currentSeminar.status)) {
+    if (allChecklistMet) {
+      // Automatically initialize the repeat attempt
+      const created = await coreRepo.createThesisSeminar(thesis.id);
+      const newSeminar = await prisma.thesisSeminar.findUnique({
+        where: { id: created.id },
+        include: {
+          room: { select: { id: true, name: true } },
+          documents: true,
+          examiners: true,
+        },
+      });
+      currentSeminar = newSeminar;
+    } else {
+      currentSeminar = null;
+    }
+  }
+
   let enrichedExaminers = [];
   if (currentSeminar?.examiners?.length) {
     enrichedExaminers = await coreRepo.enrichExaminers(currentSeminar.examiners);
   }
 
+  // Map effective status for student display
+  let displayStatus = currentSeminar?.status || null;
+  if (currentSeminar) {
+    displayStatus = computeEffectiveStatus(currentSeminar.status, currentSeminar.date, currentSeminar.startTime, currentSeminar.endTime);
+  }
+
   return {
-    thesisId: thesis.id, thesisTitle: thesis.title, checklist,
-    allChecklistMet: checklist.bimbingan.met && checklist.kehadiran.met && checklist.pembimbing.met,
-    seminar: currentSeminar ? {
-      id: currentSeminar.id, status: currentSeminar.status, registeredAt: currentSeminar.registeredAt,
-      date: currentSeminar.date, startTime: currentSeminar.startTime, endTime: currentSeminar.endTime,
-      meetingLink: currentSeminar.meetingLink, finalScore: currentSeminar.finalScore,
-      grade: currentSeminar.finalScore != null ? mapScoreToGrade(currentSeminar.finalScore) : null,
-      resultFinalizedAt: currentSeminar.resultFinalizedAt, cancelledReason: currentSeminar.cancelledReason,
-      room: currentSeminar.room, documents: currentSeminar.documents, examiners: enrichedExaminers,
-    } : null,
+    thesisId: thesis.id,
+    thesisTitle: thesis.title,
+    checklist,
+    allChecklistMet,
+    seminar: currentSeminar
+      ? {
+          id: currentSeminar.id,
+          status: displayStatus,
+          registeredAt: currentSeminar.registeredAt,
+          date: currentSeminar.date,
+          startTime: currentSeminar.startTime,
+          endTime: currentSeminar.endTime,
+          meetingLink: currentSeminar.meetingLink,
+          finalScore: currentSeminar.finalScore,
+          maxWeight: 100, // Fixed as per requirements
+          resultFinalizedAt: currentSeminar.resultFinalizedAt,
+          cancelledReason: currentSeminar.cancelledReason,
+          room: currentSeminar.room,
+          documents: currentSeminar.documents || [],
+          examiners: enrichedExaminers,
+        }
+      : null,
   };
 }
 
@@ -113,7 +154,11 @@ export async function getAttendanceHistory(userId) {
 
 export async function getSeminarHistory(userId) {
   const student = await resolveStudent(userId);
-  const seminars = await coreRepo.getAllStudentSeminars(student.id);
+  let seminars = await coreRepo.getAllStudentSeminars(student.id);
+  
+  // Filter only failed or cancelled as per requirements ("Attempt")
+  seminars = seminars.filter((s) => ["failed", "cancelled"].includes(s.status));
+
   const allLecIds = [...new Set(seminars.flatMap((s) => s.examiners.map((e) => e.lecturerId).filter(Boolean)))];
   const lecMap = new Map();
   if (allLecIds.length > 0) {
@@ -123,7 +168,7 @@ export async function getSeminarHistory(userId) {
   return seminars.map((s) => ({
     id: s.id, status: s.status, registeredAt: s.registeredAt, date: s.date, startTime: s.startTime, endTime: s.endTime,
     meetingLink: s.meetingLink, finalScore: s.finalScore,
-    grade: s.finalScore != null ? mapScoreToGrade(s.finalScore) : null,
+    maxWeight: 100,
     resultFinalizedAt: s.resultFinalizedAt, cancelledReason: s.cancelledReason, room: s.room,
     examiners: s.examiners.map((e) => ({ order: e.order, lecturerName: lecMap.get(e.lecturerId) || "-", assessmentScore: e.assessmentScore })),
   }));
@@ -135,7 +180,7 @@ export async function getSeminarDetail(userId, seminarId) {
   const student = await resolveStudent(userId);
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  if (seminar.thesis?.student?.id !== student.id) throwError("Anda tidak memiliki akses ke seminar ini.", 403);
+  const isPresenter = seminar.thesis?.student?.id === student.id;
 
   const lecMap = new Map();
   const lecIds = [...new Set((seminar.examiners || []).map((e) => e.lecturerId).filter(Boolean))];
@@ -166,13 +211,22 @@ export async function getSeminarDetail(userId, seminarId) {
   return {
     id: seminar.id, status: seminar.status, registeredAt: seminar.registeredAt,
     date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime,
-    meetingLink: seminar.meetingLink, finalScore: seminar.finalScore,
-    grade: seminar.finalScore != null ? mapScoreToGrade(seminar.finalScore) : null,
+    meetingLink: seminar.meetingLink, 
+    finalScore: isPresenter ? seminar.finalScore : null,
+    grade: isPresenter && seminar.finalScore != null ? mapScoreToGrade(seminar.finalScore) : null,
     resultFinalizedAt: seminar.resultFinalizedAt, cancelledReason: seminar.cancelledReason, room: seminar.room,
     thesis: { id: seminar.thesis.id, title: seminar.thesis.title, supervisors: (seminar.thesis.thesisSupervisors || []).map((s) => ({ role: s.role?.name || "-", lecturerName: s.lecturer?.user?.fullName || "-" })) },
-    examiners: (seminar.examiners || []).map((e) => ({ id: e.id, order: e.order, lecturerName: lecMap.get(e.lecturerId) || "-", assessmentScore: e.assessmentScore, assessmentSubmittedAt: e.assessmentSubmittedAt })),
-    documents: docs.map((d) => { const dt = docTypes.find((t) => t.id === d.documentTypeId); return { documentTypeId: d.documentTypeId, documentTypeName: dt?.name || "-", fileName: d.document?.fileName || null, filePath: d.document?.filePath || null, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes }; }),
-    examinerNotes, revisions, revisionSummary,
+    examiners: (seminar.examiners || []).map((e) => ({ 
+      id: e.id, 
+      order: e.order, 
+      lecturerName: lecMap.get(e.lecturerId) || "-", 
+      assessmentScore: isPresenter ? e.assessmentScore : null, 
+      assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null 
+    })),
+    documents: isPresenter ? docs.map((d) => { const dt = docTypes.find((t) => t.id === d.documentTypeId); return { documentTypeId: d.documentTypeId, documentTypeName: dt?.name || "-", fileName: d.document?.fileName || null, filePath: d.document?.filePath || null, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes }; }) : [],
+    examinerNotes: isPresenter ? examinerNotes : [], 
+    revisions: isPresenter ? revisions : [], 
+    revisionSummary: isPresenter ? revisionSummary : { total: 0, finished: 0, pendingApproval: 0 },
     audiences: audiences.map((a) => ({ studentName: a.student?.user?.fullName || "-", nim: a.student?.user?.identityNumber || "-", registeredAt: a.registeredAt, isPresent: Boolean(a.approvedAt), approvedAt: a.approvedAt, approvedByName: a.supervisor?.lecturer?.user?.fullName || null })),
   };
 }

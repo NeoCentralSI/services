@@ -1,240 +1,141 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
 import { uploadSeminarDocFile } from "../middlewares/file.middleware.js";
+import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
+import { populateProfile } from "../middlewares/thesis-seminar.middleware.js";
+import * as ctrl from "../controllers/thesis-defence.controller.js";
 
-// Controllers
-import * as adminController from "../controllers/thesis-defence/admin.controller.js";
-import * as lecturerController from "../controllers/thesis-defence/lecturer.controller.js";
-import * as studentController from "../controllers/thesis-defence/student.controller.js";
-
-// Validators
-import { scheduleSchema } from "../validators/thesis-defence/admin-defence.validator.js";
 import {
+  scheduleSchema,
   assignExaminersSchema,
   respondAssignmentSchema,
-  submitDefenceAssessmentSchema,
+  submitAssessmentSchema,
   finalizeDefenceSchema,
-} from "../validators/thesis-defence/lecturer-defence.validator.js";
-import {
-  createDefenceRevisionSchema,
-  submitDefenceRevisionActionSchema,
-  saveDefenceRevisionActionSchema,
-} from "../validators/thesis-defence/student-defence.validator.js";
+  createRevisionSchema,
+  revisionActionSchema,
+} from "../validators/thesis-defence.validator.js";
 
 const router = express.Router();
+const ALL_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 
 router.use(authGuard);
+router.use(populateProfile);
 
 // ============================================================
-// ADMIN ROUTES
+// STUDENT ONLY: Self overview, history, document types
 // ============================================================
-router.get("/admin", requireAnyRole([ROLES.ADMIN]), adminController.listDefences);
-router.get("/admin/:defenceId", requireAnyRole([ROLES.ADMIN]), adminController.getDefenceDetail);
+router.get("/me/overview", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentOverview);
+router.get("/me/history", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentHistory);
+router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocumentTypes);
+
+// ============================================================
+// SHARED: list & detail
+// ============================================================
+router.get("/", requireAnyRole(ALL_ROLES), ctrl.getDefences);
+router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getDefenceDetail);
+router.get("/:id/documents", requireAnyRole(ALL_ROLES), ctrl.getDocuments);
+router.get("/:id/documents/:documentTypeId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
+
+// ============================================================
+// ADMIN: Scheduling & document validation
+// ============================================================
+router.get("/:id/scheduling-data", requireAnyRole([ROLES.ADMIN]), ctrl.getSchedulingData);
 router.post(
-  "/admin/:defenceId/documents/:documentTypeId/validate",
-  requireAnyRole([ROLES.ADMIN]),
-  adminController.validateDocument
-);
-router.get(
-  "/admin/:defenceId/scheduling-data",
-  requireAnyRole([ROLES.ADMIN]),
-  adminController.getSchedulingDataController
-);
-router.post(
-  "/admin/:defenceId/schedule",
+  "/:id/schedule",
   requireAnyRole([ROLES.ADMIN]),
   validate(scheduleSchema),
-  adminController.setSchedule
+  ctrl.setSchedule
+);
+router.post(
+  "/:id/documents/:documentTypeId/validate",
+  requireAnyRole([ROLES.ADMIN]),
+  ctrl.validateDocument
 );
 
 // ============================================================
-// LECTURER ROUTES
+// STUDENT: Document upload & revisions
 // ============================================================
-// Note: Sub-prefix usage like router.use("/lecturer", ...) is tricky in a single file if we want /thesis-defences/lecturer/...
-// But here the router is mounted at /thesis-defences, so router.get("/lecturer/...") will result in /thesis-defences/lecturer/...
-// We use requireAnyRole for the whole group.
-
-// Examiner Requests
-router.get(
-  "/lecturer/examiner-requests",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.listExaminerRequests
-);
-
-// Supervised Student Defences
-router.get(
-  "/lecturer/supervised-students",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.listSupervisedStudentDefences
-);
-
-// Defence Detail & Assessment
-router.get(
-  "/lecturer/defences/:defenceId",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.getDefenceDetail
-);
-router.get(
-  "/lecturer/defences/:defenceId/assessment",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.getDefenceAssessment
-);
 router.post(
-  "/lecturer/defences/:defenceId/assessment",
-  requireAnyRole(LECTURER_ROLES),
-  validate(submitDefenceAssessmentSchema),
-  lecturerController.submitDefenceAssessmentCtrl
-);
-
-// Finalization
-router.get(
-  "/lecturer/defences/:defenceId/finalization",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.getDefenceFinalization
-);
-router.post(
-  "/lecturer/defences/:defenceId/finalize",
-  requireAnyRole(LECTURER_ROLES),
-  validate(finalizeDefenceSchema),
-  lecturerController.finalizeDefenceCtrl
-);
-
-// Revisions
-router.get(
-  "/lecturer/defences/:defenceId/revisions",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.getDefenceRevisionsCtrl
-);
-router.put(
-  "/lecturer/defences/:defenceId/revisions/:revisionId/approve",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.approveDefenceRevisionCtrl
-);
-router.put(
-  "/lecturer/defences/:defenceId/revisions/:revisionId/unapprove",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.unapproveDefenceRevisionCtrl
-);
-router.post(
-  "/lecturer/defences/:defenceId/revisions/finalize",
-  requireAnyRole(LECTURER_ROLES),
-  lecturerController.finalizeDefenceRevisionsCtrl
-);
-
-// Respond to Assignment
-router.post(
-  "/lecturer/defences/:examinerId/respond",
-  requireAnyRole(LECTURER_ROLES),
-  validate(respondAssignmentSchema),
-  lecturerController.respondExaminerAssignment
-);
-
-// Ketua Departemen — Examiner Assignment
-router.get(
-  "/lecturer/assignment",
-  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
-  lecturerController.listAssignmentDefences
-);
-router.get(
-  "/lecturer/assignment/:defenceId/eligible-examiners",
-  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
-  lecturerController.listEligibleExaminers
-);
-router.post(
-  "/lecturer/assignment/:defenceId",
-  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
-  validate(assignExaminersSchema),
-  lecturerController.assignDefenceExaminers
-);
-
-// ============================================================
-// STUDENT ROUTES
-// ============================================================
-router.get(
-  "/student/overview",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getDefenceOverviewCtrl
-);
-router.get(
-  "/student/documents/types",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getDefenceDocumentTypesCtrl
-);
-router.get(
-  "/student/documents",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getDefenceDocumentsCtrl
-);
-router.post(
-  "/student/documents/upload",
+  "/:id/documents",
   requireAnyRole([ROLES.MAHASISWA]),
   uploadSeminarDocFile,
-  studentController.uploadDefenceDocumentCtrl
-);
-
-// Revisions
-router.get(
-  "/student/revisions",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getCurrentStudentDefenceRevisionCtrl
+  ctrl.uploadDocument
 );
 router.post(
-  "/student/revisions",
+  "/:id/revisions",
   requireAnyRole([ROLES.MAHASISWA]),
-  validate(createDefenceRevisionSchema),
-  studentController.createCurrentStudentDefenceRevisionCtrl
-);
-router.get(
-  "/student/defences/:defenceId/revisions",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getStudentDefenceRevisionCtrl
-);
-router.post(
-  "/student/defences/:defenceId/revisions",
-  requireAnyRole([ROLES.MAHASISWA]),
-  validate(createDefenceRevisionSchema),
-  studentController.createStudentDefenceRevisionCtrl
-);
-router.patch(
-  "/student/revisions/:revisionId/action",
-  requireAnyRole([ROLES.MAHASISWA]),
-  validate(saveDefenceRevisionActionSchema),
-  studentController.saveStudentDefenceRevisionActionCtrl
-);
-router.post(
-  "/student/revisions/:revisionId/submit",
-  requireAnyRole([ROLES.MAHASISWA]),
-  validate(submitDefenceRevisionActionSchema),
-  studentController.submitStudentDefenceRevisionActionCtrl
-);
-router.post(
-  "/student/revisions/:revisionId/cancel-submit",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.cancelStudentDefenceRevisionActionCtrl
+  validate(createRevisionSchema),
+  ctrl.createRevision
 );
 router.delete(
-  "/student/revisions/:revisionId",
+  "/:id/revisions/:revisionId",
   requireAnyRole([ROLES.MAHASISWA]),
-  studentController.deleteStudentDefenceRevisionCtrl
+  ctrl.deleteRevision
 );
 
-// History
+// ============================================================
+// SHARED (STUDENT + LECTURER): revision multi-action + listing
+// ============================================================
 router.get(
-  "/student/history",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getStudentDefenceHistoryCtrl
+  "/:id/revisions",
+  requireAnyRole([ROLES.MAHASISWA, ...LECTURER_ROLES]),
+  ctrl.getRevisions
 );
-router.get(
-  "/student/defences/:defenceId",
-  requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getStudentDefenceDetailCtrl
+router.patch(
+  "/:id/revisions/:revisionId",
+  requireAnyRole([ROLES.MAHASISWA, ...LECTURER_ROLES]),
+  validate(revisionActionSchema),
+  ctrl.updateRevision
 );
+
+// ============================================================
+// LECTURER (Examiner / Supervisor): respond, assess, finalize
+// ============================================================
+router.post(
+  "/:id/examiners/:examinerId/respond",
+  requireAnyRole(LECTURER_ROLES),
+  validate(respondAssignmentSchema),
+  ctrl.respondAssignment
+);
+router.get("/:id/assessment", requireAnyRole(LECTURER_ROLES), ctrl.getAssessment);
+router.post(
+  "/:id/assessment",
+  requireAnyRole(LECTURER_ROLES),
+  validate(submitAssessmentSchema),
+  ctrl.submitAssessment
+);
+router.get("/:id/finalization", requireAnyRole(LECTURER_ROLES), ctrl.getFinalizationData);
+router.post(
+  "/:id/finalize",
+  requireAnyRole(LECTURER_ROLES),
+  validate(finalizeDefenceSchema),
+  ctrl.finalizeDefence
+);
+router.post("/:id/revisions/finalize", requireAnyRole(LECTURER_ROLES), ctrl.finalizeRevisions);
+
+// ============================================================
+// KETUA DEPARTEMEN: examiner assignment
+// ============================================================
 router.get(
-  "/student/defences/:defenceId/assessment",
+  "/:id/eligible-examiners",
+  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
+  ctrl.getEligibleExaminers
+);
+router.post(
+  "/:id/examiners",
+  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
+  validate(assignExaminersSchema),
+  ctrl.assignExaminers
+);
+
+// ============================================================
+// STUDENT: assessment view (final transcript)
+// ============================================================
+router.get(
+  "/:id/assessment-view",
   requireAnyRole([ROLES.MAHASISWA]),
-  studentController.getStudentDefenceAssessmentCtrl
+  ctrl.getStudentAssessmentView
 );
 
 export default router;
