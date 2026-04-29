@@ -198,12 +198,12 @@ export async function getSeminarDetail(seminarId) {
     resultFinalizedAt: seminar.resultFinalizedAt, cancelledReason: seminar.cancelledReason,
     room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
     thesis: { id: seminar.thesis?.id, title: seminar.thesis?.title },
-    student: { name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
-    supervisors: (seminar.thesis?.thesisSupervisors || []).map((ts) => ({ name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
+    student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
+    supervisors: (seminar.thesis?.thesisSupervisors || []).map((ts) => ({ lecturerId: ts.lecturerId, name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
     documents: docs.map((d) => ({ documentTypeId: d.documentTypeId, documentId: d.documentId, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes, verifiedBy: d.verifier?.fullName || null, fileName: d.document?.fileName || null, filePath: d.document?.filePath || null })),
     documentTypes: docTypes.map((dt) => ({ id: dt.id, name: dt.name })),
-    examiners: active.map((e) => ({ id: e.id, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus })),
-    rejectedExaminers: rejected.map((e) => ({ id: e.id, lecturerName: e.lecturerName || "-", order: e.order, respondedAt: e.respondedAt, assignedAt: e.assignedAt })),
+    examiners: active.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus })),
+    rejectedExaminers: rejected.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, respondedAt: e.respondedAt, assignedAt: e.assignedAt })),
     audiences: audiences.map((a) => ({ studentName: a.student?.user?.fullName || "-", nim: a.student?.user?.identityNumber || "-", registeredAt: a.registeredAt, approvedAt: a.approvedAt, approvedByName: a.supervisor?.lecturer?.user?.fullName || null })),
   };
 }
