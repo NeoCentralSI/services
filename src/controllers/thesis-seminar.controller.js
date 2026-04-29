@@ -205,7 +205,7 @@ export async function respondAssignment(req, res, next) {
 
 export async function getAssessment(req, res, next) {
   try {
-    const result = await examinerService.getExaminerAssessment(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getExaminerAssessment(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -219,7 +219,7 @@ export async function submitAssessment(req, res, next) {
 
 export async function getFinalizationData(req, res, next) {
   try {
-    const result = await examinerService.getFinalizationData(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getFinalizationData(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -364,6 +364,20 @@ export async function getAttendanceHistory(req, res, next) {
 export async function getStudentHistory(req, res, next) {
   try {
     const result = await studentService.getSeminarHistory(req.user.id);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
+export async function registerAudience(req, res, next) {
+  try {
+    const result = await audienceService.addAudience(req.params.id, req.body, req.user);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
+export async function unregisterAudience(req, res, next) {
+  try {
+    const result = await audienceService.removeAudience(req.params.id, req.user.studentId, req.user);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }

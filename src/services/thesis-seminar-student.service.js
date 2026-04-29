@@ -142,6 +142,9 @@ export async function getAttendanceHistory(userId) {
     summary: { attended, total: records.length, required: MIN_KEHADIRAN, met: attended >= MIN_KEHADIRAN },
       records: records.map((r) => ({
       seminarId: r.thesisSeminarId, 
+      seminarStatus: r.seminar?.status || null,
+      seminarEndTime: r.seminar?.endTime || null,
+      seminarResultFinalizedAt: r.seminar?.resultFinalizedAt || null,
       presenterName: r.seminar?.thesis?.student?.user?.fullName || "-",
       presenterNim: r.seminar?.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: r.seminar?.thesis?.title || "-", date: r.seminar?.date,
@@ -229,7 +232,21 @@ export async function getSeminarDetail(userId, seminarId) {
       assessmentScore: isPresenter ? e.assessmentScore : null, 
       assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null 
     })),
-    documents: isPresenter ? docs.map((d) => { const dt = docTypes.find((t) => t.id === d.documentTypeId); return { documentTypeId: d.documentTypeId, documentTypeName: dt?.name || "-", fileName: d.document?.fileName || null, filePath: d.document?.filePath || null, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes }; }) : [],
+    documents: (isPresenter || isAudience)
+      ? docs.map((d) => {
+          const dt = docTypes.find((t) => t.id === d.documentTypeId);
+          return {
+            documentTypeId: d.documentTypeId,
+            documentTypeName: dt?.name || "-",
+            fileName: d.document?.fileName || null,
+            filePath: d.document?.filePath || null,
+            status: d.status,
+            submittedAt: d.submittedAt,
+            verifiedAt: d.verifiedAt,
+            notes: d.notes,
+          };
+        })
+      : [],
     examinerNotes: isPresenter ? examinerNotes : [], 
     revisions: isPresenter ? revisions : [], 
     revisionSummary: isPresenter ? revisionSummary : { total: 0, finished: 0, pendingApproval: 0 },

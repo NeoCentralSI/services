@@ -306,7 +306,7 @@ export async function respondExaminerAssignment(seminarId, examinerId, payload, 
 // PUBLIC: Get Assessment Form (Examiner)
 // ============================================================
 
-export async function getExaminerAssessment(seminarId, lecturerId) {
+export async function getExaminerAssessment(seminarId, user) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
@@ -315,12 +315,36 @@ export async function getExaminerAssessment(seminarId, lecturerId) {
     throwError("Form penilaian hanya tersedia saat seminar sedang berlangsung atau sudah selesai.", 400);
   }
 
-  const examiner = await examinerRepo.findLatestExaminerBySeminarAndLecturer(seminarId, lecturerId);
-  if (!examiner || examiner.availabilityStatus !== "available") throwError("Anda bukan penguji aktif pada seminar ini.", 403);
+  // Evaluate Roles
+  const userRoles = await prisma.userHasRole.findMany({
+    where: { userId: user.sub || user.id, status: "active" },
+    select: { role: { select: { name: true } } },
+  });
+  const isAdmin = userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
+  const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
+  
+  const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
+  const isSupervisor = supervisorRelation ? !!resolveSupervisorMembership(supervisorRelation) : false;
+  
+  const isStudent = user.studentId && seminar.thesis?.student?.id === user.studentId;
+
+  const isFinalized = ["passed", "passed_with_revision", "failed"].includes(effectiveStatus) || seminar.resultFinalizedAt;
+
+  if (isFinalized) {
+    if (!isAdmin && !isExaminer && !isSupervisor && !isStudent) {
+      throwError("Anda tidak memiliki akses untuk melihat form penilaian seminar ini.", 403);
+    }
+  } else {
+    if (!isExaminer) {
+      throwError("Hanya dosen penguji yang dapat mengakses form penilaian.", 403);
+    }
+  }
+
+  const examiner = user.lecturerId ? await examinerRepo.findLatestExaminerBySeminarAndLecturer(seminarId, user.lecturerId) : null;
 
   const cpmks = await examinerRepo.findSeminarAssessmentCpmks();
   const existingScoreMap = new Map(
-    (examiner.thesisSeminarExaminerAssessmentDetails || []).map((item) => [item.assessmentCriteriaId, item.score])
+    examiner ? (examiner.thesisSeminarExaminerAssessmentDetails || []).map((item) => [item.assessmentCriteriaId, item.score]) : []
   );
 
   const criteriaGroups = cpmks.map((cpmk) => ({
@@ -341,11 +365,11 @@ export async function getExaminerAssessment(seminarId, lecturerId) {
       date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime,
       room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
     },
-    examiner: {
+    examiner: examiner ? {
       id: examiner.id, order: examiner.order,
       assessmentScore: examiner.assessmentScore, revisionNotes: examiner.revisionNotes,
       assessmentSubmittedAt: examiner.assessmentSubmittedAt,
-    },
+    } : null,
     criteriaGroups,
   };
 }
@@ -354,7 +378,7 @@ export async function getExaminerAssessment(seminarId, lecturerId) {
 // PUBLIC: Submit Assessment (Examiner)
 // ============================================================
 
-export async function submitExaminerAssessment(seminarId, { scores, revisionNotes }, lecturerId) {
+export async function submitExaminerAssessment(seminarId, { scores, revisionNotes, isDraft }, lecturerId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
@@ -365,12 +389,14 @@ export async function submitExaminerAssessment(seminarId, { scores, revisionNote
   if (!examiner || examiner.availabilityStatus !== "available") throwError("Anda bukan penguji aktif pada seminar ini.", 403);
   if (examiner.assessmentSubmittedAt) throwError("Penilaian sudah disubmit sebelumnya dan tidak dapat diubah.", 400);
 
-  // Validate all criteria are covered
+  // Validate criteria
   const cpmks = await examinerRepo.findSeminarAssessmentCpmks();
   const activeCriteria = cpmks.flatMap((c) => c.assessmentCriterias || []);
   const criteriaMap = new Map(activeCriteria.map((item) => [item.id, item]));
 
-  if ((scores || []).length !== activeCriteria.length) throwError("Semua kriteria aktif harus diisi sebelum submit.", 400);
+  if (!isDraft && (scores || []).length !== activeCriteria.length) {
+    throwError("Semua kriteria aktif harus diisi sebelum submit.", 400);
+  }
 
   const seen = new Set();
   const normalizedScores = (scores || []).map((item) => {
@@ -383,7 +409,7 @@ export async function submitExaminerAssessment(seminarId, { scores, revisionNote
     return { assessmentCriteriaId: item.assessmentCriteriaId, score: item.score };
   });
 
-  const updated = await examinerRepo.saveExaminerAssessment({ examinerId: examiner.id, scores: normalizedScores, revisionNotes });
+  const updated = await examinerRepo.saveExaminerAssessment({ examinerId: examiner.id, scores: normalizedScores, revisionNotes, isDraft });
   return { examinerId: updated.id, assessmentScore: updated.assessmentScore, assessmentSubmittedAt: updated.assessmentSubmittedAt };
 }
 
@@ -391,15 +417,38 @@ export async function submitExaminerAssessment(seminarId, { scores, revisionNote
 // PUBLIC: Finalization Data (Supervisor view)
 // ============================================================
 
-export async function getFinalizationData(seminarId, lecturerId) {
+export async function getFinalizationData(seminarId, user) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
-  const supervisorRelation = await coreRepo.findSeminarSupervisorRole(seminarId, lecturerId);
-  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
-  if (!mySupervisor) throwError("Anda bukan dosen pembimbing pada seminar ini.", 403);
-
   const effectiveStatus = computeEffectiveStatus(seminar.status, seminar.date, seminar.startTime, seminar.endTime);
+
+  // Evaluate Roles
+  const userRoles = await prisma.userHasRole.findMany({
+    where: { userId: user.sub || user.id, status: "active" },
+    select: { role: { select: { name: true } } },
+  });
+  const isAdmin = userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
+  const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
+  
+  const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
+  const mySupervisor = supervisorRelation ? resolveSupervisorMembership(supervisorRelation) : null;
+  const isSupervisor = !!mySupervisor;
+  
+  const isStudent = user.studentId && seminar.thesis?.student?.id === user.studentId;
+
+  const isFinalized = ["passed", "passed_with_revision", "failed"].includes(effectiveStatus) || seminar.resultFinalizedAt;
+
+  if (isFinalized) {
+    if (!isAdmin && !isExaminer && !isSupervisor && !isStudent) {
+      throwError("Anda tidak memiliki akses untuk melihat data finalisasi seminar ini.", 403);
+    }
+  } else {
+    if (!isSupervisor) {
+      throwError("Hanya dosen pembimbing yang dapat melihat data rekap awal.", 403);
+    }
+  }
+
   const examiners = await examinerRepo.findActiveExaminersWithAssessments(seminarId);
   const allSubmitted = examiners.length >= 2 && examiners.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
 
@@ -414,7 +463,10 @@ export async function getFinalizationData(seminarId, lecturerId) {
       studentNim: seminar.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: seminar.thesis?.title || "-",
     },
-    supervisor: { roleName: mySupervisor.role?.name || "Pembimbing", canFinalize: effectiveStatus === "ongoing" && !seminar.resultFinalizedAt },
+    supervisor: { 
+      roleName: mySupervisor?.role?.name || "Pembimbing", 
+      canFinalize: isSupervisor && effectiveStatus === "ongoing" && !seminar.resultFinalizedAt 
+    },
     examiners: examiners.map((item) => {
       const detailsByGroup = {};
       (item.thesisSeminarExaminerAssessmentDetails || []).forEach((d) => {
@@ -447,7 +499,9 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
   if (seminar.resultFinalizedAt) throwError("Hasil seminar sudah pernah ditetapkan.", 400);
 
   const supervisorRelation = await coreRepo.findSeminarSupervisorRole(seminarId, lecturerId);
-  if (!resolveSupervisorMembership(supervisorRelation)) throwError("Anda bukan dosen pembimbing pada seminar ini.", 403);
+  if (!resolveSupervisorMembership(supervisorRelation)) {
+    throwError("Anda bukan dosen pembimbing pada seminar ini.", 403);
+  }
 
   const effectiveStatus = computeEffectiveStatus(seminar.status, seminar.date, seminar.startTime, seminar.endTime);
   if (effectiveStatus !== "ongoing") throwError("Penetapan hasil hanya dapat dilakukan saat seminar berstatus sedang berlangsung.", 400);

@@ -45,7 +45,7 @@ export async function addAudience(seminarId, body, user) {
   const seminar = await resolveSeminarForAudience(seminarId);
 
   // Student self-registration
-  if (user.role === "MAHASISWA") {
+  if (user.studentId) {
     return registerAsAudience(seminarId, user.studentId, seminar);
   }
 
@@ -121,10 +121,11 @@ export async function updateAudience(seminarId, studentId, body, user) {
 export async function removeAudience(seminarId, studentId, user) {
   const seminar = await resolveSeminarForAudience(seminarId);
 
-  if (user.role === "MAHASISWA") {
-    const existing = await audienceRepo.findAudienceRegistration(seminarId, studentId);
+  if (user.studentId) {
+    const targetStudentId = user.studentId;
+    const existing = await audienceRepo.findAudienceRegistration(seminarId, targetStudentId);
     if (!existing) throwError("Anda belum terdaftar sebagai peserta seminar ini.", 404);
-    await audienceRepo.deleteAudienceRegistration(seminarId, studentId);
+    await audienceRepo.deleteAudienceRegistration(seminarId, targetStudentId);
     return { message: "Pendaftaran berhasil dibatalkan." };
   }
 
