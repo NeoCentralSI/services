@@ -2,7 +2,15 @@ import * as coreRepo from "../repositories/thesis-seminar.repository.js";
 import * as docRepo from "../repositories/thesis-seminar-doc.repository.js";
 import * as audienceRepo from "../repositories/thesis-seminar-audience.repository.js";
 import { computeEffectiveStatus } from "../utils/seminarStatus.util.js";
+import prisma from "../config/prisma.js";
+import { convertHtmlToPdf } from "../utils/pdf.util.js";
 import * as xlsx from "xlsx";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function throwError(msg, code) { const e = new Error(msg); e.statusCode = code; throw e; }
 
@@ -351,4 +359,339 @@ export async function importArchive(fileBuffer, userId) {
     }
   }
   return results;
+}
+export async function generateInvitationLetter(seminarId, nomorSurat) {
+  const seminar = await prisma.thesisSeminar.findUnique({
+    where: { id: seminarId },
+    include: {
+      thesis: {
+        include: {
+          student: { include: { user: true } },
+          thesisSupervisors: {
+            include: {
+              role: true,
+              lecturer: { include: { user: true } }
+            }
+          }
+        }
+      },
+      room: true,
+      examiners: true
+    }
+  });
+
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+
+  const examinerIds = seminar.examiners.map(e => e.lecturerId);
+  const examinerLecturers = await prisma.lecturer.findMany({
+    where: { id: { in: examinerIds } },
+    include: { user: true }
+  });
+
+  const indonesianMonths = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  function formatIndoDate(dateObj) {
+    if (!dateObj) return '-';
+    const d = new Date(dateObj);
+    const day = d.getDate();
+    const month = indonesianMonths[d.getMonth()];
+    const year = d.getFullYear();
+    return `${day} ${month} ${year}`;
+  }
+  
+  function getIndoDay(dateObj) {
+    if (!dateObj) return '-';
+    const d = new Date(dateObj);
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    return days[d.getDay()];
+  }
+
+  function formatTime(dateObj) {
+    if (!dateObj) return '-';
+    const d = new Date(dateObj);
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${hours}.${minutes}`;
+  }
+
+  const dateGenerated = formatIndoDate(new Date());
+
+  // Find Pembimbing 1
+  const supervisor1 = seminar.thesis?.thesisSupervisors?.find(
+    (ts) => ts.role?.name === "Pembimbing 1"
+  );
+  const supervisorName = supervisor1?.lecturer?.user?.fullName || '-';
+
+  // Map Examiners in order
+  const sortedExaminers = seminar.examiners
+    .sort((a, b) => a.order - b.order)
+    .map(e => {
+      const l = examinerLecturers.find(lecturer => lecturer.id === e.lecturerId);
+      return l?.user?.fullName || '-';
+    });
+
+  const lecturersList = [];
+  if (supervisorName !== '-') lecturersList.push(supervisorName);
+  lecturersList.push(...sortedExaminers);
+
+  const studentName = seminar.thesis?.student?.user?.fullName || '-';
+  const studentNim = seminar.thesis?.student?.user?.identityNumber || '-';
+  const thesisTitle = seminar.thesis?.title || '-';
+
+  const seminarDay = getIndoDay(seminar.date);
+  const seminarDateFormatted = formatIndoDate(seminar.date);
+  const seminarTime = formatTime(seminar.startTime);
+  const seminarPlace = seminar.room ? seminar.room.name : (seminar.meetingLink || 'Daring');
+
+  // Signatory: Ketua Departemen
+  const ketuaDept = await prisma.user.findFirst({
+    where: {
+      userHasRoles: {
+        some: {
+          role: { name: "Ketua Departemen" },
+          status: "active"
+        }
+      }
+    }
+  });
+
+  const ketuaDeptName = ketuaDept?.fullName || 'Ketua Departemen';
+  const ketuaDeptNip = ketuaDept?.identityNumber || '-';
+
+  // Logo base64
+  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  let logoBase64 = "";
+  try {
+    if (fs.existsSync(logoPath)) {
+      const logoBuffer = fs.readFileSync(logoPath);
+      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+    }
+  } catch (e) {
+    console.error("Invitation letter logo load failed:", e);
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Surat Undangan Seminar Hasil</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 1.5cm 2cm 1.5cm 2.5cm;
+    }
+    body {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 11pt;
+      line-height: 1.3;
+      color: #000;
+    }
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-bottom: 2px solid #000;
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+    }
+    .logo-cell {
+      width: 70px;
+      vertical-align: middle;
+      padding-right: 12px;
+    }
+    .logo-img {
+      width: 70px;
+      height: auto;
+    }
+    .header-text {
+      text-align: center;
+      vertical-align: middle;
+    }
+    .header-text h3 {
+      margin: 0;
+      font-size: 13pt;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .header-text h4 {
+      margin: 0;
+      font-size: 11pt;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .header-text h2 {
+      margin: 0;
+      font-size: 15pt;
+      font-weight: bold;
+      color: #0b5c9e;
+      text-transform: uppercase;
+    }
+    .header-text p {
+      margin: 1px 0;
+      font-size: 9pt;
+    }
+    .ta-box {
+      border: 1px solid #000;
+      padding: 3px 8px;
+      font-size: 11pt;
+      font-weight: bold;
+      text-align: center;
+    }
+    .details-table {
+      width: 100%;
+      margin-bottom: 12px;
+    }
+    .details-table td {
+      vertical-align: top;
+    }
+    .recipient-list {
+      margin-left: 20px;
+      padding-left: 0;
+      list-style-type: decimal;
+    }
+    .recipient-list li {
+      margin-bottom: 2px;
+    }
+    .content-table {
+      width: 100%;
+      margin: 10px 0;
+    }
+    .content-table td {
+      vertical-align: top;
+      padding: 1px 4px;
+    }
+    .signature-block {
+      float: right;
+      width: 220px;
+      margin-top: 25px;
+      text-align: left;
+    }
+    .signature-block .space {
+      height: 55px;
+    }
+    .tembusan {
+      margin-top: 25px;
+      font-size: 10pt;
+    }
+    .tembusan ol {
+      margin: 3px 0 0 15px;
+      padding: 0;
+    }
+    .clear {
+      clear: both;
+    }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td class="logo-cell">
+        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
+      </td>
+      <td class="header-text">
+        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
+        <h4>Universitas Andalas</h4>
+        <h4>Fakultas Teknologi Informasi</h4>
+        <h2>Departemen Sistem Informasi</h2>
+        <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
+        <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
+      </td>
+      <td style="width: 60px; vertical-align: top; text-align: right;">
+        <div class="ta-box">TA-12</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="details-table">
+    <tr>
+      <td style="width: 80px;">Nomor</td>
+      <td style="width: 10px;">:</td>
+      <td style="width: 300px;">${nomorSurat || ''}</td>
+      <td style="text-align: right;">Padang, ${dateGenerated}</td>
+    </tr>
+    <tr>
+      <td>Hal</td>
+      <td>:</td>
+      <td>Undangan Seminar Hasil</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Lamp</td>
+      <td>:</td>
+      <td>Makalah dan draft Tugas Akhir</td>
+      <td></td>
+    </tr>
+  </table>
+
+  <p>Kepada Yth.</p>
+  <ol class="recipient-list">
+    ${lecturersList.map(name => `<li>${name}</li>`).join('')}
+  </ol>
+  
+  <p style="margin-top: 15px;">Di<br/>Tempat.</p>
+
+  <p style="margin-top: 20px;">Sesuai dengan persetujuan Pembimbing Tugas Akhir Mahasiswa:</p>
+
+  <table class="content-table" style="margin-left: 25px; width: calc(100% - 25px);">
+    <tr>
+      <td style="width: 150px;">Nama</td>
+      <td style="width: 10px;">:</td>
+      <td style="font-weight: bold;">${studentName}</td>
+    </tr>
+    <tr>
+      <td>NIM</td>
+      <td>:</td>
+      <td>${studentNim}</td>
+    </tr>
+    <tr>
+      <td>Judul Tugas Akhir</td>
+      <td>:</td>
+      <td>${thesisTitle}</td>
+    </tr>
+  </table>
+
+  <p style="margin-top: 20px;">Maka akan diadakan Seminar Hasil Pelaksanaan Tugas Akhir mahasiswa tersebut pada:</p>
+
+  <table class="content-table" style="margin-left: 25px; width: calc(100% - 25px);">
+    <tr>
+      <td style="width: 150px;">Hari / Tanggal</td>
+      <td style="width: 10px;">:</td>
+      <td>${seminarDay} / ${seminarDateFormatted}</td>
+    </tr>
+    <tr>
+      <td>Pukul</td>
+      <td>:</td>
+      <td>${seminarTime} WIB s/d Selesai</td>
+    </tr>
+    <tr>
+      <td>Tempat</td>
+      <td>:</td>
+      <td>${seminarPlace}</td>
+    </tr>
+  </table>
+
+  <p style="margin-top: 20px;">Untuk itu dimohon kesediaan Sdr(i) untuk hadir sebagai Penguji / Pembimbing pada Seminar tersebut.</p>
+
+  <div class="signature-block">
+    <p style="margin-bottom: 0;">Ketua,</p>
+    <div class="space"></div>
+    <p style="font-weight: bold; text-decoration: underline; margin: 0;">${ketuaDeptName}</p>
+    <p style="margin: 0;">NIP. ${ketuaDeptNip}</p>
+  </div>
+  <div class="clear"></div>
+
+  <div class="tembusan">
+    <p style="margin: 0; font-weight: bold;">Tembusan :</p>
+    <ol>
+      <li>Dosen Ybs</li>
+      <li>Mahasiswa Ybs</li>
+      <li>Arsip</li>
+    </ol>
+  </div>
+</body>
+</html>`;
+
+  return await convertHtmlToPdf(html);
 }
