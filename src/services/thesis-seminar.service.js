@@ -239,7 +239,20 @@ export async function scheduleSeminar(seminarId, body) {
     const conflict = await coreRepo.findRoomScheduleConflict({ seminarId, roomId: body.roomId, date: body.date, startTime: body.startTime, endTime: body.endTime });
     if (conflict) throwError("Ruangan sudah digunakan oleh kegiatan seminar/sidang lain pada waktu yang sama.", 409);
   }
-  await coreRepo.updateSeminar(seminarId, { roomId: body.isOnline ? null : body.roomId, date: new Date(body.date), startTime: new Date(`1970-01-01T${body.startTime}:00.000Z`), endTime: new Date(`1970-01-01T${body.endTime}:00.000Z`), meetingLink: body.isOnline ? body.meetingLink : null, status: "scheduled" });
+  await coreRepo.updateSeminar(seminarId, { roomId: body.isOnline ? null : body.roomId, date: new Date(body.date), startTime: new Date(`1970-01-01T${body.startTime}:00.000Z`), endTime: new Date(`1970-01-01T${body.endTime}:00.000Z`), meetingLink: body.isOnline ? body.meetingLink : null });
+  return { seminarId, status: seminar.status };
+}
+
+export async function finalizeSchedule(seminarId) {
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+  if (!["examiner_assigned", "scheduled"].includes(seminar.status)) {
+    throwError("Seminar harus berstatus 'examiner_assigned' untuk ditetapkan.", 400);
+  }
+  if (!seminar.date) {
+    throwError("Jadwal seminar belum diatur sebagai draft.", 400);
+  }
+  await coreRepo.updateSeminar(seminarId, { status: "scheduled" });
   return { seminarId, status: "scheduled" };
 }
 

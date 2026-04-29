@@ -52,6 +52,13 @@ export async function setSchedule(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function finalizeSchedule(req, res, next) {
+  try {
+    const result = await coreService.finalizeSchedule(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
 export async function createArchive(req, res, next) {
   try {
     const result = await coreService.createArchive(req.body, req.user.id);

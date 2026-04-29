@@ -66,6 +66,7 @@ router.patch("/:id", requireAnyRole([ROLES.ADMIN]), validate(updateSeminarSchema
 router.delete("/:id", requireAnyRole([ROLES.ADMIN]), ctrl.deleteArchive);
 router.get("/:id/scheduling-data", requireAnyRole([ROLES.ADMIN]), ctrl.getSchedulingData);
 router.post("/:id/schedule", requireAnyRole([ROLES.ADMIN]), validate(scheduleSchema), ctrl.setSchedule);
+router.post("/:id/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
 router.post("/:id/documents/:documentTypeId/validate", requireAnyRole([ROLES.ADMIN]), ctrl.validateDocument);
 
 // ============================================================
