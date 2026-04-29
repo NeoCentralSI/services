@@ -214,7 +214,11 @@ export async function getSchedulingData(seminarId) {
   const supIds = (seminar.thesis?.thesisSupervisors || []).filter((ts) => ts.role?.name === "Pembimbing 1").map((ts) => ts.lecturerId).filter(Boolean);
   const exIds = (seminar.examiners || []).map((e) => e.lecturerId).filter(Boolean);
   const allIds = [...new Set([...supIds, ...exIds])];
-  const [avail, rooms] = await Promise.all([allIds.length > 0 ? coreRepo.findLecturerAvailabilities(allIds) : [], coreRepo.findAllRooms()]);
+  const [avail, rooms, bookings] = await Promise.all([
+    allIds.length > 0 ? coreRepo.findLecturerAvailabilities(allIds) : [],
+    coreRepo.findAllRooms(),
+    coreRepo.findRoomBookings()
+  ]);
   const nameMap = {};
   (seminar.thesis?.thesisSupervisors || []).forEach((ts) => { if (ts.lecturerId) nameMap[ts.lecturerId] = ts.lecturer?.user?.fullName || "-"; });
   (seminar.examiners || []).forEach((e) => { if (e.lecturerId) nameMap[e.lecturerId] = e.lecturerName || "-"; });
@@ -222,6 +226,7 @@ export async function getSchedulingData(seminarId) {
     rooms: rooms.map((r) => ({ id: r.id, name: r.name })),
     lecturerAvailabilities: avail.map((a) => ({ id: a.id, lecturerId: a.lecturerId, lecturerName: nameMap[a.lecturerId] || "-", day: a.day, startTime: a.startTime, endTime: a.endTime, validFrom: a.validFrom, validUntil: a.validUntil })),
     currentSchedule: seminar.date ? { date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime, meetingLink: seminar.meetingLink, isOnline: !seminar.roomId, room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null } : null,
+    roomBookings: bookings
   };
 }
 
@@ -231,7 +236,7 @@ export async function scheduleSeminar(seminarId, body) {
   if (!["examiner_assigned", "scheduled"].includes(seminar.status)) throwError("Penjadwalan hanya dapat dilakukan saat seminar berstatus 'examiner_assigned' atau 'scheduled'.", 400);
   if (!body.isOnline) {
     const conflict = await coreRepo.findRoomScheduleConflict({ seminarId, roomId: body.roomId, date: body.date, startTime: body.startTime, endTime: body.endTime });
-    if (conflict) throwError("Ruangan sudah digunakan oleh seminar lain pada waktu yang sama.", 409);
+    if (conflict) throwError("Ruangan sudah digunakan oleh kegiatan seminar/sidang lain pada waktu yang sama.", 409);
   }
   await coreRepo.updateSeminar(seminarId, { roomId: body.isOnline ? null : body.roomId, date: new Date(body.date), startTime: new Date(`1970-01-01T${body.startTime}:00.000Z`), endTime: new Date(`1970-01-01T${body.endTime}:00.000Z`), meetingLink: body.isOnline ? body.meetingLink : null, status: "scheduled" });
   return { seminarId, status: "scheduled" };

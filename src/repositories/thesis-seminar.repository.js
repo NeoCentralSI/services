@@ -367,7 +367,7 @@ export async function deleteSeminar(id) {
  * Excludes the given seminarId (for edits) and cancelled seminars.
  */
 export async function findRoomScheduleConflict({ seminarId, roomId, date, startTime, endTime }) {
-  return prisma.thesisSeminar.findFirst({
+  const seminarConflict = await prisma.thesisSeminar.findFirst({
     where: {
       id: seminarId ? { not: seminarId } : undefined,
       roomId,
@@ -379,6 +379,87 @@ export async function findRoomScheduleConflict({ seminarId, roomId, date, startT
       ],
     },
   });
+
+  if (seminarConflict) return true;
+
+  const defenceConflict = await prisma.thesisDefence.findFirst({
+    where: {
+      roomId,
+      date: new Date(date),
+      status: { notIn: ["cancelled"] },
+      AND: [
+        { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
+        { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
+      ],
+    },
+  });
+
+  return !!defenceConflict;
+}
+
+export async function findRoomBookings() {
+  const nextMonth = new Date();
+  nextMonth.setDate(nextMonth.getDate() + 30);
+
+  const [seminars, defences] = await Promise.all([
+    prisma.thesisSeminar.findMany({
+      where: {
+        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
+        roomId: { not: null },
+        status: { notIn: ["cancelled"] },
+      },
+      include: {
+        thesis: {
+          include: {
+            student: {
+              include: {
+                user: true
+              }
+            }
+          }
+        }
+      }
+    }),
+    prisma.thesisDefence.findMany({
+      where: {
+        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
+        roomId: { not: null },
+        status: { notIn: ["cancelled"] },
+      },
+      include: {
+        thesis: {
+          include: {
+            student: {
+              include: {
+                user: true
+              }
+            }
+          }
+        }
+      }
+    })
+  ]);
+
+  return [
+    ...seminars.map(s => ({
+      id: `seminar-${s.id}`,
+      type: "seminar",
+      title: `Seminar Hasil: ${s.thesis?.student?.user?.fullName || "Mahasiswa"}`,
+      roomId: s.roomId,
+      date: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime
+    })),
+    ...defences.map(d => ({
+      id: `defence-${d.id}`,
+      type: "defence",
+      title: `Sidang TA: ${d.thesis?.student?.user?.fullName || "Mahasiswa"}`,
+      roomId: d.roomId,
+      date: d.date,
+      startTime: d.startTime,
+      endTime: d.endTime
+    }))
+  ];
 }
 
 /**
