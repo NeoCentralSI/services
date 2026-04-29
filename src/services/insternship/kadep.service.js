@@ -139,8 +139,9 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
     let docNumber;
     let verifyId;
 
+    let proposal;
     if (isApp || isAssign) {
-        const proposal = await prisma.internshipProposal.findUnique({
+        proposal = await prisma.internshipProposal.findUnique({
             where: { id: proposalId },
             include: {
                 appLetterDoc: true,

@@ -52,8 +52,8 @@ try {
   for (const file of routeFiles) {
     try {
       const routePath = path.join(routesPath, file);
-      const routeUrl = pathToFileURL(routePath).href; // needed on Windows
-      const routeModule = await import(routeUrl);
+      // Use relative path for dynamic import - more compatible with Vite/Vitest
+      const routeModule = await import(`./routes/${file}`);
       const routeName = file.replace(".route.js", "");
       if (!routeModule?.default) {
         console.warn(`⚠️ Route file ${file} has no default export, skipping`);

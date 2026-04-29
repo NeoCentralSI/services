@@ -124,21 +124,21 @@ async function seedAcademicYears() {
   const academicYears = [
     {
       semester: "ganjil",
-      year: 2024,
+      year: "2024",
       startDate: new Date("2024-08-01"),
       endDate: new Date("2025-01-31"),
       isActive: false,
     },
     {
       semester: "genap",
-      year: 2024,
+      year: "2024",
       startDate: new Date("2025-02-01"),
       endDate: new Date("2025-07-31"),
       isActive: false,
     },
     {
       semester: "ganjil",
-      year: 2025,
+      year: "2025",
       startDate: new Date("2025-08-01"),
       endDate: new Date("2026-01-31"),
       isActive: true, // Current active academic year (Start August 2025)
