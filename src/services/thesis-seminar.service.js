@@ -226,7 +226,8 @@ export async function getSchedulingData(seminarId) {
     rooms: rooms.map((r) => ({ id: r.id, name: r.name })),
     lecturerAvailabilities: avail.map((a) => ({ id: a.id, lecturerId: a.lecturerId, lecturerName: nameMap[a.lecturerId] || "-", day: a.day, startTime: a.startTime, endTime: a.endTime, validFrom: a.validFrom, validUntil: a.validUntil })),
     currentSchedule: seminar.date ? { date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime, meetingLink: seminar.meetingLink, isOnline: !seminar.roomId, room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null } : null,
-    roomBookings: bookings
+    roomBookings: bookings,
+    participantIds: allIds
   };
 }
 
