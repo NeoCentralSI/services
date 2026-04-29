@@ -190,7 +190,6 @@ export async function getSeminarDetail(seminarId) {
   const docs = await docRepo.findSeminarDocuments(seminarId);
   const audiences = await audienceRepo.findAudiencesBySeminarId(seminarId);
   const active = (seminar.examiners || []).filter((e) => ["available", "pending"].includes(e.availabilityStatus));
-  const rejected = (seminar.examiners || []).filter((e) => e.availabilityStatus === "unavailable");
   return {
     id: seminar.id, status: computeEffectiveStatus(seminar.status, seminar.date, seminar.startTime, seminar.endTime),
     registeredAt: seminar.registeredAt, date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime,
@@ -203,7 +202,6 @@ export async function getSeminarDetail(seminarId) {
     documents: docs.map((d) => ({ documentTypeId: d.documentTypeId, documentId: d.documentId, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes, verifiedBy: d.verifier?.fullName || null, fileName: d.document?.fileName || null, filePath: d.document?.filePath || null })),
     documentTypes: docTypes.map((dt) => ({ id: dt.id, name: dt.name })),
     examiners: active.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus })),
-    rejectedExaminers: rejected.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, respondedAt: e.respondedAt, assignedAt: e.assignedAt })),
     audiences: audiences.map((a) => ({ studentName: a.student?.user?.fullName || "-", nim: a.student?.user?.identityNumber || "-", registeredAt: a.registeredAt, approvedAt: a.approvedAt, approvedByName: a.supervisor?.lecturer?.user?.fullName || null })),
   };
 }
