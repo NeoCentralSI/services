@@ -26,10 +26,6 @@ function getAssignmentStatus(activeExaminers, totalExaminerCount = 0) {
   if (!activeExaminers || activeExaminers.length === 0) {
     return totalExaminerCount > 0 ? "rejected" : "unassigned";
   }
-  if (activeExaminers.length < 2) {
-    const hasAvailable = activeExaminers.some((e) => e.availabilityStatus === "available");
-    return hasAvailable ? "partially_rejected" : "pending";
-  }
   const allAvailable = activeExaminers.every((e) => e.availabilityStatus === "available");
   return allAvailable ? "confirmed" : "pending";
 }

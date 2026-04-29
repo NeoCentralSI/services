@@ -40,7 +40,29 @@ export async function getOverview(userId) {
     pembimbing: { met: allSupervisorsReady, label: "Persetujuan Dosen Pembimbing", supervisors: supervisors.map((s) => ({ name: s.lecturer?.user?.fullName || "-", role: s.role?.name || "-", ready: s.seminarReady })) },
   };
 
-  const currentSeminar = thesis.thesisSeminars?.[0] || null;
+  let currentSeminar = thesis.thesisSeminars?.[0] || null;
+
+  const allChecklistMet = checklist.bimbingan.met && checklist.kehadiran.met && checklist.metopen.met && checklist.pembimbing.met;
+
+  // If latest seminar is failed/cancelled, treat as inactive for students
+  if (currentSeminar && ["failed", "cancelled"].includes(currentSeminar.status)) {
+    if (allChecklistMet) {
+      // Automatically initialize the repeat attempt
+      const created = await coreRepo.createThesisSeminar(thesis.id);
+      const newSeminar = await prisma.thesisSeminar.findUnique({
+        where: { id: created.id },
+        include: {
+          room: { select: { id: true, name: true } },
+          documents: true,
+          examiners: true,
+        },
+      });
+      currentSeminar = newSeminar;
+    } else {
+      currentSeminar = null;
+    }
+  }
+
   let enrichedExaminers = [];
   if (currentSeminar?.examiners?.length) {
     enrichedExaminers = await coreRepo.enrichExaminers(currentSeminar.examiners);
@@ -53,16 +75,28 @@ export async function getOverview(userId) {
   }
 
   return {
-    thesisId: thesis.id, thesisTitle: thesis.title, checklist,
-    allChecklistMet: checklist.bimbingan.met && checklist.kehadiran.met && checklist.metopen.met && checklist.pembimbing.met,
-    seminar: currentSeminar ? {
-      id: currentSeminar.id, status: displayStatus, registeredAt: currentSeminar.registeredAt,
-      date: currentSeminar.date, startTime: currentSeminar.startTime, endTime: currentSeminar.endTime,
-      meetingLink: currentSeminar.meetingLink, finalScore: currentSeminar.finalScore,
-      maxWeight: 100, // Fixed as per requirements
-      resultFinalizedAt: currentSeminar.resultFinalizedAt, cancelledReason: currentSeminar.cancelledReason,
-      room: currentSeminar.room, documents: currentSeminar.documents, examiners: enrichedExaminers,
-    } : null,
+    thesisId: thesis.id,
+    thesisTitle: thesis.title,
+    checklist,
+    allChecklistMet,
+    seminar: currentSeminar
+      ? {
+          id: currentSeminar.id,
+          status: displayStatus,
+          registeredAt: currentSeminar.registeredAt,
+          date: currentSeminar.date,
+          startTime: currentSeminar.startTime,
+          endTime: currentSeminar.endTime,
+          meetingLink: currentSeminar.meetingLink,
+          finalScore: currentSeminar.finalScore,
+          maxWeight: 100, // Fixed as per requirements
+          resultFinalizedAt: currentSeminar.resultFinalizedAt,
+          cancelledReason: currentSeminar.cancelledReason,
+          room: currentSeminar.room,
+          documents: currentSeminar.documents || [],
+          examiners: enrichedExaminers,
+        }
+      : null,
   };
 }
 

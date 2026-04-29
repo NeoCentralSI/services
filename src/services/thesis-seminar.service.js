@@ -11,8 +11,8 @@ const RESULT_STATUSES = ["passed", "passed_with_revision", "failed", "cancelled"
 
 function getAssignmentStatus(active, total = 0) {
   if (!active || active.length === 0) return total > 0 ? "rejected" : "unassigned";
-  if (active.length < 2) return active.some((e) => e.availabilityStatus === "available") ? "partially_rejected" : "pending";
-  return active.every((e) => e.availabilityStatus === "available") ? "confirmed" : "pending";
+  const allAvailable = active.every((e) => e.availabilityStatus === "available");
+  return allAvailable ? "confirmed" : "pending";
 }
 
 export function mapScoreToGrade(s) {
@@ -136,21 +136,27 @@ async function getAdminList({ search, status }) {
 }
 
 async function getAssignmentList({ search }) {
-  const where = { status: { in: ["verified", "examiner_assigned"] }, ...buildSearchWhere(search) };
+  const where = { status: { in: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision", "failed", "cancelled"] }, ...buildSearchWhere(search) };
   const { data } = await coreRepo.findSeminarsPaginated({ where, skip: 0, take: 500 });
   const mapped = data.map((s) => {
     const active = (s.examiners || []).filter((e) => ["available", "pending"].includes(e.availabilityStatus));
+    const rejected = (s.examiners || []).filter((e) => e.availabilityStatus === "unavailable");
+    
+    const isConcluded = ["passed", "passed_with_revision", "failed", "cancelled"].includes(s.status);
+    const assignmentStatus = isConcluded ? "finished" : getAssignmentStatus(active, (s.examiners || []).length);
+
     return {
       id: s.id, thesisId: s.thesis?.id || null,
       studentName: s.thesis?.student?.user?.fullName || "-", studentNim: s.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: s.thesis?.title || "-",
       supervisors: (s.thesis?.thesisSupervisors || []).map((ts) => ({ name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
       status: s.status, registeredAt: s.registeredAt,
-      assignmentStatus: getAssignmentStatus(active, (s.examiners || []).length),
+      assignmentStatus,
       examiners: active.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus, respondedAt: e.respondedAt })),
+      rejectedExaminers: rejected.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus, respondedAt: e.respondedAt, assignedAt: e.assignedAt })),
     };
   });
-  const ORDER = { unassigned: 0, rejected: 1, partially_rejected: 2, pending: 3, confirmed: 4 };
+  const ORDER = { unassigned: 0, rejected: 1, partially_rejected: 2, pending: 3, confirmed: 4, finished: 5 };
   mapped.sort((a, b) => (ORDER[a.assignmentStatus] ?? 99) - (ORDER[b.assignmentStatus] ?? 99));
   return mapped;
 }

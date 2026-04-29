@@ -118,7 +118,8 @@ export async function assignExaminers(defenceId, examinerIds, assignedByUserId) 
 // PUBLIC: Respond to Assignment (Lecturer)
 // ============================================================
 
-export async function respondExaminerAssignment(defenceId, examinerId, { status }, lecturerId) {
+export async function respondExaminerAssignment(defenceId, examinerId, payload, lecturerId) {
+  const { status, unavailableReasons } = payload || {};
   if (!["available", "unavailable"].includes(status)) {
     throwError("Status harus 'available' atau 'unavailable'.", 400);
   }
@@ -128,13 +129,13 @@ export async function respondExaminerAssignment(defenceId, examinerId, { status 
   if (examiner.lecturerId !== lecturerId) throwError("Anda bukan penguji yang ditugaskan.", 403);
   if (examiner.availabilityStatus !== "pending") throwError("Anda sudah memberikan respons sebelumnya.", 400);
 
-  await examinerRepo.updateExaminerAvailability(examinerId, status);
+  await examinerRepo.updateExaminerAvailability(examinerId, status, unavailableReasons);
 
   let defenceTransitioned = false;
   if (status === "available") {
     const activeExaminers = await examinerRepo.findActiveExaminersByDefence(examiner.thesisDefenceId);
     const bothAvailable =
-      activeExaminers.length >= 2 && activeExaminers.every((e) => e.availabilityStatus === "available");
+      activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
     if (bothAvailable) {
       await coreRepo.updateDefenceStatus(examiner.thesisDefenceId, "examiner_assigned");
       defenceTransitioned = true;

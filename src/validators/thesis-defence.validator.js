@@ -62,6 +62,7 @@ export const respondAssignmentSchema = z.object({
   status: z.enum(["available", "unavailable"], {
     errorMap: () => ({ message: "Status harus 'available' atau 'unavailable'" }),
   }),
+  unavailableReasons: z.string().optional().nullable(),
 });
 
 // ============================================================

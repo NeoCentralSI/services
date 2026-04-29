@@ -93,10 +93,14 @@ export async function findLatestExaminerByDefenceAndLecturer(defenceId, lecturer
   });
 }
 
-export async function updateExaminerAvailability(examinerId, status) {
+export async function updateExaminerAvailability(examinerId, status, unavailableReasons = null) {
   return prisma.thesisDefenceExaminer.update({
     where: { id: examinerId },
-    data: { availabilityStatus: status, respondedAt: new Date() },
+    data: { 
+      availabilityStatus: status, 
+      unavailableReasons: status === "unavailable" ? unavailableReasons : null,
+      respondedAt: new Date() 
+    },
   });
 }
 
