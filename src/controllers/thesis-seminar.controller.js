@@ -411,3 +411,12 @@ export async function downloadInvitationLetter(req, res, next) {
     res.send(pdfBuffer);
   } catch (error) { next(error); }
 }
+
+export async function downloadBeritaAcara(req, res, next) {
+  try {
+    const pdfBuffer = await coreService.generateBeritaAcaraPdf(req.params.id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=Berita-Acara-Seminar-Hasil.pdf");
+    res.send(pdfBuffer);
+  } catch (error) { next(error); }
+}

@@ -424,11 +424,14 @@ export async function getFinalizationData(seminarId, user) {
   const effectiveStatus = computeEffectiveStatus(seminar.status, seminar.date, seminar.startTime, seminar.endTime);
 
   // Evaluate Roles
-  const userRoles = await prisma.userHasRole.findMany({
-    where: { userId: user.sub || user.id, status: "active" },
-    select: { role: { select: { name: true } } },
-  });
-  const isAdmin = userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
+  let userRoles = [];
+  if (user.sub || user.id) {
+    userRoles = await prisma.userHasRole.findMany({
+      where: { userId: user.sub || user.id, status: "active" },
+      select: { role: { select: { name: true } } },
+    });
+  }
+  const isAdmin = user.role === 'admin' || userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
   const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
   
   const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
@@ -453,6 +456,21 @@ export async function getFinalizationData(seminarId, user) {
   const allSubmitted = examiners.length >= 2 && examiners.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
 
   const avgScore = allSubmitted ? examiners.reduce((s, e) => s + (e.assessmentScore || 0), 0) / examiners.length : null;
+
+  const cpmks = await examinerRepo.findSeminarAssessmentCpmks();
+  const criteriaGroups = cpmks.map((cpmk) => {
+    const criteria = (cpmk.assessmentCriterias || []).map((c) => ({
+      id: c.id, name: c.name || "-", maxScore: c.maxScore || 0,
+    }));
+    return {
+      id: cpmk.id, 
+      code: cpmk.code, 
+      description: cpmk.description,
+      name: cpmk.description || cpmk.code,
+      maxScore: criteria.reduce((sum, c) => sum + c.maxScore, 0),
+      criteria
+    };
+  });
 
   return {
     seminar: {
@@ -486,6 +504,7 @@ export async function getFinalizationData(seminarId, user) {
     }),
     allExaminerSubmitted: allSubmitted, averageScore: avgScore, averageGrade: avgScore !== null ? mapScoreToGrade(avgScore) : null,
     recommendationUnlocked: allSubmitted,
+    criteriaGroups,
   };
 }
 
