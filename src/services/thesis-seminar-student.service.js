@@ -222,7 +222,10 @@ export async function getSeminarDetail(userId, seminarId) {
     meetingLink: seminar.meetingLink, 
     finalScore: isPresenter ? seminar.finalScore : null,
     grade: isPresenter && seminar.finalScore != null ? mapScoreToGrade(seminar.finalScore) : null,
-    resultFinalizedAt: seminar.resultFinalizedAt, cancelledReason: seminar.cancelledReason, room: seminar.room,
+    resultFinalizedAt: seminar.resultFinalizedAt, 
+    revisionFinalizedAt: seminar.revisionFinalizedAt,
+    revisionFinalizedBy: seminar.revisionFinalizedBy,
+    cancelledReason: seminar.cancelledReason, room: seminar.room,
     student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
     thesis: { id: seminar.thesis.id, title: seminar.thesis.title, supervisors: (seminar.thesis.thesisSupervisors || []).map((s) => ({ role: s.role?.name || "-", lecturerName: s.lecturer?.user?.fullName || "-" })) },
     examiners: (seminar.examiners || []).map((e) => ({ 

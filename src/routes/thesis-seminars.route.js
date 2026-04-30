@@ -75,7 +75,7 @@ router.post("/:id/documents/:documentTypeId/validate", requireAnyRole([ROLES.ADM
 // ============================================================
 router.post("/:id/documents", requireAnyRole([ROLES.MAHASISWA]), uploadSeminarDocFile, ctrl.uploadDocument);
 router.post("/:id/revisions", requireAnyRole([ROLES.MAHASISWA]), validate(createRevisionSchema), ctrl.createRevision);
-router.patch("/:id/revisions/:revisionId", requireAnyRole([ROLES.MAHASISWA]), validate(revisionActionSchema), ctrl.updateRevision);
+router.patch("/:id/revisions/:revisionId", requireAnyRole([ROLES.MAHASISWA, ...LECTURER_ROLES]), validate(revisionActionSchema), ctrl.updateRevision);
 router.delete("/:id/revisions/:revisionId", requireAnyRole([ROLES.MAHASISWA]), ctrl.deleteRevision);
 
 // ============================================================
@@ -87,6 +87,7 @@ router.post("/:id/assessment", requireAnyRole(LECTURER_ROLES), validate(submitAs
 router.get("/:id/finalization", requireAnyRole(ALL_ROLES), ctrl.getFinalizationData);
 router.post("/:id/finalize", requireAnyRole(LECTURER_ROLES), validate(finalizeSeminarSchema), ctrl.finalizeSeminar);
 router.post("/:id/revisions/finalize", requireAnyRole(LECTURER_ROLES), ctrl.finalizeRevisions);
+router.post("/:id/revisions/unfinalize", requireAnyRole(LECTURER_ROLES), ctrl.unfinalizeRevisions);
 router.get("/:id/revisions", requireAnyRole([ROLES.MAHASISWA, ...LECTURER_ROLES]), ctrl.getRevisions);
 
 // ============================================================

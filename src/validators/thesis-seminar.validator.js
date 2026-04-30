@@ -83,16 +83,18 @@ export const addAudienceSchema = z.object({
 export const createRevisionSchema = z.object({
   seminarExaminerId: z.string().uuid("ID penguji tidak valid"),
   description: z.string().trim().min(1, "Deskripsi revisi wajib diisi"),
+  revisionAction: z.string().trim().optional(),
 });
 
 export const revisionActionSchema = z
   .object({
     description: z.string().trim().min(1, "Catatan revisi wajib diisi").optional(),
     revisionAction: z.string().trim().min(1, "Perbaikan yang dilakukan wajib diisi").optional(),
+    action: z.enum(["save_action", "submit", "cancel_submit", "approve", "unapprove"]).optional(),
   })
   .refine(
-    (value) => !!value.description || !!value.revisionAction,
-    "Minimal isi catatan revisi atau perbaikan"
+    (value) => !!value.description || !!value.revisionAction || !!value.action,
+    "Minimal isi catatan revisi, perbaikan, atau aksi"
   );
 
 // ============================================================

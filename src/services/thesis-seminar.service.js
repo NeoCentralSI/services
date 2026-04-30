@@ -203,6 +203,8 @@ export async function getSeminarDetail(seminarId) {
     registeredAt: seminar.registeredAt, date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime,
     meetingLink: seminar.meetingLink, finalScore: seminar.finalScore, grade: mapScoreToGrade(seminar.finalScore),
     resultFinalizedAt: seminar.resultFinalizedAt, cancelledReason: seminar.cancelledReason,
+    revisionFinalizedAt: seminar.revisionFinalizedAt,
+    revisionFinalizedBy: seminar.revisionFinalizedBy,
     room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
     thesis: { id: seminar.thesis?.id, title: seminar.thesis?.title },
     student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
@@ -242,7 +244,7 @@ export async function getSchedulingData(seminarId) {
 export async function scheduleSeminar(seminarId, body) {
   const seminar = await coreRepo.findSeminarBasicById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  if (!["examiner_assigned", "scheduled"].includes(seminar.status)) throwError("Penjadwalan hanya dapat dilakukan saat seminar berstatus 'examiner_assigned' atau 'scheduled'.", 400);
+  if (seminar.status !== "examiner_assigned") throwError("Penjadwalan hanya dapat dilakukan saat seminar berstatus 'examiner_assigned'.", 400);
   if (!body.isOnline) {
     const conflict = await coreRepo.findRoomScheduleConflict({ seminarId, roomId: body.roomId, date: body.date, startTime: body.startTime, endTime: body.endTime });
     if (conflict) throwError("Ruangan sudah digunakan oleh kegiatan seminar/sidang lain pada waktu yang sama.", 409);
@@ -254,7 +256,7 @@ export async function scheduleSeminar(seminarId, body) {
 export async function finalizeSchedule(seminarId) {
   const seminar = await coreRepo.findSeminarBasicById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  if (!["examiner_assigned", "scheduled"].includes(seminar.status)) {
+  if (seminar.status !== "examiner_assigned") {
     throwError("Seminar harus berstatus 'examiner_assigned' untuk ditetapkan.", 400);
   }
   if (!seminar.date) {

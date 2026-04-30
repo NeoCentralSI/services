@@ -85,9 +85,15 @@ export async function createRevision(seminarId, body, studentId) {
   const revision = await revisionRepo.createRevision({
     seminarExaminerId: body.seminarExaminerId,
     description: body.description,
+    revisionAction: body.revisionAction,
   });
 
-  return { id: revision.id, seminarExaminerId: revision.seminarExaminerId, description: revision.description };
+  return { 
+    id: revision.id, 
+    seminarExaminerId: revision.seminarExaminerId, 
+    description: revision.description,
+    revisionAction: revision.revisionAction
+  };
 }
 
 // ============================================================
@@ -219,4 +225,25 @@ export async function finalizeRevisions(seminarId, lecturerId) {
   });
 
   return { seminarId: finalized.id, revisionFinalizedAt: finalized.revisionFinalizedAt, revisionFinalizedBy: finalized.revisionFinalizedBy };
+}
+
+// ============================================================
+// PUBLIC: Unfinalize Revisions (Supervisor)
+// ============================================================
+
+export async function unfinalizeRevisions(seminarId, lecturerId) {
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+
+  const supervisorRelation = await coreRepo.findSeminarSupervisorRole(seminarId, lecturerId);
+  if (!resolveSupervisorMembership(supervisorRelation)) throwError("Anda bukan dosen pembimbing pada seminar ini.", 403);
+
+  if (!seminar.revisionFinalizedBy) throwError("Revisi seminar belum difinalisasi.", 400);
+
+  const updated = await coreRepo.updateSeminar(seminarId, {
+    revisionFinalizedAt: null,
+    revisionFinalizedBy: null,
+  });
+
+  return { seminarId: updated.id, revisionFinalizedAt: null, revisionFinalizedBy: null };
 }

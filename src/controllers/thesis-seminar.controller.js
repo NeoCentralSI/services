@@ -336,6 +336,13 @@ export async function finalizeRevisions(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function unfinalizeRevisions(req, res, next) {
+  try {
+    const result = await revisionService.unfinalizeRevisions(req.params.id, req.user.lecturerId);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
 // ============================================================
 // STUDENT SPECIFIC
 // ============================================================
