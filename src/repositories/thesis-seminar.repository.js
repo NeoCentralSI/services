@@ -249,6 +249,7 @@ export async function findSeminarBasicById(id) {
       finalScore: true,
       resultFinalizedBy: true,
       revisionFinalizedBy: true,
+      registeredAt: true,
     },
   });
 }
@@ -395,6 +396,40 @@ export async function findRoomScheduleConflict({ seminarId, roomId, date, startT
   });
 
   return !!defenceConflict;
+}
+
+/**
+ * Check if a student has their own seminar or defence at the same time.
+ */
+export async function findStudentScheduleConflict({ studentId, date, startTime, endTime, excludeSeminarId }) {
+  const seminarConflict = await prisma.thesisSeminar.findFirst({
+    where: {
+      id: excludeSeminarId ? { not: excludeSeminarId } : undefined,
+      thesis: { studentId },
+      date: new Date(date),
+      status: { notIn: ["cancelled"] },
+      AND: [
+        { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
+        { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
+      ],
+    },
+  });
+  if (seminarConflict) return "seminar";
+
+  const defenceConflict = await prisma.thesisDefence.findFirst({
+    where: {
+      thesis: { studentId },
+      date: new Date(date),
+      status: { notIn: ["cancelled"] },
+      AND: [
+        { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
+        { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
+      ],
+    },
+  });
+  if (defenceConflict) return "sidang";
+
+  return null;
 }
 
 export async function findRoomBookings() {
@@ -710,7 +745,7 @@ export async function getAllStudentSeminars(studentId) {
  * Thesis dropdown options for archive form.
  */
 export async function findThesesForOptions() {
-  return prisma.thesis.findMany({
+  const theses = await prisma.thesis.findMany({
     select: {
       id: true,
       title: true,
@@ -723,9 +758,22 @@ export async function findThesesForOptions() {
       thesisSupervisors: {
         select: { lecturerId: true },
       },
+      thesisSeminars: {
+        where: {
+          status: { in: ["passed", "passed_with_revision"] },
+        },
+        select: { id: true, status: true },
+        take: 1,
+      },
     },
     orderBy: { createdAt: "desc" },
   });
+
+  return theses.map((t) => ({
+    ...t,
+    hasSeminarResult: t.thesisSeminars.length > 0,
+    seminarResultId: t.thesisSeminars[0]?.id || null,
+  }));
 }
 
 /**
@@ -781,7 +829,7 @@ export async function findRoomById(id) {
  * Thesis by ID (existence check).
  */
 export async function findThesisById(id) {
-  return prisma.thesis.findUnique({ where: { id }, select: { id: true } });
+  return prisma.thesis.findUnique({ where: { id }, select: { id: true, studentId: true } });
 }
 
 /**
@@ -809,7 +857,7 @@ export async function findSupervisorsByThesisId(thesisId) {
 export async function findSeminarByThesisId(thesisId) {
   return prisma.thesisSeminar.findFirst({
     where: { thesisId, status: { notIn: ["failed", "cancelled"] } },
-    select: { id: true },
+    select: { id: true, status: true },
   });
 }
 
@@ -823,7 +871,7 @@ export async function findSeminarByThesisIdExcludingId(thesisId, seminarId) {
       id: { not: seminarId },
       status: { notIn: ["failed", "cancelled"] },
     },
-    select: { id: true },
+    select: { id: true, status: true },
   });
 }
 

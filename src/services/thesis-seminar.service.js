@@ -272,9 +272,14 @@ export async function finalizeSchedule(seminarId) {
 export async function createArchive(body, userId) {
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status seminar hasil tidak valid", 400);
   const [thesis, room, existing] = await Promise.all([coreRepo.findThesisById(body.thesisId), coreRepo.findRoomById(body.roomId), coreRepo.findSeminarByThesisId(body.thesisId)]);
-  if (!thesis) throwError("Thesis tidak ditemukan", 404);
+  if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
   if (!room) throwError("Ruangan tidak ditemukan", 404);
-  if (existing) throwError("Thesis ini sudah memiliki data seminar hasil", 409);
+
+  // A student can have multiple seminars, but only ONE passed/passed_with_revision result.
+  // If they have a successful result already, block creation.
+  if (existing && ["passed", "passed_with_revision"].includes(existing.status)) {
+    throwError("Tugas Akhir ini sudah memiliki data seminar hasil dengan status Lulus", 409);
+  }
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
   const created = await coreRepo.createSeminarWithExaminers({ thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByUserId: userId });
   return coreRepo.findSeminarById(created.id);
@@ -284,9 +289,13 @@ export async function updateArchive(seminarId, body, userId) {
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status seminar hasil tidak valid", 400);
   if (!(await coreRepo.findSeminarBasicById(seminarId))) throwError("Data seminar hasil tidak ditemukan", 404);
   const [thesis, room, dup] = await Promise.all([coreRepo.findThesisById(body.thesisId), coreRepo.findRoomById(body.roomId), coreRepo.findSeminarByThesisIdExcludingId(body.thesisId, seminarId)]);
-  if (!thesis) throwError("Thesis tidak ditemukan", 404);
+  if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
   if (!room) throwError("Ruangan tidak ditemukan", 404);
-  if (dup) throwError("Thesis ini sudah memiliki data seminar hasil lain", 409);
+
+  // If updating to a different thesis, check if that thesis already has a successful seminar result.
+  if (dup && ["passed", "passed_with_revision"].includes(dup.status)) {
+    throwError("Tugas Akhir ini sudah memiliki data seminar hasil lain dengan status Lulus", 409);
+  }
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
   await coreRepo.updateSeminarWithExaminers({ seminarId, thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByUserId: userId });
   return coreRepo.findSeminarById(seminarId);

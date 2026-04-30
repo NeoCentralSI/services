@@ -280,6 +280,15 @@ export async function exportAudiences(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function exportAudiencesPdf(req, res, next) {
+  try {
+    const buffer = await audienceService.exportAudiencesPdf(req.params.id);
+    res.setHeader("Content-Disposition", 'attachment; filename="Daftar_Audience.pdf"');
+    res.setHeader("Content-Type", "application/pdf");
+    res.send(buffer);
+  } catch (error) { next(error); }
+}
+
 export async function getAudienceTemplate(req, res, next) {
   try {
     const buffer = await audienceService.getAudienceTemplate();
