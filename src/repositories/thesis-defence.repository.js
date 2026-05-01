@@ -320,7 +320,7 @@ export async function getStudentOptions() {
 
 export async function findLecturerAvailabilities(lecturerIds) {
   return prisma.lecturerAvailability.findMany({
-    where: { lecturerId: { in: lecturerIds }, isActive: true },
+    where: { lecturerId: { in: lecturerIds } },
     orderBy: [{ lecturerId: "asc" }, { day: "asc" }, { startTime: "asc" }],
   });
 }
@@ -329,13 +329,70 @@ export async function findAllRooms() {
   return prisma.room.findMany({ orderBy: { name: "asc" } });
 }
 
+export async function findRoomBookings() {
+  const nextMonth = new Date();
+  nextMonth.setDate(nextMonth.getDate() + 30);
+
+  const [seminars, defences] = await Promise.all([
+    prisma.thesisSeminar.findMany({
+      where: {
+        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
+        roomId: { not: null },
+        status: "scheduled",
+      },
+      include: {
+        thesis: {
+          include: {
+            student: { include: { user: true } }
+          }
+        }
+      }
+    }),
+    prisma.thesisDefence.findMany({
+      where: {
+        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
+        roomId: { not: null },
+        status: "scheduled",
+      },
+      include: {
+        thesis: {
+          include: {
+            student: { include: { user: true } }
+          }
+        }
+      }
+    })
+  ]);
+
+  return [
+    ...seminars.map(s => ({
+      id: `seminar-${s.id}`,
+      type: "seminar",
+      title: `Seminar Hasil: ${s.thesis?.student?.user?.fullName || "Mahasiswa"}`,
+      roomId: s.roomId,
+      date: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime
+    })),
+    ...defences.map(d => ({
+      id: `defence-${d.id}`,
+      type: "defence",
+      title: `Sidang TA: ${d.thesis?.student?.user?.fullName || "Mahasiswa"}`,
+      roomId: d.roomId,
+      date: d.date,
+      startTime: d.startTime,
+      endTime: d.endTime
+    }))
+  ];
+}
+
 export async function findRoomScheduleConflict({ defenceId, roomId, date, startTime, endTime }) {
   return prisma.thesisDefence.findFirst({
     where: {
       id: defenceId ? { not: defenceId } : undefined,
       roomId,
       date: new Date(date),
-      status: { notIn: ["cancelled"] },
+      status: "scheduled",
       AND: [
         { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
         { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
@@ -353,7 +410,6 @@ export async function updateDefenceSchedule(defenceId, { roomId, date, startTime
       date: new Date(date),
       startTime: new Date(`1970-01-01T${startTime}:00.000Z`),
       endTime: new Date(`1970-01-01T${endTime}:00.000Z`),
-      status: "scheduled",
     },
   });
 }

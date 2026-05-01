@@ -20,7 +20,7 @@ export const scheduleSchema = z
       .max(255)
       .optional()
       .nullable(),
-    date: z.string().datetime("date harus berupa datetime ISO yang valid."),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date harus berformat YYYY-MM-DD."),
     startTime: z.string().regex(timeRegex, { message: "startTime harus berformat HH:MM." }),
     endTime: z.string().regex(timeRegex, { message: "endTime harus berformat HH:MM." }),
   })

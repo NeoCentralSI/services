@@ -385,3 +385,12 @@ export async function getStudentAssessmentView(req, res, next) {
     next(error);
   }
 }
+
+export async function downloadInvitationLetter(req, res, next) {
+  try {
+    const pdfBuffer = await coreService.generateInvitationLetter(req.params.id, req.query.nomorSurat);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=Surat-Undangan-Sidang-TA.pdf`);
+    res.send(pdfBuffer);
+  } catch (error) { next(error); }
+}

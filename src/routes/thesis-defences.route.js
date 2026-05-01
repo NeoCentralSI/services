@@ -82,6 +82,7 @@ router.patch("/:id", requireAnyRole([ROLES.ADMIN]), validate(updateDefenceSchema
 router.delete("/:id", requireAnyRole([ROLES.ADMIN]), ctrl.deleteArchive);
 router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelDefenceSchema), ctrl.cancelDefence);
 router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
+router.get("/:id/invitation-letter", requireAnyRole([ROLES.ADMIN]), ctrl.downloadInvitationLetter);
 
 // ============================================================
 // STUDENT: Document upload & revisions
