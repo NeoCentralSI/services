@@ -86,6 +86,26 @@ export async function findAllDefences({ search, status } = {}) {
   return Promise.all(data.map(async (d) => ({ ...d, examiners: await enrichExaminers(d.examiners) })));
 }
 
+export async function findDefencesPaginated({ where = {}, skip = 0, take = 10 } = {}) {
+  const [data, total] = await Promise.all([
+    prisma.thesisDefence.findMany({
+      where,
+      include: defenceListInclude,
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.thesisDefence.count({ where }),
+  ]);
+
+  const enriched = await Promise.all(data.map(async (d) => ({ 
+    ...d, 
+    examiners: await enrichExaminers(d.examiners) 
+  })));
+
+  return { data: enriched, total };
+}
+
 export async function findDefencesForAssignment({ search } = {}) {
   const where = { status: { in: ["verified", "examiner_assigned"] }, ...whereSearch(search) };
   const data = await prisma.thesisDefence.findMany({
@@ -175,9 +195,6 @@ export async function updateDefenceStatus(defenceId, status) {
   return prisma.thesisDefence.update({ where: { id: defenceId }, data: { status } });
 }
 
-  });
-}
-
 export async function deleteDefence(id) {
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefenceDocument.deleteMany({ where: { thesisDefenceId: id } });
@@ -196,12 +213,13 @@ export async function createArchive(data) {
     const defence = await tx.thesisDefence.create({
       data: {
         thesisId,
-        date: new Date(date),
+        date: date ? new Date(date) : undefined,
         roomId,
         status,
-        registeredAt: new Date(),
+        registeredAt: null, // Mark as archive
         resultFinalizedAt: new Date(),
-        resultFinalizedBy: userId,
+        // resultFinalizedBy must be a ThesisSupervisors.id, not User.id
+        // For archives, we leave it null or find a supervisor if needed.
       },
     });
 
@@ -210,6 +228,7 @@ export async function createArchive(data) {
         data: examinerLecturerIds.map((lecturerId, index) => ({
           thesisDefenceId: defence.id,
           lecturerId,
+          assignedBy: userId, // This refers to User.id
           order: index + 1,
           availabilityStatus: "available",
           assignedAt: new Date(),
@@ -223,9 +242,9 @@ export async function createArchive(data) {
 }
 
 export async function updateArchive(id, data) {
-  const { date, roomId, status, examinerLecturerIds } = data;
+  const { date, roomId, status, examinerLecturerIds, userId } = data;
   return prisma.$transaction(async (tx) => {
-    const defence = await tx.thesisDefence.update({
+    await tx.thesisDefence.update({
       where: { id },
       data: {
         date: date ? new Date(date) : undefined,
@@ -235,46 +254,24 @@ export async function updateArchive(id, data) {
     });
 
     if (examinerLecturerIds) {
-      // Remove old examiners that are not in the new list
-      await tx.thesisDefenceExaminer.deleteMany({
-        where: {
-          thesisDefenceId: id,
-          lecturerId: { notIn: examinerLecturerIds },
-        },
-      });
-
-      // Find existing examiners
-      const existing = await tx.thesisDefenceExaminer.findMany({
-        where: { thesisDefenceId: id },
-        select: { lecturerId: true },
-      });
-      const existingIds = existing.map((e) => e.lecturerId);
-
-      // Add new examiners
-      const toAdd = examinerLecturerIds.filter((lid) => !existingIds.includes(lid));
-      if (toAdd.length > 0) {
+      // Refresh examiners to ensure all have assignedBy and correct order
+      await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
+      if (examinerLecturerIds.length > 0) {
         await tx.thesisDefenceExaminer.createMany({
-          data: toAdd.map((lecturerId) => ({
+          data: examinerLecturerIds.map((lecturerId, index) => ({
             thesisDefenceId: id,
             lecturerId,
-            order: examinerLecturerIds.indexOf(lecturerId) + 1,
+            assignedBy: userId,
+            order: index + 1,
             availabilityStatus: "available",
             assignedAt: new Date(),
             respondedAt: new Date(),
           })),
         });
       }
-
-      // Update order for all
-      for (let i = 0; i < examinerLecturerIds.length; i++) {
-        await tx.thesisDefenceExaminer.updateMany({
-          where: { thesisDefenceId: id, lecturerId: examinerLecturerIds[i] },
-          data: { order: i + 1 },
-        });
-      }
     }
 
-    return defence;
+    return await tx.thesisDefence.findUnique({ where: { id } });
   });
 }
 

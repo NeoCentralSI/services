@@ -2,6 +2,7 @@ import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { uploadSeminarDocFile } from "../middlewares/file.middleware.js";
+import upload from "../middlewares/file.middleware.js";
 import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
 import { populateProfile } from "../middlewares/thesis-seminar.middleware.js";
 import * as ctrl from "../controllers/thesis-defence.controller.js";
@@ -26,23 +27,28 @@ router.use(authGuard);
 router.use(populateProfile);
 
 // ============================================================
+// ADMIN ONLY: Global Options, Templates, & Imports
+// ============================================================
+// Using a sub-router for options to ensure clean separation
+const optionsRouter = express.Router();
+optionsRouter.use(requireAnyRole([ROLES.ADMIN]));
+optionsRouter.get("/theses", ctrl.getThesisOptions);
+optionsRouter.get("/lecturers", ctrl.getLecturerOptions);
+optionsRouter.get("/students", ctrl.getStudentOptions);
+optionsRouter.get("/rooms", ctrl.getRoomOptions);
+
+router.use("/options", optionsRouter);
+
+// Archive exports & imports
+router.get("/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportArchive);
+router.post("/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importArchive);
+
+// ============================================================
 // STUDENT ONLY: Self overview, history, document types
 // ============================================================
 router.get("/me/overview", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentOverview);
 router.get("/me/history", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentHistory);
 router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocumentTypes);
-
-// ============================================================
-// ADMIN ONLY: Global Options, Templates, & Imports
-// ============================================================
-router.use("/options", requireAnyRole([ROLES.ADMIN]));
-router.get("/options/theses", ctrl.getThesisOptions);
-router.get("/options/lecturers", ctrl.getLecturerOptions);
-router.get("/options/students", ctrl.getStudentOptions);
-router.get("/options/rooms", ctrl.getRoomOptions);
-
-router.get("/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportArchive);
-router.post("/import", requireAnyRole([ROLES.ADMIN]), ctrl.importArchive);
 
 // ============================================================
 // SHARED: list & detail

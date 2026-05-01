@@ -20,7 +20,7 @@ export const scheduleSchema = z
       .max(255)
       .optional()
       .nullable(),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "date harus berformat YYYY-MM-DD." }),
+    date: z.string().datetime("date harus berupa datetime ISO yang valid."),
     startTime: z.string().regex(timeRegex, { message: "startTime harus berformat HH:MM." }),
     endTime: z.string().regex(timeRegex, { message: "endTime harus berformat HH:MM." }),
   })
@@ -125,7 +125,7 @@ export const revisionActionSchema = z
 
 export const createDefenceSchema = z.object({
   thesisId: z.string().uuid("thesisId harus berupa UUID yang valid."),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "date harus berformat YYYY-MM-DD." }),
+  date: z.string().datetime("date harus berupa datetime ISO yang valid."),
   roomId: z.string().uuid("roomId harus berupa UUID yang valid."),
   status: z.enum(["passed", "passed_with_revision", "failed"]),
   examinerLecturerIds: z.array(z.string().uuid()).min(1, "Minimal satu penguji harus dipilih"),

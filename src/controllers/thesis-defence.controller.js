@@ -10,8 +10,10 @@ import * as studentService from "../services/thesis-defence-student.service.js";
 
 export async function getDefences(req, res, next) {
   try {
-    const { search, status, view } = req.query;
+    const { page, pageSize, search, status, view } = req.query;
     const result = await coreService.getDefenceList({
+      page: parseInt(page) || 1,
+      pageSize: parseInt(pageSize) || 10,
       search: search || "",
       status: status || null,
       view: view || null,
@@ -41,6 +43,9 @@ export async function getSchedulingData(req, res, next) {
   }
 }
 
+export async function setSchedule(req, res, next) {
+  try {
+    const result = await coreService.setSchedule(req.params.id, req.body);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

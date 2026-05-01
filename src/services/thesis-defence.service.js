@@ -11,19 +11,176 @@ function throwError(message, statusCode) {
 
 const STATUS_PRIORITY = {
   registered: 0,
-  examiner_assigned: 1,
-  verified: 2,
+  verified: 1,
+  examiner_assigned: 2,
   scheduled: 3,
-  ongoing: 3,
-  passed: 4,
-  passed_with_revision: 4,
-  failed: 4,
-  cancelled: 4,
+  ongoing: 4,
+  passed: 5,
+  passed_with_revision: 5,
+  failed: 5,
+  cancelled: 5,
 };
+
+const RESULT_STATUSES = ["passed", "passed_with_revision", "failed", "cancelled"];
+
+function buildSearchWhere(search) {
+  if (!search) return {};
+  return {
+    thesis: {
+      OR: [
+        { title: { contains: search } },
+        { student: { user: { fullName: { contains: search } } } },
+        { student: { user: { identityNumber: { contains: search } } } },
+      ],
+    },
+  };
+}
+
+function parseStatusFilter(status) {
+  if (!status) return { requested: [], database: [] };
+  const requested = String(status)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const database = [...new Set(requested.map((item) => (item === "ongoing" ? "scheduled" : item)))];
+  return { requested, database };
+}
+
+// ============================================================
+// LIST
+// ============================================================
+
+export async function getDefenceList({ search, status, view, page = 1, pageSize = 10, user = {} } = {}) {
+  if (view === "archive") return getArchiveList({ search, page, pageSize, status });
+  if (view === "assignment") return getAssignmentList({ search });
+  if (view === "supervised_students" && user.lecturerId) {
+    const data = await coreRepo.findDefencesBySupervisor(user.lecturerId, { search });
+    return mapLecturerDefenceList(data, user.lecturerId, "supervisor");
+  }
+  if (view === "examiner_requests" && user.lecturerId) {
+    const data = await coreRepo.findDefencesByExaminer(user.lecturerId, { search });
+    return mapLecturerDefenceList(data, user.lecturerId, "examiner");
+  }
+  return getAdminList({ search, status });
+}
+
+async function getArchiveList({ search, page, pageSize, status }) {
+  const skip = (page - 1) * pageSize;
+  const statusFilter = parseStatusFilter(status);
+  const archiveStatuses = statusFilter.database.length > 0
+    ? statusFilter.database.filter((item) => RESULT_STATUSES.includes(item))
+    : RESULT_STATUSES;
+  
+  const where = { status: { in: archiveStatuses }, ...buildSearchWhere(search) };
+  const { data, total } = await coreRepo.findDefencesPaginated({ where, skip, take: pageSize });
+
+  return {
+    defences: data.map((d) => ({
+      id: d.id,
+      thesisId: d.thesisId,
+      thesisTitle: d.thesis?.title || "-",
+      student: {
+        id: d.thesis?.student?.id || null,
+        fullName: d.thesis?.student?.user?.fullName || "-",
+        nim: d.thesis?.student?.user?.identityNumber || "-",
+      },
+      date: d.date,
+      room: d.room,
+      status: d.status,
+      isEditable: d.registeredAt === null || d.status !== "cancelled",
+      examiners: (d.examiners || []).map((e) => ({
+        id: e.id,
+        lecturerId: e.lecturerId,
+        lecturerName: e.lecturerName || "-",
+        order: e.order,
+      })),
+    })),
+    meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+  };
+}
+
+async function getAdminList({ search, status }) {
+  const statusFilter = parseStatusFilter(status);
+  const where = { ...buildSearchWhere(search) };
+  
+  if (statusFilter.database.length === 1) {
+    where.status = statusFilter.database[0];
+  } else if (statusFilter.database.length > 1) {
+    where.status = { in: statusFilter.database };
+  }
+
+  const data = await coreRepo.findAllDefences({ search, status: where.status });
+  const docTypes = await docRepo.getDefenceDocumentTypes();
+  
+  const mapped = data.map((d) => ({
+    id: d.id,
+    thesisId: d.thesisId,
+    studentName: d.thesis?.student?.user?.fullName || "-",
+    studentNim: d.thesis?.student?.user?.identityNumber || "-",
+    thesisTitle: d.thesis?.title || "-",
+    supervisors: (d.thesis?.thesisSupervisors || []).map((ts) => ({
+      name: ts.lecturer?.user?.fullName || "-",
+      role: ts.role?.name || "-",
+    })),
+    status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
+    registeredAt: d.registeredAt,
+    date: d.date,
+    startTime: d.startTime,
+    endTime: d.endTime,
+    room: d.room,
+    examiners: (d.examiners || []).map((e) => ({
+      id: e.id,
+      lecturerId: e.lecturerId,
+      lecturerName: e.lecturerName || "-",
+      order: e.order,
+      availabilityStatus: e.availabilityStatus,
+    })),
+    documentSummary: {
+      total: docTypes.length,
+      submitted: (d.documents || []).filter((doc) => doc.status === "submitted").length,
+      approved: (d.documents || []).filter((doc) => doc.status === "approved").length,
+      declined: (d.documents || []).filter((doc) => doc.status === "declined").length,
+    },
+  }));
+
+  const filtered = statusFilter.requested.length > 0
+    ? mapped.filter((item) => statusFilter.requested.includes(item.status))
+    : mapped;
+
+  filtered.sort((a, b) => {
+    const pa = STATUS_PRIORITY[a.status] ?? 99;
+    const pb = STATUS_PRIORITY[b.status] ?? 99;
+    if (pa !== pb) return pa - pb;
+    
+    return (a.registeredAt ? new Date(a.registeredAt).getTime() : 0) - 
+           (b.registeredAt ? new Date(b.registeredAt).getTime() : 0);
+  });
+
+  return filtered;
+}
+
+function mapLecturerDefenceList(data, lecturerId, role) {
+  return data.map((d) => ({
+    id: d.id,
+    thesisId: d.thesisId,
+    studentName: d.thesis?.student?.user?.fullName || "-",
+    studentNim: d.thesis?.student?.user?.identityNumber || "-",
+    thesisTitle: d.thesis?.title || "-",
+    supervisors: (d.thesis?.thesisSupervisors || []).map((ts) => ({
+      name: ts.lecturer?.user?.fullName || "-",
+      role: ts.role?.name || "-",
+    })),
+    status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
+    date: d.date,
+    startTime: d.startTime,
+    endTime: d.endTime,
+    room: d.room,
+    myRole: role,
+  }));
+}
 
 const ASSIGNMENT_ORDER = { unassigned: 0, rejected: 1, partially_rejected: 2, pending: 3, confirmed: 4 };
 
-const RESULT_STATUSES = ["passed", "passed_with_revision", "failed"];
 
 function getAssignmentStatus(activeExaminers, totalExaminerCount = 0) {
   if (!activeExaminers || activeExaminers.length === 0) {
@@ -31,6 +188,51 @@ function getAssignmentStatus(activeExaminers, totalExaminerCount = 0) {
   }
   const allAvailable = activeExaminers.every((e) => e.availabilityStatus === "available");
   return allAvailable ? "confirmed" : "pending";
+}
+
+async function getAssignmentList({ search }) {
+  const data = await coreRepo.findDefencesForAssignment({ search });
+  const mapped = data.map((d) => {
+    const activeExaminers = (d.examiners || []).filter((e) =>
+      ["available", "pending"].includes(e.availabilityStatus)
+    );
+    const rejectedExaminers = (d.examiners || []).filter((e) => e.availabilityStatus === "unavailable");
+
+    return {
+      id: d.id,
+      thesisId: d.thesisId,
+      studentName: d.thesis?.student?.user?.fullName || "-",
+      studentNim: d.thesis?.student?.user?.identityNumber || "-",
+      thesisTitle: d.thesis?.title || "-",
+      supervisors: (d.thesis?.thesisSupervisors || []).map((ts) => ({
+        name: ts.lecturer?.user?.fullName || "-",
+        role: ts.role?.name || "-",
+      })),
+      status: d.status,
+      registeredAt: d.registeredAt,
+      assignmentStatus: getAssignmentStatus(activeExaminers, (d.examiners || []).length),
+      examiners: activeExaminers.map((e) => ({
+        id: e.id,
+        lecturerId: e.lecturerId,
+        lecturerName: e.lecturerName || "-",
+        order: e.order,
+        availabilityStatus: e.availabilityStatus,
+        respondedAt: e.respondedAt,
+      })),
+      rejectedExaminers: rejectedExaminers.map((e) => ({
+        id: e.id,
+        lecturerId: e.lecturerId,
+        lecturerName: e.lecturerName || "-",
+        order: e.order,
+        availabilityStatus: e.availabilityStatus,
+        respondedAt: e.respondedAt,
+        assignedAt: e.assignedAt,
+      })),
+    };
+  });
+
+  mapped.sort((a, b) => (ASSIGNMENT_ORDER[a.assignmentStatus] ?? 99) - (ASSIGNMENT_ORDER[b.assignmentStatus] ?? 99));
+  return mapped;
 }
 
 export function mapScoreToGrade(score) {
@@ -44,186 +246,6 @@ export function mapScoreToGrade(score) {
   if (s >= 50 && s < 55) return "C";
   if (s >= 45 && s < 50) return "D";
   return "E";
-}
-
-// ============================================================
-// LIST
-// ============================================================
-
-export async function getDefenceList({ search, status, view, user = {} } = {}) {
-  if (view === "assignment") return getAssignmentList({ search });
-  if (view === "examiner_requests" && user.lecturerId) {
-    return getExaminerRequestsList(user.lecturerId, { search });
-  }
-  if (view === "supervised_students" && user.lecturerId) {
-    return getSupervisedStudentsList(user.lecturerId, { search });
-  }
-  return getAdminList({ search, status });
-}
-
-async function getAdminList({ search, status }) {
-  const defences = await coreRepo.findAllDefences({ search, status });
-  const docTypes = await docRepo.getDefenceDocumentTypes();
-  const totalDocTypes = docTypes.length;
-
-  const mapped = defences.map((d) => {
-    const student = d.thesis?.student;
-    const supervisors = (d.thesis?.thesisSupervisors || []).map((ts) => ({
-      name: ts.lecturer?.user?.fullName || "-",
-      role: ts.role?.name || "-",
-    }));
-    const documents = d.documents || [];
-    return {
-      id: d.id,
-      thesisId: d.thesis?.id || null,
-      studentName: student?.user?.fullName || "-",
-      studentNim: student?.user?.identityNumber || "-",
-      thesisTitle: d.thesis?.title || "-",
-      supervisors,
-      status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
-      registeredAt: d.registeredAt,
-      date: d.date,
-      startTime: d.startTime,
-      endTime: d.endTime,
-      documentSummary: {
-        total: totalDocTypes,
-        submitted: documents.filter((x) => x.status === "submitted").length,
-        approved: documents.filter((x) => x.status === "approved").length,
-        declined: documents.filter((x) => x.status === "declined").length,
-      },
-    };
-  });
-
-  mapped.sort((a, b) => {
-    const pa = STATUS_PRIORITY[a.status] ?? 99;
-    const pb = STATUS_PRIORITY[b.status] ?? 99;
-    if (pa !== pb) return pa - pb;
-    const dateA = a.registeredAt ? new Date(a.registeredAt).getTime() : 0;
-    const dateB = b.registeredAt ? new Date(b.registeredAt).getTime() : 0;
-    return dateA - dateB;
-  });
-
-  return mapped;
-}
-
-async function getAssignmentList({ search }) {
-  const defences = await coreRepo.findDefencesForAssignment({ search });
-
-  const mapped = defences.map((d) => {
-    const student = d.thesis?.student;
-    const supervisors = (d.thesis?.thesisSupervisors || []).map((ts) => ({
-      name: ts.lecturer?.user?.fullName || "-",
-      role: ts.role?.name || "-",
-    }));
-
-    const activeExaminers = (d.examiners || []).filter(
-      (e) => e.availabilityStatus === "available" || e.availabilityStatus === "pending"
-    );
-
-    return {
-      id: d.id,
-      thesisId: d.thesis?.id || null,
-      studentName: student?.user?.fullName || "-",
-      studentNim: student?.user?.identityNumber || "-",
-      thesisTitle: d.thesis?.title || "-",
-      supervisors,
-      status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
-      registeredAt: d.registeredAt,
-      assignmentStatus: getAssignmentStatus(activeExaminers, (d.examiners || []).length),
-      examiners: activeExaminers.map((e) => ({
-        id: e.id,
-        lecturerId: e.lecturerId,
-        lecturerName: e.lecturerName || "-",
-        order: e.order,
-        availabilityStatus: e.availabilityStatus,
-        respondedAt: e.respondedAt,
-      })),
-    };
-  });
-
-  mapped.sort((a, b) => {
-    const pa = ASSIGNMENT_ORDER[a.assignmentStatus] ?? 99;
-    const pb = ASSIGNMENT_ORDER[b.assignmentStatus] ?? 99;
-    if (pa !== pb) return pa - pb;
-    const dateA = a.registeredAt ? new Date(a.registeredAt).getTime() : 0;
-    const dateB = b.registeredAt ? new Date(b.registeredAt).getTime() : 0;
-    return dateA - dateB;
-  });
-
-  return mapped;
-}
-
-async function getExaminerRequestsList(lecturerId, { search } = {}) {
-  const defences = await coreRepo.findDefencesByExaminer(lecturerId, { search });
-
-  return defences.map((d) => {
-    const student = d.thesis?.student;
-    const supervisors = (d.thesis?.thesisSupervisors || []).map((ts) => ({
-      name: ts.lecturer?.user?.fullName || "-",
-      role: ts.role?.name || "-",
-    }));
-    const myExaminers = (d.examiners || [])
-      .filter((e) => e.lecturerId === lecturerId)
-      .sort((a, b) => new Date(b.assignedAt) - new Date(a.assignedAt));
-    const myExaminer = myExaminers[0];
-
-    return {
-      id: d.id,
-      thesisId: d.thesis?.id || null,
-      studentName: student?.user?.fullName || "-",
-      studentNim: student?.user?.identityNumber || "-",
-      thesisTitle: d.thesis?.title || "-",
-      supervisors,
-      status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
-      registeredAt: d.registeredAt,
-      date: d.date,
-      startTime: d.startTime,
-      endTime: d.endTime,
-      room: d.room ? { id: d.room.id, name: d.room.name } : null,
-      myExaminerStatus: myExaminer?.availabilityStatus || null,
-      myExaminerId: myExaminer?.id || null,
-      myExaminerOrder: myExaminer?.order || null,
-    };
-  });
-}
-
-async function getSupervisedStudentsList(lecturerId, { search } = {}) {
-  const defences = await coreRepo.findDefencesBySupervisor(lecturerId, { search });
-
-  return defences.map((d) => {
-    const student = d.thesis?.student;
-    const supervisors = (d.thesis?.thesisSupervisors || []).map((ts) => ({
-      name: ts.lecturer?.user?.fullName || "-",
-      role: ts.role?.name || "-",
-    }));
-    const myRole = (d.thesis?.thesisSupervisors || []).find((ts) => ts.lecturerId === lecturerId);
-    const activeExaminers = (d.examiners || []).filter(
-      (e) => e.availabilityStatus === "available" || e.availabilityStatus === "pending"
-    );
-
-    return {
-      id: d.id,
-      thesisId: d.thesis?.id || null,
-      studentName: student?.user?.fullName || "-",
-      studentNim: student?.user?.identityNumber || "-",
-      thesisTitle: d.thesis?.title || "-",
-      supervisors,
-      status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
-      registeredAt: d.registeredAt,
-      date: d.date,
-      startTime: d.startTime,
-      endTime: d.endTime,
-      room: d.room ? { id: d.room.id, name: d.room.name } : null,
-      myRole: myRole?.role?.name || "Pembimbing",
-      examiners: activeExaminers.map((e) => ({
-        id: e.id,
-        lecturerId: e.lecturerId,
-        lecturerName: e.lecturerName || "-",
-        order: e.order,
-        availabilityStatus: e.availabilityStatus,
-      })),
-    };
-  });
 }
 
 // ============================================================
@@ -428,6 +450,10 @@ export async function scheduleDefence(defenceId, { roomId, date, startTime, endT
   return { defenceId, status: "scheduled" };
 }
 
+export async function setSchedule(defenceId, payload) {
+  return scheduleDefence(defenceId, payload);
+}
+
 export async function finalizeSchedule(defenceId) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
@@ -477,7 +503,7 @@ export async function updateArchive(defenceId, body, userId) {
 
   await validateExaminers(defence.thesisId, body.examinerLecturerIds);
   
-  await coreRepo.updateArchive(defenceId, body);
+  await coreRepo.updateArchive(defenceId, { ...body, userId });
   return coreRepo.findDefenceById(defenceId);
 }
 
@@ -556,7 +582,7 @@ export async function exportArchive() {
 
   const data = archived.map((d, i) => {
     const sups = (d.thesis?.thesisSupervisors || []).map(s => s.lecturer?.user?.fullName).filter(Boolean).join(", ");
-    const exams = (d.examiners || []).map(e => e.lecturerName).filter(Boolean).join("; ");
+    const examiners = (d.examiners || []).map(e => e.lecturerName).filter(Boolean);
     let hasil = d.status === "passed" ? "Lulus" : d.status === "passed_with_revision" ? "Lulus dengan Revisi" : "Gagal";
     const date = d.date ? new Date(d.date) : null;
     
@@ -569,7 +595,9 @@ export async function exportArchive() {
       "Tanggal": date ? date.toISOString().split("T")[0] : "-",
       "Ruangan": d.room?.name || "-",
       "Hasil": hasil,
-      "Dosen Penguji": exams || "-",
+      "Dosen Penguji 1": examiners[0] || "-",
+      "Dosen Penguji 2": examiners[1] || "-",
+      "Dosen Penguji 3": examiners[2] || "-",
     };
   });
 
@@ -584,8 +612,12 @@ export async function importArchive(fileBuffer, userId) {
   const rows = xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
   const results = { total: rows.length, successCount: 0, failed: 0, failedRows: [] };
 
-  const rooms = await coreRepo.findAllRooms();
-  const lecturers = await coreRepo.getLecturerOptions();
+  const [rooms, lecturers, students, theses] = await Promise.all([
+    coreRepo.findAllRooms(),
+    coreRepo.getLecturerOptions(),
+    coreRepo.getStudentOptions(),
+    coreRepo.getThesisOptions(),
+  ]);
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -593,12 +625,9 @@ export async function importArchive(fileBuffer, userId) {
       const nim = String(row["NIM"] || "").trim();
       if (!nim) throw new Error("NIM kosong");
 
-      // Find student and thesis
-      const students = await coreRepo.getStudentOptions();
       const student = students.find(s => s.user.identityNumber === nim);
       if (!student) throw new Error(`NIM ${nim} tidak ditemukan`);
 
-      const theses = await coreRepo.getThesisOptions();
       const thesis = theses.find(t => t.student?.user?.identityNumber === nim);
       if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
 
@@ -624,7 +653,15 @@ export async function importArchive(fileBuffer, userId) {
         if (!isNaN(p.getTime())) date = p.toISOString();
       }
 
-      const examinerNames = String(row["Dosen Penguji"] || "").split(";").map(n => n.trim()).filter(Boolean);
+      const examinerColumns = [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]]
+        .map((value) => String(value || "").trim())
+        .filter((value) => value && value !== "-" && !value.includes("Opsional"));
+      const fallbackExaminerColumn = String(row["Dosen Penguji"] || "")
+        .split(";")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const examinerNames = examinerColumns.length > 0 ? examinerColumns : fallbackExaminerColumn;
+
       const examinerLecturerIds = [];
       for (const name of examinerNames) {
         const lec = lecturers.find(l => l.user.fullName.toLowerCase().includes(name.toLowerCase()));
@@ -646,7 +683,7 @@ export async function importArchive(fileBuffer, userId) {
       results.successCount++;
     } catch (err) {
       results.failed++;
-      results.failedRows.push({ row: i + 2, error: err.message });
+      results.failedRows.push({ row: i + 2, error: err.message.includes("prisma") ? "Format data tidak valid." : err.message });
     }
   }
   return results;
