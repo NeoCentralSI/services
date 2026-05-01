@@ -122,3 +122,17 @@ export const revisionActionSchema = z
       });
     }
   });
+
+export const createDefenceSchema = z.object({
+  thesisId: z.string().uuid("thesisId harus berupa UUID yang valid."),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "date harus berformat YYYY-MM-DD." }),
+  roomId: z.string().uuid("roomId harus berupa UUID yang valid."),
+  status: z.enum(["passed", "passed_with_revision", "failed"]),
+  examinerLecturerIds: z.array(z.string().uuid()).min(1, "Minimal satu penguji harus dipilih"),
+});
+
+export const updateDefenceSchema = createDefenceSchema.partial().omit({ thesisId: true });
+
+export const cancelDefenceSchema = z.object({
+  cancelledReason: z.string().trim().optional().nullable(),
+});

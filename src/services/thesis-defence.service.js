@@ -1,3 +1,4 @@
+import xlsx from "xlsx";
 import * as coreRepo from "../repositories/thesis-defence.repository.js";
 import * as docRepo from "../repositories/thesis-defence-doc.repository.js";
 import { computeEffectiveDefenceStatus } from "../utils/defenceStatus.util.js";
@@ -21,6 +22,8 @@ const STATUS_PRIORITY = {
 };
 
 const ASSIGNMENT_ORDER = { unassigned: 0, rejected: 1, partially_rejected: 2, pending: 3, confirmed: 4 };
+
+const RESULT_STATUSES = ["passed", "passed_with_revision", "failed"];
 
 function getAssignmentStatus(activeExaminers, totalExaminerCount = 0) {
   if (!activeExaminers || activeExaminers.length === 0) {
@@ -423,4 +426,228 @@ export async function scheduleDefence(defenceId, { roomId, date, startTime, endT
   });
 
   return { defenceId, status: "scheduled" };
+}
+
+export async function finalizeSchedule(defenceId) {
+  const defence = await coreRepo.findDefenceBasicById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.status !== "scheduled") throwError("Hanya sidang yang sudah dijadwalkan yang dapat difinalisasi.", 400);
+
+  await coreRepo.updateDefenceStatus(defenceId, "ongoing");
+  return { defenceId, status: "ongoing" };
+}
+
+export async function cancelDefence(defenceId, { cancelledReason }) {
+  const defence = await coreRepo.findDefenceBasicById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+
+  await coreRepo.updateDefence(defenceId, {
+    status: "cancelled",
+    cancelledReason: cancelledReason || null,
+  });
+
+  return { defenceId, status: "cancelled" };
+}
+
+export async function createArchive(body, userId) {
+  if (!RESULT_STATUSES.includes(body.status)) throwError("Status sidang tidak valid", 400);
+  
+  // Validate if thesis exists
+  const theses = await coreRepo.getThesisOptions();
+  const thesis = theses.find(t => t.id === body.thesisId);
+  if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
+
+  // Check for duplicate result
+  const existing = thesis.thesisDefences[0];
+  if (existing && RESULT_STATUSES.includes(existing.status)) {
+    throwError("Tugas Akhir ini sudah memiliki data sidang tugas akhir lain.", 409);
+  }
+
+  await validateExaminers(body.thesisId, body.examinerLecturerIds);
+  
+  const created = await coreRepo.createArchive({ ...body, userId });
+  return coreRepo.findDefenceById(created.id);
+}
+
+export async function updateArchive(defenceId, body, userId) {
+  if (!RESULT_STATUSES.includes(body.status)) throwError("Status sidang tidak valid", 400);
+  
+  const defence = await coreRepo.findDefenceBasicById(defenceId);
+  if (!defence) throwError("Data sidang tidak ditemukan", 404);
+
+  await validateExaminers(defence.thesisId, body.examinerLecturerIds);
+  
+  await coreRepo.updateArchive(defenceId, body);
+  return coreRepo.findDefenceById(defenceId);
+}
+
+export async function deleteArchive(defenceId) {
+  const defence = await coreRepo.findDefenceBasicById(defenceId);
+  if (!defence) throwError("Data sidang tidak ditemukan", 404);
+  
+  await coreRepo.deleteDefence(defenceId);
+  return { success: true };
+}
+
+async function validateExaminers(thesisId, ids) {
+  const unique = [...new Set(ids || [])];
+  if (unique.length < 1) throwError("Minimal 1 dosen penguji harus dipilih", 400);
+  
+  // In a real app, we'd fetch supervisors for this thesis and check them
+  // For now, let's assume coreRepo has a way or just check from the options
+  const theses = await coreRepo.getThesisOptions();
+  const thesis = theses.find(t => t.id === thesisId);
+  if (thesis) {
+    const sups = thesis.thesisSupervisors.map(s => s.lecturerId);
+    if (unique.some(id => sups.includes(id))) {
+      throwError("Dosen pembimbing tidak boleh menjadi dosen penguji", 400);
+    }
+  }
+}
+
+// ============================================================
+// OPTIONS
+// ============================================================
+
+export async function getThesisOptions() {
+  const data = await coreRepo.getThesisOptions();
+  return data.map(t => ({
+    id: t.id,
+    thesisTitle: t.title,
+    studentName: t.student?.user?.fullName || "-",
+    studentNim: t.student?.user?.identityNumber || "-",
+    hasDefenceResult: t.thesisDefences.length > 0 && RESULT_STATUSES.includes(t.thesisDefences[0].status),
+    defenceResultId: t.thesisDefences[0]?.id || null,
+    supervisorIds: t.thesisSupervisors.map(s => s.lecturerId),
+  }));
+}
+
+export async function getLecturerOptions() {
+  const data = await coreRepo.getLecturerOptions();
+  return data.map(l => ({
+    id: l.id,
+    fullName: l.user?.fullName || "-",
+    nip: l.user?.identityNumber || "-",
+  }));
+}
+
+export async function getStudentOptions() {
+  const data = await coreRepo.getStudentOptions();
+  return data.map(s => ({
+    id: s.id,
+    fullName: s.user?.fullName || "-",
+    nip: s.user?.identityNumber || "-",
+  }));
+}
+
+export async function getRoomOptions() {
+  const rooms = await coreRepo.findAllRooms();
+  return rooms.map(r => ({ id: r.id, name: r.name }));
+}
+
+// ============================================================
+// IMPORT/EXPORT
+// ============================================================
+
+export async function exportArchive() {
+  const defences = await coreRepo.findAllDefences();
+  // Filter for archived results only
+  const archived = defences.filter(d => RESULT_STATUSES.includes(d.status));
+
+  const data = archived.map((d, i) => {
+    const sups = (d.thesis?.thesisSupervisors || []).map(s => s.lecturer?.user?.fullName).filter(Boolean).join(", ");
+    const exams = (d.examiners || []).map(e => e.lecturerName).filter(Boolean).join("; ");
+    let hasil = d.status === "passed" ? "Lulus" : d.status === "passed_with_revision" ? "Lulus dengan Revisi" : "Gagal";
+    const date = d.date ? new Date(d.date) : null;
+    
+    return {
+      "No": i + 1,
+      "Nama": d.studentName || "-",
+      "NIM": d.studentNim || "-",
+      "Judul TA": d.thesisTitle || "-",
+      "Pembimbing": sups || "-",
+      "Tanggal": date ? date.toISOString().split("T")[0] : "-",
+      "Ruangan": d.room?.name || "-",
+      "Hasil": hasil,
+      "Dosen Penguji": exams || "-",
+    };
+  });
+
+  const ws = xlsx.utils.json_to_sheet(data);
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, "Arsip Sidang TA");
+  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+}
+
+export async function importArchive(fileBuffer, userId) {
+  const wb = xlsx.read(fileBuffer, { type: "buffer" });
+  const rows = xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  const results = { total: rows.length, successCount: 0, failed: 0, failedRows: [] };
+
+  const rooms = await coreRepo.findAllRooms();
+  const lecturers = await coreRepo.getLecturerOptions();
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      const nim = String(row["NIM"] || "").trim();
+      if (!nim) throw new Error("NIM kosong");
+
+      // Find student and thesis
+      const students = await coreRepo.getStudentOptions();
+      const student = students.find(s => s.user.identityNumber === nim);
+      if (!student) throw new Error(`NIM ${nim} tidak ditemukan`);
+
+      const theses = await coreRepo.getThesisOptions();
+      const thesis = theses.find(t => t.student?.user?.identityNumber === nim);
+      if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
+
+      if (thesis.thesisDefences.length > 0) throw new Error("Sudah memiliki data sidang TA");
+
+      const ruangan = String(row["Ruangan"] || "").trim();
+      let roomId = null;
+      if (ruangan && ruangan !== "-") {
+        const room = rooms.find(r => r.name.toLowerCase().includes(ruangan.toLowerCase()));
+        if (!room) throw new Error(`Ruangan "${ruangan}" tidak ditemukan`);
+        roomId = room.id;
+      }
+
+      const hasilStr = String(row["Hasil"] || "").trim().toLowerCase();
+      let status = "failed";
+      if (hasilStr.includes("dengan revisi")) status = "passed_with_revision";
+      else if (hasilStr.includes("lulus")) status = "passed";
+
+      const tgl = String(row["Tanggal"] || "").trim();
+      let date = null;
+      if (tgl && tgl !== "-") {
+        const p = new Date(tgl);
+        if (!isNaN(p.getTime())) date = p.toISOString();
+      }
+
+      const examinerNames = String(row["Dosen Penguji"] || "").split(";").map(n => n.trim()).filter(Boolean);
+      const examinerLecturerIds = [];
+      for (const name of examinerNames) {
+        const lec = lecturers.find(l => l.user.fullName.toLowerCase().includes(name.toLowerCase()));
+        if (lec) examinerLecturerIds.push(lec.id);
+        else throw new Error(`Dosen "${name}" tidak ditemukan`);
+      }
+
+      if (examinerLecturerIds.length < 1) throw new Error("Minimal 1 Dosen Penguji");
+
+      await coreRepo.createArchive({
+        thesisId: thesis.id,
+        date,
+        roomId,
+        status,
+        examinerLecturerIds,
+        userId,
+      });
+
+      results.successCount++;
+    } catch (err) {
+      results.failed++;
+      results.failedRows.push({ row: i + 2, error: err.message });
+    }
+  }
+  return results;
 }

@@ -175,9 +175,143 @@ export async function updateDefenceStatus(defenceId, status) {
   return prisma.thesisDefence.update({ where: { id: defenceId }, data: { status } });
 }
 
-export async function createThesisDefence(thesisId) {
-  return prisma.thesisDefence.create({
-    data: { thesisId, registeredAt: new Date(), status: "registered" },
+  });
+}
+
+export async function deleteDefence(id) {
+  return prisma.$transaction(async (tx) => {
+    await tx.thesisDefenceDocument.deleteMany({ where: { thesisDefenceId: id } });
+    await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
+    await tx.thesisDefenceSupervisorAssessmentDetail.deleteMany({ where: { thesisDefenceId: id } });
+    await tx.thesisDefenceRevision.deleteMany({
+      where: { defenceExaminer: { thesisDefenceId: id } },
+    });
+    return tx.thesisDefence.delete({ where: { id } });
+  });
+}
+
+export async function createArchive(data) {
+  const { thesisId, date, roomId, status, examinerLecturerIds, userId } = data;
+  return prisma.$transaction(async (tx) => {
+    const defence = await tx.thesisDefence.create({
+      data: {
+        thesisId,
+        date: new Date(date),
+        roomId,
+        status,
+        registeredAt: new Date(),
+        resultFinalizedAt: new Date(),
+        resultFinalizedBy: userId,
+      },
+    });
+
+    if (examinerLecturerIds && examinerLecturerIds.length > 0) {
+      await tx.thesisDefenceExaminer.createMany({
+        data: examinerLecturerIds.map((lecturerId, index) => ({
+          thesisDefenceId: defence.id,
+          lecturerId,
+          order: index + 1,
+          availabilityStatus: "available",
+          assignedAt: new Date(),
+          respondedAt: new Date(),
+        })),
+      });
+    }
+
+    return defence;
+  });
+}
+
+export async function updateArchive(id, data) {
+  const { date, roomId, status, examinerLecturerIds } = data;
+  return prisma.$transaction(async (tx) => {
+    const defence = await tx.thesisDefence.update({
+      where: { id },
+      data: {
+        date: date ? new Date(date) : undefined,
+        roomId,
+        status,
+      },
+    });
+
+    if (examinerLecturerIds) {
+      // Remove old examiners that are not in the new list
+      await tx.thesisDefenceExaminer.deleteMany({
+        where: {
+          thesisDefenceId: id,
+          lecturerId: { notIn: examinerLecturerIds },
+        },
+      });
+
+      // Find existing examiners
+      const existing = await tx.thesisDefenceExaminer.findMany({
+        where: { thesisDefenceId: id },
+        select: { lecturerId: true },
+      });
+      const existingIds = existing.map((e) => e.lecturerId);
+
+      // Add new examiners
+      const toAdd = examinerLecturerIds.filter((lid) => !existingIds.includes(lid));
+      if (toAdd.length > 0) {
+        await tx.thesisDefenceExaminer.createMany({
+          data: toAdd.map((lecturerId) => ({
+            thesisDefenceId: id,
+            lecturerId,
+            order: examinerLecturerIds.indexOf(lecturerId) + 1,
+            availabilityStatus: "available",
+            assignedAt: new Date(),
+            respondedAt: new Date(),
+          })),
+        });
+      }
+
+      // Update order for all
+      for (let i = 0; i < examinerLecturerIds.length; i++) {
+        await tx.thesisDefenceExaminer.updateMany({
+          where: { thesisDefenceId: id, lecturerId: examinerLecturerIds[i] },
+          data: { order: i + 1 },
+        });
+      }
+    }
+
+    return defence;
+  });
+}
+
+export async function getThesisOptions() {
+  return prisma.thesis.findMany({
+    select: {
+      id: true,
+      title: true,
+      student: { select: { user: { select: { fullName: true, identityNumber: true } } } },
+      thesisSupervisors: { select: { lecturerId: true } },
+      thesisDefences: {
+        select: { id: true, status: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+    orderBy: { student: { user: { fullName: "asc" } } },
+  });
+}
+
+export async function getLecturerOptions() {
+  return prisma.lecturer.findMany({
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+    orderBy: { user: { fullName: "asc" } },
+  });
+}
+
+export async function getStudentOptions() {
+  return prisma.student.findMany({
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+    orderBy: { user: { fullName: "asc" } },
   });
 }
 

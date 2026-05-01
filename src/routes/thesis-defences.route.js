@@ -8,10 +8,13 @@ import * as ctrl from "../controllers/thesis-defence.controller.js";
 
 import {
   scheduleSchema,
+  createDefenceSchema,
+  updateDefenceSchema,
   assignExaminersSchema,
   respondAssignmentSchema,
   submitAssessmentSchema,
   finalizeDefenceSchema,
+  cancelDefenceSchema,
   createRevisionSchema,
   revisionActionSchema,
 } from "../validators/thesis-defence.validator.js";
@@ -28,6 +31,18 @@ router.use(populateProfile);
 router.get("/me/overview", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentOverview);
 router.get("/me/history", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentHistory);
 router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocumentTypes);
+
+// ============================================================
+// ADMIN ONLY: Global Options, Templates, & Imports
+// ============================================================
+router.use("/options", requireAnyRole([ROLES.ADMIN]));
+router.get("/options/theses", ctrl.getThesisOptions);
+router.get("/options/lecturers", ctrl.getLecturerOptions);
+router.get("/options/students", ctrl.getStudentOptions);
+router.get("/options/rooms", ctrl.getRoomOptions);
+
+router.get("/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportArchive);
+router.post("/import", requireAnyRole([ROLES.ADMIN]), ctrl.importArchive);
 
 // ============================================================
 // SHARED: list & detail
@@ -52,6 +67,15 @@ router.post(
   requireAnyRole([ROLES.ADMIN]),
   ctrl.validateDocument
 );
+
+// ============================================================
+// ADMIN: Archive Management
+// ============================================================
+router.post("/", requireAnyRole([ROLES.ADMIN]), validate(createDefenceSchema), ctrl.createArchive);
+router.patch("/:id", requireAnyRole([ROLES.ADMIN]), validate(updateDefenceSchema), ctrl.updateArchive);
+router.delete("/:id", requireAnyRole([ROLES.ADMIN]), ctrl.deleteArchive);
+router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelDefenceSchema), ctrl.cancelDefence);
+router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
 
 // ============================================================
 // STUDENT: Document upload & revisions

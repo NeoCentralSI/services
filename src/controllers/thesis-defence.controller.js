@@ -41,9 +41,108 @@ export async function getSchedulingData(req, res, next) {
   }
 }
 
-export async function setSchedule(req, res, next) {
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function finalizeSchedule(req, res, next) {
   try {
-    const result = await coreService.scheduleDefence(req.params.id, req.validated);
+    const result = await coreService.finalizeSchedule(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function cancelDefence(req, res, next) {
+  try {
+    const result = await coreService.cancelDefence(req.params.id, req.body);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createArchive(req, res, next) {
+  try {
+    const result = await coreService.createArchive(req.body, req.user.id);
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateArchive(req, res, next) {
+  try {
+    const result = await coreService.updateArchive(req.params.id, req.body, req.user.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteArchive(req, res, next) {
+  try {
+    const result = await coreService.deleteArchive(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getThesisOptions(req, res, next) {
+  try {
+    const result = await coreService.getThesisOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getLecturerOptions(req, res, next) {
+  try {
+    const result = await coreService.getLecturerOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getStudentOptions(req, res, next) {
+  try {
+    const result = await coreService.getStudentOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getRoomOptions(req, res, next) {
+  try {
+    const result = await coreService.getRoomOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportArchive(req, res, next) {
+  try {
+    const buffer = await coreService.exportArchive();
+    res.setHeader("Content-Disposition", 'attachment; filename="Arsip_Sidang_TA.xlsx"');
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function importArchive(req, res, next) {
+  try {
+    if (!req.file) throw Object.assign(new Error("File tidak ditemukan"), { statusCode: 400 });
+    const result = await coreService.importArchive(req.file.buffer, req.user.id);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
