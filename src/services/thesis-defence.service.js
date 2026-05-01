@@ -56,11 +56,11 @@ export async function getDefenceList({ search, status, view, page = 1, pageSize 
   if (view === "assignment") return getAssignmentList({ search });
   if (view === "supervised_students" && user.lecturerId) {
     const data = await coreRepo.findDefencesBySupervisor(user.lecturerId, { search });
-    return mapLecturerDefenceList(data, user.lecturerId, "supervisor");
+    return await mapLecturerDefenceList(data, user.lecturerId, "supervisor");
   }
   if (view === "examiner_requests" && user.lecturerId) {
     const data = await coreRepo.findDefencesByExaminer(user.lecturerId, { search });
-    return mapLecturerDefenceList(data, user.lecturerId, "examiner");
+    return await mapLecturerDefenceList(data, user.lecturerId, "examiner");
   }
   return getAdminList({ search, status });
 }
@@ -162,24 +162,48 @@ async function getAdminList({ search, status }) {
   return filtered;
 }
 
-function mapLecturerDefenceList(data, lecturerId, role) {
-  return data.map((d) => ({
-    id: d.id,
-    thesisId: d.thesisId,
-    studentName: d.thesis?.student?.user?.fullName || "-",
-    studentNim: d.thesis?.student?.user?.identityNumber || "-",
-    thesisTitle: d.thesis?.title || "-",
-    supervisors: (d.thesis?.thesisSupervisors || []).map((ts) => ({
-      name: ts.lecturer?.user?.fullName || "-",
-      role: ts.role?.name || "-",
-    })),
-    status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
-    date: d.date,
-    startTime: d.startTime,
-    endTime: d.endTime,
-    room: d.room,
-    myRole: role,
-  }));
+async function mapLecturerDefenceList(data, lecturerId, role) {
+  const docTypes = await docRepo.getDefenceDocumentTypes();
+  return data.map((d) => {
+    const myExaminer = (d.examiners || []).find((e) => e.lecturerId === lecturerId);
+    const mySupervisor = (d.thesis?.thesisSupervisors || []).find((ts) => ts.lecturerId === lecturerId);
+
+    return {
+      id: d.id,
+      thesisId: d.thesisId,
+      studentName: d.thesis?.student?.user?.fullName || "-",
+      studentNim: d.thesis?.student?.user?.identityNumber || "-",
+      thesisTitle: d.thesis?.title || "-",
+      supervisors: (d.thesis?.thesisSupervisors || []).map((ts) => ({
+        name: ts.lecturer?.user?.fullName || "-",
+        role: ts.role?.name || "-",
+      })),
+      status: computeEffectiveDefenceStatus(d.status, d.date, d.startTime, d.endTime),
+      registeredAt: d.registeredAt,
+      date: d.date,
+      startTime: d.startTime,
+      endTime: d.endTime,
+      room: d.room,
+      examiners: (d.examiners || []).map((e) => ({
+        id: e.id,
+        lecturerId: e.lecturerId,
+        lecturerName: e.lecturerName || "-",
+        order: e.order,
+        availabilityStatus: e.availabilityStatus,
+      })),
+      documentSummary: {
+        total: docTypes.length,
+        submitted: (d.documents || []).filter((doc) => doc.status === "submitted").length,
+        approved: (d.documents || []).filter((doc) => doc.status === "approved").length,
+        declined: (d.documents || []).filter((doc) => doc.status === "declined").length,
+      },
+      // Lecturer specific
+      myRole: mySupervisor?.role?.name || (myExaminer ? "Penguji" : "-"),
+      myExaminerStatus: myExaminer?.availabilityStatus || null,
+      myExaminerId: myExaminer?.id || null,
+      myExaminerOrder: myExaminer?.order || null,
+    };
+  });
 }
 
 const ASSIGNMENT_ORDER = { unassigned: 0, rejected: 1, partially_rejected: 2, pending: 3, confirmed: 4 };
@@ -196,10 +220,11 @@ function getAssignmentStatus(activeExaminers, totalExaminerCount = 0) {
 async function getAssignmentList({ search }) {
   const data = await coreRepo.findDefencesForAssignment({ search });
   const mapped = data.map((d) => {
-    const activeExaminers = (d.examiners || []).filter((e) =>
-      ["available", "pending"].includes(e.availabilityStatus)
-    );
-    const rejectedExaminers = (d.examiners || []).filter((e) => e.availabilityStatus === "unavailable");
+    const active = (d.examiners || []).filter((e) => ["available", "pending"].includes(e.availabilityStatus));
+    const rejected = (d.examiners || []).filter((e) => e.availabilityStatus === "unavailable");
+    
+    const isConcluded = ["passed", "passed_with_revision", "failed", "cancelled"].includes(d.status);
+    const assignmentStatus = isConcluded ? "finished" : getAssignmentStatus(active, (d.examiners || []).length);
 
     return {
       id: d.id,
@@ -213,8 +238,8 @@ async function getAssignmentList({ search }) {
       })),
       status: d.status,
       registeredAt: d.registeredAt,
-      assignmentStatus: getAssignmentStatus(activeExaminers, (d.examiners || []).length),
-      examiners: activeExaminers.map((e) => ({
+      assignmentStatus,
+      examiners: active.map((e) => ({
         id: e.id,
         lecturerId: e.lecturerId,
         lecturerName: e.lecturerName || "-",
@@ -222,7 +247,7 @@ async function getAssignmentList({ search }) {
         availabilityStatus: e.availabilityStatus,
         respondedAt: e.respondedAt,
       })),
-      rejectedExaminers: rejectedExaminers.map((e) => ({
+      rejectedExaminers: rejected.map((e) => ({
         id: e.id,
         lecturerId: e.lecturerId,
         lecturerName: e.lecturerName || "-",
@@ -234,7 +259,9 @@ async function getAssignmentList({ search }) {
     };
   });
 
-  mapped.sort((a, b) => (ASSIGNMENT_ORDER[a.assignmentStatus] ?? 99) - (ASSIGNMENT_ORDER[b.assignmentStatus] ?? 99));
+  const ORDER = { unassigned: 0, rejected: 1, partially_rejected: 2, pending: 3, confirmed: 4, finished: 5 };
+  mapped.sort((a, b) => (ORDER[a.assignmentStatus] ?? 99) - (ORDER[b.assignmentStatus] ?? 99));
+
   return mapped;
 }
 
