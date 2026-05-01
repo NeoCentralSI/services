@@ -18,6 +18,7 @@ import {
   respondAssignmentSchema,
   submitAssessmentSchema,
   finalizeSeminarSchema,
+  cancelSeminarSchema,
 } from "../validators/thesis-seminar.validator.js";
 
 const router = express.Router();
@@ -37,7 +38,6 @@ router.get("/options/lecturers", ctrl.getLecturerOptions);
 router.get("/options/students", ctrl.getStudentOptions);
 router.get("/options/rooms", ctrl.getRoomOptions);
 
-router.get("/template", requireAnyRole([ROLES.ADMIN]), ctrl.getArchiveTemplate); // TODO: Handle Template Download in Frontend
 router.get("/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportArchive);
 router.post("/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importArchive);
 
@@ -55,6 +55,8 @@ router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocume
 // ============================================================
 router.get("/", requireAnyRole(ALL_ROLES), ctrl.getSeminars);
 router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getSeminarDetail);
+router.get("/:id/invitation", requireAnyRole(ALL_ROLES), ctrl.downloadInvitationLetter);
+router.get("/:id/berita-acara", requireAnyRole(ALL_ROLES), ctrl.downloadBeritaAcara);
 router.get("/:id/documents", requireAnyRole(ALL_ROLES), ctrl.getDocuments);
 router.get("/:id/documents/:documentTypeId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
 
@@ -66,6 +68,8 @@ router.patch("/:id", requireAnyRole([ROLES.ADMIN]), validate(updateSeminarSchema
 router.delete("/:id", requireAnyRole([ROLES.ADMIN]), ctrl.deleteArchive);
 router.get("/:id/scheduling-data", requireAnyRole([ROLES.ADMIN]), ctrl.getSchedulingData);
 router.post("/:id/schedule", requireAnyRole([ROLES.ADMIN]), validate(scheduleSchema), ctrl.setSchedule);
+router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
+router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelSeminarSchema), ctrl.cancelSeminar);
 router.post("/:id/documents/:documentTypeId/validate", requireAnyRole([ROLES.ADMIN]), ctrl.validateDocument);
 
 // ============================================================
@@ -73,18 +77,19 @@ router.post("/:id/documents/:documentTypeId/validate", requireAnyRole([ROLES.ADM
 // ============================================================
 router.post("/:id/documents", requireAnyRole([ROLES.MAHASISWA]), uploadSeminarDocFile, ctrl.uploadDocument);
 router.post("/:id/revisions", requireAnyRole([ROLES.MAHASISWA]), validate(createRevisionSchema), ctrl.createRevision);
-router.patch("/:id/revisions/:revisionId", requireAnyRole([ROLES.MAHASISWA]), validate(revisionActionSchema), ctrl.updateRevision);
+router.patch("/:id/revisions/:revisionId", requireAnyRole([ROLES.MAHASISWA, ...LECTURER_ROLES]), validate(revisionActionSchema), ctrl.updateRevision);
 router.delete("/:id/revisions/:revisionId", requireAnyRole([ROLES.MAHASISWA]), ctrl.deleteRevision);
 
 // ============================================================
 // LECTURER (EXAMINER/SUPERVISOR) ACTIONS
 // ============================================================
 router.post("/:id/examiners/:examinerId/respond", requireAnyRole(LECTURER_ROLES), validate(respondAssignmentSchema), ctrl.respondAssignment);
-router.get("/:id/assessment", requireAnyRole(LECTURER_ROLES), ctrl.getAssessment);
+router.get("/:id/assessment", requireAnyRole(ALL_ROLES), ctrl.getAssessment);
 router.post("/:id/assessment", requireAnyRole(LECTURER_ROLES), validate(submitAssessmentSchema), ctrl.submitAssessment);
-router.get("/:id/finalization", requireAnyRole(LECTURER_ROLES), ctrl.getFinalizationData);
+router.get("/:id/finalization", requireAnyRole(ALL_ROLES), ctrl.getFinalizationData);
 router.post("/:id/finalize", requireAnyRole(LECTURER_ROLES), validate(finalizeSeminarSchema), ctrl.finalizeSeminar);
 router.post("/:id/revisions/finalize", requireAnyRole(LECTURER_ROLES), ctrl.finalizeRevisions);
+router.post("/:id/revisions/unfinalize", requireAnyRole(LECTURER_ROLES), ctrl.unfinalizeRevisions);
 router.get("/:id/revisions", requireAnyRole([ROLES.MAHASISWA, ...LECTURER_ROLES]), ctrl.getRevisions);
 
 // ============================================================
@@ -98,11 +103,13 @@ router.post("/:id/examiners", requireAnyRole([ROLES.KETUA_DEPARTEMEN]), validate
 // ============================================================
 router.get("/:id/audiences", requireAnyRole(ALL_ROLES), ctrl.getAudiences);
 router.get("/:id/audiences/options/students", requireAnyRole([ROLES.ADMIN]), ctrl.getStudentOptionsForAudience);
-router.get("/:id/audiences/template", requireAnyRole([ROLES.ADMIN]), ctrl.getAudienceTemplate); // TODO: Handle Template Download in Frontend
 router.get("/:id/audiences/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportAudiences);
+router.get("/:id/audiences/export-pdf", requireAnyRole([ROLES.ADMIN]), ctrl.exportAudiencesPdf);
 router.post("/:id/audiences/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importAudiences);
-router.post("/:id/audiences", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), validate(addAudienceSchema), ctrl.addAudience); // TODO: Decide whether Student (Audience) should use it's own route to register as an audience or just use this same endpoint.
-router.delete("/:id/audiences/:studentId", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), ctrl.removeAudience); // TODO: Same as above.
-router.patch("/:id/audiences/:studentId", requireAnyRole(LECTURER_ROLES), ctrl.updateAudience); // This is for approving?
+router.post("/:id/audiences", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), validate(addAudienceSchema), ctrl.addAudience);
+router.delete("/:id/audiences/:studentId", requireAnyRole([ROLES.ADMIN]), ctrl.removeAudience);
+router.post("/:id/audience-register", requireAnyRole([ROLES.MAHASISWA]), ctrl.registerAudience);
+router.delete("/:id/audience-register", requireAnyRole([ROLES.MAHASISWA]), ctrl.unregisterAudience);
+router.patch("/:id/audiences/:studentId", requireAnyRole(LECTURER_ROLES), ctrl.updateAudience);
 
 export default router;

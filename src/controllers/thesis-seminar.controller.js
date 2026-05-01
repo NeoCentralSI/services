@@ -52,6 +52,20 @@ export async function setSchedule(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function finalizeSchedule(req, res, next) {
+  try {
+    const result = await coreService.finalizeSchedule(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
+export async function cancelSeminar(req, res, next) {
+  try {
+    const result = await coreService.cancelSeminar(req.params.id, req.body);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
 export async function createArchive(req, res, next) {
   try {
     const result = await coreService.createArchive(req.body, req.user.id);
@@ -110,14 +124,6 @@ export async function exportArchive(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function getArchiveTemplate(req, res, next) {
-  try {
-    const buffer = await coreService.getArchiveTemplate();
-    res.setHeader("Content-Disposition", 'attachment; filename="Template_Import_Seminar.xlsx"');
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.send(buffer);
-  } catch (error) { next(error); }
-}
 
 export async function importArchive(req, res, next) {
   try {
@@ -198,7 +204,7 @@ export async function respondAssignment(req, res, next) {
 
 export async function getAssessment(req, res, next) {
   try {
-    const result = await examinerService.getExaminerAssessment(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getExaminerAssessment(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -212,7 +218,7 @@ export async function submitAssessment(req, res, next) {
 
 export async function getFinalizationData(req, res, next) {
   try {
-    const result = await examinerService.getFinalizationData(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getFinalizationData(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -273,14 +279,15 @@ export async function exportAudiences(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function getAudienceTemplate(req, res, next) {
+export async function exportAudiencesPdf(req, res, next) {
   try {
-    const buffer = await audienceService.getAudienceTemplate();
-    res.setHeader("Content-Disposition", 'attachment; filename="Template_Audience.xlsx"');
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    const buffer = await audienceService.exportAudiencesPdf(req.params.id);
+    res.setHeader("Content-Disposition", 'attachment; filename="Daftar_Audience.pdf"');
+    res.setHeader("Content-Type", "application/pdf");
     res.send(buffer);
   } catch (error) { next(error); }
 }
+
 
 export async function importAudiences(req, res, next) {
   try {
@@ -329,6 +336,13 @@ export async function finalizeRevisions(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function unfinalizeRevisions(req, res, next) {
+  try {
+    const result = await revisionService.unfinalizeRevisions(req.params.id, req.user.lecturerId);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
 // ============================================================
 // STUDENT SPECIFIC
 // ============================================================
@@ -361,6 +375,20 @@ export async function getStudentHistory(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function registerAudience(req, res, next) {
+  try {
+    const result = await audienceService.addAudience(req.params.id, req.body, req.user);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
+export async function unregisterAudience(req, res, next) {
+  try {
+    const result = await audienceService.removeAudience(req.params.id, req.user.studentId, req.user);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
 export async function getStudentSeminarDetail(req, res, next) {
   try {
     const result = await studentService.getSeminarDetail(req.user.id, req.params.id);
@@ -372,5 +400,23 @@ export async function getStudentAssessmentView(req, res, next) {
   try {
     const result = await studentService.getAssessmentView(req.user.id, req.params.id);
     res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
+export async function downloadInvitationLetter(req, res, next) {
+  try {
+    const pdfBuffer = await coreService.generateInvitationLetter(req.params.id, req.query.nomorSurat);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=Surat-Undangan-Seminar-Hasil.pdf`);
+    res.send(pdfBuffer);
+  } catch (error) { next(error); }
+}
+
+export async function downloadBeritaAcara(req, res, next) {
+  try {
+    const pdfBuffer = await coreService.generateBeritaAcaraPdf(req.params.id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=Berita-Acara-Seminar-Hasil.pdf");
+    res.send(pdfBuffer);
   } catch (error) { next(error); }
 }

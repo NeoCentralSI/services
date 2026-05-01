@@ -175,7 +175,7 @@ export async function findLatestExaminerBySeminarAndLecturer(seminarId, lecturer
  * Persist examiner assessment scores and total in one transaction.
  * Replaces any existing scores (upsert pattern via delete + create).
  */
-export async function saveExaminerAssessment({ examinerId, scores, revisionNotes }) {
+export async function saveExaminerAssessment({ examinerId, scores, revisionNotes, isDraft }) {
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     // Clear existing detail scores
@@ -197,13 +197,18 @@ export async function saveExaminerAssessment({ examinerId, scores, revisionNotes
     // Update examiner total score
     const totalScore = scores.reduce((sum, item) => sum + item.score, 0);
 
+    const updateData = {
+      assessmentScore: totalScore,
+      revisionNotes: revisionNotes || null,
+    };
+
+    if (!isDraft) {
+      updateData.assessmentSubmittedAt = now;
+    }
+
     return tx.thesisSeminarExaminer.update({
       where: { id: examinerId },
-      data: {
-        assessmentScore: totalScore,
-        revisionNotes: revisionNotes || null,
-        assessmentSubmittedAt: now,
-      },
+      data: updateData,
     });
   });
 }
@@ -246,7 +251,7 @@ export async function findActiveExaminersWithAssessments(seminarId) {
  * Get seminar assessment criteria (CPMK + criteria + rubrics) for the grading form.
  */
 export async function findSeminarAssessmentCpmks() {
-  return prisma.cpmk.findMany({
+  const cpmks = await prisma.cpmk.findMany({
     where: {
       type: "thesis",
       assessmentCriterias: {
@@ -272,4 +277,16 @@ export async function findSeminarAssessmentCpmks() {
     },
     orderBy: { code: "asc" },
   });
+
+  const bestCpmkByCode = new Map();
+  for (const c of cpmks) {
+    const rubricsCount = (c.assessmentCriterias || []).reduce((sum, crit) => sum + (crit.assessmentRubrics || []).length, 0);
+    const currentBest = bestCpmkByCode.get(c.code);
+    
+    if (!currentBest || rubricsCount > currentBest.rubricsCount) {
+      bestCpmkByCode.set(c.code, { cpmk: c, rubricsCount });
+    }
+  }
+  
+  return Array.from(bestCpmkByCode.values()).map(item => item.cpmk).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
 }

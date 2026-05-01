@@ -2,6 +2,13 @@ import * as audienceRepo from "../repositories/thesis-seminar-audience.repositor
 import * as coreRepo from "../repositories/thesis-seminar.repository.js";
 import * as xlsx from "xlsx";
 import prisma from "../config/prisma.js";
+import { convertHtmlToPdf } from "../utils/pdf.util.js";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ============================================================
 // HELPERS
@@ -45,7 +52,7 @@ export async function addAudience(seminarId, body, user) {
   const seminar = await resolveSeminarForAudience(seminarId);
 
   // Student self-registration
-  if (user.role === "MAHASISWA") {
+  if (user.studentId) {
     return registerAsAudience(seminarId, user.studentId, seminar);
   }
 
@@ -56,6 +63,25 @@ export async function addAudience(seminarId, body, user) {
   const { studentId } = body;
   const existing = await audienceRepo.findAudienceByKey(seminarId, studentId);
   if (existing) throwError("Mahasiswa sudah terdaftar sebagai audience seminar ini", 409);
+
+  const thesis = await coreRepo.findThesisById(seminar.thesisId);
+  if (String(thesis?.studentId) === String(studentId)) {
+    throwError("Mahasiswa yang memiliki seminar ini tidak dapat menjadi audience", 400);
+  }
+
+  // Time conflict check (only for active/scheduled seminars with time set)
+  if (seminar.date && seminar.startTime && seminar.endTime) {
+    const conflictType = await coreRepo.findStudentScheduleConflict({
+      studentId,
+      date: seminar.date,
+      startTime: seminar.startTime.toISOString().split('T')[1].substring(0, 5),
+      endTime: seminar.endTime.toISOString().split('T')[1].substring(0, 5),
+      excludeSeminarId: seminar.id
+    });
+    if (conflictType) {
+      throwError(`Mahasiswa ini memiliki jadwal ${conflictType} pada waktu yang sama.`, 400);
+    }
+  }
 
   const supervisors = await coreRepo.findSupervisorsByThesisId(seminar.thesisId);
   const supervisorId = supervisors?.[0]?.id || null;
@@ -121,10 +147,11 @@ export async function updateAudience(seminarId, studentId, body, user) {
 export async function removeAudience(seminarId, studentId, user) {
   const seminar = await resolveSeminarForAudience(seminarId);
 
-  if (user.role === "MAHASISWA") {
-    const existing = await audienceRepo.findAudienceRegistration(seminarId, studentId);
+  if (user.studentId) {
+    const targetStudentId = user.studentId;
+    const existing = await audienceRepo.findAudienceRegistration(seminarId, targetStudentId);
     if (!existing) throwError("Anda belum terdaftar sebagai peserta seminar ini.", 404);
-    await audienceRepo.deleteAudienceRegistration(seminarId, studentId);
+    await audienceRepo.deleteAudienceRegistration(seminarId, targetStudentId);
     return { message: "Pendaftaran berhasil dibatalkan." };
   }
 
@@ -162,6 +189,7 @@ export async function importAudiences(seminarId, file) {
   const rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
 
   const results = { success: true, total: rows.length, successCount: 0, failed: 0, failedRows: [] };
+  const thesis = await coreRepo.findThesisById(seminar.thesisId);
   const supervisors = await coreRepo.findSupervisorsByThesisId(seminar.thesisId);
   const supervisorId = supervisors?.[0]?.id || null;
 
@@ -173,6 +201,30 @@ export async function importAudiences(seminarId, file) {
     try {
       const student = await coreRepo.findStudentByNameOrNim({ fullName: rawName, nim: rawNim });
       if (!student) { results.failed++; results.failedRows.push({ row: i + 2, error: `Mahasiswa tidak ditemukan: ${rawName} / ${rawNim}` }); continue; }
+      
+      // Check if student is the owner of the seminar
+      if (String(thesis?.studentId) === String(student.id)) {
+        results.failed++;
+        results.failedRows.push({ row: i + 2, error: `Mahasiswa ${rawName} adalah pemilik seminar ini dan tidak dapat menjadi audience` });
+        continue;
+      }
+
+      // Time conflict check
+      if (seminar.date && seminar.startTime && seminar.endTime) {
+        const conflictType = await coreRepo.findStudentScheduleConflict({
+          studentId: student.id,
+          date: seminar.date,
+          startTime: seminar.startTime.toISOString().split('T')[1].substring(0, 5),
+          endTime: seminar.endTime.toISOString().split('T')[1].substring(0, 5),
+          excludeSeminarId: seminar.id
+        });
+        if (conflictType) {
+          results.failed++;
+          results.failedRows.push({ row: i + 2, error: `Mahasiswa ${rawName} memiliki jadwal ${conflictType} pada waktu yang sama.` });
+          continue;
+        }
+      }
+
       const existing = await audienceRepo.findAudienceByKey(seminarId, student.id);
       if (existing) { results.failed++; results.failedRows.push({ row: i + 2, error: `Mahasiswa ${rawName} sudah terdaftar sebagai audience` }); continue; }
       await audienceRepo.createAudience({ seminarId, studentId: student.id, supervisorId, seminarDate: seminar.date });
@@ -207,18 +259,139 @@ export async function exportAudiences(seminarId) {
   return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 }
 
-// ============================================================
-// PUBLIC: Audience Template
-// ============================================================
+export async function exportAudiencesPdf(seminarId) {
+  const seminar = await coreRepo.findSeminarById(seminarId);
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+  
+  const rows = await audienceRepo.findAudiencesBySeminarId(seminarId);
 
-export async function getAudienceTemplate() {
-  const data = [
-    { "No": 1, "Nama Mahasiswa": "John Doe", "NIM": "2111521001" },
-    { "No": 2, "Nama Mahasiswa": "Jane Smith", "NIM": "2111522002" },
-  ];
-  const wb = xlsx.utils.book_new();
-  const ws = xlsx.utils.json_to_sheet(data);
-  ws["!cols"] = [{ wch: 5 }, { wch: 35 }, { wch: 18 }];
-  xlsx.utils.book_append_sheet(wb, ws, "Template_Audience");
-  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+  // Logo loading
+  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  let logoBase64 = "";
+  try {
+    if (fs.existsSync(logoPath)) {
+      const logoBuffer = fs.readFileSync(logoPath);
+      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+    }
+  } catch (err) { console.warn("Logo not found for PDF:", logoPath); }
+
+  const dateStr = new Date().toLocaleDateString("id-ID", { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const html = `
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.4; color: #000; margin: 0; padding: 0.5in; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 15px; }
+    .logo-cell { width: 70px; vertical-align: middle; padding-right: 12px; }
+    .logo-img { width: 70px; height: auto; }
+    .header-text { text-align: center; vertical-align: middle; }
+    .header-text h3 { margin: 0; font-size: 12pt; font-weight: bold; text-transform: uppercase; }
+    .header-text h4 { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; }
+    .header-text h2 { margin: 0; font-size: 14pt; font-weight: bold; color: #0b5c9e; text-transform: uppercase; }
+    .header-text p { margin: 1px 0; font-size: 9pt; }
+    
+    .title { text-align: center; font-size: 14pt; font-weight: bold; text-decoration: underline; margin: 20px 0 10px 0; text-transform: uppercase; }
+    .subtitle { text-align: center; font-size: 11pt; font-weight: normal; margin-bottom: 25px; }
+    
+    .info-table { width: 100%; margin-bottom: 20px; }
+    .info-table td { padding: 2px 0; vertical-align: top; }
+    .info-label { width: 140px; }
+    .info-colon { width: 15px; text-align: center; }
+
+    .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .data-table th, .data-table td { border: 1px solid #000; padding: 6px 8px; font-size: 10pt; }
+    .data-table th { background-color: #f2f2f2; font-weight: bold; text-align: center; }
+    .text-center { text-align: center; }
+    
+    .footer { margin-top: 40px; float: right; width: 250px; text-align: left; }
+    .footer p { margin: 2px 0; }
+    .footer .space { height: 60px; }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td class="logo-cell">
+        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
+      </td>
+      <td class="header-text">
+        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
+        <h4>Universitas Andalas</h4>
+        <h4>Fakultas Teknologi Informasi</h4>
+        <h2>Departemen Sistem Informasi</h2>
+        <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
+        <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
+      </td>
+    </tr>
+  </table>
+
+  <div class="title">Daftar Hadir Audience Seminar Hasil</div>
+  <div class="subtitle">Tugas Akhir Mahasiswa</div>
+
+  <table class="info-table">
+    <tr>
+      <td class="info-label">Nama Mahasiswa</td>
+      <td class="info-colon">:</td>
+      <td><strong>${seminar.student?.name || '-'}</strong></td>
+    </tr>
+    <tr>
+      <td class="info-label">NIM</td>
+      <td class="info-colon">:</td>
+      <td>${seminar.student?.nim || '-'}</td>
+    </tr>
+    <tr>
+      <td class="info-label">Judul Tugas Akhir</td>
+      <td class="info-colon">:</td>
+      <td>${seminar.thesis?.title || '-'}</td>
+    </tr>
+    <tr>
+      <td class="info-label">Waktu Seminar</td>
+      <td class="info-colon">:</td>
+      <td>${seminar.date ? new Date(seminar.date).toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</td>
+    </tr>
+  </table>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width: 30px;">No</th>
+        <th>Nama Mahasiswa</th>
+        <th style="width: 120px;">NIM</th>
+        <th style="width: 150px;">Disetujui Oleh</th>
+        <th style="width: 130px;">Waktu Presensi</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.length > 0 ? rows.map((r, idx) => `
+        <tr>
+          <td class="text-center">${idx + 1}</td>
+          <td>${r.student?.user?.fullName || '-'}</td>
+          <td class="text-center">${r.student?.user?.identityNumber || '-'}</td>
+          <td>${r.supervisor?.lecturer?.user?.fullName || '-'}</td>
+          <td class="text-center">${r.approvedAt ? new Date(r.approvedAt).toLocaleDateString("id-ID", { day: 'numeric', month: '2-digit', year: 'numeric' }) : '-'}</td>
+        </tr>
+      `).join('') : `
+        <tr>
+          <td colspan="5" class="text-center">Belum ada data audience</td>
+        </tr>
+      `}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <p>Padang, ${dateStr}</p>
+    <p>Ketua Departemen,</p>
+    <div class="space"></div>
+    <p><strong>Dr. Eng. Lusi Niarti Zulfa, S.T., M.T.</strong></p>
+    <p>NIP. 197507112002122002</p>
+  </div>
+</body>
+</html>
+  `;
+
+  return convertHtmlToPdf(html);
 }
+

@@ -87,11 +87,12 @@ export async function findRevisionById(revisionId) {
 /**
  * Create a new revision item.
  */
-export async function createRevision({ seminarExaminerId, description }) {
+export async function createRevision({ seminarExaminerId, description, revisionAction }) {
   return prisma.thesisSeminarRevision.create({
     data: {
       seminarExaminerId,
       description,
+      revisionAction,
     },
   });
 }

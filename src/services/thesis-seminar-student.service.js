@@ -142,6 +142,9 @@ export async function getAttendanceHistory(userId) {
     summary: { attended, total: records.length, required: MIN_KEHADIRAN, met: attended >= MIN_KEHADIRAN },
       records: records.map((r) => ({
       seminarId: r.thesisSeminarId, 
+      seminarStatus: r.seminar?.status || null,
+      seminarEndTime: r.seminar?.endTime || null,
+      seminarResultFinalizedAt: r.seminar?.resultFinalizedAt || null,
       presenterName: r.seminar?.thesis?.student?.user?.fullName || "-",
       presenterNim: r.seminar?.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: r.seminar?.thesis?.title || "-", date: r.seminar?.date,
@@ -181,6 +184,11 @@ export async function getSeminarDetail(userId, seminarId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
   const isPresenter = seminar.thesis?.student?.id === student.id;
+  const isAudience = (seminar.audiences || []).some((a) => a.studentId === student.id);
+  const isAnnounced = ["scheduled", "passed", "passed_with_revision", "failed"].includes(seminar.status) && Boolean(seminar.date);
+  if (!isPresenter && !isAudience && !isAnnounced) {
+    throwError("Anda tidak memiliki akses ke detail seminar ini.", 403);
+  }
 
   const lecMap = new Map();
   const lecIds = [...new Set((seminar.examiners || []).map((e) => e.lecturerId).filter(Boolean))];
@@ -209,12 +217,16 @@ export async function getSeminarDetail(userId, seminarId) {
   const audiences = await audienceRepo.findAudiencesBySeminarId(seminarId);
 
   return {
-    id: seminar.id, status: seminar.status, registeredAt: seminar.registeredAt,
+    id: seminar.id, status: computeEffectiveStatus(seminar.status, seminar.date, seminar.startTime, seminar.endTime), registeredAt: seminar.registeredAt,
     date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime,
     meetingLink: seminar.meetingLink, 
     finalScore: isPresenter ? seminar.finalScore : null,
     grade: isPresenter && seminar.finalScore != null ? mapScoreToGrade(seminar.finalScore) : null,
-    resultFinalizedAt: seminar.resultFinalizedAt, cancelledReason: seminar.cancelledReason, room: seminar.room,
+    resultFinalizedAt: seminar.resultFinalizedAt, 
+    revisionFinalizedAt: seminar.revisionFinalizedAt,
+    revisionFinalizedBy: seminar.revisionFinalizedBy,
+    cancelledReason: seminar.cancelledReason, room: seminar.room,
+    student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
     thesis: { id: seminar.thesis.id, title: seminar.thesis.title, supervisors: (seminar.thesis.thesisSupervisors || []).map((s) => ({ role: s.role?.name || "-", lecturerName: s.lecturer?.user?.fullName || "-" })) },
     examiners: (seminar.examiners || []).map((e) => ({ 
       id: e.id, 
@@ -223,7 +235,21 @@ export async function getSeminarDetail(userId, seminarId) {
       assessmentScore: isPresenter ? e.assessmentScore : null, 
       assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null 
     })),
-    documents: isPresenter ? docs.map((d) => { const dt = docTypes.find((t) => t.id === d.documentTypeId); return { documentTypeId: d.documentTypeId, documentTypeName: dt?.name || "-", fileName: d.document?.fileName || null, filePath: d.document?.filePath || null, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes }; }) : [],
+    documents: (isPresenter || isAudience)
+      ? docs.map((d) => {
+          const dt = docTypes.find((t) => t.id === d.documentTypeId);
+          return {
+            documentTypeId: d.documentTypeId,
+            documentTypeName: dt?.name || "-",
+            fileName: d.document?.fileName || null,
+            filePath: d.document?.filePath || null,
+            status: d.status,
+            submittedAt: d.submittedAt,
+            verifiedAt: d.verifiedAt,
+            notes: d.notes,
+          };
+        })
+      : [],
     examinerNotes: isPresenter ? examinerNotes : [], 
     revisions: isPresenter ? revisions : [], 
     revisionSummary: isPresenter ? revisionSummary : { total: 0, finished: 0, pendingApproval: 0 },

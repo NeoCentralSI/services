@@ -2,6 +2,7 @@ import prisma from "../config/prisma.js";
 
 export const checkThesisFileAccess = async (req, res, next) => {
     const userId = req.user?.sub;
+    const studentId = req.user?.studentId;
     const role = req.user?.role;
 
     if (!userId) {
@@ -18,7 +19,27 @@ export const checkThesisFileAccess = async (req, res, next) => {
     }
 
     try {
-        if (role === "MAHASISWA") {
+        const isSeminarFolder = parts[2] === "seminar";
+
+        if (studentId && isSeminarFolder) {
+            const seminar = await prisma.thesisSeminar.findFirst({
+                where: { thesisId },
+                select: {
+                    thesis: { select: { studentId: true } },
+                    audiences: {
+                        where: { studentId },
+                        select: { id: true },
+                    },
+                },
+            });
+
+            const isPresenter = seminar?.thesis?.studentId === userId;
+            const isAudience = (seminar?.audiences || []).length > 0;
+
+            if (!isPresenter && !isAudience) {
+                return res.status(403).json({ message: "Forbidden: You don't have access to this thesis seminar file" });
+            }
+        } else if (studentId) {
             const thesis = await prisma.thesis.findFirst({ where: { id: thesisId, studentId: userId } });
             if (!thesis) {
                 return res.status(403).json({ message: "Forbidden: You don't have access to this thesis file" });
