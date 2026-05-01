@@ -513,6 +513,7 @@ export async function getFinalizationData(seminarId, user) {
 // ============================================================
 
 export async function finalizeSeminar(seminarId, lecturerId, payload) {
+  const { recommendRevision } = payload;
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
   if (seminar.resultFinalizedAt) throwError("Hasil seminar sudah pernah ditetapkan.", 400);
@@ -531,14 +532,30 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
 
   const avgScore = examiners.reduce((s, e) => s + (e.assessmentScore || 0), 0) / examiners.length;
 
+  // Determine status based on business rules
+  let targetStatus = "passed";
+  if (avgScore < 55) {
+    targetStatus = "failed";
+  } else if (recommendRevision) {
+    targetStatus = "passed_with_revision";
+  }
+
   const finalized = await coreRepo.updateSeminar(seminarId, {
-    status: payload.status, finalScore: avgScore, resultFinalizedAt: new Date(),
+    status: targetStatus,
+    finalScore: avgScore,
+    resultFinalizedAt: new Date(),
   });
 
   // If failed, reset seminarReady so student can re-register
-  if (payload.status === "failed" && seminar.thesisId) {
+  if (targetStatus === "failed" && seminar.thesisId) {
     await prisma.thesisSupervisors.updateMany({ where: { thesisId: seminar.thesisId }, data: { seminarReady: false } });
   }
 
-  return { seminarId: finalized.id, status: finalized.status, finalScore: finalized.finalScore, grade: mapScoreToGrade(avgScore), resultFinalizedAt: finalized.resultFinalizedAt };
+  return { 
+    seminarId: finalized.id, 
+    status: finalized.status, 
+    finalScore: finalized.finalScore, 
+    grade: mapScoreToGrade(avgScore), 
+    resultFinalizedAt: finalized.resultFinalizedAt 
+  };
 }

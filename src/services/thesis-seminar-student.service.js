@@ -46,21 +46,7 @@ export async function getOverview(userId) {
 
   // If latest seminar is failed/cancelled, treat as inactive for students
   if (currentSeminar && ["failed", "cancelled"].includes(currentSeminar.status)) {
-    if (allChecklistMet) {
-      // Automatically initialize the repeat attempt
-      const created = await coreRepo.createThesisSeminar(thesis.id);
-      const newSeminar = await prisma.thesisSeminar.findUnique({
-        where: { id: created.id },
-        include: {
-          room: { select: { id: true, name: true } },
-          documents: true,
-          examiners: true,
-        },
-      });
-      currentSeminar = newSeminar;
-    } else {
-      currentSeminar = null;
-    }
+    currentSeminar = null;
   }
 
   let enrichedExaminers = [];
