@@ -22,6 +22,7 @@ const STATUS_PRIORITY = {
 };
 
 const RESULT_STATUSES = ["passed", "passed_with_revision", "failed", "cancelled"];
+const FINAL_STATUSES = ["passed", "passed_with_revision"];
 
 function buildSearchWhere(search) {
   if (!search) return {};
@@ -87,6 +88,8 @@ async function getArchiveList({ search, page, pageSize, status }) {
       date: d.date,
       room: d.room,
       status: d.status,
+      finalScore: d.finalScore,
+      grade: d.grade,
       isEditable: d.registeredAt === null || d.status !== "cancelled",
       examiners: (d.examiners || []).map((e) => ({
         id: e.id,
@@ -483,10 +486,10 @@ export async function createArchive(body, userId) {
   const thesis = theses.find(t => t.id === body.thesisId);
   if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
 
-  // Check for duplicate result
-  const existing = thesis.thesisDefences[0];
-  if (existing && RESULT_STATUSES.includes(existing.status)) {
-    throwError("Tugas Akhir ini sudah memiliki data sidang tugas akhir lain.", 409);
+  // Check for existing passed result
+  const existingPassed = thesis.thesisDefences.find(d => FINAL_STATUSES.includes(d.status));
+  if (existingPassed) {
+    throwError("Mahasiswa ini sudah lulus sidang tugas akhir.", 409);
   }
 
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
@@ -542,8 +545,8 @@ export async function getThesisOptions() {
     thesisTitle: t.title,
     studentName: t.student?.user?.fullName || "-",
     studentNim: t.student?.user?.identityNumber || "-",
-    hasDefenceResult: t.thesisDefences.length > 0 && RESULT_STATUSES.includes(t.thesisDefences[0].status),
-    defenceResultId: t.thesisDefences[0]?.id || null,
+    hasDefenceResult: t.thesisDefences.some(d => FINAL_STATUSES.includes(d.status)),
+    defenceResultId: t.thesisDefences.find(d => FINAL_STATUSES.includes(d.status))?.id || null,
     supervisorIds: t.thesisSupervisors.map(s => s.lecturerId),
   }));
 }
@@ -594,6 +597,8 @@ export async function exportArchive() {
       "Pembimbing": sups || "-",
       "Tanggal": date ? date.toISOString().split("T")[0] : "-",
       "Ruangan": d.room?.name || "-",
+      "Nilai": d.finalScore || "-",
+      "Grade": d.grade || "-",
       "Hasil": hasil,
       "Dosen Penguji 1": examiners[0] || "-",
       "Dosen Penguji 2": examiners[1] || "-",
@@ -631,7 +636,8 @@ export async function importArchive(fileBuffer, userId) {
       const thesis = theses.find(t => t.student?.user?.identityNumber === nim);
       if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
 
-      if (thesis.thesisDefences.length > 0) throw new Error("Sudah memiliki data sidang TA");
+      const hasPassed = thesis.thesisDefences.some(d => FINAL_STATUSES.includes(d.status));
+      if (hasPassed) throw new Error("Sudah lulus sidang TA");
 
       const ruangan = String(row["Ruangan"] || "").trim();
       let roomId = null;
@@ -652,6 +658,9 @@ export async function importArchive(fileBuffer, userId) {
         const p = new Date(tgl);
         if (!isNaN(p.getTime())) date = p.toISOString();
       }
+
+      const finalScore = row["Nilai"] ? Number(row["Nilai"]) : null;
+      const grade = row["Grade"] ? String(row["Grade"]).trim() : null;
 
       const examinerColumns = [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]]
         .map((value) => String(value || "").trim())
@@ -676,6 +685,8 @@ export async function importArchive(fileBuffer, userId) {
         date,
         roomId,
         status,
+        finalScore,
+        grade,
         examinerLecturerIds,
         userId,
       });

@@ -292,10 +292,11 @@ export async function createArchive(body, userId) {
   if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
   if (!room) throwError("Ruangan tidak ditemukan", 404);
 
-  // A student can have multiple seminars, but only ONE passed/passed_with_revision result.
-  // If they have a successful result already, block creation.
-  if (existing && ["passed", "passed_with_revision"].includes(existing.status)) {
-    throwError("Tugas Akhir ini sudah memiliki data seminar hasil dengan status Lulus", 409);
+  const existingPassed = await prisma.thesisSeminar.findFirst({
+    where: { thesisId: body.thesisId, status: { in: ["passed", "passed_with_revision"] } }
+  });
+  if (existingPassed) {
+    throwError("Mahasiswa ini sudah lulus seminar hasil.", 409);
   }
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
   const created = await coreRepo.createSeminarWithExaminers({ thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByUserId: userId });
@@ -363,7 +364,10 @@ export async function importArchive(fileBuffer, userId) {
       const nim = String(row["NIM"] || "").trim(); if (!nim) throw new Error("NIM kosong");
       const student = await coreRepo.findStudentByNim(nim); if (!student) throw new Error(`NIM ${nim} tidak ditemukan`);
       const thesis = await coreRepo.findActiveThesisByStudentId(student.id); if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
-      if (await coreRepo.findSeminarByThesisId(thesis.id)) throw new Error("Sudah memiliki data seminar hasil");
+      const hasPassed = await prisma.thesisSeminar.findFirst({
+        where: { thesisId: thesis.id, status: { in: ["passed", "passed_with_revision"] } }
+      });
+      if (hasPassed) throw new Error("Sudah lulus seminar hasil");
       const ruangan = String(row["Ruangan"] || "").trim(); let roomId = null;
       if (ruangan && ruangan !== "-") { const room = await coreRepo.findRoomByNameLike(ruangan); if (!room) throw new Error(`Ruangan "${ruangan}" tidak ditemukan`); roomId = room.id; }
       const hasil = String(row["Hasil"] || "").trim().toLowerCase();

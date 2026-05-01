@@ -126,9 +126,11 @@ export const revisionActionSchema = z
 export const createDefenceSchema = z.object({
   thesisId: z.string().uuid("thesisId harus berupa UUID yang valid."),
   date: z.string().datetime("date harus berupa datetime ISO yang valid."),
-  roomId: z.string().uuid("roomId harus berupa UUID yang valid."),
+  roomId: z.string().uuid("roomId harus berupa UUID yang valid.").optional().nullable(),
   status: z.enum(["passed", "passed_with_revision", "failed"]),
   examinerLecturerIds: z.array(z.string().uuid()).min(1, "Minimal satu penguji harus dipilih"),
+  finalScore: z.number().min(0).max(100).optional().nullable(),
+  grade: z.string().max(2).optional().nullable(),
 });
 
 export const updateDefenceSchema = createDefenceSchema.partial().omit({ thesisId: true });

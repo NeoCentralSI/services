@@ -208,7 +208,7 @@ export async function deleteDefence(id) {
 }
 
 export async function createArchive(data) {
-  const { thesisId, date, roomId, status, examinerLecturerIds, userId } = data;
+  const { thesisId, date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
   return prisma.$transaction(async (tx) => {
     const defence = await tx.thesisDefence.create({
       data: {
@@ -216,10 +216,10 @@ export async function createArchive(data) {
         date: date ? new Date(date) : undefined,
         roomId,
         status,
+        finalScore,
+        grade,
         registeredAt: null, // Mark as archive
         resultFinalizedAt: new Date(),
-        // resultFinalizedBy must be a ThesisSupervisors.id, not User.id
-        // For archives, we leave it null or find a supervisor if needed.
       },
     });
 
@@ -228,7 +228,7 @@ export async function createArchive(data) {
         data: examinerLecturerIds.map((lecturerId, index) => ({
           thesisDefenceId: defence.id,
           lecturerId,
-          assignedBy: userId, // This refers to User.id
+          assignedBy: userId,
           order: index + 1,
           availabilityStatus: "available",
           assignedAt: new Date(),
@@ -242,7 +242,7 @@ export async function createArchive(data) {
 }
 
 export async function updateArchive(id, data) {
-  const { date, roomId, status, examinerLecturerIds, userId } = data;
+  const { date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefence.update({
       where: { id },
@@ -250,6 +250,8 @@ export async function updateArchive(id, data) {
         date: date ? new Date(date) : undefined,
         roomId,
         status,
+        finalScore,
+        grade,
       },
     });
 
