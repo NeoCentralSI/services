@@ -113,7 +113,7 @@ export async function uploadDocument(seminarId, studentId, file, docTypeName) {
   }
 
   // Save file to disk
-  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesisId, "seminar");
+  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesisId, "seminar", targetSeminarId);
   await mkdir(uploadsRoot, { recursive: true });
 
   // Delete old file if re-uploading

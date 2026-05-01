@@ -9,8 +9,8 @@ import * as coreRepo from "../repositories/thesis-defence.repository.js";
 // ============================================================
 
 const DOC_TYPE_CONFIG = {
-  "Laporan Tugas Akhir": { accept: [".pdf", ".docx"], label: "Laporan Tugas Akhir (PDF/DOCX)" },
-  "Slide Presentasi": { accept: [".ppt", ".pptx"], label: "Slide Presentasi (PPT)" },
+  "Laporan Tugas Akhir": { accept: [".pdf"], label: "Laporan Tugas Akhir (PDF)" },
+  "Slide Presentasi": { accept: [".pdf"], label: "Slide Presentasi (PDF)" },
   "Draft Jurnal TEKNOSI": { accept: [".pdf"], label: "Draft Jurnal TEKNOSI (PDF)" },
   "Sertifikat TOEFL": { accept: [".pdf"], label: "Sertifikat TOEFL (PDF)" },
   "Sertifikat SAPS": { accept: [".pdf"], label: "Sertifikat SAPS (PDF)" },
@@ -90,7 +90,7 @@ export async function uploadDocument(defenceId, userId, file, docTypeName) {
   let targetDefenceId = defenceId;
   let thesisId;
 
-  if (!targetDefenceId) {
+  if (!targetDefenceId || targetDefenceId === "active") {
     const thesis = await coreRepo.getStudentThesisWithDefenceInfo(student.id);
     if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
     thesisId = thesis.id;
@@ -107,7 +107,7 @@ export async function uploadDocument(defenceId, userId, file, docTypeName) {
     throwError("Dokumen ini sudah diverifikasi dan tidak dapat diubah.", 403);
   }
 
-  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesisId, "defence");
+  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesisId, "defence", targetDefenceId);
   await mkdir(uploadsRoot, { recursive: true });
 
   if (existing?.documentId) {

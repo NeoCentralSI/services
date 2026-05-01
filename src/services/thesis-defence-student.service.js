@@ -98,7 +98,12 @@ export async function getOverview(userId) {
     checklist.revisiSeminar.met &&
     checklist.pembimbing.met;
 
-  const currentDefence = thesis.thesisDefences?.[0] || null;
+  let currentDefence = thesis.thesisDefences?.[0] || null;
+
+  // If latest defence is failed/cancelled, treat as inactive for student registration flow
+  if (currentDefence && ["failed", "cancelled"].includes(currentDefence.status)) {
+    currentDefence = null;
+  }
 
   let enrichedExaminers = [];
   if (currentDefence?.examiners?.length) {
