@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "prisma": "^6.2.0",
+    "supertest": "^7.2.2",
     "vitest": "^1.6.1"
   },
   "prisma": {
