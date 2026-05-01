@@ -141,3 +141,10 @@ export const finalizeSeminarSchema = z.object({
     }),
   }),
 });
+// ============================================================
+// Cancellation (Admin)
+// ============================================================
+
+export const cancelSeminarSchema = z.object({
+  cancelledReason: z.string().trim().optional().nullable(),
+});

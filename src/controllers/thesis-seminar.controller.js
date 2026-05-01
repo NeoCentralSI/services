@@ -59,6 +59,13 @@ export async function finalizeSchedule(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function cancelSeminar(req, res, next) {
+  try {
+    const result = await coreService.cancelSeminar(req.params.id, req.body);
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
 export async function createArchive(req, res, next) {
   try {
     const result = await coreService.createArchive(req.body, req.user.id);
@@ -117,14 +124,6 @@ export async function exportArchive(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function getArchiveTemplate(req, res, next) {
-  try {
-    const buffer = await coreService.getArchiveTemplate();
-    res.setHeader("Content-Disposition", 'attachment; filename="Template_Import_Seminar.xlsx"');
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.send(buffer);
-  } catch (error) { next(error); }
-}
 
 export async function importArchive(req, res, next) {
   try {
@@ -289,14 +288,6 @@ export async function exportAudiencesPdf(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function getAudienceTemplate(req, res, next) {
-  try {
-    const buffer = await audienceService.getAudienceTemplate();
-    res.setHeader("Content-Disposition", 'attachment; filename="Template_Audience.xlsx"');
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.send(buffer);
-  } catch (error) { next(error); }
-}
 
 export async function importAudiences(req, res, next) {
   try {

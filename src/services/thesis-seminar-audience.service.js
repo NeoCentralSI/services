@@ -395,14 +395,3 @@ export async function exportAudiencesPdf(seminarId) {
   return convertHtmlToPdf(html);
 }
 
-export async function getAudienceTemplate() {
-  const data = [
-    { "No": 1, "Nama Mahasiswa": "John Doe", "NIM": "2111521001" },
-    { "No": 2, "Nama Mahasiswa": "Jane Smith", "NIM": "2111522002" },
-  ];
-  const wb = xlsx.utils.book_new();
-  const ws = xlsx.utils.json_to_sheet(data);
-  ws["!cols"] = [{ wch: 5 }, { wch: 35 }, { wch: 18 }];
-  xlsx.utils.book_append_sheet(wb, ws, "Template_Audience");
-  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
-}

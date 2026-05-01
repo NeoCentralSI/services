@@ -267,6 +267,23 @@ export async function finalizeSchedule(seminarId) {
   return { seminarId, status: "scheduled" };
 }
 
+export async function cancelSeminar(seminarId, { cancelledReason }) {
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+
+  const cancellableStatuses = ["verified", "examiner_assigned", "scheduled"];
+  if (!cancellableStatuses.includes(seminar.status)) {
+    throwError(`Seminar dengan status ${seminar.status} tidak dapat dibatalkan.`, 400);
+  }
+
+  await coreRepo.updateSeminar(seminarId, {
+    status: "cancelled",
+    cancelledReason: cancelledReason || null,
+  });
+
+  return { seminarId, status: "cancelled" };
+}
+
 // ==================== ARCHIVE CRUD ====================
 
 export async function createArchive(body, userId) {
@@ -334,12 +351,6 @@ export async function exportArchive() {
   });
   const ws = xlsx.utils.json_to_sheet(data); const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, "Arsip Seminar");
-  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
-}
-
-export async function getArchiveTemplate() {
-  const ws = xlsx.utils.json_to_sheet([{ "No": 1, "Nama": "Mahasiswa Contoh", "NIM": "12345678", "Judul TA": "Judul TA", "Tanggal": "2026-04-30", "Ruangan": "Ruang 1", "Hasil": "Lulus / Lulus dengan Revisi / Gagal", "Dosen Penguji 1": "Dosen 1", "Dosen Penguji 2": "Dosen 2", "Dosen Penguji 3": "(Opsional)" }]);
-  const wb = xlsx.utils.book_new(); xlsx.utils.book_append_sheet(wb, ws, "Template Import");
   return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 }
 

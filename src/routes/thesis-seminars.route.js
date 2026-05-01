@@ -18,6 +18,7 @@ import {
   respondAssignmentSchema,
   submitAssessmentSchema,
   finalizeSeminarSchema,
+  cancelSeminarSchema,
 } from "../validators/thesis-seminar.validator.js";
 
 const router = express.Router();
@@ -37,7 +38,6 @@ router.get("/options/lecturers", ctrl.getLecturerOptions);
 router.get("/options/students", ctrl.getStudentOptions);
 router.get("/options/rooms", ctrl.getRoomOptions);
 
-router.get("/template", requireAnyRole([ROLES.ADMIN]), ctrl.getArchiveTemplate); // TODO: Handle Template Download in Frontend
 router.get("/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportArchive);
 router.post("/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importArchive);
 
@@ -69,6 +69,7 @@ router.delete("/:id", requireAnyRole([ROLES.ADMIN]), ctrl.deleteArchive);
 router.get("/:id/scheduling-data", requireAnyRole([ROLES.ADMIN]), ctrl.getSchedulingData);
 router.post("/:id/schedule", requireAnyRole([ROLES.ADMIN]), validate(scheduleSchema), ctrl.setSchedule);
 router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
+router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelSeminarSchema), ctrl.cancelSeminar);
 router.post("/:id/documents/:documentTypeId/validate", requireAnyRole([ROLES.ADMIN]), ctrl.validateDocument);
 
 // ============================================================
@@ -102,14 +103,13 @@ router.post("/:id/examiners", requireAnyRole([ROLES.KETUA_DEPARTEMEN]), validate
 // ============================================================
 router.get("/:id/audiences", requireAnyRole(ALL_ROLES), ctrl.getAudiences);
 router.get("/:id/audiences/options/students", requireAnyRole([ROLES.ADMIN]), ctrl.getStudentOptionsForAudience);
-router.get("/:id/audiences/template", requireAnyRole([ROLES.ADMIN]), ctrl.getAudienceTemplate); // TODO: Handle Template Download in Frontend
 router.get("/:id/audiences/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportAudiences);
 router.get("/:id/audiences/export-pdf", requireAnyRole([ROLES.ADMIN]), ctrl.exportAudiencesPdf);
 router.post("/:id/audiences/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importAudiences);
-router.post("/:id/audiences", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), validate(addAudienceSchema), ctrl.addAudience); // TODO: Decide whether Student (Audience) should use it's own route to register as an audience or just use this same endpoint.
+router.post("/:id/audiences", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), validate(addAudienceSchema), ctrl.addAudience);
 router.delete("/:id/audiences/:studentId", requireAnyRole([ROLES.ADMIN]), ctrl.removeAudience);
 router.post("/:id/audience-register", requireAnyRole([ROLES.MAHASISWA]), ctrl.registerAudience);
 router.delete("/:id/audience-register", requireAnyRole([ROLES.MAHASISWA]), ctrl.unregisterAudience);
-router.patch("/:id/audiences/:studentId", requireAnyRole(LECTURER_ROLES), ctrl.updateAudience); // This is for approving?
+router.patch("/:id/audiences/:studentId", requireAnyRole(LECTURER_ROLES), ctrl.updateAudience);
 
 export default router;
