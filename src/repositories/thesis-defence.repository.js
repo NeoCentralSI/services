@@ -175,6 +175,7 @@ export async function findDefenceBasicById(defenceId) {
       id: true,
       thesisId: true,
       status: true,
+      registeredAt: true,
       roomId: true,
       date: true,
       startTime: true,

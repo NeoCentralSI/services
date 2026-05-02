@@ -106,7 +106,7 @@ async function getArchiveList({ search, page, pageSize, status }) {
       status: d.status,
       finalScore: d.finalScore,
       grade: d.grade,
-      isEditable: d.registeredAt === null || d.status !== "cancelled",
+      isEditable: d.registeredAt === null,
       examiners: (d.examiners || []).map((e) => ({
         id: e.id,
         lecturerId: e.lecturerId,
@@ -120,7 +120,7 @@ async function getArchiveList({ search, page, pageSize, status }) {
 
 async function getAdminList({ search, status }) {
   const statusFilter = parseStatusFilter(status);
-  const where = { ...buildSearchWhere(search) };
+  const where = { ...buildSearchWhere(search), registeredAt: { not: null } };
   
   if (statusFilter.database.length === 1) {
     where.status = statusFilter.database[0];
@@ -541,6 +541,7 @@ export async function updateArchive(defenceId, body, userId) {
   
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Data sidang tidak ditemukan", 404);
+  if (defence.registeredAt !== null) throwError("Data sidang aktif tidak dapat diubah melalui fitur arsip", 403);
 
   await validateExaminers(defence.thesisId, body.examinerLecturerIds);
   
@@ -551,6 +552,7 @@ export async function updateArchive(defenceId, body, userId) {
 export async function deleteArchive(defenceId) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Data sidang tidak ditemukan", 404);
+  if (defence.registeredAt !== null) throwError("Data sidang aktif tidak dapat dihapus melalui fitur arsip", 403);
   
   await coreRepo.deleteDefence(defenceId);
   return { success: true };
@@ -629,18 +631,16 @@ export async function exportArchive() {
     
     return {
       "No": i + 1,
-      "Nama": d.studentName || "-",
-      "NIM": d.studentNim || "-",
-      "Judul TA": d.thesisTitle || "-",
+      "Nama": d.thesis?.student?.user?.fullName || "-",
+      "NIM": d.thesis?.student?.user?.identityNumber || "-",
+      "Judul TA": d.thesis?.title || "-",
       "Pembimbing": sups || "-",
       "Tanggal": date ? date.toISOString().split("T")[0] : "-",
       "Ruangan": d.room?.name || "-",
-      "Nilai": d.finalScore || "-",
+      "Nilai": d.finalScore ? Math.round((Number(d.finalScore) + Number.EPSILON) * 100) / 100 : "-",
       "Grade": d.grade || "-",
       "Hasil": hasil,
-      "Dosen Penguji 1": examiners[0] || "-",
-      "Dosen Penguji 2": examiners[1] || "-",
-      "Dosen Penguji 3": examiners[2] || "-",
+      "Dosen Penguji": examiners.join("; ") || "-",
     };
   });
 
