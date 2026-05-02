@@ -723,7 +723,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   return await convertHtmlToPdf(html);
 }
 
-export async function generateBeritaAcaraPdf(seminarId) {
+export async function generateAssessmentResultPdf(seminarId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
@@ -768,7 +768,7 @@ export async function generateBeritaAcaraPdf(seminarId) {
       logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
     }
   } catch (e) {
-    console.error("Berita acara logo load failed:", e);
+    console.error("Assessment result logo load failed:", e);
   }
 
   const student = seminar.thesis?.student?.user;

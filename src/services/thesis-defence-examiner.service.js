@@ -1,7 +1,7 @@
 import * as examinerRepo from "../repositories/thesis-defence-examiner.repository.js";
 import * as coreRepo from "../repositories/thesis-defence.repository.js";
 import { computeEffectiveDefenceStatus } from "../utils/defenceStatus.util.js";
-import { mapScoreToGrade } from "./thesis-defence.service.js";
+import { mapScoreToGrade } from "../utils/score.util.js";
 import prisma from "../config/prisma.js";
 
 // ============================================================

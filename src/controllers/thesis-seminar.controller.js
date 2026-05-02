@@ -412,11 +412,11 @@ export async function downloadInvitationLetter(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function downloadBeritaAcara(req, res, next) {
+export async function downloadAssessmentResult(req, res, next) {
   try {
-    const pdfBuffer = await coreService.generateBeritaAcaraPdf(req.params.id);
+    const pdfBuffer = await coreService.generateAssessmentResultPdf(req.params.id);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "attachment; filename=Berita-Acara-Seminar-Hasil.pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=Hasil-Penilaian-Seminar-Hasil.pdf");
     res.send(pdfBuffer);
   } catch (error) { next(error); }
 }

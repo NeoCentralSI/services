@@ -394,3 +394,11 @@ export async function downloadInvitationLetter(req, res, next) {
     res.send(pdfBuffer);
   } catch (error) { next(error); }
 }
+export async function downloadAssessmentResult(req, res, next) {
+  try {
+    const pdfBuffer = await coreService.generateAssessmentResultPdf(req.params.id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=Hasil-Penilaian-Sidang-TA.pdf");
+    res.send(pdfBuffer);
+  } catch (error) { next(error); }
+}

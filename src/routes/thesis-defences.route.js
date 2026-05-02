@@ -23,6 +23,8 @@ import {
 const router = express.Router();
 const ALL_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 
+router.get("/debug", (req, res) => res.json({ message: "Defence debug route ok (public)" }));
+
 router.use(authGuard);
 router.use(populateProfile);
 
@@ -55,6 +57,8 @@ router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocume
 // ============================================================
 router.get("/", requireAnyRole(ALL_ROLES), ctrl.getDefences);
 router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getDefenceDetail);
+router.get("/:id/invitation-letter", requireAnyRole(ALL_ROLES), ctrl.downloadInvitationLetter);
+router.get("/:id/assessment-result", requireAnyRole(ALL_ROLES), ctrl.downloadAssessmentResult);
 router.get("/:id/documents", requireAnyRole(ALL_ROLES), ctrl.getDocuments);
 router.get("/:id/documents/:documentTypeId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
 
@@ -82,7 +86,6 @@ router.patch("/:id", requireAnyRole([ROLES.ADMIN]), validate(updateDefenceSchema
 router.delete("/:id", requireAnyRole([ROLES.ADMIN]), ctrl.deleteArchive);
 router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelDefenceSchema), ctrl.cancelDefence);
 router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
-router.get("/:id/invitation-letter", requireAnyRole([ROLES.ADMIN]), ctrl.downloadInvitationLetter);
 
 // ============================================================
 // STUDENT: Document upload & revisions

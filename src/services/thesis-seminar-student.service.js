@@ -5,7 +5,7 @@ import * as docRepo from "../repositories/thesis-seminar-doc.repository.js";
 import * as revisionRepo from "../repositories/thesis-seminar-revision.repository.js";
 import * as audienceRepo from "../repositories/thesis-seminar-audience.repository.js";
 import { computeEffectiveStatus } from "../utils/seminarStatus.util.js";
-import { mapScoreToGrade } from "./thesis-seminar.service.js";
+import { mapScoreToGrade } from "../utils/score.util.js";
 import { ENV } from "../config/env.js";
 import prisma from "../config/prisma.js";
 

@@ -7,6 +7,8 @@ import * as coreRepo from "../repositories/thesis-defence.repository.js";
 import * as docRepo from "../repositories/thesis-defence-doc.repository.js";
 import { computeEffectiveDefenceStatus } from "../utils/defenceStatus.util.js";
 import { convertHtmlToPdf } from "../utils/pdf.util.js";
+import { mapScoreToGrade } from "../utils/score.util.js";
+import * as examinerService from "./thesis-defence-examiner.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +17,12 @@ function throwError(message, statusCode) {
   const err = new Error(message);
   err.statusCode = statusCode;
   throw err;
+}
+
+function getAssignmentStatus(active, total = 0) {
+  if (!active || active.length === 0) return total > 0 ? "rejected" : "unassigned";
+  const allAvailable = active.every((e) => e.availabilityStatus === "available");
+  return allAvailable ? "confirmed" : "pending";
 }
 
 const STATUS_PRIORITY = {
@@ -217,14 +225,6 @@ async function mapLecturerDefenceList(data, lecturerId, role) {
 const ASSIGNMENT_ORDER = { unassigned: 0, rejected: 1, partially_rejected: 2, pending: 3, confirmed: 4 };
 
 
-function getAssignmentStatus(activeExaminers, totalExaminerCount = 0) {
-  if (!activeExaminers || activeExaminers.length === 0) {
-    return totalExaminerCount > 0 ? "rejected" : "unassigned";
-  }
-  const allAvailable = activeExaminers.every((e) => e.availabilityStatus === "available");
-  return allAvailable ? "confirmed" : "pending";
-}
-
 async function getAssignmentList({ search }) {
   const data = await coreRepo.findDefencesForAssignment({ search });
   const mapped = data.map((d) => {
@@ -273,18 +273,6 @@ async function getAssignmentList({ search }) {
   return mapped;
 }
 
-export function mapScoreToGrade(score) {
-  if (score === null || score === undefined || Number.isNaN(Number(score))) return null;
-  const s = Number(score);
-  if (s >= 80 && s <= 100) return "A";
-  if (s >= 76 && s < 80) return "A-";
-  if (s >= 70 && s < 76) return "B+";
-  if (s >= 65 && s < 70) return "B";
-  if (s >= 55 && s < 65) return "C+";
-  if (s >= 50 && s < 55) return "C";
-  if (s >= 45 && s < 50) return "D";
-  return "E";
-}
 
 // ============================================================
 // DETAIL
@@ -748,6 +736,344 @@ export async function importArchive(fileBuffer, userId) {
     }
   }
   return results;
+}
+
+export async function generateAssessmentResultPdf(defenceId) {
+  const defence = await coreRepo.findDefenceById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+
+  const finalizationData = await examinerService.getFinalizationData(defenceId, { role: "admin" });
+  const { defence: defDetail, examiners, supervisorAssessment } = finalizationData;
+  
+  if (!defDetail.resultFinalizedAt) {
+    throwError("Hasil penilaian hanya dapat diunduh setelah hasil sidang difinalisasi.", 400);
+  }
+
+  // Helpers
+  const indonesianMonths = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const formatIndoDate = (date) => {
+    if (!date) return '-';
+    const d = new Date(date);
+    return `${d.getDate()} ${indonesianMonths[d.getMonth()]} ${d.getFullYear()}`;
+  };
+  const getIndoDay = (date) => {
+    if (!date) return '-';
+    const d = new Date(date);
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    return days[d.getDay()];
+  };
+  const formatTime = (time) => {
+    if (!time) return '--:--';
+    const d = new Date(time);
+    return `${String(d.getUTCHours()).padStart(2, '0')}.${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  };
+
+  // Logo load
+  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  let logoBase64 = "";
+  try {
+    if (fs.existsSync(logoPath)) {
+      const logoBuffer = fs.readFileSync(logoPath);
+      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+    }
+  } catch (e) {
+    console.error("Assessment result logo load failed:", e);
+  }
+
+  const student = defence.thesis?.student?.user;
+  const studentName = student?.fullName || '-';
+  const studentNim = student?.identityNumber || '-';
+  const thesisTitle = defence.thesis?.title || '-';
+
+  const defenceDay = getIndoDay(defence.date);
+  const defenceDateFormatted = formatIndoDate(defence.date);
+  const defenceTime = `${formatTime(defence.startTime)} - ${formatTime(defence.endTime)}`;
+  const defencePlace = defence.room ? (defence.room.name + (defence.room.location ? `, ${defence.room.location}` : '')) : (defence.meetingLink || 'Daring');
+
+  // Supervisors and Examiners for Identity section
+  const supervisors = (defence.thesis?.thesisSupervisors || [])
+    .sort((a, b) => (a.role?.name || '').localeCompare(b.role?.name || ''))
+    .map(ts => ts.lecturer?.user?.fullName || '-');
+  const supervisor1 = supervisors[0] || '-';
+  const supervisor2 = supervisors[1] || '-';
+
+  const examinerList = examiners.map(ex => ({
+    name: ex.lecturerName || '-',
+    order: ex.order
+  }));
+
+  // Examiners data
+  const examinerScores = examiners.map(e => e.assessmentScore).filter(s => s !== null);
+  const averageExaminerScore = examinerScores.length > 0 ? (examinerScores.reduce((a, b) => a + b, 0) / examinerScores.length) : 0;
+  
+  // Unique groups for examiners to build the recap table
+  const uniqueExaminerGroups = [];
+  const seenGroups = new Set();
+  examiners.forEach(ex => {
+    (ex.assessmentDetails || []).forEach(group => {
+      if (!seenGroups.has(group.code)) {
+        seenGroups.add(group.code);
+        uniqueExaminerGroups.push(group);
+      }
+    });
+  });
+
+  const supervisorAssessmentGroups = supervisorAssessment?.assessmentDetails || [];
+
+  // Grade Checkbox Logic
+  const na = defDetail.finalScore || 0;
+  const grades = [
+    { label: '80 ≤ NA ≤ 100', mutu: 'A', checked: na >= 80 && na <= 100 },
+    { label: '76 ≤ NA < 80', mutu: 'A-', checked: na >= 76 && na < 80 },
+    { label: '70 ≤ NA < 75', mutu: 'B+', checked: na >= 70 && na < 75 },
+    { label: '65 ≤ NA < 70', mutu: 'B', checked: na >= 65 && na < 70 },
+    { label: '60 ≤ NA < 65', mutu: 'B-', checked: na >= 60 && na < 65 },
+    { label: '55 ≤ NA < 60', mutu: 'C+', checked: na >= 55 && na < 60 },
+    { label: '50 ≤ NA < 55', mutu: 'C', checked: na >= 50 && na < 55 },
+    { label: '45 ≤ NA < 50', mutu: 'D', checked: na >= 45 && na < 50 },
+    { label: '< 45', mutu: 'E', checked: na < 45 },
+  ];
+
+  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @page { size: A4; margin: 1.2cm 1.5cm; }
+    body { font-family: "Times New Roman", Times, serif; font-size: 10pt; line-height: 1.2; color: #000; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 10px; }
+    .logo-cell { width: 70px; vertical-align: middle; padding-right: 10px; }
+    .logo-img { width: 70px; height: auto; }
+    .header-text { text-align: center; vertical-align: middle; }
+    .header-text h3 { margin: 0; font-size: 11pt; font-weight: normal; text-transform: uppercase; }
+    .header-text h4 { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; }
+    .header-text h2 { margin: 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
+    .header-text p { margin: 1px 0; font-size: 8.5pt; }
+    
+    .title-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+    .ta-code { width: 90px; border: 1px solid #000; padding: 6px; text-align: center; font-weight: bold; font-size: 14pt; background-color: #d1d5db; }
+    .title-box { border: 1px solid #000; border-left: none; padding: 6px; text-align: center; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; letter-spacing: 1px; }
+    
+    .section-title { font-weight: bold; margin: 12px 0 6px 0; font-size: 10.5pt; }
+    .identity-table { width: 100%; margin-left: 15px; border-collapse: collapse; }
+    .identity-table td { vertical-align: top; padding: 1px 4px; }
+    .identity-table td:first-child { width: 150px; }
+    .identity-table td:nth-child(2) { width: 10px; }
+
+    .assessment-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 9.5pt; }
+    .assessment-table th, .assessment-table td { border: 1px solid #000; padding: 3px 6px; }
+    .assessment-table th { background-color: #d1d5db; text-align: center; font-weight: bold; }
+    .assessment-table .bg-gray { background-color: #d1d5db; }
+    .text-center { text-align: center; }
+    
+    .checkbox-container { margin: 15px 0 15px 40px; }
+    .checkbox-item { margin-bottom: 8px; display: flex; align-items: center; }
+    .box { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; margin-right: 10px; text-align: center; line-height: 10px; font-size: 10pt; font-weight: bold; }
+
+    .signature-grid { width: 100%; margin-top: 25px; border-collapse: collapse; }
+    .signature-grid td { vertical-align: bottom; padding: 4px 0; }
+    .sig-label { width: 30px; text-align: left; }
+    .sig-name-box { width: 180px; border-bottom: 1px dotted #000; }
+    .sig-role { width: 150px; }
+    .sig-line { width: 150px; border-bottom: 1px dotted #000; }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td class="logo-cell">${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}</td>
+      <td class="header-text">
+        <h3>KEMENTERIAN PENDIDIKAN TINGGI, SAINS, DAN TEKNOLOGI</h3>
+        <h4>UNIVERSITAS ANDALAS</h4>
+        <h4>FAKULTAS TEKNOLOGI INFORMASI</h4>
+        <h2>DEPARTEMEN SISTEM INFORMASI</h2>
+        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
+        <p>Website: <a href="http://si.fti.unand.ac.id">http://si.fti.unand.ac.id</a> dan email: <a href="mailto:jurusan_si@fti.unand.ac.id">jurusan_si@fti.unand.ac.id</a></p>
+      </td>
+    </tr>
+  </table>
+
+  <table class="title-table">
+    <tr>
+      <td class="ta-code">TA – 16</td>
+      <td class="title-box">Formulir Berita Acara Sidang Tugas Akhir</td>
+    </tr>
+  </table>
+
+  <div class="section-title">A. Identitas Mahasiswa</div>
+  <table class="identity-table">
+    <tr><td>Nama mahasiswa</td><td>:</td><td>${studentName}</td></tr>
+    <tr><td>NIM</td><td>:</td><td>${studentNim}</td></tr>
+    <tr><td>Judul Tugas Akhir</td><td>:</td><td>${thesisTitle}</td></tr>
+    <tr><td>Hari/Tanggal</td><td>:</td><td>${defenceDay} / ${defenceDateFormatted}</td></tr>
+    <tr><td>Waktu</td><td>:</td><td>${defenceTime}</td></tr>
+    <tr><td>Tempat</td><td>:</td><td>${defencePlace}</td></tr>
+    <tr><td>Dosen Pembimbing 1</td><td>:</td><td>${supervisor1}</td></tr>
+    <tr><td>Dosen Pembimbing 2 <i>(jika ada)</i></td><td>:</td><td>${supervisor2}</td></tr>
+    ${examinerList.map(ex => `<tr><td>Dosen Penguji ${ex.order}</td><td>:</td><td>${ex.name}</td></tr>`).join('')}
+  </table>
+
+  <div class="section-title">B. Hasil Rekapitulasi Penilaian Sidang Tugas Akhir dari Penguji</div>
+  <table class="assessment-table">
+    <thead>
+      <tr>
+        <th rowspan="2" style="width: 30px;">No.</th>
+        <th rowspan="2">Aspek Penilaian</th>
+        <th colspan="${examiners.length}">Nilai</th>
+      </tr>
+      <tr>
+        ${examiners.map(ex => `<th style="width: ${Math.floor(200 / examiners.length)}px;">Penguji ${ex.order}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>
+      ${uniqueExaminerGroups.map((group, idx) => `
+        <tr>
+          <td class="text-center">${String.fromCharCode(65 + idx)}</td>
+          <td>${group.code} (maksimal nilai = ${group.criteria.reduce((s, c) => s + (c.maxScore || 0), 0)})</td>
+          ${examiners.map(ex => {
+            const groupScore = ex.assessmentDetails?.find(g => g.code === group.code)?.criteria?.reduce((s, c) => s + (Number(c.score) || 0), 0) ?? '';
+            return `<td class="text-center">${groupScore}</td>`;
+          }).join('')}
+        </tr>
+      `).join('')}
+      <tr class="bg-gray">
+        <td colspan="2" class="text-center"><b>TOTAL</b></td>
+        ${examiners.map(ex => `<td class="text-center"><b>${ex.assessmentScore || ''}</b></td>`).join('')}
+      </tr>
+      <tr>
+        <td colspan="2" class="text-center"><b>RATA-RATA</b><br/><small>(nilai maksimal = 70)</small></td>
+        <td colspan="${examiners.length}" class="text-center"><b>${averageExaminerScore.toFixed(2)}</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">C. Hasil Rekapitulasi Penilaian Tugas Akhir dari Pembimbing</div>
+  <table class="assessment-table">
+    <thead>
+      <tr>
+        <th style="width: 30px;">No.</th>
+        <th>Aspek Penilaian</th>
+        <th style="width: 150px;">Nilai<br/>Pembimbing</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${supervisorAssessmentGroups.map((group, idx) => `
+        <tr>
+          <td class="text-center">${String.fromCharCode(65 + idx)}</td>
+          <td>${group.code} (maksimal nilai = ${group.criteria.reduce((s, c) => s + (c.maxScore || 0), 0)})</td>
+          <td class="text-center">${group.criteria.reduce((s, c) => s + (Number(c.score) || 0), 0)}</td>
+        </tr>
+      `).join('')}
+      <tr class="bg-gray">
+        <td colspan="2" class="text-center"><b>TOTAL</b><br/><small>(nilai maksimal = 30)</small></td>
+        <td class="text-center"><b>${supervisorAssessment?.assessmentScore || 0}</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="page-break-before: always;"></div>
+  
+  <table class="header-table">
+    <tr>
+      <td class="logo-cell">${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}</td>
+      <td class="header-text">
+        <h3>KEMENTERIAN PENDIDIKAN TINGGI, SAINS, DAN TEKNOLOGI</h3>
+        <h4>UNIVERSITAS ANDALAS</h4>
+        <h4>FAKULTAS TEKNOLOGI INFORMASI</h4>
+        <h2>DEPARTEMEN SISTEM INFORMASI</h2>
+        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
+        <p>Website: <a href="http://si.fti.unand.ac.id">http://si.fti.unand.ac.id</a> dan email: <a href="mailto:jurusan_si@fti.unand.ac.id">jurusan_si@fti.unand.ac.id</a></p>
+      </td>
+    </tr>
+  </table>
+
+  <div class="section-title">D. Perhitungan Nilai Akhir</div>
+  <table class="assessment-table">
+    <thead>
+      <tr>
+        <th style="width: 30px;">No.</th>
+        <th>Penilaian</th>
+        <th style="width: 150px;">Nilai</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="text-center">A</td>
+        <td>Hasil Rekapitulasi Penilaian Sidang Tugas Akhir dari Penguji</td>
+        <td class="text-center">${averageExaminerScore.toFixed(2)}</td>
+      </tr>
+      <tr>
+        <td class="text-center">B</td>
+        <td>Hasil Rekapitulasi Penilaian Tugas Akhir dari Pembimbing</td>
+        <td class="text-center">${(supervisorAssessment?.assessmentScore || 0).toFixed(2)}</td>
+      </tr>
+      <tr class="bg-gray">
+        <td colspan="2" class="text-center"><b>TOTAL</b><br/><small>(nilai maksimal = 100)</small></td>
+        <td class="text-center"><b>${na.toFixed(2)}</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">E. Keterangan Penilaian Akhir</div>
+  <table class="assessment-table" style="width: 70%; margin-left: auto; margin-right: auto;">
+    <thead>
+      <tr>
+        <th style="width: 40%;">Nilai Akhir (NA)</th>
+        <th style="width: 30%;">Nilai Mutu</th>
+        <th style="width: 30%;">Pilih (✔)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${grades.map(g => `
+        <tr>
+          <td class="text-center">${g.label}</td>
+          <td class="text-center">${g.mutu}</td>
+          <td class="text-center"><div class="box">${g.checked ? '✔' : ''}</div></td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+
+  <div style="margin-top: 20px;">
+    <p>Berdasarkan hasil Sidang Tugas Akhir, mahasiswa dinyatakan:</p>
+    <div class="checkbox-container">
+      <div class="checkbox-item"><span class="box">${defDetail.status === 'passed' ? '✔' : ''}</span> Lulus tanpa perbaikan</div>
+      <div class="checkbox-item"><span class="box">${defDetail.status === 'passed_with_revision' ? '✔' : ''}</span> Lulus dengan perbaikan</div>
+      <div class="checkbox-item"><span class="box">${defDetail.status === 'failed' ? '✔' : ''}</span> Tidak lulus dan harus mengulang sidang</div>
+    </div>
+  </div>
+
+  <div class="section-title">F. Validasi Penilai</div>
+  <table class="signature-grid">
+    <thead>
+      <tr>
+        <th style="width: 30px; text-align: left;">No.</th>
+        <th style="width: 250px; text-align: left;">Nama Dosen</th>
+        <th style="width: 150px; text-align: left;">Peran</th>
+        <th style="width: 150px; text-align: left;">Tanda Tangan</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1.</td>
+        <td class="sig-name-box">[ ${finalizationData.supervisor.name} ]</td>
+        <td class="sig-role">Dosen Pembimbing</td>
+        <td class="sig-line"></td>
+      </tr>
+      ${examiners.map((ex, idx) => `
+        <tr>
+          <td>${idx + 2}.</td>
+          <td class="sig-name-box">[ ${ex.lecturerName} ]</td>
+          <td class="sig-role">Penguji ${ex.order}</td>
+          <td class="sig-line"></td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+  return await convertHtmlToPdf(html);
 }
 
 export async function generateInvitationLetter(defenceId, nomorSurat) {

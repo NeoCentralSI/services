@@ -21,7 +21,7 @@ export async function findRevisionsByDefenceId(defenceId) {
         },
       },
     },
-    orderBy: [{ isFinished: "asc" }, { studentSubmittedAt: "desc" }, { id: "asc" }],
+    orderBy: [{ supervisorApprovedAt: "asc" }, { studentSubmittedAt: "desc" }, { id: "asc" }],
   });
 }
 
@@ -82,7 +82,6 @@ export async function approveRevision(revisionId, supervisorId) {
   return prisma.thesisDefenceRevision.update({
     where: { id: revisionId },
     data: {
-      isFinished: true,
       approvedBy: supervisorId,
       supervisorApprovedAt: new Date(),
     },
@@ -93,7 +92,6 @@ export async function unapproveRevision(revisionId) {
   return prisma.thesisDefenceRevision.update({
     where: { id: revisionId },
     data: {
-      isFinished: false,
       approvedBy: null,
       supervisorApprovedAt: null,
     },
