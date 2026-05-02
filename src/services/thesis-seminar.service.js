@@ -107,6 +107,7 @@ async function getAdminList({ search, status }) {
   const statusFilter = parseStatusFilter(status);
   const where = {
     ...buildSearchWhere(search),
+    registeredAt: { not: null },
     ...(statusFilter.database.length === 1
       ? { status: statusFilter.database[0] }
       : statusFilter.database.length > 1
@@ -305,7 +306,11 @@ export async function createArchive(body, userId) {
 
 export async function updateArchive(seminarId, body, userId) {
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status seminar hasil tidak valid", 400);
-  if (!(await coreRepo.findSeminarBasicById(seminarId))) throwError("Data seminar hasil tidak ditemukan", 404);
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Data seminar hasil tidak ditemukan", 404);
+  if (seminar.registeredAt !== null) {
+    throwError("Seminar yang diproses melalui sistem tidak dapat diubah secara manual di arsip", 403);
+  }
   const [thesis, room, dup] = await Promise.all([coreRepo.findThesisById(body.thesisId), coreRepo.findRoomById(body.roomId), coreRepo.findSeminarByThesisIdExcludingId(body.thesisId, seminarId)]);
   if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
   if (!room) throwError("Ruangan tidak ditemukan", 404);
@@ -320,7 +325,11 @@ export async function updateArchive(seminarId, body, userId) {
 }
 
 export async function deleteArchive(seminarId) {
-  if (!(await coreRepo.findSeminarBasicById(seminarId))) throwError("Data seminar hasil tidak ditemukan", 404);
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Data seminar hasil tidak ditemukan", 404);
+  if (seminar.registeredAt !== null) {
+    throwError("Seminar yang diproses melalui sistem tidak dapat dihapus secara manual di arsip", 403);
+  }
   await coreRepo.deleteSeminar(seminarId);
   return { success: true };
 }

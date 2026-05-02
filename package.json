@@ -12,6 +12,7 @@
     "test:integration": "vitest run --config vitest.integration.config.js",
     "test:integration:nabil": "vitest run src/test/integration/nabil --config vitest.integration.config.js",
     "test:integration:fathur": "vitest run src/test/integration/fathur --config vitest.integration.config.js",
+    "test:integration:fariz": "vitest run src/test/integration/fariz --config vitest.integration.config.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
