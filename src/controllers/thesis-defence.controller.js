@@ -303,7 +303,12 @@ export async function getRevisions(req, res, next) {
 
 export async function createRevision(req, res, next) {
   try {
-    const result = await revisionService.createRevision(req.params.id, req.body, req.user.studentId);
+    const result = await revisionService.createRevision(
+      req.params.id, 
+      req.body, 
+      req.user.studentId,
+      req.user
+    );
     res.status(201).json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -329,7 +334,8 @@ export async function deleteRevision(req, res, next) {
     const result = await revisionService.deleteRevision(
       req.params.id,
       req.params.revisionId,
-      req.user.studentId
+      req.user.studentId,
+      req.user
     );
     res.json({ success: true, data: result });
   } catch (error) {
@@ -339,7 +345,24 @@ export async function deleteRevision(req, res, next) {
 
 export async function finalizeRevisions(req, res, next) {
   try {
-    const result = await revisionService.finalizeRevisions(req.params.id, req.user.lecturerId);
+    const result = await revisionService.finalizeRevisions(
+      req.params.id, 
+      req.user.lecturerId,
+      req.user
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function unfinalizeRevisions(req, res, next) {
+  try {
+    const result = await revisionService.unfinalizeRevisions(
+      req.params.id, 
+      req.user.lecturerId,
+      req.user
+    );
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

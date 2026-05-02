@@ -147,6 +147,7 @@ router.post(
   ctrl.finalizeDefence
 );
 router.post("/:id/revisions/finalize", requireAnyRole(LECTURER_ROLES), ctrl.finalizeRevisions);
+router.post("/:id/revisions/unfinalize", requireAnyRole(LECTURER_ROLES), ctrl.unfinalizeRevisions);
 
 // ============================================================
 // KETUA DEPARTEMEN: examiner assignment

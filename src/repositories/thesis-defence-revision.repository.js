@@ -57,9 +57,13 @@ export async function findRevisionById(revisionId) {
 // REVISION CRUD
 // ============================================================
 
-export async function createRevision({ defenceExaminerId, description }) {
+export async function createRevision({ defenceExaminerId, description, revisionAction }) {
   return prisma.thesisDefenceRevision.create({
-    data: { defenceExaminerId, description },
+    data: { 
+      defenceExaminerId, 
+      description,
+      revisionAction
+    },
   });
 }
 

@@ -213,6 +213,13 @@ export async function getDefenceDetail(userId, defenceId) {
         filePath: fileMeta?.filePath || null,
       };
     }),
+    examinerNotes: (detail.examiners || [])
+      .filter((e) => e.revisionNotes)
+      .map((e) => ({
+        examinerOrder: e.order,
+        lecturerName: lecturerNameMap.get(e.lecturerId) || "-",
+        revisionNotes: e.revisionNotes,
+      })),
     status: computeEffectiveDefenceStatus(detail.status, detail.date, detail.startTime, detail.endTime),
   };
 }

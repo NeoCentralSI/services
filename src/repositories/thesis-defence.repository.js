@@ -184,6 +184,14 @@ export async function findDefenceBasicById(defenceId) {
       resultFinalizedAt: true,
       revisionFinalizedAt: true,
       revisionFinalizedBy: true,
+      thesis: {
+        select: {
+          studentId: true,
+          thesisSupervisors: {
+            select: { lecturerId: true },
+          },
+        },
+      },
     },
   });
 }

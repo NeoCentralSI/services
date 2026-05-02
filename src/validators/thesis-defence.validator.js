@@ -99,6 +99,7 @@ export const finalizeDefenceSchema = z.object({
 export const createRevisionSchema = z.object({
   defenceExaminerId: z.string().uuid("ID penguji tidak valid"),
   description: z.string().trim().min(1, "Deskripsi revisi wajib diisi"),
+  revisionAction: z.string().trim().optional(),
 });
 
 export const revisionActionSchema = z
