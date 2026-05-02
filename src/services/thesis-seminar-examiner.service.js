@@ -320,7 +320,9 @@ export async function getExaminerAssessment(seminarId, user) {
     where: { userId: user.sub || user.id, status: "active" },
     select: { role: { select: { name: true } } },
   });
-  const isAdmin = userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) || 
+                   userRoles.some((r) => adminRoleNames.includes(String(r.role?.name || "").toLowerCase()));
   const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
   
   const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
@@ -335,8 +337,8 @@ export async function getExaminerAssessment(seminarId, user) {
       throwError("Anda tidak memiliki akses untuk melihat form penilaian seminar ini.", 403);
     }
   } else {
-    if (!isExaminer) {
-      throwError("Hanya dosen penguji yang dapat mengakses form penilaian.", 403);
+    if (!isExaminer && !isAdmin) {
+      throwError("Hanya dosen penguji atau pimpinan yang dapat mengakses form penilaian.", 403);
     }
   }
 
@@ -431,7 +433,9 @@ export async function getFinalizationData(seminarId, user) {
       select: { role: { select: { name: true } } },
     });
   }
-  const isAdmin = user.role === 'admin' || userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) || 
+                   userRoles.some((r) => adminRoleNames.includes(String(r.role?.name || "").toLowerCase()));
   const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
   
   const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
@@ -447,8 +451,8 @@ export async function getFinalizationData(seminarId, user) {
       throwError("Anda tidak memiliki akses untuk melihat data finalisasi seminar ini.", 403);
     }
   } else {
-    if (!isSupervisor) {
-      throwError("Hanya dosen pembimbing yang dapat melihat data rekap awal.", 403);
+    if (!isSupervisor && !isAdmin) {
+      throwError("Hanya dosen pembimbing atau pimpinan yang dapat melihat data rekap awal.", 403);
     }
   }
 

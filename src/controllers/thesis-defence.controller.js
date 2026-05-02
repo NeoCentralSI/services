@@ -254,7 +254,7 @@ export async function respondAssignment(req, res, next) {
 
 export async function getAssessment(req, res, next) {
   try {
-    const result = await examinerService.getAssessment(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getAssessment(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -272,7 +272,7 @@ export async function submitAssessment(req, res, next) {
 
 export async function getFinalizationData(req, res, next) {
   try {
-    const result = await examinerService.getFinalizationData(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getFinalizationData(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

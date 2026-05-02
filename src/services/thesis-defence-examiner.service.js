@@ -27,10 +27,11 @@ function groupAssessmentDetailsByCpmk(details = []) {
   details.forEach((item) => {
     const cpmk = item.criteria?.cpmk;
     if (!cpmk) return;
-    if (!byGroup[cpmk.id]) {
-      byGroup[cpmk.id] = { id: cpmk.id, code: cpmk.code, description: cpmk.description, criteria: [] };
+    const groupKey = cpmk.code || cpmk.id;
+    if (!byGroup[groupKey]) {
+      byGroup[groupKey] = { id: cpmk.id, code: cpmk.code, description: cpmk.description, criteria: [] };
     }
-    byGroup[cpmk.id].criteria.push({
+    byGroup[groupKey].criteria.push({
       id: item.criteria.id,
       name: item.criteria.name,
       maxScore: item.criteria.maxScore,
@@ -316,7 +317,7 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
 // PUBLIC: Assessment Form (Examiner / Supervisor)
 // ============================================================
 
-export async function getAssessment(defenceId, lecturerId) {
+export async function getAssessment(defenceId, user) {
   const defence = await coreRepo.findDefenceById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
 
@@ -326,20 +327,37 @@ export async function getAssessment(defenceId, lecturerId) {
     defence.startTime,
     defence.endTime
   );
-  if (!["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus)) {
-    throwError("Form penilaian hanya tersedia saat sidang sedang berlangsung atau sudah selesai.", 400);
+  if (
+    !["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus)
+  ) {
+    throwError(
+      "Form penilaian hanya tersedia saat sidang sedang berlangsung atau sudah selesai.",
+      400
+    );
   }
 
-  const examiner = await examinerRepo.findLatestExaminerByDefenceAndLecturer(defenceId, lecturerId);
-  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, lecturerId);
+  const examiner = await examinerRepo.findLatestExaminerByDefenceAndLecturer(
+    defenceId,
+    user.lecturerId
+  );
+  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(
+    defenceId,
+    user.lecturerId
+  );
   const mySupervisor = resolveSupervisorMembership(supervisorRelation);
 
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin = user.roles?.some(r => adminRoleNames.includes(r.toLowerCase())) || 
+                  adminRoleNames.includes(String(user.role || "").toLowerCase());
   const isExaminer = !!examiner && examiner.availabilityStatus === "available";
   const isSupervisor = !!mySupervisor;
+  const isStudent = user.studentId && defence.thesis?.studentId === user.studentId;
 
-  if (!isExaminer && !isSupervisor) throwError("Anda bukan penilai aktif pada sidang ini.", 403);
+  if (!isExaminer && !isSupervisor && !isAdmin && !isStudent) {
+    throwError("Anda tidak memiliki akses ke form penilaian ini.", 403);
+  }
 
-  const assessorRole = isExaminer ? "examiner" : "supervisor";
+  const assessorRole = isExaminer ? "examiner" : isSupervisor ? "supervisor" : "examiner";
   const cpmks = await examinerRepo.findDefenceAssessmentCpmks(assessorRole);
 
   let existingScoreMap = new Map();
@@ -357,11 +375,18 @@ export async function getAssessment(defenceId, lecturerId) {
     );
   }
 
-  const criteriaGroups = cpmks.map((cpmk) => ({
-    id: cpmk.id,
-    code: cpmk.code,
-    description: cpmk.description,
-    criteria: (cpmk.assessmentCriterias || []).map((c) => ({
+  const groupedByCode = new Map();
+  for (const cpmk of cpmks) {
+    if (!groupedByCode.has(cpmk.code)) {
+      groupedByCode.set(cpmk.code, {
+        id: cpmk.id,
+        code: cpmk.code,
+        description: cpmk.description,
+        criteria: [],
+      });
+    }
+    const group = groupedByCode.get(cpmk.code);
+    const mappedCriteria = (cpmk.assessmentCriterias || []).map((c) => ({
       id: c.id,
       name: c.name || "-",
       maxScore: c.maxScore || 0,
@@ -372,8 +397,10 @@ export async function getAssessment(defenceId, lecturerId) {
         maxScore: r.maxScore,
         description: r.description,
       })),
-    })),
-  }));
+    }));
+    group.criteria.push(...mappedCriteria);
+  }
+  const criteriaGroups = Array.from(groupedByCode.values());
 
   return {
     defence: {
@@ -404,7 +431,7 @@ export async function getAssessment(defenceId, lecturerId) {
             roleName: mySupervisor?.role?.name || "Pembimbing",
             assessmentScore: defence.supervisorScore,
             supervisorNotes: defence.supervisorNotes,
-            assessmentSubmittedAt: defence.supervisorScore !== null ? defence.updatedAt : null,
+            assessmentSubmittedAt: defence.supervisorAssessmentSubmittedAt,
           }
         : null,
     criteriaGroups,
@@ -468,6 +495,7 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
       examinerId: examiner.id,
       scores: normalizedScores,
       revisionNotes: payload.revisionNotes,
+      isDraft: !!payload.isDraft,
     });
     return {
       assessorRole: "examiner",
@@ -477,13 +505,15 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
     };
   }
 
-  if (defence.supervisorScore !== null) {
+  if (defence.supervisorAssessmentSubmittedAt && !payload.isDraft) {
     throwError("Penilaian pembimbing sudah disubmit sebelumnya dan tidak dapat diubah.", 400);
   }
+
   const updated = await coreRepo.saveDefenceSupervisorAssessment({
     defenceId,
     scores: normalizedScores,
     supervisorNotes: payload.supervisorNotes,
+    isDraft: !!payload.isDraft,
   });
   return {
     assessorRole: "supervisor",
@@ -497,13 +527,26 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
 // PUBLIC: Finalization Data (Supervisor view)
 // ============================================================
 
-export async function getFinalizationData(defenceId, lecturerId) {
+export async function getFinalizationData(defenceId, user) {
   const defence = await coreRepo.findDefenceById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
 
-  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, lecturerId);
+  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId);
   const mySupervisor = resolveSupervisorMembership(supervisorRelation);
-  if (!mySupervisor) throwError("Anda bukan dosen pembimbing pada sidang ini.", 403);
+
+  // Check Permissions
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin = user.roles?.some(r => adminRoleNames.includes(r.toLowerCase())) || 
+                  adminRoleNames.includes(String(user.role || "").toLowerCase());
+  
+  const isStudent = user.studentId && defence.thesis?.studentId === user.studentId;
+  const isExaminer =
+    user.lecturerId && (defence.examiners || []).some((ex) => ex.lecturerId === user.lecturerId);
+  const isSupervisor = !!mySupervisor;
+
+  if (!isAdmin && !isStudent && !isExaminer && !isSupervisor) {
+    throwError("Anda tidak memiliki akses untuk melihat rekapitulasi sidang ini.", 403);
+  }
 
   const effectiveStatus = computeEffectiveDefenceStatus(
     defence.status,
@@ -522,7 +565,7 @@ export async function getFinalizationData(defenceId, lecturerId) {
     : null;
 
   const supervisorDetails = await coreRepo.findDefenceSupervisorAssessmentDetails(defenceId);
-  const supervisorAssessmentSubmitted = defence.supervisorScore !== null;
+  const supervisorAssessmentSubmitted = !!defence.supervisorAssessmentSubmittedAt;
   const supervisorAssessmentGroups = groupAssessmentDetailsByCpmk(supervisorDetails);
 
   const recommendationUnlocked = allExaminerSubmitted && supervisorAssessmentSubmitted;
@@ -547,9 +590,10 @@ export async function getFinalizationData(defenceId, lecturerId) {
       thesisTitle: defence.thesis?.title || "-",
     },
     supervisor: {
-      roleName: mySupervisor.role?.name || "Pembimbing",
-      name: mySupervisor.lecturer?.user?.fullName || "-",
-      canFinalize: effectiveStatus === "ongoing" && !defence.resultFinalizedAt,
+      roleName: mySupervisor?.role?.name || "Pembimbing",
+      name: mySupervisor?.lecturer?.user?.fullName || "-",
+      canFinalize:
+        isSupervisor && effectiveStatus === "ongoing" && !defence.resultFinalizedAt,
     },
     examiners: examiners.map((item) => ({
       id: item.id,
@@ -614,14 +658,23 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
   const finalScore = examinerAverageScore + supervisorScore;
   const finalGrade = mapScoreToGrade(finalScore);
 
+  // Determine status based on business rules
+  let targetStatus = "passed";
+  if (finalScore < 50) {
+    targetStatus = "failed";
+  } else if (payload.recommendRevision) {
+    targetStatus = "passed_with_revision";
+  }
+
   const finalized = await coreRepo.finalizeDefenceResult({
     defenceId,
-    status: payload.status,
+    status: targetStatus,
     examinerAverageScore,
     supervisorScore,
     finalScore,
     grade: finalGrade,
     resultFinalizedBy: mySupervisor.id,
+    recommendRevision: !!payload.recommendRevision,
   });
 
   if (payload.status === "failed") {

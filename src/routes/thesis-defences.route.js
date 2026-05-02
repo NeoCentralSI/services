@@ -129,14 +129,14 @@ router.post(
   validate(respondAssignmentSchema),
   ctrl.respondAssignment
 );
-router.get("/:id/assessment", requireAnyRole(LECTURER_ROLES), ctrl.getAssessment);
+router.get("/:id/assessment", requireAnyRole(ALL_ROLES), ctrl.getAssessment);
 router.post(
   "/:id/assessment",
   requireAnyRole(LECTURER_ROLES),
   validate(submitAssessmentSchema),
   ctrl.submitAssessment
 );
-router.get("/:id/finalization", requireAnyRole(LECTURER_ROLES), ctrl.getFinalizationData);
+router.get("/:id/finalization", requireAnyRole(ALL_ROLES), ctrl.getFinalizationData);
 router.post(
   "/:id/finalize",
   requireAnyRole(LECTURER_ROLES),

@@ -587,7 +587,6 @@ model ThesisSeminar {
   meetingLink                String?             @map("meeting_link") @db.VarChar(255)
   status                     ThesisSeminarStatus @default(registered)
   finalScore                 Float?              @map("final_score")
-  supervisorScheduleResponse ScheduleResponse    @default(pending) @map("supervisor_schedule_response")
   resultFinalizedAt          DateTime?           @map("result_finalized_at")
   resultFinalizedBy          String?             @map("result_finalized_by") @db.VarChar(255)
   revisionFinalizedAt        DateTime?           @map("revision_finalized_at")
@@ -658,7 +657,6 @@ model ThesisSeminarExaminer {
   order                 Int
   assignedAt            DateTime                   @map("assigned_at")
   availabilityStatus    ExaminerAvailabilityStatus @default(pending) @map("availability_status")
-  scheduleResponse      ScheduleResponse           @default(pending) @map("schedule_response")
   unavailableReasons    String?                    @map("unavailable_reasons") @db.Text
   respondedAt           DateTime?                  @map("responded_at")
   assessmentScore       Int?                       @map("assessment_score")
@@ -722,9 +720,9 @@ model ThesisDefence {
   status                     ThesisDefenceStatus @default(registered)
   examinerAverageScore       Float?              @map("examiner_average_score")
   supervisorScore            Float?              @map("supervisor_score")
-  supervisorScheduleResponse ScheduleResponse    @default(pending) @map("supervisor_schedule_response")
   unavailableReasons         String?             @map("unavailable_reasons") @db.Text
   supervisorNotes            String?             @map("supervisor_notes") @db.Text
+  supervisorAssessmentSubmittedAt DateTime?      @map("supervisor_assessment_submitted_at")
   finalScore                 Float?              @map("final_score")
   grade                      String?             @db.VarChar(10)
   resultFinalizedAt          DateTime?           @map("result_finalized_at")
@@ -778,7 +776,6 @@ model ThesisDefenceExaminer {
   order                 Int
   assignedAt            DateTime                   @map("assigned_at")
   availabilityStatus    ExaminerAvailabilityStatus @default(pending) @map("availability_status")
-  scheduleResponse      ScheduleResponse           @default(pending) @map("schedule_response")
   unavailableReasons    String?                    @map("unavailable_reasons") @db.Text
   respondedAt           DateTime?                  @map("responded_at")
   assessmentScore       Int?                       @map("assessment_score")
@@ -1773,12 +1770,6 @@ enum ExaminerAvailabilityStatus {
   pending
   available
   unavailable
-}
-
-enum ScheduleResponse {
-  pending
-  confirmed
-  request_change
 }
 
 enum BookingStatus {

@@ -500,8 +500,12 @@ export async function finalizeSchedule(defenceId) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
 
+  if (defence.status === "scheduled") {
+    return { defenceId, status: "scheduled" };
+  }
+
   if (defence.status !== "examiner_assigned") {
-    throwError("Hanya sidang berstatus examiner_assigned yang dapat difinalisasi jadwalnya.", 400);
+    throwError(`Hanya sidang berstatus examiner_assigned yang dapat difinalisasi jadwalnya. Status saat ini: ${defence.status}`, 400);
   }
 
   if (!defence.date || !defence.startTime || !defence.endTime) {

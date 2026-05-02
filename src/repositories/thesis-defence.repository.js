@@ -107,7 +107,12 @@ export async function findDefencesPaginated({ where = {}, skip = 0, take = 10 } 
 }
 
 export async function findDefencesForAssignment({ search } = {}) {
-  const where = { status: { in: ["verified", "examiner_assigned"] }, ...whereSearch(search) };
+  const where = { 
+    status: { 
+      in: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision", "failed", "cancelled"] 
+    }, 
+    ...whereSearch(search) 
+  };
   const data = await prisma.thesisDefence.findMany({
     where,
     include: defenceListInclude,
@@ -464,7 +469,7 @@ export async function findDefenceSupervisorAssessmentDetails(defenceId) {
   });
 }
 
-export async function saveDefenceSupervisorAssessment({ defenceId, scores, supervisorNotes }) {
+export async function saveDefenceSupervisorAssessment({ defenceId, scores, supervisorNotes, isDraft }) {
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefenceSupervisorAssessmentDetail.deleteMany({
       where: { thesisDefenceId: defenceId },
@@ -486,6 +491,7 @@ export async function saveDefenceSupervisorAssessment({ defenceId, scores, super
       data: {
         supervisorScore: totalScore,
         supervisorNotes: supervisorNotes || null,
+        supervisorAssessmentSubmittedAt: isDraft ? undefined : new Date(),
         updatedAt: new Date(),
       },
     });
@@ -504,6 +510,7 @@ export async function finalizeDefenceResult({
   finalScore,
   grade,
   resultFinalizedBy,
+  recommendRevision,
 }) {
   return prisma.thesisDefence.update({
     where: { id: defenceId },
@@ -515,6 +522,7 @@ export async function finalizeDefenceResult({
       grade,
       resultFinalizedAt: new Date(),
       resultFinalizedBy,
+      recommendRevision: !!recommendRevision,
     },
   });
 }
