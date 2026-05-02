@@ -86,8 +86,33 @@ export async function findAllDefences({ search, status } = {}) {
   return Promise.all(data.map(async (d) => ({ ...d, examiners: await enrichExaminers(d.examiners) })));
 }
 
+export async function findDefencesPaginated({ where = {}, skip = 0, take = 10 } = {}) {
+  const [data, total] = await Promise.all([
+    prisma.thesisDefence.findMany({
+      where,
+      include: defenceListInclude,
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.thesisDefence.count({ where }),
+  ]);
+
+  const enriched = await Promise.all(data.map(async (d) => ({ 
+    ...d, 
+    examiners: await enrichExaminers(d.examiners) 
+  })));
+
+  return { data: enriched, total };
+}
+
 export async function findDefencesForAssignment({ search } = {}) {
-  const where = { status: { in: ["verified", "examiner_assigned"] }, ...whereSearch(search) };
+  const where = { 
+    status: { 
+      in: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision", "failed", "cancelled"] 
+    }, 
+    ...whereSearch(search) 
+  };
   const data = await prisma.thesisDefence.findMany({
     where,
     include: defenceListInclude,
@@ -150,6 +175,7 @@ export async function findDefenceBasicById(defenceId) {
       id: true,
       thesisId: true,
       status: true,
+      registeredAt: true,
       roomId: true,
       date: true,
       startTime: true,
@@ -159,6 +185,14 @@ export async function findDefenceBasicById(defenceId) {
       resultFinalizedAt: true,
       revisionFinalizedAt: true,
       revisionFinalizedBy: true,
+      thesis: {
+        select: {
+          studentId: true,
+          thesisSupervisors: {
+            select: { lecturerId: true },
+          },
+        },
+      },
     },
   });
 }
@@ -175,9 +209,122 @@ export async function updateDefenceStatus(defenceId, status) {
   return prisma.thesisDefence.update({ where: { id: defenceId }, data: { status } });
 }
 
-export async function createThesisDefence(thesisId) {
-  return prisma.thesisDefence.create({
-    data: { thesisId, registeredAt: new Date(), status: "registered" },
+export async function deleteDefence(id) {
+  return prisma.$transaction(async (tx) => {
+    await tx.thesisDefenceDocument.deleteMany({ where: { thesisDefenceId: id } });
+    await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
+    await tx.thesisDefenceSupervisorAssessmentDetail.deleteMany({ where: { thesisDefenceId: id } });
+    await tx.thesisDefenceRevision.deleteMany({
+      where: { defenceExaminer: { thesisDefenceId: id } },
+    });
+    return tx.thesisDefence.delete({ where: { id } });
+  });
+}
+
+export async function createArchive(data) {
+  const { thesisId, date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
+  return prisma.$transaction(async (tx) => {
+    const defence = await tx.thesisDefence.create({
+      data: {
+        thesisId,
+        date: date ? new Date(date) : undefined,
+        roomId,
+        status,
+        finalScore,
+        grade,
+        registeredAt: null, // Mark as archive
+        resultFinalizedAt: new Date(),
+      },
+    });
+
+    if (examinerLecturerIds && examinerLecturerIds.length > 0) {
+      await tx.thesisDefenceExaminer.createMany({
+        data: examinerLecturerIds.map((lecturerId, index) => ({
+          thesisDefenceId: defence.id,
+          lecturerId,
+          assignedBy: userId,
+          order: index + 1,
+          availabilityStatus: "available",
+          assignedAt: new Date(),
+          respondedAt: new Date(),
+        })),
+      });
+    }
+
+    return defence;
+  });
+}
+
+export async function updateArchive(id, data) {
+  const { date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
+  return prisma.$transaction(async (tx) => {
+    await tx.thesisDefence.update({
+      where: { id },
+      data: {
+        date: date ? new Date(date) : undefined,
+        roomId,
+        status,
+        finalScore,
+        grade,
+      },
+    });
+
+    if (examinerLecturerIds) {
+      // Refresh examiners to ensure all have assignedBy and correct order
+      await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
+      if (examinerLecturerIds.length > 0) {
+        await tx.thesisDefenceExaminer.createMany({
+          data: examinerLecturerIds.map((lecturerId, index) => ({
+            thesisDefenceId: id,
+            lecturerId,
+            assignedBy: userId,
+            order: index + 1,
+            availabilityStatus: "available",
+            assignedAt: new Date(),
+            respondedAt: new Date(),
+          })),
+        });
+      }
+    }
+
+    return await tx.thesisDefence.findUnique({ where: { id } });
+  });
+}
+
+export async function getThesisOptions() {
+  return prisma.thesis.findMany({
+    select: {
+      id: true,
+      title: true,
+      student: { select: { user: { select: { fullName: true, identityNumber: true } } } },
+      thesisSupervisors: { select: { lecturerId: true } },
+      thesisDefences: {
+        select: { id: true, status: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+    orderBy: { student: { user: { fullName: "asc" } } },
+  });
+}
+
+export async function getLecturerOptions() {
+  return prisma.lecturer.findMany({
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+    orderBy: { user: { fullName: "asc" } },
+  });
+}
+
+export async function getStudentOptions() {
+  return prisma.student.findMany({
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+    orderBy: { user: { fullName: "asc" } },
   });
 }
 
@@ -187,7 +334,7 @@ export async function createThesisDefence(thesisId) {
 
 export async function findLecturerAvailabilities(lecturerIds) {
   return prisma.lecturerAvailability.findMany({
-    where: { lecturerId: { in: lecturerIds }, isActive: true },
+    where: { lecturerId: { in: lecturerIds } },
     orderBy: [{ lecturerId: "asc" }, { day: "asc" }, { startTime: "asc" }],
   });
 }
@@ -196,13 +343,70 @@ export async function findAllRooms() {
   return prisma.room.findMany({ orderBy: { name: "asc" } });
 }
 
+export async function findRoomBookings() {
+  const nextMonth = new Date();
+  nextMonth.setDate(nextMonth.getDate() + 30);
+
+  const [seminars, defences] = await Promise.all([
+    prisma.thesisSeminar.findMany({
+      where: {
+        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
+        roomId: { not: null },
+        status: "scheduled",
+      },
+      include: {
+        thesis: {
+          include: {
+            student: { include: { user: true } }
+          }
+        }
+      }
+    }),
+    prisma.thesisDefence.findMany({
+      where: {
+        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
+        roomId: { not: null },
+        status: "scheduled",
+      },
+      include: {
+        thesis: {
+          include: {
+            student: { include: { user: true } }
+          }
+        }
+      }
+    })
+  ]);
+
+  return [
+    ...seminars.map(s => ({
+      id: `seminar-${s.id}`,
+      type: "seminar",
+      title: `Seminar Hasil: ${s.thesis?.student?.user?.fullName || "Mahasiswa"}`,
+      roomId: s.roomId,
+      date: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime
+    })),
+    ...defences.map(d => ({
+      id: `defence-${d.id}`,
+      type: "defence",
+      title: `Sidang TA: ${d.thesis?.student?.user?.fullName || "Mahasiswa"}`,
+      roomId: d.roomId,
+      date: d.date,
+      startTime: d.startTime,
+      endTime: d.endTime
+    }))
+  ];
+}
+
 export async function findRoomScheduleConflict({ defenceId, roomId, date, startTime, endTime }) {
   return prisma.thesisDefence.findFirst({
     where: {
       id: defenceId ? { not: defenceId } : undefined,
       roomId,
       date: new Date(date),
-      status: { notIn: ["cancelled"] },
+      status: "scheduled",
       AND: [
         { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
         { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
@@ -220,7 +424,6 @@ export async function updateDefenceSchedule(defenceId, { roomId, date, startTime
       date: new Date(date),
       startTime: new Date(`1970-01-01T${startTime}:00.000Z`),
       endTime: new Date(`1970-01-01T${endTime}:00.000Z`),
-      status: "scheduled",
     },
   });
 }
@@ -275,7 +478,7 @@ export async function findDefenceSupervisorAssessmentDetails(defenceId) {
   });
 }
 
-export async function saveDefenceSupervisorAssessment({ defenceId, scores, supervisorNotes }) {
+export async function saveDefenceSupervisorAssessment({ defenceId, scores, supervisorNotes, isDraft }) {
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefenceSupervisorAssessmentDetail.deleteMany({
       where: { thesisDefenceId: defenceId },
@@ -297,6 +500,7 @@ export async function saveDefenceSupervisorAssessment({ defenceId, scores, super
       data: {
         supervisorScore: totalScore,
         supervisorNotes: supervisorNotes || null,
+        supervisorAssessmentSubmittedAt: isDraft ? undefined : new Date(),
         updatedAt: new Date(),
       },
     });
@@ -315,6 +519,7 @@ export async function finalizeDefenceResult({
   finalScore,
   grade,
   resultFinalizedBy,
+  recommendRevision,
 }) {
   return prisma.thesisDefence.update({
     where: { id: defenceId },
@@ -326,6 +531,7 @@ export async function finalizeDefenceResult({
       grade,
       resultFinalizedAt: new Date(),
       resultFinalizedBy,
+      recommendRevision: !!recommendRevision,
     },
   });
 }

@@ -55,8 +55,8 @@ router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocume
 // ============================================================
 router.get("/", requireAnyRole(ALL_ROLES), ctrl.getSeminars);
 router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getSeminarDetail);
-router.get("/:id/invitation", requireAnyRole(ALL_ROLES), ctrl.downloadInvitationLetter);
-router.get("/:id/berita-acara", requireAnyRole(ALL_ROLES), ctrl.downloadBeritaAcara);
+router.get("/:id/invitation-letter", requireAnyRole(ALL_ROLES), ctrl.downloadInvitationLetter);
+router.get("/:id/assessment-result", requireAnyRole(ALL_ROLES), ctrl.downloadAssessmentResult);
 router.get("/:id/documents", requireAnyRole(ALL_ROLES), ctrl.getDocuments);
 router.get("/:id/documents/:documentTypeId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
 

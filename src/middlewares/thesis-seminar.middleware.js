@@ -18,6 +18,7 @@ export async function populateProfile(req, res, next) {
     if (profile) {
       req.user.studentId = profile.student?.id;
       req.user.lecturerId = profile.lecturer?.id;
+      req.user.roles = profile.roles?.map(r => r.name) || [];
     }
     
     next();

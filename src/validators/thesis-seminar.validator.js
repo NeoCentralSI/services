@@ -135,10 +135,8 @@ export const submitAssessmentSchema = z.object({
 // ============================================================
 
 export const finalizeSeminarSchema = z.object({
-  status: z.enum(["passed", "passed_with_revision", "failed"], {
-    errorMap: () => ({
-      message: "Status akhir harus passed, passed_with_revision, atau failed",
-    }),
+  recommendRevision: z.boolean({
+    required_error: "Rekomendasi revisi wajib ditentukan",
   }),
 });
 // ============================================================

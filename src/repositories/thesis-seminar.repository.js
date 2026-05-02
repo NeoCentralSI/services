@@ -387,7 +387,7 @@ export async function findRoomScheduleConflict({ seminarId, roomId, date, startT
     where: {
       roomId,
       date: new Date(date),
-      status: { notIn: ["cancelled"] },
+      status: "scheduled",
       AND: [
         { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
         { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
@@ -441,7 +441,7 @@ export async function findRoomBookings() {
       where: {
         date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
         roomId: { not: null },
-        status: { notIn: ["cancelled"] },
+        status: "scheduled",
       },
       include: {
         thesis: {
@@ -459,7 +459,7 @@ export async function findRoomBookings() {
       where: {
         date: { gte: new Date(new Date().setHours(0, 0, 0, 0)), lte: nextMonth },
         roomId: { not: null },
-        status: { notIn: ["cancelled"] },
+        status: "scheduled",
       },
       include: {
         thesis: {
