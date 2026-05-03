@@ -18,7 +18,7 @@ import * as studentService from "../services/yudisium-student.service.js";
 export const getEvents = async (req, res, next) => {
   try {
     const data = await yudisiumService.getYudisiumList();
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -27,7 +27,7 @@ export const getEvents = async (req, res, next) => {
 export const getEventById = async (req, res, next) => {
   try {
     const data = await yudisiumService.getYudisiumDetail(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -45,7 +45,7 @@ export const createEvent = async (req, res, next) => {
 export const updateEvent = async (req, res, next) => {
   try {
     const data = await yudisiumService.updateYudisium(req.params.id, req.body);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -68,7 +68,7 @@ export const getParticipants = async (req, res, next) => {
   try {
     const yudisiumId = req.params.id;
     const data = await participantService.getParticipants(yudisiumId);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -78,7 +78,7 @@ export const getParticipantDetail = async (req, res, next) => {
   try {
     const { participantId } = req.params;
     const data = await participantService.getParticipantDetail(participantId);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -88,7 +88,7 @@ export const getParticipantRequirements = async (req, res, next) => {
   try {
     const { participantId } = req.params;
     const data = await participantService.getParticipantDetail(participantId);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -103,7 +103,7 @@ export const validateParticipantDocument = async (req, res, next) => {
       notes, 
       userId: req.user.id 
     });
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -117,7 +117,7 @@ export const getParticipantCplScores = async (req, res, next) => {
   try {
     const { participantId } = req.params;
     const data = await participantService.getParticipantCplScores(participantId);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -127,7 +127,7 @@ export const verifyParticipantCpl = async (req, res, next) => {
   try {
     const { participantId, cplId } = req.params;
     const data = await participantService.verifyCplScore(participantId, cplId, req.user.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -140,7 +140,7 @@ export const createCplRecommendation = async (req, res, next) => {
       ...req.body, 
       userId: req.user.id 
     });
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -153,7 +153,7 @@ export const updateCplRecommendationStatus = async (req, res, next) => {
       ...req.body, 
       userId: req.user.id 
     });
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -182,7 +182,7 @@ export const uploadSk = async (req, res, next) => {
       ...req.body, 
       userId: req.user.id 
     });
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -195,7 +195,7 @@ export const uploadSk = async (req, res, next) => {
 export const getStudentOverview = async (req, res, next) => {
   try {
     const data = await studentService.getOverview(req.user.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -204,7 +204,7 @@ export const getStudentOverview = async (req, res, next) => {
 export const getStudentExitSurvey = async (req, res, next) => {
   try {
     const data = await exitSurveyService.getStudentSurvey(req.user.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -213,7 +213,7 @@ export const getStudentExitSurvey = async (req, res, next) => {
 export const submitStudentExitSurvey = async (req, res, next) => {
   try {
     const data = await exitSurveyService.submitStudentSurvey(req.user.id, req.body);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -222,7 +222,7 @@ export const submitStudentExitSurvey = async (req, res, next) => {
 export const getStudentRequirements = async (req, res, next) => {
   try {
     const data = await studentService.getOwnRequirements(req.user.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -231,7 +231,7 @@ export const getStudentRequirements = async (req, res, next) => {
 export const uploadStudentDocument = async (req, res, next) => {
   try {
     const data = await studentService.uploadOwnDocument(req.user.id, req.file, req.body.requirementId);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -244,7 +244,7 @@ export const uploadStudentDocument = async (req, res, next) => {
 export const getAllRequirements = async (req, res, next) => {
   try {
     const data = await requirementService.getRequirements();
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -253,7 +253,7 @@ export const getAllRequirements = async (req, res, next) => {
 export const getRequirementById = async (req, res, next) => {
   try {
     const data = await requirementService.getRequirementDetail(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -271,7 +271,7 @@ export const createRequirement = async (req, res, next) => {
 export const updateRequirement = async (req, res, next) => {
   try {
     const data = await requirementService.updateRequirement(req.params.id, req.body);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -280,7 +280,7 @@ export const updateRequirement = async (req, res, next) => {
 export const toggleRequirement = async (req, res, next) => {
   try {
     const data = await requirementService.toggleRequirement(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -289,7 +289,7 @@ export const toggleRequirement = async (req, res, next) => {
 export const moveRequirementTop = async (req, res, next) => {
   try {
     const data = await requirementService.moveRequirementToTop(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -298,7 +298,7 @@ export const moveRequirementTop = async (req, res, next) => {
 export const moveRequirementBottom = async (req, res, next) => {
   try {
     const data = await requirementService.moveRequirementToBottom(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -320,7 +320,7 @@ export const removeRequirement = async (req, res, next) => {
 export const getAllExitSurveyForms = async (req, res, next) => {
   try {
     const data = await exitSurveyService.getForms();
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -329,7 +329,7 @@ export const getAllExitSurveyForms = async (req, res, next) => {
 export const getExitSurveyFormById = async (req, res, next) => {
   try {
     const data = await exitSurveyService.getFormDetail(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -347,7 +347,7 @@ export const createExitSurveyForm = async (req, res, next) => {
 export const updateExitSurveyForm = async (req, res, next) => {
   try {
     const data = await exitSurveyService.updateForm(req.params.id, req.body);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -356,7 +356,7 @@ export const updateExitSurveyForm = async (req, res, next) => {
 export const toggleExitSurveyForm = async (req, res, next) => {
   try {
     const data = await exitSurveyService.toggleForm(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -374,7 +374,7 @@ export const removeExitSurveyForm = async (req, res, next) => {
 export const duplicateExitSurveyForm = async (req, res, next) => {
   try {
     const data = await exitSurveyService.duplicateForm(req.params.id);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -387,7 +387,7 @@ export const duplicateExitSurveyForm = async (req, res, next) => {
 export const getQuestionsByForm = async (req, res, next) => {
   try {
     const data = await exitSurveyService.getQuestionsByForm(req.params.formId);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -396,7 +396,7 @@ export const getQuestionsByForm = async (req, res, next) => {
 export const getQuestionById = async (req, res, next) => {
   try {
     const data = await exitSurveyService.getQuestionDetail(req.params.questionId);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -422,7 +422,7 @@ export const updateExitSurveySession = async (req, res, next) => {
       req.params.sessionId,
       req.body
     );
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -449,7 +449,7 @@ export const createQuestion = async (req, res, next) => {
 export const updateQuestion = async (req, res, next) => {
   try {
     const data = await exitSurveyService.updateQuestion(req.params.formId, req.params.questionId, req.body);
-    res.json({ status: "success", data });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

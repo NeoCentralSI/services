@@ -856,7 +856,7 @@ model Yudisium {
   registrationCloseDate DateTime?      @map("registration_close_date") @db.Date
   eventDate             DateTime?      @map("event_date") @db.Date
   notes                 String?        @db.Text
-  status                YudisiumStatus @default(draft)
+  status                YudisiumStatus @default(published)
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
 
@@ -1822,10 +1822,8 @@ enum DocumentSubmitStatus {
 }
 
 enum YudisiumStatus {
-  draft
-  open
-  closed
-  decree_issued
+  published
+  scheduled
   completed
 }
 

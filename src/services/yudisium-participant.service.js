@@ -173,7 +173,7 @@ export const validateParticipantDocument = async (
     }).length;
 
     if (approvedCount >= expectedCount) {
-      await participantRepo.updateStatus(participantId, "under_review");
+      await participantRepo.updateStatus(participantId, "verified");
       participantTransitioned = true;
     }
   }
@@ -182,7 +182,7 @@ export const validateParticipantDocument = async (
     requirementId,
     status: newStatus,
     participantTransitioned,
-    newParticipantStatus: participantTransitioned ? "under_review" : participant.status,
+    newParticipantStatus: participantTransitioned ? "verified" : participant.status,
   };
 };
 
@@ -254,8 +254,8 @@ export const verifyCplScore = async (participantId, cplId, userId) => {
   const scoreStatusMap = new Map(allScores.map((s) => [s.cplId, s.status]));
   const allVerified = activeCpls.every((cpl) => scoreStatusMap.get(cpl.id) === "verified");
 
-  if (allVerified && participant.status === "under_review") {
-    await participantRepo.updateStatus(participantId, "approved");
+  if (allVerified && participant.status === "verified") {
+    await participantRepo.updateStatus(participantId, "cpl_validated");
   }
 
   return { cplId, status: "verified", allCplVerified: allVerified };
@@ -435,7 +435,11 @@ export const uploadOfficialSk = async (
     filePath: relPath,
   });
 
-  const updateData = { documentId: document.id, decreeUploadedBy: userId };
+  const updateData = { 
+    documentId: document.id, 
+    decreeUploadedBy: userId,
+    status: "scheduled" 
+  };
   if (eventDate) updateData.eventDate = new Date(eventDate);
   if (decreeNumber) updateData.decreeNumber = decreeNumber;
   if (decreeIssuedAt) updateData.decreeIssuedAt = new Date(decreeIssuedAt);
