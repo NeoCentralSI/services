@@ -417,9 +417,13 @@ export const getStudentSurvey = async (userId) => {
       id: currentYudisium.exitSurveyForm.id,
       name: currentYudisium.exitSurveyForm.name,
       description: currentYudisium.exitSurveyForm.description,
-      questions: currentYudisium.exitSurveyForm.sessions.flatMap((s) =>
-        s.questions.map((q) => ({ ...q, sessionName: s.name }))
-      ),
+      sessions: currentYudisium.exitSurveyForm.sessions.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description ?? null,
+        order: s.order,
+        questions: s.questions.map((q) => formatQuestion(q, s.name)),
+      })),
     },
     response: mapStudentResponse(existingResponse),
     isSubmitted: !!existingResponse,
