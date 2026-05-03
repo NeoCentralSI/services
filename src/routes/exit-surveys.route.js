@@ -36,6 +36,13 @@ router.post("/:id/duplicate", ctrl.duplicateExitSurveyForm);
 router.patch("/:id/toggle", ctrl.toggleExitSurveyForm);
 
 // ============================================================
+// SESSIONS (nested under form)
+// ============================================================
+router.post("/:formId/sessions", ctrl.createExitSurveySession);
+router.patch("/:formId/sessions/:sessionId", ctrl.updateExitSurveySession);
+router.delete("/:formId/sessions/:sessionId", ctrl.removeExitSurveySession);
+
+// ============================================================
 // QUESTIONS (nested under form)
 // ============================================================
 router.get("/:formId/questions", ctrl.getQuestionsByForm);

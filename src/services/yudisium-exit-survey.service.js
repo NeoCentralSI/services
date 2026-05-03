@@ -76,18 +76,18 @@ export const getFormDetail = async (id) => {
   const data = await repo.findFormById(id);
   if (!data) throwError("Form exit survey tidak ditemukan", 404);
 
-  const questions = data.sessions.flatMap((session) =>
-    session.questions.map((q) => formatQuestion(q, session.name))
-  );
-
   return {
     id: data.id,
     name: data.name,
     description: data.description ?? null,
     isActive: data.isActive,
-    sessions: data.sessions.map((s) => ({ id: s.id, name: s.name, order: s.order })),
-    questions,
-    _count: data._count,
+    sessions: data.sessions.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description ?? null,
+      order: s.order,
+      questions: s.questions.map((q) => formatQuestion(q, s.name)),
+    })),
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
   };
@@ -174,6 +174,49 @@ export const duplicateForm = async (id) => {
   }
 
   return await getFormDetail(newForm.id);
+};
+
+// ============================================================
+// SESSIONS
+// ============================================================
+
+export const createSession = async (formId, data) => {
+  const form = await repo.findFormById(formId);
+  if (!form) throwError("Form exit survey tidak ditemukan", 404);
+
+  return await repo.createSession({
+    exitSurveyFormId: formId,
+    name: data.name,
+    description: data.description ?? null,
+    order: data.order ?? (form.sessions?.length || 0) + 1,
+  });
+};
+
+export const updateSession = async (formId, sessionId, data) => {
+  const session = await repo.findSessionById(sessionId);
+  if (!session || session.exitSurveyFormId !== formId) {
+    throwError("Sesi tidak ditemukan", 404);
+  }
+
+  const updateData = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.description !== undefined) updateData.description = data.description;
+  if (data.order !== undefined) updateData.order = data.order;
+
+  return await repo.updateSession(sessionId, updateData);
+};
+
+export const deleteSession = async (formId, sessionId) => {
+  const session = await repo.findSessionById(sessionId);
+  if (!session || session.exitSurveyFormId !== formId) {
+    throwError("Sesi tidak ditemukan", 404);
+  }
+
+  if (session.questions?.length > 0) {
+    throwError("Sesi tidak dapat dihapus karena masih memiliki pertanyaan", 400);
+  }
+
+  return await repo.deleteSession(sessionId);
 };
 
 // ============================================================

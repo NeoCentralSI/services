@@ -395,8 +395,43 @@ export const getQuestionsByForm = async (req, res, next) => {
 
 export const getQuestionById = async (req, res, next) => {
   try {
-    const data = await exitSurveyService.getQuestionDetail(req.params.id);
+    const data = await exitSurveyService.getQuestionDetail(req.params.questionId);
     res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ============================================================
+// SESSIONS
+// ============================================================
+
+export const createExitSurveySession = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.createSession(req.params.formId, req.body);
+    res.status(201).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateExitSurveySession = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.updateSession(
+      req.params.formId,
+      req.params.sessionId,
+      req.body
+    );
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const removeExitSurveySession = async (req, res, next) => {
+  try {
+    await exitSurveyService.deleteSession(req.params.formId, req.params.sessionId);
+    res.json({ status: "success", message: "Sesi exit survey berhasil dihapus" });
   } catch (err) {
     next(err);
   }
@@ -413,7 +448,7 @@ export const createQuestion = async (req, res, next) => {
 
 export const updateQuestion = async (req, res, next) => {
   try {
-    const data = await exitSurveyService.updateQuestion(req.params.formId, req.params.id, req.body);
+    const data = await exitSurveyService.updateQuestion(req.params.formId, req.params.questionId, req.body);
     res.json({ status: "success", data });
   } catch (err) {
     next(err);
@@ -422,7 +457,7 @@ export const updateQuestion = async (req, res, next) => {
 
 export const removeQuestion = async (req, res, next) => {
   try {
-    await exitSurveyService.deleteQuestion(req.params.formId, req.params.id);
+    await exitSurveyService.deleteQuestion(req.params.formId, req.params.questionId);
     res.json({ status: "success", message: "Pertanyaan exit survey berhasil dihapus" });
   } catch (err) {
     next(err);

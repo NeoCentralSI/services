@@ -57,12 +57,36 @@ export const formHasRelatedYudisiums = async (id) => {
   return count > 0;
 };
 
+export const formHasLinkedResponses = async (id) => {
+  const count = await prisma.studentExitSurveyResponse.count({
+    where: {
+      yudisium: { exitSurveyFormId: id },
+    },
+  });
+  return count > 0;
+};
+
 // ============================================================
 // SESSION
 // ============================================================
 
+export const findSessionById = async (id) => {
+  return await prisma.exitSurveySession.findUnique({
+    where: { id },
+    include: { questions: true },
+  });
+};
+
 export const createSession = async (data) => {
   return await prisma.exitSurveySession.create({ data });
+};
+
+export const updateSession = async (id, data) => {
+  return await prisma.exitSurveySession.update({ where: { id }, data });
+};
+
+export const deleteSession = async (id) => {
+  return await prisma.exitSurveySession.delete({ where: { id } });
 };
 
 // ============================================================

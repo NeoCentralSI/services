@@ -987,6 +987,7 @@ model StudentExitSurveyAnswer {
   exitSurveyQuestionId        String   @map("exit_survey_question_id") @db.VarChar(255)
   exitSurveyOptionId          String?  @map("exit_survey_option_id") @db.VarChar(255)
   answerText                  String?  @map("answer_text") @db.Text
+  answerDate                  DateTime? @map("answer_date") @db.Date
   createdAt                   DateTime @default(now()) @map("created_at")
   updatedAt                   DateTime @updatedAt @map("updated_at")
 
@@ -1934,8 +1935,9 @@ enum DayOfWeek {
 }
 
 enum ExitSurveyQuestionType {
+  short_answer
+  paragraph
   single_choice
   multiple_choice
-  text
-  textarea
+  date
 }
