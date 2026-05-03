@@ -3,6 +3,15 @@ import prisma from "../config/prisma.js";
 export const findAll = async () => {
   return await prisma.yudisiumRequirement.findMany({
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    include: {
+      _count: {
+        select: {
+          yudisiumParticipantRequirements: {
+            where: { status: "approved" },
+          },
+        },
+      },
+    },
   });
 };
 
@@ -17,7 +26,13 @@ export const findById = async (id) => {
   return await prisma.yudisiumRequirement.findUnique({
     where: { id },
     include: {
-      _count: { select: { yudisiumParticipantRequirements: true } },
+      _count: {
+        select: {
+          yudisiumParticipantRequirements: {
+            where: { status: "approved" },
+          },
+        },
+      },
     },
   });
 };
@@ -50,7 +65,10 @@ export const remove = async (id) => {
 
 export const hasRelatedData = async (id) => {
   const count = await prisma.yudisiumParticipantRequirement.count({
-    where: { yudisiumRequirementId: id },
+    where: {
+      yudisiumRequirementId: id,
+      status: "approved",
+    },
   });
   return count > 0;
 };

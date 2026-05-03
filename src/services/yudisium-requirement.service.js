@@ -17,9 +17,10 @@ const formatRequirement = (item) => ({
   id: item.id,
   name: item.name,
   description: item.description,
-  notes: item.notes,
   order: item.order,
   isActive: item.isActive,
+  isPublic: item.isPublic,
+  relationCount: item._count?.yudisiumParticipantRequirements ?? 0,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
 });
@@ -47,9 +48,9 @@ export const createRequirement = async (data) => {
   return await repository.create({
     name: data.name.trim(),
     description: normalizeText(data.description),
-    notes: normalizeText(data.notes),
     order: finalOrder,
     isActive: data.isActive ?? true,
+    isPublic: data.isPublic ?? false,
   });
 };
 
@@ -66,9 +67,9 @@ export const updateRequirement = async (id, data) => {
     updateData.name = normalizedName;
   }
   if (data.description !== undefined) updateData.description = normalizeText(data.description);
-  if (data.notes !== undefined) updateData.notes = normalizeText(data.notes);
   if (data.order !== undefined) updateData.order = data.order;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
+  if (data.isPublic !== undefined) updateData.isPublic = data.isPublic;
 
   return await repository.update(id, updateData);
 };

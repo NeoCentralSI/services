@@ -67,6 +67,7 @@ try {
     }
   }
   console.log(`🧩 Routes mounted (${mounted.length}): ${mounted.join(", ") || "(none)"}`);
+  console.log("--------------------------------------------------");
 } catch (e) {
   console.error("❌ Failed scanning routes directory:", e.stack || e.message);
 }

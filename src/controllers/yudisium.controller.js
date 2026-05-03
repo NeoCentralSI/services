@@ -1,112 +1,430 @@
 /**
- * Yudisium Controller (Phase 1 stub).
+ * Yudisium Controller.
  *
- * Single dispatch surface for the new resource-oriented yudisium routes.
- * For Phase 1 we still delegate to the existing role-named controllers
- * (controllers/yudisium/*.js) so behaviour is unchanged. Phase 2 will
- * inline the logic here and split services by resource (core, requirement,
- * participant, cpl, sk, exit-survey) following the thesis-seminar pattern.
- *
- * Some new routes use `:id` in the path while the underlying controller still
- * reads `req.params.yudisiumId` — the small adapters below normalise that.
+ * Implements logic for yudisium events, requirements, participants, 
+ * CPL verification, and exit surveys by calling respective services.
  */
 
-import * as eventCtrl from "./yudisium/yudisium.controller.js";
-import * as requirementCtrl from "./yudisium/yudisium-requirement.controller.js";
-import * as adminCtrl from "./yudisium/admin-yudisium.controller.js";
-import * as studentCtrl from "./yudisium/student-yudisium.controller.js";
-import * as lecturerCtrl from "./yudisium/lecturer-yudisium.controller.js";
-import * as exitFormCtrl from "./yudisium/exit-survey-form.controller.js";
-import * as exitQuestionCtrl from "./yudisium/exit-survey-question.controller.js";
-
-const aliasIdAs = (alias) => (req, res, next, handler) => {
-  req.params[alias] = req.params.id;
-  return handler(req, res, next);
-};
+import * as requirementService from "../services/yudisium-requirement.service.js";
+import * as yudisiumService from "../services/yudisium.service.js";
+import * as participantService from "../services/yudisium-participant.service.js";
+import * as exitSurveyService from "../services/yudisium-exit-survey.service.js";
+import * as studentService from "../services/yudisium-student.service.js";
 
 // ============================================================
 // EVENTS (CRUD)
 // ============================================================
 
-export const getEvents = eventCtrl.getAll;
-export const getEventById = eventCtrl.getById;
-export const createEvent = eventCtrl.create;
-export const updateEvent = eventCtrl.update;
-export const removeEvent = eventCtrl.remove;
+export const getEvents = async (req, res, next) => {
+  try {
+    const data = await yudisiumService.getYudisiumList();
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getEventById = async (req, res, next) => {
+  try {
+    const data = await yudisiumService.getYudisiumDetail(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createEvent = async (req, res, next) => {
+  try {
+    const data = await yudisiumService.createYudisium(req.body);
+    res.status(201).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateEvent = async (req, res, next) => {
+  try {
+    const data = await yudisiumService.updateYudisium(req.params.id, req.body);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const removeEvent = async (req, res, next) => {
+  try {
+    await yudisiumService.deleteYudisium(req.params.id);
+    res.json({ status: "success", message: "Event yudisium berhasil dihapus" });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // ============================================================
 // PARTICIPANTS
 // ============================================================
 
-export const getParticipants = (req, res, next) =>
-  aliasIdAs("yudisiumId")(req, res, next, adminCtrl.getParticipants);
+export const getParticipants = async (req, res, next) => {
+  try {
+    const yudisiumId = req.params.id;
+    const data = await participantService.getParticipants(yudisiumId);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
-export const getParticipantDetail = adminCtrl.getParticipantDetail;
+export const getParticipantDetail = async (req, res, next) => {
+  try {
+    const { participantId } = req.params;
+    const data = await participantService.getParticipantDetail(participantId);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
-export const getParticipantRequirements = adminCtrl.getParticipantDetail;
+export const getParticipantRequirements = async (req, res, next) => {
+  try {
+    const { participantId } = req.params;
+    const data = await participantService.getParticipantDetail(participantId);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
-export const validateParticipantDocument = adminCtrl.validateDocument;
+export const validateParticipantDocument = async (req, res, next) => {
+  try {
+    const { participantId, requirementId } = req.params;
+    const { action, notes } = req.body;
+    const data = await participantService.validateParticipantDocument(participantId, requirementId, { 
+      action, 
+      notes, 
+      userId: req.user.id 
+    });
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // ============================================================
 // CPL (Lecturer / GKM)
 // ============================================================
 
-export const getParticipantCplScores = lecturerCtrl.getCplScores;
-export const verifyParticipantCpl = lecturerCtrl.verifyCpl;
-export const createCplRecommendation = lecturerCtrl.createRecommendation;
-export const updateCplRecommendationStatus = lecturerCtrl.updateRecommendationStatus;
+export const getParticipantCplScores = async (req, res, next) => {
+  try {
+    const { participantId } = req.params;
+    const data = await participantService.getParticipantCplScores(participantId);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const verifyParticipantCpl = async (req, res, next) => {
+  try {
+    const { participantId, cplId } = req.params;
+    const data = await participantService.verifyCplScore(participantId, cplId, req.user.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createCplRecommendation = async (req, res, next) => {
+  try {
+    const { participantId, cplId } = req.params;
+    const data = await participantService.createCplRecommendation(participantId, cplId, { 
+      ...req.body, 
+      userId: req.user.id 
+    });
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateCplRecommendationStatus = async (req, res, next) => {
+  try {
+    const { recommendationId } = req.params;
+    const data = await participantService.updateCplRecommendationStatus(recommendationId, { 
+      ...req.body, 
+      userId: req.user.id 
+    });
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // ============================================================
 // SK (Decree)
 // ============================================================
 
-export const generateDraftSk = (req, res, next) =>
-  aliasIdAs("yudisiumId")(req, res, next, lecturerCtrl.generateDraft);
+export const generateDraftSk = async (req, res, next) => {
+  try {
+    const yudisiumId = req.params.id;
+    const data = await participantService.generateDraftSk(yudisiumId);
+    res.contentType("application/pdf");
+    res.send(data);
+  } catch (err) {
+    next(err);
+  }
+};
 
-export const uploadSk = (req, res, next) =>
-  aliasIdAs("yudisiumId")(req, res, next, lecturerCtrl.uploadSk);
+export const uploadSk = async (req, res, next) => {
+  try {
+    const yudisiumId = req.params.id;
+    const data = await participantService.uploadOfficialSk(yudisiumId, { 
+      file: req.file, 
+      ...req.body, 
+      userId: req.user.id 
+    });
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // ============================================================
 // STUDENT (/me)
 // ============================================================
 
-export const getStudentOverview = studentCtrl.getOverview;
-export const getStudentExitSurvey = studentCtrl.getExitSurvey;
-export const submitStudentExitSurvey = studentCtrl.submitExitSurvey;
-export const getStudentRequirements = studentCtrl.getRequirements;
-export const uploadStudentDocument = studentCtrl.uploadDocument;
+export const getStudentOverview = async (req, res, next) => {
+  try {
+    const data = await studentService.getOverview(req.user.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getStudentExitSurvey = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.getStudentSurvey(req.user.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const submitStudentExitSurvey = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.submitStudentSurvey(req.user.id, req.body);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getStudentRequirements = async (req, res, next) => {
+  try {
+    const data = await studentService.getOwnRequirements(req.user.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadStudentDocument = async (req, res, next) => {
+  try {
+    const data = await studentService.uploadOwnDocument(req.user.id, req.file, req.body.requirementId);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // ============================================================
 // REQUIREMENTS (Global checklist)
 // ============================================================
 
-export const getAllRequirements = requirementCtrl.getAll;
-export const getRequirementById = requirementCtrl.getById;
-export const createRequirement = requirementCtrl.create;
-export const updateRequirement = requirementCtrl.update;
-export const toggleRequirement = requirementCtrl.toggle;
-export const moveRequirementTop = requirementCtrl.moveTop;
-export const moveRequirementBottom = requirementCtrl.moveBottom;
-export const removeRequirement = requirementCtrl.remove;
+export const getAllRequirements = async (req, res, next) => {
+  try {
+    const data = await requirementService.getRequirements();
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getRequirementById = async (req, res, next) => {
+  try {
+    const data = await requirementService.getRequirementDetail(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createRequirement = async (req, res, next) => {
+  try {
+    const data = await requirementService.createRequirement(req.body);
+    res.status(201).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateRequirement = async (req, res, next) => {
+  try {
+    const data = await requirementService.updateRequirement(req.params.id, req.body);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const toggleRequirement = async (req, res, next) => {
+  try {
+    const data = await requirementService.toggleRequirement(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const moveRequirementTop = async (req, res, next) => {
+  try {
+    const data = await requirementService.moveRequirementToTop(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const moveRequirementBottom = async (req, res, next) => {
+  try {
+    const data = await requirementService.moveRequirementToBottom(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const removeRequirement = async (req, res, next) => {
+  try {
+    await requirementService.deleteRequirement(req.params.id);
+    res.json({ status: "success", message: "Persyaratan yudisium berhasil dihapus" });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // ============================================================
 // EXIT SURVEY FORMS
 // ============================================================
 
-export const getAllExitSurveyForms = exitFormCtrl.getAll;
-export const getExitSurveyFormById = exitFormCtrl.getById;
-export const createExitSurveyForm = exitFormCtrl.create;
-export const updateExitSurveyForm = exitFormCtrl.update;
-export const toggleExitSurveyForm = exitFormCtrl.toggle;
-export const removeExitSurveyForm = exitFormCtrl.remove;
-export const duplicateExitSurveyForm = exitFormCtrl.duplicate;
+export const getAllExitSurveyForms = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.getForms();
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getExitSurveyFormById = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.getFormDetail(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createExitSurveyForm = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.createForm(req.body);
+    res.status(201).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateExitSurveyForm = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.updateForm(req.params.id, req.body);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const toggleExitSurveyForm = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.toggleForm(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const removeExitSurveyForm = async (req, res, next) => {
+  try {
+    await exitSurveyService.deleteForm(req.params.id);
+    res.json({ status: "success", message: "Form exit survey berhasil dihapus" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const duplicateExitSurveyForm = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.duplicateForm(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // ============================================================
 // EXIT SURVEY QUESTIONS
 // ============================================================
 
-export const getQuestionsByForm = exitQuestionCtrl.getByFormId;
-export const getQuestionById = exitQuestionCtrl.getById;
-export const createQuestion = exitQuestionCtrl.create;
-export const updateQuestion = exitQuestionCtrl.update;
-export const removeQuestion = exitQuestionCtrl.remove;
+export const getQuestionsByForm = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.getQuestionsByForm(req.params.formId);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getQuestionById = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.getQuestionDetail(req.params.id);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createQuestion = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.createQuestion(req.params.formId, req.body);
+    res.status(201).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateQuestion = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.updateQuestion(req.params.formId, req.params.id, req.body);
+    res.json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const removeQuestion = async (req, res, next) => {
+  try {
+    await exitSurveyService.deleteQuestion(req.params.formId, req.params.id);
+    res.json({ status: "success", message: "Pertanyaan exit survey berhasil dihapus" });
+  } catch (err) {
+    next(err);
+  }
+};

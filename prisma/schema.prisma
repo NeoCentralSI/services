@@ -879,7 +879,6 @@ model YudisiumRequirement {
   isActive    Boolean  @default(true) @map("is_active")
   isPublic    Boolean  @default(false) @map("is_public")
   order       Int      @default(0)
-  notes       String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

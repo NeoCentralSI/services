@@ -119,6 +119,7 @@ export const createYudisiumRequirementSchema = z.object({
   notes: z.string().trim().max(65535, "Catatan terlalu panjang").nullable().optional(),
   order: z.number().int("Urutan harus bilangan bulat").min(0, "Urutan minimal 0").optional(),
   isActive: z.boolean().optional(),
+  isPublic: z.boolean().optional(),
 });
 
 export const updateYudisiumRequirementSchema = z.object({
@@ -132,6 +133,7 @@ export const updateYudisiumRequirementSchema = z.object({
   notes: z.string().trim().max(65535, "Catatan terlalu panjang").nullable().optional(),
   order: z.number().int("Urutan harus bilangan bulat").min(0, "Urutan minimal 0").optional(),
   isActive: z.boolean().optional(),
+  isPublic: z.boolean().optional(),
 });
 
 // ============================================================
