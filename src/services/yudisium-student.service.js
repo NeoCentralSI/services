@@ -26,12 +26,14 @@ const exitSurveyFormInclude = {
     select: {
       id: true,
       name: true,
+      description: true,
       order: true,
       questions: {
         orderBy: { orderNumber: "asc" },
         select: {
           id: true,
           question: true,
+          description: true,
           questionType: true,
           isRequired: true,
           orderNumber: true,

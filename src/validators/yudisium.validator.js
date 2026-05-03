@@ -10,7 +10,7 @@ const dateStringOrNull = z
   .nullable()
   .optional();
 
-const questionTypeEnum = z.enum(["single_choice", "multiple_choice", "text", "textarea"]);
+const questionTypeEnum = z.enum(["short_answer", "paragraph", "single_choice", "multiple_choice", "date"]);
 
 const optionSchema = z.union([
   z.string().min(1, "Opsi tidak boleh kosong"),
@@ -167,6 +167,7 @@ export const createExitSurveyQuestionSchema = z.object({
   question: z
     .string({ required_error: "Pertanyaan wajib diisi" })
     .min(1, "Pertanyaan tidak boleh kosong"),
+  description: z.string().max(65535).optional().nullable(),
   questionType: questionTypeEnum,
   isRequired: z.boolean().optional().default(false),
   orderNumber: z.number().int().min(0).optional().default(0),
@@ -175,6 +176,7 @@ export const createExitSurveyQuestionSchema = z.object({
 
 export const updateExitSurveyQuestionSchema = z.object({
   question: z.string().min(1, "Pertanyaan tidak boleh kosong").optional(),
+  description: z.string().max(65535).optional().nullable(),
   questionType: questionTypeEnum.optional(),
   isRequired: z.boolean().optional(),
   orderNumber: z.number().int().min(0).optional(),

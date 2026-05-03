@@ -1,5 +1,6 @@
 import * as repo from "../repositories/yudisium-exit-survey.repository.js";
 import { findStudentContext } from "./yudisium-student.service.js";
+import prisma from "../config/prisma.js";
 
 function throwError(msg, code) {
   const e = new Error(msg);
@@ -7,7 +8,7 @@ function throwError(msg, code) {
   throw e;
 }
 
-const QUESTION_TYPES = ["single_choice", "multiple_choice", "text", "textarea"];
+const QUESTION_TYPES = ["short_answer", "paragraph", "single_choice", "multiple_choice", "date"];
 
 const validateQuestionType = (value) => {
   if (!QUESTION_TYPES.includes(value)) throwError("Jenis pertanyaan tidak valid", 400);
@@ -37,6 +38,7 @@ const formatQuestion = (q, sessionName = q.session?.name) => ({
   exitSurveySessionId: q.exitSurveySessionId,
   sessionName,
   question: q.question,
+  description: q.description ?? null,
   questionType: q.questionType,
   isRequired: q.isRequired,
   orderNumber: q.orderNumber,
@@ -90,6 +92,8 @@ export const getFormDetail = async (id) => {
     })),
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
+    usedCount: data._count?.yudisiums ?? 0,
+    totalQuestions: data.sessions.reduce((acc, s) => acc + s.questions.length, 0),
   };
 };
 
@@ -207,16 +211,49 @@ export const updateSession = async (formId, sessionId, data) => {
 };
 
 export const deleteSession = async (formId, sessionId) => {
+  console.log(`[Service] Attempting to delete session: ${sessionId} for form: ${formId}`);
   const session = await repo.findSessionById(sessionId);
   if (!session || session.exitSurveyFormId !== formId) {
+    console.error(`[Service] Session not found or mismatch. Session: ${JSON.stringify(session)}`);
     throwError("Sesi tidak ditemukan", 404);
   }
 
-  if (session.questions?.length > 0) {
-    throwError("Sesi tidak dapat dihapus karena masih memiliki pertanyaan", 400);
-  }
+  return await prisma.$transaction(async (tx) => {
+    console.log(`[Service] Deep cleaning all data for session: ${sessionId}`);
+    
+    // 1. Delete all answers for all questions in this session
+    const ansResult = await tx.studentExitSurveyAnswer.deleteMany({
+      where: {
+        question: {
+          exitSurveySessionId: sessionId
+        }
+      }
+    });
+    console.log(`[Service] Deleted ${ansResult.count} answers associated with session ${sessionId}`);
 
-  return await repo.deleteSession(sessionId);
+    // 2. Delete all options for all questions in this session
+    const optResult = await tx.exitSurveyOption.deleteMany({
+      where: {
+        question: {
+          exitSurveySessionId: sessionId
+        }
+      }
+    });
+    console.log(`[Service] Deleted ${optResult.count} options associated with session ${sessionId}`);
+
+    // 3. Delete all questions in this session
+    const qResult = await tx.exitSurveyQuestion.deleteMany({
+      where: { exitSurveySessionId: sessionId }
+    });
+    console.log(`[Service] Deleted ${qResult.count} questions associated with session ${sessionId}`);
+    
+    console.log(`[Service] Deleting the session itself: ${sessionId}`);
+    const result = await tx.exitSurveySession.delete({
+      where: { id: sessionId }
+    });
+    console.log(`[Service] Session deleted successfully`);
+    return result;
+  });
 };
 
 // ============================================================
@@ -254,19 +291,31 @@ export const createQuestion = async (formId, data) => {
 
   validateQuestionType(data.questionType);
 
-  // Use the form's first session, creating a default one if none exists
-  let session = form.sessions?.[0];
-  if (!session) {
-    session = await repo.createSession({
-      exitSurveyFormId: formId,
-      name: "Umum",
-      order: 1,
-    });
+  // Use specified session ID if provided, otherwise fallback to first session
+  let sessionId = data.exitSurveySessionId;
+  
+  if (!sessionId) {
+    let session = form.sessions?.[0];
+    if (!session) {
+      session = await repo.createSession({
+        exitSurveyFormId: formId,
+        name: "Umum",
+        order: 1,
+      });
+    }
+    sessionId = session.id;
+  } else {
+    // Validate that the session belongs to this form
+    const session = await repo.findSessionById(sessionId);
+    if (!session || session.exitSurveyFormId !== formId) {
+      throwError("Sesi tidak ditemukan atau tidak valid untuk form ini", 404);
+    }
   }
 
   const payload = {
-    exitSurveySessionId: session.id,
+    exitSurveySessionId: sessionId,
     question: data.question,
+    description: data.description ?? null,
     questionType: data.questionType,
     isRequired: data.isRequired === true,
     orderNumber: Number(data.orderNumber) ?? 0,
@@ -302,6 +351,7 @@ export const updateQuestion = async (formId, questionId, data) => {
 
   const payload = {};
   if (data.question !== undefined) payload.question = data.question;
+  if (data.description !== undefined) payload.description = data.description;
   if (data.questionType !== undefined) payload.questionType = data.questionType;
   if (data.isRequired !== undefined) payload.isRequired = data.isRequired === true;
   if (data.orderNumber !== undefined) payload.orderNumber = Number(data.orderNumber);
