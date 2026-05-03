@@ -54,8 +54,6 @@ const yudisiumContextSelect = {
   registrationOpenDate: true,
   registrationCloseDate: true,
   eventDate: true,
-  decreeNumber: true,
-  decreeIssuedAt: true,
   documentId: true,
   document: { select: { id: true, fileName: true, filePath: true } },
   exitSurveyForm: { select: exitSurveyFormInclude },
@@ -95,20 +93,29 @@ export const findStudentContext = async (userId) => {
   const thesis = student.thesis[0] ?? null;
   let currentYudisium = null;
 
-  // Prefer the yudisium where the student is already registered
+  // Prefer the yudisium where the student is currently registered (not rejected)
   if (thesis?.id) {
     const participantRecord = await prisma.yudisiumParticipant.findFirst({
-      where: { thesisId: thesis.id },
+      where: { 
+        thesisId: thesis.id,
+        status: { not: 'rejected' }
+      },
       orderBy: { createdAt: "desc" },
       select: { yudisium: { select: yudisiumContextSelect } },
     });
     if (participantRecord) currentYudisium = participantRecord.yudisium;
   }
 
-  // Otherwise fall back to the most recent open yudisium
+  // Otherwise fall back to the most recent published yudisium that is currently open
+  // (status is derived from dates, DB stores 'published' as the base active state)
   if (!currentYudisium) {
+    const now = new Date();
     currentYudisium = await prisma.yudisium.findFirst({
-      where: { status: "open" },
+      where: {
+        status: { in: ["published", "scheduled"] },
+        registrationOpenDate: { lte: now },
+        registrationCloseDate: { gte: now },
+      },
       orderBy: [{ registrationOpenDate: "desc" }, { createdAt: "desc" }],
       select: yudisiumContextSelect,
     });
@@ -130,26 +137,26 @@ export const getOverview = async (userId) => {
 
   let submittedExitSurvey = null;
   let participant = null;
+  let history = [];
   let activeRequirements = [];
 
-  if (currentYudisium?.id) {
-    activeRequirements = await prisma.yudisiumRequirement.findMany({
-      where: { isActive: true },
-      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      select: { id: true, name: true, description: true, notes: true },
-    });
-  }
+  // Always load active requirements so the student can see what's needed even before registration opens
+  activeRequirements = await prisma.yudisiumRequirement.findMany({
+    where: { isActive: true },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    select: { id: true, name: true, description: true },
+  });
 
-  if (currentYudisium?.id && thesis?.id) {
-    submittedExitSurvey = await prisma.studentExitSurveyResponse.findFirst({
-      where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
-      select: { id: true, submittedAt: true },
-    });
-
-    participant = await prisma.yudisiumParticipant.findFirst({
-      where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
+  if (thesis?.id) {
+    // Fetch all participation records for this thesis
+    const allParticipations = await prisma.yudisiumParticipant.findMany({
+      where: { thesisId: thesis.id },
+      orderBy: { createdAt: "desc" },
       select: {
+        id: true,
         status: true,
+        createdAt: true,
+        yudisium: { select: yudisiumContextSelect },
         yudisiumParticipantRequirements: {
           select: {
             yudisiumRequirementId: true,
@@ -161,6 +168,21 @@ export const getOverview = async (userId) => {
         },
       },
     });
+
+    // Determine current participant: the most recent one that is NOT rejected
+    // OR if all are rejected, the most recent one (but we'll filter it later in frontend)
+    participant = allParticipations.find(p => p.status !== 'rejected') || null;
+    
+    // History is everything else OR everything if we want to show all previous attempts
+    // Usually, history is all rejected ones + previous finalized ones if they exist
+    history = allParticipations.filter(p => p.id !== participant?.id || p.status === 'rejected');
+
+    if (currentYudisium?.id) {
+      submittedExitSurvey = await prisma.studentExitSurveyResponse.findFirst({
+        where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
+        select: { id: true, submittedAt: true },
+      });
+    }
   }
 
   const uploadedByRequirement = new Map(
@@ -176,7 +198,6 @@ export const getOverview = async (userId) => {
       id: req.id,
       name: req.name,
       description: req.description,
-      notes: req.notes,
       isUploaded: !!submitted,
       status: submitted ? "terunggah" : "menunggu",
       submittedAt: submitted?.submittedAt ?? null,
@@ -256,8 +277,6 @@ export const getOverview = async (userId) => {
           registrationOpenDate: currentYudisium.registrationOpenDate,
           registrationCloseDate: currentYudisium.registrationCloseDate,
           eventDate: currentYudisium.eventDate,
-          decreeNumber: currentYudisium.decreeNumber ?? null,
-          decreeIssuedAt: currentYudisium.decreeIssuedAt ?? null,
           decreeDocument: currentYudisium.document
             ? {
                 id: currentYudisium.document.id,
@@ -271,6 +290,16 @@ export const getOverview = async (userId) => {
         }
       : null,
     participantStatus: participant?.status ?? null,
+    history: history.map(h => ({
+      id: h.id,
+      status: h.status,
+      createdAt: h.createdAt,
+      yudisiumName: h.yudisium.name,
+      yudisiumId: h.yudisium.id,
+      registrationOpenDate: h.yudisium.registrationOpenDate,
+      registrationCloseDate: h.yudisium.registrationCloseDate,
+      eventDate: h.yudisium.eventDate,
+    })),
     thesis: thesis ? { id: thesis.id, title: thesis.title } : null,
     checklist,
     allChecklistMet,
@@ -320,7 +349,6 @@ export const getOwnRequirements = async (userId) => {
       id: req.id,
       name: req.name,
       description: req.description,
-      notes: req.notes,
       status: uploaded?.status ?? null,
       submittedAt: uploaded?.submittedAt ?? null,
       verifiedAt: uploaded?.verifiedAt ?? null,

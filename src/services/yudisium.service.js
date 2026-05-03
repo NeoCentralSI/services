@@ -141,17 +141,30 @@ export const updateYudisium = async (id, data) => {
   // === registrationOpenDate ===
   if (data.registrationOpenDate !== undefined) {
     const newOpen = new Date(data.registrationOpenDate);
-    const now = new Date();
-    if (newOpen < now) throwError("Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini", 422);
+    const existingOpen = existing.registrationOpenDate ? new Date(existing.registrationOpenDate) : null;
+    
+    // Only validate if the date is actually changing
+    if (!existingOpen || newOpen.getTime() !== existingOpen.getTime()) {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0); // local day start
+      if (newOpen < now) throwError("Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini", 422);
+    }
     updateData.registrationOpenDate = newOpen;
   }
 
   // === registrationCloseDate ===
   if (data.registrationCloseDate !== undefined) {
     const newClose = new Date(data.registrationCloseDate);
-    const now = new Date();
+    const existingClose = existing.registrationCloseDate ? new Date(existing.registrationCloseDate) : null;
     const finalOpenDate = updateData.registrationOpenDate ?? existing.registrationOpenDate;
-    if (newClose < now) throwError("Tanggal penutupan pendaftaran tidak boleh sebelum hari ini", 422);
+
+    // Only validate 'before today' if the date is actually changing
+    if (!existingClose || newClose.getTime() !== existingClose.getTime()) {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      if (newClose < now) throwError("Tanggal penutupan pendaftaran tidak boleh sebelum hari ini", 422);
+    }
+
     if (finalOpenDate && newClose < new Date(finalOpenDate)) {
       throwError("Tanggal penutupan tidak boleh lebih awal dari tanggal pembukaan", 422);
     }

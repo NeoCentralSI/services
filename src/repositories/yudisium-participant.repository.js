@@ -201,7 +201,7 @@ export const findRequirementRecordsForStudent = async (participantId) => {
 export const findCplsActive = async () => {
   return await prisma.cpl.findMany({
     where: { isActive: true },
-    orderBy: { displayOrder: "asc" },
+    orderBy: { code: "asc" },
     select: { id: true, code: true, description: true, minimalScore: true },
   });
 };
