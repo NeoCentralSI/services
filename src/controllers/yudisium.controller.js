@@ -133,11 +133,13 @@ export const verifyParticipantCpl = async (req, res, next) => {
   }
 };
 
-export const createCplRecommendation = async (req, res, next) => {
+export const saveCplRepairment = async (req, res, next) => {
   try {
     const { participantId, cplId } = req.params;
-    const data = await participantService.createCplRecommendation(participantId, cplId, { 
+    const data = await participantService.saveCplRepairment(participantId, cplId, { 
       ...req.body, 
+      recommendationFile: req.files?.recommendation?.[0],
+      settlementFile: req.files?.settlement?.[0],
       userId: req.user.id 
     });
     res.json({ success: true, data });
@@ -146,18 +148,7 @@ export const createCplRecommendation = async (req, res, next) => {
   }
 };
 
-export const updateCplRecommendationStatus = async (req, res, next) => {
-  try {
-    const { recommendationId } = req.params;
-    const data = await participantService.updateCplRecommendationStatus(recommendationId, { 
-      ...req.body, 
-      userId: req.user.id 
-    });
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-};
+
 
 // ============================================================
 // SK (Decree)

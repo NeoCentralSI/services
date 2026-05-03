@@ -213,7 +213,19 @@ export const findCplById = async (cplId) => {
 export const findStudentCplScores = async (studentId) => {
   return await prisma.studentCplScore.findMany({
     where: { studentId },
-    select: { cplId: true, score: true, status: true },
+    select: {
+      cplId: true,
+      score: true,
+      status: true,
+      oldCplScore: true,
+      recommendationDocumentId: true,
+      settlementDocumentId: true,
+      verifiedAt: true,
+      verifiedBy: true,
+      verifier: { select: { fullName: true } },
+      recommendationDocument: { select: { fileName: true, filePath: true } },
+      settlementDocument: { select: { fileName: true, filePath: true } },
+    },
   });
 };
 
@@ -230,35 +242,18 @@ export const verifyStudentCplScore = async (studentId, cplId, userId) => {
   });
 };
 
-export const findCplRecommendationsByParticipant = async (participantId) => {
-  return await prisma.yudisiumCplRecommendation.findMany({
-    where: { yudisiumParticipantId: participantId },
-    select: {
-      id: true,
-      cplId: true,
-      reccomendation: true,
-      description: true,
-      status: true,
-      resolvedAt: true,
-      createdAt: true,
-      creator: { select: { fullName: true } },
-      resolver: { select: { fullName: true } },
+export const saveCplRepairment = async (studentId, cplId, data) => {
+  return await prisma.studentCplScore.update({
+    where: { studentId_cplId: { studentId, cplId } },
+    data: {
+      ...data,
+      status: "verified",
+      verifiedAt: new Date(),
     },
-    orderBy: { createdAt: "asc" },
   });
 };
 
-export const createCplRecommendation = async (data) => {
-  return await prisma.yudisiumCplRecommendation.create({ data });
-};
 
-export const findCplRecommendationById = async (id) => {
-  return await prisma.yudisiumCplRecommendation.findUnique({ where: { id } });
-};
-
-export const updateCplRecommendation = async (id, data) => {
-  return await prisma.yudisiumCplRecommendation.update({ where: { id }, data });
-};
 
 // ============================================================
 // SK (Decree) — yudisium event with participants for draft generation

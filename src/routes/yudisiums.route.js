@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { uploadYudisiumDocFile } from "../middlewares/file.middleware.js";
+import { uploadYudisiumDocFile, uploadCplRepairFiles } from "../middlewares/file.middleware.js";
 import { populateProfile } from "../middlewares/yudisium.middleware.js";
 import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
 import * as ctrl from "../controllers/yudisium.controller.js";
@@ -98,7 +98,7 @@ router.post(
 // ============================================================
 router.get(
   "/:id/participants/:participantId/cpl-scores",
-  requireAnyRole(CPL_VALIDATOR_ROLES),
+  requireAnyRole(VIEWER_ROLES),
   ctrl.getParticipantCplScores
 );
 router.post(
@@ -107,14 +107,10 @@ router.post(
   ctrl.verifyParticipantCpl
 );
 router.post(
-  "/:id/participants/:participantId/cpl-recommendation",
+  "/:id/participants/:participantId/cpl/:cplId/repair",
   requireAnyRole(CPL_VALIDATOR_ROLES),
-  ctrl.createCplRecommendation
-);
-router.patch(
-  "/cpl-recommendation/:recommendationId/status",
-  requireAnyRole(CPL_VALIDATOR_ROLES),
-  ctrl.updateCplRecommendationStatus
+  uploadCplRepairFiles,
+  ctrl.saveCplRepairment
 );
 
 // ============================================================

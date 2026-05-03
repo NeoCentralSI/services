@@ -200,9 +200,6 @@ export const getParticipantCplScores = async (participantId) => {
   const cpls = await participantRepo.findCplsActive();
   const scores = await participantRepo.findStudentCplScores(studentId);
   const scoreMap = new Map(scores.map((s) => [s.cplId, s]));
-  const recommendations = await participantRepo.findCplRecommendationsByParticipant(
-    participantId
-  );
 
   const cplScores = cpls.map((cpl) => {
     const sc = scoreMap.get(cpl.id);
@@ -211,9 +208,14 @@ export const getParticipantCplScores = async (participantId) => {
       code: cpl.code,
       description: cpl.description,
       score: sc?.score ?? null,
+      oldScore: sc?.oldCplScore ?? null,
       minimalScore: cpl.minimalScore,
       status: sc?.status ?? "calculated",
       passed: sc ? sc.score >= cpl.minimalScore : false,
+      recommendationDocument: sc?.recommendationDocument || null,
+      settlementDocument: sc?.settlementDocument || null,
+      verifiedAt: sc?.verifiedAt || null,
+      verifiedBy: sc?.verifier?.fullName || null,
     };
   });
 
@@ -221,17 +223,6 @@ export const getParticipantCplScores = async (participantId) => {
     participantId,
     participantStatus: participant.status,
     cplScores,
-    recommendations: recommendations.map((r) => ({
-      id: r.id,
-      cplId: r.cplId,
-      recommendation: r.reccomendation,
-      description: r.description,
-      status: r.status,
-      resolvedAt: r.resolvedAt,
-      createdAt: r.createdAt,
-      createdBy: r.creator?.fullName ?? null,
-      resolvedBy: r.resolver?.fullName ?? null,
-    })),
   };
 };
 
@@ -261,59 +252,74 @@ export const verifyCplScore = async (participantId, cplId, userId) => {
   return { cplId, status: "verified", allCplVerified: allVerified };
 };
 
-export const createCplRecommendation = async (
+export const saveCplRepairment = async (
   participantId,
   cplId,
-  { recommendation, description, userId }
+  { newScore, oldScore, recommendationFile, settlementFile, userId }
 ) => {
-  const participant = await participantRepo.findStatusById(participantId);
+  const participant = await participantRepo.findStudentByParticipant(participantId);
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
 
-  const cpl = await participantRepo.findCplById(cplId);
-  if (!cpl) throwError("CPL tidak ditemukan", 404);
+  const studentId = participant.thesis?.student?.id;
+  if (!studentId) throwError("Data mahasiswa tidak ditemukan", 404);
 
-  const created = await participantRepo.createCplRecommendation({
-    yudisiumParticipantId: participantId,
-    cplId,
-    reccomendation: recommendation || null,
-    description: description || null,
-    status: "in_progress",
-    createdBy: userId,
+  const score = await participantRepo.findStudentCplScore(studentId, cplId);
+  if (!score) throwError("Skor CPL mahasiswa tidak ditemukan", 404);
+
+  // Handle files
+  const uploadsRoot = path.join(process.cwd(), "uploads", "yudisium", "cpl-repair", studentId);
+  await mkdir(uploadsRoot, { recursive: true });
+
+  let recDocId = null;
+  let setDocId = null;
+
+  if (recommendationFile) {
+    const ext = path.extname(recommendationFile.originalname).toLowerCase();
+    const safeName = `rec-${cplId}-${Date.now()}${ext}`;
+    const absPath = path.join(uploadsRoot, safeName);
+    await writeFile(absPath, recommendationFile.buffer);
+    const relPath = path.relative(process.cwd(), absPath).replace(/\\/g, "/");
+    const doc = await participantRepo.createDocument({
+      userId,
+      fileName: recommendationFile.originalname,
+      filePath: relPath,
+    });
+    recDocId = doc.id;
+  }
+
+  if (settlementFile) {
+    const ext = path.extname(settlementFile.originalname).toLowerCase();
+    const safeName = `set-${cplId}-${Date.now()}${ext}`;
+    const absPath = path.join(uploadsRoot, safeName);
+    await writeFile(absPath, settlementFile.buffer);
+    const relPath = path.relative(process.cwd(), absPath).replace(/\\/g, "/");
+    const doc = await participantRepo.createDocument({
+      userId,
+      fileName: settlementFile.originalname,
+      filePath: relPath,
+    });
+    setDocId = doc.id;
+  }
+
+  const result = await participantRepo.saveCplRepairment(studentId, cplId, {
+    score: parseInt(newScore),
+    oldCplScore: parseInt(oldScore),
+    recommendationDocumentId: recDocId,
+    settlementDocumentId: setDocId,
+    verifiedBy: userId,
   });
 
-  return { id: created.id, status: created.status };
-};
+  // Re-check overall transition if necessary
+  const activeCpls = await participantRepo.findCplsActive();
+  const allScores = await participantRepo.findStudentCplScores(studentId);
+  const scoreStatusMap = new Map(allScores.map((s) => [s.cplId, s.status]));
+  const allVerified = activeCpls.every((cpl) => scoreStatusMap.get(cpl.id) === "verified");
 
-export const updateCplRecommendationStatus = async (
-  recommendationId,
-  { action, userId }
-) => {
-  const rec = await participantRepo.findCplRecommendationById(recommendationId);
-  if (!rec) throwError("Rekomendasi CPL tidak ditemukan", 404);
-
-  if (action === "resolve") {
-    if (rec.status === "resolved") throwError("Rekomendasi sudah berstatus resolved", 400);
-    await participantRepo.updateCplRecommendation(recommendationId, {
-      status: "resolved",
-      resolvedBy: userId,
-      resolvedAt: new Date(),
-    });
-    return { id: recommendationId, status: "resolved" };
+  if (allVerified && participant.status === "verified") {
+    await participantRepo.updateStatus(participantId, "cpl_validated");
   }
 
-  if (action === "unresolve") {
-    if (rec.status !== "resolved") {
-      throwError("Hanya rekomendasi resolved yang bisa di-unresolve", 400);
-    }
-    await participantRepo.updateCplRecommendation(recommendationId, {
-      status: "in_progress",
-      resolvedBy: null,
-      resolvedAt: null,
-    });
-    return { id: recommendationId, status: "in_progress" };
-  }
-
-  throwError('Action harus "resolve" atau "unresolve"', 400);
+  return { cplId, status: "verified", allCplVerified: allVerified };
 };
 
 // ============================================================

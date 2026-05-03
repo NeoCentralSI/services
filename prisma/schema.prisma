@@ -35,8 +35,6 @@ model User {
   cplScoresInputBy           StudentCplScore[]                @relation("CplScoreInputBy")
   cplScoresVerifiedBy        StudentCplScore[]                @relation("CplScoreVerifiedBy")
   yudisiumReqVerifications   YudisiumParticipantRequirement[] @relation("YudisiumReqVerifiedBy")
-  yudisiumCplRecsCreated     YudisiumCplRecommendation[]      @relation("YudisiumCplRecCreatedBy")
-  yudisiumCplRecsResolved    YudisiumCplRecommendation[]      @relation("YudisiumCplRecResolvedBy")
   yudisiumDecreeUploads      Yudisium[]                       @relation("YudisiumDecreeUploader")
   seminarExaminerAssignments ThesisSeminarExaminer[]          @relation("SeminarExaminerAssignedBy")
   seminarDocVerifications    ThesisSeminarDocument[]          @relation("SeminarDocVerifiedBy")
@@ -103,27 +101,34 @@ model Student {
 }
 
 model StudentCplScore {
-  studentId   String         @map("student_id") @db.VarChar(199)
-  cplId       String         @map("cpl_id") @db.VarChar(255)
-  inputBy     String?        @map("input_by") @db.VarChar(255)
-  verifiedBy  String?        @map("verified_by") @db.VarChar(255)
-  inputAt     DateTime?      @map("input_at")
-  score       Int
-  source      CplScoreSource @default(SIA)
-  status      CplScoreStatus @default(calculated)
-  verifiedAt  DateTime?      @map("verified_at")
-  finalizedAt DateTime?      @map("finalized_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+  studentId                String         @map("student_id") @db.VarChar(199)
+  cplId                    String         @map("cpl_id") @db.VarChar(255)
+  inputBy                  String?        @map("input_by") @db.VarChar(255)
+  verifiedBy               String?        @map("verified_by") @db.VarChar(255)
+  inputAt                  DateTime?      @map("input_at")
+  score                    Int
+  oldCplScore              Int?           @map("old_cpl_score")
+  source                   CplScoreSource @default(SIA)
+  status                   CplScoreStatus @default(calculated)
+  recommendationDocumentId String?        @map("recommendation_document_id") @db.VarChar(255)
+  settlementDocumentId     String?        @map("settlement_document_id") @db.VarChar(255)
+  verifiedAt               DateTime?      @map("verified_at")
+  finalizedAt              DateTime?      @map("finalized_at")
+  updatedAt                DateTime       @updatedAt @map("updated_at")
 
-  cpl       Cpl     @relation(fields: [cplId], references: [id])
-  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  inputUser User?   @relation("CplScoreInputBy", fields: [inputBy], references: [id])
-  verifier  User?   @relation("CplScoreVerifiedBy", fields: [verifiedBy], references: [id])
+  cpl                    Cpl       @relation(fields: [cplId], references: [id])
+  student                Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  inputUser              User?     @relation("CplScoreInputBy", fields: [inputBy], references: [id])
+  verifier               User?     @relation("CplScoreVerifiedBy", fields: [verifiedBy], references: [id])
+  recommendationDocument Document? @relation("CplRecommendationDocument", fields: [recommendationDocumentId], references: [id])
+  settlementDocument     Document? @relation("CplSettlementDocument", fields: [settlementDocumentId], references: [id])
 
   @@id([studentId, cplId])
   @@index([cplId], map: "student_cpl_scores_cpl_id_fkey")
   @@index([inputBy], map: "student_cpl_scores_input_by_fkey")
   @@index([verifiedBy], map: "student_cpl_scores_verified_by_fkey")
+  @@index([recommendationDocumentId], map: "student_cpl_scores_recommendation_document_id_fkey")
+  @@index([settlementDocumentId], map: "student_cpl_scores_settlement_document_id_fkey")
   @@map("student_cpl_scores")
 }
 
@@ -216,8 +221,7 @@ model Cpl {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  studentCplScores           StudentCplScore[]
-  yudisiumCplRecommendations YudisiumCplRecommendation[]
+  studentCplScores StudentCplScore[]
 
   @@map("cpls")
 }
@@ -904,7 +908,6 @@ model YudisiumParticipant {
   thesis                          Thesis                           @relation(fields: [thesisId], references: [id])
   yudisium                        Yudisium                         @relation(fields: [yudisiumId], references: [id])
   yudisiumParticipantRequirements YudisiumParticipantRequirement[]
-  yudisiumCplRecommendations      YudisiumCplRecommendation[]
 
   @@index([thesisId], map: "yudisium_participants_thesis_id_fkey")
   @@index([yudisiumId], map: "yudisium_participants_yudisium_id_fkey")
@@ -935,36 +938,7 @@ model YudisiumParticipantRequirement {
   @@map("yudisium_participant_requirements")
 }
 
-model YudisiumCplRecommendation {
-  id                       String                          @id @default(uuid()) @db.VarChar(255)
-  yudisiumParticipantId    String                          @map("yudisium_participant_id") @db.VarChar(255)
-  cplId                    String                          @map("cpl_id") @db.VarChar(255)
-  createdBy                String?                         @map("created_by") @db.VarChar(255)
-  resolvedBy               String?                         @map("resolved_by") @db.VarChar(255)
-  recommendationDocumentId String?                         @map("recommendation_document_id") @db.VarChar(255)
-  settlementDocumentId     String?                         @map("settlement_document_id") @db.VarChar(255)
-  reccomendation           String?                         @db.Text
-  description              String?                         @db.Text
-  status                   YudisiumCplRecommendationStatus @default(open)
-  resolvedAt               DateTime?                       @map("resolved_at")
-  createdAt                DateTime                        @default(now()) @map("created_at")
-  updatedAt                DateTime                        @updatedAt @map("updated_at")
 
-  participant            YudisiumParticipant @relation(fields: [yudisiumParticipantId], references: [id], onDelete: Cascade)
-  cpl                    Cpl                 @relation(fields: [cplId], references: [id])
-  creator                User?               @relation("YudisiumCplRecCreatedBy", fields: [createdBy], references: [id])
-  resolver               User?               @relation("YudisiumCplRecResolvedBy", fields: [resolvedBy], references: [id])
-  recommendationDocument Document?           @relation("YudisiumCplRecommendationDocument", fields: [recommendationDocumentId], references: [id])
-  settlementDocument     Document?           @relation("YudisiumCplSettlementDocument", fields: [settlementDocumentId], references: [id])
-
-  @@index([yudisiumParticipantId], map: "yudisium_cpl_reccomendations_participant_id_fkey")
-  @@index([cplId], map: "yudisium_cpl_reccomendations_cpl_id_fkey")
-  @@index([createdBy], map: "yudisium_cpl_reccomendations_created_by_fkey")
-  @@index([resolvedBy], map: "yudisium_cpl_reccomendations_resolved_by_fkey")
-  @@index([recommendationDocumentId], map: "yudisium_cpl_reccomendations_recommendation_document_id_fkey")
-  @@index([settlementDocumentId], map: "yudisium_cpl_reccomendations_settlement_document_id_fkey")
-  @@map("yudisium_cpl_reccomendations")
-}
 
 model StudentExitSurveyResponse {
   id          String   @id @default(uuid()) @db.VarChar(255)
@@ -1031,9 +1005,9 @@ model Document {
   thesisGuidances                     ThesisGuidance[]
   thesisProposal                      ThesisProposal[]
   yudisiums                           Yudisium[]
-  yudisiumCplRecommendationDocuments  YudisiumCplRecommendation[]      @relation("YudisiumCplRecommendationDocument")
-  yudisiumCplSettlementDocuments      YudisiumCplRecommendation[]      @relation("YudisiumCplSettlementDocument")
-  yudisiumParticipantRequirements     YudisiumParticipantRequirement[]
+  yudisiumCplRecommendationScores StudentCplScore[]                @relation("CplRecommendationDocument")
+  yudisiumCplSettlementScores     StudentCplScore[]                @relation("CplSettlementDocument")
+  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")
@@ -1836,12 +1810,7 @@ enum YudisiumParticipantStatus {
   finalized
 }
 
-enum YudisiumCplRecommendationStatus {
-  open
-  in_progress
-  resolved
-  dismissed
-}
+
 
 // ==================== Internship Enums ====================
 

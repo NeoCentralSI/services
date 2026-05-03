@@ -59,6 +59,10 @@ export const uploadInternshipFile = thesisUpload.single("file");
 export const uploadSeminarDocFile = seminarDocUpload.single("file");
 export const uploadGuideFile = guideUpload.single("file");
 export const uploadYudisiumDocFile = thesisUpload.single("file");
+export const uploadCplRepairFiles = thesisUpload.fields([
+  { name: "recommendation", maxCount: 1 },
+  { name: "settlement", maxCount: 1 },
+]);
 
 export default upload;
 
