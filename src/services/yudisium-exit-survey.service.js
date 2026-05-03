@@ -13,15 +13,24 @@ const validateQuestionType = (value) => {
   if (!QUESTION_TYPES.includes(value)) throwError("Jenis pertanyaan tidak valid", 400);
 };
 
-const formatFormSummary = (item) => ({
-  id: item.id,
-  name: item.name,
-  description: item.description ?? null,
-  isActive: item.isActive,
-  totalSessions: item._count?.sessions ?? 0,
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
-});
+const formatFormSummary = (item) => {
+  const totalQuestions = (item.sessions ?? []).reduce(
+    (acc, session) => acc + (session._count?.questions ?? 0),
+    0
+  );
+
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description ?? null,
+    isActive: item.isActive,
+    totalSessions: item.sessions?.length ?? 0,
+    totalQuestions,
+    usedCount: item._count?.yudisiums ?? 0,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
 
 const formatQuestion = (q, sessionName = q.session?.name) => ({
   id: q.id,
@@ -115,13 +124,6 @@ export const toggleForm = async (id) => {
   const existing = await repo.findFormById(id);
   if (!existing) throwError("Form exit survey tidak ditemukan", 404);
 
-  if (await repo.formHasLinkedResponses(id)) {
-    throwError(
-      "Status form exit survey tidak dapat diubah karena sudah digunakan mahasiswa",
-      409
-    );
-  }
-
   return await repo.updateForm(id, { isActive: !existing.isActive });
 };
 
@@ -129,16 +131,9 @@ export const deleteForm = async (id) => {
   const existing = await repo.findFormById(id);
   if (!existing) throwError("Form exit survey tidak ditemukan", 404);
 
-  if (await repo.formHasLinkedResponses(id)) {
+  if (await repo.formHasRelatedYudisiums(id)) {
     throwError(
-      "Form exit survey tidak dapat dihapus karena sudah digunakan mahasiswa",
-      409
-    );
-  }
-
-  if ((existing._count?.yudisiums ?? 0) > 0) {
-    throwError(
-      "Tidak dapat menghapus form karena sudah digunakan oleh acara yudisium",
+      "Form exit survey tidak dapat dihapus karena sudah digunakan oleh acara yudisium",
       409
     );
   }

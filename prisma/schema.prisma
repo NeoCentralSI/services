@@ -295,6 +295,7 @@ model ExitSurveySession {
   id               String   @id @default(uuid()) @db.VarChar(255)
   exitSurveyFormId String   @map("exit_survey_form_id") @db.VarChar(255)
   name             String   @db.VarChar(255)
+  description      String?  @db.Text
   order            Int      @default(0)
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
@@ -310,6 +311,7 @@ model ExitSurveyQuestion {
   id                  String                 @id @default(uuid()) @db.VarChar(255)
   exitSurveySessionId String                 @map("exit_survey_session_id") @db.VarChar(255)
   question            String                 @db.Text
+  description         String?                @db.Text
   questionType        ExitSurveyQuestionType @map("question_type")
   isRequired          Boolean                @default(false) @map("is_required")
   orderNumber         Int                    @map("order_number")

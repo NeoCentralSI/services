@@ -20,7 +20,14 @@ const formDetailInclude = {
 export const findAllForms = async () => {
   return await prisma.exitSurveyForm.findMany({
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { sessions: true } } },
+    include: {
+      _count: { select: { yudisiums: true } },
+      sessions: {
+        select: {
+          _count: { select: { questions: true } },
+        },
+      },
+    },
   });
 };
 
@@ -43,9 +50,9 @@ export const removeForm = async (id) => {
   return await prisma.exitSurveyForm.delete({ where: { id } });
 };
 
-export const formHasLinkedResponses = async (formId) => {
-  const count = await prisma.studentExitSurveyResponse.count({
-    where: { yudisium: { exitSurveyFormId: formId } },
+export const formHasRelatedYudisiums = async (id) => {
+  const count = await prisma.yudisium.count({
+    where: { exitSurveyFormId: id },
   });
   return count > 0;
 };
