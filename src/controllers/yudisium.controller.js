@@ -277,23 +277,6 @@ export const toggleRequirement = async (req, res, next) => {
   }
 };
 
-export const moveRequirementTop = async (req, res, next) => {
-  try {
-    const data = await requirementService.moveRequirementToTop(req.params.id);
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const moveRequirementBottom = async (req, res, next) => {
-  try {
-    const data = await requirementService.moveRequirementToBottom(req.params.id);
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-};
 
 export const removeRequirement = async (req, res, next) => {
   try {

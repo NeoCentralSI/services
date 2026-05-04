@@ -17,10 +17,9 @@ const formatRequirement = (item) => ({
   id: item.id,
   name: item.name,
   description: item.description,
-  order: item.order,
   isActive: item.isActive,
   isPublic: item.isPublic,
-  relationCount: item._count?.yudisiumParticipantRequirements ?? 0,
+  relationCount: item._count?.yudisiumRequirementItems ?? 0,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
 });
@@ -35,7 +34,7 @@ export const getRequirementDetail = async (id) => {
   if (!data) throwError("Persyaratan yudisium tidak ditemukan", 404);
   return {
     ...formatRequirement(data),
-    usageCount: data._count?.yudisiumParticipantRequirements ?? 0,
+    usageCount: data._count?.yudisiumRequirementItems ?? 0,
   };
 };
 
@@ -43,12 +42,9 @@ export const createRequirement = async (data) => {
   const existing = await repository.findByName(data.name.trim());
   if (existing) throwError(`Nama persyaratan "${data.name}" sudah digunakan`, 409);
 
-  const finalOrder = data.order ?? (await repository.getNextOrder());
-
   return await repository.create({
     name: data.name.trim(),
     description: normalizeText(data.description),
-    order: finalOrder,
     isActive: data.isActive ?? true,
     isPublic: data.isPublic ?? false,
   });
@@ -67,7 +63,6 @@ export const updateRequirement = async (id, data) => {
     updateData.name = normalizedName;
   }
   if (data.description !== undefined) updateData.description = normalizeText(data.description);
-  if (data.order !== undefined) updateData.order = data.order;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
   if (data.isPublic !== undefined) updateData.isPublic = data.isPublic;
 
@@ -80,17 +75,6 @@ export const toggleRequirement = async (id) => {
   return await repository.update(id, { isActive: !existing.isActive });
 };
 
-export const moveRequirementToTop = async (id) => {
-  const existing = await repository.findById(id);
-  if (!existing) throwError("Persyaratan yudisium tidak ditemukan", 404);
-  return await repository.moveToEdge(id, "top");
-};
-
-export const moveRequirementToBottom = async (id) => {
-  const existing = await repository.findById(id);
-  if (!existing) throwError("Persyaratan yudisium tidak ditemukan", 404);
-  return await repository.moveToEdge(id, "bottom");
-};
 
 export const deleteRequirement = async (id) => {
   const existing = await repository.findById(id);

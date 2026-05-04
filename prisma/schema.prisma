@@ -860,7 +860,6 @@ model Yudisium {
   registrationCloseDate DateTime?      @map("registration_close_date") @db.Date
   eventDate             DateTime?      @map("event_date") @db.Date
   notes                 String?        @db.Text
-  status                YudisiumStatus @default(published)
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
 
@@ -870,6 +869,7 @@ model Yudisium {
   exitSurveyForm             ExitSurveyForm?             @relation(fields: [exitSurveyFormId], references: [id])
   participants               YudisiumParticipant[]
   studentExitSurveyResponses StudentExitSurveyResponse[]
+  requirementItems           YudisiumRequirementItem[]
 
   @@index([decreeUploadedBy], map: "yudisiums_decree_uploaded_by_fkey")
   @@index([roomId], map: "yudisiums_room_id_fkey")
@@ -884,13 +884,29 @@ model YudisiumRequirement {
   description String?  @db.Text
   isActive    Boolean  @default(true) @map("is_active")
   isPublic    Boolean  @default(false) @map("is_public")
-  order       Int      @default(0)
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
+  yudisiumRequirementItems YudisiumRequirementItem[]
 
   @@map("yudisium_requirements")
+}
+
+model YudisiumRequirementItem {
+  id                    String   @id @default(uuid()) @db.VarChar(255)
+  yudisiumRequirementId String   @map("yudisium_requirement_id") @db.VarChar(255)
+  yudisiumId            String   @map("yudisium_id") @db.VarChar(255)
+  order                 Int      @default(0)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  yudisium                        Yudisium                         @relation(fields: [yudisiumId], references: [id], onDelete: Cascade)
+  yudisiumRequirement             YudisiumRequirement              @relation(fields: [yudisiumRequirementId], references: [id], onDelete: Cascade)
+  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
+
+  @@index([yudisiumId])
+  @@index([yudisiumRequirementId])
+  @@map("yudisium_requirement_items")
 }
 
 model YudisiumParticipant {
@@ -915,10 +931,10 @@ model YudisiumParticipant {
 }
 
 model YudisiumParticipantRequirement {
-  yudisiumParticipantId String               @map("yudisium_participant_id") @db.VarChar(255)
-  yudisiumRequirementId String               @map("yudisium_requirement_id") @db.VarChar(255)
-  documentId            String               @map("document_id") @db.VarChar(255)
-  verifiedBy            String?              @map("verified_by") @db.VarChar(255)
+  yudisiumParticipantId     String               @map("yudisium_participant_id") @db.VarChar(255)
+  yudisiumRequirementItemId String               @map("yudisium_requirement_item_id") @db.VarChar(255)
+  documentId                String               @map("document_id") @db.VarChar(255)
+  verifiedBy                String?              @map("verified_by") @db.VarChar(255)
   submittedAt           DateTime             @map("submitted_at")
   status                DocumentSubmitStatus @default(submitted)
   notes                 String?              @db.Text
@@ -926,13 +942,13 @@ model YudisiumParticipantRequirement {
   createdAt             DateTime             @default(now()) @map("created_at")
   updatedAt             DateTime             @updatedAt @map("updated_at")
 
-  participant YudisiumParticipant @relation(fields: [yudisiumParticipantId], references: [id], onDelete: Cascade)
-  requirement YudisiumRequirement @relation(fields: [yudisiumRequirementId], references: [id])
-  document    Document            @relation(fields: [documentId], references: [id])
-  verifier    User?               @relation("YudisiumReqVerifiedBy", fields: [verifiedBy], references: [id])
+  participant YudisiumParticipant     @relation(fields: [yudisiumParticipantId], references: [id], onDelete: Cascade)
+  requirement YudisiumRequirementItem @relation(fields: [yudisiumRequirementItemId], references: [id])
+  document    Document                @relation(fields: [documentId], references: [id])
+  verifier    User?                   @relation("YudisiumReqVerifiedBy", fields: [verifiedBy], references: [id])
 
-  @@id([yudisiumParticipantId, yudisiumRequirementId])
-  @@index([yudisiumRequirementId], map: "yudisium_participant_requirements_yudisium_requirement_id_fkey")
+  @@id([yudisiumParticipantId, yudisiumRequirementItemId])
+  @@index([yudisiumRequirementItemId], map: "yudisium_participant_requirements_yudisium_requirement_id_fkey")
   @@index([documentId], map: "yudisium_participant_requirements_document_id_fkey")
   @@index([verifiedBy], map: "yudisium_participant_requirements_verified_by_fkey")
   @@map("yudisium_participant_requirements")

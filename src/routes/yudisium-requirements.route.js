@@ -28,8 +28,6 @@ router.get("/:id", ctrl.getRequirementById);
 router.post("/", validate(createYudisiumRequirementSchema), ctrl.createRequirement);
 router.patch("/:id", validate(updateYudisiumRequirementSchema), ctrl.updateRequirement);
 router.patch("/:id/toggle", ctrl.toggleRequirement);
-router.patch("/:id/move-top", ctrl.moveRequirementTop);
-router.patch("/:id/move-bottom", ctrl.moveRequirementBottom);
 router.delete("/:id", ctrl.removeRequirement);
 
 export default router;

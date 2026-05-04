@@ -2,13 +2,11 @@ import prisma from "../config/prisma.js";
 
 export const findAll = async () => {
   return await prisma.yudisiumRequirement.findMany({
-    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    orderBy: { createdAt: "asc" },
     include: {
       _count: {
         select: {
-          yudisiumParticipantRequirements: {
-            where: { status: "approved" },
-          },
+          yudisiumRequirementItems: true,
         },
       },
     },
@@ -18,7 +16,7 @@ export const findAll = async () => {
 export const findActive = async () => {
   return await prisma.yudisiumRequirement.findMany({
     where: { isActive: true },
-    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    orderBy: { createdAt: "asc" },
   });
 };
 
@@ -28,9 +26,7 @@ export const findById = async (id) => {
     include: {
       _count: {
         select: {
-          yudisiumParticipantRequirements: {
-            where: { status: "approved" },
-          },
+          yudisiumRequirementItems: true,
         },
       },
     },
@@ -43,13 +39,6 @@ export const findByName = async (name, excludeId = null) => {
   return await prisma.yudisiumRequirement.findFirst({ where });
 };
 
-export const getNextOrder = async () => {
-  const last = await prisma.yudisiumRequirement.findFirst({
-    orderBy: { order: "desc" },
-    select: { order: true },
-  });
-  return (last?.order ?? 0) + 1;
-};
 
 export const create = async (data) => {
   return await prisma.yudisiumRequirement.create({ data });
@@ -66,34 +55,11 @@ export const remove = async (id) => {
 export const hasRelatedData = async (id) => {
   const count = await prisma.yudisiumParticipantRequirement.count({
     where: {
-      yudisiumRequirementId: id,
-      status: "approved",
+      requirement: {
+        yudisiumRequirementId: id,
+      },
     },
   });
   return count > 0;
 };
 
-export const moveToEdge = async (id, direction) => {
-  return await prisma.$transaction(async (tx) => {
-    const items = await tx.yudisiumRequirement.findMany({
-      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      select: { id: true },
-    });
-
-    const existingIds = items.map((item) => item.id);
-    const withoutCurrent = existingIds.filter((itemId) => itemId !== id);
-    const reorderedIds =
-      direction === "top" ? [id, ...withoutCurrent] : [...withoutCurrent, id];
-
-    await Promise.all(
-      reorderedIds.map((itemId, index) =>
-        tx.yudisiumRequirement.update({
-          where: { id: itemId },
-          data: { order: index },
-        })
-      )
-    );
-
-    return await tx.yudisiumRequirement.findUnique({ where: { id } });
-  });
-};
