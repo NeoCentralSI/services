@@ -200,9 +200,12 @@ export const updateYudisium = async (id, data) => {
     const hasRegParticipants = await repository.hasRegisteredParticipants(id);
     const newOpenTime = safeGetTime(rest.registrationOpenDate);
     const existingOpenTime = safeGetTime(existing.registrationOpenDate);
+    const now = new Date();
+    const isRegistrationStarted = existing.registrationOpenDate && new Date(existing.registrationOpenDate) <= now;
+    const isLocked = isRegistrationStarted || hasRegParticipants;
 
-    if (hasRegParticipants && newOpenTime !== existingOpenTime) {
-      throwError("Tanggal pembukaan pendaftaran tidak dapat diubah karena sudah ada peserta yang terdaftar", 409);
+    if (isLocked && newOpenTime !== existingOpenTime) {
+      throwError("Tanggal pembukaan pendaftaran tidak dapat diubah karena pendaftaran sudah dimulai atau sudah ada peserta", 409);
     }
 
     if (rest.registrationOpenDate) {
@@ -247,9 +250,13 @@ export const updateYudisium = async (id, data) => {
   // === exitSurveyFormId ===
   if (rest.exitSurveyFormId !== undefined) {
     const hasRegParticipants = await repository.hasRegisteredParticipants(id);
-    if (hasRegParticipants && rest.exitSurveyFormId !== existing.exitSurveyFormId) {
+    const now = new Date();
+    const isRegistrationStarted = existing.registrationOpenDate && new Date(existing.registrationOpenDate) <= now;
+    const isLocked = isRegistrationStarted || hasRegParticipants;
+
+    if (isLocked && rest.exitSurveyFormId !== existing.exitSurveyFormId) {
       throwError(
-        "Template exit survey tidak dapat diubah karena sudah ada peserta yang terdaftar",
+        "Template exit survey tidak dapat diubah karena pendaftaran sudah dimulai atau sudah ada peserta",
         409
       );
     }
@@ -264,9 +271,13 @@ export const updateYudisium = async (id, data) => {
 
     if (isChanged) {
       const hasRegParticipants = await repository.hasRegisteredParticipants(id);
-      if (hasRegParticipants) {
+      const now = new Date();
+      const isRegistrationStarted = existing.registrationOpenDate && new Date(existing.registrationOpenDate) <= now;
+      const isLocked = isRegistrationStarted || hasRegParticipants;
+
+      if (isLocked) {
         throwError(
-          "Persyaratan yudisium tidak dapat diubah karena sudah ada peserta yang terdaftar",
+          "Persyaratan yudisium tidak dapat diubah karena pendaftaran sudah dimulai atau sudah ada peserta",
           409
         );
       }
@@ -309,6 +320,61 @@ export const updateYudisium = async (id, data) => {
 
   const updated = await repository.update(id, updateData);
   return formatYudisium(updated);
+};
+
+export const finalizeRegistration = async (yudisiumId) => {
+  const yudisium = await repository.findById(yudisiumId);
+  if (!yudisium) throwError("Data yudisium tidak ditemukan", 404);
+
+  const participants = await prisma.yudisiumParticipant.findMany({
+    where: { yudisiumId },
+    include: {
+      thesis: {
+        include: {
+          student: {
+            include: {
+              studentCplScores: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const activeCpls = await prisma.cpl.findMany({ where: { isActive: true } });
+  const activeCplIds = activeCpls.map(c => c.id);
+
+  const results = { appointed: 0, rejected: 0 };
+
+  for (const p of participants) {
+    // Only process registered/verified/cpl_validated (skip already appointed/finalized/rejected)
+    if (!['registered', 'verified', 'cpl_validated'].includes(p.status)) continue;
+
+    const scores = p.thesis?.student?.studentCplScores || [];
+    const scoreStatusMap = new Map(scores.map(s => [s.cplId, s.status]));
+    
+    const isCplMet = activeCplIds.length > 0 && 
+                     activeCplIds.every(id => scoreStatusMap.get(id) === 'verified');
+
+    if (isCplMet) {
+      await prisma.yudisiumParticipant.update({
+        where: { id: p.id },
+        data: { 
+          status: 'appointed',
+          appointedAt: new Date()
+        }
+      });
+      results.appointed++;
+    } else {
+      await prisma.yudisiumParticipant.update({
+        where: { id: p.id },
+        data: { status: 'rejected' }
+      });
+      results.rejected++;
+    }
+  }
+
+  return results;
 };
 
 export const deleteYudisium = async (id) => {

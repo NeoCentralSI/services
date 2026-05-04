@@ -721,7 +721,6 @@ export const uploadOfficialSk = async (
   const updateData = { 
     documentId: document.id, 
     decreeUploadedBy: userId,
-    status: "scheduled" 
   };
   if (eventDate) updateData.eventDate = new Date(eventDate);
   if (decreeNumber) updateData.decreeNumber = decreeNumber;

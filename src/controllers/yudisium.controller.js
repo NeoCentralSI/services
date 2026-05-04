@@ -59,6 +59,15 @@ export const updateEvent = async (req, res, next) => {
   }
 };
 
+export const finalizeRegistration = async (req, res, next) => {
+  try {
+    const data = await yudisiumService.finalizeRegistration(req.params.id);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const removeEvent = async (req, res, next) => {
   try {
     await yudisiumService.deleteYudisium(req.params.id);

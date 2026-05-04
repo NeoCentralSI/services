@@ -123,12 +123,12 @@ export const updateStatus = async (participantId, status) => {
 // PARTICIPANT REQUIREMENT (document) RECORDS
 // ============================================================
 
-export const findRequirementRecord = async (participantId, requirementId) => {
+export const findRequirementRecord = async (participantId, requirementItemId) => {
   return await prisma.yudisiumParticipantRequirement.findUnique({
     where: {
-      yudisiumParticipantId_yudisiumRequirementId: {
+      yudisiumParticipantId_yudisiumRequirementItemId: {
         yudisiumParticipantId: participantId,
-        yudisiumRequirementId: requirementId,
+        yudisiumRequirementItemId: requirementItemId,
       },
     },
   });
@@ -137,33 +137,33 @@ export const findRequirementRecord = async (participantId, requirementId) => {
 export const listRequirementRecords = async (participantId) => {
   return await prisma.yudisiumParticipantRequirement.findMany({
     where: { yudisiumParticipantId: participantId },
-    select: { yudisiumRequirementId: true, status: true },
+    select: { yudisiumRequirementItemId: true, status: true },
   });
 };
 
-export const updateRequirementRecord = async (participantId, requirementId, data) => {
+export const updateRequirementRecord = async (participantId, requirementItemId, data) => {
   return await prisma.yudisiumParticipantRequirement.update({
     where: {
-      yudisiumParticipantId_yudisiumRequirementId: {
+      yudisiumParticipantId_yudisiumRequirementItemId: {
         yudisiumParticipantId: participantId,
-        yudisiumRequirementId: requirementId,
+        yudisiumRequirementItemId: requirementItemId,
       },
     },
     data,
   });
 };
 
-export const upsertRequirementRecord = async (participantId, requirementId, { documentId }) => {
+export const upsertRequirementRecord = async (participantId, requirementItemId, { documentId }) => {
   return await prisma.yudisiumParticipantRequirement.upsert({
     where: {
-      yudisiumParticipantId_yudisiumRequirementId: {
+      yudisiumParticipantId_yudisiumRequirementItemId: {
         yudisiumParticipantId: participantId,
-        yudisiumRequirementId: requirementId,
+        yudisiumRequirementItemId: requirementItemId,
       },
     },
     create: {
       yudisiumParticipantId: participantId,
-      yudisiumRequirementId: requirementId,
+      yudisiumRequirementItemId: requirementItemId,
       documentId,
       status: "submitted",
       submittedAt: new Date(),
@@ -183,7 +183,7 @@ export const findRequirementRecordsForStudent = async (participantId) => {
   return await prisma.yudisiumParticipantRequirement.findMany({
     where: { yudisiumParticipantId: participantId },
     select: {
-      yudisiumRequirementId: true,
+      yudisiumRequirementItemId: true,
       status: true,
       submittedAt: true,
       verifiedAt: true,

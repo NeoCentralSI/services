@@ -50,13 +50,13 @@ const exitSurveyFormInclude = {
 const yudisiumContextSelect = {
   id: true,
   name: true,
-  status: true,
   registrationOpenDate: true,
   registrationCloseDate: true,
   eventDate: true,
   documentId: true,
   document: { select: { id: true, fileName: true, filePath: true } },
   exitSurveyForm: { select: exitSurveyFormInclude },
+  requirementItems: { select: { id: true, yudisiumRequirementId: true } },
 };
 
 export const findStudentContext = async (userId) => {
@@ -78,6 +78,7 @@ export const findStudentContext = async (userId) => {
             orderBy: { createdAt: "desc" },
             select: {
               id: true,
+              status: true,
               revisionFinalizedAt: true,
               revisionFinalizedBy: true,
             },
@@ -112,7 +113,6 @@ export const findStudentContext = async (userId) => {
     const now = new Date();
     currentYudisium = await prisma.yudisium.findFirst({
       where: {
-        status: { in: ["published", "scheduled"] },
         registrationOpenDate: { lte: now },
         registrationCloseDate: { gte: now },
       },
@@ -140,10 +140,10 @@ export const getOverview = async (userId) => {
   let history = [];
   let activeRequirements = [];
 
-  // Always load active requirements so the student can see what's needed even before registration opens
+  // Load all requirements - we filter them by whether they are linked to the current Yudisium period later.
+  // This ensures that even if a global requirement is deactivated, it still shows for students if it's already assigned to this period.
   activeRequirements = await prisma.yudisiumRequirement.findMany({
-    where: { isActive: true },
-    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    orderBy: { createdAt: "asc" },
     select: { id: true, name: true, description: true },
   });
 
@@ -159,7 +159,7 @@ export const getOverview = async (userId) => {
         yudisium: { select: yudisiumContextSelect },
         yudisiumParticipantRequirements: {
           select: {
-            yudisiumRequirementId: true,
+            yudisiumRequirementItemId: true,
             status: true,
             submittedAt: true,
             verifiedAt: true,
@@ -169,41 +169,49 @@ export const getOverview = async (userId) => {
       },
     });
 
-    // Determine current participant: the most recent one that is NOT rejected
-    // OR if all are rejected, the most recent one (but we'll filter it later in frontend)
-    participant = allParticipations.find(p => p.status !== 'rejected') || null;
-    
-    // History is everything else OR everything if we want to show all previous attempts
-    // Usually, history is all rejected ones + previous finalized ones if they exist
-    history = allParticipations.filter(p => p.id !== participant?.id || p.status === 'rejected');
+  // Determine current participant: the most recent one that is NOT rejected
+  // OR if all are rejected, the most recent one (but we'll filter it later in frontend)
+  participant = allParticipations.find(p => p.status !== 'rejected') || null;
+  
+  // History is ONLY rejected ones
+  history = allParticipations.filter(p => p.status === 'rejected');
 
-    if (currentYudisium?.id) {
-      submittedExitSurvey = await prisma.studentExitSurveyResponse.findFirst({
-        where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
-        select: { id: true, submittedAt: true },
-      });
-    }
+  if (currentYudisium?.id && thesis?.id) {
+    submittedExitSurvey = await prisma.studentExitSurveyResponse.findFirst({
+      where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
+      select: { id: true, submittedAt: true },
+    });
+  }
   }
 
   const uploadedByRequirement = new Map(
     (participant?.yudisiumParticipantRequirements ?? []).map((item) => [
-      item.yudisiumRequirementId,
+      item.yudisiumRequirementItemId,
       item,
     ])
   );
 
-  const requirements = activeRequirements.map((req) => {
-    const submitted = uploadedByRequirement.get(req.id);
-    return {
-      id: req.id,
-      name: req.name,
-      description: req.description,
-      isUploaded: !!submitted,
-      status: submitted ? "terunggah" : "menunggu",
-      submittedAt: submitted?.submittedAt ?? null,
-    };
-  });
+  const requirements = activeRequirements
+    .filter((req) => 
+      currentYudisium?.requirementItems?.some(i => i.yudisiumRequirementId === req.id)
+    )
+    .map((req) => {
+      // Find the item ID for this requirement in the current yudisium
+      const item = currentYudisium?.requirementItems?.find(i => i.yudisiumRequirementId === req.id);
+      const submitted = item ? uploadedByRequirement.get(item.id) : null;
+      
+      return {
+        id: req.id,
+        name: req.name,
+        description: req.description,
+        isUploaded: !!submitted,
+        status: submitted ? "terunggah" : "menunggu",
+        submittedAt: submitted?.submittedAt ?? null,
+      };
+    });
 
+  const needsRevision = latestDefence?.status === 'passed_with_revision';
+  
   const checklist = {
     sks: {
       label: `Menyelesaikan ${REQUIRED_SKS} SKS`,
@@ -211,11 +219,13 @@ export const getOverview = async (userId) => {
       current: student.skscompleted ?? 0,
       required: REQUIRED_SKS,
     },
-    revisiSidang: {
-      label: "Menyelesaikan revisi sidang TA",
-      met: revisionFinalized,
-      revisionFinalizedAt: latestDefence?.revisionFinalizedAt ?? null,
-    },
+    ...(needsRevision ? {
+      revisiSidang: {
+        label: "Menyelesaikan revisi sidang TA",
+        met: revisionFinalized,
+        revisionFinalizedAt: latestDefence?.revisionFinalizedAt ?? null,
+      },
+    } : {}),
     mataKuliahWajib: {
       label: "Lulus semua mata kuliah wajib",
       met: !!student.mandatoryCoursesCompleted,
@@ -237,10 +247,19 @@ export const getOverview = async (userId) => {
       met: !!submittedExitSurvey,
       submittedAt: submittedExitSurvey?.submittedAt ?? null,
       responseId: submittedExitSurvey?.id ?? null,
+      isAvailable: !!currentYudisium, // Only available if there's an active yudisium
     },
   };
 
-  const allChecklistMet = Object.values(checklist).every((item) => item.met);
+  const academicChecklistMet = 
+    checklist.sks.met && 
+    (!checklist.revisiSidang || checklist.revisiSidang.met) && 
+    checklist.mataKuliahWajib.met && 
+    checklist.mataKuliahMkwu.met && 
+    checklist.mataKuliahKerjaPraktik.met && 
+    checklist.mataKuliahKkn.met;
+
+  const allChecklistMet = academicChecklistMet && checklist.exitSurvey.met;
 
   // CPL verification status
   let allCplVerified = false;
@@ -273,7 +292,6 @@ export const getOverview = async (userId) => {
       ? {
           id: currentYudisium.id,
           name: currentYudisium.name,
-          status: currentYudisium.status,
           registrationOpenDate: currentYudisium.registrationOpenDate,
           registrationCloseDate: currentYudisium.registrationCloseDate,
           eventDate: currentYudisium.eventDate,
@@ -316,10 +334,17 @@ export const getOverview = async (userId) => {
 export const getOwnRequirements = async (userId) => {
   const { currentYudisium, thesis } = await findStudentContext(userId);
 
-  if (!currentYudisium) throwError("Belum ada periode yudisium yang berlangsung", 404);
-  if (!thesis?.id) throwError("Data tugas akhir mahasiswa belum tersedia", 400);
+  // Instead of throwing 404/400, return empty state for UI to handle gracefully
+  if (!currentYudisium || !thesis?.id) {
+    return {
+      yudisiumId: currentYudisium?.id ?? null,
+      participantId: null,
+      participantStatus: null,
+      requirements: [],
+    };
+  }
 
-  const activeRequirements = await requirementRepo.findActive();
+  const activeRequirements = await requirementRepo.findAll();
   const participant = await prisma.yudisiumParticipant.findFirst({
     where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
     select: {
@@ -327,7 +352,7 @@ export const getOwnRequirements = async (userId) => {
       status: true,
       yudisiumParticipantRequirements: {
         select: {
-          yudisiumRequirementId: true,
+          yudisiumRequirementItemId: true,
           status: true,
           submittedAt: true,
           verifiedAt: true,
@@ -340,28 +365,35 @@ export const getOwnRequirements = async (userId) => {
   });
 
   const uploadedMap = new Map(
-    (participant?.yudisiumParticipantRequirements ?? []).map((r) => [r.yudisiumRequirementId, r])
+    (participant?.yudisiumParticipantRequirements ?? []).map((r) => [r.yudisiumRequirementItemId, r])
   );
 
-  const requirements = activeRequirements.map((req) => {
-    const uploaded = uploadedMap.get(req.id);
-    return {
-      id: req.id,
-      name: req.name,
-      description: req.description,
-      status: uploaded?.status ?? null,
-      submittedAt: uploaded?.submittedAt ?? null,
-      verifiedAt: uploaded?.verifiedAt ?? null,
-      validationNotes: uploaded?.notes ?? null,
-      document: uploaded?.document
-        ? {
-            id: uploaded.document.id,
-            fileName: uploaded.document.fileName,
-            filePath: uploaded.document.filePath,
-          }
-        : null,
-    };
-  });
+  const requirements = activeRequirements
+    .filter((req) => 
+      currentYudisium?.requirementItems?.some(i => i.yudisiumRequirementId === req.id)
+    )
+    .map((req) => {
+      // Find the item ID for this requirement in the current yudisium
+      const item = currentYudisium.requirementItems.find(i => i.yudisiumRequirementId === req.id);
+      const uploaded = item ? uploadedMap.get(item.id) : null;
+      
+      return {
+        id: req.id,
+        name: req.name,
+        description: req.description,
+        status: uploaded?.status ?? null,
+        submittedAt: uploaded?.submittedAt ?? null,
+        verifiedAt: uploaded?.verifiedAt ?? null,
+        validationNotes: uploaded?.notes ?? null,
+        document: uploaded?.document
+          ? {
+              id: uploaded.document.id,
+              fileName: uploaded.document.fileName,
+              filePath: uploaded.document.filePath,
+            }
+          : null,
+      };
+    });
 
   return {
     yudisiumId: currentYudisium.id,
@@ -387,8 +419,8 @@ export const uploadOwnDocument = async (userId, file, requirementId) => {
   const requirement = await prisma.yudisiumRequirement.findUnique({
     where: { id: requirementId },
   });
-  if (!requirement || !requirement.isActive) {
-    throwError("Persyaratan yudisium tidak valid atau sudah tidak aktif", 400);
+  if (!requirement) {
+    throwError("Persyaratan yudisium tidak valid", 400);
   }
 
   // Auto-create participant on first upload
@@ -397,8 +429,14 @@ export const uploadOwnDocument = async (userId, file, requirementId) => {
     participant = await participantRepo.createForThesis(currentYudisium.id, thesis.id);
   }
 
+  // Resolve the global requirementId to the specific requirementItem for this yudisium
+  const item = currentYudisium.requirementItems.find(i => i.yudisiumRequirementId === requirementId);
+  if (!item) {
+    throwError("Persyaratan ini tidak berlaku untuk periode yudisium ini", 400);
+  }
+
   // Block re-upload for already-approved docs
-  const existing = await participantRepo.findRequirementRecord(participant.id, requirementId);
+  const existing = await participantRepo.findRequirementRecord(participant.id, item.id);
   if (existing?.status === "approved") {
     throwError("Dokumen ini sudah diverifikasi dan tidak dapat diubah", 409);
   }
@@ -440,7 +478,7 @@ export const uploadOwnDocument = async (userId, file, requirementId) => {
     filePath: relPath,
   });
 
-  await participantRepo.upsertRequirementRecord(participant.id, requirementId, {
+  await participantRepo.upsertRequirementRecord(participant.id, item.id, {
     documentId: document.id,
   });
 

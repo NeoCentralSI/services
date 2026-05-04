@@ -70,6 +70,7 @@ router.patch(
   validate(updateYudisiumSchema),
   ctrl.updateEvent
 );
+router.post("/:id/finalize-registration", requireAnyRole(EVENT_MANAGER_ROLES), ctrl.finalizeRegistration);
 router.delete("/:id", requireAnyRole(EVENT_MANAGER_ROLES), ctrl.removeEvent);
 
 // ============================================================
