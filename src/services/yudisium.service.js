@@ -74,7 +74,10 @@ const safeGetTime = (date) => {
 const finalizeYudisiumResults = async (yudisiumId) => {
   try {
     const participants = await prisma.yudisiumParticipant.findMany({
-      where: { yudisiumId },
+      where: { 
+        yudisiumId,
+        status: 'appointed'
+      },
       include: {
         thesis: {
           include: { student: true }
@@ -86,16 +89,22 @@ const finalizeYudisiumResults = async (yudisiumId) => {
 
     const studentIds = participants.map(p => p.thesis?.student?.id).filter(Boolean);
 
-    // Update participants status to finalized
+    // 1. Update ONLY 'appointed' participants to 'finalized'
     await prisma.yudisiumParticipant.updateMany({
-      where: { yudisiumId },
+      where: { 
+        yudisiumId,
+        status: 'appointed'
+      },
       data: { status: 'finalized' }
     });
 
-    // Update CPL scores to finalized for all students in this yudisium
+    // 2. Update CPL scores to 'finalized' ONLY for those finalized students
     if (studentIds.length > 0) {
       await prisma.studentCplScore.updateMany({
-        where: { studentId: { in: studentIds } },
+        where: { 
+          studentId: { in: studentIds },
+          status: { not: 'finalized' } // Only update if not already finalized
+        },
         data: { 
           status: 'finalized',
           finalizedAt: new Date()
@@ -104,8 +113,6 @@ const finalizeYudisiumResults = async (yudisiumId) => {
     }
   } catch (err) {
     console.error(`Failed to finalize yudisium ${yudisiumId}:`, err);
-    // We don't necessarily want to crash the whole request if side-effects fail, 
-    // but a 500 is happening somewhere, so let's be careful.
     throw err;
   }
 };

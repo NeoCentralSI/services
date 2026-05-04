@@ -18,10 +18,30 @@ function throwError(msg, code) {
 
 const PARTICIPANT_STATUS_PRIORITY = {
   registered: 0,
-  under_review: 1,
-  approved: 2,
-  rejected: 3,
+  verified: 1,
+  cpl_validated: 2,
+  appointed: 3,
   finalized: 4,
+  rejected: 99,
+};
+
+const deriveYudisiumStatus = (item) => {
+  const now = new Date();
+  const openDate = item.registrationOpenDate ? new Date(item.registrationOpenDate) : null;
+  const closeDate = item.registrationCloseDate ? new Date(item.registrationCloseDate) : null;
+  const eventDate = item.eventDate ? new Date(item.eventDate) : null;
+
+  if (eventDate) {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 86400000 - 1);
+    if (eventDate < todayStart) return "completed";
+    if (eventDate >= todayStart && eventDate <= todayEnd) return "ongoing";
+  }
+
+  if (!openDate) return "draft";
+  if (now < openDate) return "draft";
+  if (closeDate && now > closeDate) return "closed";
+  return "open";
 };
 
 // ============================================================
@@ -32,8 +52,9 @@ export const getParticipants = async (yudisiumId) => {
   const yudisium = await participantRepo.findYudisiumById(yudisiumId);
   if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
 
-  const activeRequirements = await requirementRepo.findActive();
-  const totalRequirements = activeRequirements.length;
+  const totalRequirements = await prisma.yudisiumRequirementItem.count({
+    where: { yudisiumId },
+  });
 
   const participants = await participantRepo.findManyByYudisium(yudisiumId);
 
@@ -81,19 +102,24 @@ export const getParticipantDetail = async (participantId) => {
   const participant = await participantRepo.findDetailById(participantId);
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
 
-  const allRequirements = await requirementRepo.findActive();
+  // Use requirements specifically assigned to this Yudisium period
+  const yudisiumRequirements = await prisma.yudisiumRequirementItem.findMany({
+    where: { yudisiumId: participant.yudisium.id },
+    include: { yudisiumRequirement: true },
+    orderBy: { order: "asc" },
+  });
 
   const uploadedMap = new Map(
-    participant.yudisiumParticipantRequirements.map((r) => [r.yudisiumRequirementId, r])
+    participant.yudisiumParticipantRequirements.map((r) => [r.yudisiumRequirementItemId, r])
   );
 
-  const documents = allRequirements.map((req) => {
-    const uploaded = uploadedMap.get(req.id);
+  const documents = yudisiumRequirements.map((item) => {
+    const uploaded = uploadedMap.get(item.id);
     return {
-      requirementId: req.id,
-      requirementName: req.name,
-      description: req.description,
-      order: req.order,
+      requirementId: item.id,
+      requirementName: item.yudisiumRequirement.name,
+      description: item.yudisiumRequirement.description,
+      order: item.order,
       status: uploaded?.status ?? null,
       submittedAt: uploaded?.submittedAt ?? null,
       verifiedAt: uploaded?.verifiedAt ?? null,
@@ -120,7 +146,11 @@ export const getParticipantDetail = async (participantId) => {
     registeredAt: participant.registeredAt,
     appointedAt: participant.appointedAt,
     notes: participant.notes,
-    yudisium: participant.yudisium,
+    yudisium: {
+      id: participant.yudisium.id,
+      name: participant.yudisium.name,
+      status: deriveYudisiumStatus(participant.yudisium),
+    },
     studentName: participant.thesis?.student?.user?.fullName || "-",
     studentNim: participant.thesis?.student?.user?.identityNumber || "-",
     thesisTitle: participant.thesis?.title || "-",
@@ -166,15 +196,18 @@ export const validateParticipantDocument = async (
     verifiedAt: new Date(),
   });
 
-  // Auto-transition: when all docs approved → move participant to under_review
+  // Auto-transition: when all docs approved → move participant to verified
   let participantTransitioned = false;
   if (action === "approve") {
-    const activeRequirements = await requirementRepo.findActive();
-    const expectedCount = activeRequirements.length;
+    // Count requirements specific to this yudisium
+    const expectedCount = await prisma.yudisiumRequirementItem.count({
+      where: { yudisiumId: participant.yudisiumId },
+    });
 
     const allDocs = await participantRepo.listRequirementRecords(participantId);
     const approvedCount = allDocs.filter((d) => {
-      if (d.yudisiumRequirementId === requirementId) return true;
+      // Current doc is already approved in DB or being approved now
+      if (d.yudisiumRequirementItemId === requirementId) return true;
       return d.status === "approved";
     }).length;
 
@@ -203,25 +236,23 @@ export const getParticipantCplScores = async (participantId) => {
   const studentId = participant.thesis?.student?.id;
   if (!studentId) throwError("Data mahasiswa tidak ditemukan", 404);
 
-  const cpls = await participantRepo.findCplsActive();
   const scores = await participantRepo.findStudentCplScores(studentId);
-  const scoreMap = new Map(scores.map((s) => [s.cplId, s]));
 
-  const cplScores = cpls.map((cpl) => {
-    const sc = scoreMap.get(cpl.id);
+  const cplScores = scores.map((sc) => {
+    const cpl = sc.cpl;
     return {
-      cplId: cpl.id,
-      code: cpl.code,
-      description: cpl.description,
-      score: sc?.score ?? null,
-      oldScore: sc?.oldCplScore ?? null,
-      minimalScore: cpl.minimalScore,
-      status: sc?.status ?? "calculated",
-      passed: sc ? sc.score >= cpl.minimalScore : false,
-      recommendationDocument: sc?.recommendationDocument || null,
-      settlementDocument: sc?.settlementDocument || null,
-      verifiedAt: sc?.verifiedAt || null,
-      verifiedBy: sc?.verifier?.fullName || null,
+      cplId: sc.cplId,
+      code: cpl?.code || "-",
+      description: cpl?.description || "-",
+      score: sc.score ?? null,
+      oldScore: sc.oldCplScore ?? null,
+      minimalScore: cpl?.minimalScore ?? 0,
+      status: sc.status ?? "calculated",
+      passed: cpl ? sc.score >= cpl.minimalScore : false,
+      recommendationDocument: sc.recommendationDocument || null,
+      settlementDocument: sc.settlementDocument || null,
+      verifiedAt: sc.verifiedAt || null,
+      verifiedBy: sc.verifier?.fullName || null,
     };
   });
 
@@ -692,41 +723,24 @@ export const exportParticipants = async (yudisiumId, userId) => {
   return await convertHtmlToPdf(html);
 };
 
-export const uploadOfficialSk = async (
-  yudisiumId,
-  { file, eventDate, decreeNumber, decreeIssuedAt, userId }
-) => {
-  if (!file) throwError("File SK wajib diunggah", 400);
-
-  const yudisium = await participantRepo.findYudisiumById(yudisiumId);
-  if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
-
-  // Save file to disk
-  const uploadsRoot = path.join(process.cwd(), "uploads", "yudisium", yudisiumId);
-  await mkdir(uploadsRoot, { recursive: true });
-
-  const ext = path.extname(file.originalname).toLowerCase();
-  const safeName = `sk-resmi-${yudisiumId}${ext}`;
-  const absolutePath = path.join(uploadsRoot, safeName);
-  await writeFile(absolutePath, file.buffer);
-
-  const relPath = path.relative(process.cwd(), absolutePath).replace(/\\/g, "/");
-
-  const document = await participantRepo.createDocument({
-    userId,
-    fileName: file.originalname,
-    filePath: relPath,
+export const finalizeParticipants = async (yudisiumId) => {
+  const yudisium = await prisma.yudisium.findUnique({
+    where: { id: yudisiumId },
+    select: { registrationCloseDate: true },
   });
 
-  const updateData = { 
-    documentId: document.id, 
-    decreeUploadedBy: userId,
-  };
-  if (eventDate) updateData.eventDate = new Date(eventDate);
-  if (decreeNumber) updateData.decreeNumber = decreeNumber;
-  if (decreeIssuedAt) updateData.decreeIssuedAt = new Date(decreeIssuedAt);
+  if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
 
-  await participantRepo.updateYudisiumDecree(yudisiumId, updateData);
+  const now = new Date();
+  const isClosed = yudisium.registrationCloseDate && now > new Date(yudisium.registrationCloseDate);
+  if (!isClosed) {
+    throwError("Finalisasi hanya dapat dilakukan setelah pendaftaran ditutup", 400);
+  }
 
-  return { documentId: document.id, fileName: file.originalname };
+  // Finalize statuses
+  // 1. cpl_validated -> appointed
+  // 2. registered, verified -> rejected
+  const result = await participantRepo.finalizeAllParticipants(yudisiumId);
+
+  return result;
 };

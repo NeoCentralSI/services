@@ -26,7 +26,7 @@ export const findManyByYudisium = async (yudisiumId) => {
         },
       },
       yudisiumParticipantRequirements: {
-        select: { yudisiumRequirementId: true, status: true },
+        select: { yudisiumRequirementItemId: true, status: true },
       },
     },
   });
@@ -41,7 +41,15 @@ export const findDetailById = async (participantId) => {
       registeredAt: true,
       appointedAt: true,
       notes: true,
-      yudisium: { select: { id: true, name: true, status: true } },
+      yudisium: { 
+        select: { 
+          id: true, 
+          name: true, 
+          registrationOpenDate: true,
+          registrationCloseDate: true,
+          eventDate: true 
+        } 
+      },
       thesis: {
         select: {
           id: true,
@@ -62,13 +70,19 @@ export const findDetailById = async (participantId) => {
       },
       yudisiumParticipantRequirements: {
         select: {
-          yudisiumRequirementId: true,
+          yudisiumRequirementItemId: true,
           status: true,
           submittedAt: true,
           verifiedAt: true,
           notes: true,
           document: { select: { id: true, fileName: true, filePath: true } },
-          requirement: { select: { id: true, name: true, description: true, order: true } },
+          requirement: {
+            select: {
+              id: true,
+              order: true,
+              yudisiumRequirement: { select: { name: true, description: true } },
+            },
+          },
           verifier: { select: { fullName: true } },
         },
         orderBy: { requirement: { order: "asc" } },
@@ -80,7 +94,7 @@ export const findDetailById = async (participantId) => {
 export const findStatusById = async (participantId) => {
   return await prisma.yudisiumParticipant.findUnique({
     where: { id: participantId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, yudisiumId: true },
   });
 };
 
@@ -225,7 +239,9 @@ export const findStudentCplScores = async (studentId) => {
       verifier: { select: { fullName: true } },
       recommendationDocument: { select: { fileName: true, filePath: true } },
       settlementDocument: { select: { fileName: true, filePath: true } },
+      cpl: { select: { code: true, description: true, minimalScore: true } },
     },
+    orderBy: { cpl: { code: "asc" } },
   });
 };
 
@@ -265,7 +281,6 @@ export const findYudisiumWithParticipantsForDraft = async (yudisiumId) => {
     select: {
       id: true,
       name: true,
-      status: true,
       eventDate: true,
       participants: {
         select: {
@@ -286,6 +301,24 @@ export const findYudisiumWithParticipantsForDraft = async (yudisiumId) => {
       },
     },
   });
+};
+
+export const finalizeAllParticipants = async (yudisiumId) => {
+  return await prisma.$transaction([
+    // 1. cpl_validated -> appointed
+    prisma.yudisiumParticipant.updateMany({
+      where: { yudisiumId, status: "cpl_validated" },
+      data: { status: "appointed", appointedAt: new Date() },
+    }),
+    // 2. registered, verified -> rejected
+    prisma.yudisiumParticipant.updateMany({
+      where: { 
+        yudisiumId, 
+        status: { in: ["registered", "verified"] } 
+      },
+      data: { status: "rejected" },
+    }),
+  ]);
 };
 
 export const findYudisiumById = async (id) => {

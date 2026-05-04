@@ -182,6 +182,15 @@ export const exportParticipants = async (req, res, next) => {
   }
 };
 
+export const finalizeParticipants = async (req, res, next) => {
+  try {
+    const data = await participantService.finalizeParticipants(req.params.id);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 
 // ============================================================

@@ -113,6 +113,12 @@ router.post(
   ctrl.saveCplRepairment
 );
 
+router.post(
+  "/:id/finalize",
+  requireAnyRole([ROLES.KOORDINATOR_YUDISIUM]),
+  ctrl.finalizeParticipants
+);
+
 // ============================================================
 // Export
 // ============================================================
