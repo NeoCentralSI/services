@@ -31,38 +31,97 @@ export const createYudisiumSchema = z
       .trim()
       .min(1, "Nama yudisium tidak boleh kosong")
       .max(255, "Nama yudisium maksimal 255 karakter"),
-    registrationOpenDate: z
-      .string({ required_error: "Tanggal pembukaan pendaftaran wajib diisi" })
-      .datetime({ offset: true, message: "Format tanggal pembukaan pendaftaran tidak valid" }),
-    registrationCloseDate: z
-      .string({ required_error: "Tanggal penutupan pendaftaran wajib diisi" })
-      .datetime({ offset: true, message: "Format tanggal penutupan pendaftaran tidak valid" }),
-    eventDate: dateStringOrNull,
+    eventDate: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string({ required_error: "Tanggal pelaksanaan wajib diisi" }).datetime({ offset: true, message: "Format tanggal pelaksanaan tidak valid" })
+    ),
+    registrationOpenDate: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().datetime({ offset: true, message: "Format tanggal pembukaan pendaftaran tidak valid" }).optional().nullable()
+    ),
+    registrationCloseDate: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().datetime({ offset: true, message: "Format tanggal penutupan pendaftaran tidak valid" }).optional().nullable()
+    ),
     notes: z.string().trim().max(65535, "Catatan terlalu panjang").nullable().optional(),
-    exitSurveyFormId: z.string().uuid("ID form exit survey tidak valid").nullable().optional(),
-    roomId: z.string().uuid("ID ruangan tidak valid").nullable().optional(),
+    exitSurveyFormId: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().uuid("ID form exit survey tidak valid").nullable().optional()
+    ),
+    roomId: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().uuid("ID ruangan tidak valid").nullable().optional()
+    ),
+    requirementIds: z.preprocess((val) => {
+      if (typeof val === "string") {
+        if (val === "") return [];
+        return val.split(",");
+      }
+      return val;
+    }, z.array(z.string().uuid("ID persyaratan tidak valid")).optional().default([])),
   })
   .superRefine((data, ctx) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const openDate = new Date(data.registrationOpenDate);
-    const closeDate = new Date(data.registrationCloseDate);
+    const openDate = data.registrationOpenDate ? new Date(data.registrationOpenDate) : null;
+    const closeDate = data.registrationCloseDate ? new Date(data.registrationCloseDate) : null;
+    const eventDate = new Date(data.eventDate);
 
-    if (openDate > closeDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["registrationOpenDate"],
-        message: "Tanggal pembukaan pendaftaran tidak boleh lebih besar dari tanggal penutupan",
-      });
-    }
+    // Validate registration dates if provided
+    if (openDate) {
+      if (openDate < today) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["registrationOpenDate"],
+          message: "Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini",
+        });
+      }
 
-    if (openDate < today) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["registrationOpenDate"],
-        message: "Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini",
-      });
+      if (closeDate) {
+        if (closeDate < today) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["registrationCloseDate"],
+            message: "Tanggal penutupan pendaftaran tidak boleh sebelum hari ini",
+          });
+        }
+        if (closeDate < openDate) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["registrationCloseDate"],
+            message: "Tanggal penutupan pendaftaran tidak boleh lebih awal dari tanggal pembukaan",
+          });
+        }
+        // If registration dates are set, event must be after close date
+        if (eventDate < closeDate) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["eventDate"],
+            message: "Tanggal pelaksanaan tidak boleh sebelum tanggal penutupan pendaftaran",
+          });
+        }
+      }
+    } else if (closeDate) {
+      // closeDate provided but openDate not
+      if (closeDate < today) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["registrationCloseDate"],
+          message: "Tanggal penutupan pendaftaran tidak boleh sebelum hari ini",
+        });
+      }
+    } else {
+      // No registration dates: eventDate can be any time after yesterday (for archiving)
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (eventDate < yesterday) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["eventDate"],
+          message: "Tanggal pelaksanaan tidak boleh sebelum kemarin",
+        });
+      }
     }
   });
 
@@ -74,12 +133,34 @@ export const updateYudisiumSchema = z
       .min(1, "Nama yudisium tidak boleh kosong")
       .max(255, "Nama yudisium maksimal 255 karakter")
       .optional(),
-    registrationOpenDate: dateStringOrNull,
-    registrationCloseDate: dateStringOrNull,
-    eventDate: dateStringOrNull,
+    eventDate: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? undefined : val),
+      z.string().datetime({ offset: true, message: "Format tanggal pelaksanaan tidak valid" }).optional()
+    ),
+    registrationOpenDate: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().datetime({ offset: true, message: "Format tanggal pembukaan pendaftaran tidak valid" }).optional().nullable()
+    ),
+    registrationCloseDate: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().datetime({ offset: true, message: "Format tanggal penutupan pendaftaran tidak valid" }).optional().nullable()
+    ),
     notes: z.string().trim().max(65535, "Catatan terlalu panjang").nullable().optional(),
-    exitSurveyFormId: z.string().uuid("ID form exit survey tidak valid").nullable().optional(),
-    roomId: z.string().uuid("ID ruangan tidak valid").nullable().optional(),
+    exitSurveyFormId: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().uuid("ID form exit survey tidak valid").nullable().optional()
+    ),
+    roomId: z.preprocess(
+      (val) => (val === "null" || val === "undefined" || val === "" ? null : val),
+      z.string().uuid("ID ruangan tidak valid").nullable().optional()
+    ),
+    requirementIds: z.preprocess((val) => {
+      if (typeof val === "string") {
+        if (val === "") return [];
+        return val.split(",");
+      }
+      return val;
+    }, z.array(z.string().uuid("ID persyaratan tidak valid")).optional()),
   })
   .superRefine((data, ctx) => {
     const today = new Date();
@@ -87,20 +168,38 @@ export const updateYudisiumSchema = z
 
     const openDate = data.registrationOpenDate ? new Date(data.registrationOpenDate) : null;
     const closeDate = data.registrationCloseDate ? new Date(data.registrationCloseDate) : null;
-
-    if (openDate && closeDate && openDate > closeDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["registrationOpenDate"],
-        message: "Tanggal pembukaan pendaftaran tidak boleh lebih besar dari tanggal penutupan",
-      });
-    }
+    const eventDate = data.eventDate ? new Date(data.eventDate) : null;
 
     if (openDate && openDate < today) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["registrationOpenDate"],
         message: "Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini",
+      });
+    }
+
+    if (closeDate) {
+      if (closeDate < today) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["registrationCloseDate"],
+          message: "Tanggal penutupan pendaftaran tidak boleh sebelum hari ini",
+        });
+      }
+      if (openDate && closeDate < openDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["registrationCloseDate"],
+          message: "Tanggal penutupan tidak boleh lebih awal dari tanggal pembukaan",
+        });
+      }
+    }
+
+    if (eventDate && closeDate && eventDate < closeDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["eventDate"],
+        message: "Tanggal pelaksanaan tidak boleh sebelum tanggal penutupan pendaftaran",
       });
     }
   });

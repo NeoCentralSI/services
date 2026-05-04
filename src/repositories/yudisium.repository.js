@@ -3,6 +3,17 @@ import prisma from "../config/prisma.js";
 const eventInclude = {
   exitSurveyForm: { select: { id: true, name: true } },
   room: { select: { id: true, name: true } },
+  requirementItems: {
+    orderBy: { order: "asc" },
+    include: {
+      yudisiumRequirement: { select: { id: true, name: true, description: true, isPublic: true } },
+    },
+  },
+  participants: {
+    where: { registeredAt: { not: null } },
+    take: 1,
+    select: { id: true }
+  },
   _count: { select: { participants: true, studentExitSurveyResponses: true } },
 };
 
@@ -46,5 +57,15 @@ export const hasParticipants = async (id) => {
 
 export const hasStudentExitSurveyResponses = async (id) => {
   const count = await prisma.studentExitSurveyResponse.count({ where: { yudisiumId: id } });
+  return count > 0;
+};
+
+export const hasRegisteredParticipants = async (id) => {
+  const count = await prisma.yudisiumParticipant.count({
+    where: {
+      yudisiumId: id,
+      registeredAt: { not: null },
+    },
+  });
   return count > 0;
 };

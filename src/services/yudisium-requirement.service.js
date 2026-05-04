@@ -13,16 +13,24 @@ const normalizeText = (value) => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const formatRequirement = (item) => ({
-  id: item.id,
-  name: item.name,
-  description: item.description,
-  isActive: item.isActive,
-  isPublic: item.isPublic,
-  relationCount: item._count?.yudisiumRequirementItems ?? 0,
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
-});
+const formatRequirement = (item) => {
+  const studentCount = item.yudisiumRequirementItems?.reduce(
+    (sum, ri) => sum + (ri._count?.yudisiumParticipantRequirements ?? 0),
+    0
+  ) ?? 0;
+
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    isActive: item.isActive,
+    isPublic: item.isPublic,
+    eventCount: item._count?.yudisiumRequirementItems ?? 0,
+    studentCount,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
 
 export const getRequirements = async () => {
   const data = await repository.findAll();
@@ -32,9 +40,10 @@ export const getRequirements = async () => {
 export const getRequirementDetail = async (id) => {
   const data = await repository.findById(id);
   if (!data) throwError("Persyaratan yudisium tidak ditemukan", 404);
+  const formatted = formatRequirement(data);
   return {
-    ...formatRequirement(data),
-    usageCount: data._count?.yudisiumRequirementItems ?? 0,
+    ...formatted,
+    usageCount: formatted.eventCount,
   };
 };
 

@@ -18,15 +18,12 @@ const router = express.Router();
 const ALL_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 const VIEWER_ROLES = [ROLES.ADMIN, ...LECTURER_ROLES];
 const EVENT_MANAGER_ROLES = [
+  ROLES.ADMIN,
+  ROLES.SEKRETARIS_DEPARTEMEN,
+  ROLES.KETUA_DEPARTEMEN,
   ROLES.KOORDINATOR_YUDISIUM,
 ];
 const CPL_VALIDATOR_ROLES = [ROLES.ADMIN, ROLES.GKM];
-const SK_MANAGER_ROLES = [
-  ROLES.ADMIN,
-  ROLES.KETUA_DEPARTEMEN,
-  ROLES.SEKRETARIS_DEPARTEMEN,
-  ROLES.KOORDINATOR_YUDISIUM,
-];
 
 router.use(authGuard);
 router.use(populateProfile);
@@ -62,12 +59,14 @@ router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getEventById);
 router.post(
   "/",
   requireAnyRole(EVENT_MANAGER_ROLES),
+  uploadYudisiumDocFile,
   validate(createYudisiumSchema),
   ctrl.createEvent
 );
 router.patch(
   "/:id",
   requireAnyRole(EVENT_MANAGER_ROLES),
+  uploadYudisiumDocFile,
   validate(updateYudisiumSchema),
   ctrl.updateEvent
 );
@@ -114,14 +113,8 @@ router.post(
 );
 
 // ============================================================
-// SK (Decree generation & upload)
+// Export
 // ============================================================
 router.get("/:id/export-participants", requireAnyRole(VIEWER_ROLES), ctrl.exportParticipants);
-router.post(
-  "/:id/sk",
-  requireAnyRole(SK_MANAGER_ROLES),
-  uploadYudisiumDocFile,
-  ctrl.uploadSk
-);
 
 export default router;

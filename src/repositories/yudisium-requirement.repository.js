@@ -9,6 +9,13 @@ export const findAll = async () => {
           yudisiumRequirementItems: true,
         },
       },
+      yudisiumRequirementItems: {
+        select: {
+          _count: {
+            select: { yudisiumParticipantRequirements: true }
+          }
+        }
+      }
     },
   });
 };
@@ -29,6 +36,13 @@ export const findById = async (id) => {
           yudisiumRequirementItems: true,
         },
       },
+      yudisiumRequirementItems: {
+        select: {
+          _count: {
+            select: { yudisiumParticipantRequirements: true }
+          }
+        }
+      }
     },
   });
 };

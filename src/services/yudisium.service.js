@@ -1,4 +1,7 @@
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
 import * as repository from "../repositories/yudisium.repository.js";
+import prisma from "../config/prisma.js";
 
 function throwError(msg, code) {
   const e = new Error(msg);
@@ -7,43 +10,31 @@ function throwError(msg, code) {
 }
 
 /**
- * Derives the current displayable status from stored DB state + real-time clock.
+ * Derives the current displayable status from dates + real-time clock.
+ * Since 'status' column is removed from DB, we derive entirely from dates.
  *
- * DB stores only action-based states: published | scheduled | completed
- * Time-based states are derived here at request time (no cron needed):
- *   - draft:    Now() < registrationOpenDate
- *   - open:     Now() >= registrationOpenDate  AND  Now() <= registrationCloseDate
- *   - closed:   Now() > registrationCloseDate  (but SK not yet uploaded)
- *   - ongoing:  Now() is on the same calendar day as eventDate
- *
- * Priority (highest to lowest):
- *   completed > scheduled (then check ongoing) > closed > open > draft
+ *   - draft:    No registration dates, or now < registrationOpenDate
+ *   - open:     now >= registrationOpenDate AND now <= registrationCloseDate
+ *   - closed:   now > registrationCloseDate AND now < eventDate
+ *   - ongoing:  now is on the same calendar day as eventDate
+ *   - completed: eventDate has passed
  */
 const deriveDisplayStatus = (item) => {
   const now = new Date();
+
   const openDate = item.registrationOpenDate ? new Date(item.registrationOpenDate) : null;
   const closeDate = item.registrationCloseDate ? new Date(item.registrationCloseDate) : null;
   const eventDate = item.eventDate ? new Date(item.eventDate) : null;
 
-  // completed: stored flag, event has already passed
-  if (item.status === "completed") return "completed";
-
-  // scheduled: SK uploaded + event date set
-  if (item.status === "scheduled") {
-    // ongoing: today IS the event date (same calendar day)
-    if (eventDate) {
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const todayEnd = new Date(todayStart.getTime() + 86400000 - 1);
-      if (eventDate >= todayStart && eventDate <= todayEnd) return "ongoing";
-
-      // completed: event date has passed
-      if (eventDate < todayStart) return "completed";
-    }
-    return "scheduled";
+  if (eventDate) {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 86400000 - 1);
+    if (eventDate < todayStart) return "completed";
+    if (eventDate >= todayStart && eventDate <= todayEnd) return "ongoing";
   }
 
-  // Time-based derivation (published status in DB = follow the calendar)
-  if (!openDate || now < openDate) return "draft";
+  if (!openDate) return "draft";
+  if (now < openDate) return "draft";
   if (closeDate && now > closeDate) return "closed";
   return "open";
 };
@@ -55,16 +46,69 @@ const formatYudisium = (item) => ({
   registrationCloseDate: item.registrationCloseDate,
   eventDate: item.eventDate,
   notes: item.notes,
-  storedStatus: item.status,       // raw DB value (published | scheduled | completed)
-  status: deriveDisplayStatus(item), // derived display status
+  status: deriveDisplayStatus(item),
   exitSurveyForm: item.exitSurveyForm ?? null,
   room: item.room ?? null,
+  requirementItems: item.requirementItems?.map((ri) => ({
+    id: ri.id,
+    order: ri.order,
+    requirement: ri.yudisiumRequirement,
+  })) ?? [],
   participantCount: item._count?.participants ?? 0,
   responseCount: item._count?.studentExitSurveyResponses ?? 0,
+  hasRegisteredParticipants: (item.participants?.length ?? 0) > 0,
   canDelete: (item._count?.participants ?? 0) === 0,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
 });
+
+const safeGetTime = (date) => {
+  if (!date) return null;
+  const d = new Date(date);
+  return isNaN(d.getTime()) ? null : d.getTime();
+};
+
+/**
+ * Finalizes all participants and their CPL scores when a decree is uploaded.
+ */
+const finalizeYudisiumResults = async (yudisiumId) => {
+  try {
+    const participants = await prisma.yudisiumParticipant.findMany({
+      where: { yudisiumId },
+      include: {
+        thesis: {
+          include: { student: true }
+        }
+      }
+    });
+
+    if (participants.length === 0) return;
+
+    const studentIds = participants.map(p => p.thesis?.student?.id).filter(Boolean);
+
+    // Update participants status to finalized
+    await prisma.yudisiumParticipant.updateMany({
+      where: { yudisiumId },
+      data: { status: 'finalized' }
+    });
+
+    // Update CPL scores to finalized for all students in this yudisium
+    if (studentIds.length > 0) {
+      await prisma.studentCplScore.updateMany({
+        where: { studentId: { in: studentIds } },
+        data: { 
+          status: 'finalized',
+          finalizedAt: new Date()
+        }
+      });
+    }
+  } catch (err) {
+    console.error(`Failed to finalize yudisium ${yudisiumId}:`, err);
+    // We don't necessarily want to crash the whole request if side-effects fail, 
+    // but a 500 is happening somewhere, so let's be careful.
+    throw err;
+  }
+};
 
 // ============================================================
 // LIST / DETAIL
@@ -86,18 +130,56 @@ export const getYudisiumDetail = async (id) => {
 // ============================================================
 
 export const createYudisium = async (data) => {
+  const { requirementIds = [], decreeFile, userId, ...rest } = data;
+
+  // 1. Create Yudisium first to get the ID
   const created = await repository.create({
-    name: data.name.trim(),
-    registrationOpenDate: data.registrationOpenDate
-      ? new Date(data.registrationOpenDate)
-      : null,
-    registrationCloseDate: data.registrationCloseDate
-      ? new Date(data.registrationCloseDate)
-      : null,
-    exitSurveyFormId: data.exitSurveyFormId || null,
-    roomId: data.roomId || null,
-    status: "published", // always starts as published; display status is derived from dates
+    name: rest.name.trim(),
+    eventDate: new Date(rest.eventDate),
+    registrationOpenDate: rest.registrationOpenDate ? new Date(rest.registrationOpenDate) : null,
+    registrationCloseDate: rest.registrationCloseDate ? new Date(rest.registrationCloseDate) : null,
+    notes: rest.notes || null,
+    exitSurveyFormId: rest.exitSurveyFormId || null,
+    roomId: rest.roomId || null,
+    requirementItems: requirementIds.length > 0 ? {
+      create: requirementIds.map((reqId, index) => ({
+        yudisiumRequirementId: reqId,
+        order: index,
+      })),
+    } : undefined,
   });
+
+  // 2. Handle file if uploaded
+  if (decreeFile) {
+    const uploadsRoot = path.join(process.cwd(), "uploads", "yudisium", created.id);
+    await mkdir(uploadsRoot, { recursive: true });
+
+    const ext = path.extname(decreeFile.originalname).toLowerCase();
+    const safeName = `sk-yudisium-${Date.now()}${ext}`;
+    const absPath = path.join(uploadsRoot, safeName);
+    await writeFile(absPath, decreeFile.buffer);
+    const relPath = path.relative(process.cwd(), absPath).replace(/\\/g, "/");
+
+    const doc = await prisma.document.create({
+      data: {
+        userId,
+        fileName: decreeFile.originalname,
+        filePath: relPath,
+      }
+    });
+
+    // Link back to yudisium
+    await repository.update(created.id, { 
+      documentId: doc.id,
+      decreeUploadedBy: userId,
+      decreeUploadedAt: new Date()
+    });
+    created.documentId = doc.id;
+
+    // Trigger finalization side-effect
+    await finalizeYudisiumResults(created.id);
+  }
+
   return formatYudisium(created);
 };
 
@@ -105,88 +187,124 @@ export const updateYudisium = async (id, data) => {
   const existing = await repository.findById(id);
   if (!existing) throwError("Data yudisium tidak ditemukan", 404);
 
-  const hasParticipants = await repository.hasParticipants(id);
-  const derivedStatus = deriveDisplayStatus(existing);
+  const { requirementIds, decreeFile, userId, ...rest } = data;
   const updateData = {};
 
-  // === RULE: name is always editable ===
-  if (data.name !== undefined) updateData.name = data.name.trim();
-
-  // === RULE: once scheduled or completed, only name is editable ===
-  if (existing.status === "scheduled" || existing.status === "completed") {
-    const attemptedFields = Object.keys(data).filter((key) => key !== "name" && data[key] !== undefined);
-    if (attemptedFields.length > 0) {
-      throwError(
-        "Hanya nama yang dapat diubah setelah yudisium dijadwalkan atau selesai",
-        409
-      );
-    }
-    const updated = await repository.update(id, updateData);
-    return formatYudisium(updated);
-  }
-
-  // === RULE: when registration has started/ended (post-draft), open date and survey are locked ===
-  if (derivedStatus !== "draft" && hasParticipants) {
-    const lockedFields = Object.keys(data).filter(
-      (key) => !["name", "registrationCloseDate"].includes(key) && data[key] !== undefined
-    );
-    if (lockedFields.length > 0) {
-      throwError(
-        "Saat pendaftaran sudah dimulai/berakhir, hanya nama dan tanggal penutupan yang dapat diubah",
-        409
-      );
-    }
-  }
+  if (rest.name !== undefined) updateData.name = rest.name.trim();
+  if (rest.eventDate !== undefined) updateData.eventDate = rest.eventDate ? new Date(rest.eventDate) : null;
+  if (rest.notes !== undefined) updateData.notes = rest.notes || null;
+  if (rest.roomId !== undefined) updateData.roomId = rest.roomId || null;
 
   // === registrationOpenDate ===
-  if (data.registrationOpenDate !== undefined) {
-    const newOpen = new Date(data.registrationOpenDate);
-    const existingOpen = existing.registrationOpenDate ? new Date(existing.registrationOpenDate) : null;
-    
-    // Only validate if the date is actually changing
-    if (!existingOpen || newOpen.getTime() !== existingOpen.getTime()) {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0); // local day start
-      if (newOpen < now) throwError("Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini", 422);
+  if (rest.registrationOpenDate !== undefined) {
+    const hasRegParticipants = await repository.hasRegisteredParticipants(id);
+    const newOpenTime = safeGetTime(rest.registrationOpenDate);
+    const existingOpenTime = safeGetTime(existing.registrationOpenDate);
+
+    if (hasRegParticipants && newOpenTime !== existingOpenTime) {
+      throwError("Tanggal pembukaan pendaftaran tidak dapat diubah karena sudah ada peserta yang terdaftar", 409);
     }
-    updateData.registrationOpenDate = newOpen;
+
+    if (rest.registrationOpenDate) {
+      const newOpen = new Date(rest.registrationOpenDate);
+      const existingOpen = existing.registrationOpenDate ? new Date(existing.registrationOpenDate) : null;
+
+      if (!existingOpen || newOpen.getTime() !== existingOpen.getTime()) {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        if (newOpen < now) throwError("Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini", 422);
+      }
+      updateData.registrationOpenDate = newOpen;
+    } else {
+      updateData.registrationOpenDate = null;
+    }
   }
 
   // === registrationCloseDate ===
-  if (data.registrationCloseDate !== undefined) {
-    const newClose = new Date(data.registrationCloseDate);
-    const existingClose = existing.registrationCloseDate ? new Date(existing.registrationCloseDate) : null;
-    const finalOpenDate = updateData.registrationOpenDate ?? existing.registrationOpenDate;
+  if (rest.registrationCloseDate !== undefined) {
+    if (rest.registrationCloseDate) {
+      const newClose = new Date(rest.registrationCloseDate);
+      const existingClose = existing.registrationCloseDate ? new Date(existing.registrationCloseDate) : null;
+      const finalOpenDate = (updateData.registrationOpenDate !== undefined)
+        ? updateData.registrationOpenDate
+        : existing.registrationOpenDate;
 
-    // Only validate 'before today' if the date is actually changing
-    if (!existingClose || newClose.getTime() !== existingClose.getTime()) {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      if (newClose < now) throwError("Tanggal penutupan pendaftaran tidak boleh sebelum hari ini", 422);
-    }
+      if (!existingClose || newClose.getTime() !== existingClose.getTime()) {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        if (newClose < now) throwError("Tanggal penutupan pendaftaran tidak boleh sebelum hari ini", 422);
+      }
 
-    if (finalOpenDate && newClose < new Date(finalOpenDate)) {
-      throwError("Tanggal penutupan tidak boleh lebih awal dari tanggal pembukaan", 422);
+      if (finalOpenDate && newClose < new Date(finalOpenDate)) {
+        throwError("Tanggal penutupan tidak boleh lebih awal dari tanggal pembukaan", 422);
+      }
+      updateData.registrationCloseDate = newClose;
+    } else {
+      updateData.registrationCloseDate = null;
     }
-    updateData.registrationCloseDate = newClose;
   }
 
   // === exitSurveyFormId ===
-  if (data.exitSurveyFormId !== undefined) {
-    if (hasParticipants && derivedStatus === "open") {
+  if (rest.exitSurveyFormId !== undefined) {
+    const hasRegParticipants = await repository.hasRegisteredParticipants(id);
+    if (hasRegParticipants && rest.exitSurveyFormId !== existing.exitSurveyFormId) {
       throwError(
-        "Template exit survey tidak dapat diubah saat pendaftaran sudah dibuka dan ada peserta",
+        "Template exit survey tidak dapat diubah karena sudah ada peserta yang terdaftar",
         409
       );
     }
-    const hasResponses = await repository.hasStudentExitSurveyResponses(id);
-    if (hasResponses && data.exitSurveyFormId !== existing.exitSurveyFormId) {
-      throwError(
-        "Template exit survey tidak dapat diubah karena sudah ada mahasiswa yang mengisi exit survey",
-        409
-      );
+    updateData.exitSurveyFormId = rest.exitSurveyFormId || null;
+  }
+
+  // === requirementIds — replace all requirement items ONLY if changed ===
+  if (requirementIds !== undefined) {
+    const currentIds = existing.requirementItems.map((ri) => ri.yudisiumRequirementId).sort();
+    const nextIds = [...requirementIds].sort();
+    const isChanged = JSON.stringify(currentIds) !== JSON.stringify(nextIds);
+
+    if (isChanged) {
+      const hasRegParticipants = await repository.hasRegisteredParticipants(id);
+      if (hasRegParticipants) {
+        throwError(
+          "Persyaratan yudisium tidak dapat diubah karena sudah ada peserta yang terdaftar",
+          409
+        );
+      }
+
+      updateData.requirementItems = {
+        deleteMany: {},
+        create: requirementIds.map((reqId, index) => ({
+          yudisiumRequirementId: reqId,
+          order: index,
+        })),
+      };
     }
-    updateData.exitSurveyFormId = data.exitSurveyFormId || null;
+  }
+
+  // === decreeFile — upload new SK ===
+  if (decreeFile) {
+    const uploadsRoot = path.join(process.cwd(), "uploads", "yudisium", id);
+    await mkdir(uploadsRoot, { recursive: true });
+
+    const ext = path.extname(decreeFile.originalname).toLowerCase();
+    const safeName = `sk-yudisium-${Date.now()}${ext}`;
+    const absPath = path.join(uploadsRoot, safeName);
+    await writeFile(absPath, decreeFile.buffer);
+    const relPath = path.relative(process.cwd(), absPath).replace(/\\/g, "/");
+
+    const doc = await prisma.document.create({
+      data: {
+        userId,
+        fileName: decreeFile.originalname,
+        filePath: relPath,
+      }
+    });
+    updateData.documentId = doc.id;
+    updateData.decreeUploadedBy = userId;
+    updateData.decreeUploadedAt = new Date();
+
+    // Trigger finalization side-effect
+    await finalizeYudisiumResults(id);
   }
 
   const updated = await repository.update(id, updateData);

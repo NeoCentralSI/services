@@ -856,9 +856,9 @@ model Yudisium {
   roomId                String?        @map("room_id")
   documentId            String?        @map("document_id")
   exitSurveyFormId      String?        @map("exit_survey_form_id")
-  registrationOpenDate  DateTime?      @map("registration_open_date") @db.Date
-  registrationCloseDate DateTime?      @map("registration_close_date") @db.Date
-  eventDate             DateTime?      @map("event_date") @db.Date
+  registrationOpenDate  DateTime?      @map("registration_open_date")
+  registrationCloseDate DateTime?      @map("registration_close_date")
+  eventDate             DateTime?      @map("event_date")
   notes                 String?        @db.Text
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")

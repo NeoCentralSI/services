@@ -35,7 +35,11 @@ export const getEventById = async (req, res, next) => {
 
 export const createEvent = async (req, res, next) => {
   try {
-    const data = await yudisiumService.createYudisium(req.body);
+    const data = await yudisiumService.createYudisium({ 
+      ...(req.validated || req.body), 
+      decreeFile: req.file,
+      userId: req.user.id 
+    });
     res.status(201).json({ status: "success", data });
   } catch (err) {
     next(err);
@@ -44,7 +48,11 @@ export const createEvent = async (req, res, next) => {
 
 export const updateEvent = async (req, res, next) => {
   try {
-    const data = await yudisiumService.updateYudisium(req.params.id, req.body);
+    const data = await yudisiumService.updateYudisium(req.params.id, { 
+      ...(req.validated || req.body), 
+      decreeFile: req.file,
+      userId: req.user.id
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -165,19 +173,7 @@ export const exportParticipants = async (req, res, next) => {
   }
 };
 
-export const uploadSk = async (req, res, next) => {
-  try {
-    const yudisiumId = req.params.id;
-    const data = await participantService.uploadOfficialSk(yudisiumId, { 
-      file: req.file, 
-      ...req.body, 
-      userId: req.user.id 
-    });
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-};
+
 
 // ============================================================
 // STUDENT (/me)

@@ -32,7 +32,7 @@ router.use(populateProfile);
 // ============================================================
 // ADMIN ONLY: Global Options, Templates, & Imports
 // ============================================================
-router.use("/options", requireAnyRole([ROLES.ADMIN]));
+router.use("/options", requireAnyRole([ROLES.ADMIN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM]));
 router.get("/options/theses", ctrl.getThesisOptions);
 router.get("/options/lecturers", ctrl.getLecturerOptions);
 router.get("/options/students", ctrl.getStudentOptions);
