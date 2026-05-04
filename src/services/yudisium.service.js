@@ -125,6 +125,177 @@ const finalizeYudisiumResults = async (yudisiumId) => {
 };
 
 // ============================================================
+// ANNOUNCEMENTS
+// ============================================================
+
+export const getAnnouncements = async () => {
+  const now = new Date();
+  const allEvents = await repository.findAll();
+
+  const filtered = allEvents.filter((item) => {
+    const closeDate = item.registrationCloseDate ? new Date(item.registrationCloseDate) : null;
+    return closeDate && now > closeDate;
+  });
+
+  const announcements = await Promise.all(
+    filtered.map(async (item) => {
+      const participants = await prisma.yudisiumParticipant.findMany({
+        where: {
+          yudisiumId: item.id,
+          status: { in: ["appointed", "finalized"] },
+        },
+        include: {
+          thesis: {
+            include: {
+              student: { include: { user: true } },
+            },
+          },
+        },
+      });
+
+      return {
+        ...formatYudisium(item),
+        participants: participants.map((p) => ({
+          id: p.id,
+          studentName: p.thesis?.student?.user?.fullName || "-",
+          studentNim: p.thesis?.student?.user?.identityNumber || "-",
+          thesisTitle: p.thesis?.title || "-",
+          status: p.status,
+        })),
+      };
+    })
+  );
+
+  return announcements;
+};
+
+export const getRepository = async (search) => {
+  const q = (search || "").trim().toLowerCase();
+
+  // Step 1: public requirements
+  const publicRequirements = await prisma.yudisiumRequirement.findMany({
+    where: { isPublic: true },
+    orderBy: { name: "asc" },
+  });
+
+  if (publicRequirements.length === 0) return [];
+  const requirementIds = publicRequirements.map((r) => r.id);
+
+  // Step 2: requirement items that belong to those public requirements
+  const requirementItems = await prisma.yudisiumRequirementItem.findMany({
+    where: { yudisiumRequirementId: { in: requirementIds } },
+    select: { id: true, yudisiumRequirementId: true },
+  });
+
+  if (requirementItems.length === 0)
+    return publicRequirements.map((r) => ({ id: r.id, name: r.name, documents: [] }));
+
+  const itemIds = requirementItems.map((i) => i.id);
+  const itemToRequirementMap = Object.fromEntries(
+    requirementItems.map((i) => [i.id, i.yudisiumRequirementId])
+  );
+
+  // Step 3: verified participant requirements — flat, no nested includes
+  const participantRequirements = await prisma.yudisiumParticipantRequirement.findMany({
+    where: { status: "verified", yudisiumRequirementItemId: { in: itemIds } },
+    select: {
+      yudisiumParticipantId: true,
+      yudisiumRequirementItemId: true,
+      documentId: true,
+    },
+  });
+
+  if (participantRequirements.length === 0)
+    return publicRequirements.map((r) => ({ id: r.id, name: r.name, documents: [] }));
+
+  const participantIds = [...new Set(participantRequirements.map((pr) => pr.yudisiumParticipantId))];
+  const documentIds = [...new Set(participantRequirements.map((pr) => pr.documentId))];
+
+  // Step 4: documents + participants in parallel
+  const [documents, participants] = await Promise.all([
+    prisma.document.findMany({
+      where: { id: { in: documentIds } },
+      select: { id: true, fileName: true, filePath: true },
+    }),
+    prisma.yudisiumParticipant.findMany({
+      where: { id: { in: participantIds } },
+      select: { id: true, thesisId: true },
+    }),
+  ]);
+
+  const thesisIds = [...new Set(participants.map((p) => p.thesisId))];
+
+  // Step 5: theses
+  const theses = await prisma.thesis.findMany({
+    where: { id: { in: thesisIds } },
+    select: { id: true, title: true, studentId: true, thesisTopicId: true },
+  });
+
+  const studentIds = [...new Set(theses.map((t) => t.studentId))];
+  const topicIds = [...new Set(theses.map((t) => t.thesisTopicId).filter(Boolean))];
+
+  // Step 6: users + topics in parallel (Student.id === User.id)
+  const [users, topics] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: studentIds } },
+      select: { id: true, fullName: true, identityNumber: true },
+    }),
+    topicIds.length > 0
+      ? prisma.thesisTopic.findMany({
+          where: { id: { in: topicIds } },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  // Step 7: lookup maps
+  const docMap = Object.fromEntries(documents.map((d) => [d.id, d]));
+  const participantMap = Object.fromEntries(participants.map((p) => [p.id, p]));
+  const thesisMap = Object.fromEntries(theses.map((t) => [t.id, t]));
+  const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+  const topicMap = Object.fromEntries(topics.map((t) => [t.id, t]));
+
+  // Step 8: join in JS
+  const enrichedDocs = participantRequirements.map((pr) => {
+    const participant = participantMap[pr.yudisiumParticipantId];
+    const thesis = participant ? thesisMap[participant.thesisId] : null;
+    const user = thesis ? userMap[thesis.studentId] : null;
+    const topic = thesis?.thesisTopicId ? topicMap[thesis.thesisTopicId] : null;
+    const doc = docMap[pr.documentId];
+
+    return {
+      _requirementId: itemToRequirementMap[pr.yudisiumRequirementItemId],
+      id: `${pr.yudisiumParticipantId}-${pr.yudisiumRequirementItemId}`,
+      thesisTitle: thesis?.title || "-",
+      studentName: user?.fullName || "-",
+      studentNim: user?.identityNumber || "-",
+      topicName: topic?.name || "-",
+      filePath: doc?.filePath,
+      fileName: doc?.fileName,
+    };
+  });
+
+  // Step 9: optional search filter
+  const filteredDocs = q
+    ? enrichedDocs.filter(
+        (d) =>
+          d.thesisTitle.toLowerCase().includes(q) ||
+          d.studentName.toLowerCase().includes(q) ||
+          d.studentNim.toLowerCase().includes(q)
+      )
+    : enrichedDocs;
+
+  // Step 10: group by requirement
+  return publicRequirements.map((req) => ({
+    id: req.id,
+    name: req.name,
+    documents: filteredDocs
+      .filter((d) => d._requirementId === req.id)
+      .map(({ _requirementId, ...rest }) => rest),
+  }));
+};
+
+// ============================================================
 // LIST / DETAIL
 // ============================================================
 
