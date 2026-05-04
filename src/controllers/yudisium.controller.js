@@ -24,6 +24,25 @@ export const getEvents = async (req, res, next) => {
   }
 };
 
+export const getAnnouncements = async (req, res, next) => {
+  try {
+    const data = await yudisiumService.getAnnouncements();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getRepository = async (req, res, next) => {
+  try {
+    const { search } = req.query;
+    const data = await yudisiumService.getRepository(search);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getEventById = async (req, res, next) => {
   try {
     const data = await yudisiumService.getYudisiumDetail(req.params.id);

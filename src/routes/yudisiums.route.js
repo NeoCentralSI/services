@@ -50,6 +50,8 @@ router.post(
 // ============================================================
 // SHARED: Event list & detail
 // ============================================================
+router.get("/announcements", requireAnyRole(ALL_ROLES), ctrl.getAnnouncements);
+router.get("/repository", requireAnyRole(ALL_ROLES), ctrl.getRepository);
 router.get("/", requireAnyRole(ALL_ROLES), ctrl.getEvents);
 router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getEventById);
 

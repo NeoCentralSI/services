@@ -197,7 +197,7 @@ export const getRepository = async (search) => {
 
   // Step 3: verified participant requirements — flat, no nested includes
   const participantRequirements = await prisma.yudisiumParticipantRequirement.findMany({
-    where: { status: "verified", yudisiumRequirementItemId: { in: itemIds } },
+    where: { status: "approved", yudisiumRequirementItemId: { in: itemIds } },
     select: {
       yudisiumParticipantId: true,
       yudisiumRequirementItemId: true,
@@ -211,17 +211,26 @@ export const getRepository = async (search) => {
   const participantIds = [...new Set(participantRequirements.map((pr) => pr.yudisiumParticipantId))];
   const documentIds = [...new Set(participantRequirements.map((pr) => pr.documentId))];
 
-  // Step 4: documents + participants in parallel
+  // Step 4: documents + finalized participants in parallel
   const [documents, participants] = await Promise.all([
     prisma.document.findMany({
       where: { id: { in: documentIds } },
       select: { id: true, fileName: true, filePath: true },
     }),
     prisma.yudisiumParticipant.findMany({
-      where: { id: { in: participantIds } },
+      where: { id: { in: participantIds }, status: "finalized" },
       select: { id: true, thesisId: true },
     }),
   ]);
+
+  // Only keep participant requirements that belong to finalized participants
+  const finalizedParticipantIds = new Set(participants.map((p) => p.id));
+  const filteredPR = participantRequirements.filter((pr) =>
+    finalizedParticipantIds.has(pr.yudisiumParticipantId)
+  );
+
+  if (filteredPR.length === 0)
+    return publicRequirements.map((r) => ({ id: r.id, name: r.name, documents: [] }));
 
   const thesisIds = [...new Set(participants.map((p) => p.thesisId))];
 
@@ -256,7 +265,7 @@ export const getRepository = async (search) => {
   const topicMap = Object.fromEntries(topics.map((t) => [t.id, t]));
 
   // Step 8: join in JS
-  const enrichedDocs = participantRequirements.map((pr) => {
+  const enrichedDocs = filteredPR.map((pr) => {
     const participant = participantMap[pr.yudisiumParticipantId];
     const thesis = participant ? thesisMap[participant.thesisId] : null;
     const user = thesis ? userMap[thesis.studentId] : null;
