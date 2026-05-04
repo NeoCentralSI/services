@@ -94,6 +94,11 @@ export const getFormDetail = async (id) => {
     updatedAt: data.updatedAt,
     usedCount: data._count?.yudisiums ?? 0,
     totalQuestions: data.sessions.reduce((acc, s) => acc + s.questions.length, 0),
+    totalResponses: await prisma.studentExitSurveyResponse.count({
+      where: {
+        yudisium: { exitSurveyFormId: id }
+      }
+    }),
   };
 };
 
@@ -143,6 +148,55 @@ export const deleteForm = async (id) => {
   }
 
   await repo.removeForm(id);
+};
+
+export const getFormResponses = async (formId) => {
+  const form = await repo.findFormById(formId);
+  if (!form) throwError("Form exit survey tidak ditemukan", 404);
+
+  const responses = await prisma.studentExitSurveyResponse.findMany({
+    where: {
+      yudisium: { exitSurveyFormId: formId },
+    },
+    include: {
+      yudisium: true,
+      answers: {
+        include: {
+          option: true,
+          question: true,
+        },
+      },
+      thesis: {
+        include: {
+          student: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { submittedAt: "desc" },
+  });
+
+  return responses.map((r) => ({
+    id: r.id,
+    submittedAt: r.submittedAt,
+    yudisiumId: r.yudisiumId,
+    yudisiumName: r.yudisium?.name || "-",
+    name: r.thesis?.student?.user?.fullName || "Mahasiswa",
+    nim: r.thesis?.student?.user?.identityNumber || "-",
+    email: r.thesis?.student?.user?.email || "-",
+    phone: r.thesis?.student?.user?.phoneNumber || "-",
+    enrollmentYear: r.thesis?.student?.enrollmentYear || null,
+    answers: r.answers.map((a) => ({
+      questionId: a.exitSurveyQuestionId,
+      questionText: a.question?.question,
+      optionId: a.exitSurveyOptionId,
+      optionText: a.option?.optionText,
+      answerText: a.answerText,
+    })),
+  }));
 };
 
 export const duplicateForm = async (id) => {

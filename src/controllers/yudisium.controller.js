@@ -323,6 +323,15 @@ export const getExitSurveyFormById = async (req, res, next) => {
   }
 };
 
+export const getExitSurveyResponses = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.getFormResponses(req.params.id);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const createExitSurveyForm = async (req, res, next) => {
   try {
     const data = await exitSurveyService.createForm(req.body);
