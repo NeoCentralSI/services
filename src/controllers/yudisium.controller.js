@@ -154,10 +154,10 @@ export const saveCplRepairment = async (req, res, next) => {
 // SK (Decree)
 // ============================================================
 
-export const generateDraftSk = async (req, res, next) => {
+export const exportParticipants = async (req, res, next) => {
   try {
     const yudisiumId = req.params.id;
-    const data = await participantService.generateDraftSk(yudisiumId);
+    const data = await participantService.exportParticipants(req.params.id, req.user.id);
     res.contentType("application/pdf");
     res.send(data);
   } catch (err) {

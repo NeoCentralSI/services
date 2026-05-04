@@ -116,7 +116,7 @@ router.post(
 // ============================================================
 // SK (Decree generation & upload)
 // ============================================================
-router.get("/:id/draft-sk", requireAnyRole(SK_MANAGER_ROLES), ctrl.generateDraftSk);
+router.get("/:id/export-participants", requireAnyRole(VIEWER_ROLES), ctrl.exportParticipants);
 router.post(
   "/:id/sk",
   requireAnyRole(SK_MANAGER_ROLES),
