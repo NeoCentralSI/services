@@ -47,6 +47,13 @@ const formatYudisium = (item) => ({
   eventDate: item.eventDate,
   notes: item.notes,
   status: deriveDisplayStatus(item),
+  decreeDocument: item.document
+    ? {
+        id: item.document.id,
+        fileName: item.document.fileName,
+        filePath: item.document.filePath,
+      }
+    : null,
   exitSurveyForm: item.exitSurveyForm ?? null,
   room: item.room ?? null,
   requirementItems: item.requirementItems?.map((ri) => ({

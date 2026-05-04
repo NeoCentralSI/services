@@ -253,6 +253,7 @@ export const getParticipantCplScores = async (participantId) => {
       settlementDocument: sc.settlementDocument || null,
       verifiedAt: sc.verifiedAt || null,
       verifiedBy: sc.verifier?.fullName || null,
+      verifiedByNip: sc.verifier?.identityNumber || null,
     };
   });
 

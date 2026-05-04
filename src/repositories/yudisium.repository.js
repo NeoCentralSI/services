@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.js";
 
 const eventInclude = {
+  document: { select: { id: true, fileName: true, filePath: true } },
   exitSurveyForm: { select: { id: true, name: true } },
   room: { select: { id: true, name: true } },
   requirementItems: {

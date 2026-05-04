@@ -69,6 +69,7 @@ export const findStudentContext = async (userId) => {
       mkwuCompleted: true,
       internshipCompleted: true,
       kknCompleted: true,
+      user: { select: { fullName: true, identityNumber: true } },
       thesis: {
         orderBy: { createdAt: "desc" },
         select: {
@@ -270,15 +271,19 @@ export const getOverview = async (userId) => {
     const scores = await participantRepo.findStudentCplScores(studentId);
     const scoreMap = new Map(scores.map((s) => [s.cplId, s]));
 
-    cplScores = activeCpls.map((cpl) => {
-      const sc = scoreMap.get(cpl.id);
+    // Only show CPLs that the student actually has scores for
+    cplScores = scores.map((sc) => {
+      const cpl = sc.cpl;
       return {
-        code: cpl.code,
-        description: cpl.description,
-        score: sc?.score ?? null,
-        minimalScore: cpl.minimalScore,
-        status: sc?.status ?? "calculated",
-        passed: sc ? sc.score >= cpl.minimalScore : false,
+        code: cpl?.code || "-",
+        description: cpl?.description || "-",
+        score: sc.score ?? null,
+        minimalScore: cpl?.minimalScore ?? 0,
+        status: sc.status ?? "calculated",
+        passed: cpl ? sc.score >= cpl.minimalScore : false,
+        verifiedBy: sc.verifier?.fullName || null,
+        verifiedByNip: sc.verifier?.identityNumber || null,
+        verifiedAt: sc.verifiedAt || null,
       };
     });
 
@@ -324,6 +329,8 @@ export const getOverview = async (userId) => {
     allCplVerified,
     cplScores,
     requirements,
+    studentName: student.user?.fullName || "-",
+    studentNim: student.user?.identityNumber || "-",
   };
 };
 
