@@ -23,6 +23,7 @@ model User {
   oauthId                    String?             @map("oauth_id")
   oauthRefreshToken          String?             @map("oauth_refresh_token") @db.Text
   avatarUrl                  String?
+  gender                     Boolean?
   createdAt                  DateTime            @default(now())
   updatedAt                  DateTime            @updatedAt
   documents                  Document[]
@@ -587,6 +588,7 @@ model ThesisSeminar {
   thesisId                   String              @map("thesis_id")
   roomId                     String?             @map("room_id")
   registeredAt               DateTime?           @map("registered_at")
+  verifiedAt                 DateTime?           @map("verified_at")
   date                       DateTime?           @db.Date
   startTime                  DateTime?           @map("start_time") @db.Time(0)
   endTime                    DateTime?           @map("end_time") @db.Time(0)
@@ -719,6 +721,7 @@ model ThesisDefence {
   thesisId                   String              @map("thesis_id")
   roomId                     String?             @map("room_id")
   registeredAt               DateTime?           @map("registered_at")
+  verifiedAt                 DateTime?           @map("verified_at")
   date                       DateTime?           @db.Date
   startTime                  DateTime?           @map("start_time") @db.Time(0)
   endTime                    DateTime?           @map("end_time") @db.Time(0)
@@ -859,6 +862,7 @@ model Yudisium {
   registrationOpenDate  DateTime?      @map("registration_open_date")
   registrationCloseDate DateTime?      @map("registration_close_date")
   eventDate             DateTime?      @map("event_date")
+  appointedAt           DateTime?      @map("appointed_at")
   notes                 String?        @db.Text
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
@@ -914,9 +918,8 @@ model YudisiumParticipant {
   thesisId      String                    @map("thesis_id")
   yudisiumId    String                    @map("yudisium_id")
   registeredAt  DateTime?                 @map("registered_at")
+  verifiedAt    DateTime?                 @map("verified_at")
   status        YudisiumParticipantStatus @default(registered)
-  cplVerifiedAt DateTime?                 @map("cpl_verified_at")
-  appointedAt   DateTime?                 @map("appointed_at")
   notes         String?                   @db.Text
   createdAt     DateTime                  @default(now()) @map("created_at")
   updatedAt     DateTime                  @updatedAt @map("updated_at")

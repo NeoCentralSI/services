@@ -553,10 +553,7 @@ export const finalizeRegistration = async (yudisiumId) => {
     if (isCplMet) {
       await prisma.yudisiumParticipant.update({
         where: { id: p.id },
-        data: { 
-          status: 'appointed',
-          appointedAt: new Date()
-        }
+        data: { status: 'appointed' }
       });
       results.appointed++;
     } else {
@@ -567,6 +564,12 @@ export const finalizeRegistration = async (yudisiumId) => {
       results.rejected++;
     }
   }
+
+  // Mark the yudisium event as appointed (batch processed)
+  await prisma.yudisium.update({
+    where: { id: yudisiumId },
+    data: { appointedAt: new Date() }
+  });
 
   return results;
 };

@@ -12,7 +12,6 @@ export const findManyByYudisium = async (yudisiumId) => {
       id: true,
       status: true,
       registeredAt: true,
-      appointedAt: true,
       notes: true,
       thesis: {
         select: {
@@ -47,7 +46,8 @@ export const findDetailById = async (participantId) => {
           name: true, 
           registrationOpenDate: true,
           registrationCloseDate: true,
-          eventDate: true 
+          eventDate: true,
+          appointedAt: true
         } 
       },
       thesis: {
@@ -308,7 +308,7 @@ export const finalizeAllParticipants = async (yudisiumId) => {
     // 1. cpl_validated -> appointed
     prisma.yudisiumParticipant.updateMany({
       where: { yudisiumId, status: "cpl_validated" },
-      data: { status: "appointed", appointedAt: new Date() },
+      data: { status: "appointed" },
     }),
     // 2. registered, verified -> rejected
     prisma.yudisiumParticipant.updateMany({

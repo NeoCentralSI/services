@@ -68,7 +68,6 @@ export const getParticipants = async (yudisiumId) => {
       id: p.id,
       status: p.status,
       registeredAt: p.registeredAt,
-      appointedAt: p.appointedAt,
       notes: p.notes,
       studentName: p.thesis?.student?.user?.fullName || "-",
       studentNim: p.thesis?.student?.user?.identityNumber || "-",
@@ -93,7 +92,12 @@ export const getParticipants = async (yudisiumId) => {
   });
 
   return {
-    yudisium: { id: yudisium.id, name: yudisium.name, status: yudisium.status },
+    yudisium: { 
+      id: yudisium.id, 
+      name: yudisium.name, 
+      status: yudisium.status,
+      appointedAt: yudisium.appointedAt 
+    },
     participants: mapped,
   };
 };
@@ -144,7 +148,7 @@ export const getParticipantDetail = async (participantId) => {
     id: participant.id,
     status: participant.status,
     registeredAt: participant.registeredAt,
-    appointedAt: participant.appointedAt,
+    appointedAt: participant.yudisium.appointedAt,
     notes: participant.notes,
     yudisium: {
       id: participant.yudisium.id,
