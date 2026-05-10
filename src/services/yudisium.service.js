@@ -548,7 +548,7 @@ export const finalizeRegistration = async (yudisiumId) => {
     const scoreStatusMap = new Map(scores.map(s => [s.cplId, s.status]));
     
     const isCplMet = activeCplIds.length > 0 && 
-                     activeCplIds.every(id => scoreStatusMap.get(id) === 'verified');
+                     activeCplIds.every(id => scoreStatusMap.get(id) === 'validated');
 
     if (isCplMet) {
       await prisma.yudisiumParticipant.update({

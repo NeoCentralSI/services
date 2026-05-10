@@ -44,7 +44,7 @@ const normalizeSource = (source) => {
 const normalizeStatus = (status) => {
     if (!status) return undefined;
     const value = String(status).toLowerCase();
-    if (["calculated", "verified", "finalized"].includes(value)) return value;
+    if (["calculated", "validated", "finalized"].includes(value)) return value;
     return undefined;
 };
 
@@ -82,14 +82,14 @@ const toCplStudentScoreResponse = (item) => ({
               identityNumber: item.inputUser.identityNumber,
           }
         : null,
-    verifiedBy: item.verifier
+    validatedBy: item.validator
         ? {
-              id: item.verifier.id,
-              fullName: item.verifier.fullName,
-              identityNumber: item.verifier.identityNumber,
+              id: item.validator.id,
+              fullName: item.validator.fullName,
+              identityNumber: item.validator.identityNumber,
           }
         : null,
-    verifiedAt: item.verifiedAt,
+    validatedAt: item.validatedAt,
     finalizedAt: item.finalizedAt,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -271,6 +271,8 @@ export const createCplStudentScore = async (cplId, payload, actorUserId) => {
         source: "manual",
         status: payload.status || "finalized",
         inputBy: actorUserId || null,
+        validatedBy: payload.status === "validated" ? (actorUserId || null) : null,
+        validatedAt: payload.status === "validated" ? new Date() : null,
         finalizedAt: payload.status === "finalized" ? new Date() : null,
     });
 
@@ -292,8 +294,8 @@ export const updateCplStudentScore = async (cplId, studentId, payload, actorUser
         score: payload.score,
         status: payload.status || "finalized",
         inputBy: actorUserId || existing.inputBy || null,
-        verifiedBy: payload.status === "verified" ? (actorUserId || null) : null,
-        verifiedAt: payload.status === "verified" ? new Date() : null,
+        validatedBy: payload.status === "validated" ? (actorUserId || null) : null,
+        validatedAt: payload.status === "validated" ? new Date() : null,
         finalizedAt: payload.status === "finalized" ? new Date() : null,
     });
 
@@ -395,8 +397,8 @@ const formatExportRows = (rows = []) => {
             Sumber: row.source === "SIA" ? "SIA" : "Manual",
             Status: row.status,
             "Input Oleh": row.inputUser?.fullName ?? "-",
-            "Terverifikasi Oleh": row.verifier?.fullName ?? "-",
-            "Tanggal Verifikasi": row.verifiedAt,
+            "Tervalidasi Oleh": row.validator?.fullName ?? "-",
+            "Tanggal Validasi": row.validatedAt,
             "Tanggal Finalisasi": row.finalizedAt,
         };
     });

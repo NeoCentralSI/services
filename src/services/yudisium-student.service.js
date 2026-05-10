@@ -281,15 +281,15 @@ export const getOverview = async (userId) => {
         minimalScore: cpl?.minimalScore ?? 0,
         status: sc.status ?? "calculated",
         passed: cpl ? sc.score >= cpl.minimalScore : false,
-        verifiedBy: sc.verifier?.fullName || null,
-        verifiedByNip: sc.verifier?.identityNumber || null,
-        verifiedAt: sc.verifiedAt || null,
+        validatedBy: sc.validator?.fullName || null,
+        validatedByNip: sc.validator?.identityNumber || null,
+        validatedAt: sc.validatedAt || null,
       };
     });
 
     allCplVerified =
       activeCpls.length > 0 &&
-      activeCpls.every((cpl) => scoreMap.get(cpl.id)?.status === "verified");
+      activeCpls.every((cpl) => scoreMap.get(cpl.id)?.status === "validated");
   }
 
   return {

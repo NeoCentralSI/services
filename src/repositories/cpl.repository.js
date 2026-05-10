@@ -125,7 +125,7 @@ const studentScoreInclude = {
             identityNumber: true,
         },
     },
-    verifier: {
+    validator: {
         select: {
             id: true,
             fullName: true,

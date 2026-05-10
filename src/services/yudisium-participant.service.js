@@ -255,9 +255,9 @@ export const getParticipantCplScores = async (participantId) => {
       passed: cpl ? sc.score >= cpl.minimalScore : false,
       recommendationDocument: sc.recommendationDocument || null,
       settlementDocument: sc.settlementDocument || null,
-      verifiedAt: sc.verifiedAt || null,
-      verifiedBy: sc.verifier?.fullName || null,
-      verifiedByNip: sc.verifier?.identityNumber || null,
+      validatedAt: sc.validatedAt || null,
+      validatedBy: sc.validator?.fullName || null,
+      validatedByNip: sc.validator?.identityNumber || null,
     };
   });
 

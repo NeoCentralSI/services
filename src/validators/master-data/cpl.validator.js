@@ -42,7 +42,7 @@ export const createCplStudentScoreSchema = z.object({
         .number({ required_error: "score wajib diisi" })
         .int("score harus bilangan bulat")
         .max(100, "score maksimal 100"),
-    status: z.enum(["calculated", "verified", "finalized"]).optional(),
+    status: z.enum(["calculated", "validated", "finalized"]).optional(),
 });
 
 export const updateCplStudentScoreSchema = z.object({
@@ -50,5 +50,5 @@ export const updateCplStudentScoreSchema = z.object({
         .number({ required_error: "score wajib diisi" })
         .int("score harus bilangan bulat")
         .max(100, "score maksimal 100"),
-    status: z.enum(["calculated", "verified", "finalized"]).optional(),
+    status: z.enum(["calculated", "validated", "finalized"]).optional(),
 });
