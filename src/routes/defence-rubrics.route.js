@@ -26,32 +26,31 @@ import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
+// Middleware
 router.use(authGuard);
 router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN]));
 
-// ── CPMK listing with rubrics (per role) ─────
+// CPMK listing with rubrics (per role)
 router.get("/cpmks", getCpmksWithRubrics);
 
-// ── Criteria endpoints ───────────────────────
+// Criteria endpoints
 router.post("/criteria", validate(createCriteriaSchema), createCriteria);
 router.patch("/criteria/reorder", validate(reorderCriteriaSchema), reorderCriteria);
 router.patch("/criteria/:criteriaId", validate(updateCriteriaSchema), updateCriteria);
 router.delete("/criteria/:criteriaId", deleteCriteria);
 
-// ── Reorder rubrics ──────────────────────────
+// Rubric reordering
 router.patch("/rubrics/reorder", validate(reorderRubricsSchema), reorderRubrics);
 
-// ── Remove defence config for CPMK (per role) ─
+// CPMK Configuration cleanup (per role)
 router.delete("/cpmk/:cpmkId", removeCpmkConfig);
 
-// ── Rubric create under criteria ─────────────
+// Rubric Level endpoints
 router.post("/criteria/:criteriaId/rubrics", validate(createRubricSchema), createRubric);
-
-// ── Rubric item endpoints ────────────────────
 router.patch("/rubrics/:rubricId", validate(updateRubricSchema), updateRubric);
 router.delete("/rubrics/:rubricId", deleteRubric);
 
-// ── Weight summary (per role) ────────────────
+// Summary (per role)
 router.get("/weight-summary", getWeightSummary);
 
 export default router;
