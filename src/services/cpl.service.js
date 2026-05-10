@@ -264,16 +264,18 @@ export const createCplStudentScore = async (cplId, payload, actorUserId) => {
         throw new ValidationError("Mahasiswa tidak ditemukan");
     }
 
+    const status = payload.status || "finalized";
+
     const created = await repository.createStudentScore({
         studentId: payload.studentId,
         cplId,
         score: payload.score,
         source: "manual",
-        status: payload.status || "finalized",
+        status: status,
         inputBy: actorUserId || null,
-        validatedBy: payload.status === "validated" ? (actorUserId || null) : null,
-        validatedAt: payload.status === "validated" ? new Date() : null,
-        finalizedAt: payload.status === "finalized" ? new Date() : null,
+        validatedBy: status === "validated" ? (actorUserId || null) : null,
+        validatedAt: status === "validated" ? new Date() : null,
+        finalizedAt: status === "finalized" ? new Date() : null,
     });
 
     const row = await repository.findStudentScoreByCplAndStudent(created.cplId, created.studentId);
@@ -290,13 +292,24 @@ export const updateCplStudentScore = async (cplId, studentId, payload, actorUser
         throw new ValidationError("Nilai dari SIA tidak dapat diubah secara manual");
     }
 
+    const newStatus = payload.status || existing.status;
+
     await repository.updateStudentScore(cplId, studentId, {
         score: payload.score,
-        status: payload.status || "finalized",
-        inputBy: actorUserId || existing.inputBy || null,
-        validatedBy: payload.status === "validated" ? (actorUserId || null) : null,
-        validatedAt: payload.status === "validated" ? new Date() : null,
-        finalizedAt: payload.status === "finalized" ? new Date() : null,
+        status: newStatus,
+        inputBy: existing.inputBy || actorUserId || null,
+        validatedBy:
+            newStatus === "validated" && existing.status !== "validated"
+                ? (actorUserId || null)
+                : existing.validatedBy,
+        validatedAt:
+            newStatus === "validated" && existing.status !== "validated"
+                ? new Date()
+                : existing.validatedAt,
+        finalizedAt:
+            newStatus === "finalized" && existing.status !== "finalized"
+                ? new Date()
+                : existing.finalizedAt,
     });
 
     const updated = await repository.findStudentScoreByCplAndStudent(cplId, studentId);
@@ -382,6 +395,12 @@ export const importCplStudentScores = async (cplId, rows = [], actorUserId) => {
 };
 
 const formatExportRows = (rows = []) => {
+    const statusLabels = {
+        calculated: "Sedang Dihitung",
+        validated: "Valid",
+        finalized: "Final",
+    };
+
     return rows.map((row, index) => {
         const minimalScore = row.cpl?.minimalScore ?? 0;
         const result = computeResult(row.score, minimalScore);
@@ -395,7 +414,7 @@ const formatExportRows = (rows = []) => {
             "Skor Minimal": minimalScore,
             Hasil: result,
             Sumber: row.source === "SIA" ? "SIA" : "Manual",
-            Status: row.status,
+            Status: statusLabels[row.status] || row.status,
             "Input Oleh": row.inputUser?.fullName ?? "-",
             "Tervalidasi Oleh": row.validator?.fullName ?? "-",
             "Tanggal Validasi": row.validatedAt,

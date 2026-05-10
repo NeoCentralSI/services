@@ -35,6 +35,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     student: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
     },
     user: {
       findUnique: vi.fn(),
@@ -575,11 +576,13 @@ describe("CPL Service", () => {
       expect(mockPrisma.studentCplScore.update).not.toHaveBeenCalled();
     });
 
+
     it("deletes manual score", async () => {
       mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce({
         cplId: CPL_ACTIVE_1.id,
         studentId: "std-1",
         source: "manual",
+        status: "calculated",
       });
       mockPrisma.studentCplScore.delete.mockResolvedValueOnce({
         cplId: CPL_ACTIVE_1.id,
@@ -588,6 +591,66 @@ describe("CPL Service", () => {
 
       await deleteCplStudentScore(CPL_ACTIVE_1.id, "std-1");
       expect(mockPrisma.studentCplScore.delete).toHaveBeenCalled();
+    });
+
+
+    it("creates student cpl score with default status 'finalized'", async () => {
+      mockPrisma.cpl.findUnique.mockResolvedValueOnce(CPL_ACTIVE_1);
+      mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce(null);
+      mockPrisma.student.findUnique.mockResolvedValueOnce({ id: "std-1", user: {} });
+      
+      mockPrisma.studentCplScore.create.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+        status: "finalized"
+      });
+      mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+        score: 85,
+        status: "finalized",
+        source: "manual",
+        student: { user: {} }
+      });
+
+      const result = await createCplStudentScore(CPL_ACTIVE_1.id, { studentId: "std-1", score: 85 }, "admin-1");
+      
+      expect(mockPrisma.studentCplScore.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          status: "finalized"
+        })
+      }));
+      expect(result.status).toBe("finalized");
+    });
+
+    it("supports manual finalization on creation", async () => {
+      mockPrisma.cpl.findUnique.mockResolvedValueOnce(CPL_ACTIVE_1);
+      mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce(null);
+      mockPrisma.student.findUnique.mockResolvedValueOnce({ id: "std-1", user: {} });
+      
+      mockPrisma.studentCplScore.create.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+        status: "finalized"
+      });
+      mockPrisma.studentCplScore.findUnique.mockResolvedValueOnce({
+        cplId: CPL_ACTIVE_1.id,
+        studentId: "std-1",
+        score: 85,
+        status: "finalized",
+        source: "manual",
+        student: { user: {} }
+      });
+
+      const result = await createCplStudentScore(CPL_ACTIVE_1.id, { studentId: "std-1", score: 85, status: "finalized" }, "admin-1");
+      
+      expect(mockPrisma.studentCplScore.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          status: "finalized",
+          finalizedAt: expect.any(Date)
+        })
+      }));
+      expect(result.status).toBe("finalized");
     });
 
     it("builds global export workbook buffer", async () => {

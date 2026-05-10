@@ -1,6 +1,6 @@
 import prisma from "../config/prisma.js";
 
-export const findAll = async ({ status = "active", search = "", page = 1, limit = 10 } = {}) => {
+export const findAll = async ({ status = "all", search = "", page = 1, limit = 10 } = {}) => {
     const where = {};
     const parsedPage = parseInt(page) || 1;
     const parsedLimit = parseInt(limit) || 10;
