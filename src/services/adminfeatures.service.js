@@ -68,7 +68,7 @@ export async function adminUpdateUser(id, payload = {}) {
 		throw err;
 	}
 
-	const { fullName, email, roles, identityNumber, identityType, isVerified } = payload || {};
+	const { fullName, email, roles, identityNumber, identityType, isVerified, gender } = payload || {};
 
 	// Validate: if identityType is NIM (current or new), role must be student only
 	const currentIdentityType = String(user.identityType || "").toUpperCase();
@@ -106,6 +106,7 @@ export async function adminUpdateUser(id, payload = {}) {
 	if (typeof identityNumber === "string" && identityNumber.trim()) updateData.identityNumber = identityNumber.trim();
 	if (typeof identityType === "string") updateData.identityType = identityType;
 	if (typeof isVerified === "boolean") updateData.isVerified = isVerified;
+	if (gender !== undefined) updateData.gender = gender;
 
 	if (Object.keys(updateData).length) {
 		try {
@@ -202,7 +203,7 @@ export async function adminUpdateUser(id, payload = {}) {
 }
 
 // Admin - Create user and assign roles, plus invite email
-export async function adminCreateUser({ fullName, email, roles = [], identityNumber, identityType }) {
+export async function adminCreateUser({ fullName, email, roles = [], identityNumber, identityType, gender }) {
 	// Validate
 	if (!email) {
 		const err = new Error("Email is required");
@@ -246,6 +247,7 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		identityNumber: identityNumber || undefined,
 		identityType: identityType || undefined,
 		isVerified: false,
+		gender: gender ?? null,
 	});
 
 	// Roles: admin can set any roles EXCEPT 'Admin' for this endpoint

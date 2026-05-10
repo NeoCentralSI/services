@@ -64,10 +64,11 @@ export async function loginWithEmailPassword(email, password) {
 	}));
 
 	return {
-		user: { id: user.id, fullName: user.fullName, email: user.email, roles },
+		user: { id: user.id, fullName: user.fullName, email: user.email, gender: user.gender ?? null, roles },
 		accessToken,
 		refreshToken,
 	};
+
 }
 
 export async function refreshTokens(refreshToken) {
@@ -274,6 +275,7 @@ export async function getUserProfile(userId) {
 		phoneNumber: user.phoneNumber,
 		isVerified: user.isVerified,
 		avatarUrl: user.avatarUrl || null,
+		gender: user.gender ?? null,
 		roles,
 		createdAt: user.createdAt,
 		updatedAt: user.updatedAt,

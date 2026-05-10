@@ -22,8 +22,8 @@ export async function updateUserByAdmin(req, res, next) {
 	try {
 		const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
-		const { fullName, email, roles, identityNumber, identityType, isVerified } = body;
-		const user = await adminUpdateUser(id, { fullName, email, roles, identityNumber, identityType, isVerified });
+		const { fullName, email, roles, identityNumber, identityType, isVerified, gender } = body;
+		const user = await adminUpdateUser(id, { fullName, email, roles, identityNumber, identityType, isVerified, gender });
 		res.status(200).json({ success: true, user });
 	} catch (err) {
 		next(err);
@@ -33,8 +33,8 @@ export async function updateUserByAdmin(req, res, next) {
 export async function createUserByAdminController(req, res, next) {
 	try {
 		const body = req.validated ?? req.body ?? {};
-		const { fullName, email, roles, identityNumber, identityType } = body;
-		const result = await adminCreateUser({ fullName, email, roles, identityNumber, identityType });
+		const { fullName, email, roles, identityNumber, identityType, gender } = body;
+		const result = await adminCreateUser({ fullName, email, roles, identityNumber, identityType, gender });
 		res.status(201).json({ success: true, user: result });
 	} catch (err) {
 		next(err);
