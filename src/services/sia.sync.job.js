@@ -369,7 +369,6 @@ async function updateStudentCplScoresBatch(stamped) {
     }
 
     const isProtected =
-      existing.source === "manual" ||
       existing.status === "verified" ||
       existing.status === "finalized";
     if (isProtected) {
@@ -377,11 +376,14 @@ async function updateStudentCplScoresBatch(stamped) {
       continue;
     }
 
-    const canOverwrite = existing.source === "SIA" && existing.status === "calculated";
+    const canOverwrite = 
+      (existing.source === "SIA" && existing.status === "calculated") || 
+      existing.source === "manual";
     if (!canOverwrite) {
       skippedProtected += 1;
       continue;
     }
+
 
     updated += 1;
     writes.push({
