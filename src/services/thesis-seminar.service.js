@@ -52,6 +52,7 @@ function parseStatusFilter(status) {
 
 // ==================== LIST ====================
 
+export async function getSeminarList({ page, pageSize, search, view, status, user }) {
   if (view === "assignment") return getAssignmentList({ search });
   if (view === "archive") return getArchiveList({ search, page, pageSize });
   if (view === "verification") return getAdminList({ search, status });
