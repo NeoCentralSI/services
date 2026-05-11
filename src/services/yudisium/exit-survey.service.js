@@ -1,5 +1,5 @@
-import * as repo from "../repositories/yudisium-exit-survey.repository.js";
-import { findStudentContext } from "./yudisium-student.service.js";
+import * as repo from "../../repositories/yudisium/exit-survey.repository.js";
+import { findStudentContext } from "./student.service.js";
 import prisma from "../config/prisma.js";
 
 function throwError(msg, code) {

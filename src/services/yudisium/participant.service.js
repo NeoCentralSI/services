@@ -2,10 +2,10 @@ import fs from "fs";
 import path from "path";
 import { mkdir, writeFile } from "fs/promises";
 import { fileURLToPath } from "url";
-import { convertHtmlToPdf } from "../utils/pdf.util.js";
-import prisma from "../config/prisma.js";
-import * as participantRepo from "../repositories/yudisium-participant.repository.js";
-import * as requirementRepo from "../repositories/yudisium-requirement.repository.js";
+import { convertHtmlToPdf } from "../../utils/pdf.util.js";
+import prisma from "../../config/prisma.js";
+import * as participantRepo from "../../repositories/yudisium/participant.repository.js";
+import * as requirementRepo from "../../repositories/yudisium/requirement.repository.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -1,4 +1,4 @@
-import prisma from "../config/prisma.js";
+import prisma from "../../config/prisma.js";
 
 const eventInclude = {
   document: { select: { id: true, fileName: true, filePath: true } },

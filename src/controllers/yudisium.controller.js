@@ -5,11 +5,11 @@
  * CPL verification, and exit surveys by calling respective services.
  */
 
-import * as requirementService from "../services/yudisium-requirement.service.js";
-import * as yudisiumService from "../services/yudisium.service.js";
-import * as participantService from "../services/yudisium-participant.service.js";
-import * as exitSurveyService from "../services/yudisium-exit-survey.service.js";
-import * as studentService from "../services/yudisium-student.service.js";
+import * as requirementService from "../services/yudisium/requirement.service.js";
+import * as yudisiumService from "../services/yudisium/yudisium.service.js";
+import * as participantService from "../services/yudisium/participant.service.js";
+import * as exitSurveyService from "../services/yudisium/exit-survey.service.js";
+import * as studentService from "../services/yudisium/student.service.js";
 
 // ============================================================
 // EVENTS (CRUD)

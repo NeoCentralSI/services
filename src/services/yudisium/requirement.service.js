@@ -1,4 +1,4 @@
-import * as repository from "../repositories/yudisium-requirement.repository.js";
+import * as repository from "../../repositories/yudisium/requirement.repository.js";
 
 function throwError(msg, code) {
   const e = new Error(msg);

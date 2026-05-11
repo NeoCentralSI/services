@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
-import * as repository from "../repositories/yudisium.repository.js";
-import prisma from "../config/prisma.js";
+import * as repository from "../../repositories/yudisium/yudisium.repository.js";
+import prisma from "../../config/prisma.js";
 
 function throwError(msg, code) {
   const e = new Error(msg);

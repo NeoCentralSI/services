@@ -1,8 +1,8 @@
 import path from "path";
 import { mkdir, writeFile, unlink } from "fs/promises";
-import prisma from "../config/prisma.js";
-import * as participantRepo from "../repositories/yudisium-participant.repository.js";
-import * as requirementRepo from "../repositories/yudisium-requirement.repository.js";
+import prisma from "../../config/prisma.js";
+import * as participantRepo from "../../repositories/yudisium/participant.repository.js";
+import * as requirementRepo from "../../repositories/yudisium/requirement.repository.js";
 
 const REQUIRED_SKS = 146;
 
