@@ -13,6 +13,7 @@ on:
 env:
   DEPLOY_DIR: /www/wwwroot/neocentral
   IMAGE_TAG: neocentral/services:latest
+  MIGRATION_IMAGE_TAG: neocentral/services-migrate:latest
 
 jobs:
   # ── Build & Deploy ─────────────────────────────────────────────
@@ -25,7 +26,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image locally
-        run: docker build -t ${{ env.IMAGE_TAG }} .
+        run: |
+          docker build --target deps -t ${{ env.MIGRATION_IMAGE_TAG }} .
+          docker build -t ${{ env.IMAGE_TAG }} .
 
       - name: Update docker-compose on VM
         run: |
@@ -34,8 +37,8 @@ jobs:
       - name: Run Prisma migrations before app start
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
-          docker compose run --rm --no-deps backend npx prisma migrate resolve --rolled-back 20260512003000_add_student_research_method_completed || true
-          docker compose run --rm --no-deps backend npx prisma migrate deploy
+          docker run --rm --env-file .env --add-host=host.docker.internal:host-gateway ${{ env.MIGRATION_IMAGE_TAG }} ./node_modules/.bin/prisma migrate resolve --rolled-back 20260512003000_add_student_research_method_completed || true
+          docker run --rm --env-file .env --add-host=host.docker.internal:host-gateway ${{ env.MIGRATION_IMAGE_TAG }} ./node_modules/.bin/prisma migrate deploy
 
       - name: Deploy backend
         working-directory: ${{ env.DEPLOY_DIR }}
