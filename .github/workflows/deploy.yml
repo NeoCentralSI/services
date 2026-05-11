@@ -31,18 +31,18 @@ jobs:
         run: |
           cp -f docker-compose.prod.yml ${{ env.DEPLOY_DIR }}/docker-compose.yml
 
+      - name: Run Prisma migrations before app start
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose run --rm --no-deps backend npx prisma migrate resolve --rolled-back 20260512003000_add_student_research_method_completed || true
+          docker compose run --rm --no-deps backend npx prisma migrate deploy
+
       - name: Deploy backend
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
           docker compose up -d backend --force-recreate
           echo "⏳ Waiting for backend to be healthy..."
           sleep 10
-
-      - name: Run Prisma migrations
-        working-directory: ${{ env.DEPLOY_DIR }}
-        run: |
-          docker compose exec -T backend npx prisma migrate deploy 2>/dev/null || \
-            docker compose exec -T backend npx prisma db push --accept-data-loss 2>/dev/null || true
 
       - name: Cleanup old images
         run: docker image prune -f
@@ -51,4 +51,5 @@ jobs:
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
           docker compose ps backend
+          curl --fail --show-error --silent http://127.0.0.1:3000/health
           echo "✅ Backend deployed successfully"
