@@ -164,10 +164,10 @@ export const getParticipantDetail = async (participantId) => {
 };
 
 // ============================================================
-// DOCUMENT VALIDATION (Admin approves/declines a participant's doc)
+// DOCUMENT VERIFICATION (Admin approves/declines a participant's doc)
 // ============================================================
 
-export const validateParticipantDocument = async (
+export const verifyParticipantDocument = async (
   participantId,
   requirementId,
   { action, notes, userId }
@@ -181,14 +181,14 @@ export const validateParticipantDocument = async (
 
   if (participant.status !== "registered") {
     throwError(
-      "Validasi dokumen hanya dapat dilakukan saat peserta berstatus 'registered'",
+      "Verifikasi dokumen hanya dapat dilakukan saat peserta berstatus 'registered'",
       400
     );
   }
 
   const docRecord = await participantRepo.findRequirementRecord(participantId, requirementId);
   if (!docRecord) {
-    throwError("Dokumen persyaratan tidak ditemukan untuk divalidasi", 404);
+    throwError("Dokumen persyaratan tidak ditemukan untuk diverifikasi", 404);
   }
 
   const newStatus = action === "approve" ? "approved" : "declined";
@@ -268,7 +268,7 @@ export const getParticipantCplScores = async (participantId) => {
   };
 };
 
-export const verifyCplScore = async (participantId, cplId, userId) => {
+export const validateCplScore = async (participantId, cplId, userId) => {
   const participant = await participantRepo.findStudentByParticipant(participantId);
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
 
@@ -277,21 +277,21 @@ export const verifyCplScore = async (participantId, cplId, userId) => {
 
   const score = await participantRepo.findStudentCplScore(studentId, cplId);
   if (!score) throwError("Skor CPL mahasiswa tidak ditemukan", 404);
-  if (score.status === "verified") throwError("CPL ini sudah tervalidasi", 400);
+  if (score.status === "validated") throwError("CPL ini sudah tervalidasi", 400);
 
-  await participantRepo.verifyStudentCplScore(studentId, cplId, userId);
+  await participantRepo.validateStudentCplScore(studentId, cplId, userId);
 
-  // If all active CPLs verified and participant is under_review → transition to approved
+  // If all active CPLs validated and participant is under_review → transition to approved
   const activeCpls = await participantRepo.findCplsActive();
   const allScores = await participantRepo.findStudentCplScores(studentId);
   const scoreStatusMap = new Map(allScores.map((s) => [s.cplId, s.status]));
-  const allVerified = activeCpls.every((cpl) => scoreStatusMap.get(cpl.id) === "verified");
+  const allValidated = activeCpls.every((cpl) => scoreStatusMap.get(cpl.id) === "validated");
 
-  if (allVerified && participant.status === "verified") {
+  if (allValidated && participant.status === "verified") {
     await participantRepo.updateStatus(participantId, "cpl_validated");
   }
 
-  return { cplId, status: "verified", allCplVerified: allVerified };
+  return { cplId, status: "validated", allCplValidated: allValidated };
 };
 
 export const saveCplRepairment = async (
@@ -369,8 +369,8 @@ export const saveCplRepairment = async (
 // ============================================================
 
 const STATUS_LABELS = {
-  registered: "Menunggu Validasi Dokumen",
-  verified: "Menunggu Validasi CPL",
+  registered: "Menunggu Verifikasi Dokumen",
+  verified: "Menunggu Verifikasi CPL",
   cpl_validated: "Calon Peserta Yudisium",
   appointed: "Peserta Yudisium",
   finalized: "Lulus",

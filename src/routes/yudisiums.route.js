@@ -90,9 +90,9 @@ router.get(
   ctrl.getParticipantRequirements
 );
 router.post(
-  "/:id/participants/:participantId/requirements/:requirementId/validate",
+  "/:id/participants/:participantId/requirements/:requirementId/verify",
   requireAnyRole([ROLES.ADMIN]),
-  ctrl.validateParticipantDocument
+  ctrl.verifyParticipantDocument
 );
 
 // ============================================================
@@ -104,9 +104,9 @@ router.get(
   ctrl.getParticipantCplScores
 );
 router.post(
-  "/:id/participants/:participantId/cpl/:cplId/verify",
+  "/:id/participants/:participantId/cpl/:cplId/validate",
   requireAnyRole(CPL_VALIDATOR_ROLES),
-  ctrl.verifyParticipantCpl
+  ctrl.validateParticipantCpl
 );
 router.post(
   "/:id/participants/:participantId/cpl/:cplId/repair",

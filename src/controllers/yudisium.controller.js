@@ -130,11 +130,11 @@ export const getParticipantRequirements = async (req, res, next) => {
   }
 };
 
-export const validateParticipantDocument = async (req, res, next) => {
+export const verifyParticipantDocument = async (req, res, next) => {
   try {
     const { participantId, requirementId } = req.params;
     const { action, notes } = req.body;
-    const data = await participantService.validateParticipantDocument(participantId, requirementId, { 
+    const data = await participantService.verifyParticipantDocument(participantId, requirementId, { 
       action, 
       notes, 
       userId: req.user.id 
@@ -159,10 +159,10 @@ export const getParticipantCplScores = async (req, res, next) => {
   }
 };
 
-export const verifyParticipantCpl = async (req, res, next) => {
+export const validateParticipantCpl = async (req, res, next) => {
   try {
     const { participantId, cplId } = req.params;
-    const data = await participantService.verifyCplScore(participantId, cplId, req.user.id);
+    const data = await participantService.validateCplScore(participantId, cplId, req.user.id);
     res.json({ success: true, data });
   } catch (err) {
     next(err);

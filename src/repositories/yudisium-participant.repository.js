@@ -251,10 +251,10 @@ export const findStudentCplScore = async (studentId, cplId) => {
   });
 };
 
-export const verifyStudentCplScore = async (studentId, cplId, userId) => {
+export const validateStudentCplScore = async (studentId, cplId, userId) => {
   return await prisma.studentCplScore.update({
     where: { studentId_cplId: { studentId, cplId } },
-    data: { status: "verified", verifiedBy: userId, verifiedAt: new Date() },
+    data: { status: "validated", validatedBy: userId, validatedAt: new Date() },
   });
 };
 
@@ -263,8 +263,8 @@ export const saveCplRepairment = async (studentId, cplId, data) => {
     where: { studentId_cplId: { studentId, cplId } },
     data: {
       ...data,
-      status: "verified",
-      verifiedAt: new Date(),
+      status: "validated",
+      validatedAt: new Date(),
     },
   });
 };
