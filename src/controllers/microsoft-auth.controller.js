@@ -1,8 +1,7 @@
 // src/controllers/microsoft-auth.controller.js
 import {
   getMicrosoftAuthUrl,
-  exchangeCodeForTokens,
-  loginOrRegisterWithMicrosoft,
+  loginWithMicrosoftAuthorizationCode,
 } from "../services/microsoft-auth.service.js";
 import {
   storeExchangePayload,
@@ -10,6 +9,7 @@ import {
 } from "../services/oauth-exchange.service.js";
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const ONE_SHOT_CODE_PATTERN = /^[a-f0-9]{64}$/i;
 
 /**
  * Initiate Microsoft OAuth login
@@ -48,15 +48,7 @@ export async function handleCallback(req, res, next) {
       );
     }
 
-    const { accessToken, refreshToken, userProfile, hasCalendarAccess } =
-      await exchangeCodeForTokens(code);
-
-    const result = await loginOrRegisterWithMicrosoft(
-      userProfile,
-      accessToken,
-      refreshToken,
-      hasCalendarAccess,
-    );
+    const result = await loginWithMicrosoftAuthorizationCode(code);
 
     const exchangeCode = await storeExchangePayload({
       accessToken: result.accessToken,
@@ -70,7 +62,7 @@ export async function handleCallback(req, res, next) {
     );
   } catch (error) {
     if (error.statusCode === 403) {
-      return res.redirect(`${FRONTEND_URL}/account-inactive`);
+      return res.redirect(`${FRONTEND_URL}/auth/inactive`);
     }
     const errorMsg = error.message || "Authentication failed";
     res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(errorMsg)}`);
@@ -92,14 +84,27 @@ export async function exchangeOauthCode(req, res, next) {
     }
 
     const payload = await consumeExchangePayload(code);
-    if (!payload) {
+    if (payload) {
+      return res.status(200).json({ success: true, data: payload });
+    }
+
+    if (ONE_SHOT_CODE_PATTERN.test(code)) {
       return res.status(400).json({
         success: false,
-        message: "Exchange code is invalid or already used",
+        message: "Exchange code is invalid, expired, or already used",
       });
     }
 
-    return res.status(200).json({ success: true, data: payload });
+    const result = await loginWithMicrosoftAuthorizationCode(code);
+    return res.status(200).json({
+      success: true,
+      data: {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+        hasCalendarAccess: result.hasCalendarAccess,
+      },
+    });
   } catch (err) {
     next(err);
   }

@@ -127,6 +127,7 @@ function createSupervisor(roleName = ROLES.PEMBIMBING_1) {
   return {
     id: "supervisor-1",
     lecturerId: "lecturer-1",
+    status: "active",
     role: { id: "role-1", name: roleName },
     lecturer: {
       id: "lecturer-1",
@@ -238,6 +239,12 @@ describe("advisorRequest.service", () => {
         service.submitRequest("student-1", {
           lecturerId: "lecturer-1",
           topicId: "topic-1",
+          proposedTitle: "Judul Uji",
+          backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
+          problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
+          proposedSolution: "Solusi pengujian yang cukup panjang.",
+          researchObject: "Objek Uji",
+          researchPermitStatus: "approved",
         })
       ).rejects.toThrow("sudah memiliki dosen pembimbing aktif");
 
@@ -252,6 +259,12 @@ describe("advisorRequest.service", () => {
         service.submitRequest("student-1", {
           lecturerId: "lecturer-1",
           topicId: "topic-1",
+          proposedTitle: "Judul Uji",
+          backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
+          problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
+          proposedSolution: "Solusi pengujian yang cukup panjang.",
+          researchObject: "Objek Uji",
+          researchPermitStatus: "approved",
         })
       ).rejects.toThrow("menunggu penetapan pembimbing");
 
