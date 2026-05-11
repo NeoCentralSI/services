@@ -38,11 +38,12 @@ jobs:
         working-directory: ${{ env.DEPLOY_DIR }}
         run: docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma --version
 
-      - name: Run Prisma migrations before app start
+      - name: Ensure SIMPTA auth schema before app start
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
           docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma migrate resolve --rolled-back 20260512003000_add_student_research_method_completed || true
-          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma migrate deploy
+          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260512003000_add_student_research_method_completed/migration.sql
+          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma migrate resolve --applied 20260512003000_add_student_research_method_completed || true
 
       - name: Deploy backend
         working-directory: ${{ env.DEPLOY_DIR }}
@@ -58,5 +59,12 @@ jobs:
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
           docker compose ps backend
-          curl --fail --show-error --silent http://127.0.0.1:3000/health
-          echo "✅ Backend deployed successfully"
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if curl --fail --show-error --silent http://127.0.0.1:3000/health; then
+              echo "✅ Backend deployed successfully"
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose logs --tail=120 backend
+          exit 1
