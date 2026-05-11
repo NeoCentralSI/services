@@ -17,7 +17,7 @@ export async function getSeminars(req, res, next) {
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 10,
       search: search || "",
-      view: view || "validation",
+      view: view || "verification",
       status: status || null,
       user: req.user,
     });
@@ -166,9 +166,9 @@ export async function viewDocument(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function validateDocument(req, res, next) {
+export async function verifyDocument(req, res, next) {
   try {
-    const result = await docService.validateDocument(req.params.id, req.params.documentTypeId, {
+    const result = await docService.verifyDocument(req.params.id, req.params.documentTypeId, {
       action: req.body.action,
       notes: req.body.notes,
       userId: req.user.id,

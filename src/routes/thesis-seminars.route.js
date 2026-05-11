@@ -70,7 +70,7 @@ router.get("/:id/scheduling-data", requireAnyRole([ROLES.ADMIN]), ctrl.getSchedu
 router.post("/:id/schedule", requireAnyRole([ROLES.ADMIN]), validate(scheduleSchema), ctrl.setSchedule);
 router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
 router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelSeminarSchema), ctrl.cancelSeminar);
-router.post("/:id/documents/:documentTypeId/validate", requireAnyRole([ROLES.ADMIN]), ctrl.validateDocument);
+router.post("/:id/documents/:documentTypeId/verify", requireAnyRole([ROLES.ADMIN]), ctrl.verifyDocument);
 
 // ============================================================
 // STUDENT ACTIONS

@@ -178,18 +178,18 @@ export async function viewDocument(seminarId, docTypeId) {
 }
 
 // ============================================================
-// PUBLIC: Validate Document (Admin approve/decline)
+// PUBLIC: Verify Document (Admin approve/decline)
 // ============================================================
 
-export async function validateDocument(seminarId, docTypeId, { action, notes, userId }) {
+export async function verifyDocument(seminarId, docTypeId, { action, notes, userId }) {
   if (!["approve", "decline"].includes(action)) throwError('Action harus "approve" atau "decline".', 400);
 
   const seminar = await coreRepo.findSeminarBasicById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  if (seminar.status !== "registered") throwError("Validasi dokumen hanya dapat dilakukan saat seminar berstatus 'registered'.", 400);
+  if (seminar.status !== "registered") throwError("Verifikasi dokumen hanya dapat dilakukan saat seminar berstatus 'registered'.", 400);
 
   const docWithFile = await docRepo.findDocumentWithFile(seminarId, docTypeId);
-  if (!docWithFile) throwError("Dokumen tidak ditemukan untuk di-validasi.", 404);
+  if (!docWithFile) throwError("Dokumen tidak ditemukan untuk di-verifikasi.", 404);
 
   const newStatus = action === "approve" ? "approved" : "declined";
   await docRepo.updateDocumentStatus(seminarId, docTypeId, { status: newStatus, notes: notes || null, verifiedBy: userId });

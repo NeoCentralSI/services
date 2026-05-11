@@ -52,9 +52,9 @@ function parseStatusFilter(status) {
 
 // ==================== LIST ====================
 
-export async function getSeminarList({ search, status, view, page = 1, pageSize = 10, user = {} } = {}) {
   if (view === "assignment") return getAssignmentList({ search });
   if (view === "archive") return getArchiveList({ search, page, pageSize });
+  if (view === "verification") return getAdminList({ search, status });
   if (view === "supervised_students" && user.lecturerId) {
     const data = await coreRepo.findSeminarsBySupervisor({ lecturerId: user.lecturerId, search });
     return mapLecturerSeminarList(data, user.lecturerId, "supervisor");
