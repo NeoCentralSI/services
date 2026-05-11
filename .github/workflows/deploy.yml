@@ -38,12 +38,18 @@ jobs:
         working-directory: ${{ env.DEPLOY_DIR }}
         run: docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma --version
 
-      - name: Ensure SIMPTA auth schema before app start
+      - name: Audit SIMPTA schema before repair
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose --profile tools run --rm --no-deps backend-migrator node prisma/audit-simpta-schema.js
+
+      - name: Repair SIMPTA schema before app start
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
-          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma migrate resolve --rolled-back 20260512003000_add_student_research_method_completed || true
-          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260512003000_add_student_research_method_completed/migration.sql
-          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma migrate resolve --applied 20260512003000_add_student_research_method_completed || true
+          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma db execute --schema prisma/schema.prisma --file prisma/repairs/simpta_schema_repair.sql
+
+      - name: Audit SIMPTA schema after repair
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose --profile tools run --rm --no-deps backend-migrator node prisma/audit-simpta-schema.js --strict
 
       - name: Deploy backend
         working-directory: ${{ env.DEPLOY_DIR }}

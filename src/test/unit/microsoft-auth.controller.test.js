@@ -17,12 +17,16 @@ vi.mock("../../services/microsoft-auth.service.js", () => ({
   loginWithMicrosoftAuthorizationCode: mocks.loginWithMicrosoftAuthorizationCode,
 }));
 
-import { exchangeOauthCode } from "../../controllers/microsoft-auth.controller.js";
+import {
+  exchangeOauthCode,
+  handleCallback,
+} from "../../controllers/microsoft-auth.controller.js";
 
 function mockResponse() {
   return {
     status: vi.fn().mockReturnThis(),
     json: vi.fn().mockReturnThis(),
+    redirect: vi.fn().mockReturnThis(),
   };
 }
 
@@ -92,6 +96,28 @@ describe("microsoft-auth.controller", () => {
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ success: true, data: result });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("does not leak internal Prisma errors into Microsoft callback redirect URLs", async () => {
+    const internalError = new Error(
+      "Invalid `prisma.user.findFirst()` invocation: The column `neocentral.students.eligible_metopen` does not exist in the current database.",
+    );
+    mocks.loginWithMicrosoftAuthorizationCode.mockRejectedValue(internalError);
+
+    const req = { query: { code: "0.ABC-microsoft-code" } };
+    const res = mockResponse();
+    const next = vi.fn();
+
+    await handleCallback(req, res, next);
+
+    expect(res.redirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = res.redirect.mock.calls[0][0];
+    expect(redirectUrl).toContain(
+      "/login?error=Sistem%20autentikasi%20belum%20siap.%20Hubungi%20admin.",
+    );
+    expect(redirectUrl).not.toContain("prisma");
+    expect(redirectUrl).not.toContain("eligible_metopen");
     expect(next).not.toHaveBeenCalled();
   });
 });

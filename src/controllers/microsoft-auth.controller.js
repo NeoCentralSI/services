@@ -10,6 +10,30 @@ import {
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const ONE_SHOT_CODE_PATTERN = /^[a-f0-9]{64}$/i;
+const GENERIC_AUTH_CALLBACK_ERROR = "Sistem autentikasi belum siap. Hubungi admin.";
+
+function getSafeCallbackErrorMessage(error) {
+  if (error?.statusCode === 404 && /akun belum terdaftar/i.test(error.message || "")) {
+    return error.message;
+  }
+
+  if (error?.statusCode === 401) {
+    return "Login Microsoft gagal. Silakan coba lagi atau hubungi admin.";
+  }
+
+  return GENERIC_AUTH_CALLBACK_ERROR;
+}
+
+function logCallbackError(error) {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  console.error("[MicrosoftAuth] Callback failed:", error?.message || error);
+  if (error?.stack) {
+    console.error(error.stack);
+  }
+}
 
 /**
  * Initiate Microsoft OAuth login
@@ -64,7 +88,8 @@ export async function handleCallback(req, res, next) {
     if (error.statusCode === 403) {
       return res.redirect(`${FRONTEND_URL}/auth/inactive`);
     }
-    const errorMsg = error.message || "Authentication failed";
+    logCallbackError(error);
+    const errorMsg = getSafeCallbackErrorMessage(error);
     res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(errorMsg)}`);
   }
 }

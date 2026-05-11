@@ -5,6 +5,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ENV } from "./env.js";
 import generated from "../generated/prisma/index.js";
+import {
+  REQUIRED_SIMPTA_COLUMNS,
+  REQUIRED_SIMPTA_ENUM_VALUES,
+  REQUIRED_SIMPTA_TABLES,
+} from "../../prisma/simpta-schema-contract.js";
 
 const { PrismaClient, Prisma } = generated;
 
@@ -16,31 +21,6 @@ const PRISMA_MIGRATIONS_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../prisma/migrations"
 );
-const REQUIRED_SIMPTA_TABLES = [
-  "thesis_participants",
-  "thesis_advisor_request_draft",
-  "thesis_proposal_versions",
-];
-const REQUIRED_SIMPTA_COLUMNS = {
-  students: [
-    "eligible_metopen",
-    "metopen_eligibility_source",
-    "metopen_eligibility_updated_at",
-    "taking_thesis_course",
-    "thesis_course_enrollment_source",
-    "thesis_course_enrollment_updated_at",
-  ],
-  thesis: ["final_proposal_version_id"],
-  thesis_advisor_request: [
-    "request_type",
-    "problem_statement",
-    "proposed_solution",
-    "research_object",
-    "research_permit_status",
-    "lecturer_approval_note",
-  ],
-};
-
 const DIRECT_DATABASE_PROTOCOLS = [
   "mysql://",
   "mysqls://",
@@ -165,6 +145,23 @@ async function getExistingColumnNames(tableName, columnNames, client = basePrism
   return new Set((Array.isArray(rows) ? rows : []).map((row) => row.columnName));
 }
 
+async function getColumnType(tableName, columnName, client = basePrisma) {
+  const rows = await client.$queryRawUnsafe(
+    `SELECT column_type AS columnType
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = ${quoteSqlLiteral(tableName)}
+       AND column_name = ${quoteSqlLiteral(columnName)}
+     LIMIT 1`
+  );
+
+  return (Array.isArray(rows) ? rows : [])[0]?.columnType ?? null;
+}
+
+function enumColumnHasValue(columnType, value) {
+  return String(columnType).includes(`'${String(value).replace(/'/g, "''")}'`);
+}
+
 export async function assertSimptaSchemaCompatibility(client = basePrisma) {
   const tableNamesToCheck = [...new Set([...REQUIRED_SIMPTA_TABLES, "thesis_supervisors"])];
   const [existingTables, pendingMigrations] = await Promise.all([
@@ -172,15 +169,44 @@ export async function assertSimptaSchemaCompatibility(client = basePrisma) {
     getPendingPrismaMigrationNames(client),
   ]);
 
-  const missingSchemaParts = REQUIRED_SIMPTA_TABLES
+  const missingSchemaParts = [];
+  const missingSchemaPartSet = new Set();
+
+  function addMissingSchemaPart(part) {
+    if (missingSchemaPartSet.has(part)) {
+      return;
+    }
+    missingSchemaPartSet.add(part);
+    missingSchemaParts.push(part);
+  }
+
+  REQUIRED_SIMPTA_TABLES
     .filter((tableName) => !existingTables.has(tableName))
-    .map((tableName) => `table \`${tableName}\``);
+    .forEach((tableName) => addMissingSchemaPart(`table \`${tableName}\``));
 
   for (const [tableName, columnNames] of Object.entries(REQUIRED_SIMPTA_COLUMNS)) {
     const existingColumns = await getExistingColumnNames(tableName, columnNames, client);
     for (const columnName of columnNames) {
       if (!existingColumns.has(columnName)) {
-        missingSchemaParts.push(`kolom \`${tableName}.${columnName}\``);
+        addMissingSchemaPart(`kolom \`${tableName}.${columnName}\``);
+      }
+    }
+  }
+
+  for (const [tableName, columns] of Object.entries(REQUIRED_SIMPTA_ENUM_VALUES)) {
+    for (const [columnName, requiredValues] of Object.entries(columns)) {
+      const columnType = await getColumnType(tableName, columnName, client);
+      if (!columnType) {
+        addMissingSchemaPart(`kolom \`${tableName}.${columnName}\``);
+        continue;
+      }
+      const missingValues = requiredValues.filter(
+        (value) => !enumColumnHasValue(columnType, value)
+      );
+      if (missingValues.length > 0) {
+        addMissingSchemaPart(
+          `enum \`${tableName}.${columnName}\` belum memuat ${missingValues.join(", ")}`
+        );
       }
     }
   }
