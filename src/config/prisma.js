@@ -247,7 +247,17 @@ const prisma = basePrisma.$extends({
 export async function checkDatabaseConnection() {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    await assertSimptaSchemaCompatibility(basePrisma);
+    try {
+      await assertSimptaSchemaCompatibility(basePrisma);
+    } catch (schemaError) {
+      if (process.env.SIMPTA_SCHEMA_STRICT === "true") {
+        throw schemaError;
+      }
+      console.warn(
+        "⚠️ SIMPTA schema compatibility warning:",
+        schemaError.message
+      );
+    }
     console.log("✅ Database connected successfully");
   } catch (err) {
     console.error("❌ Database connection failed:", err.message);
