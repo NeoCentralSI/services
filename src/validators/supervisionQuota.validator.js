@@ -1,34 +1,35 @@
 import { z } from "zod";
 
-export const setDefaultQuotaSchema = z.object({
-	quotaMax: z
-		.number({ required_error: "Quota max wajib diisi" })
-		.int("Quota max harus bilangan bulat")
-		.min(1, "Quota max minimal 1")
-		.max(100, "Quota max maksimal 100"),
-	quotaSoftLimit: z
-		.number({ required_error: "Soft limit wajib diisi" })
-		.int("Soft limit harus bilangan bulat")
-		.min(0, "Soft limit tidak boleh negatif")
-		.max(100, "Soft limit maksimal 100"),
+/** Body schema for PUT set default quota */
+export const setDefaultQuotaBodySchema = z.object({
+  quotaMax: z
+    .number()
+    .int()
+    .min(1, "Kuota maksimum minimal 1")
+    .max(100, "Kuota maksimum maksimal 100"),
+  quotaSoftLimit: z
+    .number()
+    .int()
+    .min(0, "Soft limit minimal 0")
+    .max(100, "Soft limit maksimal 100"),
 });
 
-export const updateLecturerQuotaSchema = z.object({
-	quotaMax: z
-		.number()
-		.int("Quota max harus bilangan bulat")
-		.min(0, "Quota max tidak boleh negatif")
-		.max(100, "Quota max maksimal 100")
-		.optional(),
-	quotaSoftLimit: z
-		.number()
-		.int("Soft limit harus bilangan bulat")
-		.min(0, "Soft limit tidak boleh negatif")
-		.max(100, "Soft limit maksimal 100")
-		.optional(),
-	notes: z
-		.string()
-		.max(500, "Notes maksimal 500 karakter")
-		.optional()
-		.nullable(),
+/** Body schema for PATCH update lecturer quota */
+export const updateLecturerQuotaBodySchema = z.object({
+  quotaMax: z.number().int().min(0).max(100).optional(),
+  quotaSoftLimit: z.number().int().min(0).max(100).optional(),
+  notes: z.string().max(500).optional().nullable(),
 });
+
+/** academicYearId: UUID atau slug tahun-YYYY-ganjil|genap */
+export const academicYearIdParamSchema = z
+  .string()
+  .min(1, "academicYearId wajib diisi")
+  .refine(
+    (val) => {
+      if (z.string().uuid().safeParse(val).success) return true;
+      const slugMatch = /^tahun-(\d{4})-(ganjil|genap)$/.exec(val);
+      return !!slugMatch;
+    },
+    { message: "academicYearId harus UUID atau format tahun-YYYY-ganjil|genap" }
+  );

@@ -1,29 +1,51 @@
 import express from "express";
-import {
-	getDefaultQuotaController,
-	setDefaultQuotaController,
-	getLecturerQuotasController,
-	updateLecturerQuotaController,
-} from "../controllers/supervisionQuota.controller.js";
+import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import {
-	setDefaultQuotaSchema,
-	updateLecturerQuotaSchema,
-} from "../validators/supervisionQuota.validator.js";
-import { authGuard, requireRole } from "../middlewares/auth.middleware.js";
+import * as controller from "../controllers/supervisionQuota.controller.js";
+import * as validator from "../validators/supervisionQuota.validator.js";
 import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
+const quotaRoles = [ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN];
+
 router.use(authGuard);
-router.use(requireRole(ROLES.ADMIN));
 
-// Default quota endpoints
-router.get("/default/:academicYearId", getDefaultQuotaController);
-router.put("/default/:academicYearId", validate(setDefaultQuotaSchema), setDefaultQuotaController);
+/** GET /supervision-quota/default/:academicYearId */
+router.get(
+  "/default/:academicYearId",
+  requireAnyRole(quotaRoles),
+  controller.getDefaultQuota
+);
 
-// Lecturer-specific quota endpoints
-router.get("/lecturers/:academicYearId", getLecturerQuotasController);
-router.patch("/lecturers/:lecturerId/:academicYearId", validate(updateLecturerQuotaSchema), updateLecturerQuotaController);
+/** PUT /supervision-quota/default/:academicYearId */
+router.put(
+  "/default/:academicYearId",
+  requireAnyRole(quotaRoles),
+  validate(validator.setDefaultQuotaBodySchema),
+  controller.setDefaultQuota
+);
+
+/** GET /supervision-quota/lecturers/:academicYearId */
+router.get(
+  "/lecturers/:academicYearId",
+  requireAnyRole(quotaRoles),
+  controller.getLecturerQuotas
+);
+
+/** PATCH /supervision-quota/lecturers/:lecturerId/:academicYearId */
+router.patch(
+  "/lecturers/:lecturerId/:academicYearId",
+  requireAnyRole(quotaRoles),
+  validate(validator.updateLecturerQuotaBodySchema),
+  controller.updateLecturerQuota
+);
+
+/** POST /supervision-quota/recalculate/:academicYearId */
+router.post(
+  "/recalculate/:academicYearId",
+  requireAnyRole(quotaRoles),
+  controller.recalculateQuotas
+);
 
 export default router;

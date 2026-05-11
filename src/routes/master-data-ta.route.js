@@ -1,7 +1,7 @@
 import express from "express";
 import { getAllTheses, createThesis, updateThesis, syncSia, getAllThesisStatuses, importTheses } from "../controllers/masterDataTa.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { createThesisSchema, updateThesisSchema } from "../validators/masterDataTa.validator.js";
+import { createThesisSchema, importThesesSchema, updateThesisSchema } from "../validators/masterDataTa.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
 
@@ -13,7 +13,7 @@ router.use(requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS
 router.get("/", getAllTheses);
 router.get("/statuses", getAllThesisStatuses);
 router.post("/sync-sia", syncSia);
-router.post("/import", importTheses);
+router.post("/import", validate(importThesesSchema), importTheses);
 router.post("/", validate(createThesisSchema), createThesis);
 router.patch("/:id", validate(updateThesisSchema), updateThesis);
 

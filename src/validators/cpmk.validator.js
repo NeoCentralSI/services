@@ -4,7 +4,8 @@ export const createCpmkSchema = z.object({
     academicYearId: z
         .string()
         .uuid("academicYearId harus berupa UUID yang valid")
-        .optional(),
+        .nullish()
+        .transform((v) => v ?? undefined),
     code: z
         .string({ required_error: "Kode CPMK wajib diisi" })
         .min(1, "Kode CPMK tidak boleh kosong")
@@ -21,7 +22,8 @@ export const updateCpmkSchema = z.object({
     academicYearId: z
         .string()
         .uuid("academicYearId harus berupa UUID yang valid")
-        .optional(),
+        .nullish()
+        .transform((v) => v ?? undefined),
     code: z
         .string()
         .min(1, "Kode CPMK tidak boleh kosong")

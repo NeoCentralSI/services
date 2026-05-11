@@ -1,7 +1,6 @@
 import app from "./app.js";
 import { ENV } from "./config/env.js";
 import { initConnections } from "./config/db.js";
-import { scheduleDailyThesisStatus, scheduleSiaSync, scheduleGuidanceReminder, scheduleDailyThesisReminder, scheduleAcademicYearSync, scheduleYudisiumFinalize, scheduleDailyInternshipStatus } from "./queues/maintenance.queue.js";
 // removed password queue worker; using user-initiated account activation instead
 
 const PORT = ENV.PORT || 3000;
@@ -9,20 +8,27 @@ const PORT = ENV.PORT || 3000;
 async function startServer() {
   try {
     await initConnections(); // ✅ pastikan DB & Redis ready
-    // Schedule daily maintenance jobs
-    await scheduleDailyThesisStatus();
-    // Schedule academic year sync job to ensure the active semester falls back correctly
-    await scheduleAcademicYearSync();
-    // Schedule SIA sync job (if enabled)
-    await scheduleSiaSync();
-    // Schedule daily guidance reminder
-    await scheduleGuidanceReminder();
-    // Schedule daily thesis reminder for active thesis students (09:00 WIB)
-    await scheduleDailyThesisReminder();
-    // Schedule yudisium auto-finalize (00:15 WIB daily)
-    await scheduleYudisiumFinalize();
-    // Schedule internship status enforcement (00:00 WIB daily)
-    await scheduleDailyInternshipStatus();
+    if (!ENV.SKIP_REDIS) {
+      const {
+        scheduleDailyThesisStatus,
+        scheduleSiaSync,
+        scheduleGuidanceReminder,
+        scheduleDailyThesisReminder,
+        scheduleAdvisorWithdrawReminder,
+      } = await import("./queues/maintenance.queue.js");
+      // Schedule daily maintenance jobs
+      await scheduleDailyThesisStatus();
+      // Schedule SIA sync job (if enabled)
+      await scheduleSiaSync();
+      // Schedule daily guidance reminder
+      await scheduleGuidanceReminder();
+      // Schedule daily thesis reminder for active thesis students (09:00 WIB)
+      await scheduleDailyThesisReminder();
+      // Schedule advisor request withdraw unlock reminder (hourly)
+      await scheduleAdvisorWithdrawReminder();
+    } else {
+      console.log("⏭️ SKIP_REDIS=true, skipping maintenance queue scheduler");
+    }
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running at http://localhost:${PORT}`);
     });

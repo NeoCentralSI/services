@@ -3,14 +3,30 @@ import prisma from '../config/prisma.js';
 // ── Assessment Criteria ───────────────────────────────────────────────
 
 export const findCriteriaByFormCode = async (formCode) => {
+  const normalized = String(formCode || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+
+  let role = null;
+  if (normalized === "TA03A") {
+    role = "supervisor";
+  } else if (normalized === "TA03B") {
+    role = "default";
+  } else {
+    return [];
+  }
+
   return prisma.assessmentCriteria.findMany({
     where: {
-      assessmentFormCode: formCode,
+      appliesTo: { in: ["proposal", "metopen"] },
+      role,
+      isDeleted: false,
+      cpmk: { type: "research_method" },
     },
     include: {
       cpmk: true,
     },
-    orderBy: { code: 'asc' },
+    orderBy: [{ role: 'asc' }, { displayOrder: 'asc' }],
   });
 };
 

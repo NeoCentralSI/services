@@ -84,6 +84,15 @@ export function upsertUserRole(userId, roleId, status = "active") {
 export function findStudentByUserId(userId) {
 	return prisma.student.findUnique({ where: { id: userId } });
 }
+
+export function updateStudentByUserId(userId, data) {
+	return prisma.student.update({ where: { id: userId }, data });
+}
+
+export function updateLecturerByUserId(userId, data) {
+	return prisma.lecturer.update({ where: { id: userId }, data });
+}
+
 export function findRoleByName(name) {
 	// Search for role name (try exact match first, then case variations)
 	const n = String(name || "").trim();

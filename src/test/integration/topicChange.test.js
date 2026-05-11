@@ -36,6 +36,7 @@ let newTopicId = null;
 // Track created data for cleanup
 let createdRequestId = null;
 let newThesisId = null;
+let supportingDocumentId = null;
 
 describe("IT-02: Topic Change Full Flow", () => {
   beforeAll(async () => {
@@ -44,6 +45,9 @@ describe("IT-02: Topic Change Full Flow", () => {
       where: {
         thesisStatus: { name: "Bimbingan" },
         thesisSupervisors: { some: {} },
+        NOT: {
+          title: { startsWith: "[IT-" },
+        },
       },
       include: {
         student: { include: { user: { select: { id: true, fullName: true, identityNumber: true } } } },
@@ -67,6 +71,36 @@ describe("IT-02: Topic Change Full Flow", () => {
     testStudentUserId = testThesis.student.id;
     originalTopicId = testThesis.thesisTopicId;
 
+    const staleRequests = await prisma.thesisChangeRequest.findMany({
+      where: {
+        thesisId: testThesis.id,
+        status: "pending",
+      },
+      select: { id: true },
+    });
+    const staleRequestIds = staleRequests.map((request) => request.id);
+    if (staleRequestIds.length > 0) {
+      await prisma.thesisChangeRequestApproval.deleteMany({
+        where: { requestId: { in: staleRequestIds } },
+      });
+      await prisma.thesisChangeRequest.deleteMany({
+        where: { id: { in: staleRequestIds } },
+      });
+    }
+    await prisma.thesis.deleteMany({
+      where: {
+        studentId: testStudentUserId,
+        title: { startsWith: "[IT-02 TEST]" },
+        thesisStatus: { name: "Diajukan" },
+      },
+    });
+    await prisma.document.deleteMany({
+      where: {
+        userId: testStudentUserId,
+        fileName: { startsWith: "it02-topic-change-" },
+      },
+    });
+
     // Get supervisors with "Pembimbing 1"/"Pembimbing 2" roles
     testSupervisors = testThesis.thesisSupervisors
       .filter((s) => s.role.name === "Pembimbing 1" || s.role.name === "Pembimbing 2")
@@ -88,7 +122,7 @@ describe("IT-02: Topic Change Full Flow", () => {
 
     // 3. Find a different topic for the change
     const otherTopic = await prisma.thesisTopic.findFirst({
-      where: { id: { not: originalTopicId } },
+      where: originalTopicId ? { id: { not: originalTopicId } } : undefined,
     });
     newTopicId = otherTopic?.id;
 
@@ -117,7 +151,7 @@ describe("IT-02: Topic Change Full Flow", () => {
 
         // 2. Move supervisors back to old thesis (if they were moved)
         if (newThesisId) {
-          await prisma.thesisSupervisors.updateMany({
+          await prisma.thesisParticipant.updateMany({
             where: { thesisId: newThesisId },
             data: { thesisId: testThesis.id },
           });
@@ -133,6 +167,10 @@ describe("IT-02: Topic Change Full Flow", () => {
         if (createdRequestId) {
           await prisma.thesisChangeRequestApproval.deleteMany({ where: { requestId: createdRequestId } });
           await prisma.thesisChangeRequest.delete({ where: { id: createdRequestId } }).catch(() => {});
+        }
+
+        if (supportingDocumentId) {
+          await prisma.document.delete({ where: { id: supportingDocumentId } }).catch(() => {});
         }
 
         // 5. Clean up notifications created during test
@@ -163,9 +201,20 @@ describe("IT-02: Topic Change Full Flow", () => {
     console.log("\n[STEP 1] Student submits topic change request...");
 
     const newTitle = `[IT-02 TEST] Judul Baru ${Date.now()}`;
+    const supportingDocument = await prisma.document.create({
+      data: {
+        userId: testStudentUserId,
+        fileName: `it02-topic-change-${Date.now()}.pdf`,
+        filePath: `uploads/test/it02-topic-change-${Date.now()}.pdf`,
+        mimeType: "application/pdf",
+      },
+    });
+    supportingDocumentId = supportingDocument.id;
+
     const submitResult = await submitRequest(testStudentUserId, {
       requestType: "topic",
       reason: "Integration test - ganti topik",
+      supportingDocumentId,
       newTitle,
       newTopicId,
     });
@@ -259,10 +308,10 @@ describe("IT-02: Topic Change Full Flow", () => {
     console.log(`[STEP 4b] ✅ Deadline set: ${newThesis.deadlineDate.toISOString()}`);
 
     // 4c. Supervisors should be moved from old to new thesis
-    const oldThesisSupervisors = await prisma.thesisSupervisors.findMany({
+    const oldThesisSupervisors = await prisma.thesisParticipant.findMany({
       where: { thesisId: testThesis.id },
     });
-    const newThesisSupervisors = await prisma.thesisSupervisors.findMany({
+    const newThesisSupervisors = await prisma.thesisParticipant.findMany({
       where: { thesisId: newThesisId },
       include: { role: { select: { name: true } } },
     });

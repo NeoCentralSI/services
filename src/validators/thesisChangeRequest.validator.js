@@ -1,21 +1,32 @@
 import { z } from 'zod';
 
-export const submitRequestSchema = z.object({
-  requestType: z.enum(['topic', 'supervisor', 'both'], {
-    errorMap: () => ({ message: 'Jenis permintaan harus salah satu dari: topic, supervisor, atau both' }),
-  }),
-  reason: z
-    .string()
-    .min(20, 'Alasan minimal 20 karakter')
-    .max(1000, 'Alasan maksimal 1000 karakter'),
-  newTitle: z
-    .string()
-    .min(5, 'Judul baru minimal 5 karakter')
-    .max(500, 'Judul baru maksimal 500 karakter'),
-  newTopicId: z
-    .string()
-    .min(1, 'Topik baru harus dipilih'),
-});
+export const submitRequestSchema = z
+  .object({
+    requestType: z.enum(['topic', 'supervisor', 'both'], {
+      errorMap: () => ({ message: 'Jenis permintaan harus salah satu dari: topic, supervisor, atau both' }),
+    }),
+    reason: z
+      .string()
+      .min(20, 'Alasan minimal 20 karakter')
+      .max(1000, 'Alasan maksimal 1000 karakter'),
+    supportingDocumentId: z.string().uuid('ID dokumen bukti pendukung tidak valid'),
+    replaceSupervisorLecturerId: z.string().uuid().optional(),
+    newTitle: z.string().min(5).max(500).optional(),
+    newTopicId: z.string().min(1).optional(),
+    newSupervisorId: z.string().uuid().optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.requestType === 'topic') return data.newTitle && data.newTopicId;
+      if (data.requestType === 'supervisor') return !!data.newSupervisorId;
+      if (data.requestType === 'both') return data.newTitle && data.newTopicId && data.newSupervisorId;
+      return false;
+    },
+    {
+      message:
+        'Untuk topic: newTitle dan newTopicId wajib. Untuk supervisor: newSupervisorId wajib. Untuk both: ketiganya wajib.',
+    }
+  );
 
 export const reviewRequestSchema = z.object({
   reviewNotes: z

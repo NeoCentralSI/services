@@ -115,6 +115,22 @@ describe("Module 1: Authentication & Account Management", () => {
       bcrypt.compare.mockResolvedValue(true);
       mockAdminRepo.getUserRolesWithIds.mockResolvedValue(MOCK_ROLES);
       mockPrisma.user.update.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...VERIFIED_USER,
+        userHasRoles: [{ role: { id: "role-1", name: "mahasiswa" }, status: "active" }],
+        student: {
+          id: "user-1",
+          enrollmentYear: 2022,
+          sksCompleted: 120,
+          currentSemester: 8,
+          eligibleMetopen: true,
+          takingThesisCourse: true,
+          status: "Aktif",
+        },
+        lecturer: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
 
       const result = await loginWithEmailPassword("test@university.ac.id", "password123");
 
@@ -292,7 +308,19 @@ describe("Module 1: Authentication & Account Management", () => {
       mockPrisma.user.findUnique.mockResolvedValue({
         ...VERIFIED_USER,
         userHasRoles: [{ role: { id: "r1", name: "mahasiswa" }, status: "active" }],
-        student: { id: "s1", enrollmentYear: 2022, skscompleted: 120, status: "Aktif" },
+        student: {
+          id: "s1",
+          enrollmentYear: 2022,
+          sksCompleted: 120,
+          currentSemester: 8,
+          eligibleMetopen: true,
+          metopenEligibilitySource: "sia",
+          metopenEligibilityUpdatedAt: new Date("2026-04-20T00:00:00.000Z"),
+          takingThesisCourse: true,
+          thesisCourseEnrollmentSource: "sia",
+          thesisCourseEnrollmentUpdatedAt: new Date("2026-04-20T00:00:00.000Z"),
+          status: "Aktif",
+        },
         lecturer: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -302,7 +330,15 @@ describe("Module 1: Authentication & Account Management", () => {
 
       expect(profile).toHaveProperty("id", "user-1");
       expect(profile.roles).toHaveLength(1);
-      expect(profile.student).toMatchObject({ id: "s1" });
+      expect(profile.student).toMatchObject({
+        id: "s1",
+        sksCompleted: 120,
+        currentSemester: 8,
+        eligibleMetopen: true,
+        metopenEligibilitySource: "sia",
+        takingThesisCourse: true,
+        thesisCourseEnrollmentSource: "sia",
+      });
     });
 
     it("rejects (404) if user not found", async () => {

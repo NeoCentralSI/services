@@ -1,6 +1,7 @@
 import express from "express";
 import { uploadThesisFile } from "../middlewares/file.middleware.js";
 import { authGuard } from "../middlewares/auth.middleware.js";
+import { loadUserRoles, documentAccessGuard } from "../middlewares/rbac.middleware.js";
 import prisma from "../config/prisma.js";
 import fs from "fs";
 import path from "path";
@@ -43,61 +44,49 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
       if (thesisId) {
         // If thesisId provided, verify it belongs to this user (student)
         const thesis = await prisma.thesis.findFirst({
-          where: { id: thesisId, studentId: userId },
+          where: {
+            id: thesisId,
+            student: {
+              id: userId,
+            },
+          },
         });
 
         if (!thesis) {
-          return res.status(403).json({ success: false, message: "Anda tidak memiliki akses ke thesis ini" });
+          return res.status(403).json({
+            success: false,
+            message: "Anda tidak memiliki akses ke thesis ini",
+          });
         }
+
+        // Save to /uploads/thesis/{thesisId}/ folder
         uploadsDir = path.join(process.cwd(), "uploads", "thesis", thesisId);
+        fileName = "final-thesis.pdf"; // Fixed name for final thesis
+        relativeFilePath = `uploads/thesis/${thesisId}/${fileName}`;
       } else {
         // Fallback: Get student's active thesis
         const student = await prisma.student.findFirst({
           where: { id: userId },
-          include: { thesis: { take: 1, orderBy: { createdAt: "desc" } } },
+          include: {
+            thesis: {
+              take: 1,
+              orderBy: { createdAt: "desc" },
+            },
+          },
         });
 
         if (student?.thesis?.[0]) {
           const activeThesisId = student.thesis[0].id;
           uploadsDir = path.join(process.cwd(), "uploads", "thesis", activeThesisId);
+          fileName = "final-thesis.pdf";
+          relativeFilePath = `uploads/thesis/${activeThesisId}/${fileName}`;
         } else {
           // No thesis found, use generic path
           uploadsDir = path.join(process.cwd(), "uploads", "thesis", "general");
+          const uniqueId = Date.now().toString(36);
+          fileName = `${uniqueId}-${file.originalname}`;
+          relativeFilePath = `uploads/thesis/general/${fileName}`;
         }
-      }
-
-      // Format file name based on user details
-      const userRecord = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { fullName: true, identityNumber: true },
-      });
-
-      if (uploadsDir.includes("general")) {
-        const uniqueId = Date.now().toString(36);
-        fileName = `${uniqueId}-${file.originalname}`;
-        relativeFilePath = `uploads/thesis/general/${fileName}`;
-      } else {
-        const cleanName = userRecord?.fullName?.replace(/[^a-zA-Z0-9]/g, '_') || 'Mahasiswa';
-        const nim = userRecord?.identityNumber || 'NIM';
-        const baseName = `${nim}_${cleanName}_LaporanTA`;
-
-        // Versioning: check existing files in the directory
-        let version = 1;
-        if (fs.existsSync(uploadsDir)) {
-          const existingFiles = fs.readdirSync(uploadsDir);
-          const versionRegex = new RegExp(`^${baseName}_v(\\d+)\\.pdf$`, 'i');
-          for (const f of existingFiles) {
-            const match = f.match(versionRegex);
-            if (match) {
-              const v = parseInt(match[1]);
-              if (v >= version) version = v + 1;
-            }
-          }
-        }
-
-        fileName = `${baseName}_v${version}.pdf`;
-        const tId = uploadsDir.split(path.sep).pop();
-        relativeFilePath = `uploads/thesis/${tId}/${fileName}`;
       }
     }
 
@@ -108,7 +97,10 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
 
     const filePath = path.join(uploadsDir, fileName);
 
-    // Write file to disk
+    // Delete old file if exists (for overwriting in thesis)
+    if (module === 'thesis' && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
 
     // Write file to disk
     fs.writeFileSync(filePath, file.buffer);
@@ -162,49 +154,26 @@ router.post("/upload", authGuard, uploadThesisFile, async (req, res, next) => {
 
 /**
  * GET /documents/:id
- * Get document by ID
+ * Get document by ID — access checked against ownership / thesis relation
  */
-router.get("/:id", authGuard, async (req, res, next) => {
-  try {
-    const { id } = req.params;
+router.get(
+  "/:id",
+  authGuard,
+  loadUserRoles,
+  documentAccessGuard(),
+  async (req, res, next) => {
+    try {
+      // req.resourceAccess.document already loaded with select fields
+      const { document } = req.resourceAccess;
 
-    const document = await prisma.document.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        fileName: true,
-        filePath: true,
-        createdAt: true,
-        updatedAt: true,
-        documentType: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-          },
-        },
-      },
-    });
-
-    if (!document) {
-      return res.status(404).json({
-        success: false,
-        message: "Dokumen tidak ditemukan",
+      res.json({
+        success: true,
+        data: document,
       });
+    } catch (error) {
+      next(error);
     }
-
-    res.json({
-      success: true,
-      data: document,
-    });
-  } catch (error) {
-    next(error);
   }
-});
+);
 
 export default router;

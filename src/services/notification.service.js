@@ -71,14 +71,15 @@ export async function createNotificationService(data) {
 /**
  * Create notifications for multiple userIds
  * @param {string[]} userIds
- * @param {{ title?: string, message?: string }} payload
+ * @param {{ title?: string, message?: string, type?: string, data?: object }} payload
  */
-export async function createNotificationsForUsers(userIds = [], { title = "", message = "" } = {}) {
-	const data = (userIds || [])
+export async function createNotificationsForUsers(userIds = [], payload = {}) {
+	const { title = "", message = "", type = undefined, data: payloadData = undefined } = payload;
+	const rows = (userIds || [])
 		.filter(Boolean)
-		.map((userId) => ({ userId, title, message }));
-	if (!data.length) return { count: 0 };
-	const result = await createNotificationsMany(data);
+		.map((userId) => ({ userId, title, message, type, data: payloadData }));
+	if (!rows.length) return { count: 0 };
+	const result = await createNotificationsMany(rows);
 	return { count: result.count || 0 };
 }
 

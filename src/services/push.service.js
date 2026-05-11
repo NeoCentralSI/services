@@ -1,12 +1,28 @@
 import redisClient from "../config/redis.js";
 import { getFcmMessaging } from "../config/fcm.js";
+import { ENV } from "../config/env.js";
 
 const KEY_PREFIX = "fcm:tokens:"; // per-user set of tokens
 const REVERSE_KEY_PREFIX = "fcm:token-owner:"; // reverse index: token → userId
 
+async function ensureRedisAvailable() {
+  if (ENV.SKIP_REDIS) return false;
+  if (redisClient.isOpen) return true;
+
+  try {
+    await redisClient.connect();
+    return true;
+  } catch (error) {
+    if (ENV.NODE_ENV !== "test") {
+      console.warn("[FCM] Redis unavailable; skipping push token operation:", error.message);
+    }
+    return false;
+  }
+}
+
 export async function registerFcmToken(userId, token, platform = "unknown") {
   if (!userId || !token) return { registered: 0 };
-  if (!redisClient.isOpen) await redisClient.connect();
+  if (!(await ensureRedisAvailable())) return { registered: 0, skipped: "redis-unavailable" };
   const res = await redisClient.sAdd(KEY_PREFIX + userId, token);
   return { registered: res };
 
@@ -37,7 +53,7 @@ export async function registerFcmToken(userId, token, platform = "unknown") {
 
 export async function unregisterFcmToken(userId, token) {
   if (!userId || !token) return { removed: 0 };
-  if (!redisClient.isOpen) await redisClient.connect();
+  if (!(await ensureRedisAvailable())) return { removed: 0, skipped: "redis-unavailable" };
 
   const existingTokens = await redisClient.sMembers(KEY_PREFIX + userId);
   let removedCount = 0;
@@ -56,7 +72,7 @@ export async function unregisterFcmToken(userId, token) {
 
 export async function getUserFcmTokens(userId, targetPlatform = null) {
   if (!userId) return [];
-  if (!redisClient.isOpen) await redisClient.connect();
+  if (!(await ensureRedisAvailable())) return [];
   const rawTokens = await redisClient.sMembers(KEY_PREFIX + userId);
   if (!rawTokens) return [];
 
@@ -91,7 +107,7 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
   }
   const tokens = Array.from(uniqueTokens);
   if (!tokens.length) {
-    console.warn(`[FCM] No tokens for users: ${userIds.join(",")}`);
+    console.log(`[FCM] No tokens for users: ${userIds.join(",")}`);
     return { success: true, sent: 0 };
   }
 
@@ -124,7 +140,7 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
     }
   });
   if (invalidTokens.length) {
-    if (!redisClient.isOpen) await redisClient.connect();
+    if (!(await ensureRedisAvailable())) return { success: true, sent: resp.successCount, failed: resp.failureCount };
     for (const uid of userIds) {
       await redisClient.sRem(KEY_PREFIX + uid, invalidTokens);
     }

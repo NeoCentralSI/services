@@ -15,10 +15,12 @@ import { describe, it, expect, afterAll } from "vitest";
 import prisma from "../../config/prisma.js";
 import { updateAllThesisStatuses } from "../../services/thesisStatus.service.js";
 
-const THESIS_ID = "0a454898-508a-4c52-8bd7-51e24c600e5e";
+const DEFAULT_THESIS_ID = "0a454898-508a-4c52-8bd7-51e24c600e5e";
 
 describe("Trigger FAILED thesis flow", () => {
+    let thesisId = DEFAULT_THESIS_ID;
     let originalCreatedAt = null;
+    let originalDeadlineDate = null;
     let originalRating = null;
     let originalThesisStatusId = null;
 
@@ -27,9 +29,10 @@ describe("Trigger FAILED thesis flow", () => {
         if (originalCreatedAt !== null) {
             console.log("[cleanup] Restoring thesis to original state...");
             await prisma.thesis.update({
-                where: { id: THESIS_ID },
+                where: { id: thesisId },
                 data: {
                     createdAt: originalCreatedAt,
+                    deadlineDate: originalDeadlineDate,
                     rating: originalRating,
                     thesisStatusId: originalThesisStatusId,
                 },
@@ -39,7 +42,7 @@ describe("Trigger FAILED thesis flow", () => {
             // (we can't perfectly restore these, but set them back to 'requested')
             await prisma.thesisGuidance.updateMany({
                 where: {
-                    thesisId: THESIS_ID,
+                    thesisId,
                     status: "cancelled",
                 },
                 data: {
@@ -54,8 +57,8 @@ describe("Trigger FAILED thesis flow", () => {
 
     it("should mark thesis as FAILED and perform cleanup when createdAt > 1 year ago", async () => {
         // 1. Fetch the current thesis state
-        const thesis = await prisma.thesis.findUnique({
-            where: { id: THESIS_ID },
+        let thesis = await prisma.thesis.findUnique({
+            where: { id: thesisId },
             include: {
                 thesisStatus: { select: { name: true } },
                 student: {
@@ -66,6 +69,50 @@ describe("Trigger FAILED thesis flow", () => {
             },
         });
 
+        if (!thesis) {
+            thesis = await prisma.thesis.findFirst({
+                where: {
+                    thesisStatus: {
+                        name: { notIn: ["Selesai", "Gagal", "Bimbingan"] },
+                    },
+                },
+                orderBy: { createdAt: "asc" },
+                include: {
+                    thesisStatus: { select: { name: true } },
+                    student: {
+                        select: {
+                            user: { select: { id: true, fullName: true, identityNumber: true } },
+                        },
+                    },
+                },
+            });
+            if (thesis) {
+                thesisId = thesis.id;
+            }
+        }
+
+        if (!thesis) {
+            thesis = await prisma.thesis.findFirst({
+                where: {
+                    thesisStatus: {
+                        name: { notIn: ["Selesai", "Gagal"] },
+                    },
+                },
+                orderBy: { createdAt: "asc" },
+                include: {
+                    thesisStatus: { select: { name: true } },
+                    student: {
+                        select: {
+                            user: { select: { id: true, fullName: true, identityNumber: true } },
+                        },
+                    },
+                },
+            });
+            if (thesis) {
+                thesisId = thesis.id;
+            }
+        }
+
         expect(thesis).not.toBeNull();
         console.log(`[test] Found thesis: "${thesis.title}"`);
         console.log(`[test] Student: ${thesis.student?.user?.fullName} (${thesis.student?.user?.identityNumber})`);
@@ -74,13 +121,14 @@ describe("Trigger FAILED thesis flow", () => {
 
         // Save original values for cleanup
         originalCreatedAt = thesis.createdAt;
+        originalDeadlineDate = thesis.deadlineDate;
         originalRating = thesis.rating;
         originalThesisStatusId = thesis.thesisStatusId;
 
         // 2. Count pending guidances before
         const pendingGuidancesBefore = await prisma.thesisGuidance.count({
             where: {
-                thesisId: THESIS_ID,
+                thesisId,
                 status: { in: ["requested", "accepted"] },
             },
         });
@@ -89,16 +137,20 @@ describe("Trigger FAILED thesis flow", () => {
         // 3. Set createdAt to > 1 year ago (e.g., 400 days ago)
         const moreThanOneYearAgo = new Date();
         moreThanOneYearAgo.setDate(moreThanOneYearAgo.getDate() - 400);
+        const expiredDeadline = new Date();
+        expiredDeadline.setDate(expiredDeadline.getDate() - 5);
 
         await prisma.thesis.update({
-            where: { id: THESIS_ID },
+            where: { id: thesisId },
             data: {
                 createdAt: moreThanOneYearAgo,
+                deadlineDate: expiredDeadline,
                 // Reset rating to ONGOING so the cron can detect the transition
                 rating: "ONGOING",
             },
         });
         console.log(`[test] Set createdAt to ${moreThanOneYearAgo.toISOString()} (400 days ago)`);
+        console.log(`[test] Set deadlineDate to ${expiredDeadline.toISOString()} (5 days ago)`);
 
         // 4. Also reset thesisStatusId to a non-terminal status (Bimbingan)
         const bimbinganStatus = await prisma.thesisStatus.findFirst({
@@ -106,7 +158,7 @@ describe("Trigger FAILED thesis flow", () => {
         });
         if (bimbinganStatus) {
             await prisma.thesis.update({
-                where: { id: THESIS_ID },
+                where: { id: thesisId },
                 data: { thesisStatusId: bimbinganStatus.id },
             });
         }
@@ -118,7 +170,7 @@ describe("Trigger FAILED thesis flow", () => {
 
         // 6. Verify: thesis should now be FAILED
         const updatedThesis = await prisma.thesis.findUnique({
-            where: { id: THESIS_ID },
+            where: { id: thesisId },
             include: {
                 thesisStatus: { select: { name: true } },
             },
@@ -132,7 +184,7 @@ describe("Trigger FAILED thesis flow", () => {
         // 7. Verify: pending guidances should be cancelled
         const pendingGuidancesAfter = await prisma.thesisGuidance.count({
             where: {
-                thesisId: THESIS_ID,
+                thesisId,
                 status: { in: ["requested", "accepted"] },
             },
         });

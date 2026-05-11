@@ -1,6 +1,10 @@
 import { fetchStudentsFull, hashStudent } from "./sia.client.js";
 import { saveStudents, saveSyncStatus, cleanupObsoleteStudents } from "./sia.store.js";
 import prisma from "../config/prisma.js";
+import {
+  deriveMetopenEligibilityFromSiaStudent,
+  deriveThesisCourseEnrollmentFromSiaStudent,
+} from "./metopenEligibility.service.js";
 
 /**
  * Main SIA sync job - fetches student data and updates cache + database
@@ -40,11 +44,15 @@ export async function runSiaSync() {
       fetchedAt: startedAt.toISOString(),
     }));
 
-    // Save to Redis cache
-    const { updated, skipped } = await saveStudents(stamped);
-    summary.updated = updated;
-    summary.skipped = skipped;
-    console.log(`💾 Cache: ${updated} updated, ${skipped} skipped`);
+    // Save to Redis cache (non-blocking — sync continues even if Redis fails)
+    try {
+      const { updated, skipped } = await saveStudents(stamped);
+      summary.updated = updated;
+      summary.skipped = skipped;
+      console.log(`💾 Cache: ${updated} updated, ${skipped} skipped`);
+    } catch (redisErr) {
+      console.warn("⚠️  Redis cache save failed (continuing sync):", redisErr.message);
+    }
 
     // Batch update database student academic fields
     const dbResult = await updateStudentAcademicBatch(stamped);
@@ -65,11 +73,15 @@ export async function runSiaSync() {
       );
     }
 
-    // Cleanup obsolete records
-    const cleanupResult = await cleanupObsoleteStudents(stamped.map((s) => s.nim));
-    summary.cleaned = cleanupResult.cleaned;
-    if (cleanupResult.cleaned > 0) {
-      console.log(`🧹 Cleaned: ${cleanupResult.cleaned} obsolete records`);
+    // Cleanup obsolete records (non-blocking — sync continues even if Redis fails)
+    try {
+      const cleanupResult = await cleanupObsoleteStudents(stamped.map((s) => s.nim));
+      summary.cleaned = cleanupResult.cleaned;
+      if (cleanupResult.cleaned > 0) {
+        console.log(`🧹 Cleaned: ${cleanupResult.cleaned} obsolete records`);
+      }
+    } catch (cleanupErr) {
+      console.warn("⚠️  Redis cleanup failed (continuing sync):", cleanupErr.message);
     }
 
     console.log(`✅ SIA sync completed in ${Date.now() - startedAt.getTime()}ms`);
@@ -79,7 +91,11 @@ export async function runSiaSync() {
     throw err;
   } finally {
     summary.durationMs = Date.now() - startedAt.getTime();
-    await saveSyncStatus(summary);
+    try {
+      await saveSyncStatus(summary);
+    } catch (statusErr) {
+      console.warn("⚠️  Failed to save sync status:", statusErr.message);
+    }
   }
 }
 
@@ -88,6 +104,7 @@ export async function runSiaSync() {
  * Uses single query with updateMany instead of N+1 queries
  */
 async function updateStudentAcademicBatch(stamped) {
+  const startedAt = new Date();
   // Prepare updates data
   const updates = stamped
     .map((entry) => ({
@@ -101,6 +118,8 @@ async function updateStudentAcademicBatch(stamped) {
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
           : Number(entry.data.currentSemester),
+      eligibleMetopen: deriveMetopenEligibilityFromSiaStudent(entry.data),
+      takingThesisCourse: deriveThesisCourseEnrollmentFromSiaStudent(entry.data),
     }))
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
@@ -126,12 +145,18 @@ async function updateStudentAcademicBatch(stamped) {
         prisma.student.updateMany({
           where: { id: nimToUserId.get(u.nim) },
           data: {
-            skscompleted: u.sks,
+            sksCompleted: u.sks,
             mandatoryCoursesCompleted: u.mandatoryCoursesCompleted,
             mkwuCompleted: u.mkwuCompleted,
             internshipCompleted: u.internshipCompleted,
             kknCompleted: u.kknCompleted,
             currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
+            eligibleMetopen: u.eligibleMetopen,
+            metopenEligibilitySource: u.eligibleMetopen === null ? null : "sia",
+            metopenEligibilityUpdatedAt: u.eligibleMetopen === null ? null : startedAt,
+            takingThesisCourse: u.takingThesisCourse,
+            thesisCourseEnrollmentSource: u.takingThesisCourse === null ? null : "sia",
+            thesisCourseEnrollmentUpdatedAt: u.takingThesisCourse === null ? null : startedAt,
           },
         })
       );
@@ -143,16 +168,26 @@ async function updateStudentAcademicBatch(stamped) {
   } catch (err) {
     console.error("❌ Failed to batch update student academic fields:", err.message);
     // Fallback to individual updates if batch fails
-    return await updateStudentAcademicIndividual(updates);
+    return await updateStudentAcademicIndividual(updates, startedAt);
   }
 }
 
 /**
  * Fallback: Individual updates if batch update fails
  */
-async function updateStudentAcademicIndividual(updates) {
+async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) {
   let updated = 0;
-  for (const { nim, sks, mandatoryCoursesCompleted, mkwuCompleted, internshipCompleted, kknCompleted, currentSemester } of updates) {
+  for (const {
+    nim,
+    sks,
+    mandatoryCoursesCompleted,
+    mkwuCompleted,
+    internshipCompleted,
+    kknCompleted,
+    currentSemester,
+    eligibleMetopen,
+    takingThesisCourse,
+  } of updates) {
     try {
       const user = await prisma.user.findUnique({
         where: { identityNumber: nim },
@@ -163,12 +198,18 @@ async function updateStudentAcademicIndividual(updates) {
       await prisma.student.update({
         where: { id: user.id },
         data: {
-          skscompleted: sks,
+          sksCompleted: sks,
           mandatoryCoursesCompleted,
           mkwuCompleted,
           internshipCompleted,
           kknCompleted,
           currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
+          eligibleMetopen,
+          metopenEligibilitySource: eligibleMetopen === null ? null : "sia",
+          metopenEligibilityUpdatedAt: eligibleMetopen === null ? null : updatedAt,
+          takingThesisCourse,
+          thesisCourseEnrollmentSource: takingThesisCourse === null ? null : "sia",
+          thesisCourseEnrollmentUpdatedAt: takingThesisCourse === null ? null : updatedAt,
         },
       });
       updated++;

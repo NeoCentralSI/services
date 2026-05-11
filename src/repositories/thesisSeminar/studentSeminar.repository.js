@@ -231,7 +231,7 @@ export async function deleteAudienceRegistration(seminarId, studentId) {
  * Check supervisor seminar readiness for a thesis
  */
 export async function getSupervisorSeminarReadiness(thesisId) {
-  return prisma.thesisSupervisors.findMany({
+  return prisma.thesisParticipant.findMany({
     where: { thesisId },
     select: {
       id: true,

@@ -1,4 +1,5 @@
 import prisma from "../../config/prisma.js";
+import { withSupervisorRoleAliases } from "../../utils/supervisorIntegrity.js";
 
 export function getStudentByUserId(userId) {
   // Schema baru: Student.id adalah foreign key ke User.id
@@ -6,15 +7,9 @@ export function getStudentByUserId(userId) {
 }
 
 export async function getActiveThesisForStudent(studentId) {
-  // Pick the most recent ACTIVE thesis (exclude cancelled/failed/completed)
+  // Pick the most recent by startDate desc (fallback by id desc)
   const thesis = await prisma.thesis.findFirst({
-    where: {
-      studentId,
-      isProposal: false,
-      thesisStatus: {
-        name: { notIn: ['Dibatalkan', 'Gagal', 'Selesai', 'Lulus', 'Drop Out'] },
-      },
-    },
+    where: { studentId },
     orderBy: [
       { startDate: "desc" },
       { id: "desc" },
@@ -29,27 +24,18 @@ export async function getActiveThesisForStudent(studentId) {
 
 export async function getThesisHistory(studentId) {
   const theses = await prisma.thesis.findMany({
-    where: { studentId, isProposal: false },
+    where: { studentId },
     orderBy: { createdAt: "desc" },
     include: {
       thesisStatus: { select: { id: true, name: true } },
       thesisTopic: { select: { id: true, name: true } },
       academicYear: { select: { id: true, year: true, semester: true } },
       document: { select: { id: true, filePath: true, fileName: true } },
-      thesisSupervisors: {
-        include: {
-          role: { select: { id: true, name: true } },
-          lecturer: { include: { user: { select: { id: true, fullName: true, email: true, identityNumber: true } } } },
-        }
-      },
       _count: {
         select: {
           thesisGuidances: { where: { status: "completed" } },
+          thesisMilestones: { where: { status: { not: "deleted" } } }
         }
-      },
-      thesisMilestones: {
-        select: { status: true },
-        where: { status: { not: "deleted" } }
       }
     },
   });
@@ -57,14 +43,14 @@ export async function getThesisHistory(studentId) {
 }
 
 export async function getSupervisorsForThesis(thesisId) {
-  const supervisors = await prisma.ThesisSupervisors.findMany({
-    where: { thesisId },
+  const supervisors = await prisma.thesisParticipant.findMany({
+    where: { thesisId, status: "active" },
     include: {
-      role: { select: { id: true, name: true } },
-      lecturer: { include: { user: { select: { id: true, fullName: true, email: true, identityNumber: true } } } },
+      lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
+      role: true,
     },
   });
-  return supervisors;
+  return withSupervisorRoleAliases(supervisors);
 }
 
 export function listGuidancesForThesis(thesisId, status) {
@@ -78,10 +64,7 @@ export function listGuidancesForThesis(thesisId, status) {
   // Schema baru: tidak ada schedule relation, gunakan requestedDate/approvedDate langsung
   return prisma.thesisGuidance.findMany({
     where,
-    include: {
-      supervisor: { include: { user: true } },
-      document: { select: { id: true, fileName: true, filePath: true } },
-    },
+    include: { supervisor: { include: { user: true } } },
     orderBy: [
       { requestedDate: "desc" },
       { id: "desc" },
@@ -91,10 +74,9 @@ export function listGuidancesForThesis(thesisId, status) {
 
 export function getGuidanceByIdForStudent(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
-    where: { id: guidanceId, thesis: { studentId, isProposal: false } },
+    where: { id: guidanceId, thesis: { studentId } },
     include: {
       supervisor: { include: { user: true } },
-      document: { select: { id: true, fileName: true, filePath: true } },
       milestones: { include: { milestone: { select: { id: true, title: true } } } },
     },
   });
@@ -127,13 +109,10 @@ export function updateGuidanceById(id, data) {
 export function listGuidanceHistoryByStudent(studentId) {
   return prisma.thesisGuidance.findMany({
     where: {
-      thesis: { studentId, isProposal: false },
+      thesis: { studentId },
       status: { not: "deleted" }
     },
-    include: {
-      supervisor: { include: { user: true } },
-      document: { select: { id: true, fileName: true, filePath: true } },
-    },
+    include: { supervisor: { include: { user: true } } },
     orderBy: [
       { requestedDate: "desc" },
       { id: "desc" },
@@ -194,8 +173,8 @@ export async function upsertStudentCompletions(thesisId, componentIds = [], comp
  * Submit session summary by student
  * Changes status from 'accepted' to 'summary_pending'
  */
-export async function submitSessionSummary(guidanceId, { sessionSummary, actionItems }) {
-  const updated = await prisma.thesisGuidance.update({
+export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }) {
+  return prisma.thesisGuidance.update({
     where: { id: guidanceId },
     data: {
       sessionSummary,
@@ -208,15 +187,6 @@ export async function submitSessionSummary(guidanceId, { sessionSummary, actionI
       milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
     },
   });
-
-  if (updated.thesisId) {
-    await prisma.thesis.update({
-      where: { id: updated.thesisId },
-      data: { updatedAt: new Date() }
-    });
-  }
-
-  return updated;
 }
 
 /**
@@ -225,7 +195,7 @@ export async function submitSessionSummary(guidanceId, { sessionSummary, actionI
 export function getCompletedGuidanceHistory(studentId) {
   return prisma.thesisGuidance.findMany({
     where: {
-      thesis: { studentId, isProposal: false },
+      thesis: { studentId },
       status: "completed",
     },
     include: {
@@ -253,7 +223,7 @@ export function getGuidanceForExport(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
     where: {
       id: guidanceId,
-      thesis: { studentId, isProposal: false },
+      thesis: { studentId },
       status: "completed",
     },
     include: {
@@ -279,7 +249,7 @@ export function getGuidanceForExport(guidanceId, studentId) {
 export function getGuidancesNeedingSummary(studentId) {
   return prisma.thesisGuidance.findMany({
     where: {
-      thesis: { studentId, isProposal: false },
+      thesis: { studentId },
       status: "accepted",
       approvedDate: { lte: new Date() }, // Jadwal sudah lewat
     },

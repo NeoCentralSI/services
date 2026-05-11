@@ -1,7 +1,14 @@
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError } from "../utils/errors.js";
+import { getLecturerQuotaSnapshot, getLecturerQuotaSnapshots } from "./advisorQuota.service.js";
 
-const CLOSED_THESIS_STATUSES = ["Selesai", "Gagal", "Dibatalkan", "Lulus", "Drop Out"];
+async function resolveActiveAcademicYearId(academicYearId) {
+  if (academicYearId) return academicYearId;
+
+  const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
+  if (!activeYear) throw new BadRequestError("Tidak ada tahun akademik aktif");
+  return activeYear.id;
+}
 
 // ============================================
 // Quota Browse (for advisor catalog / quota view)
@@ -12,106 +19,52 @@ const CLOSED_THESIS_STATUSES = ["Selesai", "Gagal", "Dibatalkan", "Lulus", "Drop
  * Returns lecturers with their traffic-light quota status.
  */
 export async function browseLecturerQuotas(academicYearId) {
-  if (!academicYearId) {
-    const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-    if (!activeYear) throw new BadRequestError("Tidak ada tahun akademik aktif");
-    academicYearId = activeYear.id;
-  }
+  academicYearId = await resolveActiveAcademicYearId(academicYearId);
 
-  const lecturers = await prisma.lecturer.findMany({
-    where: {
-      user: {
-        userHasRoles: {
-          some: {
-            status: "active",
-            role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
-          },
-        },
-      },
-    },
-    include: {
-      user: { select: { id: true, fullName: true, identityNumber: true, email: true, avatarUrl: true } },
-      scienceGroup: { select: { id: true, name: true } },
-      supervisionQuotas: {
-        where: { academicYearId },
-        take: 1,
-      },
-      thesisSupervisors: {
-        where: {
-          thesis: {
-            OR: [
-              { thesisStatusId: null },
-              { thesisStatus: { name: { notIn: CLOSED_THESIS_STATUSES } } },
-            ],
-          },
-        },
-        select: { id: true },
-      },
-    },
-    orderBy: { user: { fullName: "asc" } },
-  });
-
-  return lecturers.map((l) => {
-    const quota = l.supervisionQuotas?.[0];
-    const quotaMax = quota?.quotaMax ?? 10;
-    const quotaSoftLimit = quota?.quotaSoftLimit ?? 8;
-    const currentCount = quota?.currentCount ?? 0;
-
-    let trafficLight = "green";
-    if (currentCount >= quotaMax) trafficLight = "red";
-    else if (currentCount >= quotaSoftLimit) trafficLight = "yellow";
-
-    return {
-      lecturerId: l.id,
-      fullName: l.user?.fullName,
-      identityNumber: l.user?.identityNumber,
-      email: l.user?.email,
-      avatarUrl: l.user?.avatarUrl,
-      scienceGroup: l.scienceGroup,
-      quotaMax,
-      quotaSoftLimit,
-      currentCount,
-      activeTheses: l.thesisSupervisors?.length ?? 0,
-      trafficLight,
-      acceptingRequests: l.acceptingRequests,
-    };
-  });
+  const snapshots = await getLecturerQuotaSnapshots({ academicYearId });
+  return snapshots.map((snapshot) => ({
+    lecturerId: snapshot.lecturerId,
+    fullName: snapshot.fullName,
+    identityNumber: snapshot.identityNumber,
+    email: snapshot.email,
+    avatarUrl: snapshot.avatarUrl,
+    scienceGroup: snapshot.scienceGroup,
+    quotaMax: snapshot.quotaMax,
+    quotaSoftLimit: snapshot.quotaSoftLimit,
+    currentCount: snapshot.currentCount,
+    activeCount: snapshot.activeCount,
+    bookingCount: snapshot.bookingCount,
+    pendingKadepCount: snapshot.pendingKadepCount,
+    normalAvailable: snapshot.normalAvailable,
+    overquotaAmount: snapshot.overquotaAmount,
+    activeTheses: snapshot.activeCount,
+    trafficLight: snapshot.trafficLight,
+    acceptingRequests: snapshot.acceptingRequests,
+  }));
 }
 
 /**
  * Get quota details for a specific lecturer.
  */
 export async function getLecturerQuotaDetail(lecturerId, academicYearId) {
-  if (!academicYearId) {
-    const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-    if (!activeYear) throw new BadRequestError("Tidak ada tahun akademik aktif");
-    academicYearId = activeYear.id;
-  }
+  academicYearId = await resolveActiveAcademicYearId(academicYearId);
+  const snapshot = await getLecturerQuotaSnapshot(lecturerId, academicYearId, { includeEntries: true });
+  if (!snapshot) throw new NotFoundError("Dosen tidak ditemukan");
 
-  const lecturer = await prisma.lecturer.findUnique({
-    where: { id: lecturerId },
-    include: {
-      user: { select: { id: true, fullName: true, identityNumber: true, email: true } },
-      scienceGroup: { select: { id: true, name: true } },
-      supervisionQuotas: {
-        where: { academicYearId },
-        take: 1,
-      },
-    },
-  });
-
-  if (!lecturer) throw new NotFoundError("Dosen tidak ditemukan");
-
-  const quota = lecturer.supervisionQuotas?.[0];
   return {
-    lecturerId: lecturer.id,
-    fullName: lecturer.user?.fullName,
-    scienceGroup: lecturer.scienceGroup,
-    acceptingRequests: lecturer.acceptingRequests,
-    quotaMax: quota?.quotaMax ?? 10,
-    quotaSoftLimit: quota?.quotaSoftLimit ?? 8,
-    currentCount: quota?.currentCount ?? 0,
-    quotaRecord: quota ?? null,
+    lecturerId: snapshot.lecturerId,
+    fullName: snapshot.fullName,
+    scienceGroup: snapshot.scienceGroup,
+    acceptingRequests: snapshot.acceptingRequests,
+    quotaMax: snapshot.quotaMax,
+    quotaSoftLimit: snapshot.quotaSoftLimit,
+    currentCount: snapshot.currentCount,
+    activeCount: snapshot.activeCount,
+    bookingCount: snapshot.bookingCount,
+    pendingKadepCount: snapshot.pendingKadepCount,
+    normalAvailable: snapshot.normalAvailable,
+    overquotaAmount: snapshot.overquotaAmount,
+    quotaRecord: snapshot.quotaRecordId ? { id: snapshot.quotaRecordId } : null,
   };
 }
 
@@ -119,26 +72,22 @@ export async function getLecturerQuotaDetail(lecturerId, academicYearId) {
  * Check the quota status of a specific lecturer (for quick gate check).
  */
 export async function checkLecturerQuota(lecturerId, academicYearId) {
-  if (!academicYearId) {
-    const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-    academicYearId = activeYear?.id ?? null;
-  }
+  academicYearId = await resolveActiveAcademicYearId(academicYearId);
+  const snapshot = await getLecturerQuotaSnapshot(lecturerId, academicYearId);
+  if (!snapshot) throw new NotFoundError("Dosen tidak ditemukan");
 
-  const quota = academicYearId
-    ? await prisma.lecturerSupervisionQuota.findUnique({
-        where: { lecturerId_academicYearId: { lecturerId, academicYearId } },
-      })
-    : null;
-
-  const quotaMax = quota?.quotaMax ?? 10;
-  const quotaSoftLimit = quota?.quotaSoftLimit ?? 8;
-  const currentCount = quota?.currentCount ?? 0;
-
-  let trafficLight = "green";
-  if (currentCount >= quotaMax) trafficLight = "red";
-  else if (currentCount >= quotaSoftLimit) trafficLight = "yellow";
-
-  return { lecturerId, quotaMax, quotaSoftLimit, currentCount, trafficLight };
+  return {
+    lecturerId,
+    quotaMax: snapshot.quotaMax,
+    quotaSoftLimit: snapshot.quotaSoftLimit,
+    currentCount: snapshot.currentCount,
+    activeCount: snapshot.activeCount,
+    bookingCount: snapshot.bookingCount,
+    pendingKadepCount: snapshot.pendingKadepCount,
+    normalAvailable: snapshot.normalAvailable,
+    overquotaAmount: snapshot.overquotaAmount,
+    trafficLight: snapshot.trafficLight,
+  };
 }
 
 // ============================================
@@ -161,10 +110,7 @@ export async function getTopics() {
  * Get the default supervision quota config for an academic year.
  */
 export async function getDefaultQuotaConfig(academicYearId) {
-  if (!academicYearId) {
-    const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-    academicYearId = activeYear?.id;
-  }
+  academicYearId = await resolveActiveAcademicYearId(academicYearId);
   if (!academicYearId) throw new BadRequestError("academicYearId wajib diisi");
 
   const config = await prisma.supervisionQuotaDefault.findUnique({
@@ -177,7 +123,7 @@ export async function getDefaultQuotaConfig(academicYearId) {
  * Set/update the default quota config for an academic year.
  */
 export async function setDefaultQuotaConfig(academicYearId, { quotaMax, quotaSoftLimit }) {
-  if (!academicYearId) throw new BadRequestError("academicYearId wajib diisi");
+  academicYearId = await resolveActiveAcademicYearId(academicYearId);
   if (quotaMax == null || quotaSoftLimit == null) {
     throw new BadRequestError("quotaMax dan quotaSoftLimit wajib diisi");
   }
@@ -197,6 +143,7 @@ export async function setDefaultQuotaConfig(academicYearId, { quotaMax, quotaSof
  * Set/update quota config for a specific lecturer and academic year.
  */
 export async function setLecturerQuotaConfig(lecturerId, academicYearId, { quotaMax, quotaSoftLimit }) {
+  academicYearId = await resolveActiveAcademicYearId(academicYearId);
   if (!lecturerId || !academicYearId) throw new BadRequestError("lecturerId dan academicYearId wajib diisi");
 
   return prisma.lecturerSupervisionQuota.upsert({
@@ -241,12 +188,66 @@ export async function getAcceptingLecturers() {
   });
 }
 
+export async function toggleLecturerAcceptingRequests(lecturerId, acceptingRequests) {
+  if (!lecturerId) throw new BadRequestError("lecturerId wajib diisi");
+  if (typeof acceptingRequests !== "boolean") {
+    throw new BadRequestError("acceptingRequests harus boolean");
+  }
+
+  const lecturer = await prisma.lecturer.findUnique({ where: { id: lecturerId } });
+  if (!lecturer) throw new NotFoundError("Dosen tidak ditemukan");
+
+  return prisma.lecturer.update({
+    where: { id: lecturerId },
+    data: { acceptingRequests },
+    select: {
+      id: true,
+      acceptingRequests: true,
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+  });
+}
+
+export async function checkQuotaAvailability(lecturerId, academicYearId) {
+  const detail = await getLecturerQuotaDetail(lecturerId, academicYearId);
+
+  let trafficLight = "green";
+  if (detail.currentCount >= detail.quotaMax) trafficLight = "red";
+  else if (detail.currentCount >= detail.quotaSoftLimit) trafficLight = "yellow";
+
+  const remaining = Math.max(0, detail.quotaMax - detail.currentCount);
+  const isAcceptingRequests = detail.acceptingRequests !== false;
+  const allowed = isAcceptingRequests && trafficLight !== "red";
+
+  let reason = null;
+  if (!isAcceptingRequests) {
+    reason = "Dosen sedang menutup penerimaan permintaan pembimbing.";
+  } else if (trafficLight === "red") {
+    reason = "Kuota pembimbing penuh.";
+  }
+
+  return {
+    lecturerId: detail.lecturerId,
+    quotaMax: detail.quotaMax,
+    quotaSoftLimit: detail.quotaSoftLimit,
+    currentCount: detail.currentCount,
+    remaining,
+    trafficLight,
+    acceptingRequests: detail.acceptingRequests,
+    allowed,
+    reason,
+  };
+}
+
 // ============================================
 // Monitoring (KaDep / Admin)
 // ============================================
 
 /**
  * Get quota monitoring summary for all lecturers in an academic year.
+ * Uses stored currentCount (cache). Call syncAllQuotaCounts first for
+ * up-to-date numbers; the controller/job should ensure sync runs
+ * periodically or before displaying monitoring dashboards.
  */
 export async function getQuotaMonitoring(academicYearId) {
   if (!academicYearId) {

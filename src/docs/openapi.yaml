@@ -1,27 +1,711 @@
-openapi: 3.0.3
+# yaml-language-server: $schema=./openapi-schema.json
+openapi: 3.1.0
 info:
-  title: NeoCentral SIMPTA API
-  version: 1.0.0
-  description: >
-    Surface area SIMPTA untuk advisor request, Metopen, guidance,
-    quota pembimbing, dan perubahan judul/pembimbing.
+  title: Backend API
+  version: 0.1.0
+  description: |
+    OpenAPI specification for the Backend API (Express + Prisma + Redis).
+
+    ⚠️ STATUS DOKUMEN — modular fragments belum lengkap.
+
+    Banyak path di file ini merujuk ke fragment YAML modular pada
+    `./auth/...`, `./admin/...`, `./sia/...`, `./thesisGuidance/...`. Fragment
+    tersebut belum di-commit ke repo (broken `$ref`). Untuk SIMPTA pakai
+    sumber yang otoritatif `simpta/swagger-simpta.yaml` sampai modular
+    fragment dibangun ulang.
+
+    Notes:
+    - Error responses follow a unified JSON format from `error.middleware.js`.
+    - Untuk SIMPTA scope, lihat `services/src/docs/simpta/swagger-simpta.yaml`.
+    - TA-05 deprecated; lihat `thesis-change-requests.openapi.yaml` (frozen).
+  contact:
+    name: API Support
 servers:
-  - url: /
-    description: Local API root
+  - url: http://localhost:3000
+    description: Local development
+
 tags:
-  - name: AdvisorRequest
-  - name: Metopen
-  - name: MetopenAssessmentAdmin
-  - name: SupervisionQuota
-  - name: ThesisChangeRequest
-  - name: ThesisSupervisors
+  - name: System
+    description: System/health endpoints
+  - name: Auth
+    description: Authentication endpoints (JWT access + refresh)
+  - name: AdminFeatures
+    description: Admin-only utilities and maintenance endpoints
+  - name: Notification
+    description: Notification management and FCM token endpoints
+  - name: Calendar
+    description: Calendar and event management endpoints
+  - name: LecturerThesisGuidance
+    description: Lecturer-side thesis guidance endpoints
+  - name: StudentThesisGuidance
+    description: Student-side thesis guidance endpoints
+  - name: Milestone
+    description: Thesis milestone management endpoints
+  - name: Topic
+    description: Thesis topic management endpoints (Sekretaris Departemen)
+  - name: Thesis Monitoring
+    description: Thesis monitoring endpoints for Kadep/Sekdep/GKM
+  - name: SIA Sync
+    description: External SIA (Academic Information System) synchronization endpoints
+  - name: AuditLog
+    description: Audit log endpoints for tracking critical actions
+  - name: Supervision Quota
+    description: Browse lecturers, check quota availability, and toggle accepting requests
+  - name: Supervision Quota - Admin
+    description: Admin/Kadep endpoints for managing default and per-lecturer quota overrides
+
+paths:
+  "/":
+    get:
+      tags: [System]
+      summary: API health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Health OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "API is running 🚀"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  
+
+  "/auth/login":
+    $ref: "./auth/swagger-auth.yaml#/auth_login"
+
+  "/auth/refresh":
+    $ref: "./auth/swagger-auth.yaml#/auth_refresh"
+
+  "/auth/me":
+    $ref: "./auth/swagger-auth.yaml#/auth_me"
+
+  "/auth/logout":
+    $ref: "./auth/swagger-auth.yaml#/auth_logout"
+
+  "/auth/password":
+    $ref: "./auth/swagger-auth.yaml#/auth_password"
+
+  "/auth/profile":
+    $ref: "./auth/swagger-auth.yaml#/auth_profile"
+
+  "/auth/reset/request":
+    $ref: "./auth/swagger-auth.yaml#/auth_reset_request"
+
+  "/auth/reset/verify":
+    $ref: "./auth/swagger-auth.yaml#/auth_reset_verify"
+
+  "/auth/reset/confirm":
+    $ref: "./auth/swagger-auth.yaml#/auth_reset_confirm"
+
+  "/auth/verify":
+    $ref: "./auth/swagger-auth.yaml#/auth_verify"
+
+  "/auth/verify/request":
+    $ref: "./auth/swagger-auth.yaml#/auth_verify_request"
+
+  "/auth/microsoft/login":
+    $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_login"
+
+  "/auth/microsoft/callback":
+    $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_callback"
+
+  "/sia/sync":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync"
+
+  "/sia/sync/status":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync~1status"
+
+  "/sia/cached":
+    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1cached"
+
+  "/adminfeatures/students/import":
+    $ref: "./admin/swagger-admin.yaml#/admin_import_students"
+
+  "/adminfeatures/users":
+    get:
+      $ref: "./admin/swagger-admin.yaml#/admin_get_users"
+    post:
+      $ref: "./admin/swagger-admin.yaml#/admin_create_user"
+
+  "/adminfeatures/students":
+    $ref: "./admin/swagger-admin.yaml#/admin_get_students"
+
+  "/adminfeatures/lecturers":
+    $ref: "./admin/swagger-admin.yaml#/admin_get_lecturers"
+
+  "/adminfeatures/{id}":
+    $ref: "./admin/swagger-admin.yaml#/admin_update_user"
+
+  "/adminfeatures/academic-years":
+    get:
+      $ref: "./admin/swagger-admin.yaml#/admin_get_academic_years"
+    post:
+      $ref: "./admin/swagger-admin.yaml#/admin_create_academic_year"
+  
+  "/adminfeatures/academic-years/{id}":
+    $ref: "./admin/swagger-admin.yaml#/admin_update_academic_year"
+
+  "/notification":
+    $ref: "./notification/swagger-notification.yaml#/notification_get_all"
+
+  "/notification/unread-count":
+    $ref: "./notification/swagger-notification.yaml#/notification_unread_count"
+
+  "/notification/read-all":
+    $ref: "./notification/swagger-notification.yaml#/notification_mark_all_read"
+
+  "/notification/{id}/read":
+    $ref: "./notification/swagger-notification.yaml#/notification_mark_read"
+
+  "/notification/{id}":
+    $ref: "./notification/swagger-notification.yaml#/notification_delete"
+
+  "/notification/fcm/register":
+    $ref: "./notification/swagger-notification.yaml#/notification_fcm_register"
+
+  "/notification/fcm/unregister":
+    $ref: "./notification/swagger-notification.yaml#/notification_fcm_unregister"
+
+  "/calendar/my-events":
+    $ref: "./calendar/swagger-calendar.yaml#/paths/~1calendar~1my-events"
+
+  "/calendar/upcoming":
+    $ref: "./calendar/swagger-calendar.yaml#/paths/~1calendar~1upcoming"
+
+  "/calendar/statistics":
+    $ref: "./calendar/swagger-calendar.yaml#/paths/~1calendar~1statistics"
+
+  "/thesisGuidance/lecturer/my-students":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_my_students"
+
+  "/thesisGuidance/lecturer/requests":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_requests"
+
+  "/thesisGuidance/lecturer/requests/{guidanceId}/reject":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_requests_reject"
+
+  "/thesisGuidance/lecturer/requests/{guidanceId}/approve":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_requests_approve"
+
+  "/thesisGuidance/lecturer/progress":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_progress"
+
+  "/thesisGuidance/lecturer/progress/{studentId}":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_progress_detail"
+
+  "/thesisGuidance/lecturer/progress/{studentId}/approve":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_progress_approve_components"
+
+  "/thesisGuidance/lecturer/feedback/{guidanceId}":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_feedback"
+
+  "/thesisGuidance/lecturer/progress/{studentId}/final-approval":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_final_approval"
+
+  "/thesisGuidance/lecturer/progress/{studentId}/fail":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_fail_thesis"
+
+  "/thesisGuidance/lecturer/guidance-history/{studentId}":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_guidance_history"
+
+  "/thesisGuidance/lecturer/supervisor/eligibility":
+    $ref: "./thesisGuidance/lecturer.yaml#/lecturer_supervisor_eligibility"
+
+  "/thesisGuidance/student/guidance":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_list"
+
+  "/thesisGuidance/student/guidance/{guidanceId}":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_detail"
+
+  "/thesisGuidance/student/guidance/request":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_request"
+
+  "/thesisGuidance/student/guidance/{guidanceId}/reschedule":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_reschedule"
+
+  "/thesisGuidance/student/guidance/{guidanceId}/cancel":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_cancel"
+
+  "/thesisGuidance/student/guidance/{guidanceId}/notes":
+    $ref: "./thesisGuidance/student.yaml#/student_guidance_notes"
+
+  "/thesisGuidance/student/progress":
+    $ref: "./thesisGuidance/student.yaml#/student_progress_detail"
+
+  "/thesisGuidance/student/progress/complete":
+    $ref: "./thesisGuidance/student.yaml#/student_progress_complete"
+
+  "/thesisGuidance/student/history":
+    $ref: "./thesisGuidance/student.yaml#/student_history"
+
+  "/thesisGuidance/student/supervisors":
+    $ref: "./thesisGuidance/student.yaml#/student_supervisors"
+
+  # ============================================
+  # Milestone Endpoints
+  # ============================================
+
+  "/milestones/templates":
+    $ref: "./milestone/milestone.yaml#/milestone_templates"
+
+  "/milestones/templates/categories":
+    $ref: "./milestone/milestone.yaml#/milestone_template_categories"
+
+  "/milestones/thesis/{thesisId}":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones"
+
+  "/milestones/thesis/{thesisId}/progress":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_progress"
+
+  "/milestones/thesis/{thesisId}/from-templates":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_from_templates"
+
+  "/milestones/thesis/{thesisId}/reorder":
+    $ref: "./milestone/milestone.yaml#/thesis_milestones_reorder"
+
+  "/milestones/{milestoneId}":
+    $ref: "./milestone/milestone.yaml#/milestone_detail"
+
+  "/milestones/{milestoneId}/status":
+    $ref: "./milestone/milestone.yaml#/milestone_status"
+
+  "/milestones/{milestoneId}/progress":
+    $ref: "./milestone/milestone.yaml#/milestone_progress"
+
+  "/milestones/{milestoneId}/submit-review":
+    $ref: "./milestone/milestone.yaml#/milestone_submit_review"
+
+  "/milestones/{milestoneId}/validate":
+    $ref: "./milestone/milestone.yaml#/milestone_validate"
+
+  "/milestones/{milestoneId}/request-revision":
+    $ref: "./milestone/milestone.yaml#/milestone_request_revision"
+
+  "/milestones/{milestoneId}/feedback":
+    $ref: "./milestone/milestone.yaml#/milestone_feedback"
+
+  # Seminar Readiness Approval
+  "/milestones/ready-for-seminar":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_list"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_status"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness/approve":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_approve"
+
+  "/milestones/thesis/{thesisId}/seminar-readiness/revoke":
+    $ref: "./milestone/milestone.yaml#/seminar_readiness_revoke"
+
+  # ============================================
+  # Topic Management Endpoints (Sekretaris Departemen)
+  # ============================================
+
+  "/topics":
+    $ref: "./topic/swagger-topic.yaml#/paths/~1topics"
+
+  "/topics/bulk":
+    $ref: "./topic/swagger-topic.yaml#/paths/~1topics~1bulk"
+
+  "/topics/{id}":
+    $ref: "./topic/swagger-topic.yaml#/paths/~1topics~1{id}"
+
+  # Thesis Monitoring (Kadep/Sekdep/GKM)
+  "/thesis-guidance/monitoring/dashboard":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1dashboard"
+  "/thesis-guidance/monitoring/theses":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1theses"
+  "/thesis-guidance/monitoring/filters":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1filters"
+  "/thesis-guidance/monitoring/at-risk":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1at-risk"
+  "/thesis-guidance/monitoring/ready-seminar":
+    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1ready-seminar"
+
+  # ============================================
+  # Supervision Quota Endpoints
+  # ============================================
+
+  "/quota/browse":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1browse"
+  "/quota/browse/{lecturerId}":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1browse~1{lecturerId}"
+  "/quota/check/{lecturerId}":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1check~1{lecturerId}"
+  "/quota/science-groups":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1science-groups"
+  "/quota/topics":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1topics"
+  "/quota/config/default":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1config~1default"
+  "/quota/config/lecturer/{id}":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1config~1lecturer~1{id}"
+  "/quota/accepting-requests":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1accepting-requests"
+  "/quota/monitoring":
+    $ref: "./quota/swagger-quota.yaml#/paths/~1quota~1monitoring"
+
+  # Audit Logs
+  "/audit-logs":
+    $ref: "./auditLog/swagger-auditLog.yaml#/paths/~1audit-logs"
+  "/audit-logs/filters":
+    $ref: "./auditLog/swagger-auditLog.yaml#/paths/~1audit-logs~1filters"
+  "/audit-logs/{id}":
+    $ref: "./auditLog/swagger-auditLog.yaml#/paths/~1audit-logs~1{id}"
+
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
   schemas:
+    FailThesisBody:
+      type: object
+      properties:
+        reason:
+          type: string
+    FeedbackBody:
+      type: object
+      required: [feedback]
+      properties:
+        feedback:
+          type: string
+    ApproveGuidanceBody:
+      type: object
+      properties:
+        feedback:
+          type: string
+        meetingUrl:
+          type: string
+          format: uri
+        approvedDate:
+          type: string
+          format: date-time
+          description: Override approved date (defaults to requestedDate)
+        type:
+          type: string
+          enum: [online, offline]
+        duration:
+          type: integer
+          description: Duration in minutes
+        location:
+          type: string
+    ApproveComponentsBody:
+      type: object
+      required: [componentIds]
+      properties:
+        componentIds:
+          type: array
+          items: { type: string }
+    MyStudentItem:
+      type: object
+      properties:
+        studentId: { type: string }
+        fullName: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        identityNumber: { type: string, nullable: true }
+        thesisId: { type: string }
+        thesisTitle: { type: string, nullable: true }
+        roles:
+          type: array
+          items: { type: string }
+    GuidanceItem:
+      type: object
+      properties:
+        id: { type: string }
+        thesisId: { type: string }
+        supervisorId: { type: string, nullable: true }
+        supervisorName: { type: string, nullable: true }
+        studentId: { type: string, nullable: true }
+        studentName: { type: string, nullable: true }
+        status: 
+          type: string
+          enum: [requested, accepted, rejected, completed, cancelled]
+        requestedDate: { type: string, format: date-time, nullable: true }
+        requestedDateFormatted: { type: string, nullable: true }
+        approvedDate: { type: string, format: date-time, nullable: true }
+        approvedDateFormatted: { type: string, nullable: true }
+        type: 
+          type: string
+          enum: [online, offline]
+          nullable: true
+        duration: { type: integer, nullable: true, description: "Duration in minutes" }
+        location: { type: string, nullable: true }
+        meetingUrl: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        supervisorFeedback: { type: string, nullable: true }
+        rejectionReason: { type: string, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        document:
+          type: object
+          nullable: true
+          properties:
+            fileName: { type: string }
+            filePath: { type: string }
+    ProgressSummaryItem:
+      type: object
+      properties:
+        thesisId: { type: string }
+        validated: { type: integer }
+        total: { type: integer }
+    ProgressDetailItem:
+      type: object
+      properties:
+        componentId: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        orderIndex: { type: integer }
+        isMandatory: { type: boolean }
+        completedAt: { type: string, format: date-time, nullable: true }
+        validatedBySupervisor: { type: boolean }
+        validatedAt: { type: string, format: date-time, nullable: true }
+        notes: { type: string, nullable: true }
+        evidenceUrl: { type: string, nullable: true }
+    SupervisorItem:
+      type: object
+      properties:
+        lecturerId: { type: string }
+        role: { type: string, nullable: true }
+        user:
+          type: object
+          nullable: true
+          additionalProperties: true
+    StudentRequestGuidanceBody:
+      type: object
+      required: [guidanceDate]
+      properties:
+        guidanceDate: { type: string, format: date-time }
+        studentNotes: { type: string }
+        type: 
+          type: string
+          enum: [online, offline]
+          default: online
+        duration: 
+          type: integer
+          default: 60
+          description: Duration in minutes
+        location: { type: string }
+        supervisorId: { type: string, format: uuid }
+        meetingUrl: { type: string, format: uri }
+    StudentRescheduleGuidanceBody:
+      type: object
+      required: [guidanceDate]
+      properties:
+        guidanceDate: { type: string, format: date-time }
+        studentNotes: { type: string }
+        type: 
+          type: string
+          enum: [online, offline]
+        duration: 
+          type: integer
+          description: Duration in minutes
+        location: { type: string }
+    StudentNotesBody:
+      type: object
+      required: [studentNotes]
+      properties:
+        studentNotes: { type: string }
+    StudentCompleteComponentsBody:
+      type: object
+      required: [componentIds]
+      properties:
+        componentIds:
+          type: array
+          items: { type: string }
+        completedAt: { type: string, format: date-time }
+    UpdateUserRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          description: Adds roles (non-admin only); existing roles are kept. Items can be string or object with status.
+          items:
+            oneOf:
+              - type: string
+              - type: object
+                properties:
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    enum: [active, nonActive]
+        identityNumber:
+          type: string
+        identityType:
+          type: string
+          enum: [NIM, NIP, OTHER]
+        isVerified:
+          type: boolean
+    CreateAcademicYearRequest:
+      type: object
+      properties:
+        semester:
+          type: string
+          enum: [ganjil, genap]
+        year:
+          type: integer
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+    UpdateAcademicYearRequest:
+      type: object
+      properties:
+        semester:
+          type: string
+          enum: [ganjil, genap]
+        year:
+          type: integer
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+    CreateUserRequest:
+      type: object
+      required: [email]
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          items:
+            type: string
+          description: Roles to assign to the new user ("admin" will be ignored)
+        identityNumber:
+          type: string
+        identityType:
+          type: string
+          enum: [NIM, NIP, OTHER]
+    CreateUserResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            email:
+              type: string
+              format: email
+            roles:
+              type: array
+              items:
+                type: string
+  
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          description: Roles owned by the user
+          items:
+            $ref: "#/components/schemas/RoleItem"
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        user:
+          $ref: "#/components/schemas/AuthUser"
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+    RoleItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, nonActive]
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    RefreshResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+    NotificationSample:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        message:
+          type: string
+    ImportStudentsSummary:
+      type: object
+      properties:
+        created:
+          type: integer
+          example: 10
+        updated:
+          type: integer
+          example: 0
+        skipped:
+          type: integer
+          example: 5
+        failed:
+          type: integer
+          example: 1
     ErrorResponse:
       type: object
       properties:
@@ -30,13 +714,55 @@ components:
           example: false
         status:
           type: integer
-          example: 400
+          example: 500
         message:
           type: string
+          example: Internal Server Error
         timestamp:
           type: string
           format: date-time
         path:
           type: string
-paths:
-  $ref: ./simpta/swagger-simpta.yaml#/paths
+          example: /user
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -6,12 +6,40 @@ import { fileURLToPath } from "url";
 import { ENV } from "./env.js";
 import generated from "../generated/prisma/index.js";
 
-const { PrismaClient } = generated;
+const { PrismaClient, Prisma } = generated;
 
 const GENERATED_CLIENT_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../generated/prisma/index.js"
 );
+const PRISMA_MIGRATIONS_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../prisma/migrations"
+);
+const REQUIRED_SIMPTA_TABLES = [
+  "thesis_participants",
+  "thesis_advisor_request_draft",
+  "thesis_proposal_versions",
+];
+const REQUIRED_SIMPTA_COLUMNS = {
+  students: [
+    "eligible_metopen",
+    "metopen_eligibility_source",
+    "metopen_eligibility_updated_at",
+    "taking_thesis_course",
+    "thesis_course_enrollment_source",
+    "thesis_course_enrollment_updated_at",
+  ],
+  thesis: ["final_proposal_version_id"],
+  thesis_advisor_request: [
+    "request_type",
+    "problem_statement",
+    "proposed_solution",
+    "research_object",
+    "research_permit_status",
+    "lecturer_approval_note",
+  ],
+};
 
 const DIRECT_DATABASE_PROTOCOLS = [
   "mysql://",
@@ -55,11 +83,171 @@ function assertPrismaClientMode() {
 
 assertPrismaClientMode();
 
-const prisma = new PrismaClient();
+const basePrisma = new PrismaClient();
+
+function quoteSqlLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function listLocalPrismaMigrationNames() {
+  try {
+    return fs
+      .readdirSync(PRISMA_MIGRATIONS_DIR, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          fs.existsSync(path.join(PRISMA_MIGRATIONS_DIR, entry.name, "migration.sql"))
+      )
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+async function getPendingPrismaMigrationNames(client = basePrisma) {
+  const localMigrationNames = listLocalPrismaMigrationNames();
+  if (localMigrationNames.length === 0) {
+    return [];
+  }
+
+  try {
+    const appliedRows = await client.$queryRawUnsafe(
+      "SELECT migration_name AS migrationName, finished_at AS finishedAt, rolled_back_at AS rolledBackAt FROM `_prisma_migrations`"
+    );
+    const appliedNames = new Set(
+      (Array.isArray(appliedRows) ? appliedRows : [])
+        .filter((row) => row?.finishedAt && !row?.rolledBackAt)
+        .map((row) => row.migrationName)
+    );
+
+    return localMigrationNames.filter((name) => !appliedNames.has(name));
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === "P2021" || error.code === "P2022")
+    ) {
+      return [];
+    }
+
+    return [];
+  }
+}
+
+async function getExistingTableNames(tableNames, client = basePrisma) {
+  if (!tableNames.length) {
+    return new Set();
+  }
+
+  const rows = await client.$queryRawUnsafe(
+    `SELECT table_name AS tableName
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE()
+       AND table_name IN (${tableNames.map(quoteSqlLiteral).join(", ")})`
+  );
+
+  return new Set((Array.isArray(rows) ? rows : []).map((row) => row.tableName));
+}
+
+async function getExistingColumnNames(tableName, columnNames, client = basePrisma) {
+  if (!columnNames.length) {
+    return new Set();
+  }
+
+  const rows = await client.$queryRawUnsafe(
+    `SELECT column_name AS columnName
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = ${quoteSqlLiteral(tableName)}
+       AND column_name IN (${columnNames.map(quoteSqlLiteral).join(", ")})`
+  );
+
+  return new Set((Array.isArray(rows) ? rows : []).map((row) => row.columnName));
+}
+
+export async function assertSimptaSchemaCompatibility(client = basePrisma) {
+  const tableNamesToCheck = [...new Set([...REQUIRED_SIMPTA_TABLES, "thesis_supervisors"])];
+  const [existingTables, pendingMigrations] = await Promise.all([
+    getExistingTableNames(tableNamesToCheck, client),
+    getPendingPrismaMigrationNames(client),
+  ]);
+
+  const missingSchemaParts = REQUIRED_SIMPTA_TABLES
+    .filter((tableName) => !existingTables.has(tableName))
+    .map((tableName) => `table \`${tableName}\``);
+
+  for (const [tableName, columnNames] of Object.entries(REQUIRED_SIMPTA_COLUMNS)) {
+    const existingColumns = await getExistingColumnNames(tableName, columnNames, client);
+    for (const columnName of columnNames) {
+      if (!existingColumns.has(columnName)) {
+        missingSchemaParts.push(`kolom \`${tableName}.${columnName}\``);
+      }
+    }
+  }
+
+  if (missingSchemaParts.length === 0) {
+    return;
+  }
+
+  const legacyHint =
+    existingTables.has("thesis_supervisors") && !existingTables.has("thesis_participants")
+      ? " Database masih memakai tabel legacy `thesis_supervisors`."
+      : "";
+  const pendingHint =
+    pendingMigrations.length > 0
+      ? ` Pending Prisma migrations: ${pendingMigrations.join(", ")}.`
+      : "";
+
+  throw new Error(
+    `Schema database SIMPTA belum sinkron dengan code aktif. Objek yang belum tersedia: ${missingSchemaParts.join(", ")}.${legacyHint}${pendingHint} Periksa \`npx prisma migrate status\` di folder services dan sinkronkan database ke baseline migration repo ini.`
+  );
+}
+
+/**
+ * After TA-03A/TA-03B rows change, keep KaDep queue in sync (Panduan Langkah 4–6).
+ * Dynamic import avoids circular dependency with metopen.service (which imports prisma).
+ */
+async function afterResearchMethodScoreWrite(thesisId) {
+  if (!thesisId) return;
+  try {
+    const { syncKadepProposalQueueByThesisId } = await import(
+      "../services/metopen.service.js"
+    );
+    await syncKadepProposalQueueByThesisId(thesisId);
+  } catch (err) {
+    console.error(
+      "[Prisma] syncKadepProposalQueueByThesisId failed:",
+      err?.message ?? err
+    );
+  }
+}
+
+const prisma = basePrisma.$extends({
+  query: {
+    researchMethodScore: {
+      async create({ args, query }) {
+        const result = await query(args);
+        await afterResearchMethodScoreWrite(result?.thesisId);
+        return result;
+      },
+      async update({ args, query }) {
+        const result = await query(args);
+        await afterResearchMethodScoreWrite(result?.thesisId);
+        return result;
+      },
+      async upsert({ args, query }) {
+        const result = await query(args);
+        await afterResearchMethodScoreWrite(result?.thesisId);
+        return result;
+      },
+    },
+  },
+});
 
 export async function checkDatabaseConnection() {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    await assertSimptaSchemaCompatibility(basePrisma);
     console.log("✅ Database connected successfully");
   } catch (err) {
     console.error("❌ Database connection failed:", err.message);

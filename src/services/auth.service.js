@@ -3,7 +3,6 @@ import jwt from "jsonwebtoken";
 import prisma from "../config/prisma.js";
 import { ENV } from "../config/env.js";
 import { findUserByEmail, findUserById, updateUserPassword } from "../repositories/auth.repository.js";
-import { getUserRolesWithIds } from "../repositories/adminfeatures.repository.js";
 import { sendMail } from "../config/mailer.js";
 import redisClient from "../config/redis.js";
 import { passwordResetTemplate, accountActivationWithTempPasswordTemplate } from "../utils/emailTemplate.js";
@@ -65,16 +64,10 @@ export async function loginWithEmailPassword(email, password) {
 		data: { refreshToken: refreshHash },
 	});
 
-	// Fetch roles for the user (from user_has_roles -> user_roles)
-	const roleAssignments = await getUserRolesWithIds(user.id);
-	const roles = (roleAssignments || []).map((ra) => ({
-		id: ra?.role?.id,
-		name: ra?.role?.name,
-		status: ra?.status,
-	}));
+	const profile = await getUserProfile(user.id);
 
 	return {
-		user: { id: user.id, fullName: user.fullName, email: user.email, roles },
+		user: profile,
 		accessToken,
 		refreshToken,
 	};
@@ -296,6 +289,12 @@ export async function getUserProfile(userId) {
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.sksCompleted ?? 0,
 			currentSemester: user.student.currentSemester ?? null,
+			eligibleMetopen: user.student.eligibleMetopen ?? null,
+			metopenEligibilitySource: user.student.metopenEligibilitySource ?? null,
+			metopenEligibilityUpdatedAt: user.student.metopenEligibilityUpdatedAt ?? null,
+			takingThesisCourse: user.student.takingThesisCourse ?? null,
+			thesisCourseEnrollmentSource: user.student.thesisCourseEnrollmentSource ?? null,
+			thesisCourseEnrollmentUpdatedAt: user.student.thesisCourseEnrollmentUpdatedAt ?? null,
 			status: user.student.status || null,
 		};
 	}
@@ -361,4 +360,3 @@ export async function requestAccountVerification(email) {
 
 	return { found: true, alreadyVerified: false, sent: true };
 }
-

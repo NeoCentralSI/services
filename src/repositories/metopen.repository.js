@@ -204,6 +204,7 @@ export async function findStudentThesis(userId) {
     select: {
       id: true,
       studentId: true,
+      title: true,
       thesisStatusId: true,
       proposalStatus: true,
       thesisStatus: { select: { id: true, name: true } },
@@ -260,6 +261,29 @@ export function findTaskById(milestoneId) {
  */
 export function updateTask(id, data) {
   return prisma.thesisMilestone.update({ where: { id }, data });
+}
+
+/**
+ * Find a milestone document by ID with milestone and thesis for access check
+ */
+export function findMilestoneDocumentById(documentId) {
+  return prisma.thesisMilestoneDocument.findUnique({
+    where: { id: documentId },
+    include: {
+      milestone: {
+        include: {
+          thesis: {
+            select: {
+              id: true,
+              student: {
+                select: { id: true, user: { select: { id: true } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 }
 
 /**
@@ -324,12 +348,12 @@ export function findGradingQueue(status = null) {
     include: {
       milestoneTemplate: true,
       milestoneDocuments: true,
-      metopenClass: {
-        select: { id: true, name: true },
-      },
       thesis: {
         select: {
           id: true,
+          academicYear: {
+            select: { id: true, year: true, semester: true },
+          },
           student: {
             select: {
               id: true,
@@ -345,7 +369,7 @@ export function findGradingQueue(status = null) {
         },
       },
     },
-    orderBy: [{ metopenClassId: "asc" }, { milestoneTemplateId: "asc" }, { submittedAt: "asc" }],
+    orderBy: [{ milestoneTemplateId: "asc" }, { submittedAt: "asc" }],
   });
 }
 
@@ -366,12 +390,11 @@ export async function getThesisMetopenProgress(thesisId) {
 }
 
 /**
- * Find active theses with students for publishing tasks.
- * Cohort-based: filters by thesisStatus = "Metopel" + active academic year.
+ * Find active proposal theses with students for publishing deliverables.
  */
 export function findEligibleThesesForPublish(studentIds = null, academicYearId = null) {
   const where = {
-    thesisStatus: { name: "Metopel" },
+    OR: [{ proposalStatus: null }, { proposalStatus: { not: "accepted" } }],
   };
 
   if (academicYearId) {
@@ -388,6 +411,9 @@ export function findEligibleThesesForPublish(studentIds = null, academicYearId =
       id: true,
       studentId: true,
       thesisTopicId: true,
+      academicYear: {
+        select: { id: true, year: true, semester: true },
+      },
       student: {
         select: {
           user: {
@@ -423,10 +449,280 @@ export function createAssessmentDetail(data) {
   return prisma.thesisMilestoneAssessmentDetail.create({ data });
 }
 
+// ============================================
+// Extracted from metopen.service.js (layer fix)
+// ============================================
+
+export function countActiveMilestones(milestoneTemplateId) {
+  return prisma.thesisMilestone.count({
+    where: { milestoneTemplateId, status: { not: "deleted" } },
+  });
+}
+
+export function createDocument(data) {
+  return prisma.document.create({ data });
+}
+
+export function countSupervisorsForThesis(thesisId, roleNames) {
+  return prisma.thesisParticipant.count({
+    where: {
+      thesisId,
+      role: { is: { name: { in: roleNames } } },
+    },
+  });
+}
+
+export function markPreviousDocumentsNotLatest(milestoneId) {
+  return prisma.thesisMilestoneDocument.updateMany({
+    where: { milestoneId },
+    data: { isLatest: false },
+  });
+}
+
+export function findLatestDocumentsByMilestoneId(milestoneId) {
+  return prisma.thesisMilestoneDocument.findMany({
+    where: { milestoneId, isLatest: true },
+    orderBy: [{ version: "asc" }, { createdAt: "asc" }],
+  });
+}
+
+export function findMilestoneDocumentsByIds(ids) {
+  return prisma.thesisMilestoneDocument.findMany({
+    where: { id: { in: ids } },
+  });
+}
+
+export function updateMilestoneDocument(id, data) {
+  return prisma.thesisMilestoneDocument.update({
+    where: { id },
+    data,
+  });
+}
+
+export function countMilestoneDocuments(milestoneId) {
+  return prisma.thesisMilestoneDocument.count({ where: { milestoneId } });
+}
+
+export function createMilestoneDocument(data) {
+  return prisma.thesisMilestoneDocument.create({ data });
+}
+
+export function findCompletedGuidances(thesisId, guidanceIds) {
+  return prisma.thesisGuidance.findMany({
+    where: {
+      id: { in: guidanceIds },
+      thesisId,
+      status: "completed",
+    },
+    select: { id: true },
+  });
+}
+
+export function deleteGuidanceMilestoneLinks(milestoneId) {
+  return prisma.thesisGuidanceMilestone.deleteMany({ where: { milestoneId } });
+}
+
+export function createGuidanceMilestoneLinks(data) {
+  return prisma.thesisGuidanceMilestone.createMany({ data });
+}
+
+export function findCompletedGuidancesForThesis(thesisId) {
+  return prisma.thesisGuidance.findMany({
+    where: { thesisId, status: "completed" },
+    select: {
+      id: true,
+      requestedDate: true,
+      approvedDate: true,
+      completedAt: true,
+      sessionSummary: true,
+      supervisorFeedback: true,
+      supervisor: {
+        select: { user: { select: { id: true, fullName: true } } },
+      },
+      milestones: { select: { milestoneId: true } },
+    },
+    orderBy: { completedAt: "desc" },
+  });
+}
+
+export function findLinkedGuidances(milestoneId) {
+  return prisma.thesisGuidanceMilestone.findMany({
+    where: { milestoneId },
+    include: {
+      guidance: {
+        select: {
+          id: true,
+          requestedDate: true,
+          completedAt: true,
+          sessionSummary: true,
+          supervisorFeedback: true,
+          status: true,
+          supervisor: {
+            select: { user: { select: { id: true, fullName: true } } },
+          },
+        },
+      },
+    },
+  });
+}
+
+export function findSupervisedThesesByLecturer(lecturerId) {
+  return prisma.thesisParticipant.findMany({
+    where: { lecturerId },
+    include: {
+      thesis: {
+        select: {
+          id: true,
+          title: true,
+          student: {
+            include: { user: { select: { fullName: true, identityNumber: true } } },
+          },
+          thesisMilestones: {
+            where: { milestoneTemplate: { phase: "metopen" } },
+            orderBy: { orderIndex: "asc" },
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              totalScore: true,
+              feedback: true,
+              submittedAt: true,
+              completedAt: true,
+              milestoneTemplate: { select: { name: true, weightPercentage: true } },
+            },
+          },
+        },
+      },
+      role: { select: { name: true } },
+    },
+  });
+}
+
+export function findLatestCompletedMilestoneDoc(thesisId) {
+  return prisma.thesisMilestoneDocument.findFirst({
+    where: {
+      milestone: { thesisId, status: "completed" },
+      isLatest: true,
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, filePath: true, fileName: true, fileSize: true, mimeType: true },
+  });
+}
+
+export function updateThesis(thesisId, data) {
+  return prisma.thesis.update({ where: { id: thesisId }, data });
+}
+
+export function updateManyMilestones(where, data) {
+  return prisma.thesisMilestone.updateMany({ where, data });
+}
+
+export function countMilestones(where) {
+  return prisma.thesisMilestone.count({ where });
+}
+
+export function findMilestones(where, options = {}) {
+  return prisma.thesisMilestone.findMany({
+    where,
+    ...options,
+  });
+}
+
+export function deleteManyGuidanceMilestoneLinks(milestoneIds) {
+  return prisma.thesisGuidanceMilestone.deleteMany({
+    where: { milestoneId: { in: milestoneIds } },
+  });
+}
+
+export function deleteManyAssessmentDetails(milestoneIds) {
+  return prisma.thesisMilestoneAssessmentDetail.deleteMany({
+    where: { milestoneId: { in: milestoneIds } },
+  });
+}
+
+export function deleteManyMilestoneDocuments(milestoneIds) {
+  return prisma.thesisMilestoneDocument.deleteMany({
+    where: { milestoneId: { in: milestoneIds } },
+  });
+}
+
+export function deleteManyMilestones(milestoneIds) {
+  return prisma.thesisMilestone.deleteMany({
+    where: { id: { in: milestoneIds } },
+  });
+}
+
+export function findResearchMethodScore(thesisId) {
+  return prisma.researchMethodScore.findFirst({
+    where: { thesisId },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export function findThesisById(thesisId) {
+  return prisma.thesis.findUnique({ where: { id: thesisId } });
+}
+
+export function findThesisByIdWithDetails(thesisId) {
+  return prisma.thesis.findUnique({
+    where: { id: thesisId },
+    include: {
+      student: {
+        include: { user: { select: { fullName: true, identityNumber: true } } },
+      },
+      thesisTopic: { select: { name: true } },
+      thesisSupervisors: {
+        include: {
+          lecturer: { include: { user: { select: { fullName: true, identityNumber: true } } } },
+          role: { select: { name: true } },
+        },
+      },
+    },
+  });
+}
+
 /**
  * Get all metopen milestones with student + class info for publish stats.
  * Returns milestones grouped by templateId with student details.
  */
+/**
+ * Find all proposal document versions across milestones for a thesis.
+ * Returns all ThesisMilestoneDocument records sorted by version descending —
+ * this provides the complete audit trail / version history of the proposal.
+ */
+export function findProposalVersionsByThesisId(thesisId) {
+  return prisma.thesisMilestoneDocument.findMany({
+    where: {
+      milestone: {
+        thesisId,
+        milestoneTemplate: { phase: "metopen" },
+      },
+    },
+    select: {
+      id: true,
+      fileName: true,
+      filePath: true,
+      fileSize: true,
+      mimeType: true,
+      version: true,
+      isLatest: true,
+      description: true,
+      createdAt: true,
+      milestone: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          milestoneTemplate: {
+            select: { name: true },
+          },
+        },
+      },
+    },
+    orderBy: [{ createdAt: "desc" }],
+  });
+}
+
 export function findPublishStats() {
   return prisma.thesisMilestone.findMany({
     where: {
@@ -435,30 +731,21 @@ export function findPublishStats() {
     select: {
       id: true,
       milestoneTemplateId: true,
-      metopenClassId: true,
       status: true,
       targetDate: true,
       submittedAt: true,
-      metopenClass: {
-        select: { id: true, name: true },
-      },
       thesis: {
         select: {
           id: true,
           studentId: true,
+          academicYear: {
+            select: { id: true, year: true, semester: true },
+          },
           student: {
             select: {
               id: true,
               user: {
                 select: { fullName: true, identityNumber: true },
-              },
-              metopenClassEnrollments: {
-                select: {
-                  metopenClass: {
-                    select: { id: true, name: true },
-                  },
-                },
-                take: 1,
               },
             },
           },

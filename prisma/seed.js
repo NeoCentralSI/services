@@ -28,23 +28,31 @@ async function seedRoles() {
     'Penguji',
     'Mahasiswa',
     'GKM',
-    'Dosen Pengampu Metopel',
+    'Koordinator Matkul Metopen',
+    'Koordinator Yudisium',
+    'Tim Pengelola CPL',
   ];
 
   for (const name of roles) {
-    await prisma.userRole.upsert({
-      where: { id: name },
-      update: {},
-      create: { id: name, name },
-    });
+    const existingByName = await prisma.userRole.findFirst({ where: { name } });
+    if (existingByName) {
+      await prisma.userRole.update({
+        where: { id: existingByName.id },
+        data: { name },
+      });
+    } else {
+      await prisma.userRole.create({ data: { id: name, name } });
+    }
   }
 
-  // Cleanup legacy role name if present
-  const legacy = await prisma.userRole.findUnique({ where: { id: 'Dosen Metodologi Penelitian' } });
-  if (legacy) {
-    const hasLinks = await prisma.userHasRole.count({ where: { roleId: legacy.id } });
-    if (hasLinks === 0) {
-      await prisma.userRole.delete({ where: { id: legacy.id } }).catch(() => {});
+  // Cleanup legacy Metopen role ids if present and already migrated.
+  for (const legacyRoleId of ['Dosen Metodologi Penelitian', 'Dosen Pengampu Metopel']) {
+    const legacy = await prisma.userRole.findUnique({ where: { id: legacyRoleId } });
+    if (legacy) {
+      const hasLinks = await prisma.userHasRole.count({ where: { roleId: legacy.id } });
+      if (hasLinks === 0) {
+        await prisma.userRole.delete({ where: { id: legacy.id } }).catch(() => {});
+      }
     }
   }
 
@@ -182,9 +190,9 @@ async function seedTopics() {
 async function seedMilestoneTemplates() {
   const templates = [
     { id: 'tpl-bab1', name: 'BAB 1 - Pendahuluan', description: 'Latar belakang masalah, rumusan masalah, tujuan, dan manfaat penelitian', orderIndex: 1, defaultDueDays: 14, weightPercentage: 15, isGateToAdvisorSearch: false },
-    { id: 'tpl-literatur', name: 'Kajian Literatur & Gap Penelitian', description: 'Studi literatur terkait, identifikasi research gap, dan kerangka pemikiran', orderIndex: 2, defaultDueDays: 14, weightPercentage: 20, isGateToAdvisorSearch: true },
+    { id: 'tpl-literatur', name: 'Kajian Literatur & Gap Penelitian', description: 'Studi literatur terkait, identifikasi research gap, dan kerangka pemikiran', orderIndex: 2, defaultDueDays: 14, weightPercentage: 20, isGateToAdvisorSearch: false },
     { id: 'tpl-metodologi', name: 'Metodologi Penelitian', description: 'Desain penelitian, metode pengumpulan data, teknik analisis', orderIndex: 3, defaultDueDays: 14, weightPercentage: 20, isGateToAdvisorSearch: false, requiresAdvisor: true },
-    { id: 'tpl-draft-proposal', name: 'Draft Proposal Lengkap', description: 'Dokumen proposal BAB 1-3 lengkap untuk direview pembimbing dan pengampu', orderIndex: 4, defaultDueDays: 21, weightPercentage: 25, isGateToAdvisorSearch: false, requiresAdvisor: true },
+    { id: 'tpl-draft-proposal', name: 'Draft Proposal Lengkap', description: 'Dokumen proposal BAB 1-3 lengkap untuk direview pembimbing dan Koordinator Metopen', orderIndex: 4, defaultDueDays: 21, weightPercentage: 25, isGateToAdvisorSearch: false, requiresAdvisor: true },
     { id: 'tpl-revisi-final', name: 'Revisi & Proposal Final', description: 'Revisi berdasarkan feedback dan penyerahan proposal final', orderIndex: 5, defaultDueDays: 14, weightPercentage: 20, isGateToAdvisorSearch: false, requiresAdvisor: true },
   ];
 
@@ -224,7 +232,7 @@ async function seedTestLecturers(activeYear) {
     { nip: '198809142014041001', name: 'Haris Suryamen, M.Sc.',         kbk: 'kbk-si',  topics: ['topic-erp'],                       quotaMax: 8,  quotaSoft: 6, current: 6 },
   ];
 
-  const pembimbing1Role = await prisma.userRole.findUnique({ where: { id: 'Pembimbing 1' } });
+  const pembimbing1Role = await prisma.userRole.findFirst({ where: { name: 'Pembimbing 1' } });
   if (!pembimbing1Role) throw new Error('Role "Pembimbing 1" not found — run seedRoles first');
 
   for (const l of lecturers) {
@@ -285,15 +293,15 @@ async function seedTestLecturers(activeYear) {
 }
 
 // ────────────────────────────────────────────────────────────
-// DOSEN PENGAMPU METOPEL
+// KOORDINATOR METOPEN
 // ────────────────────────────────────────────────────────────
 
 async function seedDosenPengampu(activeYear) {
   const nip = '198501012010011001'; // Dr. Husnil Kamil
   const user = await prisma.user.findUnique({ where: { identityNumber: nip } });
-  if (!user) { console.log('  ! Dosen pengampu not found, skipping'); return; }
+  if (!user) { console.log('  ! Koordinator Metopen not found, skipping'); return; }
 
-  const metopelRole = await prisma.userRole.findUnique({ where: { id: 'Dosen Pengampu Metopel' } });
+  const metopelRole = await prisma.userRole.findFirst({ where: { name: 'Koordinator Matkul Metopen' } });
   if (!metopelRole) return;
 
   await prisma.userHasRole.upsert({
@@ -302,7 +310,7 @@ async function seedDosenPengampu(activeYear) {
     create: { userId: user.id, roleId: metopelRole.id, status: 'active' },
   });
 
-  console.log(`  Dosen Pengampu Metopel: ${user.fullName}`);
+  console.log(`  Koordinator Matkul Metopen: ${user.fullName}`);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -389,34 +397,7 @@ async function seedTestStudentIlham(activeYear) {
   }
 
   // Pastikan Ilham TIDAK punya pembimbing (untuk testing fitur cari pembimbing)
-  await prisma.thesisSupervisors.deleteMany({ where: { thesisId: thesis.id } });
-
-  // Tambah gate milestone (completed) agar bisa akses halaman cari pembimbing
-  const gateTemplate = await prisma.thesisMilestoneTemplate.findFirst({
-    where: { isGateToAdvisorSearch: true, phase: 'metopen' },
-  });
-  if (gateTemplate) {
-    const existingGate = await prisma.thesisMilestone.findFirst({
-      where: { thesisId: thesis.id, milestoneTemplateId: gateTemplate.id },
-    });
-    const now = new Date();
-    if (!existingGate) {
-      await prisma.thesisMilestone.create({
-        data: {
-          thesisId: thesis.id,
-          milestoneTemplateId: gateTemplate.id,
-          title: gateTemplate.name,
-          orderIndex: 2,
-          status: 'completed',
-          progressPercentage: 100,
-          completedAt: now,
-          validatedAt: now,
-        },
-      });
-      console.log('    Gate milestone (cari pembimbing) → completed');
-    }
-  }
-
+  await prisma.thesisParticipant.deleteMany({ where: { thesisId: thesis.id } });
   console.log(`  Test Student Ilham (${NIM}) — tanpa pembimbing, siap test fitur cari pembimbing`);
   return user;
 }
@@ -527,3 +508,4 @@ main()
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());
+

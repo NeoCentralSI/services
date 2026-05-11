@@ -9,49 +9,53 @@ datasource db {
 }
 
 model User {
-  id                         String                  @id @default(uuid())
-  fullName                   String                  @map("full_name")
-  identityNumber             String                  @unique @map("identity_number")
-  identityType               IdentityType            @map("identity_type")
-  email                      String?                 @unique
+  id                         String              @id @default(uuid())
+  fullName                   String              @map("full_name")
+  identityNumber             String              @unique @map("identity_number")
+  identityType               IdentityType        @map("identity_type")
+  email                      String?             @unique
   password                   String?
-  phoneNumber                String?                 @map("phone_number")
-  isVerified                 Boolean                 @default(false)
-  token                      String?                 @db.Text
-  refreshToken               String?                 @map("refresh_token") @db.Text
-  oauthProvider              String?                 @map("oauth_provider")
-  oauthId                    String?                 @map("oauth_id")
-  oauthRefreshToken          String?                 @map("oauth_refresh_token") @db.Text
+  phoneNumber                String?             @map("phone_number")
+  isVerified                 Boolean             @default(false)
+  token                      String?             @db.Text
+  refreshToken               String?             @map("refresh_token") @db.Text
+  oauthProvider              String?             @map("oauth_provider")
+  oauthId                    String?             @map("oauth_id")
+  oauthRefreshToken          String?             @map("oauth_refresh_token") @db.Text
   avatarUrl                  String?
-  createdAt                  DateTime                @default(now())
-  updatedAt                  DateTime                @updatedAt
-  documents                  Document[]
-  internshipSeminarApprovals InternshipSeminar[]     @relation("InternshipSeminarApprover")
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  documents                  Document[]          @relation("UploadedDocuments")
+  internshipSeminarApprovals InternshipSeminar[] @relation("InternshipSeminarApprover")
   lecturer                   Lecturer?
   notifications              Notification[]
   student                    Student?
   userHasRoles               UserHasRole[]
 
-  cplScoresInputBy                   StudentCplScore[]             @relation("CplScoreInputBy")
-  cplScoresVerifiedBy                StudentCplScore[]             @relation("CplScoreVerifiedBy")
-  yudisiumReqVerifications           YudisiumParticipantRequirement[] @relation("YudisiumReqVerifiedBy")
-  yudisiumCplRecsCreated             YudisiumCplRecommendation[]   @relation("YudisiumCplRecCreatedBy")
-  yudisiumCplRecsResolved            YudisiumCplRecommendation[]   @relation("YudisiumCplRecResolvedBy")
-  yudisiumDecreeUploads              Yudisium[]                    @relation("YudisiumDecreeUploader")
-  seminarExaminerAssignments         ThesisSeminarExaminer[]        @relation("SeminarExaminerAssignedBy")
-  seminarDocVerifications            ThesisSeminarDocument[]        @relation("SeminarDocVerifiedBy")
-  defenceExaminerAssignments         ThesisDefenceExaminer[]        @relation("DefenceExaminerAssignedBy")
-  defenceDocVerifications            ThesisDefenceDocument[]        @relation("DefenceDocVerifiedBy")
-  advisorRequestsReviewed            ThesisAdvisorRequest[]         @relation("AdvisorRequestReviewer")
+  cplScoresInputBy                 StudentCplScore[]                @relation("CplScoreInputBy")
+  cplScoresVerifiedBy              StudentCplScore[]                @relation("CplScoreVerifiedBy")
+  yudisiumReqVerifications         YudisiumParticipantRequirement[] @relation("YudisiumReqVerifiedBy")
+  yudisiumCplRecsCreated           YudisiumCplRecommendation[]      @relation("YudisiumCplRecCreatedBy")
+  yudisiumCplRecsResolved          YudisiumCplRecommendation[]      @relation("YudisiumCplRecResolvedBy")
+  yudisiumDecreeUploads            Yudisium[]                       @relation("YudisiumDecreeUploader")
+  seminarExaminerAssignments       ThesisSeminarExaminer[]          @relation("SeminarExaminerAssignedBy")
+  seminarDocVerifications          ThesisSeminarDocument[]          @relation("SeminarDocVerifiedBy")
+  defenceExaminerAssignments       ThesisDefenceExaminer[]          @relation("DefenceExaminerAssignedBy")
+  defenceDocVerifications          ThesisDefenceDocument[]          @relation("DefenceDocVerifiedBy")
+  advisorRequestsReviewed          ThesisAdvisorRequest[]           @relation("AdvisorRequestReviewer")
+  guidanceEvaluationsApproved      ThesisGuidanceEvaluation[]       @relation("GuidanceEvalKadepApprover")
+  proposalTitleReviews             Thesis[]                         @relation("ThesisProposalReviewedBy")
+  researchMethodScoresFinalized    ResearchMethodScore[]            @relation("ResearchMethodScoreFinalizer")
+  proposalVersionsSubmittedAsFinal ThesisProposalVersion[]          @relation("ThesisProposalVersionSubmittedBy")
 
   @@map("users")
 }
 
 model UserRole {
   id   String @id @default(uuid())
-  name String
+  name String @unique
 
-  thesisSupervisors                  ThesisSupervisors[]
+  thesisSupervisors                  ThesisParticipant[]
   userHasRoles                       UserHasRole[]
   internshipAppLetterSignedAsRole    InternshipApplicationLetter[] @relation("InternshipAppLetterRole")
   internshipAssignLetterSignedAsRole InternshipAssignmentLetter[]  @relation("InternshipAssignLetterRole")
@@ -73,27 +77,33 @@ model UserHasRole {
 }
 
 model Student {
-  id                             String                      @id @map("user_id")
-  status                         StudentStatus               @default(active) @map("student_status")
-  enrollmentYear                 Int?                        @map("enrollment_year")
-  sksCompleted                   Int                         @map("skscompleted")
-  mandatoryCoursesCompleted      Boolean                     @default(false) @map("mandatory_courses_completed")
-  mkwuCompleted                  Boolean                     @default(false) @map("mkwu_completed")
-  internshipCompleted            Boolean                     @default(false) @map("internship_completed")
-  kknCompleted                   Boolean                     @default(false) @map("kkn_completed")
-  currentSemester                Int?                        @map("current_semester")
-  createdAt                      DateTime                    @default(now()) @map("created_at")
-  updatedAt                      DateTime                    @updatedAt @map("updated_at")
-  internships                    Internship[]
-  internshipProposalsCoordinated InternshipProposal[]
-  internshipProposalMemberships  InternshipProposalMember[]
-  internshipSeminarModerator     InternshipSeminar[]         @relation("InternshipSeminarModerator")
-  internshipSeminarAudiences     InternshipSeminarAudience[] @relation("InternshipSeminarAudience")
-  user                           User                        @relation(fields: [id], references: [id], onDelete: Cascade)
-  thesis                         Thesis[]
-  thesisSeminarAudiences         ThesisSeminarAudience[]
-  metopenClassEnrollments         MetopenClassStudent[]
-  advisorRequests                ThesisAdvisorRequest[]
+  id                              String                          @id @map("user_id")
+  status                          StudentStatus                   @default(active) @map("student_status")
+  enrollmentYear                  Int?                            @map("enrollment_year")
+  sksCompleted                    Int                             @map("skscompleted")
+  mandatoryCoursesCompleted       Boolean                         @default(false) @map("mandatory_courses_completed")
+  mkwuCompleted                   Boolean                         @default(false) @map("mkwu_completed")
+  internshipCompleted             Boolean                         @default(false) @map("internship_completed")
+  kknCompleted                    Boolean                         @default(false) @map("kkn_completed")
+  currentSemester                 Int?                            @map("current_semester")
+  eligibleMetopen                 Boolean?                        @map("eligible_metopen")
+  metopenEligibilitySource        ExternalAcademicSnapshotSource? @map("metopen_eligibility_source")
+  metopenEligibilityUpdatedAt     DateTime?                       @map("metopen_eligibility_updated_at")
+  takingThesisCourse              Boolean?                        @map("taking_thesis_course")
+  thesisCourseEnrollmentSource    ExternalAcademicSnapshotSource? @map("thesis_course_enrollment_source")
+  thesisCourseEnrollmentUpdatedAt DateTime?                       @map("thesis_course_enrollment_updated_at")
+  createdAt                       DateTime                        @default(now()) @map("created_at")
+  updatedAt                       DateTime                        @updatedAt @map("updated_at")
+  internships                     Internship[]
+  internshipProposalsCoordinated  InternshipProposal[]
+  internshipProposalMemberships   InternshipProposalMember[]
+  internshipSeminarModerator      InternshipSeminar[]             @relation("InternshipSeminarModerator")
+  internshipSeminarAudiences      InternshipSeminarAudience[]     @relation("InternshipSeminarAudience")
+  user                            User                            @relation(fields: [id], references: [id], onDelete: Cascade)
+  thesis                          Thesis[]
+  thesisSeminarAudiences          ThesisSeminarAudience[]
+  advisorRequests                 ThesisAdvisorRequest[]
+  advisorRequestDraft             ThesisAdvisorRequestDraft?
 
   @@index([sksCompleted], map: "idx_students_skscompleted")
   @@map("students")
@@ -111,9 +121,9 @@ model StudentCplScore {
   verifiedAt  DateTime?      @map("verified_at")
   finalizedAt DateTime?      @map("finalized_at")
 
-  cpl        Cpl   @relation(fields: [cplId], references: [id])
-  inputUser  User? @relation("CplScoreInputBy", fields: [inputBy], references: [id])
-  verifier   User? @relation("CplScoreVerifiedBy", fields: [verifiedBy], references: [id])
+  cpl       Cpl   @relation(fields: [cplId], references: [id])
+  inputUser User? @relation("CplScoreInputBy", fields: [inputBy], references: [id])
+  verifier  User? @relation("CplScoreVerifiedBy", fields: [verifiedBy], references: [id])
 
   @@id([studentId, cplId])
   @@index([cplId], map: "student_cpl_scores_cpl_id_fkey")
@@ -123,33 +133,38 @@ model StudentCplScore {
 }
 
 model Lecturer {
-  id                            String                        @id @map("user_id")
-  scienceGroupId                String?                       @map("science_group_id")
-  data                          Json?
-  acceptingRequests             Boolean                       @default(true) @map("accepting_requests")
-  createdAt                     DateTime                      @default(now()) @map("created_at")
-  updatedAt                     DateTime                      @updatedAt @map("updated_at")
-  internshipAppLettersSigned    InternshipApplicationLetter[] @relation("InternshipAppLetterSigner")
-  internshipAssignLettersSigned InternshipAssignmentLetter[]  @relation("InternshipAssignLetterSigner")
-  internshipSupLettersSigned    InternshipSupervisorLetter[]  @relation("InternshipSupLetterSigner")
-  internshipsSupervisored       Internship[]                  @relation("InternshipSupervisor")
-  internshipGuidanceSessions    InternshipGuidanceSession[]   @relation("InternshipGuidanceLecturer")
-  internshipAssessmentsScored   InternshipAssessment[]        @relation("InternshipAssessmentScorer")
-  scienceGroup                  ScienceGroup?                 @relation(fields: [scienceGroupId], references: [id])
-  user                          User                          @relation(fields: [id], references: [id], onDelete: Cascade)
-  thesisChangeRequestApprovals  ThesisChangeRequestApproval[]
-  thesisChangeRequestsReviewed  ThesisChangeRequest[]
-  thesisGuidances               ThesisGuidance[]
-  thesisSupervisors             ThesisSupervisors[]
-  supervisionQuotas             LecturerSupervisionQuota[]
-  milestoneAssessmentDetails    ThesisMilestoneAssessmentDetail[]
-  metopenClasses                MetopenClass[]
-  advisorRequestsReceived       ThesisAdvisorRequest[]          @relation("AdvisorRequestTarget")
-  advisorRequestsRedirected     ThesisAdvisorRequest[]          @relation("AdvisorRequestRedirect")
-  availabilities                LecturerAvailability[]
-  seminarExaminers              ThesisSeminarExaminer[]          @relation("SeminarExaminerLecturer")
-  defenceExaminers              ThesisDefenceExaminer[]          @relation("DefenceExaminerLecturer")
-  offeredTopics                 ThesisTopic[]                    @relation("TopicOfferedByLecturer")
+  id                                 String                            @id @map("user_id")
+  scienceGroupId                     String?                           @map("science_group_id")
+  data                               Json?
+  acceptingRequests                  Boolean                           @default(true) @map("accepting_requests")
+  createdAt                          DateTime                          @default(now()) @map("created_at")
+  updatedAt                          DateTime                          @updatedAt @map("updated_at")
+  internshipAppLettersSigned         InternshipApplicationLetter[]     @relation("InternshipAppLetterSigner")
+  internshipAssignLettersSigned      InternshipAssignmentLetter[]      @relation("InternshipAssignLetterSigner")
+  internshipSupLettersSigned         InternshipSupervisorLetter[]      @relation("InternshipSupLetterSigner")
+  internshipsSupervisored            Internship[]                      @relation("InternshipSupervisor")
+  internshipGuidanceSessions         InternshipGuidanceSession[]       @relation("InternshipGuidanceLecturer")
+  internshipAssessmentsScored        InternshipAssessment[]            @relation("InternshipAssessmentScorer")
+  scienceGroup                       ScienceGroup?                     @relation(fields: [scienceGroupId], references: [id])
+  user                               User                              @relation(fields: [id], references: [id], onDelete: Cascade)
+  thesisChangeRequestApprovals       ThesisChangeRequestApproval[]
+  thesisChangeRequestsReviewed       ThesisChangeRequest[]
+  thesisGuidances                    ThesisGuidance[]
+  thesisSupervisors                  ThesisParticipant[]
+  supervisionQuotas                  LecturerSupervisionQuota[]
+  milestoneAssessmentDetails         ThesisMilestoneAssessmentDetail[]
+  advisorRequestsReceived            ThesisAdvisorRequest[]            @relation("AdvisorRequestTarget")
+  advisorRequestsRedirected          ThesisAdvisorRequest[]            @relation("AdvisorRequestRedirect")
+  availabilities                     LecturerAvailability[]
+  seminarExaminers                   ThesisSeminarExaminer[]           @relation("SeminarExaminerLecturer")
+  defenceExaminers                   ThesisDefenceExaminer[]           @relation("DefenceExaminerLecturer")
+  offeredTopics                      ThesisTopic[]                     @relation("TopicOfferedByLecturer")
+  changeRequestsAsNewSupervisor      ThesisChangeRequest[]             @relation("ChangeRequestNewSupervisor")
+  changeRequestsAsReplacedSupervisor ThesisChangeRequest[]             @relation("ChangeRequestReplacedSupervisor")
+  researchMethodScoresAsSupervisor   ResearchMethodScore[]             @relation("ResearchMethodScoreSupervisor")
+  researchMethodScoresAsLecturer     ResearchMethodScore[]             @relation("ResearchMethodScoreLecturer")
+  researchMethodScoresAsCoSigner     ResearchMethodScore[]             @relation("ResearchMethodScoreCoSigner")
+  advisorRequestDrafts               ThesisAdvisorRequestDraft[]
 
   @@index([scienceGroupId], map: "lecturers_science_group_id_fkey")
   @@map("lecturers")
@@ -167,17 +182,17 @@ model LecturerAvailability {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  lecturer   Lecturer  @relation(fields: [lecturerId], references: [id])
+  lecturer Lecturer @relation(fields: [lecturerId], references: [id])
 
   @@index([lecturerId])
   @@map("lecturer_availabilities")
 }
 
 model ScienceGroup {
-  id        String     @id @default(uuid())
+  id        String        @id @default(uuid())
   name      String
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
   lecturers Lecturer[]
   topics    ThesisTopic[]
 
@@ -185,20 +200,18 @@ model ScienceGroup {
 }
 
 model AcademicYear {
-  id                  String               @id @default(uuid())
-  semester            Semester             @default(ganjil)
-  year                String?              @db.VarChar(20)
-  startDate           DateTime?            @map("start_date")
-  endDate             DateTime?            @map("end_date")
-  isActive            Boolean              @default(false) @map("is_active")
-  createdAt           DateTime             @default(now()) @map("created_at")
-  updatedAt           DateTime             @updatedAt @map("updated_at")
-  internshipProposals      InternshipProposal[]
+  id                      String                     @id @default(uuid())
+  semester                Semester                   @default(ganjil)
+  year                    String?                    @db.VarChar(20)
+  startDate               DateTime?                  @map("start_date")
+  endDate                 DateTime?                  @map("end_date")
+  isActive                Boolean                    @default(false) @map("is_active")
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  updatedAt               DateTime                   @updatedAt @map("updated_at")
+  internshipProposals     InternshipProposal[]
   thesis                  Thesis[]
   supervisionQuotaDefault SupervisionQuotaDefault?
   lecturerQuotas          LecturerSupervisionQuota[]
-  metopenClasses          MetopenClass[]
-  metopenClassStudents    MetopenClassStudent[]
   advisorRequests         ThesisAdvisorRequest[]
   yudisiums               Yudisium[]
   cpmks                   Cpmk[]
@@ -220,15 +233,15 @@ model Room {
 }
 
 model Cpl {
-  id           String   @id @default(uuid())
-  code         String?  @db.VarChar(255)
-  description  String   @db.VarChar(255)
-  minimalScore Int      @map("minimal_score")
-  isActive     Boolean  @default(true) @map("is_active")
-  displayOrder Int      @default(0) @map("display_order")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
+  id                         String                      @id @default(uuid())
+  code                       String?                     @db.VarChar(255)
+  description                String                      @db.VarChar(255)
+  minimalScore               Int                         @map("minimal_score")
+  isActive                   Boolean                     @default(true) @map("is_active")
+  displayOrder               Int                         @default(0) @map("display_order")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  cpmks                      Cpmk[]
   studentCplScores           StudentCplScore[]
   yudisiumCplRecommendations YudisiumCplRecommendation[]
 
@@ -238,6 +251,7 @@ model Cpl {
 model Cpmk {
   id             String   @id @default(uuid()) @db.VarChar(255)
   academicYearId String?  @map("academic_year_id") @db.VarChar(255)
+  cplId          String?  @map("cpl_id") @db.VarChar(255)
   code           String   @db.VarChar(255)
   description    String   @db.VarChar(255)
   type           CpmkType
@@ -246,9 +260,11 @@ model Cpmk {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   academicYear        AcademicYear?        @relation(fields: [academicYearId], references: [id])
+  cpl                 Cpl?                 @relation(fields: [cplId], references: [id])
   assessmentCriterias AssessmentCriteria[]
 
   @@index([academicYearId], map: "cpmks_academic_year_id_fkey")
+  @@index([cplId])
   @@map("cpmks")
 }
 
@@ -269,7 +285,7 @@ model AssessmentCriteria {
   cpmk              Cpmk               @relation(fields: [cpmkId], references: [id])
   assessmentRubrics AssessmentRubric[]
 
-  thesisSeminarExaminerAssessmentDetails    ThesisSeminarExaminerAssessmentDetail[]
+  thesisSeminarExaminerAssessmentDetails   ThesisSeminarExaminerAssessmentDetail[]
   thesisDefenceExaminerAssessmentDetails   ThesisDefenceExaminerAssessmentDetail[]
   thesisDefenceSupervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
   researchMethodScoreDetails               ResearchMethodScoreDetail[]
@@ -280,19 +296,20 @@ model AssessmentCriteria {
 }
 
 model AssessmentRubric {
-  id                   String   @id @default(uuid()) @db.VarChar(255)
-  assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(255)
-  minScore             Int      @default(0) @map("min_score")
-  maxScore             Int      @default(0) @map("max_score")
-  description          String   @db.Text
-  displayOrder         Int      @default(0) @map("display_order")
-  isDeleted            Boolean  @default(false) @map("is_deleted")
+  id                   String    @id @default(uuid()) @db.VarChar(255)
+  assessmentCriteriaId String    @map("assessment_criteria_id") @db.VarChar(255)
+  minScore             Int       @default(0) @map("min_score")
+  maxScore             Int       @default(0) @map("max_score")
+  description          String    @db.Text
+  displayOrder         Int       @default(0) @map("display_order")
+  isDeleted            Boolean   @default(false) @map("is_deleted")
   deletedAt            DateTime? @map("deleted_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  assessmentCriteria       AssessmentCriteria              @relation(fields: [assessmentCriteriaId], references: [id])
+  assessmentCriteria         AssessmentCriteria                @relation(fields: [assessmentCriteriaId], references: [id])
   milestoneAssessmentDetails ThesisMilestoneAssessmentDetail[]
+  researchMethodScoreDetails ResearchMethodScoreDetail[]
 
   @@index([assessmentCriteriaId], map: "assessment_rubrics_assessment_criteria_id_fkey")
   @@map("assessment_rubrics")
@@ -306,8 +323,8 @@ model ExitSurveyForm {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  questions  ExitSurveyQuestion[]
-  yudisiums  Yudisium[]
+  questions ExitSurveyQuestion[]
+  yudisiums Yudisium[]
 
   @@map("exit_survey_forms")
 }
@@ -322,7 +339,7 @@ model ExitSurveyQuestion {
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @updatedAt @map("updated_at")
 
-  form    ExitSurveyForm     @relation(fields: [exitSurveyFormId], references: [id], onDelete: Cascade)
+  form                     ExitSurveyForm            @relation(fields: [exitSurveyFormId], references: [id], onDelete: Cascade)
   options                  ExitSurveyOption[]
   studentExitSurveyAnswers StudentExitSurveyAnswer[]
 
@@ -338,7 +355,7 @@ model ExitSurveyOption {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  question                 ExitSurveyQuestion      @relation(fields: [exitSurveyQuestionId], references: [id], onDelete: Cascade)
+  question                 ExitSurveyQuestion        @relation(fields: [exitSurveyQuestionId], references: [id], onDelete: Cascade)
   studentExitSurveyAnswers StudentExitSurveyAnswer[]
 
   @@index([exitSurveyQuestionId], map: "exit_survey_options_exit_survey_question_id_fkey")
@@ -346,137 +363,197 @@ model ExitSurveyOption {
 }
 
 model Thesis {
-  id                      String                @id @default(uuid())
-  isProposal              Boolean               @default(true) @map("is_proposal")
-  rating                  ThesisRating          @default(ONGOING)
-  studentId               String                @map("student_id")
-  thesisTopicId           String?               @map("thesis_topic_id")
-  thesisStatusId          String?               @map("thesis_status_id")
-  academicYearId          String?               @map("academic_year_id")
-  documentId              String?               @map("document_id")
-  title                   String?               @db.Text
-  startDate               DateTime?             @map("start_date")
-  deadlineDate            DateTime?             @map("deadline_date")
-  finalThesisDocumentId   String?               @map("final_thesis_document_id")
-  defenceRequestedAt      DateTime?             @map("defence_requested_at")
-  // Proposal fields (merged from ThesisProposal)
-  proposalDocumentId      String?               @map("proposal_document_id")
-  proposalStatus          ProposalStatus?       @map("proposal_status")
-  titleApprovalDocumentId String?               @map("title_approval_document_id")
-  createdAt               DateTime              @default(now()) @map("created_at")
-  updatedAt               DateTime              @updatedAt @map("updated_at")
+  id                         String                      @id @default(uuid())
+  // true while still in proposal phase; false after TA-04 is accepted by KaDep.
+  isProposal                 Boolean                     @default(true) @map("is_proposal")
+  rating                     ThesisRating                @default(ONGOING)
+  studentId                  String                      @map("student_id")
+  thesisTopicId              String?                     @map("thesis_topic_id")
+  thesisStatusId             String?                     @map("thesis_status_id")
+  academicYearId             String?                     @map("academic_year_id")
+  documentId                 String?                     @map("document_id")
+  title                      String?                     @db.Text
+  startDate                  DateTime?                   @map("start_date")
+  deadlineDate               DateTime?                   @map("deadline_date")
+  finalThesisDocumentId      String?                     @map("final_thesis_document_id")
+  defenceRequestedAt         DateTime?                   @map("defence_requested_at")
+  // Proposal fields (merged from ThesisProposal). proposalDocumentId is legacy;
+  // active final proposal source is finalProposalVersion.documentId.
+  proposalDocumentId         String?                     @map("proposal_document_id")
+  finalProposalVersionId     String?                     @map("final_proposal_version_id") @db.VarChar(255)
+  proposalStatus             ProposalStatus?             @map("proposal_status")
+  titleApprovalDocumentId    String?                     @map("title_approval_document_id")
+  proposalReviewNotes        String?                     @map("proposal_review_notes") @db.Text
+  proposalReviewedAt         DateTime?                   @map("proposal_reviewed_at")
+  proposalReviewedByUserId   String?                     @map("proposal_reviewed_by_user_id") @db.VarChar(255)
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
   // Relations
-  academicYear            AcademicYear?         @relation(fields: [academicYearId], references: [id])
-  document                Document?             @relation(fields: [documentId], references: [id])
-  finalThesisDocument     Document?             @relation("FinalThesisDocument", fields: [finalThesisDocumentId], references: [id])
-  proposalDocument        Document?             @relation("ProposalDocument", fields: [proposalDocumentId], references: [id])
-  titleApprovalDocument   Document?             @relation("TitleApprovalDocument", fields: [titleApprovalDocumentId], references: [id])
-  student                 Student               @relation(fields: [studentId], references: [id])
-  thesisStatus            ThesisStatus?         @relation(fields: [thesisStatusId], references: [id])
-  thesisTopic             ThesisTopic?          @relation(fields: [thesisTopicId], references: [id])
-  thesisChangeRequests    ThesisChangeRequest[]
-  thesisDefences          ThesisDefence[]
-  thesisGuidances         ThesisGuidance[]
-  thesisMilestones        ThesisMilestone[]
-  thesisSupervisors       ThesisSupervisors[]
-  thesisSeminars          ThesisSeminar[]
-  yudisiumParticipants    YudisiumParticipant[]
+  academicYear               AcademicYear?               @relation(fields: [academicYearId], references: [id])
+  document                   Document?                   @relation(fields: [documentId], references: [id])
+  finalThesisDocument        Document?                   @relation("FinalThesisDocument", fields: [finalThesisDocumentId], references: [id])
+  proposalDocument           Document?                   @relation("ProposalDocument", fields: [proposalDocumentId], references: [id])
+  finalProposalVersion       ThesisProposalVersion?      @relation("FinalProposalVersion", fields: [finalProposalVersionId], references: [id])
+  titleApprovalDocument      Document?                   @relation("TitleApprovalDocument", fields: [titleApprovalDocumentId], references: [id])
+  proposalReviewedBy         User?                       @relation("ThesisProposalReviewedBy", fields: [proposalReviewedByUserId], references: [id])
+  student                    Student                     @relation(fields: [studentId], references: [id])
+  thesisStatus               ThesisStatus?               @relation(fields: [thesisStatusId], references: [id])
+  thesisTopic                ThesisTopic?                @relation(fields: [thesisTopicId], references: [id])
+  thesisGuidanceEvaluations  ThesisGuidanceEvaluation[]
+  thesisChangeRequests       ThesisChangeRequest[]
+  thesisDefences             ThesisDefence[]
+  thesisGuidances            ThesisGuidance[]
+  thesisMilestones           ThesisMilestone[]
+  thesisSupervisors          ThesisParticipant[]
+  thesisSeminars             ThesisSeminar[]
+  yudisiumParticipants       YudisiumParticipant[]
   studentExitSurveyResponses StudentExitSurveyResponse[]
-  researchMethodScores    ResearchMethodScore[]
+  researchMethodScores       ResearchMethodScore[]
+  advisorRequests            ThesisAdvisorRequest[]
+  proposalVersions           ThesisProposalVersion[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
   @@index([documentId], map: "thesis_document_id_fkey")
   @@index([finalThesisDocumentId], map: "thesis_final_thesis_document_id_fkey")
   @@index([proposalDocumentId], map: "thesis_proposal_document_id_fkey")
+  @@index([finalProposalVersionId], map: "thesis_final_proposal_version_id_fkey")
   @@index([titleApprovalDocumentId])
+  @@index([proposalReviewedByUserId], map: "thesis_proposal_reviewed_by_user_id_fkey")
   @@index([studentId], map: "thesis_student_id_fkey")
   @@index([thesisStatusId], map: "thesis_thesis_status_id_fkey")
   @@index([thesisTopicId], map: "thesis_thesis_topic_id_fkey")
   @@map("thesis")
 }
 
+/// @deprecated TA-05 frozen — do not extend.
+/// Flow digital pergantian judul/pembimbing dibekukan untuk seluruh siklus
+/// rilis aktif (KONTEKS_KANONIS_SIMPTA.md §5.11). Schema dipertahankan untuk
+/// kompatibilitas dan regresi safety; tidak boleh dijadikan jalur operasional
+/// baru tanpa update keputusan kanonis lebih dulu.
 model ThesisChangeRequest {
-  id          String                        @id @default(uuid())
-  thesisId    String?                       @map("thesis_id")
-  requestType ThesisChangeRequestType       @map("request_type")
-  reason      String                        @db.Text
-  status      ThesisChangeRequestStatus     @default(pending)
-  reviewedBy  String?                       @map("reviewed_by")
-  reviewNotes String?                       @map("review_notes") @db.Text
-  reviewedAt  DateTime?                     @map("reviewed_at")
-  newTopicId  String?                       @map("new_topic_id")
-  newTitle    String?                       @map("new_title") @db.VarChar(500)
-  createdAt   DateTime                      @default(now()) @map("created_at")
-  updatedAt   DateTime                      @updatedAt @map("updated_at")
-  approvals   ThesisChangeRequestApproval[]
-  reviewer    Lecturer?                     @relation(fields: [reviewedBy], references: [id])
-  thesis      Thesis?                       @relation(fields: [thesisId], references: [id])
-  newTopic    ThesisTopic?                  @relation("ChangeRequestNewTopic", fields: [newTopicId], references: [id])
+  id                           String                        @id @default(uuid())
+  thesisId                     String?                       @map("thesis_id")
+  requestType                  ThesisChangeRequestType       @map("request_type")
+  reason                       String                        @db.Text
+  status                       ThesisChangeRequestStatus     @default(pending)
+  reviewedBy                   String?                       @map("reviewed_by")
+  reviewNotes                  String?                       @map("review_notes") @db.Text
+  reviewedAt                   DateTime?                     @map("reviewed_at")
+  newTopicId                   String?                       @map("new_topic_id")
+  newTitle                     String?                       @map("new_title") @db.VarChar(500)
+  newSupervisorId              String?                       @map("new_supervisor_id")
+  supportingDocumentId         String?                       @map("supporting_document_id")
+  replacedSupervisorLecturerId String?                       @map("replaced_supervisor_lecturer_id")
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
+  approvals                    ThesisChangeRequestApproval[]
+  reviewer                     Lecturer?                     @relation(fields: [reviewedBy], references: [id])
+  thesis                       Thesis?                       @relation(fields: [thesisId], references: [id])
+  newTopic                     ThesisTopic?                  @relation("ChangeRequestNewTopic", fields: [newTopicId], references: [id])
+  newSupervisor                Lecturer?                     @relation("ChangeRequestNewSupervisor", fields: [newSupervisorId], references: [id], onDelete: SetNull)
+  supportingDocument           Document?                     @relation("ChangeRequestSupportingDocument", fields: [supportingDocumentId], references: [id], onDelete: SetNull)
+  replacedSupervisor           Lecturer?                     @relation("ChangeRequestReplacedSupervisor", fields: [replacedSupervisorLecturerId], references: [id], onDelete: SetNull)
 
   @@index([reviewedBy], map: "thesis_change_requests_reviewed_by_fkey")
   @@index([thesisId], map: "thesis_change_requests_thesis_id_fkey")
   @@index([newTopicId])
+  @@index([newSupervisorId])
+  @@index([supportingDocumentId])
+  @@index([replacedSupervisorLecturerId])
   @@map("thesis_change_requests")
 }
 
 model ThesisChangeRequestApproval {
-  id         String              @id @default(uuid())
-  requestId  String              @map("request_id")
-  lecturerId String              @map("lecturer_id")
-  status     ApprovalStatus      @default(pending)
-  notes      String?             @db.Text
-  createdAt  DateTime            @default(now()) @map("created_at")
-  updatedAt  DateTime            @updatedAt @map("updated_at")
-  lecturer   Lecturer            @relation(fields: [lecturerId], references: [id])
-  request    ThesisChangeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id           String              @id @default(uuid())
+  requestId    String              @map("request_id")
+  lecturerId   String              @map("lecturer_id")
+  status       ApprovalStatus      @default(pending)
+  notes        String?             @db.Text
+  /// 1 = pembimbing saat ini (tier lama); 2 = pembimbing baru (setelah semua tier 1 disetujui)
+  approvalTier Int                 @default(1) @map("approval_tier")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  lecturer     Lecturer            @relation(fields: [lecturerId], references: [id])
+  request      ThesisChangeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@unique([requestId, lecturerId])
   @@index([lecturerId], map: "thesis_change_request_approvals_lecturer_id_fkey")
+  @@index([requestId, approvalTier])
   @@map("thesis_change_request_approvals")
 }
 
-model ThesisSupervisors {
-  id           String   @id @default(uuid())
-  thesisId     String   @map("thesis_id")
-  lecturerId   String   @map("lecturer_id")
-  roleId       String   @map("role_id")
-  seminarReady Boolean  @default(false) @map("seminar_ready")
-  defenceReady Boolean  @default(false) @map("defence_ready")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  lecturer     Lecturer @relation(fields: [lecturerId], references: [id])
-  role         UserRole @relation(fields: [roleId], references: [id])
-  thesis       Thesis   @relation(fields: [thesisId], references: [id])
-  thesisSeminarAudienceApprovals ThesisSeminarAudience[]
-  thesisSeminarRevisionApprovals ThesisSeminarRevision[]
-  thesisSeminarResultFinalizations ThesisSeminar[] @relation("SeminarResultFinalizedBy")
-  thesisSeminarRevisionFinalizations ThesisSeminar[] @relation("SeminarRevisionFinalizedBy")
-  thesisDefenceResultFinalizations ThesisDefence[] @relation("DefenceResultFinalizedBy")
-  thesisDefenceRevisionFinalizations ThesisDefence[] @relation("DefenceRevisionFinalizedBy")
-  thesisDefenceRevisionApprovals ThesisDefenceRevision[]
+// Supervisor assignments are stored as thesis participants.
+// Relation field names keep the legacy "thesisSupervisors" alias for API compatibility.
+model ThesisParticipant {
+  id                                 String                     @id @default(uuid())
+  thesisId                           String                     @map("thesis_id")
+  lecturerId                         String                     @map("lecturer_id")
+  roleId                             String                     @map("role_id")
+  status                             SupervisorStatus           @default(active)
+  seminarReady                       Boolean                    @default(false) @map("seminar_ready")
+  defenceReady                       Boolean                    @default(false) @map("defence_ready")
+  createdAt                          DateTime                   @default(now()) @map("created_at")
+  updatedAt                          DateTime                   @updatedAt @map("updated_at")
+  lecturer                           Lecturer                   @relation(fields: [lecturerId], references: [id])
+  role                               UserRole                   @relation(fields: [roleId], references: [id])
+  thesis                             Thesis                     @relation(fields: [thesisId], references: [id])
+  guidanceEvaluations                ThesisGuidanceEvaluation[]
+  thesisSeminarAudienceApprovals     ThesisSeminarAudience[]
+  thesisSeminarRevisionApprovals     ThesisSeminarRevision[]
+  thesisSeminarResultFinalizations   ThesisSeminar[]            @relation("SeminarResultFinalizedBy")
+  thesisSeminarRevisionFinalizations ThesisSeminar[]            @relation("SeminarRevisionFinalizedBy")
+  thesisDefenceResultFinalizations   ThesisDefence[]            @relation("DefenceResultFinalizedBy")
+  thesisDefenceRevisionFinalizations ThesisDefence[]            @relation("DefenceRevisionFinalizedBy")
+  thesisDefenceRevisionApprovals     ThesisDefenceRevision[]
 
   @@index([lecturerId], map: "thesis_participants_lecturer_id_fkey")
   @@index([roleId], map: "thesis_participants_role_id_fkey")
   @@index([thesisId], map: "thesis_participants_thesis_id_fkey")
-  @@map("thesis_supervisors")
+  @@index([thesisId, lecturerId, status], map: "thesis_participants_thesis_lecturer_status_idx")
+  @@index([thesisId, roleId, status], map: "thesis_participants_thesis_role_status_idx")
+  @@map("thesis_participants")
+}
+
+model ThesisGuidanceEvaluation {
+  id                 String                           @id @default(uuid())
+  thesisId           String                           @map("thesis_id")
+  thesisSupervisorId String                           @map("thesis_supervisor_id")
+  evaluationType     GuidanceEvaluationType           @map("evaluation_type")
+  recommendation     GuidanceEvaluationRecommendation
+  notes              String?                          @db.Text
+  status             GuidanceEvaluationStatus         @default(pending)
+  kadepApprovedBy    String?                          @map("kadep_approved_by")
+  kadepApprovedAt    DateTime?                        @map("kadep_approved_at")
+  kadepNotes         String?                          @map("kadep_notes") @db.Text
+  createdAt          DateTime                         @default(now()) @map("created_at")
+  updatedAt          DateTime                         @updatedAt @map("updated_at")
+  thesis             Thesis                           @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  thesisSupervisor   ThesisParticipant                @relation(fields: [thesisSupervisorId], references: [id], onDelete: Cascade)
+  kadepApprover      User?                            @relation("GuidanceEvalKadepApprover", fields: [kadepApprovedBy], references: [id], onDelete: SetNull)
+
+  @@index([thesisId])
+  @@index([thesisSupervisorId])
+  @@index([status])
+  @@map("thesis_guidance_evaluations")
 }
 
 model ThesisTopic {
-  id             String        @id @default(uuid())
+  id             String   @id @default(uuid())
   name           String
-  scienceGroupId String?       @map("science_group_id")
-  lecturerId     String?       @map("lecturer_id")
-  description    String?       @db.Text
-  isPublished    Boolean       @default(false) @map("is_published")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
+  scienceGroupId String?  @map("science_group_id")
+  lecturerId     String?  @map("lecturer_id")
+  description    String?  @db.Text
+  isPublished    Boolean  @default(false) @map("is_published")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  scienceGroup           ScienceGroup?           @relation(fields: [scienceGroupId], references: [id])
-  lecturer               Lecturer?               @relation("TopicOfferedByLecturer", fields: [lecturerId], references: [id])
+  scienceGroup           ScienceGroup?               @relation(fields: [scienceGroupId], references: [id])
+  lecturer               Lecturer?                   @relation("TopicOfferedByLecturer", fields: [lecturerId], references: [id])
   thesis                 Thesis[]
   milestoneTemplates     ThesisMilestoneTemplate[]
   advisorRequests        ThesisAdvisorRequest[]
-  changeRequestsNewTopic ThesisChangeRequest[]   @relation("ChangeRequestNewTopic")
+  advisorRequestDrafts   ThesisAdvisorRequestDraft[]
+  changeRequestsNewTopic ThesisChangeRequest[]       @relation("ChangeRequestNewTopic")
 
   @@index([scienceGroupId])
   @@index([lecturerId])
@@ -493,25 +570,28 @@ model ThesisStatus {
 
 // ThesisProposal model removed — fields merged into Thesis
 
+/// @deprecated Class/task Metopen flow non-scope (Canon §0).
+/// Tabel milestone class-based dipertahankan untuk kompatibilitas; flow proposal
+/// aktif memakai `thesis_proposal_versions` + penilaian TA-03A/TA-03B langsung.
 model ThesisMilestoneTemplate {
-  id                    String   @id @default(uuid())
-  name                  String
-  description           String?  @db.Text
-  topicId               String?  @map("topic_id")
-  phase                 MilestonePhase @default(metopen)
-  orderIndex            Int      @default(0) @map("order_index")
-  isActive              Boolean  @default(true) @map("is_active")
-  defaultDueDays        Int?     @map("default_due_days")
-  weightPercentage      Int?     @map("weight_percentage")
-  requiresAdvisor       Boolean  @default(false) @map("requires_advisor")
-  isGateToAdvisorSearch Boolean  @default(false) @map("is_gate_to_advisor_search")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id               String         @id @default(uuid())
+  name             String
+  description      String?        @db.Text
+  topicId          String?        @map("topic_id")
+  phase            MilestonePhase @default(metopen)
+  orderIndex       Int            @default(0) @map("order_index")
+  isActive         Boolean        @default(true) @map("is_active")
+  defaultDueDays   Int?           @map("default_due_days")
+  defaultDueDate   DateTime?      @map("default_due_date")
+  weightPercentage Int?           @map("weight_percentage")
+  requiresAdvisor  Boolean        @default(false) @map("requires_advisor")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  topic              ThesisTopic?                @relation(fields: [topicId], references: [id])
-  milestones         ThesisMilestone[]
-  templateCriterias  MilestoneTemplateCriteria[]
-  attachments        MilestoneTemplateAttachment[]
+  topic             ThesisTopic?                  @relation(fields: [topicId], references: [id])
+  milestones        ThesisMilestone[]
+  templateCriterias MilestoneTemplateCriteria[]
+  attachments       MilestoneTemplateAttachment[]
 
   @@index([topicId], map: "thesis_milestone_templates_topic_id_fkey")
   @@index([phase])
@@ -545,19 +625,15 @@ model ThesisMilestone {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  thesis              Thesis                             @relation(fields: [thesisId], references: [id], onDelete: Cascade)
-  milestoneTemplate   ThesisMilestoneTemplate?           @relation(fields: [milestoneTemplateId], references: [id])
-  metopenClass        MetopenClass?                      @relation(fields: [metopenClassId], references: [id])
-  guidances           ThesisGuidanceMilestone[]
-  milestoneDocuments  ThesisMilestoneDocument[]
-  assessmentDetails   ThesisMilestoneAssessmentDetail[]
-
-  metopenClassId String? @map("metopen_class_id")
+  thesis             Thesis                            @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  milestoneTemplate  ThesisMilestoneTemplate?          @relation(fields: [milestoneTemplateId], references: [id])
+  guidances          ThesisGuidanceMilestone[]
+  milestoneDocuments ThesisMilestoneDocument[]
+  assessmentDetails  ThesisMilestoneAssessmentDetail[]
 
   @@index([thesisId, orderIndex])
   @@index([thesisId, status])
   @@index([milestoneTemplateId])
-  @@index([metopenClassId])
   @@map("thesis_milestones")
 }
 
@@ -576,9 +652,9 @@ model ThesisGuidanceMilestone {
 // ==================== Metopen Supporting Models ====================
 
 model MilestoneTemplateCriteria {
-  milestoneTemplateId  String  @map("milestone_template_id")
-  assessmentCriteriaId String  @map("assessment_criteria_id")
-  weightPercentage     Int?    @map("weight_percentage")
+  milestoneTemplateId  String   @map("milestone_template_id")
+  assessmentCriteriaId String   @map("assessment_criteria_id")
+  weightPercentage     Int?     @map("weight_percentage")
   createdAt            DateTime @default(now()) @map("created_at")
 
   milestoneTemplate  ThesisMilestoneTemplate @relation(fields: [milestoneTemplateId], references: [id], onDelete: Cascade)
@@ -603,48 +679,9 @@ model MilestoneTemplateAttachment {
   @@map("milestone_template_attachments")
 }
 
-// ==================== Metopen Class Management ====================
-
-model MetopenClass {
-  id             String   @id @default(uuid())
-  name           String
-  academicYearId String   @map("academic_year_id")
-  lecturerId     String   @map("lecturer_id")
-  description    String?  @db.Text
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  academicYear AcademicYear        @relation(fields: [academicYearId], references: [id])
-  lecturer     Lecturer            @relation(fields: [lecturerId], references: [id])
-  enrollments  MetopenClassStudent[]
-  milestones   ThesisMilestone[]
-
-  @@index([academicYearId])
-  @@index([lecturerId])
-  @@map("metopen_classes")
-}
-
-model MetopenClassStudent {
-  classId        String   @map("class_id")
-  studentId      String   @map("student_id")
-  academicYearId String   @map("academic_year_id")
-  enrolledAt     DateTime @default(now()) @map("enrolled_at")
-
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
-  metopenClass MetopenClass @relation(fields: [classId], references: [id], onDelete: Cascade)
-  student      Student      @relation(fields: [studentId], references: [id])
-
-  @@id([classId, studentId])
-  @@index([academicYearId, studentId])
-  @@index([studentId])
-  @@map("metopen_class_students")
-}
-
 model ThesisMilestoneDocument {
   id          String   @id @default(uuid())
   milestoneId String   @map("milestone_id")
-  documentId  String?  @map("document_id")
   filePath    String?  @map("file_path")
   fileName    String?  @map("file_name")
   fileSize    Int?     @map("file_size")
@@ -671,8 +708,8 @@ model ThesisMilestoneAssessmentDetail {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  milestone ThesisMilestone  @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  lecturer  Lecturer         @relation(fields: [lecturerId], references: [id])
+  milestone ThesisMilestone   @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  lecturer  Lecturer          @relation(fields: [lecturerId], references: [id])
   rubric    AssessmentRubric? @relation(fields: [rubricId], references: [id])
 
   @@index([milestoneId])
@@ -689,7 +726,7 @@ model ThesisGuidance {
   approvedDate  DateTime? @map("approved_date")
   duration      Int       @default(60)
 
-  documentId   String? @map("document_id")
+  documentId         String? @map("document_id")
   documentUrl        String? @map("document_url")
   studentNotes       String? @map("student_notes") @db.Text
   supervisorFeedback String? @map("supervisor_feedback") @db.Text
@@ -701,6 +738,7 @@ model ThesisGuidance {
   completedAt        DateTime? @map("completed_at")
 
   status GuidanceStatus @default(requested)
+  phase  GuidancePhase  @default(proposal)
 
   studentCalendarEventId    String? @map("student_calendar_event_id")
   supervisorCalendarEventId String? @map("supervisor_calendar_event_id")
@@ -721,32 +759,32 @@ model ThesisGuidance {
 }
 
 model ThesisSeminar {
-  id                 String              @id @default(uuid())
-  thesisId           String              @map("thesis_id")
-  roomId             String?             @map("room_id")
-  registeredAt       DateTime?           @map("registered_at")
-  date               DateTime?           @db.Date
-  startTime          DateTime?           @map("start_time") @db.Time(0)
-  endTime            DateTime?           @map("end_time") @db.Time(0)
-  meetingLink        String?             @map("meeting_link") @db.VarChar(255)
-  status             ThesisSeminarStatus @default(registered)
-  finalScore         Float?              @map("final_score")
-  grade              String?             @db.VarChar(10)
-  resultFinalizedAt  DateTime?           @map("result_finalized_at")
-  resultFinalizedBy  String?             @map("result_finalized_by") @db.VarChar(255)
-  revisionFinalizedAt DateTime?          @map("revision_finalized_at")
-  revisionFinalizedBy String?            @map("revision_finalized_by") @db.VarChar(255)
-  cancelledReason    String?             @map("cancelled_reason") @db.Text
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
+  id                  String              @id @default(uuid())
+  thesisId            String              @map("thesis_id")
+  roomId              String?             @map("room_id")
+  registeredAt        DateTime?           @map("registered_at")
+  date                DateTime?           @db.Date
+  startTime           DateTime?           @map("start_time") @db.Time(0)
+  endTime             DateTime?           @map("end_time") @db.Time(0)
+  meetingLink         String?             @map("meeting_link") @db.VarChar(255)
+  status              ThesisSeminarStatus @default(registered)
+  finalScore          Float?              @map("final_score")
+  grade               String?             @db.VarChar(10)
+  resultFinalizedAt   DateTime?           @map("result_finalized_at")
+  resultFinalizedBy   String?             @map("result_finalized_by") @db.VarChar(255)
+  revisionFinalizedAt DateTime?           @map("revision_finalized_at")
+  revisionFinalizedBy String?             @map("revision_finalized_by") @db.VarChar(255)
+  cancelledReason     String?             @map("cancelled_reason") @db.Text
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
 
-  thesis    Thesis                 @relation(fields: [thesisId], references: [id])
-  room      Room?                  @relation(fields: [roomId], references: [id])
-  resultFinalizer ThesisSupervisors? @relation("SeminarResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
-  revisionFinalizer ThesisSupervisors? @relation("SeminarRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
-  audiences ThesisSeminarAudience[]
-  examiners ThesisSeminarExaminer[]
-  documents ThesisSeminarDocument[]
+  thesis            Thesis                  @relation(fields: [thesisId], references: [id])
+  room              Room?                   @relation(fields: [roomId], references: [id])
+  resultFinalizer   ThesisParticipant?      @relation("SeminarResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
+  revisionFinalizer ThesisParticipant?      @relation("SeminarRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
+  audiences         ThesisSeminarAudience[]
+  examiners         ThesisSeminarExaminer[]
+  documents         ThesisSeminarDocument[]
 
   @@index([thesisId], map: "thesis_seminars_thesis_id_fkey")
   @@index([roomId], map: "thesis_seminars_room_id_fkey")
@@ -779,18 +817,18 @@ model ThesisSeminarDocument {
 }
 
 model ThesisSeminarAudience {
-  thesisSeminarId String             @map("thesis_seminar_id") @db.VarChar(255)
-  studentId       String             @map("student_id") @db.VarChar(255)
-  approvedBy      String?            @map("approved_by") @db.VarChar(255)
-  registeredAt    DateTime?          @map("registered_at")
-  isPresent       Boolean            @default(false) @map("is_present")
-  approvedAt      DateTime?          @map("approved_at")
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
+  thesisSeminarId String    @map("thesis_seminar_id") @db.VarChar(255)
+  studentId       String    @map("student_id") @db.VarChar(255)
+  approvedBy      String?   @map("approved_by") @db.VarChar(255)
+  registeredAt    DateTime? @map("registered_at")
+  isPresent       Boolean   @default(false) @map("is_present")
+  approvedAt      DateTime? @map("approved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   seminar    ThesisSeminar      @relation(fields: [thesisSeminarId], references: [id], onDelete: Cascade)
   student    Student            @relation(fields: [studentId], references: [id])
-  supervisor ThesisSupervisors? @relation(fields: [approvedBy], references: [id])
+  supervisor ThesisParticipant? @relation(fields: [approvedBy], references: [id])
 
   @@id([thesisSeminarId, studentId])
   @@index([studentId], map: "thesis_seminar_audiences_student_id_fkey")
@@ -799,23 +837,23 @@ model ThesisSeminarAudience {
 }
 
 model ThesisSeminarExaminer {
-  id                      String         @id @default(uuid()) @db.VarChar(255)
-  thesisSeminarId         String         @map("thesis_seminar_id") @db.VarChar(255)
-  lecturerId              String         @map("lecturer_id") @db.VarChar(255)
-  assignedBy              String         @map("assigned_by") @db.VarChar(255)
-  order                   Int
-  assignedAt              DateTime       @map("assigned_at")
-  availabilityStatus     ExaminerAvailabilityStatus @default(pending) @map("availability_status")
-  respondedAt             DateTime?      @map("responded_at")
-  assessmentScore         Int?           @map("assessment_score")
-  assessmentSubmittedAt   DateTime?      @map("assessment_submitted_at")
-  revisionNotes           String?        @map("revision_notes") @db.Text
-  createdAt               DateTime       @default(now()) @map("created_at")
-  updatedAt               DateTime       @updatedAt @map("updated_at")
+  id                    String                     @id @default(uuid()) @db.VarChar(255)
+  thesisSeminarId       String                     @map("thesis_seminar_id") @db.VarChar(255)
+  lecturerId            String                     @map("lecturer_id") @db.VarChar(255)
+  assignedBy            String                     @map("assigned_by") @db.VarChar(255)
+  order                 Int
+  assignedAt            DateTime                   @map("assigned_at")
+  availabilityStatus    ExaminerAvailabilityStatus @default(pending) @map("availability_status")
+  respondedAt           DateTime?                  @map("responded_at")
+  assessmentScore       Int?                       @map("assessment_score")
+  assessmentSubmittedAt DateTime?                  @map("assessment_submitted_at")
+  revisionNotes         String?                    @map("revision_notes") @db.Text
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
 
-  seminar                                ThesisSeminar                        @relation(fields: [thesisSeminarId], references: [id], onDelete: Cascade)
-  assignedByUser                         User                                 @relation("SeminarExaminerAssignedBy", fields: [assignedBy], references: [id])
-  lecturer                               Lecturer                             @relation("SeminarExaminerLecturer", fields: [lecturerId], references: [id])
+  seminar                                ThesisSeminar                           @relation(fields: [thesisSeminarId], references: [id], onDelete: Cascade)
+  assignedByUser                         User                                    @relation("SeminarExaminerAssignedBy", fields: [assignedBy], references: [id])
+  lecturer                               Lecturer                                @relation("SeminarExaminerLecturer", fields: [lecturerId], references: [id])
   thesisSeminarExaminerAssessmentDetails ThesisSeminarExaminerAssessmentDetail[]
   thesisSeminarRevisions                 ThesisSeminarRevision[]
 
@@ -827,10 +865,10 @@ model ThesisSeminarExaminer {
 
 model ThesisSeminarExaminerAssessmentDetail {
   thesisSeminarExaminerId String   @map("thesis_seminar_examiner_id") @db.VarChar(255)
-  assessmentCriteriaId   String   @map("assessment_criteria_id") @db.VarChar(255)
-  score                  Int
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
+  assessmentCriteriaId    String   @map("assessment_criteria_id") @db.VarChar(255)
+  score                   Int
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
 
   seminarExaminer ThesisSeminarExaminer @relation(fields: [thesisSeminarExaminerId], references: [id], onDelete: Cascade)
   criteria        AssessmentCriteria    @relation(fields: [assessmentCriteriaId], references: [id])
@@ -841,17 +879,17 @@ model ThesisSeminarExaminerAssessmentDetail {
 }
 
 model ThesisSeminarRevision {
-  id                    String             @id @default(uuid()) @db.VarChar(255)
-  seminarExaminerId     String             @map("thesis_seminar_examiner_id") @db.VarChar(255)
-  approvedBy            String?            @map("approved_by") @db.VarChar(255)
-  description           String             @db.Text
-  revisionAction        String?            @map("revision_action") @db.Text
-  isFinished            Boolean            @default(false) @map("is_finished")
-  studentSubmittedAt    DateTime?          @map("student_submitted_at")
-  supervisorApprovedAt  DateTime?          @map("supervisor_approved_at")
+  id                   String    @id @default(uuid()) @db.VarChar(255)
+  seminarExaminerId    String    @map("thesis_seminar_examiner_id") @db.VarChar(255)
+  approvedBy           String?   @map("approved_by") @db.VarChar(255)
+  description          String    @db.Text
+  revisionAction       String?   @map("revision_action") @db.Text
+  isFinished           Boolean   @default(false) @map("is_finished")
+  studentSubmittedAt   DateTime? @map("student_submitted_at")
+  supervisorApprovedAt DateTime? @map("supervisor_approved_at")
 
   seminarExaminer ThesisSeminarExaminer @relation(fields: [seminarExaminerId], references: [id], onDelete: Cascade)
-  supervisor      ThesisSupervisors?    @relation(fields: [approvedBy], references: [id])
+  supervisor      ThesisParticipant?    @relation(fields: [approvedBy], references: [id])
 
   @@index([seminarExaminerId], map: "thesis_seminar_revisions_seminar_examiner_id_fkey")
   @@index([approvedBy], map: "thesis_seminar_revisions_approved_by_fkey")
@@ -859,34 +897,34 @@ model ThesisSeminarRevision {
 }
 
 model ThesisDefence {
-  id                   String               @id @default(uuid())
-  thesisId             String               @map("thesis_id")
-  roomId               String?              @map("room_id")
-  registeredAt         DateTime?            @map("registered_at")
-  date                 DateTime?            @db.Date
-  startTime            DateTime?            @map("start_time") @db.Time(0)
-  endTime              DateTime?            @map("end_time") @db.Time(0)
-  meetingLink          String?              @map("meeting_link") @db.VarChar(255)
-  status               ThesisDefenceStatus  @default(registered)
-  examinerAverageScore Float?               @map("examiner_average_score")
-  supervisorScore      Float?               @map("supervisor_score")
-  supervisorNotes      String?              @map("supervisor_notes") @db.Text
-  finalScore           Float?               @map("final_score")
-  grade                String?              @db.VarChar(10)
-  resultFinalizedAt    DateTime?            @map("result_finalized_at")
-  resultFinalizedBy    String?              @map("result_finalized_by") @db.VarChar(255)
-  revisionFinalizedAt  DateTime?            @map("revision_finalized_at")
-  revisionFinalizedBy  String?              @map("revision_finalized_by") @db.VarChar(255)
-  cancelledReason      String?              @map("cancelled_reason") @db.Text
-  createdAt            DateTime             @default(now()) @map("created_at")
-  updatedAt            DateTime             @updatedAt @map("updated_at")
+  id                   String              @id @default(uuid())
+  thesisId             String              @map("thesis_id")
+  roomId               String?             @map("room_id")
+  registeredAt         DateTime?           @map("registered_at")
+  date                 DateTime?           @db.Date
+  startTime            DateTime?           @map("start_time") @db.Time(0)
+  endTime              DateTime?           @map("end_time") @db.Time(0)
+  meetingLink          String?             @map("meeting_link") @db.VarChar(255)
+  status               ThesisDefenceStatus @default(registered)
+  examinerAverageScore Float?              @map("examiner_average_score")
+  supervisorScore      Float?              @map("supervisor_score")
+  supervisorNotes      String?             @map("supervisor_notes") @db.Text
+  finalScore           Float?              @map("final_score")
+  grade                String?             @db.VarChar(10)
+  resultFinalizedAt    DateTime?           @map("result_finalized_at")
+  resultFinalizedBy    String?             @map("result_finalized_by") @db.VarChar(255)
+  revisionFinalizedAt  DateTime?           @map("revision_finalized_at")
+  revisionFinalizedBy  String?             @map("revision_finalized_by") @db.VarChar(255)
+  cancelledReason      String?             @map("cancelled_reason") @db.Text
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
 
-  thesis    Thesis                                    @relation(fields: [thesisId], references: [id])
-  room      Room?                                     @relation(fields: [roomId], references: [id])
-  resultFinalizer ThesisSupervisors?                  @relation("DefenceResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
-  revisionFinalizer ThesisSupervisors?                @relation("DefenceRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
-  examiners ThesisDefenceExaminer[]
-  documents ThesisDefenceDocument[]
+  thesis                      Thesis                                    @relation(fields: [thesisId], references: [id])
+  room                        Room?                                     @relation(fields: [roomId], references: [id])
+  resultFinalizer             ThesisParticipant?                        @relation("DefenceResultFinalizedBy", fields: [resultFinalizedBy], references: [id])
+  revisionFinalizer           ThesisParticipant?                        @relation("DefenceRevisionFinalizedBy", fields: [revisionFinalizedBy], references: [id])
+  examiners                   ThesisDefenceExaminer[]
+  documents                   ThesisDefenceDocument[]
   supervisorAssessmentDetails ThesisDefenceSupervisorAssessmentDetail[]
 
   @@index([thesisId], map: "thesis_defences_thesis_id_fkey")
@@ -920,23 +958,23 @@ model ThesisDefenceDocument {
 }
 
 model ThesisDefenceExaminer {
-  id                      String         @id @default(uuid()) @db.VarChar(255)
-  thesisDefenceId         String         @map("thesis_defence_id") @db.VarChar(255)
-  lecturerId              String         @map("lecturer_id") @db.VarChar(255)
-  assignedBy              String         @map("assigned_by") @db.VarChar(255)
-  order                   Int
-  assignedAt              DateTime       @map("assigned_at")
-  availabilityStatus     ExaminerAvailabilityStatus @default(pending) @map("availability_status")
-  respondedAt             DateTime?      @map("responded_at")
-  assessmentScore         Int?           @map("assessment_score")
-  assessmentSubmittedAt   DateTime?      @map("assessment_submitted_at")
-  revisionNotes           String?        @map("revision_notes") @db.Text
-  createdAt               DateTime       @default(now()) @map("created_at")
-  updatedAt               DateTime       @updatedAt @map("updated_at")
+  id                    String                     @id @default(uuid()) @db.VarChar(255)
+  thesisDefenceId       String                     @map("thesis_defence_id") @db.VarChar(255)
+  lecturerId            String                     @map("lecturer_id") @db.VarChar(255)
+  assignedBy            String                     @map("assigned_by") @db.VarChar(255)
+  order                 Int
+  assignedAt            DateTime                   @map("assigned_at")
+  availabilityStatus    ExaminerAvailabilityStatus @default(pending) @map("availability_status")
+  respondedAt           DateTime?                  @map("responded_at")
+  assessmentScore       Int?                       @map("assessment_score")
+  assessmentSubmittedAt DateTime?                  @map("assessment_submitted_at")
+  revisionNotes         String?                    @map("revision_notes") @db.Text
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
 
-  defence                                ThesisDefence                         @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
-  assignedByUser                         User                                  @relation("DefenceExaminerAssignedBy", fields: [assignedBy], references: [id])
-  lecturer                               Lecturer                              @relation("DefenceExaminerLecturer", fields: [lecturerId], references: [id])
+  defence                                ThesisDefence                           @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
+  assignedByUser                         User                                    @relation("DefenceExaminerAssignedBy", fields: [assignedBy], references: [id])
+  lecturer                               Lecturer                                @relation("DefenceExaminerLecturer", fields: [lecturerId], references: [id])
   thesisDefenceExaminerAssessmentDetails ThesisDefenceExaminerAssessmentDetail[]
   thesisDefenceRevisions                 ThesisDefenceRevision[]
 
@@ -948,10 +986,10 @@ model ThesisDefenceExaminer {
 
 model ThesisDefenceExaminerAssessmentDetail {
   thesisDefenceExaminerId String   @map("thesis_defence_examiner_id") @db.VarChar(255)
-  assessmentCriteriaId   String   @map("assessment_criteria_id") @db.VarChar(255)
-  score                  Int
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
+  assessmentCriteriaId    String   @map("assessment_criteria_id") @db.VarChar(255)
+  score                   Int
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
 
   defenceExaminer ThesisDefenceExaminer @relation(fields: [thesisDefenceExaminerId], references: [id], onDelete: Cascade)
   criteria        AssessmentCriteria    @relation(fields: [assessmentCriteriaId], references: [id])
@@ -977,50 +1015,49 @@ model ThesisDefenceSupervisorAssessmentDetail {
 }
 
 model ThesisDefenceRevision {
-  id                    String             @id @default(uuid()) @db.VarChar(255)
-  defenceExaminerId     String             @map("thesis_defence_examiner_id") @db.VarChar(255)
-  approvedBy            String?            @map("approved_by") @db.VarChar(255)
-  description           String             @db.Text
-  revisionAction        String?            @map("revision_action") @db.Text
-  isFinished            Boolean            @default(false) @map("is_finished")
-  studentSubmittedAt    DateTime?          @map("student_submitted_at")
-  supervisorApprovedAt  DateTime?          @map("supervisor_approved_at")
+  id                   String    @id @default(uuid()) @db.VarChar(255)
+  defenceExaminerId    String    @map("thesis_defence_examiner_id") @db.VarChar(255)
+  approvedBy           String?   @map("approved_by") @db.VarChar(255)
+  description          String    @db.Text
+  revisionAction       String?   @map("revision_action") @db.Text
+  isFinished           Boolean   @default(false) @map("is_finished")
+  studentSubmittedAt   DateTime? @map("student_submitted_at")
+  supervisorApprovedAt DateTime? @map("supervisor_approved_at")
 
   defenceExaminer ThesisDefenceExaminer @relation(fields: [defenceExaminerId], references: [id], onDelete: Cascade)
-  supervisor      ThesisSupervisors?    @relation(fields: [approvedBy], references: [id])
+  supervisor      ThesisParticipant?    @relation(fields: [approvedBy], references: [id])
 
   @@index([defenceExaminerId], map: "thesis_defence_revisions_defence_examiner_id_fkey")
   @@index([approvedBy], map: "thesis_defence_revisions_approved_by_fkey")
   @@map("thesis_defence_revisions")
 }
 
-
 model Yudisium {
-  id                    String                    @id @default(uuid())
-  name                  String?                   @db.VarChar(255)
-  academicYearId        String?                   @map("academic_year_id")
-  decreeUploadedBy      String?                   @map("decree_uploaded_by")
-  roomId                String?                   @map("room_id")
-  documentId            String?                   @map("document_id")
-  exitSurveyFormId      String?                   @map("exit_survey_form_id")
-  exitSurveyOpenDate    DateTime?                 @map("exit_survey_open_date") @db.Date
-  exitSurveyCloseDate   DateTime?                 @map("exit_survey_close_date") @db.Date
-  registrationOpenDate  DateTime?                 @map("registration_open_date") @db.Date
-  registrationCloseDate DateTime?                 @map("registration_close_date") @db.Date
-  eventDate             DateTime?                 @map("event_date") @db.Date
-  notes                 String?                   @db.Text
-  status                YudisiumStatus            @default(draft)
-  decreeNumber          String?                   @map("decree_number") @db.VarChar(255)
-  decreeIssuedAt        DateTime?                 @map("decree_issued_at")
-  createdAt             DateTime                  @default(now()) @map("created_at")
-  updatedAt             DateTime                  @updatedAt @map("updated_at")
+  id                    String         @id @default(uuid())
+  name                  String?        @db.VarChar(255)
+  academicYearId        String?        @map("academic_year_id")
+  decreeUploadedBy      String?        @map("decree_uploaded_by")
+  roomId                String?        @map("room_id")
+  documentId            String?        @map("document_id")
+  exitSurveyFormId      String?        @map("exit_survey_form_id")
+  exitSurveyOpenDate    DateTime?      @map("exit_survey_open_date") @db.Date
+  exitSurveyCloseDate   DateTime?      @map("exit_survey_close_date") @db.Date
+  registrationOpenDate  DateTime?      @map("registration_open_date") @db.Date
+  registrationCloseDate DateTime?      @map("registration_close_date") @db.Date
+  eventDate             DateTime?      @map("event_date") @db.Date
+  notes                 String?        @db.Text
+  status                YudisiumStatus @default(draft)
+  decreeNumber          String?        @map("decree_number") @db.VarChar(255)
+  decreeIssuedAt        DateTime?      @map("decree_issued_at")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
 
-  academicYear              AcademicYear?               @relation(fields: [academicYearId], references: [id])
-  decreeUploader            User?                       @relation("YudisiumDecreeUploader", fields: [decreeUploadedBy], references: [id])
-  room                      Room?                       @relation(fields: [roomId], references: [id])
-  document                  Document?                   @relation(fields: [documentId], references: [id])
-  exitSurveyForm            ExitSurveyForm?             @relation(fields: [exitSurveyFormId], references: [id])
-  participants              YudisiumParticipant[]
+  academicYear               AcademicYear?               @relation(fields: [academicYearId], references: [id])
+  decreeUploader             User?                       @relation("YudisiumDecreeUploader", fields: [decreeUploadedBy], references: [id])
+  room                       Room?                       @relation(fields: [roomId], references: [id])
+  document                   Document?                   @relation(fields: [documentId], references: [id])
+  exitSurveyForm             ExitSurveyForm?             @relation(fields: [exitSurveyFormId], references: [id])
+  participants               YudisiumParticipant[]
   studentExitSurveyResponses StudentExitSurveyResponse[]
 
   @@index([academicYearId])
@@ -1047,21 +1084,22 @@ model YudisiumRequirement {
 }
 
 model YudisiumParticipant {
-  id          String                    @id @default(uuid())
-  thesisId    String                    @map("thesis_id")
-  yudisiumId  String                    @map("yudisium_id")
-  registeredAt DateTime?                @map("registered_at")
-  status      YudisiumParticipantStatus @default(registered)
-  appointedAt DateTime?                 @map("appointed_at")
-  notes       String?                   @db.Text
-  createdAt   DateTime                  @default(now()) @map("created_at")
-  updatedAt   DateTime                  @updatedAt @map("updated_at")
+  id           String                    @id @default(uuid())
+  thesisId     String                    @map("thesis_id")
+  yudisiumId   String                    @map("yudisium_id")
+  registeredAt DateTime?                 @map("registered_at")
+  status       YudisiumParticipantStatus @default(registered)
+  appointedAt  DateTime?                 @map("appointed_at")
+  notes        String?                   @db.Text
+  createdAt    DateTime                  @default(now()) @map("created_at")
+  updatedAt    DateTime                  @updatedAt @map("updated_at")
 
-  thesis                          Thesis                          @relation(fields: [thesisId], references: [id])
-  yudisium                        Yudisium                        @relation(fields: [yudisiumId], references: [id])
+  thesis                          Thesis                           @relation(fields: [thesisId], references: [id])
+  yudisium                        Yudisium                         @relation(fields: [yudisiumId], references: [id])
   yudisiumParticipantRequirements YudisiumParticipantRequirement[]
   yudisiumCplRecommendations      YudisiumCplRecommendation[]
 
+  @@unique([thesisId, yudisiumId], map: "yudisium_participants_thesis_id_yudisium_id_key")
   @@index([thesisId], map: "yudisium_participants_thesis_id_fkey")
   @@index([yudisiumId], map: "yudisium_participants_yudisium_id_fkey")
   @@map("yudisium_participants")
@@ -1126,23 +1164,24 @@ model StudentExitSurveyResponse {
   thesis   Thesis                    @relation(fields: [thesisId], references: [id])
   answers  StudentExitSurveyAnswer[]
 
+  @@unique([yudisiumId, thesisId], map: "student_exit_survey_responses_yudisium_id_thesis_id_key")
   @@index([yudisiumId], map: "student_exit_survey_responses_yudisium_id_fkey")
   @@index([thesisId], map: "student_exit_survey_responses_thesis_id_fkey")
   @@map("student_exit_survey_responses")
 }
 
 model StudentExitSurveyAnswer {
-  id                         String   @id @default(uuid()) @db.VarChar(255)
-  studentExitSurveyResponseId String  @map("student_exit_survey_response_id") @db.VarChar(255)
-  exitSurveyQuestionId       String   @map("exit_survey_question_id") @db.VarChar(255)
-  exitSurveyOptionId         String?  @map("exit_survey_option_id") @db.VarChar(255)
-  answerText                 String?  @map("answer_text") @db.Text
-  createdAt                  DateTime @default(now()) @map("created_at")
-  updatedAt                  DateTime @updatedAt @map("updated_at")
+  id                          String   @id @default(uuid()) @db.VarChar(255)
+  studentExitSurveyResponseId String   @map("student_exit_survey_response_id") @db.VarChar(255)
+  exitSurveyQuestionId        String   @map("exit_survey_question_id") @db.VarChar(255)
+  exitSurveyOptionId          String?  @map("exit_survey_option_id") @db.VarChar(255)
+  answerText                  String?  @map("answer_text") @db.Text
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
 
   response StudentExitSurveyResponse @relation(fields: [studentExitSurveyResponseId], references: [id], onDelete: Cascade)
-  question ExitSurveyQuestion @relation(fields: [exitSurveyQuestionId], references: [id])
-  option   ExitSurveyOption?  @relation(fields: [exitSurveyOptionId], references: [id])
+  question ExitSurveyQuestion        @relation(fields: [exitSurveyQuestionId], references: [id])
+  option   ExitSurveyOption?         @relation(fields: [exitSurveyOptionId], references: [id])
 
   @@index([studentExitSurveyResponseId], map: "student_exit_survey_answers_response_id_fkey")
   @@index([exitSurveyQuestionId], map: "student_exit_survey_answers_question_id_fkey")
@@ -1150,37 +1189,40 @@ model StudentExitSurveyAnswer {
   @@map("student_exit_survey_answers")
 }
 
-
 model Document {
-  id                           String                        @id @default(uuid())
-  userId                       String?                       @map("user_id")
-  documentTypeId               String?                       @map("document_type_id")
-  filePath                     String?                       @map("file_path")
-  fileName                     String?                       @map("file_name")
-  fileSize                     Int?                          @map("file_size")
-  mimeType                     String?                       @map("mime_type") @db.VarChar(100)
-  createdAt                    DateTime                      @default(now()) @map("created_at")
-  updatedAt                    DateTime                      @updatedAt @map("updated_at")
-  documentType                 DocumentType?                 @relation(fields: [documentTypeId], references: [id])
-  user                         User?                         @relation(fields: [userId], references: [id])
-  internshipProposalDocs       InternshipProposal[]          @relation("InternshipProposalDocument")
-  internshipAppLetterDocs      InternshipApplicationLetter[] @relation("InternshipAppLetterDocument")
-  internshipCompanyRespDocs    InternshipCompanyResponse[]   @relation("InternshipCompanyRespDocument")
-  internshipAssignLetterDocs   InternshipAssignmentLetter[]  @relation("InternshipAssignLetterDocument")
-  internshipSupLetterDocs      InternshipSupervisorLetter[]  @relation("InternshipSupLetterDocument")
-  internshipReportDocs         Internship[]                  @relation("InternshipReportDocument")
-  internshipAssessmentDocs     InternshipAssessment[]        @relation("InternshipAssessmentDocument")
-  internshipSeminarBeritaAcara InternshipSeminar[]           @relation("InternshipSeminarBeritaAcara")
-  thesis                       Thesis[]
-  thesisFinalDocument          Thesis[]                      @relation("FinalThesisDocument")
-  thesisProposalDocument       Thesis[]                      @relation("ProposalDocument")
-  thesisTitleApprovalDocs      Thesis[]                      @relation("TitleApprovalDocument")
-  thesisGuidances              ThesisGuidance[]
-  seminarDocuments             ThesisSeminarDocument[]       @relation("SeminarDocDocument")
-  defenceDocuments             ThesisDefenceDocument[]       @relation("DefenceDocDocument")
-  yudisiums                    Yudisium[]
-  yudisiumParticipantRequirements  YudisiumParticipantRequirement[]
-  milestoneTemplateAttachments    MilestoneTemplateAttachment[]
+  id                                String                           @id @default(uuid())
+  userId                            String?                          @map("user_id")
+  documentTypeId                    String?                          @map("document_type_id")
+  filePath                          String?                          @map("file_path")
+  fileName                          String?                          @map("file_name")
+  fileSize                          Int?                             @map("file_size")
+  mimeType                          String?                          @map("mime_type") @db.VarChar(100)
+  createdAt                         DateTime                         @default(now()) @map("created_at")
+  updatedAt                         DateTime                         @updatedAt @map("updated_at")
+  documentType                      DocumentType?                    @relation(fields: [documentTypeId], references: [id])
+  uploader                          User?                            @relation("UploadedDocuments", fields: [userId], references: [id])
+  internshipProposalDocs            InternshipProposal[]             @relation("InternshipProposalDocument")
+  internshipAppLetterDocs           InternshipApplicationLetter[]    @relation("InternshipAppLetterDocument")
+  internshipCompanyRespDocs         InternshipCompanyResponse[]      @relation("InternshipCompanyRespDocument")
+  internshipAssignLetterDocs        InternshipAssignmentLetter[]     @relation("InternshipAssignLetterDocument")
+  internshipSupLetterDocs           InternshipSupervisorLetter[]     @relation("InternshipSupLetterDocument")
+  internshipReportDocs              Internship[]                     @relation("InternshipReportDocument")
+  internshipAssessmentDocs          InternshipAssessment[]           @relation("InternshipAssessmentDocument")
+  internshipSeminarBeritaAcara      InternshipSeminar[]              @relation("InternshipSeminarBeritaAcara")
+  thesis                            Thesis[]
+  thesisFinalDocument               Thesis[]                         @relation("FinalThesisDocument")
+  thesisProposalDocument            Thesis[]                         @relation("ProposalDocument")
+  thesisProposalVersionDocs         ThesisProposalVersion[]          @relation("ThesisProposalVersionDocument")
+  thesisTitleApprovalDocs           Thesis[]                         @relation("TitleApprovalDocument")
+  thesisGuidances                   ThesisGuidance[]
+  seminarDocuments                  ThesisSeminarDocument[]          @relation("SeminarDocDocument")
+  defenceDocuments                  ThesisDefenceDocument[]          @relation("DefenceDocDocument")
+  yudisiums                         Yudisium[]
+  yudisiumParticipantRequirements   YudisiumParticipantRequirement[]
+  milestoneTemplateAttachments      MilestoneTemplateAttachment[]
+  advisorRequestsAttachment         ThesisAdvisorRequest[]           @relation("AdvisorRequestAttachment")
+  advisorRequestDraftAttachments    ThesisAdvisorRequestDraft[]      @relation("AdvisorRequestDraftAttachment")
+  thesisChangeRequestSupportingDocs ThesisChangeRequest[]            @relation("ChangeRequestSupportingDocument")
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")
@@ -1188,13 +1230,13 @@ model Document {
 }
 
 model DocumentType {
-  id        String     @id @default(uuid())
-  name      String?
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
-  documents          Document[]
-  seminarDocuments   ThesisSeminarDocument[]  @relation("SeminarDocType")
-  defenceDocuments   ThesisDefenceDocument[]  @relation("DefenceDocType")
+  id               String                  @id @default(uuid())
+  name             String?
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  documents        Document[]
+  seminarDocuments ThesisSeminarDocument[] @relation("SeminarDocType")
+  defenceDocuments ThesisDefenceDocument[] @relation("DefenceDocType")
 
   @@map("document_types")
 }
@@ -1404,14 +1446,14 @@ model Internship {
 }
 
 model InternshipLogbook {
-  id                  String     @id @default(uuid())
-  internshipId        String     @map("internship_id")
-  activityDate        DateTime   @map("activity_date") @db.Date
-  activityDescription String                @map("activity_description") @db.Text
+  id                  String                  @id @default(uuid())
+  internshipId        String                  @map("internship_id")
+  activityDate        DateTime                @map("activity_date") @db.Date
+  activityDescription String                  @map("activity_description") @db.Text
   status              InternshipLogbookStatus @default(DRAFT)
-  createdAt           DateTime               @default(now()) @map("created_at")
-  updatedAt           DateTime               @default(now()) @updatedAt @map("updated_at")
-  internship          Internship             @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @default(now()) @updatedAt @map("updated_at")
+  internship          Internship              @relation(fields: [internshipId], references: [id], onDelete: Cascade)
 
   @@index([internshipId], map: "internship_logbooks_internship_id_fkey")
   @@map("internship_logbooks")
@@ -1643,80 +1685,169 @@ model Company {
   @@map("companies")
 }
 
+model ThesisAdvisorRequestDraft {
+  id                   String                @id @default(uuid()) @db.VarChar(255)
+  studentId            String                @unique @map("student_id") @db.VarChar(199)
+  lecturerId           String?               @map("lecturer_id") @db.VarChar(255)
+  topicId              String?               @map("topic_id") @db.VarChar(255)
+  proposedTitle        String?               @map("proposed_title") @db.VarChar(255)
+  backgroundSummary    String?               @map("background_summary") @db.Text
+  problemStatement     String?               @map("problem_statement") @db.Text
+  proposedSolution     String?               @map("proposed_solution") @db.Text
+  researchObject       String?               @map("research_object") @db.VarChar(255)
+  researchPermitStatus ResearchPermitStatus? @map("research_permit_status")
+  justificationText    String?               @map("justification_text") @db.Text
+  studentJustification String?               @map("student_justification") @db.Text
+  attachmentId         String?               @map("attachment_id") @db.VarChar(255)
+  lastSubmittedAt      DateTime?             @map("last_submitted_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+
+  student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lecturer   Lecturer?    @relation(fields: [lecturerId], references: [id])
+  topic      ThesisTopic? @relation(fields: [topicId], references: [id])
+  attachment Document?    @relation("AdvisorRequestDraftAttachment", fields: [attachmentId], references: [id])
+
+  @@index([lecturerId])
+  @@index([topicId])
+  @@index([attachmentId])
+  @@map("thesis_advisor_request_draft")
+}
+
 // ==================== Thesis Advisor Request ====================
 model ThesisAdvisorRequest {
-  id                  String                     @id @default(uuid()) @db.VarChar(255)
-  studentId           String                     @map("student_id") @db.VarChar(199)
-  lecturerId          String                     @map("lecturer_id") @db.VarChar(255)
-  academicYearId      String                     @map("academic_year_id") @db.VarChar(255)
-  topicId             String                     @map("topic_id") @db.VarChar(255)
-  proposedTitle       String?                    @map("proposed_title") @db.VarChar(255)
-  backgroundSummary   String?                    @map("background_summary") @db.Text
-  justificationText   String?                    @map("justification_text") @db.Text
-  status              ThesisAdvisorRequestStatus @default(pending)
-  routeType           AdvisorRequestRoute        @default(normal) @map("route_type")
-  rejectionReason     String?                    @map("rejection_reason") @db.Text
-  reviewedBy          String?                    @map("reviewed_by") @db.VarChar(255)
-  reviewedAt          DateTime?                  @map("reviewed_at")
-  lecturerRespondedAt DateTime?                  @map("lecturer_responded_at")
-  withdrawnAt         DateTime?                  @map("withdrawn_at")
-  redirectedTo        String?                    @map("redirected_to") @db.VarChar(255)
-  kadepNotes          String?                    @map("kadep_notes") @db.Text
-  createdAt           DateTime                   @default(now()) @map("created_at")
-  updatedAt           DateTime                   @updatedAt @map("updated_at")
+  id                      String                     @id @default(uuid()) @db.VarChar(255)
+  studentId               String                     @map("student_id") @db.VarChar(199)
+  lecturerId              String?                    @map("lecturer_id") @db.VarChar(255)
+  academicYearId          String                     @map("academic_year_id") @db.VarChar(255)
+  topicId                 String?                    @map("topic_id") @db.VarChar(255)
+  thesisId                String?                    @map("thesis_id") @db.VarChar(255)
+  proposedTitle           String?                    @map("proposed_title") @db.VarChar(255)
+  backgroundSummary       String?                    @map("background_summary") @db.Text
+  problemStatement        String?                    @map("problem_statement") @db.Text
+  proposedSolution        String?                    @map("proposed_solution") @db.Text
+  researchObject          String?                    @map("research_object") @db.VarChar(255)
+  researchPermitStatus    ResearchPermitStatus?      @map("research_permit_status")
+  justificationText       String?                    @map("justification_text") @db.Text
+  studentJustification    String?                    @map("student_justification") @db.Text
+  requestType             AdvisorRequestType         @default(ta_01) @map("request_type")
+  status                  ThesisAdvisorRequestStatus @default(pending)
+  routeType               AdvisorRequestRoute        @default(normal) @map("route_type")
+  lecturerApprovalNote    String?                    @map("lecturer_approval_note") @db.Text
+  lecturerOverquotaReason String?                    @map("lecturer_overquota_reason") @db.Text
+  rejectionReason         String?                    @map("rejection_reason") @db.Text
+  reviewedBy              String?                    @map("reviewed_by") @db.VarChar(255)
+  reviewedAt              DateTime?                  @map("reviewed_at")
+  lecturerRespondedAt     DateTime?                  @map("lecturer_responded_at")
+  withdrawnAt             DateTime?                  @map("withdrawn_at")
+  withdrawCount           Int                        @default(0) @map("withdraw_count")
+  redirectedTo            String?                    @map("redirected_to") @db.VarChar(255)
+  kadepNotes              String?                    @map("kadep_notes") @db.Text
+  attachmentId            String?                    @map("attachment_id") @db.VarChar(255) // TA-01 or Draft Proposal
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  updatedAt               DateTime                   @updatedAt @map("updated_at")
 
-  student        Student       @relation(fields: [studentId], references: [id])
-  lecturer       Lecturer      @relation("AdvisorRequestTarget", fields: [lecturerId], references: [id])
-  topic          ThesisTopic   @relation(fields: [topicId], references: [id])
-  academicYear   AcademicYear  @relation(fields: [academicYearId], references: [id])
-  reviewer       User?         @relation("AdvisorRequestReviewer", fields: [reviewedBy], references: [id])
-  redirectTarget Lecturer?     @relation("AdvisorRequestRedirect", fields: [redirectedTo], references: [id])
+  student        Student      @relation(fields: [studentId], references: [id])
+  lecturer       Lecturer?    @relation("AdvisorRequestTarget", fields: [lecturerId], references: [id])
+  topic          ThesisTopic? @relation(fields: [topicId], references: [id])
+  thesis         Thesis?      @relation(fields: [thesisId], references: [id])
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  reviewer       User?        @relation("AdvisorRequestReviewer", fields: [reviewedBy], references: [id])
+  redirectTarget Lecturer?    @relation("AdvisorRequestRedirect", fields: [redirectedTo], references: [id])
+  attachment     Document?    @relation("AdvisorRequestAttachment", fields: [attachmentId], references: [id])
 
   @@index([studentId])
+  @@index([studentId, status])
   @@index([lecturerId])
+  @@index([lecturerId, academicYearId, status])
+  @@index([thesisId])
   @@index([status])
   @@index([reviewedBy])
   @@index([redirectedTo])
+  @@index([attachmentId])
   @@map("thesis_advisor_request")
 }
 
 // ThesisSupervisionDecree, ThesisProposalNew, ThesisProposalHistory removed — dead models
 
+model ThesisProposalVersion {
+  id                       String    @id @default(uuid()) @db.VarChar(255)
+  thesisId                 String    @map("thesis_id") @db.VarChar(255)
+  documentId               String    @map("document_id") @db.VarChar(255)
+  version                  Int
+  description              String?   @db.Text
+  isLatest                 Boolean   @default(true) @map("is_latest")
+  submittedAsFinalAt       DateTime? @map("submitted_as_final_at")
+  submittedAsFinalByUserId String?   @map("submitted_as_final_by_user_id") @db.VarChar(255)
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  thesis             Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  document           Document @relation("ThesisProposalVersionDocument", fields: [documentId], references: [id], onDelete: Cascade)
+  submittedAsFinalBy User?    @relation("ThesisProposalVersionSubmittedBy", fields: [submittedAsFinalByUserId], references: [id], onDelete: SetNull)
+  activeFinalFor     Thesis[] @relation("FinalProposalVersion")
+
+  @@unique([thesisId, version])
+  @@index([documentId])
+  @@index([thesisId, isLatest])
+  @@index([submittedAsFinalAt])
+  @@index([submittedAsFinalByUserId])
+  @@map("thesis_proposal_versions")
+}
+
 // ==================== Research Method Scores ====================
 model ResearchMethodScore {
-  id              String    @id @default(uuid()) @db.VarChar(255)
-  thesisId        String?   @map("thesis_id") @db.VarChar(255)
-  supervisorId    String?   @map("supervisor_id") @db.VarChar(255)
-  supervisorScore Int?      @map("supervisor_score")
-  lecturerId      String?   @map("lecturer_id") @db.VarChar(255)
-  lecturerScore   Int?      @map("lecturer_score")
-  finalScore      Int?      @map("final_score")
-  isFinalized     Boolean   @default(false) @map("is_finalized")
-  finalizedBy     String?   @map("finalized_by") @db.VarChar(255)
-  finalizedAt     DateTime? @map("finalized_at")
-  calculatedAt    DateTime? @map("calculated_at")
-  createdAt       DateTime? @map("created_at")
-  updatedAt       DateTime? @map("updated_at")
+  id                   String    @id @default(uuid()) @db.VarChar(255)
+  thesisId             String    @unique @map("thesis_id") @db.VarChar(255)
+  supervisorId         String?   @map("supervisor_id") @db.VarChar(255)
+  supervisorScore      Int?      @map("supervisor_score")
+  lecturerId           String?   @map("lecturer_id") @db.VarChar(255)
+  lecturerScore        Int?      @map("lecturer_score")
+  finalScore           Int?      @map("final_score")
+  isFinalized          Boolean   @default(false) @map("is_finalized")
+  finalizedBy          String?   @map("finalized_by") @db.VarChar(255)
+  finalizedAt          DateTime? @map("finalized_at")
+  calculatedAt         DateTime? @map("calculated_at")
+  // BR-20 (canon §5.7.1): TA-03A konsensus P1 master + P2 co-sign.
+  // P1 mengisi rubrik utuh (supervisorScore + supervisorId di atas);
+  // P2 melakukan co-sign sebagai persetujuan tanpa modifikasi nilai.
+  // Field opsional — bila thesis hanya punya 1 pembimbing (P1 saja),
+  // co-sign di-skip dan field-field ini tetap null.
+  coSignedByLecturerId String?   @map("co_signed_by_lecturer_id") @db.VarChar(255)
+  coSignedAt           DateTime? @map("co_signed_at")
+  coSignNote           String?   @map("co_sign_note") @db.Text
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  thesis                     Thesis?                     @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  thesis                     Thesis                      @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  supervisor                 Lecturer?                   @relation("ResearchMethodScoreSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  lecturerAssessor           Lecturer?                   @relation("ResearchMethodScoreLecturer", fields: [lecturerId], references: [id], onDelete: SetNull)
+  coSigner                   Lecturer?                   @relation("ResearchMethodScoreCoSigner", fields: [coSignedByLecturerId], references: [id], onDelete: SetNull)
+  finalizer                  User?                       @relation("ResearchMethodScoreFinalizer", fields: [finalizedBy], references: [id], onDelete: SetNull)
   researchMethodScoreDetails ResearchMethodScoreDetail[]
 
-  @@index([thesisId], map: "research_method_scores_thesis_id_fkey")
+  @@index([supervisorId])
+  @@index([lecturerId])
+  @@index([coSignedByLecturerId])
+  @@index([finalizedBy])
   @@map("research_method_scores")
 }
 
 model ResearchMethodScoreDetail {
   researchMethodScoreId String   @map("research_method_score_id") @db.VarChar(255)
   assessmentCriteriaId  String   @map("assessment_criteria_id") @db.VarChar(255)
-  score                 Int?
+  assessmentRubricId    String?  @map("assessment_rubric_id") @db.VarChar(255)
+  score                 Int
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
   researchMethodScore ResearchMethodScore @relation(fields: [researchMethodScoreId], references: [id], onDelete: Cascade)
   criteria            AssessmentCriteria  @relation(fields: [assessmentCriteriaId], references: [id])
+  assessmentRubric    AssessmentRubric?   @relation(fields: [assessmentRubricId], references: [id], onDelete: SetNull)
 
   @@id([researchMethodScoreId, assessmentCriteriaId])
   @@index([assessmentCriteriaId], map: "research_method_score_details_criteria_id_fkey")
+  @@index([assessmentRubricId], map: "research_method_score_details_rubric_id_fkey")
   @@map("research_method_score_details")
 }
 
@@ -1772,6 +1903,11 @@ enum GuidanceStatus {
   deleted
 }
 
+enum GuidancePhase {
+  proposal
+  thesis
+}
+
 enum MilestoneStatus {
   not_started
   in_progress
@@ -1809,17 +1945,32 @@ enum ApprovalStatus {
   rejected
 }
 
+enum GuidanceEvaluationType {
+  six_month
+  one_year
+}
+
+enum GuidanceEvaluationStatus {
+  pending
+  approved
+  rejected
+}
+
+enum GuidanceEvaluationRecommendation {
+  extend_1_month
+  revise_proposal
+  terminate_supervision
+}
+
+enum SupervisorStatus {
+  active
+  terminated
+}
+
 enum ExaminerAvailabilityStatus {
   pending
   available
   unavailable
-}
-
-enum BookingStatus {
-  requested
-  approved
-  cancelled
-  completed
 }
 
 enum CplScoreStatus {
@@ -1858,6 +2009,15 @@ enum AssessmentAppliesTo {
 
 enum ThesisAdvisorRequestStatus {
   pending
+  under_review
+  pending_kadep
+  booking_approved
+  active_official
+  revision_requested
+  rejected_by_dosen
+  rejected_by_kadep
+  canceled
+  closed
   escalated
   approved
   rejected
@@ -1870,6 +2030,22 @@ enum ThesisAdvisorRequestStatus {
 enum AdvisorRequestRoute {
   normal
   escalated
+}
+
+enum AdvisorRequestType {
+  ta_01
+  ta_02
+}
+
+enum ResearchPermitStatus {
+  approved
+  in_process
+  not_approved
+}
+
+enum ExternalAcademicSnapshotSource {
+  sia
+  devtools
 }
 
 enum DocumentSubmitStatus {
@@ -2005,12 +2181,12 @@ enum ExitSurveyQuestionType {
 // ==================== Supervision Quota ====================
 
 model SupervisionQuotaDefault {
-  id             String       @id @default(uuid())
-  academicYearId String       @unique @map("academic_year_id")
-  quotaMax       Int          @default(10) @map("quota_max")
-  quotaSoftLimit Int          @default(8) @map("quota_soft_limit")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  academicYearId String   @unique @map("academic_year_id")
+  quotaMax       Int      @default(10) @map("quota_max")
+  quotaSoftLimit Int      @default(8) @map("quota_soft_limit")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
 

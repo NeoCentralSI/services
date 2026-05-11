@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import * as masterDataTaRepository from "../repositories/masterDataTa.repository.js";
+import { ROLES } from "../constants/roles.js";
 
 class NotFoundError extends Error {
     constructor(message) {
@@ -86,21 +87,24 @@ export const createThesisMasterData = async (data) => {
     deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
 
     // 4. Map Pembimbing
-    const utamaRole = await prisma.userRole.findFirst({ where: { name: "Pembimbing 1" } });
-    const pendampingRole = await prisma.userRole.findFirst({ where: { name: "Pembimbing 2" } });
+    const utamaRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_1 } });
+    const pendampingRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_2 } });
 
     if (!utamaRole) {
-        throw new Error("Role 'Pembimbing 1' tidak ditemukan di sistem.");
+        throw new Error(`Role '${ROLES.PEMBIMBING_1}' tidak ditemukan di sistem.`);
+    }
+    if (data.pembimbing2 && data.pembimbing2 !== "none" && !pendampingRole) {
+        throw new Error(`Role '${ROLES.PEMBIMBING_2}' tidak ditemukan di sistem.`);
     }
 
     const supervisors = [
         { lecturerId: data.pembimbing1, roleId: utamaRole.id }
     ];
 
-    if (data.pembimbing2) {
+    if (data.pembimbing2 && data.pembimbing2 !== "none") {
         supervisors.push({
             lecturerId: data.pembimbing2,
-            roleId: pendampingRole ? pendampingRole.id : utamaRole.id
+            roleId: pendampingRole.id
         });
     }
 
@@ -130,11 +134,14 @@ export const updateThesisMasterData = async (id, data) => {
     }
 
     if (data.pembimbing1) {
-        const utamaRole = await prisma.userRole.findFirst({ where: { name: "Pembimbing 1" } });
-        const pendampingRole = await prisma.userRole.findFirst({ where: { name: "Pembimbing 2" } });
+        const utamaRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_1 } });
+        const pendampingRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_2 } });
 
         if (!utamaRole) {
-            throw new Error("Role 'Pembimbing 1' tidak ditemukan di sistem.");
+            throw new Error(`Role '${ROLES.PEMBIMBING_1}' tidak ditemukan di sistem.`);
+        }
+        if (data.pembimbing2 && data.pembimbing2 !== "none" && !pendampingRole) {
+            throw new Error(`Role '${ROLES.PEMBIMBING_2}' tidak ditemukan di sistem.`);
         }
 
         data.supervisors = [
@@ -144,7 +151,7 @@ export const updateThesisMasterData = async (id, data) => {
         if (data.pembimbing2 && data.pembimbing2 !== "none") {
             data.supervisors.push({
                 lecturerId: data.pembimbing2,
-                roleId: pendampingRole ? pendampingRole.id : utamaRole.id
+                roleId: pendampingRole.id
             });
         }
     }
@@ -212,11 +219,12 @@ export const importThesesMasterData = async (rows) => {
 
     // Pre-cache roles
     const [utamaRole, pendampingRole] = await Promise.all([
-        prisma.userRole.findFirst({ where: { name: "Pembimbing 1" } }),
-        prisma.userRole.findFirst({ where: { name: "Pembimbing 2" } })
+        prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_1 } }),
+        prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_2 } })
     ]);
 
-    if (!utamaRole) throw new Error("Role 'Pembimbing 1' tidak ditemukan.");
+    if (!utamaRole) throw new Error(`Role '${ROLES.PEMBIMBING_1}' tidak ditemukan.`);
+    if (!pendampingRole) throw new Error(`Role '${ROLES.PEMBIMBING_2}' tidak ditemukan.`);
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -232,12 +240,16 @@ export const importThesesMasterData = async (rows) => {
 
             const existingThesis = await masterDataTaRepository.findThesisByStudentId(student.id);
 
-            // Academic Year lookup from "2024 - Ganjil" format
+            // Academic Year lookup from "2024 - Ganjil" or "2024/2025 - Ganjil" format
             let academicYearId = null;
             if (row["Tahun Ajaran"]) {
-                const [year, semester] = String(row["Tahun Ajaran"]).split(" - ").map(s => s.trim());
-                const ay = await masterDataTaRepository.findAcademicYearByYearAndSemester(year, semester);
-                if (ay) academicYearId = ay.id;
+                const [yearPart, semesterPart] = String(row["Tahun Ajaran"]).split(" - ").map(s => s.trim());
+                const yearRange = yearPart && yearPart.includes("/") ? yearPart : (yearPart ? `${yearPart}/${parseInt(yearPart, 10) + 1}` : null);
+                const semester = semesterPart && String(semesterPart).toLowerCase() === "genap" ? "genap" : "ganjil";
+                if (yearRange) {
+                    const ay = await masterDataTaRepository.findAcademicYearByYearAndSemester(yearRange, semester);
+                    if (ay) academicYearId = ay.id;
+                }
             }
 
             // Topic lookup
@@ -266,7 +278,7 @@ export const importThesesMasterData = async (rows) => {
                 if (l1) supervisors.push({ lecturerId: l1.id, roleId: utamaRole.id });
             }
 
-            if (p2Name && p2Name !== "-" && pendampingRole) {
+            if (p2Name && p2Name !== "-") {
                 const l2 = await prisma.lecturer.findFirst({
                     where: { user: { fullName: { contains: p2Name } } }
                 });

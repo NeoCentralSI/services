@@ -1,10 +1,11 @@
 import prisma from "../config/prisma.js";
+import { syncQuotaCount } from "../utils/quotaSync.js";
 
 /**
  * Find the supervisor record linking a lecturer to a thesis.
  */
 export const findThesisSupervisor = async (thesisId, lecturerId, roleNames) => {
-  return prisma.thesisSupervisors.findFirst({
+  return prisma.thesisParticipant.findFirst({
     where: {
       thesisId,
       lecturerId,
@@ -74,8 +75,21 @@ export const approveEvaluation = async (evaluationId, userId, kadepNotes) => {
   return prisma.$transaction(async (tx) => {
     const evaluation = await tx.thesisGuidanceEvaluation.findUnique({
       where: { id: evaluationId },
-      select: { recommendation: true, thesisSupervisorId: true },
+      select: {
+        recommendation: true,
+        thesisSupervisorId: true,
+        thesisSupervisor: {
+          select: {
+            lecturerId: true,
+            thesis: { select: { academicYearId: true } },
+          },
+        },
+      },
     });
+
+    if (!evaluation) {
+      throw new Error("Evaluation not found");
+    }
 
     await tx.thesisGuidanceEvaluation.update({
       where: { id: evaluationId },
@@ -88,10 +102,16 @@ export const approveEvaluation = async (evaluationId, userId, kadepNotes) => {
     });
 
     if (evaluation.recommendation === "terminate_supervision") {
-      await tx.thesisSupervisors.update({
+      await tx.thesisParticipant.update({
         where: { id: evaluation.thesisSupervisorId },
         data: { status: "terminated" },
       });
+
+      const lecturerId = evaluation.thesisSupervisor?.lecturerId;
+      const academicYearId = evaluation.thesisSupervisor?.thesis?.academicYearId;
+      if (lecturerId && academicYearId) {
+        await syncQuotaCount(tx, lecturerId, academicYearId);
+      }
     }
 
     return { action: "approved", evaluationId };
@@ -151,7 +171,7 @@ export const findEvaluationsForThesis = async (thesisSupervisorId) => {
  * Find supervisor record (id only) for a thesis+lecturer pair.
  */
 export const findSupervisorId = async (thesisId, lecturerId) => {
-  return prisma.thesisSupervisors.findFirst({
+  return prisma.thesisParticipant.findFirst({
     where: { thesisId, lecturerId },
     select: { id: true },
   });

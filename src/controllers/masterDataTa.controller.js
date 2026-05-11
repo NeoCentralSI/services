@@ -27,7 +27,8 @@ export const getAllThesisStatuses = async (req, res, next) => {
 
 export const createThesis = async (req, res, next) => {
     try {
-        const data = await masterDataTaService.createThesisMasterData(req.body);
+        const body = req.validated ?? req.body ?? {};
+        const data = await masterDataTaService.createThesisMasterData(body);
         res.status(201).json({
             success: true,
             message: "Berhasil membuat data tugas akhir",
@@ -41,7 +42,8 @@ export const createThesis = async (req, res, next) => {
 export const updateThesis = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const data = await masterDataTaService.updateThesisMasterData(id, req.body);
+        const body = req.validated ?? req.body ?? {};
+        const data = await masterDataTaService.updateThesisMasterData(id, body);
         res.status(200).json({
             success: true,
             message: "Berhasil mengubah data tugas akhir",
@@ -67,7 +69,7 @@ export const syncSia = async (req, res, next) => {
 
 export const importTheses = async (req, res, next) => {
     try {
-        const { rows } = req.body;
+        const { rows } = req.validated ?? req.body ?? {};
         if (!rows || !Array.isArray(rows)) {
             return res.status(400).json({ success: false, message: "Invalid data format" });
         }

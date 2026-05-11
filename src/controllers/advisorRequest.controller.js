@@ -42,6 +42,25 @@ export async function getMyAccessState(req, res, next) {
   }
 }
 
+export async function getMyDraft(req, res, next) {
+  try {
+    const data = await service.getMyDraft(req.user.sub);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveMyDraft(req, res, next) {
+  try {
+    const body = req.validated ?? req.body ?? {};
+    const data = await service.saveMyDraft(req.user.sub, body);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function withdrawRequest(req, res, next) {
   try {
     const { id } = req.params;
@@ -79,6 +98,16 @@ export async function respondByLecturer(req, res, next) {
     const { id } = req.params;
     const body = req.validated ?? req.body ?? {};
     const data = await service.respondByLecturer(id, req.user.sub, body);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function markUnderReview(req, res, next) {
+  try {
+    const { id } = req.params;
+    const data = await service.markUnderReview(id, req.user.sub);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);
@@ -134,7 +163,29 @@ export async function assignAdvisor(req, res, next) {
 export async function getRequestDetail(req, res, next) {
   try {
     const { id } = req.params;
-    const data = await service.getRequestDetail(id);
+    const data = await service.getRequestDetail(id, req.user.sub);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getBatchTA04(req, res, next) {
+  try {
+    const { academicYearId } = req.params;
+    const { pdfBuffer, fileName } = await service.generateBatchTA04(academicYearId);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function finalizeBatchTA04(req, res, next) {
+  try {
+    const { academicYearId } = req.params;
+    const data = await service.finalizeBatchTA04(academicYearId);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);

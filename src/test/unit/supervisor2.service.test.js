@@ -1,12 +1,11 @@
 /**
- * Unit Tests — Module 21: Auto-Promote Pembimbing 2 → Pembimbing 1
- * Covers: requestSupervisor2, approve/reject, checkAndPromoteSupervisor, threshold logic
+ * Unit Tests — Pembimbing 2 (Co-Advisor) Request Service (FR-CHG-02)
+ * Covers: requestSupervisor2, cancelRequest, approveRequest, rejectRequest
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// ── hoisted mocks ──────────────────────────────────────────────
-const { mockRepo, mockStudentRepo, mockPrisma, mockPush, mockNotif, mockGlobalUtil, mockRoles } = vi.hoisted(() => ({
-  mockRepo: {
+const { mockSupervisor2Repo, mockPrisma, mockNotif, mockPush } = vi.hoisted(() => ({
+  mockSupervisor2Repo: {
     findAvailableSupervisor2Lecturers: vi.fn(),
     hasPembimbing2: vi.fn(),
     findPendingSupervisor2Request: vi.fn(),
@@ -19,271 +18,225 @@ const { mockRepo, mockStudentRepo, mockPrisma, mockPush, mockNotif, mockGlobalUt
     hasPembimbing1Role: vi.fn(),
     addPembimbing1Role: vi.fn(),
   },
-  mockStudentRepo: {
-    getStudentByUserId: vi.fn(),
-    getActiveThesisForStudent: vi.fn(),
-  },
   mockPrisma: {
-    thesis: { findUnique: vi.fn() },
-    thesisSupervisors: { findMany: vi.fn() },
-    ThesisSupervisors: { findMany: vi.fn() },
+    student: { findUnique: vi.fn() },
+    thesis: { findFirst: vi.fn(), findUnique: vi.fn() },
+    lecturer: { findUnique: vi.fn() },
+    thesisParticipant: {
+      findMany: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({}),
+      count: vi.fn().mockResolvedValue(0),
+    },
     user: { findUnique: vi.fn() },
     userRole: { findFirst: vi.fn() },
+    notification: { update: vi.fn().mockResolvedValue({}) },
+    lecturerSupervisionQuota: { upsert: vi.fn().mockResolvedValue({}) },
+    auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
+    $transaction: vi.fn(async (callback) => callback(mockPrisma)),
   },
-  mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
-  mockGlobalUtil: { toTitleCaseName: vi.fn((s) => s) },
-  mockRoles: {
-    ROLES: {
-      MAHASISWA: "mahasiswa",
-      PEMBIMBING_1: "pembimbing_1",
-      PEMBIMBING_2: "pembimbing_2",
-    },
-  },
+  mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
 }));
 
-vi.mock("../../repositories/thesisGuidance/supervisor2.repository.js", () => mockRepo);
-vi.mock("../../repositories/thesisGuidance/student.guidance.repository.js", () => mockStudentRepo);
+vi.mock("../../repositories/thesisGuidance/supervisor2.repository.js", () => mockSupervisor2Repo);
 vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../../services/push.service.js", () => mockPush);
 vi.mock("../../services/notification.service.js", () => mockNotif);
-vi.mock("../../utils/global.util.js", () => mockGlobalUtil);
-vi.mock("../../constants/roles.js", () => mockRoles);
+vi.mock("../../services/push.service.js", () => mockPush);
 
 import {
-  getAvailableSupervisor2Service,
-  requestSupervisor2Service,
-  approveSupervisor2RequestService,
-  rejectSupervisor2RequestService,
-  cancelSupervisor2RequestService,
-  checkAndPromoteSupervisor,
-  checkPromotionForThesisSupervisors,
+  requestSupervisor2,
+  cancelRequest,
+  approveRequest,
+  rejectRequest,
 } from "../../services/thesisGuidance/supervisor2.service.js";
 
-// ── Test Data ──────────────────────────────────────────────────
-const STUDENT = { id: "student-1", userId: "user-mhs-1" };
-const THESIS = { id: "thesis-1", title: "AI Research", studentId: "student-1" };
-const REQUEST_MSG = "thesis-1|student-1";
-const PENDING_REQUEST = {
-  id: "req-1",
-  lecturerId: "lec-1",
-  message: REQUEST_MSG,
-  status: "pending",
+const STUDENT_ID = "student-1";
+const LECTURER_ID = "lec-1";
+const THESIS_WITH_PEMBIMBING1 = {
+  id: "thesis-1",
+  title: "AI Research",
+  studentId: STUDENT_ID,
+  thesisSupervisors: [
+    { lecturerId: "lec-existing", role: { name: "Pembimbing 1" } },
+  ],
 };
 
-// ══════════════════════════════════════════════════════════════
-describe("Module 21: Auto-Promote & Supervisor 2 Management", () => {
+describe("Pembimbing 2 Request Service (FR-CHG-02)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  // ─── Get Available Supervisor 2 ───────────────────────────
-  describe("getAvailableSupervisor2Service", () => {
-    it("returns available Pembimbing 2 lecturers", async () => {
-      mockStudentRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockStudentRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
-      mockRepo.hasPembimbing2.mockResolvedValue(false);
-      mockRepo.findAvailableSupervisor2Lecturers.mockResolvedValue([
-        { id: "lec-2", user: { fullName: "Dr. Andi" } },
-      ]);
+  describe("requestSupervisor2", () => {
+    it("creates request and sends notification to lecturer", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue({
+        id: STUDENT_ID,
+        user: { fullName: "Budi" },
+      });
+      mockPrisma.thesis.findFirst.mockResolvedValue(THESIS_WITH_PEMBIMBING1);
+      mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(false);
+      mockSupervisor2Repo.findPendingSupervisor2Request.mockResolvedValue(null);
+      mockPrisma.lecturer.findUnique.mockResolvedValue({
+        id: LECTURER_ID,
+        user: { fullName: "Dr. Andi" },
+      });
+      mockSupervisor2Repo.createSupervisor2Request.mockResolvedValue({ id: "req-new" });
 
-      const result = await getAvailableSupervisor2Service("user-mhs-1");
+      const result = await requestSupervisor2(STUDENT_ID, { lecturerId: LECTURER_ID });
 
-      expect(result).toHaveLength(1);
+      expect(result).toHaveProperty("requestId", "req-new");
+      expect(result).toHaveProperty("status", "pending");
+      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledWith(
+        [LECTURER_ID],
+        expect.objectContaining({ type: "supervisor2_request" })
+      );
     });
 
     it("rejects (400) if student already has Pembimbing 2", async () => {
-      mockStudentRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockStudentRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
-      mockRepo.hasPembimbing2.mockResolvedValue(true);
+      mockPrisma.student.findUnique.mockResolvedValue({ id: STUDENT_ID, user: { fullName: "Budi" } });
+      mockPrisma.thesis.findFirst.mockResolvedValue(THESIS_WITH_PEMBIMBING1);
+      mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(true);
 
-      await expect(getAvailableSupervisor2Service("user-mhs-1")).rejects.toMatchObject({
+      await expect(
+        requestSupervisor2(STUDENT_ID, { lecturerId: LECTURER_ID })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects (400) if pending request already exists", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue({ id: STUDENT_ID, user: { fullName: "Budi" } });
+      mockPrisma.thesis.findFirst.mockResolvedValue(THESIS_WITH_PEMBIMBING1);
+      mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(false);
+      mockSupervisor2Repo.findPendingSupervisor2Request.mockResolvedValue({ id: "existing" });
+
+      await expect(
+        requestSupervisor2(STUDENT_ID, { lecturerId: LECTURER_ID })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects (404) if student not found", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue(null);
+
+      await expect(
+        requestSupervisor2(STUDENT_ID, { lecturerId: LECTURER_ID })
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("rejects (400) if student has no Pembimbing 1", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue({ id: STUDENT_ID, user: { fullName: "Budi" } });
+      mockPrisma.thesis.findFirst.mockResolvedValue({
+        ...THESIS_WITH_PEMBIMBING1,
+        thesisSupervisors: [],
+      });
+
+      await expect(
+        requestSupervisor2(STUDENT_ID, { lecturerId: LECTURER_ID })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+  });
+
+  describe("cancelRequest", () => {
+    it("cancels pending request", async () => {
+      mockPrisma.thesis.findFirst.mockResolvedValue({ id: "thesis-1" });
+      mockSupervisor2Repo.findPendingSupervisor2Request.mockResolvedValue({ id: "req-1" });
+      mockSupervisor2Repo.markSupervisor2RequestProcessed.mockResolvedValue({});
+
+      const result = await cancelRequest(STUDENT_ID);
+
+      expect(result).toHaveProperty("cancelled", true);
+      expect(mockSupervisor2Repo.markSupervisor2RequestProcessed).toHaveBeenCalledWith("req-1");
+    });
+
+    it("throws 404 if no pending request", async () => {
+      mockPrisma.thesis.findFirst.mockResolvedValue({ id: "thesis-1" });
+      mockSupervisor2Repo.findPendingSupervisor2Request.mockResolvedValue(null);
+
+      await expect(cancelRequest(STUDENT_ID)).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe("approveRequest", () => {
+    it("approves request, creates ThesisSupervisors, sends notification", async () => {
+      mockSupervisor2Repo.findSupervisor2RequestById.mockResolvedValue({
+        id: "req-1",
+        message: "thesis-1|student-1",
+        status: "pending",
+      });
+      mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(false);
+      mockSupervisor2Repo.createThesisSupervisors.mockResolvedValue({});
+      mockSupervisor2Repo.markSupervisor2RequestProcessed.mockResolvedValue({});
+      mockPrisma.userRole.findFirst.mockResolvedValue({ id: "role-p2", name: "Pembimbing 2" });
+      mockPrisma.thesis.findUnique.mockResolvedValue({ academicYearId: "ay-1" });
+      mockPrisma.lecturer.findUnique.mockResolvedValue({
+        id: LECTURER_ID,
+        user: { fullName: "Dr. Andi" },
+      });
+
+      const result = await approveRequest(LECTURER_ID, "req-1");
+
+      expect(result).toHaveProperty("approved", true);
+      expect(mockPrisma.thesisParticipant.create).toHaveBeenCalledWith({
+        data: {
+          thesisId: "thesis-1",
+          lecturerId: LECTURER_ID,
+          roleId: "role-p2",
+        },
+      });
+      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-1"],
+        expect.objectContaining({ type: "supervisor2_approved" })
+      );
+    });
+
+    it("throws 404 if request not found", async () => {
+      mockSupervisor2Repo.findSupervisor2RequestById.mockResolvedValue(null);
+
+      await expect(approveRequest(LECTURER_ID, "nonexistent")).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it("rejects (400) if student already has Pembimbing 2", async () => {
+      mockSupervisor2Repo.findSupervisor2RequestById.mockResolvedValue({
+        id: "req-1",
+        message: "thesis-1|student-1",
+        status: "pending",
+      });
+      mockPrisma.userRole.findFirst.mockResolvedValue({ id: "role-p2", name: "Pembimbing 2" });
+      mockPrisma.thesis.findUnique.mockResolvedValue({ academicYearId: "ay-1" });
+      mockPrisma.thesisParticipant.findFirst.mockResolvedValueOnce({
+        id: "existing-p2",
+        lecturer: { user: { fullName: "Pembimbing 2 Lama" } },
+      });
+
+      await expect(approveRequest(LECTURER_ID, "req-1")).rejects.toMatchObject({
         statusCode: 400,
       });
     });
   });
 
-  // ─── Request Supervisor 2 ────────────────────────────────
-  describe("requestSupervisor2Service", () => {
-    it("creates request and sends notification to lecturer", async () => {
-      mockStudentRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockStudentRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
-      mockRepo.hasPembimbing2.mockResolvedValue(false);
-      mockRepo.findPendingSupervisor2Request.mockResolvedValue(null);
-      mockRepo.findAvailableSupervisor2Lecturers.mockResolvedValue([
-        { id: "lec-2", userId: "user-lec-2" },
-      ]);
-      mockRepo.createSupervisor2Request.mockResolvedValue({ id: "req-new" });
-      mockPrisma.user.findUnique.mockResolvedValue({ id: "user-mhs-1", fullName: "Budi" });
-
-      const result = await requestSupervisor2Service("user-mhs-1", { lecturerId: "lec-2" });
-
-      expect(result).toHaveProperty("requestId");
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
-    });
-
-    it("rejects (400) if already has Pembimbing 2", async () => {
-      mockStudentRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockStudentRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
-      mockRepo.hasPembimbing2.mockResolvedValue(true);
-
-      await expect(
-        requestSupervisor2Service("user-mhs-1", { lecturerId: "lec-2" })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects (400) if pending request already exists", async () => {
-      mockStudentRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockStudentRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
-      mockRepo.hasPembimbing2.mockResolvedValue(false);
-      mockRepo.findPendingSupervisor2Request.mockResolvedValue({ id: "existing" });
-
-      await expect(
-        requestSupervisor2Service("user-mhs-1", { lecturerId: "lec-2" })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-  });
-
-  // ─── Cancel Request ──────────────────────────────────────
-  describe("cancelSupervisor2RequestService", () => {
-    it("cancels pending request", async () => {
-      mockStudentRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockStudentRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
-      mockRepo.findPendingSupervisor2Request.mockResolvedValue({ id: "req-1" });
-      mockRepo.markSupervisor2RequestProcessed.mockResolvedValue({});
-
-      const result = await cancelSupervisor2RequestService("user-mhs-1");
-
-      expect(mockRepo.markSupervisor2RequestProcessed).toHaveBeenCalled();
-    });
-
-    it("throws 404 if no pending request", async () => {
-      mockStudentRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockStudentRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
-      mockRepo.findPendingSupervisor2Request.mockResolvedValue(null);
-
-      await expect(cancelSupervisor2RequestService("user-mhs-1")).rejects.toMatchObject({
-        statusCode: 404,
-      });
-    });
-  });
-
-  // ─── Approve Request ─────────────────────────────────────
-  describe("approveSupervisor2RequestService", () => {
-    it("approves request, creates ThesisSupervisors, sends notification to student", async () => {
-      mockRepo.findSupervisor2RequestById.mockResolvedValue(PENDING_REQUEST);
-      mockRepo.hasPembimbing2.mockResolvedValue(false);
-      mockRepo.markSupervisor2RequestProcessed.mockResolvedValue({});
-      mockRepo.createThesisSupervisors.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ id: "user-lec-1", fullName: "Dr. Andi" });
-
-      const result = await approveSupervisor2RequestService("lec-1", "req-1");
-
-      expect(mockRepo.createThesisSupervisors).toHaveBeenCalled();
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
-    });
-
-    it("throws 404 if request not found", async () => {
-      mockRepo.findSupervisor2RequestById.mockResolvedValue(null);
-
-      await expect(
-        approveSupervisor2RequestService("lec-1", "nonexistent")
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it("rejects (400) if student already has Pembimbing 2", async () => {
-      mockRepo.findSupervisor2RequestById.mockResolvedValue(PENDING_REQUEST);
-      mockRepo.hasPembimbing2.mockResolvedValue(true);
-
-      await expect(
-        approveSupervisor2RequestService("lec-1", "req-1")
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-  });
-
-  // ─── Reject Request ──────────────────────────────────────
-  describe("rejectSupervisor2RequestService", () => {
+  describe("rejectRequest", () => {
     it("rejects request and notifies student", async () => {
-      mockRepo.findSupervisor2RequestById.mockResolvedValue(PENDING_REQUEST);
-      mockRepo.markSupervisor2RequestProcessed.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ id: "user-lec-1", fullName: "Dr. Andi" });
+      mockSupervisor2Repo.findSupervisor2RequestById.mockResolvedValue({
+        id: "req-1",
+        message: "thesis-1|student-1",
+        status: "pending",
+      });
+      mockSupervisor2Repo.markSupervisor2RequestProcessed.mockResolvedValue({});
 
-      const result = await rejectSupervisor2RequestService("lec-1", "req-1", { reason: "Tidak tersedia" });
+      const result = await rejectRequest(LECTURER_ID, "req-1", "Tidak tersedia");
 
-      expect(mockRepo.markSupervisor2RequestProcessed).toHaveBeenCalled();
+      expect(result).toHaveProperty("rejected", true);
+      expect(mockSupervisor2Repo.markSupervisor2RequestProcessed).toHaveBeenCalledWith("req-1");
+      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-1"],
+        expect.objectContaining({ type: "supervisor2_rejected" })
+      );
     });
 
     it("throws 404 if request not found", async () => {
-      mockRepo.findSupervisor2RequestById.mockResolvedValue(null);
+      mockSupervisor2Repo.findSupervisor2RequestById.mockResolvedValue(null);
 
       await expect(
-        rejectSupervisor2RequestService("lec-1", "nonexistent", { reason: "X" })
+        rejectRequest(LECTURER_ID, "nonexistent", "X")
       ).rejects.toMatchObject({ statusCode: 404 });
-    });
-  });
-
-  // ─── Auto-Promote Logic ──────────────────────────────────
-  describe("checkAndPromoteSupervisor", () => {
-    it("promotes Pembimbing 2 to Pembimbing 1 when count >= 10", async () => {
-      mockRepo.hasPembimbing1Role.mockResolvedValue(false);
-      mockRepo.countCompletedAsSupervisor2.mockResolvedValue(12);
-      mockRepo.addPembimbing1Role.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ id: "user-lec", fullName: "Dr. Andi" });
-
-      const result = await checkAndPromoteSupervisor("lec-1");
-
-      expect(result).toHaveProperty("promoted", true);
-      expect(mockRepo.addPembimbing1Role).toHaveBeenCalledWith("lec-1");
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
-    });
-
-    it("does not promote if already has Pembimbing 1 role", async () => {
-      mockRepo.hasPembimbing1Role.mockResolvedValue(true);
-
-      const result = await checkAndPromoteSupervisor("lec-1");
-
-      expect(result).toHaveProperty("promoted", false);
-      expect(result).toHaveProperty("reason", "already_has_role");
-      expect(mockRepo.addPembimbing1Role).not.toHaveBeenCalled();
-    });
-
-    it("does not promote if count < 10 (below threshold)", async () => {
-      mockRepo.hasPembimbing1Role.mockResolvedValue(false);
-      mockRepo.countCompletedAsSupervisor2.mockResolvedValue(7);
-
-      const result = await checkAndPromoteSupervisor("lec-1");
-
-      expect(result).toHaveProperty("promoted", false);
-      expect(result).toHaveProperty("reason", "below_threshold");
-      expect(result).toHaveProperty("count", 7);
-      expect(result).toHaveProperty("threshold", 10);
-    });
-
-    it("promotes at exactly 10 completed theses", async () => {
-      mockRepo.hasPembimbing1Role.mockResolvedValue(false);
-      mockRepo.countCompletedAsSupervisor2.mockResolvedValue(10);
-      mockRepo.addPembimbing1Role.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ id: "user-lec", fullName: "Dr. Andi" });
-
-      const result = await checkAndPromoteSupervisor("lec-1");
-
-      expect(result).toHaveProperty("promoted", true);
-    });
-  });
-
-  // ─── Check Promotion for Thesis Supervisors ──────────────
-  describe("checkPromotionForThesisSupervisors", () => {
-    it("checks all Pembimbing 2 on a thesis for promotion", async () => {
-      mockPrisma.userRole.findFirst.mockResolvedValue({ id: "role-p2" });
-      mockPrisma.ThesisSupervisors.findMany.mockResolvedValue([
-        { lecturerId: "lec-1", role: { name: "Pembimbing 2" } },
-      ]);
-      mockRepo.hasPembimbing1Role.mockResolvedValue(false);
-      mockRepo.countCompletedAsSupervisor2.mockResolvedValue(10);
-      mockRepo.addPembimbing1Role.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ id: "user-lec", fullName: "Dr. Andi" });
-
-      const results = await checkPromotionForThesisSupervisors("thesis-1");
-
-      expect(results).toBeInstanceOf(Array);
     });
   });
 });

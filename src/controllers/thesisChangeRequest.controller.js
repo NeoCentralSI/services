@@ -128,7 +128,7 @@ export const approveRequest = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Permintaan pergantian berhasil disetujui. Data TA mahasiswa telah dihapus.',
+      message: 'Permintaan pergantian berhasil disetujui dan data tugas akhir telah diperbarui.',
       data: result,
     });
   } catch (error) {

@@ -34,7 +34,9 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
     getUserRolesWithIds: vi.fn(),
     upsertUserRole: vi.fn(),
     findStudentByUserId: vi.fn(),
+    updateStudentByUserId: vi.fn(),
     deleteUserRolesByIds: vi.fn(),
+    updateLecturerByUserId: vi.fn(),
   },
   mockMailer: { sendMail: vi.fn().mockResolvedValue(undefined) },
   mockEnv: { JWT_SECRET: "test-secret", FRONTEND_URL: "http://localhost:3000" },
@@ -55,11 +57,21 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
     isAdminRole: vi.fn((r) => r === "admin"),
     isSupervisorRole: vi.fn((r) => ["pembimbing_1", "pembimbing_2"].includes(r)),
     normalize: vi.fn((r) => r?.toLowerCase?.()),
+    supervisorRoleDisplayName: vi.fn((r) => {
+      if (r === "pembimbing_1") return "Pembimbing 1";
+      if (r === "pembimbing_2") return "Pembimbing 2";
+      return r;
+    }),
+    isPembimbing1: vi.fn((r) => r === "pembimbing_1" || r === "Pembimbing 1"),
+    isPembimbing2: vi.fn((r) => r === "pembimbing_2" || r === "Pembimbing 2"),
   },
   mockRedis: { default: { del: vi.fn(), isOpen: true, connect: vi.fn().mockResolvedValue(undefined), setEx: vi.fn().mockResolvedValue(undefined) } },
   mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
-  mockAcademicYear: { getActiveAcademicYear: vi.fn() },
+  mockAcademicYear: {
+    getActiveAcademicYear: vi.fn(),
+    formatAcademicYearLabel: vi.fn((ay) => `${ay.year} ${ay.semester === "ganjil" ? "Ganjil" : "Genap"}`.trim()),
+  },
 }));
 
 vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
@@ -226,10 +238,10 @@ describe("Module 15: Data Master Mahasiswa", () => {
       expect(result).toHaveProperty("students");
     });
 
-    it("adds visibleAcademicYear from active semester sources", async () => {
+    it("returns academicYearContext and same visibleAcademicYear for all rows when effective year is set", async () => {
       mockAcademicYear.getActiveAcademicYear.mockResolvedValue({
         id: "ay-active",
-        year: 2025,
+        year: "2025/2026",
         semester: "genap",
       });
       mockPrisma.user.findMany.mockResolvedValue([{
@@ -242,14 +254,9 @@ describe("Module 15: Data Master Mahasiswa", () => {
           thesis: [{
             id: "thesis-1",
             title: "AI Research",
-            academicYear: { id: "ay-active", year: 2025, semester: "genap" },
+            proposalStatus: "submitted",
+            academicYear: { id: "ay-active", year: "2025/2026", semester: "genap" },
             thesisSupervisors: [],
-          }],
-          metopenClassEnrollments: [{
-            metopenClass: {
-              name: "Metopen Genap 2025",
-              academicYear: { id: "ay-active", year: 2025, semester: "genap" },
-            },
           }],
         },
         userHasRoles: USER.userHasRoles,
@@ -258,14 +265,14 @@ describe("Module 15: Data Master Mahasiswa", () => {
 
       const result = await getStudents({ page: 1, pageSize: 10 });
 
-      expect(result.students[0].student.visibleAcademicYear).toEqual({
+      expect(result.academicYearContext).toEqual({
         id: "ay-active",
-        year: 2025,
+        year: "2025/2026",
         semester: "genap",
-        label: "Genap 2025",
+        label: "2025/2026 Genap",
         isActive: true,
-        sources: ["metopen", "ta"],
       });
+      expect(result.students[0].student.visibleAcademicYear).toEqual(result.academicYearContext);
     });
 
     it("keeps metopen programFilter exclusive from active thesis", async () => {
@@ -275,18 +282,18 @@ describe("Module 15: Data Master Mahasiswa", () => {
 
       await getStudents({ page: 1, pageSize: 10, programFilter: "metopen" });
 
-      expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+      const call = mockPrisma.user.findMany.mock.calls[0][0];
+      const studentFilter = call.where.AND.find((condition) => condition.student)?.student.is;
+      expect(studentFilter.AND).toEqual(expect.arrayContaining([
+        { eligibleMetopen: true },
         expect.objectContaining({
-          where: expect.objectContaining({
-            student: {
-              is: expect.objectContaining({
-                metopenClassEnrollments: { some: {} },
-                thesis: { none: expect.any(Object) },
-              }),
-            },
-          }),
-        })
-      );
+          thesis: {
+            none: expect.objectContaining({
+              thesisStatus: expect.any(Object),
+            }),
+          },
+        }),
+      ]));
     });
   });
 
@@ -295,7 +302,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
       mockPrisma.studentCplScore.findMany.mockResolvedValue([]);
       mockAcademicYear.getActiveAcademicYear.mockResolvedValue({
         id: "ay-active",
-        year: 2025,
+        year: "2025/2026",
         semester: "genap",
       });
       mockPrisma.user.findUnique.mockResolvedValue({
@@ -305,32 +312,17 @@ describe("Module 15: Data Master Mahasiswa", () => {
           status: "aktif",
           enrollmentYear: 2021,
           skscompleted: 100,
-          metopenClassEnrollments: [{
-            classId: "class-1",
-            enrolledAt: new Date("2025-02-01"),
-            metopenClass: {
-              name: "Metopen Genap 2025",
-              academicYear: { id: "ay-active", year: 2025, semester: "genap" },
-              lecturer: {
-                user: {
-                  id: "lecturer-1",
-                  fullName: "Dr. Andi",
-                  email: "andi@example.com",
-                  identityNumber: "1987001",
-                },
-              },
-            },
-          }],
           thesis: [{
             id: "thesis-1",
             title: "AI Research",
+            proposalStatus: "submitted",
             thesisSupervisors: [{ lecturer: { user: { fullName: "Dr. Andi" } }, role: { name: "pembimbing_1" } }],
             thesisMilestones: [],
             thesisGuidances: [],
             thesisSeminars: [],
             thesisDefences: [],
             thesisStatus: { name: "Bimbingan" },
-            academicYear: { semester: "Ganjil", year: 2024 },
+            academicYear: { id: "ay-thesis", semester: "ganjil", year: "2024/2025" },
           }],
         },
       });
@@ -339,15 +331,14 @@ describe("Module 15: Data Master Mahasiswa", () => {
       const result = await getStudentDetail("user-1");
 
       expect(result).toBeDefined();
-      expect(result.metopenHistory).toHaveLength(1);
-      expect(result.metopenHistory[0]).toMatchObject({
-        classId: "class-1",
-        className: "Metopen Genap 2025",
-        academicYear: {
-          id: "ay-active",
-          label: "Genap 2025",
-          isActive: true,
-        },
+      expect(result.metopenEligibility).toMatchObject({
+        eligibleMetopen: null,
+        hasExternalStatus: false,
+        canAccess: false,
+        canSubmit: false,
+        thesisId: "thesis-1",
+        thesisTitle: "AI Research",
+        thesisStatus: "Bimbingan",
       });
     });
 
@@ -364,11 +355,13 @@ describe("Module 15: Data Master Mahasiswa", () => {
 
   describe("adminUpdateStudent", () => {
     it("updates student status and SKS", async () => {
-      mockPrisma.student.update.mockResolvedValue({ id: "s1", status: "aktif", sksCompleted: 120 });
+      mockAdminRepo.findStudentByUserId.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 100 });
+      mockAdminRepo.updateStudentByUserId.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 120 });
 
-      const result = await adminUpdateStudent("s1", { status: "aktif", skscompleted: 120 });
+      const result = await adminUpdateStudent("user-1", { status: "active", skscompleted: 120 });
 
-      expect(result).toHaveProperty("status", "aktif");
+      expect(result).toHaveProperty("status", "active");
+      expect(mockAdminRepo.updateStudentByUserId).toHaveBeenCalledWith("user-1", expect.objectContaining({ sksCompleted: 120 }));
     });
   });
 });
@@ -434,11 +427,13 @@ describe("Module 16: Data Master Dosen", () => {
 
   describe("adminUpdateLecturer", () => {
     it("updates lecturer science group", async () => {
-      mockPrisma.lecturer.update.mockResolvedValue({ id: "l1", scienceGroupId: "sg-1" });
+      mockAdminRepo.findLecturerByUserId.mockResolvedValue({ id: "user-lec", scienceGroupId: null });
+      mockAdminRepo.updateLecturerByUserId.mockResolvedValue({ id: "user-lec", scienceGroupId: "sg-1" });
 
-      const result = await adminUpdateLecturer("l1", { scienceGroupId: "sg-1" });
+      const result = await adminUpdateLecturer("user-lec", { scienceGroupId: "sg-1" });
 
       expect(result).toHaveProperty("scienceGroupId", "sg-1");
+      expect(mockAdminRepo.updateLecturerByUserId).toHaveBeenCalledWith("user-lec", { scienceGroupId: "sg-1" });
     });
   });
 });
@@ -454,14 +449,14 @@ describe("Module 18: Tahun Ajaran", () => {
       mockPrisma.academicYear.create.mockResolvedValue({
         id: "ay-new",
         semester: "ganjil",
-        year: 2024,
+        year: "2024/2025",
         startDate: new Date("2024-09-01"),
         endDate: new Date("2025-01-31"),
       });
 
       const result = await createAcademicYear({
         semester: "ganjil",
-        year: 2024,
+        year: "2024/2025",
         startDate: "2024-09-01",
         endDate: "2025-01-31",
       });
@@ -473,7 +468,7 @@ describe("Module 18: Tahun Ajaran", () => {
       await expect(
         createAcademicYear({
           semester: "ganjil",
-          year: 2024,
+          year: "2024/2025",
           startDate: "2025-01-31",
           endDate: "2024-09-01",
         })
@@ -484,7 +479,7 @@ describe("Module 18: Tahun Ajaran", () => {
       mockPrisma.academicYear.findFirst.mockResolvedValue({ id: "existing" });
 
       await expect(
-        createAcademicYear({ semester: "ganjil", year: "2024", startDate: "2024-09-01", endDate: "2025-01-31" })
+        createAcademicYear({ semester: "ganjil", year: "2024/2025", startDate: "2024-09-01", endDate: "2025-01-31" })
       ).rejects.toMatchObject({ statusCode: 409 });
     });
   });
@@ -498,7 +493,7 @@ describe("Module 18: Tahun Ajaran", () => {
       mockPrisma.academicYear.findUnique.mockResolvedValue({
         id: "ay-1",
         semester: "ganjil",
-        year: now.getFullYear(),
+        year: `${now.getFullYear()}/${now.getFullYear() + 1}`,
         startDate,
         endDate,
       });
@@ -530,7 +525,7 @@ describe("Module 18: Tahun Ajaran", () => {
       mockPrisma.academicYear.findUnique.mockResolvedValue({
         id: "ay-1",
         semester: "ganjil",
-        year: 2020,
+        year: "2020/2021",
         startDate: new Date("2020-01-01"),
         endDate: new Date("2020-06-30"),
       });
@@ -542,7 +537,7 @@ describe("Module 18: Tahun Ajaran", () => {
   // ─── Get Academic Years ───────────────────────────────────
   describe("getAcademicYears", () => {
     it("returns paginated academic years", async () => {
-      mockPrisma.academicYear.findMany.mockResolvedValue([{ id: "ay1", semester: "ganjil", year: 2024 }]);
+      mockPrisma.academicYear.findMany.mockResolvedValue([{ id: "ay1", semester: "ganjil", year: "2024/2025" }]);
       mockPrisma.academicYear.count.mockResolvedValue(1);
 
       const result = await getAcademicYears({ page: 1, pageSize: 10 });

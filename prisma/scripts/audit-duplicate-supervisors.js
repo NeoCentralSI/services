@@ -1,19 +1,19 @@
 /**
  * Audit Duplicate Supervisors Script
  *
- * Finds ThesisSupervisors records where the same (thesisId, roleId) combination
+ * Finds thesisParticipant records where the same (thesisId, roleId) combination
  * exists more than once with status = "active" — which should never happen.
  *
  * Usage:
  *   node prisma/scripts/audit-duplicate-supervisors.js
- *   node prisma/scripts/audit-duplicate-supervisors.js --fix
+ *   node prisma/scripts/audit-duplicate-supervisors.js
  *
  * Options:
- *   --fix   Keep the NEWEST record per (thesisId, roleId) and set others to "terminated".
+ *   --fix   Deprecated. Use scripts/repair-supervisor-integrity.js with explicit mapping.
  *
  * Output:
  *   Reports each duplicate group to stdout.
- *   With --fix: terminates the older duplicates and reports what was changed.
+ *   This script is read-only. Repairs require explicit keep-participant mapping.
  */
 
 import { PrismaClient } from "../../src/generated/prisma/index.js";
@@ -22,10 +22,16 @@ const prisma = new PrismaClient();
 const shouldFix = process.argv.includes("--fix");
 
 async function main() {
-  console.log("=== Audit: Duplicate Active ThesisSupervisors ===\n");
+  if (shouldFix) {
+    throw new Error(
+      "Automatic duplicate repair is disabled. Use scripts/repair-supervisor-integrity.js with an explicit --map file."
+    );
+  }
+
+  console.log("=== Audit: Duplicate Active Thesis Participants ===\n");
 
   // Fetch all active supervisors with role and thesis info
-  const allActive = await prisma.thesisSupervisors.findMany({
+  const allActive = await prisma.thesisParticipant.findMany({
     where: { status: "active" },
     select: {
       id: true,
@@ -62,11 +68,8 @@ async function main() {
 
   console.log(`Found ${duplicateGroups.length} duplicate group(s):\n`);
 
-  let totalFixed = 0;
-
-  for (const [key, records] of duplicateGroups) {
+  for (const [, records] of duplicateGroups) {
     const newest = records[records.length - 1];
-    const older = records.slice(0, -1);
 
     const studentName = records[0].thesis?.student?.user?.fullName ?? "Unknown";
     const studentNim = records[0].thesis?.student?.user?.identityNumber ?? "-";
@@ -80,30 +83,14 @@ async function main() {
 
     for (const r of records) {
       const lecturerName = r.lecturer?.user?.fullName ?? r.lecturerId;
-      const flag = r.id === newest.id ? "[KEEP - newest]" : "[DUPLICATE]";
+      const flag = r.id === newest.id ? "[NEWEST - review required]" : "[DUPLICATE]";
       console.log(`    ${flag} id=${r.id} | lecturer=${lecturerName} | created=${r.createdAt.toISOString()}`);
     }
 
-    if (shouldFix) {
-      const idsToTerminate = older.map((r) => r.id);
-      await prisma.thesisSupervisors.updateMany({
-        where: { id: { in: idsToTerminate } },
-        data: { status: "terminated" },
-      });
-      totalFixed += idsToTerminate.length;
-      console.log(`  --> Fixed: ${idsToTerminate.length} record(s) set to "terminated"\n`);
-    } else {
-      console.log(`  --> Run with --fix to terminate older duplicates\n`);
-    }
+    console.log(`  --> Repair requires explicit review mapping. See scripts/repair-supervisor-integrity.js\n`);
   }
 
-  if (shouldFix) {
-    console.log(`\nFix complete. Total records terminated: ${totalFixed}`);
-    console.log('Retained the newest record per (thesisId, roleId) as the active supervisor.');
-  } else {
-    console.log(`\nAudit complete. Total duplicate groups: ${duplicateGroups.length}`);
-    console.log('Run with --fix to automatically resolve duplicates (keeps newest, terminates older).');
-  }
+  console.log(`\nAudit complete. Total duplicate groups: ${duplicateGroups.length}`);
 }
 
 main()

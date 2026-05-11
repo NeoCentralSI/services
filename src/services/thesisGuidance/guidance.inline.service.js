@@ -58,6 +58,7 @@ export async function getMyThesisDetail(userId) {
   });
   const totalM = milestones.length;
   const completedM = milestones.filter((m) => m.status === "completed").length;
+  const activeProposalDocument = thesis.finalProposalVersion?.document ?? thesis.proposalDocument ?? null;
 
   return {
     id: thesis.id,
@@ -77,7 +78,14 @@ export async function getMyThesisDetail(userId) {
     topic: null,
     academicYear: null,
     document: thesis.document,
-    proposalDocument: null,
+    proposalDocument: activeProposalDocument
+      ? {
+          id: activeProposalDocument.id,
+          version: thesis.finalProposalVersion?.version ?? null,
+          fileName: activeProposalDocument.fileName,
+          filePath: activeProposalDocument.filePath,
+        }
+      : null,
     uploadedFiles: [],
     supervisors: supervisors.map((s) => ({
       id: s.lecturerId,

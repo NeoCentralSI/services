@@ -91,12 +91,12 @@ export async function isActiveAcademicYear(id) {
 }
 
 /**
- * Get academic year label (e.g., "Ganjil 2025")
- * @param {Object} academicYear - The academic year object
+ * Get academic year label (e.g., "2024/2025 Ganjil")
+ * @param {Object} academicYear - The academic year object (year in "2024/2025" format)
  * @returns {string} Formatted label
  */
 export function formatAcademicYearLabel(academicYear) {
   if (!academicYear) return "-";
   const semester = academicYear.semester === "ganjil" ? "Ganjil" : "Genap";
-  return `${semester} ${academicYear.year || ""}`.trim();
+  return `${academicYear.year || ""} ${semester}`.trim();
 }

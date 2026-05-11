@@ -17,8 +17,15 @@ import { BadRequestError } from "./errors.js";
  * @param {string} roleName - Human-readable role name for the error message
  */
 export async function assertNoActiveDuplicateRole(tx, thesisId, roleId, roleName = "pembimbing") {
-  const existing = await tx.thesisSupervisors.findFirst({
-    where: { thesisId, roleId, status: "active" },
+  const existing = await tx.thesisParticipant.findFirst({
+    where: {
+      thesisId,
+      status: "active",
+      OR: [
+        { roleId },
+        ...(roleName ? [{ role: { name: roleName } }] : []),
+      ],
+    },
     select: {
       id: true,
       lecturer: { select: { user: { select: { fullName: true } } } },
@@ -28,7 +35,7 @@ export async function assertNoActiveDuplicateRole(tx, thesisId, roleId, roleName
   if (existing) {
     const name = existing.lecturer?.user?.fullName ?? "dosen lain";
     throw new BadRequestError(
-      `Mahasiswa ini sudah memiliki ${roleName} (${name}). Gunakan fitur TA-05 untuk mengganti pembimbing.`
+      `Mahasiswa ini sudah memiliki ${roleName} (${name}). Penggantian pembimbing formal tidak difasilitasi pada release aktif SIMPTA ini.`
     );
   }
 }
@@ -42,7 +49,7 @@ export async function assertNoActiveDuplicateRole(tx, thesisId, roleId, roleName
  * @param {string} lecturerId
  */
 export async function assertLecturerNotAlreadyAssigned(tx, thesisId, lecturerId) {
-  const existing = await tx.thesisSupervisors.findFirst({
+  const existing = await tx.thesisParticipant.findFirst({
     where: { thesisId, lecturerId, status: "active" },
     select: {
       id: true,

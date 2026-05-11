@@ -5,17 +5,18 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "prestart": "node scripts/check-prisma-client-mode.js",
-    "predev": "node scripts/check-prisma-client-mode.js",
     "test": "vitest run",
-    "prisma:check-client": "node scripts/check-prisma-client-mode.js",
     "prisma:generate": "prisma generate",
     "prisma:generate:no-engine": "prisma generate --no-engine",
     "test:unit": "vitest run --config vitest.unit.config.js",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed:ilham-no-advisor": "node scripts/set-ilham-no-advisor.js"
+    "ensure-users": "node scripts/ensure-users.js",
+    "integrity:audit-supervisors": "node scripts/audit-supervisor-integrity.js",
+    "integrity:repair-supervisors": "node scripts/repair-supervisor-integrity.js",
+    "seed:metopen-eligible": "node scripts/seed-metopen-eligible-students.js",
+    "worker": "node scripts/run-workers.js"
   },
   "devDependencies": {
     "prisma": "^6.2.0",

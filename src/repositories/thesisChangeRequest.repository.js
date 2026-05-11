@@ -34,7 +34,6 @@ export const create = async (data) => {
                   },
                 },
               },
-              role: true,
             },
           },
         },
@@ -88,7 +87,6 @@ export const findById = async (id) => {
                   },
                 },
               },
-              role: true,
             },
           },
         },
@@ -275,7 +273,6 @@ export const findAllPending = async ({ page = 1, pageSize = 10, search = '' }) =
                     },
                   },
                 },
-                role: true,
               },
             },
           },
@@ -363,7 +360,6 @@ export const findAll = async ({ page = 1, pageSize = 10, search = '', status = '
                     },
                   },
                 },
-                role: true,
               },
             },
           },
@@ -466,49 +462,6 @@ export const updateApproval = async (requestId, lecturerId, status, notes) => {
     data: {
       status,
       notes,
-    }
-  });
-};
-
-/**
- * Find all pending change requests for a specific lecturer
- */
-export const findAllPendingForLecturer = async (lecturerId) => {
-  return await prisma.thesisChangeRequest.findMany({
-    where: {
-      status: 'pending',
-      approvals: {
-        some: {
-          lecturerId,
-          status: 'pending'
-        }
-      }
-    },
-    orderBy: { createdAt: 'asc' },
-    include: {
-      thesis: {
-        include: {
-          student: {
-            include: {
-              user: {
-                select: { id: true, fullName: true, identityNumber: true }
-              }
-            }
-          },
-          thesisTopic: true,
-        }
-      },
-      approvals: {
-        include: {
-          lecturer: {
-            include: {
-              user: {
-                select: { id: true, fullName: true }
-              }
-            }
-          }
-        }
-      }
     }
   });
 };

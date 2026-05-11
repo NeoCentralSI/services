@@ -14,7 +14,7 @@ async function main() {
     academicYear = await prisma.academicYear.create({
       data: {
         semester: 'ganjil',
-        year: 2025,
+        year: '2025/2026',
         isActive: true,
       },
     });
@@ -139,19 +139,22 @@ async function main() {
       });
     }
 
-    // Enroll in Metopen Class
-    const existingEnrollment = await prisma.metopenClassStudent.findFirst({
+    // Enroll in Metopen Class (satu mahasiswa satu kelas per tahun ajaran)
+    const existingEnrollment = await prisma.metopenClassStudent.findUnique({
       where: {
-        classId: metopenClass.id,
-        studentId: studentProfile.id,
+        studentId_academicYearId: {
+          studentId: studentProfile.id,
+          academicYearId: academicYear.id,
+        },
       },
     });
 
     if (!existingEnrollment) {
       await prisma.metopenClassStudent.create({
         data: {
-          classId: metopenClass.id,
           studentId: studentProfile.id,
+          academicYearId: academicYear.id,
+          classId: metopenClass.id,
         },
       });
     }
@@ -220,18 +223,21 @@ async function main() {
     });
   }
 
-  const existingEnrollmentB = await prisma.metopenClassStudent.findFirst({
+  const existingEnrollmentB = await prisma.metopenClassStudent.findUnique({
     where: {
-      classId: metopenClassB.id,
-      studentId: studentProfileB.id,
+      studentId_academicYearId: {
+        studentId: studentProfileB.id,
+        academicYearId: academicYear.id,
+      },
     },
   });
 
   if (!existingEnrollmentB) {
     await prisma.metopenClassStudent.create({
       data: {
-        classId: metopenClassB.id,
         studentId: studentProfileB.id,
+        academicYearId: academicYear.id,
+        classId: metopenClassB.id,
       },
     });
   }

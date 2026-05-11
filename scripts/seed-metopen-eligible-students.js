@@ -12,7 +12,7 @@
  * Grup 3 (Tidak eligible): dimas & john — tidak disentuh
  *
  * Script ini juga membuat MetopenClass dan enroll mahasiswa Metopen-eligible
- * agar data langsung muncul di roster admin dan halaman dosen pengampu.
+ * agar data langsung muncul di roster admin dan halaman Koordinator Metopen.
  *
  * Jalankan: node scripts/seed-metopen-eligible-students.js
  * (dari folder services, dengan DATABASE_URL ter-set)
@@ -45,7 +45,7 @@ const ALL_ENROLLABLE_NIMS = [
 ];
 
 const MIN_SKS_ELIGIBLE = 110;
-const DOSEN_METOPEN_ROLE = 'Dosen Pengampu Metopel';
+const KOORDINATOR_METOPEN_ROLE = 'Koordinator Matkul Metopen';
 
 async function ensureStudentEligible(user) {
   if (!user.student) {
@@ -103,7 +103,7 @@ async function upsertThesis(userId, data) {
 
 async function findOrCreateDosenMetopen() {
   const roleAssignment = await prisma.userHasRole.findFirst({
-    where: { role: { name: DOSEN_METOPEN_ROLE }, status: 'active' },
+    where: { role: { name: KOORDINATOR_METOPEN_ROLE }, status: 'active' },
     include: { user: { select: { id: true, fullName: true } } },
   });
 
@@ -114,20 +114,20 @@ async function findOrCreateDosenMetopen() {
     }
   }
 
-  // Fallback: assign Dosen Pengampu Metopel role to the first available lecturer
+  // Fallback: assign Koordinator Matkul Metopen role to the first available lecturer
   const lecturer = await prisma.lecturer.findFirst({
     include: { user: { select: { id: true, fullName: true } } },
   });
   if (!lecturer) return null;
 
-  const role = await prisma.userRole.findFirst({ where: { name: DOSEN_METOPEN_ROLE } });
+  const role = await prisma.userRole.findFirst({ where: { name: KOORDINATOR_METOPEN_ROLE } });
   if (role) {
     await prisma.userHasRole.upsert({
       where: { userId_roleId: { userId: lecturer.id, roleId: role.id } },
       update: { status: 'active' },
       create: { userId: lecturer.id, roleId: role.id, status: 'active' },
     });
-    console.log(`  Role "${DOSEN_METOPEN_ROLE}" diberikan ke ${lecturer.user.fullName}`);
+    console.log(`  Role "${KOORDINATOR_METOPEN_ROLE}" diberikan ke ${lecturer.user.fullName}`);
   }
 
   return { id: lecturer.id, name: lecturer.user.fullName };
@@ -141,7 +141,7 @@ async function ensureMetopenClassAndEnroll(academicYear, enrollableStudentIds) {
   }
 
   console.log(`\n── MetopenClass & Enrollment ──`);
-  console.log(`  Dosen Pengampu: ${dosenMetopen.name}`);
+  console.log(`  Koordinator Metopen: ${dosenMetopen.name}`);
 
   // Upsert class
   let cls = await prisma.metopenClass.findFirst({

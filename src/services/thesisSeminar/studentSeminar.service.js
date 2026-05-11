@@ -54,6 +54,14 @@ export async function getStudentSeminarOverview(userId) {
     supervisorReadiness.length > 0 &&
     supervisorReadiness.every((s) => s.seminarReady);
 
+  const metopelScore = await prisma.researchMethodScore.findFirst({
+    where: { thesisId: thesis.id },
+    orderBy: { createdAt: "desc" },
+    select: { finalScore: true, supervisorScore: true, lecturerScore: true, isFinalized: true },
+  });
+  const metopelPassed = !!(metopelScore?.isFinalized && metopelScore.finalScore >= ENV.METOPEL_PASSING_SCORE);
+  const proposalAccepted = thesis.proposalStatus === "accepted";
+
   const checklist = {
     bimbingan: {
       met: completedGuidances >= MIN_BIMBINGAN,
@@ -76,12 +84,24 @@ export async function getStudentSeminarOverview(userId) {
         ready: s.seminarReady,
       })),
     },
+    metopel: {
+      met: metopelPassed,
+      label: "Lulus Mata Kuliah Metopel",
+      score: metopelScore?.finalScore ?? null,
+    },
+    proposalApproved: {
+      met: proposalAccepted,
+      label: "Judul TA Disahkan KaDep",
+      status: thesis.proposalStatus ?? null,
+    },
   };
 
   const allChecklistMet =
     checklist.bimbingan.met &&
     checklist.kehadiran.met &&
-    checklist.pembimbing.met;
+    checklist.pembimbing.met &&
+    checklist.metopel.met &&
+    checklist.proposalApproved.met;
 
   // Current seminar (latest)
   const currentSeminar = thesis.thesisSeminars?.[0] || null;

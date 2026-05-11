@@ -844,8 +844,8 @@ export async function finalizeSeminarBySupervisor(seminarId, lecturerId, payload
   if (payload.status === "failed") {
     const thesisId = seminar.thesis?.id;
     if (thesisId) {
-      await prisma.thesisSupervisors.updateMany({
-        where: { thesisId },
+      await prisma.thesisParticipant.updateMany({
+        where: { thesisId, status: "active" },
         data: { seminarReady: false },
       });
     }

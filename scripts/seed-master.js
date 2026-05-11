@@ -23,9 +23,7 @@ const ROLES = {
   PENGUJI: "Penguji",
   MAHASISWA: "Mahasiswa",
   GKM: "GKM",
-  KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
-  TIM_PENGELOLA_CPL: "Tim Pengelola CPL",
-  DOSEN_METOPEN: "Dosen Pengampu Metopel",
+  KOORDINATOR_METOPEN: "Koordinator Matkul Metopen",
 };
 
 const DEFAULT_PASSWORD = "password123";
@@ -87,7 +85,6 @@ async function seedThesisStatus() {
   console.log("=".repeat(60));
 
   const statuses = [
-    "Metopel",          // Student enrolled in Metopen course (pre-thesis phase)
     "Pengajuan Judul",
     "Bimbingan",
     "Acc Seminar",      // Milestone 100% + kedua pembimbing approve
@@ -203,7 +200,7 @@ async function seedUsers(roleMap) {
       fullName: "Afriyanti Dwi Kartika, M.T",
       identityType: "NIP",
       identityNumber: "198904212019032024",
-      roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM, ROLES.DOSEN_METOPEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+      roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
@@ -219,7 +216,7 @@ async function seedUsers(roleMap) {
       fullName: "Aina Hubby Aziira, M.Eng",
       identityType: "NIP",
       identityNumber: "199504302022032013",
-      roles: [ROLES.PENGUJI, ROLES.TIM_PENGELOLA_CPL, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
+      roles: [ROLES.PENGUJI, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
@@ -227,7 +224,7 @@ async function seedUsers(roleMap) {
       fullName: "Ullya Mega Wahyuni, M.Kom",
       identityType: "NIP",
       identityNumber: "199011032019032008",
-      roles: [ROLES.GKM, ROLES.TIM_PENGELOLA_CPL, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
+      roles: [ROLES.GKM, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
@@ -237,22 +234,6 @@ async function seedUsers(roleMap) {
       identityNumber: "220199206201501201",
       roles: [ROLES.ADMIN],
       isLecturer: false,
-    },
-    {
-      email: "yudisium_si@fti.unand.ac.id",
-      fullName: "Koordinator Yudisium",
-      identityType: "NIP",
-      identityNumber: "199203152020121003",
-      roles: [ROLES.KOORDINATOR_YUDISIUM, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
-      isLecturer: true,
-    },
-    {
-      email: "cpl_si@fti.unand.ac.id",
-      fullName: "Tim Pengelola CPL",
-      identityType: "NIP",
-      identityNumber: "199107282019031005",
-      roles: [ROLES.TIM_PENGELOLA_CPL, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
-      isLecturer: true,
     },
     {
       email: "fariz_2211523034@fti.unand.ac.id",
@@ -445,17 +426,17 @@ async function seedUsers(roleMap) {
       const existingStudent = await prisma.student.findUnique({
         where: { id: user.id },
       });
-    if (!existingStudent) {
-      await prisma.student.create({
-        data: {
-          id: user.id,
-          status: "active",
-          enrollmentYear: userData.enrollmentYear || 2022,
-          sksCompleted: userData.sksCompleted,
-        },
-      });
-      console.log(`    🎓 Created Student record (SKS: ${userData.sksCompleted})`);
-    }
+      if (!existingStudent) {
+        await prisma.student.create({
+          data: {
+            id: user.id,
+            status: "active",
+            enrollmentYear: userData.enrollmentYear || 2022,
+            skscompleted: userData.sksCompleted,
+          },
+        });
+        console.log(`    🎓 Created Student record (SKS: ${userData.sksCompleted})`);
+      }
     }
 
     // Create Lecturer record if needed
@@ -465,7 +446,10 @@ async function seedUsers(roleMap) {
       });
       if (!existingLecturer) {
         await prisma.lecturer.create({
-          data: { id: user.id },
+          data: {
+            id: user.id,
+            data: userData.lecturerData || {},
+          },
         });
         console.log(`    👨‍🏫 Created Lecturer record`);
       }
@@ -537,15 +521,24 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
       const deadlineDate = new Date(startDate);
       deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
 
+      // Create a placeholder document (required by current schema)
+      const placeholderDoc = await prisma.document.create({
+        data: {
+          userId: student.id,
+          fileName: `proposal_seed.pdf`,
+        },
+      });
+
       thesis = await prisma.thesis.create({
         data: {
           studentId: student.id,
           title: title,
-          thesisTopicId: withTopic ? thesisTopic.id : null,
+          thesisTopicId: thesisTopic.id, // always required now
           startDate: startDate,
           deadlineDate: deadlineDate,
           thesisStatusId: bimbinganStatus?.id,
           academicYearId: currentAcademicYear?.id,
+          documentId: placeholderDoc.id,
         },
       });
       console.log(`  ✅ Created thesis for ${student.fullName}`);
@@ -555,22 +548,22 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
       }
 
       // Add Pembimbing 1
-      await prisma.ThesisSupervisors.create({
+      await prisma.thesisSupervisors.create({
         data: {
           thesisId: thesis.id,
           lecturerId: pembimbing1User.id,
-          roleId: pembimbing1Role.id,
+          supervisorRole: 'pembimbing_1',
         },
       });
       console.log(`    📌 Pembimbing 1: ${pembimbing1User.fullName}`);
 
       // Add Pembimbing 2 if exists
       if (pembimbing2User) {
-        await prisma.ThesisSupervisors.create({
+        await prisma.thesisSupervisors.create({
           data: {
             thesisId: thesis.id,
             lecturerId: pembimbing2User.id,
-            roleId: pembimbing2Role.id,
+            supervisorRole: 'pembimbing_2',
           },
         });
         console.log(`    📌 Pembimbing 2: ${pembimbing2User.fullName}`);
@@ -898,11 +891,17 @@ async function seedGuidances(thesisMap, userMap) {
           requestedDate: requestedDate,
           approvedDate: requestedDate,
           duration: 60,
+          documentUrl: '',
           studentNotes: session.topic,
           supervisorFeedback: feedbackTemplates[i % feedbackTemplates.length],
+          rejectionReason: '',
           sessionSummary: `Bimbingan membahas ${session.topic.toLowerCase()}. Progress sesuai jadwal.`,
+          actionItems: 'Lanjutkan progress sesuai arahan.',
+          summarySubmittedAt: completedAt,
           status: "completed",
           completedAt: completedAt,
+          studentCalendarEventId: '',
+          supervisorCalendarEventId: '',
         },
       });
 
@@ -912,159 +911,6 @@ async function seedGuidances(thesisMap, userMap) {
 
   // Students without guidances: Khalied, Nouval, Daffa, Ilham
   console.log(`  ℹ️  Khalied, Nouval, Daffa, Ilham: No guidance records (as specified)`);
-}
-
-// ============================================================
-// 10. SEED METOPEN ELIGIBLE STUDENTS
-// ============================================================
-async function seedMetopenEligibleStudents(roleMap, thesisStatusMap, academicYearMap) {
-  console.log("\n" + "=".repeat(60));
-  console.log("🔬 STEP 10: Seeding Metopen Eligible Students...");
-  console.log("=".repeat(60));
-
-  const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, 10);
-  const metopelStatus = thesisStatusMap.get("Metopel");
-  const currentAcademicYear = academicYearMap.get("ganjil-2025");
-  const studentRole = roleMap.get(ROLES.MAHASISWA);
-
-  if (!metopelStatus) {
-    console.log("  ⚠️  Metopel thesis status not found, skipping...");
-    return;
-  }
-
-  const dummyStudents = [
-    {
-      email: "metopen_andi@fti.unand.ac.id",
-      fullName: "Andi Saputra",
-      identityNumber: "2211521051",
-      enrollmentYear: 2022,
-      sksCompleted: 120,
-    },
-    {
-      email: "metopen_budi@fti.unand.ac.id",
-      fullName: "Budi Hartono",
-      identityNumber: "2211522052",
-      enrollmentYear: 2022,
-      sksCompleted: 118,
-    },
-    {
-      email: "metopen_cindy@fti.unand.ac.id",
-      fullName: "Cindy Permata Sari",
-      identityNumber: "2211523053",
-      enrollmentYear: 2022,
-      sksCompleted: 125,
-    },
-    {
-      email: "metopen_dedi@fti.unand.ac.id",
-      fullName: "Dedi Kurniawan",
-      identityNumber: "2211521054",
-      enrollmentYear: 2022,
-      sksCompleted: 115,
-    },
-    {
-      email: "metopen_eka@fti.unand.ac.id",
-      fullName: "Eka Fitriani",
-      identityNumber: "2211522055",
-      enrollmentYear: 2022,
-      sksCompleted: 130,
-    },
-  ];
-
-  for (const studentData of dummyStudents) {
-    // Create or find user
-    let user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: studentData.email },
-          { identityNumber: studentData.identityNumber },
-        ],
-      },
-    });
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          email: studentData.email,
-          fullName: studentData.fullName,
-          identityType: "NIM",
-          identityNumber: studentData.identityNumber,
-          password: hashedPassword,
-          isVerified: true,
-        },
-      });
-      console.log(`  ✅ Created user: ${studentData.fullName}`);
-    } else {
-      console.log(`  ⏭️  User exists: ${studentData.fullName}`);
-    }
-
-    // Assign student role
-    if (studentRole) {
-      const existingAssignment = await prisma.userHasRole.findUnique({
-        where: { userId_roleId: { userId: user.id, roleId: studentRole.id } },
-      });
-      if (!existingAssignment) {
-        await prisma.userHasRole.create({
-          data: { userId: user.id, roleId: studentRole.id, status: "active" },
-        });
-      }
-    }
-
-    // Create Student record
-    const existingStudent = await prisma.student.findUnique({ where: { id: user.id } });
-    if (!existingStudent) {
-      await prisma.student.create({
-        data: {
-          id: user.id,
-          status: "active",
-          enrollmentYear: studentData.enrollmentYear,
-          sksCompleted: studentData.sksCompleted,
-        },
-      });
-    }
-
-    // Create Thesis with "Metopel" status (no topic yet — they're in metopen phase)
-    let thesis = await prisma.thesis.findFirst({ where: { studentId: user.id } });
-    if (!thesis) {
-      thesis = await prisma.thesis.create({
-        data: {
-          studentId: user.id,
-          title: null, // No title yet — still in metopen phase
-          thesisStatusId: metopelStatus.id,
-          academicYearId: currentAcademicYear?.id,
-          startDate: new Date("2025-08-01"),
-          deadlineDate: new Date("2026-08-01"),
-        },
-      });
-      console.log(`    📝 Created thesis (Metopel) for ${studentData.fullName}`);
-    } else {
-      console.log(`    ⏭️  Thesis exists for ${studentData.fullName}`);
-    }
-  }
-
-  console.log(`  ✅ ${dummyStudents.length} metopen-eligible students ready`);
-}
-
-// ============================================================
-// SEED ROOMS
-// ============================================================
-async function seedRooms() {
-  console.log("\n" + "=".repeat(60));
-  console.log("🏛️  STEP 11: Seeding Rooms...");
-  console.log("=".repeat(60));
-
-  const roomNames = ["Ruangan Seminar DSI", "Laboratorium Dasar"];
-
-  for (const name of roomNames) {
-    const existing = await prisma.room.findFirst({ where: { name } });
-    if (existing) {
-      console.log(`  ⏭️  Room already exists: ${name}`);
-    } else {
-      await prisma.room.create({ data: { name } });
-      console.log(`  ✅ Room created: ${name}`);
-    }
-  }
-
-  return roomNames;
 }
 
 // ============================================================
@@ -1085,8 +931,6 @@ async function main() {
     const thesisMap = await seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap);
     await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);
-    await seedMetopenEligibleStudents(roleMap, thesisStatusMap, academicYearMap);
-    await seedRooms();
 
     console.log("\n" + "=".repeat(60));
     console.log("✨ MASTER SEED COMPLETED SUCCESSFULLY!");

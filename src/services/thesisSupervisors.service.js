@@ -4,6 +4,7 @@
 import { hasPembimbing2, createThesisSupervisors } from '../repositories/thesisGuidance/supervisor2.repository.js';
 import prisma from '../config/prisma.js';
 import { ROLES } from '../constants/roles.js';
+import { syncQuotaCount } from '../utils/quotaSync.js';
 
 class NotFoundError extends Error {
   constructor(message) {
@@ -27,7 +28,7 @@ export async function assignCoAdvisor(thesisId, lecturerId) {
     where: { id: thesisId },
     include: {
       student: { include: { user: { select: { id: true, fullName: true } } } },
-      thesisSupervisors: { include: { lecturer: true, role: true } },
+      thesisSupervisors: { where: { status: 'active' }, include: { lecturer: true, role: true } },
     },
   });
 
@@ -56,6 +57,10 @@ export async function assignCoAdvisor(thesisId, lecturerId) {
   }
 
   await createThesisSupervisors(thesisId, lecturerId);
+
+  if (thesis.academicYearId) {
+    await syncQuotaCount(prisma, lecturerId, thesis.academicYearId);
+  }
 
   return {
     message: 'Pembimbing 2 berhasil ditetapkan',

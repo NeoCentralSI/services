@@ -17,6 +17,13 @@ export const enrollStudentsSchema = z.object({
 });
 
 export const publishToClassSchema = z.object({
-  templateIds: z.array(z.string().uuid()).min(1, "Pilih minimal satu template"),
+  // Template ID di Prisma bertipe String; legacy data bisa non-UUID.
+  templateIds: z.array(z.string().min(1, "Template ID tidak valid")).min(1, "Pilih minimal satu template"),
   templateDeadlines: z.record(z.string(), z.string()).optional(),
+});
+
+export const resolveDuplicateEnrollmentSchema = z.object({
+  academicYearId: z.string().uuid().optional().nullable(),
+  studentId: z.string().uuid("Student ID tidak valid"),
+  keepClassId: z.string().uuid("Kelas yang dipertahankan tidak valid"),
 });

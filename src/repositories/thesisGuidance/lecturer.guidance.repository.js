@@ -11,18 +11,19 @@ export async function getLecturerByUserId(userId) {
 export async function findMyStudents(lecturerId, roles) {
 	const where = {
 		lecturerId,
+		status: { not: "terminated" },
 		thesis: {
-			isProposal: false,
-			thesisStatus: {
-				name: { notIn: ["Gagal", "Failed", "failed"] }
-			}
+			OR: [
+				{ thesisStatus: null },
+				{ thesisStatus: { name: { notIn: ["Gagal", "Failed", "failed", "Selesai"] } } },
+			],
 		}
 	};
 	if (Array.isArray(roles) && roles.length) {
 		// Filter by role.name from UserRole
 		where.role = { name: { in: roles } };
 	}
-	const participants = await prisma.ThesisSupervisors.findMany({
+	const participants = await prisma.thesisParticipant.findMany({
 		where,
 		include: {
 			role: { select: { id: true, name: true } },
@@ -111,7 +112,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 	const where = {
 		supervisorId: lecturerId,
 		status: "requested",
-		thesis: { isProposal: false },
+		thesis: {},
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -145,7 +146,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 
 export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 	return prisma.thesisGuidance.findFirst({
-		where: { id: guidanceId, supervisorId: lecturerId, thesis: { isProposal: false } },
+		where: { id: guidanceId, supervisorId: lecturerId },
 		include: {
 			thesis: { include: { student: { include: { user: true } }, document: true } },
 			document: { select: { id: true, fileName: true, filePath: true } },
@@ -222,22 +223,31 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 }
 
 export async function getLecturerTheses(lecturerId) {
-	const parts = await prisma.ThesisSupervisors.findMany({
-		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } }, thesis: { isProposal: false } },
+	const parts = await prisma.thesisParticipant.findMany({
+		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
 		select: { thesisId: true },
 	});
 	return parts.map((p) => p.thesisId);
 }
 
 export async function countTotalProgressComponents() {
-	return prisma.thesisProgressComponent.count();
+	return prisma.thesisMilestoneTemplate.count({
+		where: {
+			phase: "thesis",
+			isActive: true,
+		},
+	});
 }
 
 export async function getValidatedCompletionsByThesis(thesisIds = []) {
 	if (!thesisIds.length) return [];
-	return prisma.thesisProgressCompletion.groupBy({
+	return prisma.thesisMilestone.groupBy({
 		by: ["thesisId"],
-		where: { thesisId: { in: thesisIds }, validatedBySupervisor: true },
+		where: {
+			thesisId: { in: thesisIds },
+			milestoneTemplate: { phase: "thesis" },
+			validatedBy: { not: null },
+		},
 		_count: { _all: true },
 	});
 }
@@ -247,64 +257,95 @@ export async function getStudentActiveThesis(studentId, lecturerId) {
 	return prisma.thesis.findFirst({
 		where: {
 			studentId,
-			isProposal: false,
 			thesisSupervisors: { some: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } } },
 		},
-		include: { thesisProgressCompletions: true },
+		include: {
+			thesisStatus: { select: { id: true, name: true } },
+			thesisMilestones: {
+				where: { milestoneTemplate: { phase: "thesis" } },
+				include: {
+					milestoneTemplate: {
+						select: { id: true, name: true, description: true, orderIndex: true },
+					},
+				},
+				orderBy: { orderIndex: "asc" },
+			},
+		},
 	});
 }
 
 export async function getAllProgressComponents() {
-	// Schema baru: orderBy orderIndex untuk urutan milestone
-	return prisma.thesisProgressComponent.findMany({ orderBy: { orderIndex: "asc" } });
+	return prisma.thesisMilestoneTemplate.findMany({
+		where: {
+			phase: "thesis",
+			isActive: true,
+		},
+		select: {
+			id: true,
+			name: true,
+			description: true,
+			orderIndex: true,
+		},
+		orderBy: { orderIndex: "asc" },
+	});
 }
 
 export async function getCompletionsForThesis(thesisId) {
-	return prisma.thesisProgressCompletion.findMany({ where: { thesisId } });
+	const milestones = await prisma.thesisMilestone.findMany({
+		where: {
+			thesisId,
+			milestoneTemplate: { phase: "thesis" },
+		},
+		select: {
+			id: true,
+			title: true,
+			status: true,
+			completedAt: true,
+			validatedAt: true,
+			validatedBy: true,
+			milestoneTemplateId: true,
+		},
+		orderBy: { orderIndex: "asc" },
+	});
+
+	return milestones.map((milestone) => ({
+		id: milestone.id,
+		componentId: milestone.milestoneTemplateId || milestone.id,
+		name: milestone.title,
+		status: milestone.status,
+		completedAt: milestone.completedAt,
+		validatedAt: milestone.validatedAt,
+		validatedBySupervisor: Boolean(milestone.validatedBy),
+	}));
 }
 
 // Schema baru: tambah validatedAt saat validasi
-export async function upsertCompletionsValidated(thesisId, componentIds = []) {
+export async function upsertCompletionsValidated(thesisId, componentIds = [], validatedBy = null) {
 	if (!componentIds.length) return { updated: 0, created: 0 };
 
-	const existing = await prisma.thesisProgressCompletion.findMany({
-		where: { thesisId, componentId: { in: componentIds } },
-		select: { id: true, componentId: true },
-	});
-	const existingSet = new Set(existing.map((e) => e.componentId));
-
-	const toUpdateIds = existing.map((e) => e.id);
-	const toCreateComponentIds = componentIds.filter((cid) => !existingSet.has(cid));
-
 	const now = new Date();
-	const [updateRes, createRes] = await prisma.$transaction([
-		toUpdateIds.length
-			? prisma.thesisProgressCompletion.updateMany({
-				where: { id: { in: toUpdateIds } },
-				data: { validatedBySupervisor: true, validatedAt: now, completedAt: now },
-			})
-			: Promise.resolve({ count: 0 }),
-		toCreateComponentIds.length
-			? prisma.thesisProgressCompletion.createMany({
-				data: toCreateComponentIds.map((cid) => ({
-					thesisId,
-					componentId: cid,
-					validatedBySupervisor: true,
-					validatedAt: now,
-					completedAt: now
-				})),
-				skipDuplicates: true,
-			})
-			: Promise.resolve({ count: 0 }),
-	]);
+	const result = await prisma.thesisMilestone.updateMany({
+		where: {
+			thesisId,
+			milestoneTemplateId: { in: componentIds },
+			milestoneTemplate: { phase: "thesis" },
+		},
+		data: {
+			status: "completed",
+			progressPercentage: 100,
+			completedAt: now,
+			validatedAt: now,
+			validatedBy: validatedBy || "supervisor-validation",
+		},
+	});
 
-	return { updated: updateRes.count || 0, created: createRes.count || 0 };
+	return { updated: result.count || 0, created: 0 };
 }
 
 export async function listGuidanceHistory(studentId, lecturerId) {
 	return prisma.thesisGuidance.findMany({
 		where: {
-			thesis: { studentId, isProposal: false },
+			thesis: { studentId },
 			status: { not: "deleted" },
 		},
 		include: {
@@ -318,22 +359,25 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 // Count number of unique students where this lecturer served as SUPERVISOR_2 and the student has completed Yudisium
 export async function countGraduatedAsSupervisor2(lecturerId) {
 	// Get studentIds supervised as SUPERVISOR_2
-	const parts = await prisma.ThesisSupervisors.findMany({
+	const parts = await prisma.thesisParticipant.findMany({
 		where: { lecturerId, role: { name: ROLES.PEMBIMBING_2 } },
 		select: { thesis: { select: { studentId: true } } },
 	});
 	const studentIds = Array.from(new Set(parts.map((p) => p.thesis?.studentId).filter(Boolean)));
 	if (!studentIds.length) return 0;
 
-	// Find Yudisium participants where schedule is completed
+	// Consider a student "graduated" when their yudisium participant or yudisium itself is finalized.
 	const yps = await prisma.yudisiumParticipant.findMany({
 		where: {
-			applicant: { studentId: { in: studentIds } },
-			yudisium: { schedule: { status: "completed" } },
+			thesis: { studentId: { in: studentIds } },
+			OR: [
+				{ status: "finalized" },
+				{ yudisium: { status: "finalized" } },
+			],
 		},
-		select: { applicant: { select: { studentId: true } } },
+		select: { thesis: { select: { studentId: true } } },
 	});
-	const graduatedStudentIds = new Set(yps.map((y) => y.applicant?.studentId).filter(Boolean));
+	const graduatedStudentIds = new Set(yps.map((y) => y.thesis?.studentId).filter(Boolean));
 	return graduatedStudentIds.size;
 }
 
@@ -377,11 +421,10 @@ export async function updateThesisStatusById(thesisId, thesisStatusId) {
 
 export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 	// Check if lecturer participates in this thesis
-	const participant = await prisma.ThesisSupervisors.findFirst({
+	const participant = await prisma.thesisParticipant.findFirst({
 		where: {
 			thesisId,
 			lecturerId,
-			thesis: { isProposal: false }
 		},
 	});
 	if (!participant) return null;
@@ -404,6 +447,11 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 			thesisStatus: true,
 			document: true,
 			proposalDocument: true,
+			finalProposalVersion: {
+				include: {
+					document: true,
+				},
+			},
 			thesisMilestones: {
 				orderBy: { updatedAt: "desc" }
 			},
@@ -428,7 +476,6 @@ export async function findGuidancesPendingApproval(lecturerId, { page = 1, pageS
 	const where = {
 		supervisorId: lecturerId,
 		status: "summary_pending",
-		thesis: { isProposal: false }
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -494,7 +541,6 @@ export async function findPendingGuidanceById(guidanceId, lecturerId) {
 			id: guidanceId,
 			supervisorId: lecturerId,
 			status: "summary_pending",
-			thesis: { isProposal: false }
 		},
 		include: {
 			thesis: {
@@ -519,7 +565,6 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 	const where = {
 		supervisorId: lecturerId,
 		status: { in: ["accepted", "summary_pending", "completed", "cancelled", "rejected"] },
-		thesis: { isProposal: false }
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -595,11 +640,10 @@ export async function findEligibleTransferLecturers(excludeLecturerId) {
  * Find ThesisSupervisors records for given thesisIds belonging to a specific lecturer
  */
 export async function findSupervisorRecords(thesisIds, lecturerId) {
-	return prisma.ThesisSupervisors.findMany({
+	return prisma.thesisParticipant.findMany({
 		where: {
 			thesisId: { in: thesisIds },
 			lecturerId,
-			thesis: { isProposal: false }
 		},
 		include: {
 			role: { select: { id: true, name: true } },
@@ -622,7 +666,7 @@ export async function findSupervisorRecords(thesisIds, lecturerId) {
  * Transfer a ThesisSupervisors record to a new lecturer
  */
 export async function transferSupervisor(thesisSupervisorId, newLecturerId) {
-	return prisma.ThesisSupervisors.update({
+	return prisma.thesisParticipant.update({
 		where: { id: thesisSupervisorId },
 		data: { lecturerId: newLecturerId },
 	});
@@ -632,7 +676,7 @@ export async function transferSupervisor(thesisSupervisorId, newLecturerId) {
  * Change the roleId on a ThesisSupervisors record (e.g. P2→P1 promotion)
  */
 export async function updateSupervisorRole(thesisSupervisorId, newRoleId) {
-	return prisma.ThesisSupervisors.update({
+	return prisma.thesisParticipant.update({
 		where: { id: thesisSupervisorId },
 		data: { roleId: newRoleId },
 	});

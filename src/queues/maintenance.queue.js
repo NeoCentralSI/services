@@ -5,6 +5,7 @@ import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
+import { runAdvisorWithdrawReminderJob } from "../jobs/advisor-withdraw-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
@@ -192,6 +193,26 @@ export async function scheduleDailyThesisReminder() {
   }
 }
 
+/**
+ * Schedule advisor request withdraw unlock reminder job.
+ * Default: hourly at minute 0, so students are notified soon after the 72h lock expires.
+ */
+export async function scheduleAdvisorWithdrawReminder() {
+  const pattern = ENV.ADVISOR_WITHDRAW_REMINDER_CRON || "0 * * * *";
+  const tz = ENV.ADVISOR_WITHDRAW_REMINDER_TZ || "Asia/Jakarta";
+
+  await maintenanceQueue.add(
+    "advisor-withdraw-reminder",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: 50,
+      removeOnFail: 100,
+    }
+  );
+  console.log(`📣 Scheduled repeatable advisor withdraw reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
 export async function scheduleYudisiumFinalize() {
   // Run daily at 00:15 WIB to finalize yudisium events whose event date has passed
   const pattern = "15 0 * * *";
@@ -243,6 +264,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "daily-thesis-reminder":
         await runDailyThesisReminderJob();
+        break;
+      case "advisor-withdraw-reminder":
+        await runAdvisorWithdrawReminderJob();
         break;
       case "yudisium-finalize":
         await finalizeCompletedYudisium();

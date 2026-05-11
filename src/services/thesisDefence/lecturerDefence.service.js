@@ -858,8 +858,8 @@ export async function finalizeDefenceBySupervisor(defenceId, lecturerId, payload
   if (payload.status === "failed") {
     const thesisId = defence.thesis?.id;
     if (thesisId) {
-      await prisma.thesisSupervisors.updateMany({
-        where: { thesisId },
+      await prisma.thesisParticipant.updateMany({
+        where: { thesisId, status: "active" },
         data: { defenceReady: false },
       });
     }
