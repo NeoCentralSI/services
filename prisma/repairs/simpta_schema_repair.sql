@@ -2,6 +2,69 @@
 -- This file is intentionally separate from Prisma migrations because it repairs
 -- partially migrated production databases before the app starts.
 
+SET @participants_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.tables
+  WHERE table_schema = DATABASE()
+    AND table_name = 'thesis_participants'
+);
+SET @legacy_supervisors_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.tables
+  WHERE table_schema = DATABASE()
+    AND table_name = 'thesis_supervisors'
+);
+SET @ddl := IF(
+  @participants_exists = 0 AND @legacy_supervisors_exists > 0,
+  'RENAME TABLE `thesis_supervisors` TO `thesis_participants`',
+  'SELECT 1'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS `thesis_participants` (
+  `id` VARCHAR(191) NOT NULL,
+  `thesis_id` VARCHAR(191) NOT NULL,
+  `lecturer_id` VARCHAR(191) NOT NULL,
+  `role_id` VARCHAR(191) NOT NULL,
+  `status` ENUM('active', 'terminated') NOT NULL DEFAULT 'active',
+  `seminar_ready` TINYINT(1) NOT NULL DEFAULT 0,
+  `defence_ready` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  KEY `thesis_participants_lecturer_id_fkey` (`lecturer_id`),
+  KEY `thesis_participants_role_id_fkey` (`role_id`),
+  KEY `thesis_participants_thesis_id_fkey` (`thesis_id`),
+  KEY `thesis_participants_thesis_lecturer_status_idx` (`thesis_id`, `lecturer_id`, `status`),
+  KEY `thesis_participants_thesis_role_status_idx` (`thesis_id`, `role_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'thesis_participants'
+    AND column_name = 'seminar_ready'
+);
+SET @ddl := IF(@column_exists = 0, 'ALTER TABLE `thesis_participants` ADD COLUMN `seminar_ready` TINYINT(1) NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'thesis_participants'
+    AND column_name = 'defence_ready'
+);
+SET @ddl := IF(@column_exists = 0, 'ALTER TABLE `thesis_participants` ADD COLUMN `defence_ready` TINYINT(1) NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 SET @column_exists := (
   SELECT COUNT(*)
   FROM information_schema.columns

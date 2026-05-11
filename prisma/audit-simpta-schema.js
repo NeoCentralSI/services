@@ -131,6 +131,7 @@ async function main() {
     ...new Set([
       ...REQUIRED_SIMPTA_TABLES,
       ...Object.keys(REQUIRED_SIMPTA_COLUMNS),
+      "thesis_supervisors",
       "_prisma_migrations",
     ]),
   ];
