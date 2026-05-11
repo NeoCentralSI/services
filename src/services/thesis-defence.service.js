@@ -69,6 +69,7 @@ function parseStatusFilter(status) {
 
 export async function getDefenceList({ search, status, view, page = 1, pageSize = 10, user = {} } = {}) {
   if (view === "archive") return getArchiveList({ search, page, pageSize, status });
+  if (view === "verification") return getAdminList({ search, status });
   if (view === "assignment") return getAssignmentList({ search });
   if (view === "supervised_students" && user.lecturerId) {
     const data = await coreRepo.findDefencesBySupervisor(user.lecturerId, { search });

@@ -73,9 +73,9 @@ router.post(
   ctrl.setSchedule
 );
 router.post(
-  "/:id/documents/:documentTypeId/validate",
+  "/:id/documents/:documentTypeId/verify",
   requireAnyRole([ROLES.ADMIN]),
-  ctrl.validateDocument
+  ctrl.verifyDocument
 );
 
 // ============================================================

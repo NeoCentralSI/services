@@ -199,9 +199,9 @@ export async function viewDocument(req, res, next) {
   }
 }
 
-export async function validateDocument(req, res, next) {
+export async function verifyDocument(req, res, next) {
   try {
-    const result = await docService.validateDocument(req.params.id, req.params.documentTypeId, {
+    const result = await docService.verifyDocument(req.params.id, req.params.documentTypeId, {
       action: req.body.action,
       notes: req.body.notes,
       userId: req.user.id,
