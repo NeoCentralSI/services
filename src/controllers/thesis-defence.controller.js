@@ -1,8 +1,8 @@
-import * as coreService from "../services/thesis-defence.service.js";
-import * as docService from "../services/thesis-defence-doc.service.js";
-import * as examinerService from "../services/thesis-defence-examiner.service.js";
-import * as revisionService from "../services/thesis-defence-revision.service.js";
-import * as studentService from "../services/thesis-defence-student.service.js";
+import * as coreService from "../services/thesis-defence/core.service.js";
+import * as docService from "../services/thesis-defence/doc.service.js";
+import * as examinerService from "../services/thesis-defence/examiner.service.js";
+import * as revisionService from "../services/thesis-defence/revision.service.js";
+import * as studentService from "../services/thesis-defence/student.service.js";
 
 // ============================================================
 // CORE — list, detail, schedule

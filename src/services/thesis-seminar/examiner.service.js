@@ -1,7 +1,7 @@
-import * as examinerRepo from "../repositories/thesis-seminar-examiner.repository.js";
-import * as coreRepo from "../repositories/thesis-seminar.repository.js";
-import { computeEffectiveStatus } from "../utils/seminarStatus.util.js";
-import prisma from "../config/prisma.js";
+import * as examinerRepo from "../../repositories/thesis-seminar/examiner.repository.js";
+import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
+import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
+import prisma from "../../config/prisma.js";
 
 // ============================================================
 // HELPERS

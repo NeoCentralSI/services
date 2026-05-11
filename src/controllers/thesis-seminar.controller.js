@@ -1,9 +1,9 @@
-import * as coreService from "../services/thesis-seminar.service.js";
-import * as docService from "../services/thesis-seminar-doc.service.js";
-import * as audienceService from "../services/thesis-seminar-audience.service.js";
-import * as examinerService from "../services/thesis-seminar-examiner.service.js";
-import * as revisionService from "../services/thesis-seminar-revision.service.js";
-import * as studentService from "../services/thesis-seminar-student.service.js";
+import * as coreService from "../services/thesis-seminar/core.service.js";
+import * as docService from "../services/thesis-seminar/doc.service.js";
+import * as audienceService from "../services/thesis-seminar/audience.service.js";
+import * as examinerService from "../services/thesis-seminar/examiner.service.js";
+import * as revisionService from "../services/thesis-seminar/revision.service.js";
+import * as studentService from "../services/thesis-seminar/student.service.js";
 import { ROLES } from "../constants/roles.js";
 
 // ============================================================

@@ -1,6 +1,6 @@
-import * as revisionRepo from "../repositories/thesis-defence-revision.repository.js";
-import * as coreRepo from "../repositories/thesis-defence.repository.js";
-import prisma from "../config/prisma.js";
+import * as revisionRepo from "../../repositories/thesis-defence/revision.repository.js";
+import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
+import prisma from "../../config/prisma.js";
 
 // ============================================================
 // HELPERS

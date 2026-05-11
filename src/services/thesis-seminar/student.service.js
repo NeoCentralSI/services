@@ -1,13 +1,13 @@
-import { getStudentByUserId } from "../repositories/thesisGuidance/student.guidance.repository.js";
-import * as coreRepo from "../repositories/thesis-seminar.repository.js";
-import * as examinerRepo from "../repositories/thesis-seminar-examiner.repository.js";
-import * as docRepo from "../repositories/thesis-seminar-doc.repository.js";
-import * as revisionRepo from "../repositories/thesis-seminar-revision.repository.js";
-import * as audienceRepo from "../repositories/thesis-seminar-audience.repository.js";
-import { computeEffectiveStatus } from "../utils/seminarStatus.util.js";
-import { mapScoreToGrade } from "../utils/score.util.js";
-import { ENV } from "../config/env.js";
-import prisma from "../config/prisma.js";
+import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
+import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
+import * as examinerRepo from "../../repositories/thesis-seminar/examiner.repository.js";
+import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
+import * as revisionRepo from "../../repositories/thesis-seminar/revision.repository.js";
+import * as audienceRepo from "../../repositories/thesis-seminar/audience.repository.js";
+import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
+import { mapScoreToGrade } from "../../utils/score.util.js";
+import { ENV } from "../../config/env.js";
+import prisma from "../../config/prisma.js";
 
 const MIN_BIMBINGAN = ENV.SEMINAR_MIN_BIMBINGAN;
 const MIN_KEHADIRAN = ENV.SEMINAR_MIN_KEHADIRAN;

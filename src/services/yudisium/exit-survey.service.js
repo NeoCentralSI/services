@@ -1,6 +1,6 @@
 import * as repo from "../../repositories/yudisium/exit-survey.repository.js";
 import { findStudentContext } from "./student.service.js";
-import prisma from "../config/prisma.js";
+import prisma from "../../config/prisma.js";
 
 function throwError(msg, code) {
   const e = new Error(msg);

@@ -1,14 +1,14 @@
-import * as coreRepo from "../repositories/thesis-seminar.repository.js";
-import * as docRepo from "../repositories/thesis-seminar-doc.repository.js";
-import * as audienceRepo from "../repositories/thesis-seminar-audience.repository.js";
-import { computeEffectiveStatus } from "../utils/seminarStatus.util.js";
-import prisma from "../config/prisma.js";
-import { convertHtmlToPdf } from "../utils/pdf.util.js";
+import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
+import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
+import * as audienceRepo from "../../repositories/thesis-seminar/audience.repository.js";
+import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
+import prisma from "../../config/prisma.js";
+import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import * as xlsx from "xlsx";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import * as examinerService from "./thesis-seminar-examiner.service.js";
+import * as examinerService from "./examiner.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

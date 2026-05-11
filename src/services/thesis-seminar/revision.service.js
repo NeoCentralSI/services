@@ -1,6 +1,6 @@
-import * as revisionRepo from "../repositories/thesis-seminar-revision.repository.js";
-import * as coreRepo from "../repositories/thesis-seminar.repository.js";
-import prisma from "../config/prisma.js";
+import * as revisionRepo from "../../repositories/thesis-seminar/revision.repository.js";
+import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
+import prisma from "../../config/prisma.js";
 
 // ============================================================
 // HELPERS

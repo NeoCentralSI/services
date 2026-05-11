@@ -1,8 +1,8 @@
-import * as audienceRepo from "../repositories/thesis-seminar-audience.repository.js";
-import * as coreRepo from "../repositories/thesis-seminar.repository.js";
+import * as audienceRepo from "../../repositories/thesis-seminar/audience.repository.js";
+import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
 import * as xlsx from "xlsx";
-import prisma from "../config/prisma.js";
-import { convertHtmlToPdf } from "../utils/pdf.util.js";
+import prisma from "../../config/prisma.js";
+import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";

@@ -1,8 +1,8 @@
 import path from "path";
 import { mkdir, writeFile, unlink } from "fs/promises";
-import { getStudentByUserId } from "../repositories/thesisGuidance/student.guidance.repository.js";
-import * as docRepo from "../repositories/thesis-seminar-doc.repository.js";
-import * as coreRepo from "../repositories/thesis-seminar.repository.js";
+import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
+import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
+import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
 
 // ============================================================
 // CONSTANTS
