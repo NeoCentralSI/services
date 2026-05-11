@@ -283,6 +283,14 @@ export async function cancelSeminar(seminarId, { cancelledReason }) {
     cancelledReason: cancelledReason || null,
   });
 
+  // Reset supervisor seminarReady so student must re-get approval for next attempt
+  if (seminar.thesisId) {
+    await prisma.thesisSupervisors.updateMany({
+      where: { thesisId: seminar.thesisId },
+      data: { seminarReady: false },
+    });
+  }
+
   return { seminarId, status: "cancelled" };
 }
 

@@ -3,6 +3,11 @@ import { mkdir, writeFile, unlink } from "fs/promises";
 import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
+import prisma from "../../config/prisma.js";
+import { ENV } from "../../config/env.js";
+
+const MIN_BIMBINGAN = ENV.SEMINAR_MIN_BIMBINGAN;
+const MIN_KEHADIRAN = ENV.SEMINAR_MIN_KEHADIRAN;
 
 // ============================================================
 // CONSTANTS
@@ -36,6 +41,18 @@ function validateFileExtension(file, documentTypeName) {
 async function getOrCreateSeminar(thesis) {
   const existing = thesis.thesisSeminars?.[0];
   if (existing && !["failed", "cancelled"].includes(existing.status)) return existing;
+
+  // Verify requirements before auto-registration
+  const student = await prisma.student.findUnique({ where: { id: thesis.studentId } });
+  const completedGuidances = await prisma.thesisGuidance.count({ where: { thesisId: thesis.id, status: "completed" } });
+  const seminarAttendance = await coreRepo.countSeminarAttendance(thesis.studentId);
+  const supervisors = await prisma.thesisSupervisors.findMany({ where: { thesisId: thesis.id } });
+  const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.seminarReady);
+
+  if (completedGuidances < MIN_BIMBINGAN || seminarAttendance < MIN_KEHADIRAN || !student?.researchMethodCompleted || !allSupervisorsReady) {
+    throwError("Anda belum memenuhi persyaratan pendaftaran seminar hasil.", 403);
+  }
+
   const created = await coreRepo.createThesisSeminar(thesis.id);
   return { id: created.id, status: created.status };
 }
@@ -100,10 +117,12 @@ export async function uploadDocument(seminarId, studentId, file, docTypeName) {
     if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
     thesisId = thesis.id;
     const seminar = await getOrCreateSeminar(thesis);
+    if (seminar.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
     targetSeminarId = seminar.id;
   } else {
     const seminar = await coreRepo.findSeminarBasicById(targetSeminarId);
     if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+    if (seminar.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
     thesisId = seminar.thesisId;
   }
 
@@ -151,6 +170,24 @@ export async function uploadDocument(seminarId, studentId, file, docTypeName) {
     });
   }
 
+  // Notify Admins
+  try {
+    const adminIds = await coreRepo.findUserIdsByRole("Admin");
+    if (adminIds.length > 0) {
+      const student = await prisma.user.findUnique({ where: { id: studentId }, select: { fullName: true } });
+      const studentName = student?.fullName || "Mahasiswa";
+      const title = "Dokumen Seminar Hasil Baru";
+      const message = `${studentName} telah mengunggah dokumen "${docTypeName}".`;
+
+      await Promise.all([
+        import("../notification.service.js").then(m => m.createNotificationsForUsers(adminIds, { title, message })),
+        import("../push.service.js").then(m => m.sendFcmToUsers(adminIds, { title, body: message, data: { seminarId: targetSeminarId, type: "seminar_doc_upload" } }))
+      ]);
+    }
+  } catch (err) {
+    console.error("[FCM/Notification Error] Failed to notify admins on seminar doc upload:", err.message);
+  }
+
   return { documentTypeId: docType.id, documentId: doc.id, fileName: originalName, filePath: relPath, status: "submitted", submittedAt: now };
 }
 
@@ -191,18 +228,67 @@ export async function verifyDocument(seminarId, docTypeId, { action, notes, user
   const docWithFile = await docRepo.findDocumentWithFile(seminarId, docTypeId);
   if (!docWithFile) throwError("Dokumen tidak ditemukan untuk di-verifikasi.", 404);
 
+  const docTypes = await docRepo.getSeminarDocumentTypes();
+  const docType = docTypes.find(dt => dt.id === docTypeId);
+  const docTypeName = docType ? docType.name : "Dokumen Persyaratan";
+
   const newStatus = action === "approve" ? "approved" : "declined";
   await docRepo.updateDocumentStatus(seminarId, docTypeId, { status: newStatus, notes: notes || null, verifiedBy: userId });
 
-  // Auto-transition to 'verified' when all docs approved
+  const thesis = await coreRepo.findThesisById(seminar.thesisId);
+
+  // 1. Notify student about this specific document status
+  try {
+    if (thesis?.studentId) {
+      const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
+      const statusText = action === "approve" ? "disetujui" : "ditolak";
+      const message = `Dokumen "${docTypeName}" untuk seminar hasil Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${notes}` : ""}`;
+
+      await Promise.all([
+        import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
+        import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { seminarId, type: "seminar_doc_verified" } }))
+      ]);
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify student on doc verification:", err.message);
+  }
+
+  // 2. Auto-transition to 'verified' when all docs approved
   let seminarTransitioned = false;
   if (action === "approve") {
     const allDocs = await docRepo.countDocumentsByStatus(seminarId);
-    const docTypes = await docRepo.getSeminarDocumentTypes();
+    // Important: we use the updated count including the current action
     const approvedCount = allDocs.filter((d) => d.documentTypeId === docTypeId ? true : d.status === "approved").length;
+
     if (approvedCount >= docTypes.length) {
-      await coreRepo.updateSeminar(seminarId, { status: "verified" });
+      await coreRepo.updateSeminar(seminarId, { status: "verified", verifiedAt: new Date() });
       seminarTransitioned = true;
+
+      // 2a. Notify student that seminar is now verified
+      try {
+        const student = await prisma.user.findUnique({ where: { id: thesis.studentId }, select: { fullName: true } });
+        const studentName = student?.fullName || "Mahasiswa";
+
+        const title = "Seminar Hasil Terverifikasi";
+        const message = "Seluruh dokumen persyaratan seminar hasil Anda telah diverifikasi. Menunggu penetapan penguji.";
+        await Promise.all([
+          import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
+          import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { seminarId, type: "seminar_verified" } }))
+        ]);
+
+        // 2b. Notify Ketua Departemen
+        const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
+        if (kadepIds.length > 0) {
+          const kadepTitle = "Penetapan Penguji Seminar Hasil";
+          const kadepMsg = `Mahasiswa ${studentName} telah melewati verifikasi dokumen seminar hasil. Mohon untuk melakukan penetapan dosen penguji.`;
+          await Promise.all([
+            import("../notification.service.js").then(m => m.createNotificationsForUsers(kadepIds, { title: kadepTitle, message: kadepMsg })),
+            import("../push.service.js").then(m => m.sendFcmToUsers(kadepIds, { title: kadepTitle, body: kadepMsg, data: { seminarId, type: "seminar_need_examiner" } }))
+          ]);
+        }
+      } catch (err) {
+        console.error("[Notification Error] Failed to notify student/kadep on seminar verification:", err.message);
+      }
     }
   }
 

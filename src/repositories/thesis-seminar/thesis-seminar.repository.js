@@ -1024,3 +1024,20 @@ export async function createThesisSeminar(thesisId) {
     },
   });
 }
+
+/**
+ * Find all user IDs by role name.
+ */
+export async function findUserIdsByRole(roleName) {
+  const users = await prisma.user.findMany({
+    where: {
+      userHasRoles: {
+        some: {
+          role: { name: roleName },
+        },
+      },
+    },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
+}

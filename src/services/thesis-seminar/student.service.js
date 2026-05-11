@@ -40,21 +40,33 @@ export async function getOverview(userId) {
     pembimbing: { met: allSupervisorsReady, label: "Persetujuan Dosen Pembimbing", supervisors: supervisors.map((s) => ({ name: s.lecturer?.user?.fullName || "-", role: s.role?.name || "-", ready: s.seminarReady })) },
   };
 
-  let currentSeminar = thesis.thesisSeminars?.[0] || null;
-
   const allChecklistMet = checklist.bimbingan.met && checklist.kehadiran.met && checklist.metopen.met && checklist.pembimbing.met;
 
-  // If latest seminar is failed/cancelled, treat as inactive for students
+  // Isolate the current attempt (latest, if not failed/cancelled)
+  let currentSeminar = thesis.thesisSeminars?.[0] || null;
   if (currentSeminar && ["failed", "cancelled"].includes(currentSeminar.status)) {
     currentSeminar = null;
   }
+
+  // Define Stepper Milestones
+  const milestones = [
+    { id: 'checklist', label: 'Memenuhi Syarat Pendaftaran', checked: allChecklistMet },
+    { id: 'documents', label: 'Dokumen Seminar Lengkap', checked: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentSeminar?.status) },
+    { id: 'examiner', label: 'Penetapan Dosen Penguji', checked: ["examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentSeminar?.status) },
+    { id: 'schedule', label: 'Penetapan Jadwal Seminar', checked: ["scheduled", "passed", "passed_with_revision"].includes(currentSeminar?.status) },
+    { id: 'concluded', label: 'Pelaksanaan Seminar Hasil', checked: ["passed", "passed_with_revision"].includes(currentSeminar?.status) },
+  ];
+
+  // Locking Logic
+  // 1. Cannot upload if checklist not met
+  // 2. Cannot change documents if status > registered
+  const canUpload = allChecklistMet && (!currentSeminar || currentSeminar.status === "registered");
 
   let enrichedExaminers = [];
   if (currentSeminar?.examiners?.length) {
     enrichedExaminers = await coreRepo.enrichExaminers(currentSeminar.examiners);
   }
 
-  // Map effective status for student display
   let displayStatus = currentSeminar?.status || null;
   if (currentSeminar) {
     displayStatus = computeEffectiveStatus(currentSeminar.status, currentSeminar.date, currentSeminar.startTime, currentSeminar.endTime);
@@ -65,6 +77,8 @@ export async function getOverview(userId) {
     thesisTitle: thesis.title,
     checklist,
     allChecklistMet,
+    milestones,
+    canUpload,
     seminar: currentSeminar
       ? {
           id: currentSeminar.id,
@@ -75,7 +89,7 @@ export async function getOverview(userId) {
           endTime: currentSeminar.endTime,
           meetingLink: currentSeminar.meetingLink,
           finalScore: currentSeminar.finalScore,
-          maxWeight: 100, // Fixed as per requirements
+          maxWeight: 100,
           resultFinalizedAt: currentSeminar.resultFinalizedAt,
           cancelledReason: currentSeminar.cancelledReason,
           room: currentSeminar.room,

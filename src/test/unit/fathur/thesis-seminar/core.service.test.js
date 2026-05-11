@@ -20,6 +20,7 @@ const { mockPrisma, mockCoreRepo, mockXlsx } = vi.hoisted(() => ({
     findActiveThesisByStudentId: vi.fn(),
     findRoomByNameLike: vi.fn(),
     findLecturerByNameLike: vi.fn(),
+    updateSeminar: vi.fn(),
   },
   mockXlsx: {
     read: vi.fn(),
@@ -38,6 +39,7 @@ import {
   updateArchive,
   deleteArchive,
   importArchive,
+  cancelSeminar,
 } from "../../../../services/thesis-seminar/core.service.js";
 
 describe("Thesis Seminar Core Service (Archive Logic)", () => {
@@ -170,6 +172,28 @@ describe("Thesis Seminar Core Service (Archive Logic)", () => {
       expect(result.successCount).toBe(0);
       expect(result.failed).toBe(1);
       expect(result.failedRows[0].error).toBe("Sudah lulus seminar hasil");
+    });
+  });
+
+  describe("cancelSeminar", () => {
+    it("cancels seminar and resets supervisor seminarReady flag", async () => {
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "sem-1", status: "verified", thesisId: "thesis-1" });
+      mockCoreRepo.updateSeminar.mockResolvedValue({ id: "sem-1", status: "cancelled" });
+      mockPrisma.thesisSupervisors = { updateMany: vi.fn().mockResolvedValue({ count: 1 }) };
+
+      const result = await cancelSeminar("sem-1", { cancelledReason: "Test Reason" });
+
+      expect(result.status).toBe("cancelled");
+      expect(mockCoreRepo.updateSeminar).toHaveBeenCalledWith("sem-1", expect.objectContaining({ status: "cancelled", cancelledReason: "Test Reason" }));
+      expect(mockPrisma.thesisSupervisors.updateMany).toHaveBeenCalledWith({
+        where: { thesisId: "thesis-1" },
+        data: { seminarReady: false }
+      });
+    });
+
+    it("throws 400 if seminar is already concluded", async () => {
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "sem-1", status: "passed" });
+      await expect(cancelSeminar("sem-1", { cancelledReason: "Reason" })).rejects.toMatchObject({ statusCode: 400 });
     });
   });
 });
