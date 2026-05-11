@@ -101,7 +101,7 @@ export async function getEligibleExaminers(seminarId) {
         availabilityStatus: { in: ["pending", "available"] },
         seminar: {
           date: { gte: now, lte: oneMonthLater },
-          status: { notIn: ["cancelled"] },
+          status: "scheduled",
         },
       },
       include: {
@@ -116,7 +116,7 @@ export async function getEligibleExaminers(seminarId) {
         availabilityStatus: { in: ["pending", "available"] },
         defence: {
           date: { gte: now, lte: oneMonthLater },
-          status: { notIn: ["cancelled"] },
+          status: "scheduled",
         },
       },
       include: {
@@ -262,6 +262,40 @@ export async function assignExaminers(seminarId, examinerIds, assignedByUserId) 
     }
   });
 
+  // 3. Notifications
+  try {
+    const studentName = seminar.thesis?.student?.user?.fullName || "Mahasiswa";
+    const studentUserId = seminar.thesis?.student?.id;
+
+    // Notify newly added examiners
+    if (addedExaminerIds.length > 0) {
+      const lecturers = await prisma.lecturer.findMany({
+        where: { id: { in: addedExaminerIds } },
+        include: { user: { select: { id: true } } },
+      });
+      const userIds = lecturers.map((l) => l.user.id);
+      const title = "Penugasan Penguji Seminar Hasil";
+      const message = `Anda telah ditugaskan sebagai penguji seminar hasil mahasiswa ${studentName}. Mohon berikan konfirmasi kesediaan Anda.`;
+
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers(userIds, { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers(userIds, { title, body: message, data: { seminarId, type: "seminar_examiner_assigned" } })),
+      ]);
+    }
+
+    // Notify student about assignment
+    if (addedExaminerIds.length > 0 && studentUserId) {
+      const title = "Penetapan Penguji Seminar Hasil";
+      const message = "Dosen penguji untuk seminar hasil Anda telah ditetapkan. Menunggu konfirmasi kesediaan dari penguji.";
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers([studentUserId], { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { seminarId, type: "seminar_examiner_assigned_student" } })),
+      ]);
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify stakeholders on examiner assignment:", err.message);
+  }
+
   // Auto-transition if all assigned examiners are available
   const activeExaminers = await examinerRepo.findActiveExaminersBySeminar(seminarId);
   const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
@@ -297,6 +331,74 @@ export async function respondExaminerAssignment(seminarId, examinerId, payload, 
   if (allAvailable && seminar.status !== "scheduled") {
     await coreRepo.updateSeminar(examiner.thesisSeminarId, { status: "examiner_assigned" });
     seminarTransitioned = true;
+  }
+
+  // Notifications
+  try {
+    const thesis = await prisma.thesis.findUnique({
+      where: { id: seminar.thesisId },
+      select: {
+        student: { select: { user: { select: { id: true, fullName: true } } } },
+        thesisSupervisors: {
+          include: { lecturer: { include: { user: { select: { id: true } } } } },
+        },
+      },
+    });
+    const student = thesis?.student?.user;
+    const studentName = student?.fullName || "Mahasiswa";
+    const supervisorUserIds = (thesis?.thesisSupervisors || []).map((s) => s.lecturer?.user?.id).filter(Boolean);
+
+    const lecturer = await prisma.lecturer.findUnique({
+      where: { id: lecturerId },
+      include: { user: { select: { fullName: true } } },
+    });
+    const lecturerName = lecturer?.user?.fullName || "Dosen Penguji";
+
+    // 1. Notify Kadep if unavailable (needs reassignment)
+    if (status === "unavailable") {
+      const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
+      if (kadepIds.length > 0) {
+        const title = "Penguji Berhalangan Hadir";
+        const message = `${lecturerName} tidak bersedia menjadi penguji seminar hasil mahasiswa ${studentName}. Alasan: ${unavailableReasons || "-"}. Mohon lakukan penetapan ulang.`;
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(kadepIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(kadepIds, { title, body: message, data: { seminarId, type: "seminar_examiner_unavailable" } })),
+        ]);
+      }
+    }
+
+    // 2. Notify Student, Admin, and Supervisors if all available (Ready for Scheduling)
+    if (seminarTransitioned) {
+      const title = "Penguji Seminar Hasil Lengkap";
+      const message = `Seluruh penguji untuk seminar hasil ${studentName} telah bersedia hadir. Menunggu penetapan jadwal oleh Admin.`;
+
+      // Student notification
+      if (student?.id) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers([student.id], { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers([student.id], { title, body: message, data: { seminarId, type: "seminar_all_examiners_available" } })),
+        ]);
+      }
+
+      // Admin notification
+      const adminIds = await coreRepo.findUserIdsByRole("Admin");
+      if (adminIds.length > 0) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(adminIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(adminIds, { title, body: message, data: { seminarId, type: "seminar_all_examiners_available_admin" } })),
+        ]);
+      }
+
+      // Supervisor notification
+      if (supervisorUserIds.length > 0) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(supervisorUserIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(supervisorUserIds, { title, body: message, data: { seminarId, type: "seminar_all_examiners_available_supervisor" } })),
+        ]);
+      }
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify stakeholders on examiner response:", err.message);
   }
 
   return { examinerId, availabilityStatus: status, seminarTransitioned };

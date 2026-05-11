@@ -50,6 +50,14 @@ export async function findEligibleExaminers(seminarId) {
   return prisma.lecturer.findMany({
     where: {
       id: { notIn: supervisorIds },
+      user: {
+        userHasRoles: {
+          some: {
+            role: { name: "Penguji" },
+            status: "active",
+          },
+        },
+      },
     },
     select: {
       id: true,
