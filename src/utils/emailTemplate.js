@@ -196,3 +196,31 @@ export function passwordAssignedTemplate({ appName, fullName, email, password, l
 	return getEmailWrapper(content, { appName, headerTitle: "Your Password" });
 }
 
+export function fieldAssessmentRequestTemplate({ appName, supervisorName, studentName, studentNim, companyName, academicYear, assessmentUrl, pin, expiresInDays = 7 }) {
+	const content = `
+		<p style="margin: 0 0 16px 0; font-size: 15px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			<strong>Yth. ${supervisorName},</strong>
+		</p>
+		<p style="margin: 0 0 16px 0; font-size: 15px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			Kami dari Departemen Sistem Informasi mengundang Bapak/Ibu untuk memberikan penilaian terhadap mahasiswa yang telah melaksanakan Kerja Praktik di bawah bimbingan Bapak/Ibu.
+		</p>
+		${getCredentialsBox([
+			{ label: "Mahasiswa", value: studentName },
+			{ label: "NIM", value: studentNim },
+			{ label: "Perusahaan", value: companyName },
+			{ label: "Tahun Akademik", value: academicYear },
+		])}
+		<p style="margin: 0 0 16px 0; font-size: 15px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			Untuk menjaga keamanan data mahasiswa, silakan gunakan <strong>PIN</strong> berikut untuk mengakses portal penilaian:
+		</p>
+		<div style="background-color: #F9FAFB; border: 2px dashed ${BORDER_COLOR}; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+			<span style="font-size: 32px; font-weight: 800; color: ${PRIMARY_COLOR}; letter-spacing: 10px; font-family: 'Courier New', monospace;">${pin}</span>
+		</div>
+		<p style="margin: 0 0 8px 0; font-size: 14px; color: ${TEXT_COLOR}; line-height: 1.6;">
+			Silakan klik tombol di bawah ini untuk masuk ke portal penilaian mahasiswa. Di dalam portal ini, Bapak/Ibu dapat <strong>memeriksa logbook harian</strong> mahasiswa dan <strong>memberikan penilaian akhir</strong>.
+		</p>
+		${getPrimaryButton("Akses Portal Penilaian", assessmentUrl)}
+		${getSecurityNotice(`Link ini berlaku selama ${expiresInDays} hari. Jangan memberikan PIN ini kepada mahasiswa atau pihak lain.`)}
+	`;
+	return getEmailWrapper(content, { appName, headerTitle: "Penilaian Kerja Praktik" });
+}

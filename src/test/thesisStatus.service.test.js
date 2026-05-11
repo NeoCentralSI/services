@@ -17,12 +17,12 @@ const { mockPrisma, mockPush, mockNotif, mockRoles } = vi.hoisted(() => ({
   mockRoles: { ROLES: { KETUA_DEPARTEMEN: "Ketua Departemen" } },
 }));
 
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../constants/roles.js", () => mockRoles);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../services/notification.service.js", () => mockNotif);
+vi.mock("../../constants/roles.js", () => mockRoles);
 
-import { updateAllThesisStatuses } from "../services/thesisStatus.service.js";
+import { updateAllThesisStatuses } from "../../services/thesisStatus.service.js";
 
 function daysAgo(n) {
   const d = new Date();

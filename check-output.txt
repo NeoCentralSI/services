@@ -1,0 +1,22 @@
+=== USER ===
+{
+  "id": "84aab6d8-5618-4df9-a035-f0fd33dd2d5f",
+  "fullName": "Nabil Rizki Navisa",
+  "identityNumber": "2211522018"
+}
+
+=== THESIS ===
+ID: a552149d-b310-4c1c-b3b5-0390f6111913
+Title: Pembangunan SIstem Informasi Monitoring Bimbingan Tugas Akhir di Departemen Sistem Informasi Universitas Andalas
+Status: Acc Seminar
+Defence Requested At: null
+Final Document ID: null
+
+=== SUPERVISORS ===
+  Pembimbing 2: Afriyanti Dwi Kartika, M.T | seminarReady=true | defenceReady=false
+  Pembimbing 1: Husnil Kamil, MT | seminarReady=true | defenceReady=false
+
+=== SEMINARS (count=1) ===
+  [0] status=passed | date=Fri Mar 13 2026 07:00:00 GMT+0700 (Western Indonesia Time) | score=86 | resultFinalized=Sat Mar 14 2026 15:53:53 GMT+0700 (Western Indonesia Time) | revisionFinalized=null
+
+>>> isSeminarCompleted: true <<<

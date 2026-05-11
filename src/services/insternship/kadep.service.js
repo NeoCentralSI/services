@@ -6,8 +6,10 @@ import { createNotificationsForUsers } from "../notification.service.js";
 import { stampQRCode } from "../../utils/pdf-sign.util.js";
 import { ENV } from "../../config/env.js";
 import { getWorkingDays } from "../../utils/internship-date.util.js";
+import { getHolidayDatesInRange } from "./holiday.service.js";
 import fs from "fs/promises";
 import path from "path";
+import crypto from "crypto";
 
 /**
  * Get all pending letters for Kadep.
@@ -15,9 +17,10 @@ import path from "path";
  * @returns {Promise<Object>}
  */
 export async function getPendingLetters(academicYearId) {
-    const [appLetters, assignLetters] = await Promise.all([
+    const [appLetters, assignLetters, supervisorLetters] = await Promise.all([
         kadepRepository.findPendingApplicationLetters(academicYearId),
-        kadepRepository.findPendingAssignmentLetters(academicYearId)
+        kadepRepository.findPendingAssignmentLetters(academicYearId),
+        kadepRepository.findPendingSupervisorLetters(academicYearId)
     ]);
 
     const formatAppLetter = (p) => ({
@@ -38,6 +41,10 @@ export async function getPendingLetters(academicYearId) {
                 status: i.status
             })),
         acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
+        period: p.startDatePlanned ? {
+            start: p.startDatePlanned,
+            end: p.endDatePlanned
+        } : null,
         createdAt: p.createdAt,
         signedById: p.appLetterSignedById,
         document: p.appLetterDoc ? {
@@ -65,6 +72,10 @@ export async function getPendingLetters(academicYearId) {
                 status: i.status
             })),
         acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
+        period: p.startDateActual ? {
+            start: p.startDateActual,
+            end: p.endDateActual
+        } : null,
         createdAt: p.createdAt,
         signedById: p.assignLetterSignedById,
         document: p.assignLetterDoc ? {
@@ -74,9 +85,30 @@ export async function getPendingLetters(academicYearId) {
         } : null
     });
 
+    const formatSupervisorLetter = (l) => ({
+        id: l.id,
+        type: 'LECTURER_ASSIGNMENT',
+        documentNumber: l.documentNumber,
+        lecturerName: l.supervisor?.user?.fullName,
+        lecturerNip: l.supervisor?.user?.identityNumber,
+        memberCount: l.internships.length,
+        period: {
+            start: l.startDate,
+            end: l.endDate
+        },
+        createdAt: l.createdAt,
+        signedById: l.signedById,
+        document: l.document ? {
+            id: l.document.id,
+            fileName: l.document.fileName,
+            filePath: l.document.filePath
+        } : null
+    });
+
     return {
         applicationLetters: appLetters.map(formatAppLetter),
-        assignmentLetters: assignLetters.map(formatAssignLetter)
+        assignmentLetters: assignLetters.map(formatAssignLetter),
+        supervisorLetters: supervisorLetters.map(formatSupervisorLetter)
     };
 }
 
@@ -97,24 +129,49 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
 
     if (!kadepRole) throw new Error("Role Ketua Departemen tidak ditemukan.");
 
-    // 2. Fetch proposal with document info
-    const proposal = await prisma.internshipProposal.findUnique({
-        where: { id: proposalId },
-        include: {
-            appLetterDoc: true,
-            assignLetterDoc: true,
-            coordinator: { include: { user: true } },
-            targetCompany: true
-        }
-    });
-
-    if (!proposal) throw new Error("Proposal tidak ditemukan.");
-
-    // Determine which letter fields to check
+    // 2. Fetch proposal or letter based on type
     const isApp = type === 'APPLICATION';
-    const signedById = isApp ? proposal.appLetterSignedById : proposal.assignLetterSignedById;
-    const letterDoc = isApp ? proposal.appLetterDoc : proposal.assignLetterDoc;
-    const docNumber = isApp ? proposal.appLetterDocNumber : proposal.assignLetterDocNumber;
+    const isAssign = type === 'ASSIGNMENT';
+    const isLecturerAssign = type === 'LECTURER_ASSIGNMENT';
+
+    let signedById;
+    let letterDoc;
+    let docNumber;
+    let verifyId;
+
+    let proposal;
+    if (isApp || isAssign) {
+        proposal = await prisma.internshipProposal.findUnique({
+            where: { id: proposalId },
+            include: {
+                appLetterDoc: true,
+                assignLetterDoc: true,
+                coordinator: { include: { user: true } },
+                targetCompany: true
+            }
+        });
+
+        if (!proposal) throw new Error("Proposal tidak ditemukan.");
+
+        signedById = isApp ? proposal.appLetterSignedById : proposal.assignLetterSignedById;
+        letterDoc = isApp ? proposal.appLetterDoc : proposal.assignLetterDoc;
+        docNumber = isApp ? proposal.appLetterDocNumber : proposal.assignLetterDocNumber;
+        verifyId = proposalId;
+    } else if (isLecturerAssign) {
+        const letter = await prisma.internshipSupervisorLetter.findUnique({
+            where: { id: proposalId },
+            include: { document: true }
+        });
+
+        if (!letter) throw new Error("Surat Tugas Dosen tidak ditemukan.");
+
+        signedById = letter.signedById;
+        letterDoc = letter.document;
+        docNumber = letter.documentNumber;
+        verifyId = proposalId; // In this case it's the letter ID
+    } else {
+        throw new Error("Tipe surat tidak valid.");
+    }
 
     if (!docNumber) throw new Error("Surat belum dibuat.");
     if (signedById) throw new Error("Surat ini sudah ditandatangani.");
@@ -125,12 +182,21 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
             const absolutePath = path.resolve(letterDoc.filePath);
             const pdfBuffer = await fs.readFile(absolutePath);
 
-            const verifyUrl = `${ENV.FRONTEND_URL}/verify/internship-letter/${proposalId}`;
+            const verifyUrl = `${ENV.FRONTEND_URL}/verify/${isLecturerAssign ? 'lecturer-assignment' : 'internship-letter'}/${verifyId}`;
             const signedPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, signaturePositions);
+
+            // Calculate SHA-256 Hash for file integrity verification
+            const fileHash = crypto.createHash('sha256').update(signedPdfBuffer).digest('hex');
+
+            // Save Hash to DB
+            await prisma.document.update({
+                where: { id: letterDoc.id },
+                data: { fileHash }
+            });
 
             await fs.writeFile(absolutePath, signedPdfBuffer);
         } catch (error) {
-            console.error("[kadep-service] PDF Stamping failed:", error);
+            console.error("[kadep-service] PDF Stamping and Hashing failed:", error);
         }
     }
 
@@ -143,7 +209,8 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
 
         // Auto-generate Logbooks for all members
         try {
-            const workingDays = getWorkingDays(proposal.startDateActual, proposal.endDateActual);
+            const holidays = await getHolidayDatesInRange(proposal.startDateActual, proposal.endDateActual);
+            const workingDays = getWorkingDays(proposal.startDateActual, proposal.endDateActual, holidays);
             await kadepRepository.initializeInternshipsAndLogbooks(
                 proposalId,
                 workingDays
@@ -151,11 +218,14 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
         } catch (genError) {
             console.error("[kadep-service] Auto logbook generation failed:", genError);
         }
+    } else if (isLecturerAssign) {
+        signedProposal = await kadepRepository.signSupervisorLetter(proposalId, userId, kadepRole.id);
+        // Add specific lecturer notifications here if needed
     } else {
         throw new Error("Tipe surat tidak valid.");
     }
 
-    // 5. Notify Student (Coordinator) and Admin
+    // 5. Notify parties
     await notifyAfterSignature(signedProposal, type);
 
     return signedProposal;
@@ -166,8 +236,29 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
  * @param {Object} proposal 
  * @param {string} type 
  */
-async function notifyAfterSignature(proposal, type) {
+async function notifyAfterSignature(data, type) {
     try {
+        if (type === 'LECTURER_ASSIGNMENT') {
+            const lecturerUserId = data.supervisor?.user?.id;
+            if (lecturerUserId) {
+                const title = "Surat Tugas Pembimbing Ditandatangani";
+                const message = `Ketua Departemen telah menandatangani Surat Tugas Pembimbing Anda (${data.documentNumber}).`;
+
+                await createNotificationsForUsers([lecturerUserId], { title, message });
+                await sendFcmToUsers([lecturerUserId], {
+                    title,
+                    body: message,
+                    data: {
+                        type: 'internship_supervisor_letter_signed',
+                        letterId: data.id
+                    },
+                    dataOnly: true
+                });
+            }
+            return;
+        }
+
+        const proposal = data;
         const coordinatorId = proposal.coordinator.user.id;
         const letterTypeLabel = type === 'APPLICATION' ? 'Surat Permohonan' : 'Surat Tugas';
         const docNumber = type === 'APPLICATION' ? proposal.appLetterDocNumber : proposal.assignLetterDocNumber;
@@ -183,7 +274,8 @@ async function notifyAfterSignature(proposal, type) {
                 type: 'internship_letter_signed',
                 proposalId: proposal.id,
                 letterType: type
-            }
+            },
+            dataOnly: true
         });
 
         // Notify Admin

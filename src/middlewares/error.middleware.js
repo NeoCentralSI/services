@@ -47,7 +47,8 @@ function mapPrismaError(err) {
   }
 
   if (err instanceof Prisma.PrismaClientValidationError) {
-    const e = new Error("Input tidak valid");
+    console.error("PrismaClientValidationError Details:", err.message);
+    const e = new Error("Input tidak valid: " + err.message);
     e.statusCode = 400;
     return e;
   }

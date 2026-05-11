@@ -271,3 +271,21 @@ export async function kadepRejectTransfer(req, res, next) {
     next(error);
   }
 }
+
+/**
+ * Download supervisor transfer history report as PDF
+ * @route GET /api/thesis-guidance/monitoring/transfers/report/download
+ */
+export async function downloadTransferReport(req, res, next) {
+  try {
+    const result = await monitoringService.generateTransferReportPdfService();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(result.filename)}"`
+    );
+    res.send(result.buffer);
+  } catch (error) {
+    next(error);
+  }
+}

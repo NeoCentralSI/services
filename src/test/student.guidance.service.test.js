@@ -50,15 +50,15 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
   mockAcademicYear: { getActiveAcademicYear: vi.fn().mockResolvedValue({ id: "ay-1", semester: "ganjil", year: "2025/2026" }) },
 }));
 
-vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../repositories/thesisGuidance/student.guidance.repository.js", () => mockRepo);
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../services/outlook-calendar.service.js", () => mockCalendar);
-vi.mock("../utils/date.util.js", () => mockDateUtil);
-vi.mock("../utils/global.util.js", () => mockGlobalUtil);
-vi.mock("../constants/roles.js", () => mockRoles);
-vi.mock("../helpers/academicYear.helper.js", () => mockAcademicYear);
+vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../repositories/thesisGuidance/student.guidance.repository.js", () => mockRepo);
+vi.mock("../../services/push.service.js", () => mockPush);
+vi.mock("../../services/notification.service.js", () => mockNotif);
+vi.mock("../../services/outlook-calendar.service.js", () => mockCalendar);
+vi.mock("../../utils/date.util.js", () => mockDateUtil);
+vi.mock("../../utils/global.util.js", () => mockGlobalUtil);
+vi.mock("../../constants/roles.js", () => mockRoles);
+vi.mock("../../helpers/academicYear.helper.js", () => mockAcademicYear);
 
 import {
   requestGuidanceService,
@@ -75,7 +75,7 @@ import {
   getMyThesisDetailService,
   getThesisHistoryService,
   proposeThesisService,
-} from "../services/thesisGuidance/student.guidance.service.js";
+} from "../../services/thesisGuidance/student.guidance.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
 const STUDENT = { id: "stu-1", userId: "user-1", user: { fullName: "Budi Santoso", email: "budi@test.com" } };

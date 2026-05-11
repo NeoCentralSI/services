@@ -5,8 +5,8 @@ import { ENV } from "../config/env.js";
 
 export async function triggerSiaSync(req, res, next) {
   try {
-    await runSiaSync();
-    res.json({ success: true, message: "SIA sync triggered" });
+    const summary = await runSiaSync();
+    res.json({ success: true, message: "SIA sync triggered", summary });
   } catch (err) {
     next(err);
   }

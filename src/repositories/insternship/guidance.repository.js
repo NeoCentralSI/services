@@ -135,7 +135,7 @@ export async function deleteCriteria(id) {
  */
 export async function findStudentInternshipWithGuidance(studentId) {
     return prisma.internship.findFirst({
-        where: { studentId, status: "ONGOING" },
+        where: { studentId, status: { in: ["ONGOING", "COMPLETED", "FAILED"] } },
         select: {
             id: true,
             actualStartDate: true,
@@ -235,6 +235,25 @@ export async function findSupervisedInternships(supervisorId) {
                     id: true,
                     fileName: true,
                     filePath: true
+                }
+            },
+            seminars: {
+                select: {
+                    id: true,
+                    status: true,
+                    seminarDate: true,
+                    startTime: true,
+                    endTime: true,
+                    roomId: true,
+                    room: {
+                        select: {
+                            name: true,
+                            location: true
+                        }
+                    }
+                },
+                orderBy: {
+                    createdAt: "desc"
                 }
             }
         },
@@ -349,6 +368,29 @@ export async function findSupervisedInternshipById(internshipId, supervisorId) {
                     fileName: true,
                     filePath: true
                 }
+            },
+            seminars: {
+                include: {
+                    room: true,
+                    moderatorStudent: {
+                        include: { user: { select: { fullName: true } } }
+                    },
+                    audiences: {
+                        include: {
+                            student: {
+                                include: {
+                                    user: {
+                                        select: {
+                                            fullName: true,
+                                            identityNumber: true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                orderBy: { createdAt: "desc" }
             }
         }
     });

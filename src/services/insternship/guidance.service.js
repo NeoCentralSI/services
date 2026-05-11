@@ -172,7 +172,7 @@ export async function deleteCriteria(id) {
 export async function getStudentGuidance(studentId) {
     const internship = await guidanceRepo.findStudentInternshipWithGuidance(studentId);
     if (!internship) {
-        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        return { internshipId: null, timeline: [] };
     }
 
     if (!internship.actualStartDate) {
@@ -260,8 +260,8 @@ export async function getStudentGuidance(studentId) {
         supervisorName: internship.supervisor?.user?.fullName || null,
         currentWeek: currentWeekIdx,
         report: reportData,
-        finalScore: internship.finalNumericScore || null,
-        finalGrade: internship.finalGrade || null,
+        finalScore: internship.status === 'COMPLETED' ? (internship.finalNumericScore || null) : null,
+        finalGrade: internship.status === 'COMPLETED' ? (internship.finalGrade || null) : null,
         timeline
     };
 }
@@ -346,6 +346,10 @@ export async function getSupervisedStudents(lecturerId) {
             ? `${academicYear.year} ${academicYear.semester.charAt(0).toUpperCase() + academicYear.semester.slice(1)}`
             : '-';
 
+        const latestSeminar = internship.seminars && internship.seminars.length > 0 
+            ? internship.seminars[0] 
+            : null;
+
         return {
             internshipId: internship.id,
             studentName: student.fullName,
@@ -367,6 +371,7 @@ export async function getSupervisedStudents(lecturerId) {
                 uploadedAt: internship.reportUploadedAt,
                 document: internship.reportDocument
             },
+            seminar: latestSeminar,
             finalScore: internship.finalNumericScore,
             finalGrade: internship.finalGrade
         };
@@ -404,6 +409,7 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
             currentWeek: 0,
             timeline: [],
             report: reportData,
+            seminars: internship.seminars || [],
             finalScore: internship.finalNumericScore || null,
             finalGrade: internship.finalGrade || null
         };
@@ -458,8 +464,10 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
         internshipId,
         studentName: internship.student.user.fullName,
         studentNim: internship.student.user.identityNumber,
+        supervisorName: internship.supervisor?.user?.fullName || null,
         currentWeek: currentWeekIdx,
         report: reportData,
+        seminars: internship.seminars || [],
         finalScore: internship.finalNumericScore || null,
         finalGrade: internship.finalGrade || null,
         timeline
@@ -773,4 +781,47 @@ export async function copyGuidance(fromYearId, toYearId) {
 
         return { questionsCopied: sourceQuestions.length, criteriaCopied: sourceCriteria.length };
     });
+}
+/**
+ * Get supervisor letter for a lecturer in a specific academic year.
+ * @param {string} lecturerId 
+ * @param {string} academicYearId 
+ * @returns {Promise<Object|null>}
+ */
+export async function getSupervisorLetter(lecturerId, academicYearId) {
+    let ayId = academicYearId;
+    if (!ayId || ayId === 'all') {
+        const active = await getActiveYear();
+        ayId = active.id;
+    }
+
+    const letter = await prisma.internshipSupervisorLetter.findFirst({
+        where: {
+            supervisorId: lecturerId,
+            internships: {
+                some: {
+                    proposal: {
+                        academicYearId: ayId
+                    }
+                }
+            },
+            signedById: { not: null } // Only return signed letters
+        },
+        include: {
+            document: true
+        }
+    });
+
+    if (!letter) return null;
+
+    return {
+        id: letter.id,
+        documentNumber: letter.documentNumber,
+        dateIssued: letter.dateIssued,
+        document: letter.document ? {
+            id: letter.document.id,
+            fileName: letter.document.fileName,
+            filePath: letter.document.filePath
+        } : null
+    };
 }

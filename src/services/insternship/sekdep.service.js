@@ -1,9 +1,19 @@
 import * as sekdepRepository from "../../repositories/insternship/sekdep.repository.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 import * as adminRepository from "../../repositories/insternship/admin.repository.js";
 import * as notificationRepository from "../../repositories/notification.repository.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
+import * as documentService from "../document.service.js";
+import prisma from "../../config/prisma.js";
+import { getWorkingDays } from "../../utils/internship-date.util.js";
+import { getHolidayDatesInRange } from "./holiday.service.js";
+import crypto from "crypto";
+import { sendMail } from "../../config/mailer.js";
+import { fieldAssessmentRequestTemplate } from "../../utils/emailTemplate.js";
+import { ENV } from "../../config/env.js";
+import { ROLES } from "../../constants/roles.js";
 
 /**
  * List all internship proposals with full lifecycle data for Sekdep.
@@ -28,18 +38,7 @@ export async function listPendingProposals({ academicYearId, q, skip, take, sort
     };
 }
 
-/**
- * List proposals waiting for response verification for Sekdep.
- * @param {Object} params
- */
-export async function listPendingResponses({ academicYearId, q, skip, take, sortBy, sortOrder }) {
-    const proposals = await sekdepRepository.findPendingResponses({ academicYearId, q, skip, take, sortBy, sortOrder });
-    const total = await sekdepRepository.countPendingResponses({ academicYearId, q });
-    return {
-        data: proposals.map(mapSekdepProposal),
-        total
-    };
-}
+
 
 /**
  * Helper to map proposal data for Sekdep.
@@ -54,8 +53,7 @@ function mapSekdepProposal(proposal) {
         companyName: proposal.targetCompany?.companyName || "N/A",
         status: proposal.status,
         proposalSekdepNotes: proposal.proposalSekdepNotes,
-        companyResponseSekdepNotes: proposal.companyResponseSekdepNotes,
-        sekdepNotes: proposal.companyResponseSekdepNotes, // Built for backward compat
+        companyResponseNotes: proposal.companyResponseNotes,
         academicYearName: proposal.academicYear
             ? `${proposal.academicYear.year} ${proposal.academicYear.semester.charAt(0).toUpperCase() + proposal.academicYear.semester.slice(1)}`
             : '-',
@@ -92,6 +90,12 @@ function mapSekdepProposal(proposal) {
         } : null,
         isSigned: !!proposal.appLetterSignedById,
         isAssignmentSigned: !!proposal.assignLetterSignedById,
+        proposedStartDate: proposal.proposedStartDate,
+        proposedEndDate: proposal.proposedEndDate,
+        startDatePlanned: proposal.startDatePlanned,
+        endDatePlanned: proposal.endDatePlanned,
+        startDateActual: proposal.startDateActual,
+        endDateActual: proposal.endDateActual,
     };
 }
 
@@ -145,6 +149,13 @@ export async function respondToProposal(id, status, notes) {
 
     const updatedProposal = await sekdepRepository.updateProposalStatus(id, status, notes);
 
+    // If approved, check if the target company needs to be promoted from 'diajukan' to 'save'
+    if (status === 'APPROVED_PROPOSAL' && proposal.targetCompany?.status === 'diajukan') {
+        await sekdepRepository.updateCompany(proposal.targetCompanyId, {
+            status: 'save'
+        });
+    }
+
     // Create notifications for coordinator and internship students
     try {
         const statusLabel = status === 'APPROVED_PROPOSAL' ? 'DISETUJUI' : 'DITOLAK';
@@ -189,7 +200,7 @@ export async function respondToProposal(id, status, notes) {
         if (status === 'APPROVED_PROPOSAL') {
             const admins = await adminRepository.findAdmins();
             const adminTitle = "Pengajuan Internship Baru (Approved)";
-            const adminMessage = `Proposal Internship ke ${proposal.targetCompany.companyName} telah disetujui Sekdep dan siap diproses Surat Pengantarnya.`;
+            const adminMessage = `Proposal Internship ke ${proposal.targetCompany.companyName} telah disetujui Sekdep and siap diproses Surat Pengantarnya.`;
             const adminUserIds = admins.map(a => a.id);
 
             const adminNotifications = admins.map(admin => ({
@@ -290,172 +301,29 @@ export async function deleteCompany(id) {
 
 
 
-/**
- * Verify a company response.
- * After consolidation, takes proposalId instead of responseId. Updates proposal
- * status and internship statuses.
- * @param {string} proposalId 
- * @param {string} status - 'APPROVED_BY_SEKDEP', 'REJECTED_BY_SEKDEP', 'REJECTED_BY_COMPANY'
- * @param {string} [notes] 
- * @param {string[]} [acceptedMemberIds]
- * @returns {Promise<Object>}
- */
-export async function verifyCompanyResponse(proposalId, status, notes, acceptedMemberIds) {
-    if (!['APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', 'REJECTED_BY_COMPANY'].includes(status)) {
-        throw new Error("Status verifikasi tidak valid.");
-    }
 
-    const proposal = await sekdepRepository.findCompanyResponseById(proposalId);
-    if (!proposal) {
-        throw new Error("Proposal tidak ditemukan.");
-    }
-
-    let proposalStatus = null;
-    let internshipUpdates = [];
-    const currentInternships = proposal.internships;
-
-    // Ensure coordinator is included in updates if needed
-    const allRelevantStudentIds = [...new Set([proposal.coordinatorId, ...currentInternships.map(i => i.studentId)])];
-
-    if (status === 'REJECTED_BY_COMPANY') {
-        proposalStatus = 'REJECTED_BY_COMPANY';
-        internshipUpdates = allRelevantStudentIds.map(sid => ({
-            studentId: sid,
-            status: 'REJECTED_BY_COMPANY'
-        }));
-    } else if (status === 'REJECTED_PROPOSAL') {
-        // Doc Invalid — no proposal/member status changes
-        proposalStatus = null;
-    } else {
-        // APPROVED_PROPOSAL (Acceptance Letter)
-        if (acceptedMemberIds && Array.isArray(acceptedMemberIds)) {
-            const acceptedSet = new Set(acceptedMemberIds);
-
-            // Note: Coordinator is usually implicitly accepted if they are the one uploading, 
-            // but we follow the provided acceptedMemberIds which should include them.
-            const acceptedCount = allRelevantStudentIds.filter(sid => acceptedSet.has(sid)).length;
-
-            if (acceptedCount === allRelevantStudentIds.length) {
-                proposalStatus = 'ACCEPTED_BY_COMPANY';
-            } else if (acceptedCount > 0) {
-                proposalStatus = 'PARTIALLY_ACCEPTED';
-            } else {
-                proposalStatus = 'REJECTED_BY_COMPANY';
-            }
-
-            internshipUpdates = allRelevantStudentIds.map(sid => ({
-                studentId: sid,
-                status: acceptedSet.has(sid) ? 'ACCEPTED_BY_COMPANY' : 'REJECTED_BY_COMPANY'
-            }));
-        } else {
-            // Accept All
-            proposalStatus = 'ACCEPTED_BY_COMPANY';
-            internshipUpdates = allRelevantStudentIds.map(sid => ({
-                studentId: sid,
-                status: 'ACCEPTED_BY_COMPANY'
-            }));
-        }
-    }
-
-    const updatedProposal = await sekdepRepository.verifyCompanyResponseTransaction(
-        proposalId,
-        proposalStatus,
-        internshipUpdates,
-        notes
-    );
-
-    // Notify students
-    try {
-        let title, message, notifType;
-
-        if (status === 'REJECTED_PROPOSAL') {
-            title = "Surat Balasan Ditolak Sekdep";
-            message = "Dokumen surat balasan Anda ditolak oleh Sekdep (Tidak Valid/Buram). Silakan upload ulang.";
-            notifType = 'internship_company_response_rejected_sekdep';
-        } else if (proposalStatus === 'ACCEPTED_BY_COMPANY') {
-            title = "Lamaran KP Diterima Perusahaan";
-            message = `Selamat! Lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah diterima oleh perusahaan.`;
-            notifType = 'internship_proposal_accepted';
-        } else if (proposalStatus === 'PARTIALLY_ACCEPTED') {
-            title = "Lamaran KP Diterima Sebagian";
-            message = `Lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah diterima sebagian. Cek status Anda di dashboard.`;
-            notifType = 'internship_proposal_partially_accepted';
-        } else if (proposalStatus === 'REJECTED_BY_COMPANY') {
-            title = "Lamaran KP Ditolak Perusahaan";
-            message = `Mohon maaf, lamaran KP Anda ke ${updatedProposal.targetCompany?.companyName} telah ditolak oleh perusahaan.`;
-            notifType = 'internship_proposal_rejected_company';
-        }
-
-        if (notes) {
-            message += ` Catatan: ${notes}`;
-        }
-
-        if (title && message) {
-            const recipientIds = [updatedProposal.coordinatorId, ...updatedProposal.internships.map(i => i.studentId)];
-            const uniqueRecipients = [...new Set(recipientIds)];
-
-            const notifications = uniqueRecipients.map(uid => ({
-                userId: uid,
-                title,
-                message
-            }));
-
-            await notificationRepository.createNotificationsMany(notifications);
-            await sendFcmToUsers(uniqueRecipients, {
-                title,
-                body: message,
-                data: {
-                    type: notifType,
-                    status: proposalStatus || status,
-                    proposalId: updatedProposal.id
-                },
-                dataOnly: true
-            });
-        }
-
-        // Notify Admin if Accepted (Full or Partial)
-        if (['ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED'].includes(proposalStatus)) {
-            const admins = await adminRepository.findAdmins();
-            const adminTitle = "Surat Balasan Disetujui (Diterima Perusahaan)";
-            const adminMessage = `Surat balasan dari ${updatedProposal.targetCompany?.companyName} diterima. Silakan proses Surat Tugas.`;
-            const adminUserIds = admins.map(a => a.id);
-
-            const adminNotifications = admins.map(admin => ({
-                userId: admin.id,
-                title: adminTitle,
-                message: adminMessage
-            }));
-
-            if (adminNotifications.length > 0) {
-                await notificationRepository.createNotificationsMany(adminNotifications);
-                await sendFcmToUsers(adminUserIds, {
-                    title: adminTitle,
-                    body: adminMessage,
-                    data: {
-                        type: 'internship_company_response_approved_admin',
-                        proposalId: updatedProposal.id
-                    },
-                    dataOnly: true
-                });
-            }
-        }
-    } catch (err) {
-        console.error("Gagal mengirim notifikasi verifikasi surat balasan:", err);
-    }
-
-    return updatedProposal;
-}
 
 /**
  * List all internships with mapping for Sekdep.
  * @param {Object} params
  * @returns {Promise<Object>} - { data, total }
  */
-export async function listInternships({ academicYearId, status, q, skip, take, sortBy, sortOrder }) {
+export async function listInternships({ academicYearId, status, supervisorId, q, skip, take, sortBy, sortOrder }) {
     const [internships, total] = await Promise.all([
-        sekdepRepository.findInternships({ academicYearId, status, q, skip, take, sortBy, sortOrder }),
-        sekdepRepository.countInternships({ academicYearId, status, q })
+        sekdepRepository.findInternships({ academicYearId, status, supervisorId, q, skip, take, sortBy, sortOrder }),
+        sekdepRepository.countInternships({ academicYearId, status, supervisorId, q })
     ]);
+
+    // Fetch holidays once for all internships in range
+    const allDates = internships
+        .filter(i => i.actualStartDate && i.actualEndDate)
+        .flatMap(i => [new Date(i.actualStartDate), new Date(i.actualEndDate)]);
+    let holidays = [];
+    if (allDates.length > 0) {
+        const minDate = new Date(Math.min(...allDates.map(d => d.getTime())));
+        const maxDate = new Date(Math.max(...allDates.map(d => d.getTime())));
+        holidays = await getHolidayDatesInRange(minDate, maxDate);
+    }
 
     const data = internships.map(i => ({
         id: i.id,
@@ -469,9 +337,18 @@ export async function listInternships({ academicYearId, status, q, skip, take, s
         fieldSupervisorName: i.fieldSupervisorName || "-",
         logbookProgress: {
             filled: i._count?.logbooks || 0,
-            total: i.logbooks?.length || 0
+            total: (i.actualStartDate && i.actualEndDate)
+                ? getWorkingDays(i.actualStartDate, i.actualEndDate, holidays).length
+                : 0
         },
         status: i.status,
+        supervisorLetter: i.supLetter ? {
+            id: i.supLetter.document?.id,
+            fileName: i.supLetter.document?.fileName,
+            filePath: i.supLetter.document?.filePath
+        } : null,
+        finalScore: i.finalNumericScore,
+        finalGrade: i.finalGrade,
         createdAt: i.createdAt
     }));
 
@@ -490,6 +367,16 @@ export async function getInternshipDetail(id) {
         throw new Error("Data Kerja Praktik tidak ditemukan");
     }
 
+    const guidanceItems = internship.proposal?.academicYear?.internshipGuidanceQuestions || [];
+    const uniqueWeeks = [...new Set(guidanceItems.map(q => q.weekNumber))];
+    const guidanceTotal = uniqueWeeks.length > 0 ? Math.max(...uniqueWeeks) : 8;
+
+    const formatTime = (timeStr) => {
+        if (!timeStr) return null;
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\./g, ':');
+    };
+
     return {
         id: internship.id,
         student: {
@@ -504,26 +391,47 @@ export async function getInternshipDetail(id) {
         },
         supervisor: {
             name: internship.supervisor?.user?.fullName || "Belum Ditentukan",
-            fieldSupervisor: internship.fieldSupervisorName || "Belum Ditentukan"
+            fieldSupervisor: internship.fieldSupervisorName || "Belum Ditentukan",
+            fieldSupervisorEmail: internship.fieldSupervisorEmail || null
         },
         logbookProgress: {
             filled: internship._count?.logbooks || 0,
-            total: internship.logbooks?.length || 0
+            total: await (async () => {
+                if (!internship.actualStartDate || !internship.actualEndDate) return 0;
+                const hols = await getHolidayDatesInRange(internship.actualStartDate, internship.actualEndDate);
+                return getWorkingDays(internship.actualStartDate, internship.actualEndDate, hols).length;
+            })()
         },
         guidanceProgress: {
             filled: internship.guidanceSessions?.length || 0,
-            total: 8 // Assuming 8 is standard, can adjust
+            total: guidanceTotal
         },
-        seminar: internship.seminars?.[0] ? {
-            id: internship.seminars[0].id,
-            status: "Selesai" // Placeholder logic
-        } : null,
         assessment: {
             lecturerStatus: internship.lecturerAssessmentStatus,
             fieldStatus: internship.fieldAssessmentStatus,
             finalScore: internship.finalNumericScore,
-            finalGrade: internship.finalGrade
+            finalGrade: internship.finalGrade,
+            isLogbookLocked: internship.isLogbookLocked
         },
+        logbooks: internship.logbooks || [],
+        guidanceSessions: internship.guidanceSessions || [],
+        seminars: (internship.seminars || []).map(s => ({
+            ...s,
+            time: formatTime(s.startTime),
+            moderatorName: s.moderatorStudent?.user?.fullName || "-"
+        })),
+        lecturerScores: (internship.lecturerScores || []).map(s => ({
+            id: `${s.internshipId}-${s.chosenRubricId}`,
+            score: s.score,
+            cpmk: s.chosenRubric?.cpmk,
+            rubricLevel: s.chosenRubric
+        })),
+        fieldScores: (internship.fieldScores || []).map(s => ({
+            id: `${s.internshipId}-${s.chosenRubricId}`,
+            score: s.score,
+            cpmk: s.chosenRubric?.cpmk,
+            rubricLevel: s.chosenRubric
+        })),
         status: internship.status,
         academicYearName: internship.proposal?.academicYear
             ? `${internship.proposal.academicYear.year} ${internship.proposal.academicYear.semester.charAt(0).toUpperCase() + internship.proposal.academicYear.semester.slice(1)}`
@@ -549,8 +457,20 @@ export async function getInternshipDetail(id) {
                 document: internship.logbookDocument,
                 status: internship.logbookDocumentStatus,
                 notes: internship.logbookDocumentNotes
+            },
+            fieldAssessmentDocument: {
+                document: internship.fieldAssessmentDoc,
+                status: internship.fieldAssessmentStatus,
+                notes: null
             }
         },
+        supervisorLetter: internship.supLetter ? {
+            document: internship.supLetter.document,
+            documentNumber: internship.supLetter.documentNumber,
+            dateIssued: internship.supLetter.dateIssued,
+            startDate: internship.supLetter.startDate,
+            endDate: internship.supLetter.endDate
+        } : null,
         createdAt: internship.createdAt
     };
 }
@@ -589,7 +509,7 @@ export async function verifyInternshipDocument(internshipId, { documentType, sta
 
         const docLabel = docLabelMap[documentType];
         const statusLabel = status === 'APPROVED' ? 'DISETUJUI' : 'PERLU REVISI';
-        
+
         const title = `Verifikasi ${docLabel}`;
         let message = `Dokumen ${docLabel} Anda telah ${statusLabel.toLowerCase()} oleh Sekdep.`;
         if (notes) {
@@ -616,6 +536,9 @@ export async function verifyInternshipDocument(internshipId, { documentType, sta
     } catch (err) {
         console.error("Gagal mengirim notifikasi verifikasi dokumen:", err);
     }
+
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(internshipId);
 
     return updatedInternship;
 }
@@ -675,7 +598,7 @@ export async function bulkVerifyInternshipDocuments(internshipId, { documents, s
 
         const verifiedDocs = documents.map(doc => docLabelMap[doc.documentType] || doc.documentType).join(", ");
         const statusLabel = (documents[0]?.status || status) === 'APPROVED' ? 'DISETUJUI' : 'PERLU REVISI';
-        
+
         const title = `Verifikasi Dokumen Pelaporan`;
         let message = `Dokumen pelaporan Anda (${verifiedDocs}) telah ${statusLabel.toLowerCase()} oleh Sekdep.`;
         if (notes) {
@@ -703,6 +626,9 @@ export async function bulkVerifyInternshipDocuments(internshipId, { documents, s
         console.error("Gagal mengirim notifikasi verifikasi dokumen bulk:", err);
     }
 
+    // Holistic Completion Check
+    await syncInternshipCompletionStatus(internshipId);
+
     return {
         success: true,
         message: `Berhasil memverifikasi ${documents.length} dokumen.`,
@@ -715,17 +641,18 @@ export async function bulkVerifyInternshipDocuments(internshipId, { documents, s
  * @param {Object} params - { q, skip, take }
  * @returns {Promise<Object>} - { data, total }
  */
-export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrder }) {
+export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrder, academicYearId }) {
     const [lecturers, total] = await Promise.all([
-        sekdepRepository.findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder }),
-        sekdepRepository.countLecturersWithWorkload({ q })
+        sekdepRepository.findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder, academicYearId }),
+        sekdepRepository.countLecturersWithWorkload({ q, academicYearId })
     ]);
 
     const data = lecturers.map(l => ({
         id: l.id,
         name: l.user?.fullName || "Unknown",
         nip: l.user?.identityNumber || "-",
-        activeInternshipCount: l._count?.internshipsSupervisored || 0
+        activeInternshipCount: l._count?.internshipsSupervisored || 0,
+        supervisorLetterStatus: `${l.internshipsSupervisored.filter(i => i.supLetterId).length}/${l._count?.internshipsSupervisored || 0}`
     }));
 
     return { data, total };
@@ -859,4 +786,281 @@ export async function exportLecturerWorkloadPdf() {
     `;
 
     return convertHtmlToPdf(html);
+}
+
+/**
+ * Get detailed data for managing supervisor letter for a lecturer.
+ * @param {string} supervisorId 
+ * @returns {Promise<Object>}
+ */
+export async function getSupervisorLetterDetail(supervisorId) {
+    const lecturer = await sekdepRepository.findLecturerForLetter(supervisorId);
+
+    if (!lecturer) {
+        throw new Error("Dosen tidak ditemukan");
+    }
+
+    return {
+        id: lecturer.id,
+        lecturerName: lecturer.user?.fullName,
+        lecturerNip: lecturer.user?.identityNumber,
+        assignedStudents: lecturer.internshipsSupervisored.map(i => ({
+            internshipId: i.id,
+            nim: i.student?.user?.identityNumber,
+            name: i.student?.user?.fullName,
+            companyName: i.proposal?.targetCompany?.companyName || "Unknown Company",
+            documents: {
+                appLetterDocNumber: i.proposal?.appLetterDocNumber || null,
+                assignLetterDocNumber: i.proposal?.assignLetterDocNumber || null,
+                supLetterDocNumber: i.supLetter?.documentNumber || null,
+                supLetterDocDateIssued: i.supLetter?.dateIssued || null,
+                supLetterStartDate: i.supLetter?.startDate || null,
+                supLetterEndDate: i.supLetter?.endDate || null,
+                supLetterDocId: i.supLetter?.documentId || null,
+                supLetterFile: i.supLetter?.document ? {
+                    id: i.supLetter.document.id,
+                    fileName: i.supLetter.document.fileName,
+                    filePath: i.supLetter.document.filePath
+                } : null
+            }
+        }))
+    };
+}
+
+/**
+ * Save and generate Supervisor Letter for selected internships.
+ * @param {string} supervisorId 
+ * @param {Object} data 
+ * @returns {Promise<Object>}
+ */
+export async function saveSupervisorLetter(supervisorId, data) {
+    const { documentNumber, startDate, endDate, internshipIds } = data;
+
+    if (!internshipIds || internshipIds.length === 0) {
+        throw new Error("Pilih minimal satu mahasiswa untuk di-assign surat tugas");
+    }
+
+    // 1. Fetch lecturer & selected internships
+    const lecturer = await sekdepRepository.findLecturerForLetter(supervisorId);
+    if (!lecturer) {
+        throw new Error("Dosen tidak ditemukan");
+    }
+
+    const selectedInternships = lecturer.internshipsSupervisored.filter(i => internshipIds.includes(i.id));
+
+    if (selectedInternships.length === 0) {
+        throw new Error("Mahasiswa yang dipilih tidak valid atau bukan bimbingan dosen tersebut");
+    }
+
+    // 2. Format data for document generation
+    const genData = {
+        documentNumber,
+        dateIssued: new Date(),
+        lecturerName: lecturer.user?.fullName,
+        lecturerNip: lecturer.user?.identityNumber,
+        startDate,
+        endDate,
+        members: selectedInternships.map(i => ({
+            nim: i.student?.user?.identityNumber,
+            name: i.student?.user?.fullName,
+            companyName: i.proposal?.targetCompany?.companyName || "Unknown"
+        }))
+    };
+
+    // 3. Document Number Validation
+    const existingLetter = await sekdepRepository.findSupervisorLetterByNumber(documentNumber);
+    if (existingLetter && existingLetter.supervisorId !== supervisorId) {
+        const error = new Error(`Nomor surat "${documentNumber}" sudah digunakan untuk dosen lain: ${existingLetter.supervisor?.user?.fullName}.`);
+        error.statusCode = 409;
+        throw error;
+    }
+
+    // 4. Generate document (PDF)
+    const documentId = await documentService.generateSupervisorLetter(genData);
+
+    // 5. Upsert the letter object
+    const supLetter = await sekdepRepository.upsertSupervisorLetter({
+        documentNumber,
+        dateIssued: new Date(),
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        supervisorId,
+        documentId
+    });
+
+    // 6. Link selected internships to the letter
+    const result = await sekdepRepository.linkInternshipsToLetter(internshipIds, supLetter.id);
+
+    // 7. Notify Kadep
+    try {
+        const kadeps = await prisma.user.findMany({
+            where: {
+                userHasRoles: {
+                    some: {
+                        role: {
+                            name: ROLES.KETUA_DEPARTEMEN
+                        }
+                    }
+                }
+            },
+            select: { id: true }
+        });
+
+        const kadepUserIds = kadeps.map(k => k.id);
+        if (kadepUserIds.length > 0) {
+            const title = "Surat Tugas Pembimbing Baru";
+            const message = `Sekretaris Departemen telah meng-generate Surat Tugas Pembimbing KP untuk ${lecturer.user?.fullName}. Mohon segera ditandatangani.`;
+
+            await createNotificationsForUsers(kadepUserIds, { title, message });
+            await sendFcmToUsers(kadepUserIds, {
+                title,
+                body: message,
+                data: {
+                    type: 'internship_lecturer_assignment_generated',
+                    supervisorId
+                },
+                dataOnly: true
+            });
+        }
+    } catch (err) {
+        console.error("[saveSupervisorLetter] Gagal mengirim notifikasi ke Kadep:", err);
+    }
+
+    return {
+        message: "Surat Tugas Pembimbing berhasil digenerate dan disimpan",
+        updatedCount: result.count
+    };
+}
+
+/**
+ * Generate a field assessment token and send email to field supervisor.
+ */
+export async function sendFieldAssessmentRequest(internshipId) {
+    const internship = await prisma.internship.findUnique({
+        where: { id: internshipId },
+        include: {
+            student: {
+                include: { user: { select: { fullName: true, identityNumber: true } } },
+            },
+            proposal: {
+                include: {
+                    targetCompany: { select: { companyName: true } },
+                    academicYear: { select: { year: true, semester: true } },
+                },
+            },
+        },
+    });
+
+    if (!internship) {
+        throw Object.assign(new Error("Internship tidak ditemukan."), { statusCode: 404 });
+    }
+
+    if (!internship.fieldSupervisorEmail) {
+        throw Object.assign(new Error("Email pembimbing lapangan belum diisi oleh mahasiswa."), { statusCode: 400 });
+    }
+
+    // Invalidate existing unused tokens
+    await prisma.fieldAssessmentToken.updateMany({
+        where: { internshipId, isUsed: false },
+        data: { isUsed: true, usedAt: new Date() },
+    });
+
+    // Generate new token and 6-digit PIN
+    const token = crypto.randomUUID();
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+    await prisma.fieldAssessmentToken.create({
+        data: {
+            internshipId,
+            token,
+            pin,
+            expiresAt,
+        },
+    });
+
+    // Construct assessment URL
+    const assessmentUrl = `${ENV.FRONTEND_URL}/field-assessment/${token}`;
+
+    // Send email
+    const emailHtml = fieldAssessmentRequestTemplate({
+        appName: ENV.APP_NAME || "Neo Central DSI",
+        supervisorName: internship.fieldSupervisorName || "Bapak/Ibu",
+        studentName: internship.student.user.fullName,
+        studentNim: internship.student.user.identityNumber,
+        companyName: internship.proposal.targetCompany?.companyName || "-",
+        academicYear: `${internship.proposal.academicYear.year} - ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`,
+        assessmentUrl,
+        pin,
+        expiresInDays: 7,
+    });
+
+    await sendMail({
+        to: internship.fieldSupervisorEmail,
+        subject: `Permintaan Penilaian Kerja Praktik - ${internship.student.user.fullName}`,
+        html: emailHtml,
+    });
+
+    return {
+        message: "Link penilaian berhasil dikirim ke email pembimbing lapangan.",
+        email: internship.fieldSupervisorEmail,
+        assessmentUrl,
+        expiresAt,
+    };
+}
+
+/**
+ * Sekdep rejects the final fixed report causing the student to have to re-upload.
+ * @param {string} internshipId 
+ * @param {string} notes 
+ * @returns {Promise<Object>}
+ */
+export async function rejectFinalReport(internshipId, notes) {
+    const internship = await prisma.internship.findUnique({
+        where: { id: internshipId },
+        include: { student: { include: { user: true } } }
+    });
+
+    if (!internship) {
+        const error = new Error("Data Kerja Praktik tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (internship.reportFinalStatus !== 'APPROVED') {
+        const error = new Error("Laporan final belum diunggah atau tidak dalam status yang dapat ditolak.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const result = await prisma.internship.update({
+        where: { id: internshipId },
+        data: {
+            reportFinalStatus: 'REVISION_NEEDED',
+            reportFinalNotes: notes
+        }
+    });
+
+    // Notify student
+    try {
+        const studentId = internship.studentId;
+        const title = "Laporan Final Ditolak Sekretaris Departemen";
+        const message = `Laporan Final KP Anda dikembalikan. Catatan: ${notes || 'Silakan unggah ulang dokumen yang benar.'}`;
+
+        await createNotificationsForUsers([studentId], { title, message });
+        await sendFcmToUsers([studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_final_report_rejected',
+                internshipId
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi penolakan laporan final:", err);
+    }
+
+    return result;
 }

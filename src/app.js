@@ -48,9 +48,10 @@ try {
   app.use("/uploads/yudisium", authGuard, express.static(path.join(uploadsDir, "yudisium")));
 
   // Internship and metopen uploads now require authentication (basic gate).
-  // Note: /uploads/general was removed — dead route (folder not used, no writers).
   app.use("/uploads/internship", authGuard, express.static(path.join(uploadsDir, "internship")));
   app.use("/uploads/metopen", authGuard, express.static(path.join(uploadsDir, "metopen")));
+  app.use("/uploads/logbooks", authGuard, express.static(path.join(uploadsDir, "logbooks")));
+  app.use("/uploads/field-assessments", authGuard, express.static(path.join(uploadsDir, "field-assessments")));
   app.use("/uploads/documents", authGuard, (_req, res) => {
     res.status(404).json({
       success: false,
@@ -73,8 +74,8 @@ try {
   for (const file of routeFiles) {
     try {
       const routePath = path.join(routesPath, file);
-      const routeUrl = pathToFileURL(routePath).href; // needed on Windows
-      const routeModule = await import(routeUrl);
+      // Use relative path for dynamic import - more compatible with Vite/Vitest
+      const routeModule = await import(`./routes/${file}`);
       const routeName = file.replace(".route.js", "");
       if (!routeModule?.default) {
         console.warn(`⚠️ Route file ${file} has no default export, skipping`);

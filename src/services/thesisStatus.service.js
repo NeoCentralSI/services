@@ -10,7 +10,6 @@ const YEAR_1 = 365 * 24 * 60 * 60 * 1000;
 function decideStatus(thesis) {
   const now = new Date();
   const created = new Date(thesis.createdAt);
-  const age = now - created;
 
   // 1. FAILED: Berdasarkan deadlineDate jika ada, jika tidak default 1 tahun dari createdAt
   const deadline = thesis.deadlineDate ? new Date(thesis.deadlineDate) : new Date(created.getTime() + YEAR_1);
@@ -18,11 +17,42 @@ function decideStatus(thesis) {
     return "FAILED";
   }
 
-  // Align with Monitoring Logic (monitoring.repository.js/service.js)
-  // Get last activity from latest completed guidance or thesis.updatedAt
+  // Aligned with Monitoring Logic (calculateLastActivity in monitoring.service.js)
+  // Collect activity dates from all sources: guidance, milestone, seminar, thesis
+  const dates = [];
+
+  // Source 1: Latest completed guidance (approvedDate or completedAt)
   const latestGuidance = thesis.thesisGuidances?.[0];
-  const lastActivityDate = latestGuidance?.completedAt || latestGuidance?.approvedDate || thesis.updatedAt;
-  const lastActivity = new Date(lastActivityDate);
+  if (latestGuidance) {
+    const d = latestGuidance.approvedDate || latestGuidance.completedAt;
+    if (d) dates.push(new Date(d));
+  }
+
+  // Source 2: Latest completed milestone (updatedAt or completedAt)
+  const completedMilestones = (thesis.thesisMilestones || []).filter(m => m.status === "completed");
+  if (completedMilestones.length > 0) {
+    const latestMilestone = completedMilestones.sort((a, b) =>
+      new Date(b.updatedAt || b.completedAt || 0).getTime() -
+      new Date(a.updatedAt || a.completedAt || 0).getTime()
+    )[0];
+    const d = latestMilestone.updatedAt || latestMilestone.completedAt;
+    if (d) dates.push(new Date(d));
+  }
+
+  // Source 3: Latest seminar (updatedAt)
+  const latestSeminar = thesis.thesisSeminars?.[0];
+  if (latestSeminar?.updatedAt) {
+    dates.push(new Date(latestSeminar.updatedAt));
+  }
+
+  // Source 4: Fallback to thesis.updatedAt
+  if (thesis.updatedAt) dates.push(new Date(thesis.updatedAt));
+
+  // Pick the most recent valid date
+  const validDates = dates.filter(d => !isNaN(d.getTime()));
+  const lastActivity = validDates.length > 0
+    ? new Date(Math.max(...validDates.map(d => d.getTime())))
+    : created;
 
   const timeSinceLastChange = now - lastActivity;
 
@@ -162,6 +192,14 @@ export async function updateAllThesisStatuses({ pageSize = 200, logger = console
           select: { completedAt: true, approvedDate: true },
           orderBy: { completedAt: 'desc' },
           take: 1
+        },
+        thesisMilestones: {
+          select: { status: true, updatedAt: true, completedAt: true },
+        },
+        thesisSeminars: {
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { updatedAt: true },
         },
         student: {
           select: {

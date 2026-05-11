@@ -1,4 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, adminUpdateStudent, adminUpdateLecturer, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses } from "../services/adminfeatures.service.js";
+import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, adminUpdateStudent, adminUpdateLecturer, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, createRoom, updateRoom, getRooms, deleteRoom } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -102,6 +102,95 @@ export async function getActiveAcademicYearController(req, res, next) {
 	try {
 		const active = await getActiveAcademicYear();
 		res.status(200).json({ success: true, academicYear: active });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function createRoomController(req, res, next) {
+	try {
+		const body = req.validated ?? req.body ?? {};
+		const { name, location, capacity } = body;
+		const room = await createRoom({ name, location, capacity });
+		res.status(201).json({ success: true, room });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function updateRoomController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const body = req.validated ?? req.body ?? {};
+		const { name, location, capacity } = body;
+		const room = await updateRoom(id, { name, location, capacity });
+		res.status(200).json({ success: true, room });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getRoomsController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page, 10) || 1;
+		const limitRaw = req.query.limit ?? req.query.pageSize;
+		const limit = parseInt(limitRaw, 10) || 10;
+		const search = req.query.search || "";
+		const status = req.query.status || "all";
+		const result = await getRooms({ page, limit, search, status });
+		res.status(200).json({
+			success: true,
+			message: "Berhasil mengambil data ruangan",
+			data: result.data,
+			total: result.total,
+		});
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function deleteRoomController(req, res, next) {
+	try {
+		const { id } = req.params;
+		await deleteRoom(id);
+		res.status(200).json({ success: true, message: "Ruangan berhasil dihapus" });
+	} catch (err) {
+		next(err);
+	}
+}
+
+// Excel import controllers (JSON payload from frontend)
+export async function importStudentsExcelController(req, res, next) {
+	try {
+		const result = await importStudentsExcel(req.body);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importLecturersExcelController(req, res, next) {
+	try {
+		const result = await importLecturersExcel(req.body);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importUsersExcelController(req, res, next) {
+	try {
+		const result = await importUsersExcel(req.body);
+		res.status(200).json(result);
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importAcademicYearsExcelController(req, res, next) {
+	try {
+		const result = await importAcademicYearsExcel(req.body);
+		res.status(200).json(result);
 	} catch (err) {
 		next(err);
 	}

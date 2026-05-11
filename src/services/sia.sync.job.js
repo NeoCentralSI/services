@@ -18,10 +18,12 @@ export async function runSiaSync() {
     skipped: 0,
     dbUpdated: 0,
     cplFetched: 0,
+    cplCreated: 0,
     cplUpdated: 0,
     cplSkippedNoStudent: 0,
     cplSkippedNameMismatch: 0,
     cplSkippedUnknownCode: 0,
+    cplUnmatchedCodes: 0,
     cplSkippedProtected: 0,
     cleaned: 0,
     error: "",
@@ -62,14 +64,16 @@ export async function runSiaSync() {
     // Batch upsert student CPL scores from same SIA payload
     const cplResult = await updateStudentCplScoresBatch(stamped);
     summary.cplFetched = cplResult.fetched;
+    summary.cplCreated = cplResult.created;
     summary.cplUpdated = cplResult.updated;
     summary.cplSkippedNoStudent = cplResult.skippedNoStudent;
     summary.cplSkippedNameMismatch = cplResult.skippedNameMismatch;
     summary.cplSkippedUnknownCode = cplResult.skippedUnknownCode;
+    summary.cplUnmatchedCodes = cplResult.unmatchedCodes;
     summary.cplSkippedProtected = cplResult.skippedProtected;
     if (cplResult.fetched > 0) {
       console.log(
-        `📊 CPL scores: fetched=${cplResult.fetched}, updated=${cplResult.updated}, noStudent=${cplResult.skippedNoStudent}, nameMismatch=${cplResult.skippedNameMismatch}, unknownCode=${cplResult.skippedUnknownCode}, protected=${cplResult.skippedProtected}`
+        `📊 CPL scores: fetched=${cplResult.fetched}, created=${cplResult.created}, updated=${cplResult.updated}, noStudent=${cplResult.skippedNoStudent}, nameMismatch=${cplResult.skippedNameMismatch}, unmatchedCode=${cplResult.unmatchedCodes}, protected=${cplResult.skippedProtected}`
       );
     }
 
@@ -97,6 +101,8 @@ export async function runSiaSync() {
       console.warn("⚠️  Failed to save sync status:", statusErr.message);
     }
   }
+
+  return summary;
 }
 
 /**
@@ -114,6 +120,7 @@ async function updateStudentAcademicBatch(stamped) {
       mkwuCompleted: Boolean(entry.data?.mkwuCompleted),
       internshipCompleted: Boolean(entry.data?.internshipCompleted),
       kknCompleted: Boolean(entry.data?.kknCompleted),
+      researchMethodCompleted: Boolean(entry.data?.researchMethodCompleted),
       currentSemester:
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
@@ -150,6 +157,7 @@ async function updateStudentAcademicBatch(stamped) {
             mkwuCompleted: u.mkwuCompleted,
             internshipCompleted: u.internshipCompleted,
             kknCompleted: u.kknCompleted,
+            researchMethodCompleted: u.researchMethodCompleted,
             currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
             eligibleMetopen: u.eligibleMetopen,
             metopenEligibilitySource: u.eligibleMetopen === null ? null : "sia",
@@ -184,6 +192,7 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
     mkwuCompleted,
     internshipCompleted,
     kknCompleted,
+    researchMethodCompleted,
     currentSemester,
     eligibleMetopen,
     takingThesisCourse,
@@ -203,6 +212,7 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
           mkwuCompleted,
           internshipCompleted,
           kknCompleted,
+          researchMethodCompleted,
           currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
           eligibleMetopen,
           metopenEligibilitySource: eligibleMetopen === null ? null : "sia",
@@ -259,10 +269,12 @@ async function updateStudentCplScoresBatch(stamped) {
   if (rawRows.length === 0) {
     return {
       fetched: 0,
+      created: 0,
       updated: 0,
       skippedNoStudent: 0,
       skippedNameMismatch: 0,
       skippedUnknownCode: 0,
+      unmatchedCodes: 0,
       skippedProtected: 0,
     };
   }
@@ -287,7 +299,7 @@ async function updateStudentCplScoresBatch(stamped) {
   );
 
   const cpls = await prisma.cpl.findMany({
-    where: { code: { not: null } },
+    where: { isActive: true, code: { not: null } },
     select: { id: true, code: true },
   });
   const codeToCplId = new Map(cpls.map((cpl) => [normalizeCode(cpl.code), cpl.id]));
@@ -334,10 +346,12 @@ async function updateStudentCplScoresBatch(stamped) {
   if (candidates.length === 0) {
     return {
       fetched: rawRows.length,
+      created: 0,
       updated: 0,
       skippedNoStudent,
       skippedNameMismatch,
       skippedUnknownCode,
+      unmatchedCodes: skippedUnknownCode,
       skippedProtected: 0,
     };
   }
@@ -368,72 +382,105 @@ async function updateStudentCplScoresBatch(stamped) {
   );
 
   let skippedProtected = 0;
-  const upserts = [];
+  let created = 0;
+  let updated = 0;
+  const writes = [];
   for (const item of deduped) {
     const key = `${item.studentId}::${item.cplId}`;
     const existing = existingScoreMap.get(key);
 
-    if (
-      existing &&
-      (existing.source === "manual" ||
-        existing.status === "verified" ||
-        existing.status === "finalized")
-    ) {
+    if (!existing) {
+      created += 1;
+      writes.push({
+        type: "create",
+        studentId: item.studentId,
+        cplId: item.cplId,
+        score: item.score,
+        inputAt: item.inputAt,
+      });
+      continue;
+    }
+
+    const isProtected =
+      existing.source === "manual" ||
+      existing.status === "verified" ||
+      existing.status === "finalized";
+    if (isProtected) {
       skippedProtected += 1;
       continue;
     }
 
-    upserts.push(item);
+    const canOverwrite = existing.source === "SIA" && existing.status === "calculated";
+    if (!canOverwrite) {
+      skippedProtected += 1;
+      continue;
+    }
+
+    updated += 1;
+    writes.push({
+      type: "update",
+      studentId: item.studentId,
+      cplId: item.cplId,
+      score: item.score,
+      inputAt: item.inputAt,
+    });
   }
 
-  if (upserts.length === 0) {
+  if (writes.length === 0) {
     return {
       fetched: rawRows.length,
+      created,
       updated: 0,
       skippedNoStudent,
       skippedNameMismatch,
       skippedUnknownCode,
+      unmatchedCodes: skippedUnknownCode,
       skippedProtected,
     };
   }
 
   const chunkSize = 200;
-  for (let i = 0; i < upserts.length; i += chunkSize) {
-    const chunk = upserts.slice(i, i + chunkSize);
+  for (let i = 0; i < writes.length; i += chunkSize) {
+    const chunk = writes.slice(i, i + chunkSize);
     await prisma.$transaction(
       chunk.map((row) =>
-        prisma.studentCplScore.upsert({
-          where: {
-            studentId_cplId: {
-              studentId: row.studentId,
-              cplId: row.cplId,
-            },
-          },
-          create: {
-            studentId: row.studentId,
-            cplId: row.cplId,
-            score: row.score,
-            source: "SIA",
-            status: "calculated",
-            inputAt: row.inputAt,
-          },
-          update: {
-            score: row.score,
-            source: "SIA",
-            status: "calculated",
-            inputAt: row.inputAt,
-          },
-        })
+        row.type === "create"
+          ? prisma.studentCplScore.create({
+              data: {
+                studentId: row.studentId,
+                cplId: row.cplId,
+                score: row.score,
+                source: "SIA",
+                status: "calculated",
+                inputAt: row.inputAt,
+              },
+            })
+          : prisma.studentCplScore.update({
+              where: {
+                studentId_cplId: {
+                  studentId: row.studentId,
+                  cplId: row.cplId,
+                },
+              },
+              data: {
+                score: row.score,
+                source: "SIA",
+                status: "calculated",
+                inputAt: row.inputAt,
+              },
+            })
       )
     );
   }
 
   return {
     fetched: rawRows.length,
-    updated: upserts.length,
+    created,
+    updated,
     skippedNoStudent,
     skippedNameMismatch,
     skippedUnknownCode,
+    unmatchedCodes: skippedUnknownCode,
     skippedProtected,
   };
 }

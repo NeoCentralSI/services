@@ -628,6 +628,16 @@ export async function getThesisDefenceReadiness(thesisId) {
           },
         },
       },
+      thesisSeminars: {
+        select: {
+          id: true,
+          status: true,
+          revisionFinalizedAt: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
     },
   });
 

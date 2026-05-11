@@ -57,6 +57,11 @@ export async function findPendingProposals({ academicYearId, q, skip, take, sort
     const whereClause = {
         status: {
             in: ['PENDING', 'APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', 'WAITING_FOR_VERIFICATION', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'REJECTED_BY_COMPANY']
+        },
+        internships: {
+            none: {
+                status: 'PENDING'
+            }
         }
     };
 
@@ -93,6 +98,8 @@ export async function findPendingProposals({ academicYearId, q, skip, take, sort
             targetCompany: true,
             proposalDocument: true,
             appLetterDoc: true,
+            companyResponseDoc: true,
+            assignLetterDoc: true,
             academicYear: true
         },
         orderBy
@@ -107,6 +114,11 @@ export async function countPendingProposals({ academicYearId, q }) {
     const whereClause = {
         status: {
             in: ['PENDING', 'APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', 'WAITING_FOR_VERIFICATION', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'REJECTED_BY_COMPANY']
+        },
+        internships: {
+            none: {
+                status: 'PENDING'
+            }
         }
     };
 
@@ -131,9 +143,7 @@ export async function countPendingProposals({ academicYearId, q }) {
  */
 export async function findPendingResponses({ academicYearId, q, skip, take, sortBy, sortOrder }) {
     const whereClause = {
-        status: {
-            in: ['ACCEPTED_BY_COMPANY', 'WAITING_FOR_VERIFICATION', 'REJECTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'APPROVED_PROPOSAL']
-        }
+        status: 'PENDING'
     };
 
     if (academicYearId && academicYearId !== 'all') {
@@ -182,9 +192,7 @@ export async function findPendingResponses({ academicYearId, q, skip, take, sort
  */
 export async function countPendingResponses({ academicYearId, q }) {
     const whereClause = {
-        status: {
-            in: ['ACCEPTED_BY_COMPANY', 'WAITING_FOR_VERIFICATION', 'REJECTED_BY_COMPANY', 'PARTIALLY_ACCEPTED', 'APPROVED_PROPOSAL']
-        }
+        status: 'PENDING'
     };
 
     if (academicYearId && academicYearId !== 'all') {
@@ -343,6 +351,7 @@ export async function createCompany(data) {
         data: {
             companyName: data.companyName,
             companyAddress: data.companyAddress,
+            alasan: data.alasan,
             status: data.status || 'save'
         }
     });
@@ -360,6 +369,7 @@ export async function updateCompany(id, data) {
         data: {
             companyName: data.companyName,
             companyAddress: data.companyAddress,
+            alasan: data.alasan,
             status: data.status
         }
     });
@@ -411,7 +421,7 @@ export async function verifyCompanyResponseTransaction(proposalId, proposalStatu
             where: { id: proposalId },
             data: {
                 status: proposalStatus,
-                companyResponseSekdepNotes: notes
+                companyResponseNotes: notes
             },
             include: {
                 coordinator: true,
@@ -446,6 +456,7 @@ export async function verifyCompanyResponseTransaction(proposalId, proposalStatu
  * @param {Object} params
  * @param {string} [params.academicYearId]
  * @param {string} [params.status]
+ * @param {string} [params.supervisorId]
  * @param {string} [params.q]
  * @param {number} [params.skip]
  * @param {number} [params.take]
@@ -453,7 +464,7 @@ export async function verifyCompanyResponseTransaction(proposalId, proposalStatu
  * @param {string} [params.sortOrder]
  * @returns {Promise<Array>}
  */
-export async function findInternships({ academicYearId, status, q, skip, take, sortBy, sortOrder }) {
+export async function findInternships({ academicYearId, status, supervisorId, q, skip, take, sortBy, sortOrder }) {
     const whereClause = {};
 
     if (academicYearId && academicYearId !== 'all') {
@@ -468,6 +479,10 @@ export async function findInternships({ academicYearId, status, q, skip, take, s
         whereClause.status = {
             in: ['ONGOING', 'COMPLETED', 'ACCEPTED_BY_COMPANY']
         };
+    }
+
+    if (supervisorId) {
+        whereClause.supervisorId = supervisorId;
     }
 
     if (q) {
@@ -532,6 +547,11 @@ export async function findInternships({ academicYearId, status, q, skip, take, s
                     user: true
                 }
             },
+            supLetter: {
+                include: {
+                    document: true
+                }
+            },
             _count: {
                 select: {
                     logbooks: {
@@ -553,8 +573,13 @@ export async function findInternships({ academicYearId, status, q, skip, take, s
 /**
  * Count internships for Sekdep.
  * @param {Object} params
+ * @param {string} [params.academicYearId]
+ * @param {string} [params.status]
+ * @param {string} [params.supervisorId]
+ * @param {string} [params.q]
+ * @returns {Promise<number>}
  */
-export async function countInternships({ academicYearId, status, q }) {
+export async function countInternships({ academicYearId, status, supervisorId, q }) {
     const whereClause = {};
 
     if (academicYearId && academicYearId !== 'all') {
@@ -565,6 +590,10 @@ export async function countInternships({ academicYearId, status, q }) {
         whereClause.status = status;
     } else {
         whereClause.status = { in: ['ONGOING', 'COMPLETED', 'ACCEPTED_BY_COMPANY'] };
+    }
+
+    if (supervisorId) {
+        whereClause.supervisorId = supervisorId;
     }
 
     if (q) {
@@ -619,7 +648,15 @@ export async function findInternshipById(id) {
             proposal: {
                 include: {
                     targetCompany: true,
-                    academicYear: true
+                    academicYear: {
+                        include: {
+                            internshipGuidanceQuestions: {
+                                select: {
+                                    weekNumber: true
+                                }
+                            }
+                        }
+                    }
                 }
             },
             supervisor: {
@@ -639,23 +676,68 @@ export async function findInternshipById(id) {
             logbooks: {
                 select: {
                     id: true,
-                    activityDate: true
+                    activityDate: true,
+                    activityDescription: true,
+                    createdAt: true
+                },
+                orderBy: {
+                    activityDate: 'asc'
                 }
             },
             guidanceSessions: {
-                select: {
-                    id: true
+                include: {
+                    studentAnswers: {
+                        include: {
+                            question: true
+                        }
+                    },
+                    lecturerAnswers: {
+                        include: {
+                            criteria: {
+                                include: {
+                                    options: true
+                                }
+                            }
+                        }
+                    }
+                },
+                orderBy: {
+                    weekNumber: 'asc'
                 }
             },
             seminars: {
-                select: {
-                    id: true
+                include: {
+                    room: true,
+                    moderatorStudent: {
+                        include: {
+                            user: true
+                        }
+                    }
+                }
+            },
+            lecturerScores: {
+                include: {
+                    chosenRubric: {
+                        include: {
+                            cpmk: true
+                        }
+                    }
+                }
+            },
+            fieldScores: {
+                include: {
+                    chosenRubric: {
+                        include: {
+                            cpmk: true
+                        }
+                    }
                 }
             },
             reportDocument: true,
             logbookDocument: true,
             completionCertificateDoc: true,
-            companyReceiptDoc: true
+            companyReceiptDoc: true,
+            fieldAssessmentDoc: true
         }
     });
 }
@@ -670,7 +752,7 @@ export async function updateDocumentVerification(internshipId, { documentType, s
     const data = {};
     const statusField = `${documentType}Status`;
     const notesField = `${documentType}Notes`;
-    
+
     data[statusField] = status;
     data[notesField] = notes;
 
@@ -689,12 +771,12 @@ export async function updateDocumentVerification(internshipId, { documentType, s
 export async function bulkUpdateDocumentVerification(internshipId, documents) {
     return prisma.$transaction(async (tx) => {
         const data = {};
-        
+
         // Build data object with all document updates
         for (const doc of documents) {
             const statusField = `${doc.documentType}Status`;
             const notesField = `${doc.documentType}Notes`;
-            
+
             data[statusField] = doc.status;
             if (doc.notes !== undefined) {
                 data[notesField] = doc.notes;
@@ -712,7 +794,7 @@ export async function bulkUpdateDocumentVerification(internshipId, documents) {
  * Find lecturers with their active internship workload counts for Sekdep.
  * @param {Object} params
  */
-export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder }) {
+export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrder, academicYearId }) {
     const whereClause = {};
 
     if (q) {
@@ -745,11 +827,21 @@ export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrd
                     identityNumber: true
                 }
             },
+            internshipsSupervisored: {
+                where: {
+                    status: 'ONGOING',
+                    ...(academicYearId ? { proposal: { academicYearId } } : {})
+                },
+                select: {
+                    supLetterId: true
+                }
+            },
             _count: {
                 select: {
                     internshipsSupervisored: {
                         where: {
-                            status: 'ONGOING'
+                            status: 'ONGOING',
+                            ...(academicYearId ? { proposal: { academicYearId } } : {})
                         }
                     }
                 }
@@ -763,7 +855,7 @@ export async function findLecturersWithWorkload({ q, skip, take, sortBy, sortOrd
  * Count lecturers for Sekdep workload panel.
  * @param {Object} params
  */
-export async function countLecturersWithWorkload({ q }) {
+export async function countLecturersWithWorkload({ q, academicYearId }) {
     const whereClause = {};
 
     if (q) {
@@ -838,4 +930,113 @@ export async function findAllLecturerWorkload() {
             }
         }
     });
+}
+
+/**
+ * Find a lecturer with their ongoing internships assigned for supervisor letter generation.
+ * @param {string} lecturerId 
+ * @returns {Promise<Object|null>}
+ */
+export async function findLecturerForLetter(lecturerId) {
+    return prisma.lecturer.findUnique({
+        where: { id: lecturerId },
+        include: {
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true
+                }
+            },
+            internshipsSupervisored: {
+                where: { status: 'ONGOING' },
+                include: {
+                    student: {
+                        include: {
+                            user: {
+                                select: {
+                                    fullName: true,
+                                    identityNumber: true
+                                }
+                            }
+                        }
+                    },
+                    proposal: {
+                        include: {
+                            targetCompany: true
+                        }
+                    },
+                    supLetter: {
+                        include: {
+                            document: true
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Find a supervisor letter by its document number.
+ * @param {string} documentNumber 
+ */
+export async function findSupervisorLetterByNumber(documentNumber) {
+    return prisma.internshipSupervisorLetter.findUnique({
+        where: { documentNumber },
+        include: {
+            supervisor: {
+                include: { user: true }
+            }
+        }
+    });
+}
+
+/**
+ * Upsert a supervisor letter.
+ * @param {Object} data 
+ */
+export async function upsertSupervisorLetter(data) {
+    const { documentNumber, dateIssued, startDate, endDate, supervisorId, documentId } = data;
+
+    return prisma.internshipSupervisorLetter.upsert({
+        where: { documentNumber },
+        update: {
+            dateIssued,
+            startDate,
+            endDate,
+            supervisorId,
+            documentId
+        },
+        create: {
+            documentNumber,
+            dateIssued,
+            startDate,
+            endDate,
+            supervisorId,
+            documentId
+        }
+    });
+}
+
+/**
+ * Link internships to a supervisor letter.
+ * @param {Array<string>} internshipIds 
+ * @param {string} supLetterId 
+ */
+export async function linkInternshipsToLetter(internshipIds, supLetterId) {
+    return prisma.internship.updateMany({
+        where: { id: { in: internshipIds } },
+        data: {
+            supLetterId
+        }
+    });
+}
+
+/**
+ * Update supervisor letter details for multiple internships in bulk.
+ * @deprecated Use upsertSupervisorLetter and linkInternshipsToLetter instead.
+ */
+export async function updateSupervisorLetterBulk(internshipIds, data) {
+    // This is now handled by the service using newer methods
+    throw new Error("Deprecated: Use upsertSupervisorLetter and linkInternshipsToLetter in the service layer.");
 }
