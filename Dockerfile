@@ -15,7 +15,10 @@ RUN pnpm install --frozen-lockfile
 # Generate Prisma client using binary directly (avoids pnpm exec issues)
 RUN ./node_modules/.bin/prisma generate
 
+FROM deps AS migrator
+
 # Strip devDependencies before copying to runner
+FROM deps AS prod-deps
 RUN pnpm prune --prod
 
 # ── Stage 2: prod image ────────────────────────────────────────
@@ -28,10 +31,10 @@ RUN apk add --no-cache curl
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy pruned node_modules + generated Prisma client
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/prisma ./prisma
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/prisma ./prisma
 # Generated client lives in src/generated/prisma (custom output in schema.prisma)
-COPY --from=deps /app/src/generated ./src/generated
+COPY --from=prod-deps /app/src/generated ./src/generated
 
 # Copy source
 COPY src ./src
