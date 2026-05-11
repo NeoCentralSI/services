@@ -54,10 +54,10 @@ const {
 vi.mock("../../../../repositories/thesisGuidance/student.guidance.repository.js", () => ({
   getStudentByUserId: mockLecturerRepo.getStudentByUserId,
 }));
-vi.mock("../../../../repositories/thesis-seminar.repository.js", () => mockCoreRepo);
-vi.mock("../../../../repositories/thesis-seminar-doc.repository.js", () => mockDocRepo);
-vi.mock("../../../../repositories/thesis-seminar-revision.repository.js", () => mockRevisionRepo);
-vi.mock("../../../../repositories/thesis-seminar-audience.repository.js", () => mockAudienceRepo);
+vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
+vi.mock("../../../../repositories/thesis-seminar/doc.repository.js", () => mockDocRepo);
+vi.mock("../../../../repositories/thesis-seminar/revision.repository.js", () => mockRevisionRepo);
+vi.mock("../../../../repositories/thesis-seminar/audience.repository.js", () => mockAudienceRepo);
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("xlsx", () => ({}));
 vi.mock("../../../../utils/seminarStatus.util.js", () => mockStatusUtil);
@@ -67,7 +67,7 @@ import {
   getAttendanceHistory,
   getSeminarHistory,
   getAnnouncements,
-} from "../../../../services/thesis-seminar-student.service.js";
+} from "../../../../services/thesis-seminar/student.service.js";
 
 // ── helpers ───────────────────────────────────────────────────
 const makeStudent = (id = "student-1") => ({

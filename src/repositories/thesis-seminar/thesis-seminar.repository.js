@@ -745,7 +745,14 @@ export async function getAllStudentSeminars(studentId) {
  * Thesis dropdown options for archive form.
  */
 export async function findThesesForOptions() {
-  const theses = await prisma.thesis.findMany({
+  return prisma.thesis.findMany({
+    where: {
+      thesisSeminars: {
+        none: {
+          status: { in: ["passed", "passed_with_revision"] },
+        },
+      },
+    },
     select: {
       id: true,
       title: true,
@@ -758,22 +765,9 @@ export async function findThesesForOptions() {
       thesisSupervisors: {
         select: { lecturerId: true },
       },
-      thesisSeminars: {
-        where: {
-          status: { in: ["passed", "passed_with_revision"] },
-        },
-        select: { id: true, status: true },
-        take: 1,
-      },
     },
     orderBy: { createdAt: "desc" },
   });
-
-  return theses.map((t) => ({
-    ...t,
-    hasSeminarResult: t.thesisSeminars.length > 0,
-    seminarResultId: t.thesisSeminars[0]?.id || null,
-  }));
 }
 
 /**

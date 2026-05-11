@@ -96,6 +96,15 @@ export const removeEvent = async (req, res, next) => {
   }
 };
 
+export const getRoomOptions = async (req, res, next) => {
+  try {
+    const data = await yudisiumService.getRoomOptions();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ============================================================
 // PARTICIPANTS
 // ============================================================

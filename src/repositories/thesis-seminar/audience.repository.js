@@ -69,7 +69,7 @@ export async function createAudience({ seminarId, studentId, supervisorId, semin
       thesisSeminarId: seminarId,
       studentId,
       approvedBy: supervisorId,
-      registeredAt: seminarDate,
+      registeredAt: null,
       approvedAt: seminarDate,
     },
   });

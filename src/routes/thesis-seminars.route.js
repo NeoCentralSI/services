@@ -29,10 +29,9 @@ import { populateProfile } from "../middlewares/thesis-seminar.middleware.js";
 router.use(authGuard);
 router.use(populateProfile);
 
-// ============================================================
 // ADMIN ONLY: Global Options, Templates, & Imports
 // ============================================================
-router.use("/options", requireAnyRole([ROLES.ADMIN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM]));
+router.use("/options", requireAnyRole([ROLES.ADMIN]));
 router.get("/options/theses", ctrl.getThesisOptions);
 router.get("/options/lecturers", ctrl.getLecturerOptions);
 router.get("/options/students", ctrl.getStudentOptions);

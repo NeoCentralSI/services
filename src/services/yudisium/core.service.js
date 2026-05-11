@@ -319,6 +319,12 @@ export const getYudisiumDetail = async (id) => {
   return formatYudisium(data);
 };
 
+export const getRoomOptions = async () => {
+  return prisma.room.findMany({
+    orderBy: { name: "asc" },
+  });
+};
+
 // ============================================================
 // CREATE / UPDATE / DELETE
 // ============================================================
