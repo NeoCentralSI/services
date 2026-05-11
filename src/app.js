@@ -4,6 +4,7 @@ import morgan from "morgan";
 import { fileURLToPath, pathToFileURL } from "url";
 import path from "path";
 import fs from "fs";
+import { createCorsOptions } from "./config/cors.js";
 import errorHandler from "./middlewares/error.middleware.js";
 import dateFormatMiddleware from "./middlewares/dateFormat.middleware.js";
 import { authGuard } from "./middlewares/auth.middleware.js";
@@ -11,12 +12,7 @@ import { checkThesisFileAccess } from "./middlewares/fileAccess.middleware.js";
 
 const app = express();
 
-app.use(cors({
-  origin: process.env.CORS_ALLOWED_ORIGINS
-    ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
-    : "http://localhost:5173",
-  credentials: true,
-}));
+app.use(cors(createCorsOptions()));
 app.use(express.json());
 app.use(morgan("dev"));
 app.use((req, res, next) => {
