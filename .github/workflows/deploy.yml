@@ -34,11 +34,15 @@ jobs:
         run: |
           cp -f docker-compose.prod.yml ${{ env.DEPLOY_DIR }}/docker-compose.yml
 
+      - name: Verify Prisma migrator
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma --version
+
       - name: Run Prisma migrations before app start
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
-          docker run --rm --env-file .env --add-host=host.docker.internal:host-gateway ${{ env.MIGRATION_IMAGE_TAG }} ./node_modules/.bin/prisma migrate resolve --rolled-back 20260512003000_add_student_research_method_completed || true
-          docker run --rm --env-file .env --add-host=host.docker.internal:host-gateway ${{ env.MIGRATION_IMAGE_TAG }} ./node_modules/.bin/prisma migrate deploy
+          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma migrate resolve --rolled-back 20260512003000_add_student_research_method_completed || true
+          docker compose --profile tools run --rm --no-deps backend-migrator ./node_modules/.bin/prisma migrate deploy
 
       - name: Deploy backend
         working-directory: ${{ env.DEPLOY_DIR }}
