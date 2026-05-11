@@ -103,8 +103,8 @@ router.post("/:id/examiners", requireAnyRole([ROLES.KETUA_DEPARTEMEN]), validate
 // ============================================================
 router.get("/:id/audiences", requireAnyRole(ALL_ROLES), ctrl.getAudiences);
 router.get("/:id/audiences/options/students", requireAnyRole([ROLES.ADMIN]), ctrl.getStudentOptionsForAudience);
-router.get("/:id/audiences/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportAudiences);
-router.get("/:id/audiences/export-pdf", requireAnyRole([ROLES.ADMIN]), ctrl.exportAudiencesPdf);
+router.get("/:id/audiences/export", requireAnyRole(ALL_ROLES), ctrl.exportAudiences);
+router.get("/:id/audiences/export-pdf", requireAnyRole(ALL_ROLES), ctrl.exportAudiencesPdf);
 router.post("/:id/audiences/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importAudiences);
 router.post("/:id/audiences", requireAnyRole([ROLES.MAHASISWA, ROLES.ADMIN]), validate(addAudienceSchema), ctrl.addAudience);
 router.delete("/:id/audiences/:studentId", requireAnyRole([ROLES.ADMIN]), ctrl.removeAudience);

@@ -28,7 +28,7 @@ const seminarListInclude = {
           seminarReady: true,
           role: { select: { name: true } },
           lecturer: {
-            select: { user: { select: { fullName: true } } },
+            select: { user: { select: { fullName: true, identityNumber: true } } },
           },
         },
       },
@@ -671,7 +671,7 @@ export async function getAllAnnouncedSeminars(studentId) {
           student: {
             select: {
               id: true,
-              user: { select: { fullName: true } },
+              user: { select: { fullName: true, identityNumber: true } },
             },
           },
           thesisSupervisors: {

@@ -201,7 +201,7 @@ export async function importAudiences(seminarId, file) {
     try {
       const student = await coreRepo.findStudentByNameOrNim({ fullName: rawName, nim: rawNim });
       if (!student) { results.failed++; results.failedRows.push({ row: i + 2, error: `Mahasiswa tidak ditemukan: ${rawName} / ${rawNim}` }); continue; }
-      
+
       // Check if student is the owner of the seminar
       if (String(thesis?.studentId) === String(student.id)) {
         results.failed++;
@@ -262,8 +262,30 @@ export async function exportAudiences(seminarId) {
 export async function exportAudiencesPdf(seminarId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  
+
   const rows = await audienceRepo.findAudiencesBySeminarId(seminarId);
+
+  // Fetch Ketua Departemen
+  const ketuaDept = await prisma.user.findFirst({
+    where: {
+      userHasRoles: {
+        some: {
+          role: { name: "Ketua Departemen" },
+          status: "active"
+        }
+      }
+    }
+  });
+
+  const ketuaDeptName = ketuaDept?.fullName || 'Ketua Departemen';
+  const ketuaDeptNip = ketuaDept?.identityNumber || '-';
+
+  // Fetch Pembimbing 1
+  const supervisor1 = seminar.thesis?.thesisSupervisors?.find(
+    (ts) => ts.role?.name === "Pembimbing 1"
+  );
+  const supervisorName = supervisor1?.lecturer?.user?.fullName || '-';
+  const supervisorNip = supervisor1?.lecturer?.user?.identityNumber || '-';
 
   // Logo loading
   const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
@@ -284,14 +306,14 @@ export async function exportAudiencesPdf(seminarId) {
   <meta charset="UTF-8">
   <style>
     body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.4; color: #000; margin: 0; padding: 0.5in; }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 15px; }
-    .logo-cell { width: 70px; vertical-align: middle; padding-right: 12px; }
-    .logo-img { width: 70px; height: auto; }
-    .header-text { text-align: center; vertical-align: middle; }
-    .header-text h3 { margin: 0; font-size: 12pt; font-weight: bold; text-transform: uppercase; }
-    .header-text h4 { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; }
-    .header-text h2 { margin: 0; font-size: 14pt; font-weight: bold; color: #0b5c9e; text-transform: uppercase; }
-    .header-text p { margin: 1px 0; font-size: 9pt; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
+    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
+    .logo-img { width: 80px; height: auto; }
+    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
+    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
+    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
     
     .title { text-align: center; font-size: 14pt; font-weight: bold; text-decoration: underline; margin: 20px 0 10px 0; text-transform: uppercase; }
     .subtitle { text-align: center; font-size: 11pt; font-weight: normal; margin-bottom: 25px; }
@@ -306,9 +328,11 @@ export async function exportAudiencesPdf(seminarId) {
     .data-table th { background-color: #f2f2f2; font-weight: bold; text-align: center; }
     .text-center { text-align: center; }
     
-    .footer { margin-top: 40px; float: right; width: 250px; text-align: left; }
-    .footer p { margin: 2px 0; }
-    .footer .space { height: 60px; }
+    .footer-container { margin-top: 40px; width: 100%; }
+    .signature-wrapper { width: 100%; border-collapse: collapse; }
+    .signature-block { width: 50%; vertical-align: top; padding-top: 10px; }
+    .signature-block p { margin: 2px 0; }
+    .signature-block .space { height: 60px; }
   </style>
 </head>
 <body>
@@ -322,25 +346,25 @@ export async function exportAudiencesPdf(seminarId) {
         <h4>Universitas Andalas</h4>
         <h4>Fakultas Teknologi Informasi</h4>
         <h2>Departemen Sistem Informasi</h2>
-        <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
-        <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
+        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
+        <p>Website: http://si.fti.unand.ac.id dan email: jurusan_si@fti.unand.ac.id</p>
       </td>
     </tr>
   </table>
 
-  <div class="title">Daftar Hadir Audience Seminar Hasil</div>
+  <div class="title">Daftar Hadir Peserta Seminar Hasil</div>
   <div class="subtitle">Tugas Akhir Mahasiswa</div>
 
   <table class="info-table">
     <tr>
       <td class="info-label">Nama Mahasiswa</td>
       <td class="info-colon">:</td>
-      <td><strong>${seminar.student?.name || '-'}</strong></td>
+      <td><strong>${seminar.thesis?.student?.user?.fullName || '-'}</strong></td>
     </tr>
     <tr>
       <td class="info-label">NIM</td>
       <td class="info-colon">:</td>
-      <td>${seminar.student?.nim || '-'}</td>
+      <td>${seminar.thesis?.student?.user?.identityNumber || '-'}</td>
     </tr>
     <tr>
       <td class="info-label">Judul Tugas Akhir</td>
@@ -352,16 +376,19 @@ export async function exportAudiencesPdf(seminarId) {
       <td class="info-colon">:</td>
       <td>${seminar.date ? new Date(seminar.date).toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</td>
     </tr>
+    <tr>
+      <td class="info-label">Ruangan</td>
+      <td class="info-colon">:</td>
+      <td>${seminar.room?.name || '-'}</td>
+    </tr>
   </table>
 
   <table class="data-table">
     <thead>
       <tr>
-        <th style="width: 30px;">No</th>
+        <th style="width: 40px;">No</th>
         <th>Nama Mahasiswa</th>
-        <th style="width: 120px;">NIM</th>
-        <th style="width: 150px;">Disetujui Oleh</th>
-        <th style="width: 130px;">Waktu Presensi</th>
+        <th style="width: 200px;">NIM</th>
       </tr>
     </thead>
     <tbody>
@@ -370,23 +397,34 @@ export async function exportAudiencesPdf(seminarId) {
           <td class="text-center">${idx + 1}</td>
           <td>${r.student?.user?.fullName || '-'}</td>
           <td class="text-center">${r.student?.user?.identityNumber || '-'}</td>
-          <td>${r.supervisor?.lecturer?.user?.fullName || '-'}</td>
-          <td class="text-center">${r.approvedAt ? new Date(r.approvedAt).toLocaleDateString("id-ID", { day: 'numeric', month: '2-digit', year: 'numeric' }) : '-'}</td>
         </tr>
       `).join('') : `
         <tr>
-          <td colspan="5" class="text-center">Belum ada data audience</td>
+          <td colspan="3" class="text-center">Belum ada data audience</td>
         </tr>
       `}
     </tbody>
   </table>
 
-  <div class="footer">
-    <p>Padang, ${dateStr}</p>
-    <p>Ketua Departemen,</p>
-    <div class="space"></div>
-    <p><strong>Dr. Eng. Lusi Niarti Zulfa, S.T., M.T.</strong></p>
-    <p>NIP. 197507112002122002</p>
+  <div class="footer-container">
+    <table class="signature-wrapper">
+      <tr>
+        <td class="signature-block">
+          <p>&nbsp;</p>
+          <p>Pembimbing,</p>
+          <div class="space"></div>
+          <p><strong>${supervisorName}</strong></p>
+          <p>NIP. ${supervisorNip}</p>
+        </td>
+        <td class="signature-block" style="padding-left: 50px;">
+          <p>Padang, ${dateStr}</p>
+          <p>Ketua Departemen,</p>
+          <div class="space"></div>
+          <p><strong>${ketuaDeptName}</strong></p>
+          <p>NIP. ${ketuaDeptNip}</p>
+        </td>
+      </tr>
+    </table>
   </div>
 </body>
 </html>
