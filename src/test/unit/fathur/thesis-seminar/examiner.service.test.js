@@ -21,6 +21,7 @@ const {
     findSeminarBasicById: vi.fn(),
     updateSeminar: vi.fn(),
     findUserIdsByRole: vi.fn(),
+    findSeminarSupervisorRole: vi.fn(),
   };
   const mockPrisma = {
     user: { findUnique: vi.fn() },
@@ -28,6 +29,7 @@ const {
     thesisSeminar: { findMany: vi.fn() },
     lecturer: { findMany: vi.fn(), findUnique: vi.fn() },
     thesisSeminarExaminer: { findMany: vi.fn(), deleteMany: vi.fn(), update: vi.fn(), createMany: vi.fn() },
+    userHasRole: { findMany: vi.fn() },
   };
   mockPrisma.$transaction = vi.fn(async (cb) => cb(mockPrisma));
 
@@ -49,7 +51,8 @@ vi.mock("../../../../services/push.service.js", () => ({
 import { 
   getEligibleExaminers, 
   assignExaminers, 
-  respondExaminerAssignment 
+  respondExaminerAssignment,
+  getExaminerAssessment
 } from "../../../../services/thesis-seminar/examiner.service.js";
 
 describe("Thesis Seminar Examiner Service", () => {
@@ -109,6 +112,51 @@ describe("Thesis Seminar Examiner Service", () => {
 
       expect(result.availabilityStatus).toBe("unavailable");
       expect(mockExaminerRepo.updateExaminerAvailability).toHaveBeenCalledWith("ex-1", "unavailable", "Meeting");
+    });
+    });
+  });
+
+  describe("getExaminerAssessment", () => {
+    const seminar = { 
+      id: "sem-1", 
+      status: "scheduled", 
+      date: new Date(), 
+      startTime: new Date(), 
+      endTime: new Date(Date.now() + 3600000), // Ends in 1h
+      examiners: [{ lecturerId: "lec-1" }] 
+    };
+
+    it("allows supervisor to access assessment during ongoing seminar", async () => {
+      mockCoreRepo.findSeminarById.mockResolvedValue(seminar);
+      mockPrisma.userHasRole.findMany.mockResolvedValue([]);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup-rel" });
+      mockExaminerRepo.findSeminarAssessmentCpmks.mockResolvedValue([]);
+      mockExaminerRepo.findActiveExaminersWithAssessments.mockResolvedValue([]);
+
+      const result = await getExaminerAssessment("sem-1", { lecturerId: "sup-1" });
+
+      expect(result).toHaveProperty("seminar");
+      expect(result.seminar.status).toBe("ongoing");
+    });
+
+    it("denies access for student during ongoing seminar", async () => {
+      mockCoreRepo.findSeminarById.mockResolvedValue(seminar);
+      mockPrisma.userHasRole.findMany.mockResolvedValue([]);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue(null);
+
+      await expect(getExaminerAssessment("sem-1", { studentId: "stu-1" }))
+        .rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it("allows student to access after finalization", async () => {
+      const finalizedSeminar = { ...seminar, status: "passed", resultFinalizedAt: new Date(), thesis: { student: { id: "stu-1" } } };
+      mockCoreRepo.findSeminarById.mockResolvedValue(finalizedSeminar);
+      mockPrisma.userHasRole.findMany.mockResolvedValue([]);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue(null);
+      mockExaminerRepo.findSeminarAssessmentCpmks.mockResolvedValue([]);
+
+      const result = await getExaminerAssessment("sem-1", { studentId: "stu-1" });
+      expect(result).toHaveProperty("seminar");
     });
   });
 });

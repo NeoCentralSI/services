@@ -46,16 +46,17 @@ vi.mock("../../../../services/outlook-calendar.service.js", () => ({
   hasCalendarAccess: vi.fn().mockResolvedValue(true),
   createCalendarEvent: vi.fn().mockResolvedValue({ eventId: "outlook-event-1" }),
 }));
+vi.mock("../../../../helpers/pdf.helper.js", () => ({
+  convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf-buffer")),
+}));
+vi.mock("../../../../services/thesis-seminar/examiner.service.js", () => ({
+  getFinalizationData: vi.fn(),
+}));
 
 import {
-  createArchive,
-  updateArchive,
-  deleteArchive,
-  importArchive,
-  cancelSeminar,
-  getSchedulingData,
   scheduleSeminar,
   finalizeSchedule,
+  generateAssessmentResultPdf,
 } from "../../../../services/thesis-seminar/core.service.js";
 
 describe("Thesis Seminar Core Service (Archive Logic)", () => {
@@ -338,6 +339,40 @@ describe("Thesis Seminar Core Service (Archive Logic)", () => {
         id: "sem-1", status: "examiner_assigned", date: null,
       });
       await expect(finalizeSchedule("sem-1", "admin-user")).rejects.toMatchObject({ statusCode: 400 });
+    });
+  });
+
+  describe("generateAssessmentResultPdf", () => {
+    it("generates PDF buffer for a finalized seminar", async () => {
+      mockCoreRepo.findSeminarById.mockResolvedValue({
+        id: "sem-1",
+        date: new Date(),
+        startTime: new Date(),
+        endTime: new Date(),
+        thesis: { student: { user: { fullName: "Test Student", identityNumber: "123" } } }
+      });
+
+      const { getFinalizationData } = await import("../../../../services/thesis-seminar/examiner.service.js");
+      getFinalizationData.mockResolvedValue({
+        seminar: { status: "passed", resultFinalizedAt: new Date() },
+        examiners: [],
+        criteriaGroups: []
+      });
+
+      const result = await generateAssessmentResultPdf("sem-1");
+      expect(result.toString()).toBe("fake-pdf-buffer");
+    });
+
+    it("throws 400 if seminar is not finalized", async () => {
+      mockCoreRepo.findSeminarById.mockResolvedValue({ id: "sem-1" });
+      const { getFinalizationData } = await import("../../../../services/thesis-seminar/examiner.service.js");
+      getFinalizationData.mockResolvedValue({
+        seminar: { status: "ongoing", resultFinalizedAt: null },
+        examiners: [],
+        criteriaGroups: []
+      });
+
+      await expect(generateAssessmentResultPdf("sem-1")).rejects.toMatchObject({ statusCode: 400 });
     });
   });
 });

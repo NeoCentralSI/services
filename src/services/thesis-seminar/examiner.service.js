@@ -21,18 +21,7 @@ function resolveSupervisorMembership(supervisorRelation) {
   return supervisorRelation;
 }
 
-function mapScoreToGrade(score) {
-  if (score === null || score === undefined || Number.isNaN(Number(score))) return null;
-  const s = Number(score);
-  if (s >= 80) return "A";
-  if (s >= 76) return "A-";
-  if (s >= 70) return "B+";
-  if (s >= 65) return "B";
-  if (s >= 55) return "C+";
-  if (s >= 50) return "C";
-  if (s >= 45) return "D";
-  return "E";
-}
+// Score to Grade mapping removed as per requirements (Numeric only)
 
 const DAY_LABELS = {
   monday: "Senin",
@@ -439,8 +428,8 @@ export async function getExaminerAssessment(seminarId, user) {
       throwError("Anda tidak memiliki akses untuk melihat form penilaian seminar ini.", 403);
     }
   } else {
-    if (!isExaminer && !isAdmin) {
-      throwError("Hanya dosen penguji atau pimpinan yang dapat mengakses form penilaian.", 403);
+    if (!isExaminer && !isAdmin && !isSupervisor) {
+      throwError("Hanya dosen penguji, pembimbing, atau pimpinan yang dapat mengakses form penilaian.", 403);
     }
   }
 
@@ -581,7 +570,7 @@ export async function getFinalizationData(seminarId, user) {
   return {
     seminar: {
       id: seminar.id, status: effectiveStatus, finalScore: seminar.finalScore,
-      grade: mapScoreToGrade(seminar.finalScore), resultFinalizedAt: seminar.resultFinalizedAt,
+      resultFinalizedAt: seminar.resultFinalizedAt,
       revisionFinalizedAt: seminar.revisionFinalizedAt,
       studentName: seminar.thesis?.student?.user?.fullName || "-",
       studentNim: seminar.thesis?.student?.user?.identityNumber || "-",
@@ -600,15 +589,23 @@ export async function getFinalizationData(seminarId, user) {
         detailsByGroup[cpmk.id].criteria.push({ id: d.criteria.id, name: d.criteria.name, maxScore: d.criteria.maxScore, score: d.score, displayOrder: d.criteria.displayOrder });
       });
       Object.values(detailsByGroup).forEach((g) => g.criteria.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)));
+      
+      const isSubmitted = !!item.assessmentSubmittedAt;
+      const showScores = isFinalized || isSupervisor || (isExaminer && item.lecturerId === user.lecturerId);
+
       return {
         id: item.id, lecturerId: item.lecturerId,
         lecturerName: (seminar.examiners || []).find((x) => x.lecturerId === item.lecturerId)?.lecturerName || "-",
-        order: item.order, assessmentScore: item.assessmentScore, revisionNotes: item.revisionNotes,
+        order: item.order, 
+        assessmentScore: showScores ? item.assessmentScore : null, 
+        revisionNotes: showScores ? item.revisionNotes : null,
         assessmentSubmittedAt: item.assessmentSubmittedAt,
-        assessmentDetails: Object.values(detailsByGroup).sort((a, b) => (a.code || "").localeCompare(b.code || "")),
+        isDraft: !isSubmitted && item.assessmentScore !== null,
+        assessmentDetails: showScores ? Object.values(detailsByGroup).sort((a, b) => (a.code || "").localeCompare(b.code || "")) : [],
       };
     }),
-    allExaminerSubmitted: allSubmitted, averageScore: avgScore, averageGrade: avgScore !== null ? mapScoreToGrade(avgScore) : null,
+    allExaminerSubmitted: allSubmitted, 
+    averageScore: (isSupervisor || isFinalized) ? avgScore : null,
     recommendationUnlocked: allSubmitted,
     criteriaGroups,
   };
@@ -661,7 +658,6 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
     seminarId: finalized.id, 
     status: finalized.status, 
     finalScore: finalized.finalScore, 
-    grade: mapScoreToGrade(avgScore), 
     resultFinalizedAt: finalized.resultFinalizedAt 
   };
 }
