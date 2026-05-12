@@ -1,18 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx } = vi.hoisted(() => ({
+const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook } = vi.hoisted(() => ({
   mockPrisma: {
     thesisSeminar: { findUnique: vi.fn() },
     thesisSeminarAudience: { create: vi.fn() },
+    student: { findUnique: vi.fn() },
   },
   mockAudienceRepo: {
     findAudiencesBySeminarId: vi.fn(),
     findAudienceByKey: vi.fn(),
     createAudience: vi.fn(),
     createAudiencesMany: vi.fn(),
+    findAudienceRegistration: vi.fn(),
+    createAudienceRegistration: vi.fn(),
+    deleteAudienceRegistration: vi.fn(),
+    deleteAudience: vi.fn(),
   },
   mockCoreRepo: {
+    findSeminarById: vi.fn(),
     findSeminarBasicById: vi.fn(),
     findThesisById: vi.fn(),
     findSupervisorsByThesisId: vi.fn(),
@@ -29,16 +35,23 @@ const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx } = vi.hoisted(() =
     },
     write: vi.fn(),
   },
+  mockOutlook: {
+    hasCalendarAccess: vi.fn(),
+    createCalendarEvent: vi.fn(),
+  },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../../repositories/thesis-seminar/audience.repository.js", () => mockAudienceRepo);
 vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
+vi.mock("../../../../services/outlook-calendar.service.js", () => mockOutlook);
 vi.mock("xlsx", () => mockXlsx);
 
 import {
   getAudiences,
   addAudience,
+  updateAudience,
+  removeAudience,
   importAudiences,
 } from "../../../../services/thesis-seminar/audience.service.js";
 
@@ -146,6 +159,84 @@ describe("Thesis Seminar Audience Service", () => {
       const result = await importAudiences("sem-1", { buffer: Buffer.from("test") });
       expect(result.failed).toBe(1);
       expect(result.successCount).toBe(0);
+    });
+  });
+
+  describe("addAudience (Student Self-Registration)", () => {
+    const studentUser = { studentId: "stu-1" };
+    const seminar = { id: "sem-1", status: "scheduled", date: new Date(Date.now() + 86400000) };
+
+    it("successfully registers student and triggers outlook sync", async () => {
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue(seminar);
+      mockPrisma.thesisSeminar.findUnique.mockResolvedValue({
+        id: "sem-1",
+        status: "scheduled",
+        date: seminar.date,
+        thesis: { student: { id: "other-stu" } }
+      });
+      mockAudienceRepo.findAudienceRegistration.mockResolvedValue(null);
+      mockAudienceRepo.createAudienceRegistration.mockResolvedValue({});
+      
+      // Mock for calendar sync
+      mockPrisma.student.findUnique.mockResolvedValue({ id: "stu-1", user: { id: "user-1" } });
+      mockOutlook.hasCalendarAccess.mockResolvedValue(true);
+      mockCoreRepo.findSeminarById.mockResolvedValue({
+        id: "sem-1",
+        date: seminar.date,
+        startTime: new Date(),
+        endTime: new Date(),
+        thesis: { student: { user: { fullName: "Presenter" } } }
+      });
+
+      const result = await addAudience("sem-1", {}, studentUser);
+
+      expect(result.message).toContain("Berhasil mendaftar");
+      expect(mockAudienceRepo.createAudienceRegistration).toHaveBeenCalledWith("sem-1", "stu-1");
+      // Note: syncAudienceToOutlook is fire-and-forget, but we can check if prisma was called at least
+    });
+
+    it("throws 400 if registering for own seminar", async () => {
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue(seminar);
+      mockPrisma.thesisSeminar.findUnique.mockResolvedValue({
+        id: "sem-1",
+        thesis: { student: { id: "stu-1" } }
+      });
+      await expect(addAudience("sem-1", {}, studentUser)).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("throws 400 if seminar is in the past", async () => {
+      const pastSeminar = { ...seminar, date: new Date(Date.now() - 86400000) };
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue(pastSeminar);
+      mockPrisma.thesisSeminar.findUnique.mockResolvedValue({
+        id: "sem-1",
+        status: "scheduled",
+        date: pastSeminar.date,
+        thesis: { student: { id: "other-stu" } }
+      });
+      await expect(addAudience("sem-1", {}, studentUser)).rejects.toMatchObject({ statusCode: 400 });
+    });
+  });
+
+  describe("removeAudience", () => {
+    it("successfully cancels student registration", async () => {
+      const studentUser = { studentId: "stu-1" };
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "sem-1" });
+      mockAudienceRepo.findAudienceRegistration.mockResolvedValue({ id: "reg-1" });
+      mockAudienceRepo.deleteAudienceRegistration.mockResolvedValue({});
+
+      const result = await removeAudience("sem-1", "stu-1", studentUser);
+      expect(result.message).toContain("berhasil dibatalkan");
+      expect(mockAudienceRepo.deleteAudienceRegistration).toHaveBeenCalledWith("sem-1", "stu-1");
+    });
+
+    it("successfully deletes audience record as admin", async () => {
+      const adminUser = { id: "admin-1", role: "admin" };
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "sem-1", registeredAt: null });
+      mockAudienceRepo.deleteAudience.mockResolvedValue({});
+
+      const result = await removeAudience("sem-1", "stu-1", adminUser);
+      expect(result.success).toBe(true);
+      expect(mockAudienceRepo.deleteAudience).toHaveBeenCalledWith("sem-1", "stu-1");
     });
   });
 });

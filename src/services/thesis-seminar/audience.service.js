@@ -5,6 +5,7 @@ import prisma from "../../config/prisma.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import path from "path";
 import fs from "fs";
+import * as outlookService from "../outlook-calendar.service.js";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -107,7 +108,47 @@ async function registerAsAudience(seminarId, studentId, seminar) {
   if (existing) throwError("Anda sudah terdaftar sebagai peserta seminar ini.", 409);
 
   await audienceRepo.createAudienceRegistration(seminarId, studentId);
+
+  // Calendar sync (background/fire-and-forget style to avoid blocking the response)
+  syncAudienceToOutlook(seminarId, studentId).catch(err =>
+    console.error("[AudienceService] Failed to sync to Outlook:", err.message)
+  );
+
   return { message: "Berhasil mendaftar sebagai peserta seminar." };
+}
+
+async function syncAudienceToOutlook(seminarId, studentId) {
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    include: { user: true }
+  });
+  if (!student?.user?.id) return;
+
+  const access = await outlookService.hasCalendarAccess(student.user.id);
+  const hasAccess = typeof access === 'object' ? access.hasAccess : access;
+  if (!hasAccess) return;
+
+  const seminar = await coreRepo.findSeminarById(seminarId);
+  if (!seminar || !seminar.date || !seminar.startTime) return;
+
+  // Combine date and time
+  const getCombinedDate = (timeObj) => {
+    const d = new Date(seminar.date);
+    d.setUTCHours(timeObj.getUTCHours() - 7, timeObj.getUTCMinutes(), 0, 0);
+    return d;
+  };
+
+  const startTime = getCombinedDate(seminar.startTime);
+  const endTime = getCombinedDate(seminar.endTime);
+  const locationStr = seminar.roomId ? `${seminar.room?.name || ''}` : (seminar.meetingLink || "Online Meeting");
+
+  await outlookService.createCalendarEvent(student.user.id, {
+    subject: `Peserta Seminar Hasil - ${seminar.thesis?.student?.user?.fullName || 'Mahasiswa'}`,
+    body: `Anda terdaftar sebagai peserta seminar hasil:\n\nMahasiswa: ${seminar.thesis?.student?.user?.fullName || '-'}\nJudul: ${seminar.thesis?.title || '-'}\nLokasi: ${locationStr}\n\nDisinkronkan dari Neo Central.`,
+    startTime,
+    endTime,
+    location: locationStr
+  });
 }
 
 // ============================================================

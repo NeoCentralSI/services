@@ -97,7 +97,7 @@ async function getValidAccessToken(userId) {
 function formatDateTimeForOutlook(date) {
   // Convert to Jakarta timezone string and format for Graph API
   const jakartaDate = new Date(date);
-  
+
   // Get the date/time components in Jakarta timezone
   const options = {
     timeZone: 'Asia/Jakarta',
@@ -109,14 +109,14 @@ function formatDateTimeForOutlook(date) {
     second: '2-digit',
     hour12: false
   };
-  
+
   const formatter = new Intl.DateTimeFormat('sv-SE', options);
   const parts = formatter.formatToParts(jakartaDate);
-  
+
   // Build ISO format string: YYYY-MM-DDTHH:mm:ss
   const getPart = (type) => parts.find(p => p.type === type)?.value || '00';
   const dateTimeString = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
-  
+
   return {
     dateTime: dateTimeString,
     timeZone: "Asia/Jakarta",
@@ -307,14 +307,14 @@ export async function getCalendarEvents(userId, startDate, endDate) {
         end: event.end,
         timezone: event.start?.timeZone
       });
-      
+
       // Parse datetime and handle timezone conversion properly
       const parseEventDateTime = (eventDateTime) => {
         if (!eventDateTime) return null;
-        
+
         // If timezone is specified, use it; otherwise assume Jakarta
         const timezone = eventDateTime.timeZone || 'Asia/Jakarta';
-        
+
         // Create a date object from the datetime
         let date;
         if (timezone === 'Asia/Jakarta') {
@@ -324,25 +324,25 @@ export async function getCalendarEvents(userId, startDate, endDate) {
           // Parse the datetime and convert to Jakarta
           const tempDate = new Date(eventDateTime.dateTime);
           // Convert to Jakarta timezone
-          date = new Date(tempDate.toLocaleString("en-US", {timeZone: "Asia/Jakarta"}));
+          date = new Date(tempDate.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
         }
-        
+
         return date.toISOString();
       };
-      
+
       const convertedStart = parseEventDateTime(event.start);
       const convertedEnd = parseEventDateTime(event.end);
-      
+
       console.log('[OutlookCalendar] Converted event times:', {
         id: event.id,
         subject: event.subject,
         originalStart: event.start?.dateTime,
         convertedStart,
-        originalEnd: event.end?.dateTime, 
+        originalEnd: event.end?.dateTime,
         convertedEnd,
         timezone: event.start?.timeZone
       });
-      
+
       return {
         id: event.id,
         subject: event.subject,
@@ -475,7 +475,7 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
   const supervisorAccessResult = await hasCalendarAccess(supervisor.userId);
   const supervisorHasAccess = typeof supervisorAccessResult === 'object' ? supervisorAccessResult.hasAccess : supervisorAccessResult;
   console.log("[OutlookCalendar] Supervisor calendar access:", supervisorHasAccess);
-  
+
   if (supervisorHasAccess) {
     try {
       const supervisorEvent = await createCalendarEvent(supervisor.userId, {
@@ -497,7 +497,7 @@ export async function createGuidanceCalendarEvent(guidance, student, supervisor)
   const studentAccessResult = await hasCalendarAccess(student.userId);
   const studentHasAccess = typeof studentAccessResult === 'object' ? studentAccessResult.hasAccess : studentAccessResult;
   console.log("[OutlookCalendar] Student calendar access:", studentHasAccess);
-  
+
   if (studentHasAccess) {
     try {
       const studentEvent = await createCalendarEvent(student.userId, {
@@ -582,7 +582,7 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
   const supervisorAccessResult2 = await hasCalendarAccess(supervisor.userId);
   const supervisorHasAccess2 = typeof supervisorAccessResult2 === 'object' ? supervisorAccessResult2.hasAccess : supervisorAccessResult2;
   console.log("[OutlookCalendar] Supervisor calendar access:", supervisorHasAccess2);
-  
+
   if (supervisorHasAccess2) {
     try {
       const supervisorEvent = await createCalendarEvent(supervisor.userId, {
@@ -602,7 +602,7 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
   const studentAccessResult2 = await hasCalendarAccess(student.userId);
   const studentHasAccess2 = typeof studentAccessResult2 === 'object' ? studentAccessResult2.hasAccess : studentAccessResult2;
   console.log("[OutlookCalendar] Student calendar access:", studentHasAccess2);
-  
+
   if (studentHasAccess2) {
     try {
       const studentEvent = await createCalendarEvent(student.userId, {
@@ -631,7 +631,7 @@ export async function createGuidanceCalendarEvents(guidance, student, supervisor
  */
 export async function createSeminarCalendarEvents(seminar, participants, adminId = null) {
   const { student, supervisors, examiners, audiences, room } = participants;
-  
+
   if (!seminar.date || !seminar.startTime || !seminar.endTime) {
     console.log("[OutlookCalendar] Seminar missing date/time, skipping sync");
     return;
@@ -647,9 +647,9 @@ export async function createSeminarCalendarEvents(seminar, participants, adminId
   const startTime = getCombinedDate(seminar.startTime);
   const endTime = getCombinedDate(seminar.endTime);
 
-  const locationStr = room ? `Ruangan ${room.name}` : (seminar.meetingLink || "Online Meeting");
+  const locationStr = room ? `${room.name}` : (seminar.meetingLink || "Online Meeting");
   const dateStr = new Intl.DateTimeFormat('id-ID', { dateStyle: 'full' }).format(new Date(seminar.date));
-  
+
   // Collect ALL participant emails as attendees
   const allParticipantEmails = [...new Set([
     student?.email,
