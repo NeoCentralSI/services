@@ -17,7 +17,7 @@ const seminarListInclude = {
         select: {
           id: true,
           user: {
-            select: { fullName: true, identityNumber: true, email: true },
+            select: { id: true, fullName: true, identityNumber: true, email: true },
           },
         },
       },
@@ -28,7 +28,7 @@ const seminarListInclude = {
           seminarReady: true,
           role: { select: { name: true } },
           lecturer: {
-            select: { user: { select: { fullName: true, identityNumber: true } } },
+            select: { user: { select: { id: true, fullName: true, identityNumber: true } } },
           },
         },
       },

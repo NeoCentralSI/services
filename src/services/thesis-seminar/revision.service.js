@@ -29,10 +29,24 @@ function resolveSupervisorMembership(supervisorRelation) {
 // ============================================================
 
 export async function getRevisions(seminarId, user) {
-  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
-  const revisions = await revisionRepo.findRevisionsBySeminarId(seminarId);
+  const isAdmin = await prisma.userHasRole.findFirst({ where: { userId: user.id, role: { name: { in: ["Admin", "Ketua Departemen", "Sekretaris Departemen"] } } } });
+  const isSupervisor = (await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId)) !== null;
+  const isStudent = seminar.thesis?.studentId === user.studentId;
+
+  if (!isAdmin && !isSupervisor && !isStudent) {
+    throwError("Anda tidak memiliki akses untuk melihat revisi seminar ini.", 403);
+  }
+
+  let revisions = await revisionRepo.findRevisionsBySeminarId(seminarId);
+
+  // Retroactive/Lazy-initialization: if status is passed_with_revision but 0 items exist, try generating them
+  if (revisions.length === 0 && seminar.status === "passed_with_revision") {
+    await initiateRevisionItems(seminarId);
+    revisions = await revisionRepo.findRevisionsBySeminarId(seminarId);
+  }
 
   // Batch-fetch examiner lecturer names
   const lecturerIds = [...new Set(revisions.map((r) => r.seminarExaminer?.lecturerId).filter(Boolean))];
@@ -112,15 +126,19 @@ export async function updateRevision(seminarId, revisionId, body, user) {
 
   const { action } = body;
 
+  if (seminar.revisionFinalizedAt && !["unapprove", "unfinalize"].includes(action)) {
+    throwError("Revisi sudah difinalisasi dan tidak dapat diubah.", 400);
+  }
+
   switch (action) {
     case "save_action":
       return saveAction(revision, body, user);
     case "submit":
-      return submitRevision(revision, user);
+      return submitRevision(revision, user, seminar);
     case "cancel_submit":
       return cancelSubmit(revision, user);
     case "approve":
-      return approveRevision(seminarId, revision, user);
+      return approveRevision(seminarId, revision, user, seminar);
     case "unapprove":
       return unapproveRevision(seminarId, revision, user);
     default:
@@ -141,12 +159,26 @@ async function saveAction(revision, body, user) {
   return { id: updated.id, description: updated.description, revisionAction: updated.revisionAction };
 }
 
-async function submitRevision(revision, user) {
+async function submitRevision(revision, user, seminar) {
   if (isRevisionFinished(revision)) throwError("Revisi ini sudah disetujui.", 400);
   if (revision.studentSubmittedAt) throwError("Revisi ini sudah diajukan.", 400);
   if (!revision.revisionAction) throwError("Isi perbaikan terlebih dahulu sebelum mengajukan.", 400);
 
   const updated = await revisionRepo.updateRevision(revision.id, { studentSubmittedAt: new Date() });
+  
+  // Notify supervisors (User IDs)
+  const supervisorUserIds = (seminar.thesis?.thesisSupervisors || [])
+    .map(s => s.lecturer?.user?.id)
+    .filter(Boolean);
+
+  if (supervisorUserIds.length > 0) {
+    const studentName = seminar.thesis?.student?.user?.fullName || "Mahasiswa";
+    const title = "Pengajuan Perbaikan Revisi";
+    const message = `${studentName} telah mengajukan perbaikan untuk revisi dari Penguji ${revision.seminarExaminer?.order}.`;
+    
+    import("../notification.service.js").then(m => m.createNotificationsForUsers(supervisorUserIds, { title, message }));
+  }
+
   return { id: updated.id, studentSubmittedAt: updated.studentSubmittedAt };
 }
 
@@ -158,7 +190,7 @@ async function cancelSubmit(revision, user) {
   return { id: updated.id, studentSubmittedAt: updated.studentSubmittedAt };
 }
 
-async function approveRevision(seminarId, revision, user) {
+async function approveRevision(seminarId, revision, user, seminar) {
   const supervisorRelation = await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId);
   const mySupervisor = resolveSupervisorMembership(supervisorRelation);
   if (!mySupervisor) throwError("Anda bukan dosen pembimbing pada seminar ini.", 403);
@@ -167,6 +199,15 @@ async function approveRevision(seminarId, revision, user) {
   if (!revision.studentSubmittedAt) throwError("Mahasiswa belum mengisi perbaikan untuk revisi ini.", 400);
 
   const approved = await revisionRepo.approveRevision(revision.id, mySupervisor.id);
+
+  // Notify student (User ID)
+  const studentUserId = seminar.thesis?.student?.user?.id;
+  if (studentUserId) {
+    const title = "Revisi Disetujui";
+    const message = `Perbaikan revisi Anda untuk Penguji ${revision.seminarExaminer?.order} telah disetujui oleh Pembimbing.`;
+    import("../notification.service.js").then(m => m.createNotificationsForUsers([studentUserId], { title, message }));
+  }
+
   return { id: approved.id, supervisorApprovedAt: approved.supervisorApprovedAt };
 }
 
@@ -203,7 +244,7 @@ export async function deleteRevision(seminarId, revisionId, studentId) {
 // ============================================================
 
 export async function finalizeRevisions(seminarId, lecturerId) {
-  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
   const supervisorRelation = await coreRepo.findSeminarSupervisorRole(seminarId, lecturerId);
@@ -224,7 +265,44 @@ export async function finalizeRevisions(seminarId, lecturerId) {
     revisionFinalizedBy: supervisorRole.id,
   });
 
+  // Notify student (User ID)
+  const studentUserId = seminar.thesis?.student?.user?.id;
+  if (studentUserId) {
+    const title = "Revisi Seminar Selesai";
+    const message = `Seluruh perbaikan revisi seminar hasil Anda telah selesai dan difinalisasi oleh Pembimbing.`;
+    import("../notification.service.js").then(m => m.createNotificationsForUsers([studentUserId], { title, message }));
+  }
+
   return { seminarId: finalized.id, revisionFinalizedAt: finalized.revisionFinalizedAt, revisionFinalizedBy: finalized.revisionFinalizedBy };
+}
+
+// ============================================================
+// INTERNAL: Auto-generate items from examiner notes
+// ============================================================
+
+export async function initiateRevisionItems(seminarId) {
+  const examiners = await prisma.thesisSeminarExaminer.findMany({
+    where: { thesisSeminarId: seminarId, availabilityStatus: "available", revisionNotes: { not: null, not: "" } },
+    select: { id: true, revisionNotes: true }
+  });
+
+  if (examiners.length === 0) return;
+
+  const revisionData = examiners.map(ex => ({
+    seminarExaminerId: ex.id,
+    description: ex.revisionNotes,
+    revisionAction: ""
+  }));
+
+  for (const data of revisionData) {
+    // Check if already exists to prevent duplicates
+    const existing = await prisma.thesisSeminarRevision.findFirst({
+      where: { seminarExaminerId: data.seminarExaminerId, description: data.description }
+    });
+    if (!existing) {
+      await revisionRepo.createRevision(data);
+    }
+  }
 }
 
 // ============================================================

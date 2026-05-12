@@ -1,5 +1,6 @@
 import * as examinerRepo from "../../repositories/thesis-seminar/examiner.repository.js";
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
+import * as revisionService from "./revision.service.js";
 import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
 import prisma from "../../config/prisma.js";
 
@@ -652,6 +653,15 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
   // If failed, reset seminarReady so student can re-register
   if (targetStatus === "failed" && seminar.thesisId) {
     await prisma.thesisSupervisors.updateMany({ where: { thesisId: seminar.thesisId }, data: { seminarReady: false } });
+  }
+
+  // Trigger revision auto-generation if passed with revision
+  if (targetStatus === "passed_with_revision") {
+    try {
+      await revisionService.initiateRevisionItems(seminarId);
+    } catch (err) {
+      console.error("[Revision AutoGen Error]:", err.message);
+    }
   }
 
   return { 

@@ -70,6 +70,18 @@ export async function findRevisionById(revisionId) {
                 select: {
                   id: true,
                   studentId: true,
+                  student: {
+                    select: {
+                      user: { select: { id: true, fullName: true } }
+                    }
+                  },
+                  thesisSupervisors: {
+                    select: {
+                      lecturer: {
+                        select: { user: { select: { id: true } } }
+                      }
+                    }
+                  }
                 },
               },
             },
