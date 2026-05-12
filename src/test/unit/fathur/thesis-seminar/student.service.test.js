@@ -59,6 +59,7 @@ import {
   getOverview,
   getAttendanceHistory,
   getSeminarHistory,
+  getAnnouncements,
 } from "../../../../services/thesis-seminar/student.service.js";
 
 // ── helpers ───────────────────────────────────────────────────
@@ -209,5 +210,11 @@ describe("Student Seminar Service — History & Attendance", () => {
     const result = await getAttendanceHistory("user-1");
     expect(result.summary.attended).toBe(1);
     expect(result.summary.total).toBe(2);
+  });
+
+  it("getAnnouncements returns list of ongoing/scheduled seminars", async () => {
+    mockCoreRepo.getAllAnnouncedSeminars.mockResolvedValue([makeSeminar({ id: "s1" })]);
+    const result = await getAnnouncements();
+    expect(result).toHaveLength(1);
   });
 });
