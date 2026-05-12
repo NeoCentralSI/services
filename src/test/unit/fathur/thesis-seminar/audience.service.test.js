@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook } = vi.hoisted(() => ({
+const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockNotification } = vi.hoisted(() => ({
   mockPrisma: {
     thesisSeminar: { findUnique: vi.fn() },
     thesisSeminarAudience: { create: vi.fn() },
@@ -16,6 +16,9 @@ const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook } = vi
     createAudienceRegistration: vi.fn(),
     deleteAudienceRegistration: vi.fn(),
     deleteAudience: vi.fn(),
+    toggleAudiencePresence: vi.fn(),
+    approveAudience: vi.fn(),
+    resetAudienceApproval: vi.fn(),
   },
   mockCoreRepo: {
     findSeminarById: vi.fn(),
@@ -24,6 +27,7 @@ const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook } = vi
     findSupervisorsByThesisId: vi.fn(),
     findStudentScheduleConflict: vi.fn(),
     findStudentByNameOrNim: vi.fn(),
+    findSeminarSupervisorRole: vi.fn(),
   },
   mockXlsx: {
     read: vi.fn(),
@@ -39,12 +43,16 @@ const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook } = vi
     hasCalendarAccess: vi.fn(),
     createCalendarEvent: vi.fn(),
   },
+  mockNotification: {
+    createNotificationService: vi.fn(),
+  },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../../repositories/thesis-seminar/audience.repository.js", () => mockAudienceRepo);
 vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
 vi.mock("../../../../services/outlook-calendar.service.js", () => mockOutlook);
+vi.mock("../../../../services/notification.service.js", () => mockNotification);
 vi.mock("xlsx", () => mockXlsx);
 
 import {
@@ -237,6 +245,53 @@ describe("Thesis Seminar Audience Service", () => {
       const result = await removeAudience("sem-1", "stu-1", adminUser);
       expect(result.success).toBe(true);
       expect(mockAudienceRepo.deleteAudience).toHaveBeenCalledWith("sem-1", "stu-1");
+    });
+  });
+
+  describe("updateAudience", () => {
+    const supervisorUser = { lecturerId: "lect-1" };
+    const seminar = { id: "sem-1", date: new Date(Date.now() - 86400000) }; // Past
+
+    it("successfully toggles presence and sends notification", async () => {
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue(seminar);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({
+        thesis: { thesisSupervisors: [{ id: "sup-1" }] }
+      });
+      mockAudienceRepo.findAudienceByKey.mockResolvedValue({ approvedAt: null });
+      mockAudienceRepo.toggleAudiencePresence.mockResolvedValue({});
+      
+      // Mock for notification
+      mockPrisma.student.findUnique.mockResolvedValue({ id: "stu-1", user: { id: "user-1" } });
+      mockCoreRepo.findSeminarById.mockResolvedValue({ student: { name: "Presenter" } });
+
+      const result = await updateAudience("sem-1", "stu-1", { action: "toggle_presence" }, supervisorUser);
+
+      expect(result.success).toBe(true);
+      expect(mockAudienceRepo.toggleAudiencePresence).toHaveBeenCalledWith("sem-1", "stu-1", true, "sup-1");
+      // Check if notification service was called
+      expect(mockNotification.createNotificationService).toHaveBeenCalledWith(expect.objectContaining({
+        userId: "user-1",
+        title: "Kehadiran Seminar Terverifikasi"
+      }));
+    });
+
+    it("throws 400 if toggling presence before seminar date", async () => {
+      const futureSeminar = { id: "sem-1", date: new Date(Date.now() + 86400000) };
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue(futureSeminar);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({
+        thesis: { thesisSupervisors: [{ id: "sup-1" }] }
+      });
+
+      await expect(updateAudience("sem-1", "stu-1", { action: "toggle_presence" }, supervisorUser))
+        .rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("pada hari seminar") });
+    });
+
+    it("throws 403 if user is not a supervisor", async () => {
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue(seminar);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue(null);
+
+      await expect(updateAudience("sem-1", "stu-1", { action: "toggle_presence" }, supervisorUser))
+        .rejects.toMatchObject({ statusCode: 403 });
     });
   });
 });

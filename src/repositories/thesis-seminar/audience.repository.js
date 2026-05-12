@@ -188,7 +188,7 @@ export async function resetAudienceApproval(seminarId, studentId) {
 /**
  * Toggle audience presence status.
  */
-export async function toggleAudiencePresence(seminarId, studentId, isPresent) {
+export async function toggleAudiencePresence(seminarId, studentId, isPresent, supervisorId = null) {
   return prisma.thesisSeminarAudience.update({
     where: {
       thesisSeminarId_studentId: {
@@ -198,6 +198,7 @@ export async function toggleAudiencePresence(seminarId, studentId, isPresent) {
     },
     data: {
       approvedAt: isPresent ? new Date() : null,
+      approvedBy: isPresent ? supervisorId : null,
     },
   });
 }

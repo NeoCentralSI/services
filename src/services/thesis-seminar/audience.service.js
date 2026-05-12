@@ -6,6 +6,7 @@ import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import path from "path";
 import fs from "fs";
 import * as outlookService from "../outlook-calendar.service.js";
+import { createNotificationService } from "../notification.service.js";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -156,7 +157,7 @@ async function syncAudienceToOutlook(seminarId, studentId) {
 // ============================================================
 
 export async function updateAudience(seminarId, studentId, body, user) {
-  await resolveSeminarForAudience(seminarId);
+  const seminar = await resolveSeminarForAudience(seminarId);
   const { action } = body;
 
   // Resolve supervisor role
@@ -166,19 +167,56 @@ export async function updateAudience(seminarId, studentId, body, user) {
   if (action === "approve") {
     if (!supervisorId) throwError("Anda bukan pembimbing untuk seminar ini.", 403);
     await audienceRepo.approveAudience(seminarId, studentId, supervisorId);
+    await notifyAudiencePresence(seminarId, studentId, seminar);
   } else if (action === "unapprove") {
     if (!supervisorId) throwError("Anda bukan pembimbing untuk seminar ini.", 403);
     await audienceRepo.resetAudienceApproval(seminarId, studentId);
   } else if (action === "toggle_presence") {
     if (!supervisorId) throwError("Anda bukan pembimbing untuk seminar ini.", 403);
+
+    // Prevent verification before seminar date
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const seminarDate = new Date(seminar.date);
+    if (seminarDate > today) {
+      throwError("Verifikasi kehadiran hanya dapat dilakukan pada hari seminar atau setelahnya.", 400);
+    }
+
     const current = await audienceRepo.findAudienceByKey(seminarId, studentId);
     if (!current) throwError("Data audience tidak ditemukan.", 404);
-    await audienceRepo.toggleAudiencePresence(seminarId, studentId, !current.approvedAt);
+
+    const isNowPresent = !current.approvedAt;
+    await audienceRepo.toggleAudiencePresence(seminarId, studentId, isNowPresent, supervisorId);
+
+    if (isNowPresent) {
+      await notifyAudiencePresence(seminarId, studentId, seminar);
+    }
   } else {
     throwError("Action tidak valid. Gunakan: approve, unapprove, toggle_presence.", 400);
   }
 
   return { success: true };
+}
+
+async function notifyAudiencePresence(seminarId, studentId, seminar) {
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    });
+    if (!student?.user?.id) return;
+
+    const presenterName = seminar.student?.name || "Mahasiswa";
+
+    await createNotificationService({
+      userId: student.user.id,
+      title: "Kehadiran Seminar Terverifikasi",
+      message: `Kehadiran Anda sebagai audiens pada seminar ${presenterName} telah diverifikasi oleh dosen pembimbing.`,
+    });
+  } catch (err) {
+    console.error("[AudienceService] Failed to send presence notification:", err);
+    // Don't throw error to avoid breaking the verification flow
+  }
 }
 
 // ============================================================
@@ -328,15 +366,23 @@ export async function exportAudiencesPdf(seminarId) {
   const supervisorName = supervisor1?.lecturer?.user?.fullName || '-';
   const supervisorNip = supervisor1?.lecturer?.user?.identityNumber || '-';
 
-  // Logo loading
-  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  // Logo loading - try multiple possible paths to be robust
+  const possibleLogoPaths = [
+    path.resolve(__dirname, "../../assets/unand-logo.png"),
+    path.resolve(__dirname, "../assets/unand-logo.png"),
+    path.resolve(process.cwd(), "src/assets/unand-logo.png"),
+  ];
+
   let logoBase64 = "";
-  try {
-    if (fs.existsSync(logoPath)) {
-      const logoBuffer = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-    }
-  } catch (err) { console.warn("Logo not found for PDF:", logoPath); }
+  for (const p of possibleLogoPaths) {
+    try {
+      if (fs.existsSync(p)) {
+        const logoBuffer = fs.readFileSync(p);
+        logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+        break; // Stop if found
+      }
+    } catch (err) { /* continue */ }
+  }
 
   const dateStr = new Date().toLocaleDateString("id-ID", { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -347,17 +393,17 @@ export async function exportAudiencesPdf(seminarId) {
   <meta charset="UTF-8">
   <style>
     body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.4; color: #000; margin: 0; padding: 0.5in; }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
-    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
-    .logo-img { width: 80px; height: auto; }
-    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
-    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
-    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
+    .logo-cell { width: 80px; vertical-align: middle; padding-bottom: 10px; }
+    .logo-img { width: 75px; height: auto; display: block; }
+    .header-text { text-align: center; vertical-align: middle; padding-right: 80px; } /* Increased padding to balance logo */
+    .header-text h3 { margin: 0; font-size: 11pt; font-weight: normal; text-transform: uppercase; }
+    .header-text h4 { margin: 0; font-size: 11pt; font-weight: normal; text-transform: uppercase; }
+    .header-text h2 { margin: 1px 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
+    .header-text p { margin: 1px 0; font-size: 9pt; font-weight: normal; }
     
-    .title { text-align: center; font-size: 14pt; font-weight: bold; text-decoration: underline; margin: 20px 0 10px 0; text-transform: uppercase; }
-    .subtitle { text-align: center; font-size: 11pt; font-weight: normal; margin-bottom: 25px; }
+    .title { text-align: center; font-size: 12pt; font-weight: bold; text-decoration: underline; margin: 15px 0 5px 0; text-transform: uppercase; }
+    .subtitle { text-align: center; font-size: 11pt; font-weight: normal; margin-bottom: 20px; }
     
     .info-table { width: 100%; margin-bottom: 20px; }
     .info-table td { padding: 2px 0; vertical-align: top; }
