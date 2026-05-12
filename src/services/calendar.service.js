@@ -111,48 +111,6 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
         }
       });
 
-      // Get thesis seminar events
-      // Note: ThesisSeminar model doesn't have schedule relation - using createdAt for reference
-      const seminars = await prisma.thesisSeminar.findMany({
-        where: {
-          thesis: {
-            studentId: user.student.id,
-          },
-          ...(startDate &&
-            endDate && {
-            createdAt: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
-            },
-          }),
-        },
-        include: {
-          thesis: true,
-        },
-      });
-
-      seminars.forEach((seminar) => {
-        events.push({
-          id: `seminar-${seminar.id}`,
-          title: "Seminar Tugas Akhir",
-          description: "Presentasi dan diskusi hasil penelitian",
-          type: "seminar_scheduled",
-          status: seminar.status,
-          startDate: seminar.createdAt,
-          endDate: seminar.createdAt,
-          userId,
-          userRole,
-          relatedId: seminar.id,
-          relatedType: "thesis_seminar",
-          participants: [],
-          location: null,
-          meetingLink: null,
-          reminderMinutes: 60,
-          notificationSent: false,
-          color: "#8b5cf6",
-          backgroundColor: "#8b5cf6",
-        });
-      });
 
       // Get thesis defence events
       // Note: ThesisDefence model doesn't have schedule relation - using createdAt for reference
@@ -290,76 +248,6 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
         }
       });
 
-      // Seminars as examiner
-      // Note: ThesisSeminar model doesn't have schedule relation
-      const seminarAudiences = await prisma.thesisSeminarAudience.findMany({
-        where: {
-          supervisor: {
-            is: {
-              lecturer: {
-                is: {
-                  user: { id: userId },
-                },
-              },
-            },
-          },
-          ...(startDate &&
-            endDate && {
-            seminar: {
-              createdAt: {
-                gte: new Date(startDate),
-                lte: new Date(endDate),
-              },
-            },
-          }),
-        },
-        include: {
-          seminar: {
-            include: {
-              thesis: {
-                include: {
-                  student: {
-                    include: {
-                      user: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-
-      seminarAudiences.forEach((audience) => {
-        if (audience.seminar) {
-          events.push({
-            id: `seminar-examiner-${audience.seminar.id}`,
-            title: `Seminar - ${audience.seminar.thesis.student.user.fullName}`,
-            description: "Sebagai penguji seminar",
-            type: "seminar_as_examiner",
-            status: audience.seminar.status,
-            startDate: audience.seminar.createdAt,
-            endDate: audience.seminar.createdAt,
-            userId,
-            userRole,
-            relatedId: audience.seminar.id,
-            relatedType: "thesis_seminar",
-            participants: [
-              {
-                userId: audience.seminar.thesis.student.user.id,
-                name: audience.seminar.thesis.student.user.fullName,
-                role: ROLE_CATEGORY.STUDENT,
-              },
-            ],
-            location: null,
-            meetingLink: null,
-            reminderMinutes: 60,
-            notificationSent: false,
-            color: "#6366f1",
-            backgroundColor: "#6366f1",
-          });
-        }
-      });
     }
 
     // Filter by types if provided

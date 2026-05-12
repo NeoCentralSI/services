@@ -238,7 +238,8 @@ export async function getSchedulingData(seminarId) {
   return {
     rooms: rooms.map((r) => ({ id: r.id, name: r.name })),
     lecturerAvailabilities: avail.map((a) => ({ id: a.id, lecturerId: a.lecturerId, lecturerName: nameMap[a.lecturerId] || "-", day: a.day, startTime: a.startTime, endTime: a.endTime, validFrom: a.validFrom, validUntil: a.validUntil })),
-    currentSchedule: seminar.date ? { date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime, meetingLink: seminar.meetingLink, isOnline: !seminar.roomId, room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null } : null,
+    currentSchedule: seminar.date ? { date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime, meetingLink: seminar.meetingLink, isOnline: !seminar.roomId, roomId: seminar.roomId, room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null } : null,
+
     roomBookings: bookings,
     participantIds: allIds
   };
@@ -248,6 +249,24 @@ export async function scheduleSeminar(seminarId, body) {
   const seminar = await coreRepo.findSeminarBasicById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
   if (seminar.status !== "examiner_assigned") throwError("Penjadwalan hanya dapat dilakukan saat seminar berstatus 'examiner_assigned'.", 400);
+
+  // Weekday-only validation (uses local WIB date to avoid UTC-midnight offset)
+  const [yr, mo, dy] = body.date.split('-').map(Number);
+  const localDate = new Date(yr, mo - 1, dy);
+  const dayOfWeek = localDate.getDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    throwError("Seminar hanya dapat dijadwalkan pada hari kerja (Senin – Jumat).", 400);
+  }
+
+  // Business-hours validation: 06:00 – 18:00 WIB
+  const [startH, startM] = body.startTime.split(':').map(Number);
+  const [endH, endM] = body.endTime.split(':').map(Number);
+  const startMins = startH * 60 + startM;
+  const endMins = endH * 60 + endM;
+  if (startMins < 6 * 60) throwError("Waktu mulai tidak boleh sebelum pukul 06.00.", 400);
+  if (endMins > 18 * 60) throwError("Waktu selesai tidak boleh setelah pukul 18.00.", 400);
+  if (startMins >= endMins) throwError("Waktu mulai harus sebelum waktu selesai.", 400);
+
   if (!body.isOnline) {
     const conflict = await coreRepo.findRoomScheduleConflict({ seminarId, roomId: body.roomId, date: body.date, startTime: body.startTime, endTime: body.endTime });
     if (conflict) throwError("Ruangan sudah digunakan oleh kegiatan seminar/sidang lain pada waktu yang sama.", 409);
@@ -256,8 +275,8 @@ export async function scheduleSeminar(seminarId, body) {
   return { seminarId, status: seminar.status };
 }
 
-export async function finalizeSchedule(seminarId) {
-  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+export async function finalizeSchedule(seminarId, adminId) {
+  const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
   if (seminar.status !== "examiner_assigned") {
     throwError("Seminar harus berstatus 'examiner_assigned' untuk ditetapkan.", 400);
@@ -266,6 +285,54 @@ export async function finalizeSchedule(seminarId) {
     throwError("Jadwal seminar belum diatur sebagai draft.", 400);
   }
   await coreRepo.updateSeminar(seminarId, { status: "scheduled" });
+
+  try {
+    const studentUserId = seminar.thesis?.student?.id;
+    const studentName = seminar.thesis?.student?.user?.fullName || "Mahasiswa";
+    
+    // Collect participant IDs for notifications
+    const supervisorUserIds = (seminar.thesis?.thesisSupervisors || []).map((s) => s.lecturerId).filter(Boolean);
+    const examinerUserIds = (seminar.examiners || []).map((e) => e.lecturerId).filter(Boolean);
+    
+    // Notify ALL students in the system as requested
+    const allStudents = await prisma.student.findMany({
+      select: { id: true }
+    });
+    const allStudentUserIds = allStudents.map(s => s.id);
+
+    const title = "Jadwal Seminar Hasil Ditetapkan";
+    const dateStr = seminar.date.toLocaleDateString("id-ID", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+    const startTimeStr = new Date(seminar.startTime).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    const endTimeStr = new Date(seminar.endTime).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    const locationStr = seminar.room ? seminar.room.name : (seminar.meetingLink || "Online");
+    const message = `Jadwal seminar hasil untuk ${studentName} telah ditetapkan pada ${dateStr}, pukul ${startTimeStr} - ${endTimeStr} di ${locationStr}.`;
+
+    const allUserIdsToNotify = [...new Set([
+      ...(studentUserId ? [studentUserId] : []),
+      ...supervisorUserIds,
+      ...examinerUserIds,
+      ...allStudentUserIds
+    ])];
+
+    if (allUserIdsToNotify.length > 0) {
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers(allUserIdsToNotify, { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers(allUserIdsToNotify, { title, body: message, data: { seminarId, type: "seminar_scheduled" } })),
+      ]);
+    }
+
+
+    // Outlook Calendar Sync
+    try {
+      await syncSeminarToOutlook(seminarId, adminId);
+    } catch (err) {
+      console.error("[OutlookSync Error] Sync failed:", err.message);
+    }
+
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify stakeholders on schedule finalization:", err.message);
+  }
+
   return { seminarId, status: "scheduled" };
 }
 
@@ -507,7 +574,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   const ketuaDeptNip = ketuaDept?.identityNumber || '-';
 
   // Logo base64
-  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
   let logoBase64 = "";
   try {
     if (fs.existsSync(logoPath)) {
@@ -534,49 +601,14 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
       line-height: 1.3;
       color: #000;
     }
-    .header-table {
-      width: 100%;
-      border-collapse: collapse;
-      border-bottom: 2px solid #000;
-      padding-bottom: 6px;
-      margin-bottom: 12px;
-    }
-    .logo-cell {
-      width: 70px;
-      vertical-align: middle;
-      padding-right: 12px;
-    }
-    .logo-img {
-      width: 70px;
-      height: auto;
-    }
-    .header-text {
-      text-align: center;
-      vertical-align: middle;
-    }
-    .header-text h3 {
-      margin: 0;
-      font-size: 13pt;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    .header-text h4 {
-      margin: 0;
-      font-size: 11pt;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    .header-text h2 {
-      margin: 0;
-      font-size: 15pt;
-      font-weight: bold;
-      color: #0b5c9e;
-      text-transform: uppercase;
-    }
-    .header-text p {
-      margin: 1px 0;
-      font-size: 9pt;
-    }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
+    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
+    .logo-img { width: 80px; height: auto; }
+    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
+    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
+    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
     .ta-box {
       border: 1px solid #000;
       padding: 3px 8px;
@@ -778,7 +810,7 @@ export async function generateAssessmentResultPdf(seminarId) {
   }
 
   // Logo base64
-  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
   let logoBase64 = "";
   try {
     if (fs.existsSync(logoPath)) {
@@ -816,14 +848,14 @@ export async function generateAssessmentResultPdf(seminarId) {
   <style>
     @page { size: A4; margin: 1.5cm 2cm; }
     body { font-family: "Times New Roman", Times, serif; font-size: 10.5pt; line-height: 1.3; color: #000; }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 15px; }
-    .logo-cell { width: 60px; vertical-align: middle; padding-right: 12px; }
-    .logo-img { width: 60px; height: auto; }
-    .header-text { text-align: center; vertical-align: middle; }
-    .header-text h3 { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; }
-    .header-text h4 { margin: 0; font-size: 10pt; font-weight: bold; text-transform: uppercase; }
-    .header-text h2 { margin: 0; font-size: 13pt; font-weight: bold; color: #0b5c9e; text-transform: uppercase; }
-    .header-text p { margin: 1px 0; font-size: 8pt; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
+    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
+    .logo-img { width: 80px; height: auto; }
+    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
+    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
+    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
     
     .title-row { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
     .ta-code { width: 80px; border: 2px solid #000; padding: 5px; text-align: center; font-weight: bold; font-size: 14pt; background-color: #e5e7eb; }
@@ -865,7 +897,7 @@ export async function generateAssessmentResultPdf(seminarId) {
         <h4>Fakultas Teknologi Informasi</h4>
         <h2>Departemen Sistem Informasi</h2>
         <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
-        <p>Website: <a href="http://si.fti.unand.ac.id">http://si.fti.unand.ac.id</a> dan email: <a href="mailto:jurusan_si@fti.unand.ac.id">jurusan_si@fti.unand.ac.id</a></p>
+        <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
       </td>
     </tr>
   </table>
@@ -1001,4 +1033,77 @@ export async function generateAssessmentResultPdf(seminarId) {
 </html>`;
 
   return await convertHtmlToPdf(html);
+}
+
+/**
+ * Sync a specific seminar to all participants' Outlook calendars
+ */
+export async function syncSeminarToOutlook(seminarId, adminId = null) {
+  try {
+    const seminar = await prisma.thesisSeminar.findUnique({
+      where: { id: seminarId },
+      include: {
+        thesis: {
+          include: {
+            student: { include: { user: true } },
+            thesisSupervisors: { include: { lecturer: { include: { user: true } } } },
+          },
+        },
+        examiners: true,
+        audiences: true,
+        room: true,
+      },
+    });
+
+    if (!seminar) return;
+
+    // Fetch examiner user details separately since the relation is not defined in Prisma schema
+    const examinerLecturerIds = (seminar.examiners || []).map(e => e.lecturerId);
+    const examinerUsers = await prisma.user.findMany({
+      where: { id: { in: examinerLecturerIds } },
+      select: { id: true, fullName: true, email: true }
+    });
+
+    // Fetch audience student details (using the student relation which is defined)
+    const audienceStudentIds = (seminar.audiences || []).map(a => a.studentId);
+    const audienceUsers = await prisma.user.findMany({
+      where: { id: { in: audienceStudentIds } },
+      select: { id: true, fullName: true, email: true }
+    });
+
+    const participants = {
+      student: {
+        userId: seminar.thesis?.student?.user?.id,
+        fullName: seminar.thesis?.student?.user?.fullName,
+        email: seminar.thesis?.student?.user?.email
+      },
+      supervisors: (seminar.thesis?.thesisSupervisors || []).map(s => ({
+        userId: s.lecturer?.user?.id,
+        fullName: s.lecturer?.user?.fullName,
+        email: s.lecturer?.user?.email
+      })),
+      examiners: (seminar.examiners || []).map(e => {
+        const u = examinerUsers.find(user => user.id === e.lecturerId);
+        return {
+          userId: e.lecturerId,
+          fullName: u?.fullName || "-",
+          email: u?.email
+        };
+      }),
+      audiences: (seminar.audiences || []).map(a => {
+        const u = audienceUsers.find(user => user.id === a.studentId);
+        return {
+          userId: a.studentId,
+          fullName: u?.fullName || "-",
+          email: u?.email
+        };
+      }),
+      room: seminar.room
+    };
+
+    const { createSeminarCalendarEvents } = await import("../outlook-calendar.service.js");
+    await createSeminarCalendarEvents(seminar, participants, adminId);
+  } catch (err) {
+    console.error("[OutlookSync] Error during seminar sync orchestration:", err.message);
+  }
 }
