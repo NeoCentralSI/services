@@ -264,6 +264,25 @@ export async function findSeminarBasicById(id) {
       resultFinalizedBy: true,
       revisionFinalizedBy: true,
       registeredAt: true,
+      thesis: {
+        select: {
+          studentId: true,
+          student: {
+            select: {
+              user: { select: { id: true, fullName: true } },
+            },
+          },
+          thesisSupervisors: {
+            select: {
+              lecturer: {
+                select: {
+                  user: { select: { id: true } },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   });
 }

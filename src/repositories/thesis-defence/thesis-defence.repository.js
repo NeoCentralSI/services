@@ -202,8 +202,19 @@ export async function findDefenceBasicById(defenceId) {
       thesis: {
         select: {
           studentId: true,
+          student: {
+            select: {
+              user: { select: { id: true, fullName: true } },
+            },
+          },
           thesisSupervisors: {
-            select: { lecturerId: true },
+            select: {
+              lecturer: {
+                select: {
+                  user: { select: { id: true } },
+                },
+              },
+            },
           },
         },
       },
