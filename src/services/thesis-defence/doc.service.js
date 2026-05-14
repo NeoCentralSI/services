@@ -3,6 +3,7 @@ import { mkdir, writeFile, unlink } from "fs/promises";
 import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as docRepo from "../../repositories/thesis-defence/doc.repository.js";
 import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
+import prisma from "../../config/prisma.js";
 
 // ============================================================
 // CONSTANTS
@@ -41,6 +42,36 @@ function validateFileExtension(file, documentTypeName) {
 async function getOrCreateDefence(thesis) {
   const existing = thesis.thesisDefences?.[0];
   if (existing && !["failed", "cancelled"].includes(existing.status)) return existing;
+
+  // Verify requirements before auto-registration
+  const student = await prisma.student.findUnique({ 
+    where: { id: thesis.studentId },
+    select: { skscompleted: true }
+  });
+  
+  const passedSeminar = thesis.thesisSeminars?.[0] || null;
+  const seminarStatus = passedSeminar?.status ?? null;
+  const seminarId = passedSeminar?.id ?? null;
+  
+  let seminarRevisionMet = false;
+  if (seminarStatus === "passed") {
+    seminarRevisionMet = true;
+  } else if (seminarStatus === "passed_with_revision" && seminarId) {
+    if (passedSeminar.revisionFinalizedAt) {
+      seminarRevisionMet = true;
+    } else {
+      const revCounts = await coreRepo.countSeminarRevisions(seminarId);
+      seminarRevisionMet = revCounts.total > 0 && revCounts.total === revCounts.finished;
+    }
+  }
+
+  const supervisors = thesis.thesisSupervisors || [];
+  const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.defenceReady);
+
+  if (!passedSeminar || !seminarRevisionMet || (student?.skscompleted || 0) < 142 || !allSupervisorsReady) {
+    throwError("Anda belum memenuhi persyaratan pendaftaran sidang tugas akhir.", 403);
+  }
+
   const created = await coreRepo.createThesisDefence(thesis.id);
   return { id: created.id, status: created.status };
 }
@@ -78,7 +109,11 @@ export async function uploadDocument(defenceId, userId, file, docTypeName) {
   if (!file || !file.buffer) throwError("File tidak ditemukan.", 400);
   if (!docTypeName) throwError("Tipe dokumen wajib diisi.", 400);
 
-  validateFileExtension(file, docTypeName);
+  // UTF-8 filename normalization
+  const originalName = Buffer.from(file.originalname, "latin1").toString("utf8");
+  const normalizedFile = { ...file, originalname: originalName };
+
+  validateFileExtension(normalizedFile, docTypeName);
 
   const student = await getStudentByUserId(userId);
   if (!student) throwError("Data mahasiswa tidak ditemukan.", 404);
@@ -95,10 +130,12 @@ export async function uploadDocument(defenceId, userId, file, docTypeName) {
     if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
     thesisId = thesis.id;
     const defence = await getOrCreateDefence(thesis);
+    if (defence.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
     targetDefenceId = defence.id;
   } else {
     const defence = await coreRepo.findDefenceBasicById(targetDefenceId);
     if (!defence) throwError("Sidang tidak ditemukan.", 404);
+    if (defence.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
     thesisId = defence.thesisId;
   }
 
@@ -120,7 +157,7 @@ export async function uploadDocument(defenceId, userId, file, docTypeName) {
     }
   }
 
-  const ext = path.extname(file.originalname).toLowerCase();
+  const ext = path.extname(originalName).toLowerCase();
   const safeName = `${docTypeName.replace(/\s+/g, "-").toLowerCase()}${ext}`;
   const absolutePath = path.join(uploadsRoot, safeName);
   await writeFile(absolutePath, file.buffer);
@@ -129,7 +166,7 @@ export async function uploadDocument(defenceId, userId, file, docTypeName) {
   const document = await docRepo.createDocument({
     userId,
     documentTypeId: docType.id,
-    fileName: file.originalname,
+    fileName: originalName,
     filePath: relPath,
   });
 
@@ -139,12 +176,31 @@ export async function uploadDocument(defenceId, userId, file, docTypeName) {
     documentId: document.id,
   });
 
+  // Notify Admins
+  try {
+    const adminIds = await coreRepo.findUserIdsByRole("Admin");
+    if (adminIds.length > 0) {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+      const studentName = user?.fullName || "Mahasiswa";
+      const title = "Dokumen Sidang TA Baru";
+      const message = `${studentName} telah mengunggah dokumen "${docTypeName}".`;
+
+      await Promise.all([
+        import("../notification.service.js").then(m => m.createNotificationsForUsers(adminIds, { title, message })),
+        import("../push.service.js").then(m => m.sendFcmToUsers(adminIds, { title, body: message, data: { defenceId: targetDefenceId, type: "defence_doc_upload" } }))
+      ]);
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify admins on defence doc upload:", err.message);
+  }
+
   return {
     documentId: document.id,
     documentTypeId: docType.id,
-    fileName: file.originalname,
+    fileName: originalName,
     filePath: relPath,
     status: "submitted",
+    submittedAt: new Date(),
   };
 }
 
@@ -187,6 +243,9 @@ export async function verifyDocument(defenceId, docTypeId, { action, notes, user
   const docWithFile = await docRepo.findDefenceDocumentWithFile(defenceId, docTypeId);
   if (!docWithFile) throwError("Dokumen tidak ditemukan untuk di-verifikasi.", 404);
 
+  const docTypes = await docRepo.ensureDefenceDocumentTypes();
+  const docTypeName = Object.keys(docTypes).find(key => docTypes[key].id === docTypeId) || "Dokumen Persyaratan";
+
   const newStatus = action === "approve" ? "approved" : "declined";
   await docRepo.updateDefenceDocumentStatus(defenceId, docTypeId, {
     status: newStatus,
@@ -194,16 +253,71 @@ export async function verifyDocument(defenceId, docTypeId, { action, notes, user
     verifiedBy: userId,
   });
 
+  const thesis = await coreRepo.findThesisById(defence.thesisId);
+
+  // 1. Notify student about specific document status
+  try {
+    if (thesis?.studentId) {
+      const studentUser = await prisma.student.findUnique({ where: { id: thesis.studentId }, select: { userId: true } });
+      const studentUserId = studentUser?.userId;
+      
+      if (studentUserId) {
+        const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
+        const statusText = action === "approve" ? "disetujui" : "ditolak";
+        const message = `Dokumen "${docTypeName}" untuk sidang TA Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${notes}` : ""}`;
+
+        await Promise.all([
+          import("../notification.service.js").then(m => m.createNotificationsForUsers([studentUserId], { title, message })),
+          import("../push.service.js").then(m => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_doc_verified" } }))
+        ]);
+      }
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify student on doc verification:", err.message);
+  }
+
   let defenceTransitioned = false;
   if (action === "approve") {
     const allDocs = await docRepo.countDefenceDocumentsByStatus(defenceId);
-    const docTypes = await docRepo.getDefenceDocumentTypes();
+    const docTypesList = await docRepo.getDefenceDocumentTypes();
     const approvedCount = allDocs.filter((d) =>
       d.documentTypeId === docTypeId ? true : d.status === "approved"
     ).length;
-    if (approvedCount >= docTypes.length) {
-      await coreRepo.updateDefenceStatus(defenceId, "verified");
+    
+    if (approvedCount >= docTypesList.length) {
+      await coreRepo.updateDefence(defenceId, { 
+        status: "verified",
+        verifiedAt: new Date()
+      });
       defenceTransitioned = true;
+
+      // 2. Notify student & Kadep about verification transition
+      try {
+        const studentUser = await prisma.student.findUnique({ where: { id: thesis.studentId }, select: { userId: true } });
+        const studentUserId = studentUser?.userId;
+        const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+
+        if (studentUserId) {
+          const title = "Sidang TA Terverifikasi";
+          const message = "Seluruh dokumen persyaratan sidang TA Anda telah diverifikasi. Menunggu penetapan penguji.";
+          await Promise.all([
+            import("../notification.service.js").then(m => m.createNotificationsForUsers([studentUserId], { title, message })),
+            import("../push.service.js").then(m => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_verified" } }))
+          ]);
+        }
+
+        const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
+        if (kadepIds.length > 0) {
+          const kadepTitle = "Penetapan Penguji Sidang TA";
+          const kadepMsg = `Mahasiswa ${studentName} telah melewati verifikasi dokumen sidang TA. Mohon untuk melakukan penetapan dosen penguji.`;
+          await Promise.all([
+            import("../notification.service.js").then(m => m.createNotificationsForUsers(kadepIds, { title: kadepTitle, message: kadepMsg })),
+            import("../push.service.js").then(m => m.sendFcmToUsers(kadepIds, { title: kadepTitle, body: kadepMsg, data: { defenceId, type: "defence_need_examiner" } }))
+          ]);
+        }
+      } catch (err) {
+        console.error("[Notification Error] Failed to notify on defence verification:", err.message);
+      }
     }
   }
 

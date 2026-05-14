@@ -211,6 +211,27 @@ export async function findDefenceBasicById(defenceId) {
   });
 }
 
+export async function findUserIdsByRole(roleName) {
+  const users = await prisma.user.findMany({
+    where: {
+      userHasRoles: {
+        some: { role: { name: roleName } },
+      },
+    },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
+}
+
+export async function findThesisById(id) {
+  return prisma.thesis.findUnique({
+    where: { id },
+    include: {
+      student: { select: { user: { select: { fullName: true } } } },
+    },
+  });
+}
+
 // ============================================================
 // CRUD
 // ============================================================
