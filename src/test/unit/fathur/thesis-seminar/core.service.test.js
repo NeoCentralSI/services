@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil } = vi.hoisted(() => ({
   mockPrisma: {
-    thesisSeminar: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
+    thesisSeminar: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     user: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
     student: { findMany: vi.fn(), findUnique: vi.fn() },
     thesisSupervisors: { updateMany: vi.fn(), findMany: vi.fn() },
@@ -65,7 +65,7 @@ vi.mock("../../../../services/thesis-seminar/examiner.service.js", () => ({ getF
 import {
   scheduleSeminar, finalizeSchedule, generateAssessmentResultPdf,
   createArchive, updateArchive, deleteArchive, getSeminarList, getSeminarDetail,
-  cancelSeminar, importArchive, generateInvitationLetter
+  cancelSeminar, importArchive, generateInvitationLetter, exportArchive
 } from "../../../../services/thesis-seminar/core.service.js";
 
 import { getFinalizationData } from "../../../../services/thesis-seminar/examiner.service.js";
@@ -161,6 +161,45 @@ describe("Core Service (Full restored suite)", () => {
       mockPrisma.user.findFirst.mockResolvedValue({ fullName: "Kadep", identityNumber: "123" });
       const res = await generateInvitationLetter("s1", "REF/123");
       expect(res).toBeDefined();
+    });
+  });
+
+  describe("Import/Export", () => {
+    it("exports archive data to XLSX buffer with correct formatting", async () => {
+      const mockDate = new Date("2026-05-12T00:00:00Z");
+      const mockScheduledAt = new Date("2026-05-10T10:00:00Z");
+      
+      mockCoreRepo.findAllSeminarResultsForExport.mockResolvedValue([
+        {
+          id: "s1",
+          status: "failed",
+          date: mockDate,
+          scheduledAt: mockScheduledAt,
+          startTime: new Date("1970-01-01T08:00:00Z"),
+          endTime: new Date("1970-01-01T10:00:00Z"),
+          thesis: {
+            title: "Judul TA",
+            student: { user: { fullName: "Mhs", identityNumber: "123" } },
+            thesisSupervisors: [
+              { role: { name: "Pembimbing 1" }, lecturer: { user: { fullName: "P1" } } }
+            ]
+          },
+          room: { name: "R1" },
+          examiners: [{ lecturerName: "Ex1" }]
+        }
+      ]);
+
+      await exportArchive();
+
+      expect(mockXlsx.utils.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
+        expect.objectContaining({
+          "Hasil": "Tidak Lulus",
+          "Tanggal": expect.stringContaining("Selasa"), // 2026-05-12 is Tuesday (Selasa)
+          "Judul Tugas Akhir": "Judul TA",
+          "Waktu": "08.00 - 10.00"
+        })
+      ]));
+      expect(mockXlsx.write).toHaveBeenCalled();
     });
   });
 });

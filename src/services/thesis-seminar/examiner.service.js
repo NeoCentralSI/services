@@ -549,7 +549,7 @@ export async function getFinalizationData(seminarId, user) {
   }
 
   const examiners = await examinerRepo.findActiveExaminersWithAssessments(seminarId);
-  const allSubmitted = examiners.length >= 2 && examiners.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
+  const allSubmitted = examiners.length >= 1 && examiners.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
 
   const avgScore = allSubmitted ? examiners.reduce((s, e) => s + (e.assessmentScore || 0), 0) / examiners.length : null;
 
@@ -572,7 +572,9 @@ export async function getFinalizationData(seminarId, user) {
     seminar: {
       id: seminar.id, status: effectiveStatus, finalScore: seminar.finalScore,
       resultFinalizedAt: seminar.resultFinalizedAt,
+      resultFinalizedBy: seminar.resultFinalizer?.lecturer?.user?.fullName || null,
       revisionFinalizedAt: seminar.revisionFinalizedAt,
+      revisionFinalizedBy: seminar.revisionFinalizer?.lecturer?.user?.fullName || null,
       studentName: seminar.thesis?.student?.user?.fullName || "-",
       studentNim: seminar.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: seminar.thesis?.title || "-",
@@ -631,7 +633,7 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
   if (effectiveStatus !== "ongoing") throwError("Penetapan hasil hanya dapat dilakukan saat seminar berstatus sedang berlangsung.", 400);
 
   const examiners = await examinerRepo.findActiveExaminersWithAssessments(seminarId);
-  const allSubmitted = examiners.length >= 2 && examiners.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
+  const allSubmitted = examiners.length >= 1 && examiners.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
   if (!allSubmitted) throwError("Penetapan hasil dikunci sampai seluruh penguji submit nilai.", 400);
 
   const avgScore = examiners.reduce((s, e) => s + (e.assessmentScore || 0), 0) / examiners.length;
@@ -644,10 +646,13 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
     targetStatus = "passed_with_revision";
   }
 
+  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
+
   const finalized = await coreRepo.updateSeminar(seminarId, {
     status: targetStatus,
     finalScore: avgScore,
     resultFinalizedAt: new Date(),
+    resultFinalizedBy: mySupervisor.id,
   });
 
   // If failed, reset seminarReady so student can re-register

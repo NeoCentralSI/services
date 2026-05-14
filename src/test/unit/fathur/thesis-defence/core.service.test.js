@@ -4,21 +4,31 @@ import * as coreRepo from '../../../../repositories/thesis-defence/thesis-defenc
 import * as docRepo from '../../../../repositories/thesis-defence/doc.repository.js';
 import prisma from '../../../../config/prisma.js';
 
+const { mockPrisma, mockXlsx } = vi.hoisted(() => ({
+  mockPrisma: {
+    thesisDefence: { findFirst: vi.fn() },
+    thesisSupervisors: { updateMany: vi.fn() },
+    thesis: { findUnique: vi.fn() }
+  },
+  mockXlsx: {
+    read: vi.fn().mockReturnValue({
+      SheetNames: ['Sheet1'],
+      Sheets: { Sheet1: {} }
+    }),
+    utils: {
+      sheet_to_json: vi.fn().mockReturnValue([]),
+      json_to_sheet: vi.fn().mockReturnValue({}),
+      book_new: vi.fn().mockReturnValue({}),
+      book_append_sheet: vi.fn(),
+    },
+    write: vi.fn().mockReturnValue(Buffer.from('')),
+  }
+}));
+
 vi.mock('../../../../repositories/thesis-defence/thesis-defence.repository.js');
 vi.mock('../../../../repositories/thesis-defence/doc.repository.js');
-vi.mock('../../../../config/prisma.js', () => ({
-  default: {
-    thesisDefence: {
-      findFirst: vi.fn(),
-    },
-    thesisSupervisors: {
-      updateMany: vi.fn(),
-    },
-    thesis: {
-      findUnique: vi.fn(),
-    }
-  },
-}));
+vi.mock('../../../../config/prisma.js', () => ({ default: mockPrisma }));
+vi.mock('xlsx', () => ({ default: mockXlsx }));
 
 describe('Thesis Defence Core Service - Archive Management', () => {
   const mockUserId = 'user-123';
@@ -112,20 +122,9 @@ describe('Thesis Defence Core Service - Archive Management', () => {
 
   describe('importArchive', () => {
     it('should process excel rows and calculate grades during import', async () => {
-      // Mock xlsx
-      vi.mock('xlsx', () => ({
-        default: {
-          read: vi.fn().mockReturnValue({
-            SheetNames: ['Sheet1'],
-            Sheets: { Sheet1: {} }
-          }),
-          utils: {
-            sheet_to_json: vi.fn().mockReturnValue([
-              { NIM: '123', Hasil: 'Lulus', Tanggal: '2023-01-01', Nilai: 80, 'Dosen Penguji': 'Lec A' }
-            ])
-          }
-        }
-      }));
+      mockXlsx.utils.sheet_to_json.mockReturnValue([
+        { NIM: '123', Hasil: 'Lulus', Tanggal: '2023-01-01', Nilai: 80, 'Dosen Penguji': 'Lec A' }
+      ]);
 
       coreRepo.getStudentOptions.mockResolvedValue([{ user: { identityNumber: '123' }, id: 'stud-1' }]);
       coreRepo.getThesisOptions.mockResolvedValue([{ student: { user: { identityNumber: '123' } }, id: mockThesisId, thesisDefences: [] }]);
@@ -138,6 +137,41 @@ describe('Thesis Defence Core Service - Archive Management', () => {
       expect(coreRepo.createArchive).toHaveBeenCalledWith(expect.objectContaining({
         grade: 'A'
       }));
+    });
+  });
+
+  describe('exportArchive', () => {
+    it('should export archive data with correct column headers and formatting', async () => {
+      const mockDate = new Date("2026-05-12T00:00:00Z");
+      
+      coreRepo.findAllDefences.mockResolvedValue([
+        {
+          id: 'def-1',
+          status: 'failed',
+          date: mockDate,
+          startTime: new Date("1970-01-01T08:00:00Z"),
+          endTime: new Date("1970-01-01T10:00:00Z"),
+          thesis: {
+            title: 'Skripsi X',
+            student: { user: { fullName: 'Mhs X', identityNumber: '111' } },
+            thesisSupervisors: [
+              { role: { name: 'Pembimbing 1' }, lecturer: { user: { fullName: 'Dosbing X' } } }
+            ]
+          },
+          room: { name: 'Lab' },
+          examiners: [{ lecturerName: 'Penguji X' }]
+        }
+      ]);
+
+      await coreService.exportArchive();
+
+      expect(mockXlsx.utils.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
+        expect.objectContaining({
+          "Hasil": "Tidak Lulus",
+          "Tanggal": expect.stringContaining("Selasa")
+        })
+      ]));
+      expect(mockXlsx.write).toHaveBeenCalled();
     });
   });
 });

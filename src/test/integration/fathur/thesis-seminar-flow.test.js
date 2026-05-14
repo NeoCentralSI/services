@@ -9,7 +9,7 @@ vi.mock("../../../services/notification.service.js", () => ({ createNotification
 vi.mock("../../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }) }));
 vi.mock("../../../services/outlook-calendar.service.js", () => ({ hasCalendarAccess: vi.fn().mockResolvedValue(true), createCalendarEvent: vi.fn().mockResolvedValue({ eventId: "f" }), createSeminarCalendarEvents: vi.fn().mockResolvedValue(true) }));
 
-describe("Integration: Thesis Seminar Registration Flow", () => {
+describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () => {
   const ts = Date.now();
   let studentUser, student, lecturerUser, lecturer, thesis, supervisor, dummyTheses = [], dummySeminars = [];
   let seminarId, docTypes;
@@ -126,5 +126,36 @@ describe("Integration: Thesis Seminar Registration Flow", () => {
 
     const finalSeminar = await prisma.thesisSeminar.findUnique({ where: { id: seminarId } });
     expect(finalSeminar.status).toBe("scheduled");
+    expect(finalSeminar.scheduledAt).toBeDefined();
+    expect(new Date(finalSeminar.scheduledAt).getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("Step 6: Supervisor finalizes seminar result and verifies audit trail", async () => {
+    // Manually update date/time to NOW to make it "ongoing"
+    await prisma.thesisSeminar.update({
+      where: { id: seminarId },
+      data: { 
+        date: new Date(),
+        startTime: new Date(Date.now() - 3600000), // 1 hour ago
+        endTime: new Date(Date.now() + 3600000)    // 1 hour later
+      }
+    });
+
+    // Mock examiner assessment to satisfy finalization requirements
+    await prisma.thesisSeminarExaminer.updateMany({
+      where: { thesisSeminarId: seminarId, availabilityStatus: "available" },
+      data: { assessmentScore: 80, assessmentSubmittedAt: new Date() }
+    });
+
+    await examinerService.finalizeSeminar(seminarId, lecturer.id, { targetStatus: "passed" });
+
+    const finalizedSeminar = await prisma.thesisSeminar.findUnique({
+      where: { id: seminarId },
+      include: { resultFinalizer: { include: { lecturer: { include: { user: true } } } } }
+    });
+
+    expect(finalizedSeminar.status).toBe("passed");
+    expect(finalizedSeminar.resultFinalizedBy).toBe(supervisor.id);
+    expect(finalizedSeminar.resultFinalizer.lecturer.user.fullName).toContain("L ");
   });
 });

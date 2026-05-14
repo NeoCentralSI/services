@@ -45,6 +45,20 @@ const seminarListInclude = {
       verifier: { select: { fullName: true } },
     },
   },
+  resultFinalizer: {
+    select: {
+      lecturer: {
+        select: { user: { select: { fullName: true } } },
+      },
+    },
+  },
+  revisionFinalizer: {
+    select: {
+      lecturer: {
+        select: { user: { select: { fullName: true } } },
+      },
+    },
+  },
   _count: {
     select: { audiences: true },
   },

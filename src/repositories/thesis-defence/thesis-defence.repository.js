@@ -33,6 +33,20 @@ const defenceListInclude = {
       verifier: { select: { fullName: true } },
     },
   },
+  resultFinalizer: {
+    select: {
+      lecturer: {
+        select: { user: { select: { fullName: true } } },
+      },
+    },
+  },
+  revisionFinalizer: {
+    select: {
+      lecturer: {
+        select: { user: { select: { fullName: true } } },
+      },
+    },
+  },
 };
 
 const defenceDetailInclude = {

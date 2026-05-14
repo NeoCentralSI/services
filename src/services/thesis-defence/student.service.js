@@ -140,6 +140,8 @@ export async function getOverview(userId) {
           grade: currentDefence.grade,
           resultFinalizedAt: currentDefence.resultFinalizedAt,
           cancelledReason: currentDefence.cancelledReason,
+          scheduledAt: currentDefence.scheduledAt,
+          invitationLetterNo: currentDefence.invitationLetterNo,
           room: currentDefence.room,
           documents: currentDefence.documents,
           examiners: enrichedExaminers,
@@ -200,6 +202,8 @@ export async function getDefenceDetail(userId, defenceId) {
 
   return {
     ...detail,
+    scheduledAt: detail.scheduledAt,
+    invitationLetterNo: detail.invitationLetterNo,
     examiners: (detail.examiners || []).map((examiner) => ({
       ...examiner,
       lecturerName: lecturerNameMap.get(examiner.lecturerId) || "-",

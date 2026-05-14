@@ -208,6 +208,8 @@ export async function getSeminarDetail(seminarId) {
     resultFinalizedAt: seminar.resultFinalizedAt, cancelledReason: seminar.cancelledReason,
     revisionFinalizedAt: seminar.revisionFinalizedAt,
     revisionFinalizedBy: seminar.revisionFinalizedBy,
+    scheduledAt: seminar.scheduledAt,
+    invitationLetterNo: seminar.invitationLetterNo,
     room: seminar.room ? { id: seminar.room.id, name: seminar.room.name } : null,
     thesis: { id: seminar.thesis?.id, title: seminar.thesis?.title },
     student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
@@ -284,7 +286,7 @@ export async function finalizeSchedule(seminarId, adminId) {
   if (!seminar.date) {
     throwError("Jadwal seminar belum diatur sebagai draft.", 400);
   }
-  await coreRepo.updateSeminar(seminarId, { status: "scheduled" });
+  await coreRepo.updateSeminar(seminarId, { status: "scheduled", scheduledAt: new Date() });
 
   try {
     const studentUserId = seminar.thesis?.student?.id;
@@ -428,14 +430,67 @@ export const getRoomOptions = () => coreRepo.findAllRooms();
 
 export async function exportArchive() {
   const seminars = await coreRepo.findAllSeminarResultsForExport({ status: { in: RESULT_STATUSES } });
+
+  const indonesianDays = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  const indonesianMonths = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+  ];
+
+  const formatFullDate = (dateObj) => {
+    if (!dateObj) return "-";
+    const d = new Date(dateObj);
+    if (isNaN(d.getTime())) return "-";
+    return `${indonesianDays[d.getDay()]}, ${d.getDate()} ${indonesianMonths[d.getMonth()]} ${d.getFullYear()}`;
+  };
+
+  const formatTime = (dateObj) => {
+    if (!dateObj) return "";
+    const d = new Date(dateObj);
+    const hours = String(d.getUTCHours()).padStart(2, "0");
+    const minutes = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${hours}.${minutes}`;
+  };
+
   const data = seminars.map((s, i) => {
-    const sups = (s.thesis?.thesisSupervisors || []).map((sup) => sup.lecturer?.user?.fullName).filter(Boolean).join(", ");
-    const exams = (s.examiners || []).map((e) => e.lecturerName).filter(Boolean).join("; ");
-    let hasil = "-"; if (s.status === "passed") hasil = "Lulus"; else if (s.status === "passed_with_revision") hasil = "Lulus dengan Revisi"; else if (s.status === "failed") hasil = "Gagal";
-    const d = s.date ? new Date(s.date) : null;
-    return { "No": i + 1, "Nama": s.thesis?.student?.user?.fullName || "-", "NIM": s.thesis?.student?.user?.identityNumber || "-", "Judul TA": s.thesis?.title || "-", "Pembimbing": sups || "-", "Tanggal": d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : "-", "Ruangan": s.room?.name || "-", "Hasil": hasil, "Dosen Penguji": exams || "-" };
+    const sups = (s.thesis?.thesisSupervisors || [])
+      .sort((a, b) => (a.role?.name === "Pembimbing 1" ? -1 : 1))
+      .map((sup) => sup.lecturer?.user?.fullName)
+      .filter(Boolean)
+      .join(", ");
+    
+    const exams = (s.examiners || [])
+      .map((e) => e.lecturerName)
+      .filter(Boolean)
+      .join("; ");
+    
+    let hasil = "-";
+    if (s.status === "passed") hasil = "Lulus";
+    else if (s.status === "passed_with_revision") hasil = "Lulus dengan Revisi";
+    else if (s.status === "failed") hasil = "Tidak Lulus";
+    else if (s.status === "cancelled") hasil = "Dibatalkan";
+
+    const waktu = s.startTime && s.endTime 
+      ? `${formatTime(s.startTime)} - ${formatTime(s.endTime)}`
+      : "-";
+
+    return {
+      "No": i + 1,
+      "Nama": s.thesis?.student?.user?.fullName || "-",
+      "NIM": s.thesis?.student?.user?.identityNumber || "-",
+      "Judul Tugas Akhir": s.thesis?.title || "-",
+      "Pembimbing": sups || "-",
+      "Tanggal": formatFullDate(s.date),
+      "Waktu": waktu,
+      "Ruangan": s.room?.name || "-",
+      "Dosen Penguji": exams || "-",
+      "Dijadwalkan pada": formatFullDate(s.scheduledAt),
+      "Hasil": hasil
+    };
   });
-  const ws = xlsx.utils.json_to_sheet(data); const wb = xlsx.utils.book_new();
+
+  const ws = xlsx.utils.json_to_sheet(data);
+  const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, "Arsip Seminar");
   return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 }
@@ -493,6 +548,16 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   });
 
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+  
+  // Persist invitation letter number if provided
+  if (nomorSurat) {
+    await prisma.thesisSeminar.update({
+      where: { id: seminarId },
+      data: { invitationLetterNo: nomorSurat }
+    });
+  }
+
+  const actualNomorSurat = nomorSurat || seminar.invitationLetterNo || '';
 
   const examinerIds = seminar.examiners.map(e => e.lecturerId);
   const examinerLecturers = await prisma.lecturer.findMany({
@@ -685,7 +750,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
     <tr>
       <td style="width: 80px;">Nomor</td>
       <td style="width: 10px;">:</td>
-      <td style="width: 300px;">${nomorSurat || ''}</td>
+      <td style="width: 300px;">${actualNomorSurat}</td>
       <td style="text-align: right;">Padang, ${dateGenerated}</td>
     </tr>
     <tr>

@@ -600,6 +600,8 @@ model ThesisSeminar {
   revisionFinalizedAt        DateTime?           @map("revision_finalized_at")
   revisionFinalizedBy        String?             @map("revision_finalized_by") @db.VarChar(255)
   cancelledReason            String?             @map("cancelled_reason") @db.Text
+  scheduledAt                DateTime?           @map("scheduled_at")
+  invitationLetterNo         String?             @map("invitation_letter_no") @db.VarChar(255)
   createdAt                  DateTime            @default(now()) @map("created_at")
   updatedAt                  DateTime            @updatedAt @map("updated_at")
 
@@ -739,6 +741,8 @@ model ThesisDefence {
   revisionFinalizedAt        DateTime?           @map("revision_finalized_at")
   revisionFinalizedBy        String?             @map("revision_finalized_by") @db.VarChar(255)
   cancelledReason            String?             @map("cancelled_reason") @db.Text
+  scheduledAt                DateTime?           @map("scheduled_at")
+  invitationLetterNo         String?             @map("invitation_letter_no") @db.VarChar(255)
   createdAt                  DateTime            @default(now()) @map("created_at")
   updatedAt                  DateTime            @updatedAt @map("updated_at")
 

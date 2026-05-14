@@ -347,6 +347,8 @@ export async function getDefenceDetail(defenceId, user = {}) {
     grade: defence.grade,
     resultFinalizedAt: defence.resultFinalizedAt,
     cancelledReason: defence.cancelledReason,
+    scheduledAt: defence.scheduledAt,
+    invitationLetterNo: defence.invitationLetterNo,
     room: defence.room ? { id: defence.room.id, name: defence.room.name } : null,
     thesis: { id: defence.thesis?.id, title: defence.thesis?.title },
     student: {
@@ -502,6 +504,10 @@ export async function finalizeSchedule(defenceId) {
   }
 
   await coreRepo.updateDefenceStatus(defenceId, "scheduled");
+  await prisma.thesisDefence.update({
+    where: { id: defenceId },
+    data: { scheduledAt: new Date() }
+  });
   return { defenceId, status: "scheduled" };
 }
 
@@ -640,24 +646,61 @@ export async function exportArchive() {
   // Filter for archived results only
   const archived = defences.filter(d => RESULT_STATUSES.includes(d.status));
 
+  const indonesianDays = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  const indonesianMonths = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+  ];
+
+  const formatFullDate = (dateObj) => {
+    if (!dateObj) return "-";
+    const d = new Date(dateObj);
+    if (isNaN(d.getTime())) return "-";
+    return `${indonesianDays[d.getDay()]}, ${d.getDate()} ${indonesianMonths[d.getMonth()]} ${d.getFullYear()}`;
+  };
+
+  const formatTime = (dateObj) => {
+    if (!dateObj) return "";
+    const d = new Date(dateObj);
+    const hours = String(d.getUTCHours()).padStart(2, "0");
+    const minutes = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${hours}.${minutes}`;
+  };
+
   const data = archived.map((d, i) => {
-    const sups = (d.thesis?.thesisSupervisors || []).map(s => s.lecturer?.user?.fullName).filter(Boolean).join(", ");
-    const examiners = (d.examiners || []).map(e => e.lecturerName).filter(Boolean);
-    let hasil = d.status === "passed" ? "Lulus" : d.status === "passed_with_revision" ? "Lulus dengan Revisi" : "Gagal";
-    const date = d.date ? new Date(d.date) : null;
+    const sups = (d.thesis?.thesisSupervisors || [])
+      .sort((a, b) => (a.role?.name === "Pembimbing 1" ? -1 : 1))
+      .map((s) => s.lecturer?.user?.fullName)
+      .filter(Boolean)
+      .join(", ");
     
+    const examiners = (d.examiners || [])
+      .map((e) => e.lecturerName)
+      .filter(Boolean)
+      .join("; ");
+    
+    let hasil = "-";
+    if (d.status === "passed") hasil = "Lulus";
+    else if (d.status === "passed_with_revision") hasil = "Lulus dengan Revisi";
+    else if (d.status === "failed") hasil = "Tidak Lulus";
+    else if (d.status === "cancelled") hasil = "Dibatalkan";
+
+    const waktu = d.startTime && d.endTime 
+      ? `${formatTime(d.startTime)} - ${formatTime(d.endTime)}`
+      : "-";
+
     return {
       "No": i + 1,
       "Nama": d.thesis?.student?.user?.fullName || "-",
       "NIM": d.thesis?.student?.user?.identityNumber || "-",
-      "Judul TA": d.thesis?.title || "-",
+      "Judul Tugas Akhir": d.thesis?.title || "-",
       "Pembimbing": sups || "-",
-      "Tanggal": date ? date.toISOString().split("T")[0] : "-",
+      "Tanggal": formatFullDate(d.date),
+      "Waktu": waktu,
       "Ruangan": d.room?.name || "-",
-      "Nilai": d.finalScore ? Math.round((Number(d.finalScore) + Number.EPSILON) * 100) / 100 : "-",
-      "Grade": d.grade || "-",
-      "Hasil": hasil,
-      "Dosen Penguji": examiners.join("; ") || "-",
+      "Dosen Penguji": examiners || "-",
+      "Dijadwalkan pada": formatFullDate(d.scheduledAt),
+      "Hasil": hasil
     };
   });
 
@@ -1112,8 +1155,16 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
       examiners: true
     }
   });
-
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+
+  if (nomorSurat) {
+    await prisma.thesisDefence.update({
+      where: { id: defenceId },
+      data: { invitationLetterNo: nomorSurat }
+    });
+  }
+
+  const actualNomorSurat = nomorSurat || defence.invitationLetterNo || '';
 
   const examinerIds = defence.examiners.map(e => e.lecturerId);
   const examinerLecturers = await prisma.lecturer.findMany({
@@ -1332,7 +1383,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
     <tr>
       <td style="width: 80px;">Nomor</td>
       <td style="width: 10px;">:</td>
-      <td style="width: 300px;">${nomorSurat || ''}</td>
+      <td style="width: 300px;">${actualNomorSurat}</td>
       <td style="text-align: right;">Padang, ${dateGenerated}</td>
     </tr>
     <tr>

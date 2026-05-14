@@ -103,24 +103,35 @@ describe("Thesis Seminar Examiner Service (Full Suite)", () => {
   });
 
   describe("Finalization Workflow", () => {
-    it("returns finalization data for supervisor", async () => {
-      mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1" });
+    it("returns finalization data for supervisor with finalizer names", async () => {
+      mockCoreRepo.findSeminarById.mockResolvedValue({ 
+        id: "s1",
+        resultFinalizer: { lecturer: { user: { fullName: "Finalizer Result" } } },
+        revisionFinalizer: { lecturer: { user: { fullName: "Finalizer Revision" } } }
+      });
       mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup1" });
       mockExaminerRepo.findActiveExaminersWithAssessments.mockResolvedValue([]);
       const res = await getFinalizationData("s1", { id: "u1", lecturerId: "l1" });
       expect(res.seminar).toBeDefined();
+      expect(res.seminar.resultFinalizedBy).toBe("Finalizer Result");
+      expect(res.seminar.revisionFinalizedBy).toBe("Finalizer Revision");
     });
 
-    it("finalizes seminar with 'passed' result", async () => {
+    it("finalizes seminar with 'passed' result and persists finalizer", async () => {
       mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1", status: "scheduled", thesisId: "t1", thesis: { student: { user: { id: "u1" } } } });
       mockStatusUtil.computeEffectiveStatus.mockReturnValue("ongoing");
-      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup1" });
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "membership1", lecturerId: "sup1" });
       mockExaminerRepo.findActiveExaminersWithAssessments.mockResolvedValue([
         { lecturerId: "l1", assessmentSubmittedAt: new Date(), assessmentScore: 80 },
         { lecturerId: "l2", assessmentSubmittedAt: new Date(), assessmentScore: 85 }
       ]);
       mockCoreRepo.updateSeminar.mockResolvedValue({ id: "s1", status: "passed" });
       const res = await finalizeSeminar("s1", "sup1", { targetStatus: "passed" });
+      
+      expect(mockCoreRepo.updateSeminar).toHaveBeenCalledWith("s1", expect.objectContaining({
+        status: "passed",
+        resultFinalizedBy: "membership1"
+      }));
       expect(res.status).toBe("passed");
     });
   });
