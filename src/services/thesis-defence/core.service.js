@@ -395,6 +395,13 @@ export async function getDefenceDetail(defenceId, user = {}) {
       ["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus) && isSupervisor,
     allExaminerSubmitted,
     supervisorAssessmentSubmitted,
+    examinerNotes: (defence.examiners || [])
+      .filter((e) => e.revisionNotes)
+      .map((e) => ({
+        examinerOrder: e.order,
+        lecturerName: e.lecturerName || "-",
+        revisionNotes: e.revisionNotes,
+      })),
   };
 }
 
