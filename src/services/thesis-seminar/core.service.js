@@ -283,8 +283,8 @@ export async function finalizeSchedule(seminarId, adminId) {
   if (seminar.status !== "examiner_assigned") {
     throwError("Seminar harus berstatus 'examiner_assigned' untuk ditetapkan.", 400);
   }
-  if (!seminar.date) {
-    throwError("Jadwal seminar belum diatur sebagai draft.", 400);
+  if (!seminar.date || !seminar.startTime || !seminar.endTime) {
+    throwError("Jadwal seminar belum lengkap. Harap atur jadwal terlebih dahulu sebelum melakukan finalisasi.", 400);
   }
   await coreRepo.updateSeminar(seminarId, { status: "scheduled", scheduledAt: new Date() });
 
@@ -496,33 +496,78 @@ export async function exportArchive() {
 }
 
 export async function importArchive(fileBuffer, userId) {
-  const wb = xlsx.read(fileBuffer, { type: "buffer" }); const rows = xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  const wb = xlsx.read(fileBuffer, { type: "buffer" });
+  const rows = xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
   const results = { total: rows.length, successCount: 0, failed: 0, failedRows: [] };
+
+  const [rooms, lecturers, students, theses] = await Promise.all([
+    coreRepo.findAllRooms(),
+    coreRepo.findLecturersForOptions(),
+    coreRepo.findStudentsForOptions(),
+    coreRepo.findThesesForOptions(),
+  ]);
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
-      const nim = String(row["NIM"] || "").trim(); if (!nim) throw new Error("NIM kosong");
-      const student = await coreRepo.findStudentByNim(nim); if (!student) throw new Error(`NIM ${nim} tidak ditemukan`);
-      const thesis = await coreRepo.findActiveThesisByStudentId(student.id); if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
-      const hasPassed = await prisma.thesisSeminar.findFirst({
-        where: { thesisId: thesis.id, status: { in: ["passed", "passed_with_revision"] } }
-      });
+      const nim = String(row["NIM"] || "").trim();
+      if (!nim) throw new Error("NIM kosong");
+
+      const student = students.find(s => s.user.identityNumber === nim);
+      if (!student) throw new Error(`NIM ${nim} tidak ditemukan`);
+
+      const thesis = theses.find(t => t.student?.user?.identityNumber === nim);
+      if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
+
+      const hasPassed = thesis.thesisSeminars.some(s => ["passed", "passed_with_revision"].includes(s.status));
       if (hasPassed) throw new Error("Sudah lulus seminar hasil");
-      const ruangan = String(row["Ruangan"] || "").trim(); let roomId = null;
-      if (ruangan && ruangan !== "-") { const room = await coreRepo.findRoomByNameLike(ruangan); if (!room) throw new Error(`Ruangan "${ruangan}" tidak ditemukan`); roomId = room.id; }
-      const hasil = String(row["Hasil"] || "").trim().toLowerCase();
-      let status = "failed"; if (hasil.includes("dengan revisi")) status = "passed_with_revision"; else if (hasil.includes("lulus")) status = "passed";
-      const tgl = String(row["Tanggal"] || "").trim(); let date = null;
-      if (tgl && tgl !== "-") { const p = new Date(tgl); if (!isNaN(p.getTime())) date = p.toISOString(); }
-      const examinerIds = [];
-      for (const n of [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]].map((v) => String(v || "").trim()).filter((v) => v && v !== "-" && !v.includes("Opsional"))) {
-        const l = await coreRepo.findLecturerByNameLike(n); if (l) examinerIds.push(l.id); else throw new Error(`Dosen "${n}" tidak ditemukan`);
+
+      const ruangan = String(row["Ruangan"] || "").trim();
+      let roomId = null;
+      if (ruangan && ruangan !== "-") {
+        const room = rooms.find(r => r.name.toLowerCase().includes(ruangan.toLowerCase()));
+        if (!room) throw new Error(`Ruangan "${ruangan}" tidak ditemukan`);
+        roomId = room.id;
       }
-      if (examinerIds.length < 2) throw new Error("Minimal 2 Dosen Penguji");
-      await coreRepo.createSeminarWithExaminers({ thesisId: thesis.id, date, roomId, status, examinerLecturerIds: examinerIds, assignedByUserId: userId });
+
+      const hasilStr = String(row["Hasil"] || "").trim().toLowerCase();
+      let status = "failed";
+      if (hasilStr.includes("dengan revisi")) status = "passed_with_revision";
+      else if (hasilStr.includes("lulus")) status = "passed";
+
+      const tgl = String(row["Tanggal"] || "").trim();
+      let date = null;
+      if (tgl && tgl !== "-") {
+        const p = new Date(tgl);
+        if (!isNaN(p.getTime())) date = p.toISOString();
+      }
+
+      const examinerColumns = [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]]
+        .map((v) => String(v || "").trim())
+        .filter((v) => v && v !== "-" && !v.includes("Opsional"));
+      
+      const examinerLecturerIds = [];
+      for (const name of examinerColumns) {
+        const lec = lecturers.find(l => l.user.fullName.toLowerCase().includes(name.toLowerCase()));
+        if (lec) examinerLecturerIds.push(lec.id);
+        else throw new Error(`Dosen "${name}" tidak ditemukan`);
+      }
+
+      if (examinerLecturerIds.length < 1) throw new Error("Minimal 1 Dosen Penguji");
+
+      await coreRepo.createSeminarWithExaminers({
+        thesisId: thesis.id,
+        date,
+        roomId,
+        status,
+        examinerLecturerIds,
+        assignedByUserId: userId,
+      });
+
       results.successCount++;
     } catch (err) {
-      results.failed++; results.failedRows.push({ row: i + 2, error: err.message.includes("prisma") ? "Format data tidak valid." : err.message });
+      results.failed++;
+      results.failedRows.push({ row: i + 2, error: err.message.includes("prisma") ? "Format data tidak valid." : err.message });
     }
   }
   return results;
@@ -740,9 +785,6 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
         <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
         <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
       </td>
-      <td style="width: 60px; vertical-align: top; text-align: right;">
-        <div class="ta-box">TA-12</div>
-      </td>
     </tr>
   </table>
 
@@ -922,9 +964,7 @@ export async function generateAssessmentResultPdf(seminarId) {
     .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
     .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
     
-    .title-row { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-    .ta-code { width: 80px; border: 2px solid #000; padding: 5px; text-align: center; font-weight: bold; font-size: 14pt; background-color: #e5e7eb; }
-    .title-box { border: 2px solid #000; border-left: none; padding: 5px; text-align: center; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #e5e7eb; }
+    .title-box { width: 100%; border: 2px solid #000; padding: 8px; text-align: center; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #e5e7eb; margin-bottom: 15px; }
     
     .section-title { font-weight: bold; margin: 15px 0 8px 0; }
     .identity-table { width: 100%; margin-left: 20px; border-collapse: collapse; }
@@ -967,12 +1007,7 @@ export async function generateAssessmentResultPdf(seminarId) {
     </tr>
   </table>
 
-  <table class="title-row">
-    <tr>
-      <td class="ta-code">TA – 11</td>
-      <td class="title-box">Formulir Berita Acara Seminar Hasil Tugas Akhir</td>
-    </tr>
-  </table>
+  <div class="title-box">Formulir Berita Acara Seminar Hasil Tugas Akhir</div>
 
   <div class="section-title">A. Identitas Mahasiswa</div>
   <table class="identity-table">

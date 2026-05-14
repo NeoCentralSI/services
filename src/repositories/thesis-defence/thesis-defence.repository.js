@@ -446,18 +446,34 @@ export async function findRoomBookings() {
 }
 
 export async function findRoomScheduleConflict({ defenceId, roomId, date, startTime, endTime }) {
-  return prisma.thesisDefence.findFirst({
+  const defenceConflict = await prisma.thesisDefence.findFirst({
     where: {
       id: defenceId ? { not: defenceId } : undefined,
       roomId,
       date: new Date(date),
-      status: "scheduled",
+      status: { notIn: ["cancelled"] },
       AND: [
         { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
         { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
       ],
     },
   });
+
+  if (defenceConflict) return true;
+
+  const seminarConflict = await prisma.thesisSeminar.findFirst({
+    where: {
+      roomId,
+      date: new Date(date),
+      status: { notIn: ["cancelled"] },
+      AND: [
+        { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
+        { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },
+      ],
+    },
+  });
+
+  return !!seminarConflict;
 }
 
 export async function updateDefenceSchedule(defenceId, { roomId, date, startTime, endTime, meetingLink }) {

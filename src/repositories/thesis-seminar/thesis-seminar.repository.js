@@ -401,7 +401,7 @@ export async function findRoomScheduleConflict({ seminarId, roomId, date, startT
     where: {
       roomId,
       date: new Date(date),
-      status: "scheduled",
+      status: { notIn: ["cancelled"] },
       AND: [
         { startTime: { lt: new Date(`1970-01-01T${endTime}:00.000Z`) } },
         { endTime: { gt: new Date(`1970-01-01T${startTime}:00.000Z`) } },

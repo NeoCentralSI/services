@@ -658,9 +658,12 @@ export async function createSeminarCalendarEvents(seminar, participants, adminId
     ...(audiences || []).map(a => a.email)
   ])].filter(Boolean);
 
+  const isDefence = !!participants.examiners && !participants.audiences;
+  const activityType = isDefence ? "Sidang Tugas Akhir" : "Seminar Hasil";
+
   const eventData = {
-    subject: `Seminar Hasil - ${student.fullName}`,
-    body: `Seminar Hasil Tugas Akhir\n\nMahasiswa: ${student.fullName}\nWaktu: ${dateStr}\nLokasi: ${locationStr}\n\nDisinkronkan dari Neo Central.`,
+    subject: `${activityType} - ${student.fullName}`,
+    body: `${activityType}\n\nMahasiswa: ${student.fullName}\nWaktu: ${dateStr}\nLokasi: ${locationStr}\n\nDisinkronkan dari Neo Central.`,
     startTime,
     endTime,
     location: locationStr,

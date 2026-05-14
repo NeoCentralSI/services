@@ -112,46 +112,75 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       });
 
 
-      // Get thesis defence events
-      // Note: ThesisDefence model doesn't have schedule relation - using createdAt for reference
-      const defences = await prisma.thesisDefence.findMany({
+      // Get thesis seminar events
+      const seminars = await prisma.thesisSeminar.findMany({
         where: {
-          thesis: {
-            studentId: user.student.id,
-          },
-          ...(startDate &&
-            endDate && {
-            createdAt: {
+          thesis: { studentId: user.student.id },
+          date: { not: null },
+          ...(startDate && endDate && {
+            date: {
               gte: new Date(startDate),
               lte: new Date(endDate),
             },
           }),
         },
-        include: {
-          thesis: true,
-        },
+        include: { room: true },
       });
 
-      defences.forEach((defence) => {
+      seminars.forEach((s) => {
         events.push({
-          id: `defence-${defence.id}`,
+          id: `seminar-${s.id}`,
+          title: "Seminar Hasil",
+          description: "Seminar hasil tugas akhir",
+          type: "seminar_scheduled",
+          status: s.status,
+          startDate: s.startTime || s.date,
+          endDate: s.endTime || s.date,
+          userId,
+          userRole,
+          relatedId: s.id,
+          relatedType: "thesis_seminar",
+          location: s.room?.name || s.meetingLink || "TBA",
+          meetingLink: s.meetingLink,
+          reminderMinutes: 60,
+          color: "#8b5cf6",
+          backgroundColor: "#8b5cf6",
+        });
+      });
+
+      // Get thesis defence events
+      const defences = await prisma.thesisDefence.findMany({
+        where: {
+          thesis: { studentId: user.student.id },
+          date: { not: null },
+          ...(startDate && endDate && {
+            date: {
+              gte: new Date(startDate),
+              lte: new Date(endDate),
+            },
+          }),
+        },
+        include: { room: true },
+      });
+
+      defences.forEach((d) => {
+        events.push({
+          id: `defence-${d.id}`,
           title: "Sidang Tugas Akhir",
           description: "Ujian sidang tugas akhir",
           type: "defense_scheduled",
-          status: "scheduled",
-          startDate: defence.createdAt,
-          endDate: defence.createdAt,
+          status: d.status,
+          startDate: d.startTime || d.date,
+          endDate: d.endTime || d.date,
           userId,
           userRole,
-          relatedId: defence.id,
+          relatedId: d.id,
           relatedType: "thesis_defence",
-          participants: [],
-          location: null,
-          meetingLink: null,
+          location: d.room?.name || d.meetingLink || "TBA",
+          meetingLink: d.meetingLink,
           reminderMinutes: 60,
-          notificationSent: false,
-          color: "#f59e0b",
-          backgroundColor: "#f59e0b",
+          color: "#f97316",
+          backgroundColor: "#f97316",
         });
       });
     }
@@ -246,6 +275,94 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
             backgroundColor: "#14b8a6",
           });
         }
+      });
+
+      // Get seminars for lecturer (supervisor or examiner)
+      const seminars = await prisma.thesisSeminar.findMany({
+        where: {
+          OR: [
+            { thesis: { thesisSupervisors: { some: { lecturerId: user.lecturer.id } } } },
+            { examiners: { some: { lecturerId: user.lecturer.id } } }
+          ],
+          date: { not: null },
+          ...(startDate && endDate && {
+            date: {
+              gte: new Date(startDate),
+              lte: new Date(endDate),
+            },
+          }),
+        },
+        include: {
+          thesis: { include: { student: { include: { user: true } } } },
+          room: true,
+          examiners: true
+        },
+      });
+
+      seminars.forEach(s => {
+        const isExaminer = s.examiners.some(e => e.lecturerId === user.lecturer.id);
+        events.push({
+          id: `seminar-${s.id}`,
+          title: `Seminar: ${s.thesis.student.user.fullName}`,
+          description: `Seminar hasil mahasiswa ${s.thesis.student.user.fullName}`,
+          type: isExaminer ? "seminar_as_examiner" : "seminar_scheduled",
+          status: s.status,
+          startDate: s.startTime || s.date,
+          endDate: s.endTime || s.date,
+          userId,
+          userRole,
+          relatedId: s.id,
+          relatedType: "thesis_seminar",
+          location: s.room?.name || s.meetingLink || "TBA",
+          meetingLink: s.meetingLink,
+          reminderMinutes: 60,
+          color: isExaminer ? "#6366f1" : "#8b5cf6",
+          backgroundColor: isExaminer ? "#6366f1" : "#8b5cf6",
+        });
+      });
+
+      // Get defences for lecturer (supervisor or examiner)
+      const defences = await prisma.thesisDefence.findMany({
+        where: {
+          OR: [
+            { thesis: { thesisSupervisors: { some: { lecturerId: user.lecturer.id } } } },
+            { examiners: { some: { lecturerId: user.lecturer.id } } }
+          ],
+          date: { not: null },
+          ...(startDate && endDate && {
+            date: {
+              gte: new Date(startDate),
+              lte: new Date(endDate),
+            },
+          }),
+        },
+        include: {
+          thesis: { include: { student: { include: { user: true } } } },
+          room: true,
+          examiners: true
+        },
+      });
+
+      defences.forEach(d => {
+        const isExaminer = d.examiners.some(e => e.lecturerId === user.lecturer.id);
+        events.push({
+          id: `defence-${d.id}`,
+          title: `Sidang: ${d.thesis.student.user.fullName}`,
+          description: `Sidang tugas akhir mahasiswa ${d.thesis.student.user.fullName}`,
+          type: isExaminer ? "defense_as_examiner" : "defense_scheduled",
+          status: d.status,
+          startDate: d.startTime || d.date,
+          endDate: d.endTime || d.date,
+          userId,
+          userRole,
+          relatedId: d.id,
+          relatedType: "thesis_defence",
+          location: d.room?.name || d.meetingLink || "TBA",
+          meetingLink: d.meetingLink,
+          reminderMinutes: 60,
+          color: isExaminer ? "#ea580c" : "#f97316",
+          backgroundColor: isExaminer ? "#ea580c" : "#f97316",
+        });
       });
 
     }

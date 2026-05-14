@@ -54,7 +54,7 @@ export async function setSchedule(req, res, next) {
 
 export async function finalizeSchedule(req, res, next) {
   try {
-    const result = await coreService.finalizeSchedule(req.params.id);
+    const result = await coreService.finalizeSchedule(req.params.id, req.user?.id);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

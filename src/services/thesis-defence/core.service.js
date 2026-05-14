@@ -448,6 +448,7 @@ export async function getSchedulingData(defenceId) {
           endTime: defence.endTime,
           meetingLink: defence.meetingLink,
           isOnline: !defence.roomId,
+          roomId: defence.roomId,
           room: defence.room ? { id: defence.room.id, name: defence.room.name } : null,
         }
       : null,
@@ -466,6 +467,23 @@ export async function scheduleDefence(defenceId, { roomId, date, startTime, endT
       400
     );
   }
+
+  // Weekday-only validation (uses local WIB date to avoid UTC-midnight offset)
+  const [yr, mo, dy] = date.split('-').map(Number);
+  const localDate = new Date(yr, mo - 1, dy);
+  const dayOfWeek = localDate.getDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    throwError("Sidang hanya dapat dijadwalkan pada hari kerja (Senin – Jumat).", 400);
+  }
+
+  // Business-hours validation: 06:00 – 18:00 WIB
+  const [startH, startM] = startTime.split(':').map(Number);
+  const [endH, endM] = endTime.split(':').map(Number);
+  const startMins = startH * 60 + startM;
+  const endMins = endH * 60 + endM;
+  if (startMins < 6 * 60) throwError("Waktu mulai tidak boleh sebelum pukul 06.00.", 400);
+  if (endMins > 18 * 60) throwError("Waktu selesai tidak boleh setelah pukul 18.00.", 400);
+  if (startMins >= endMins) throwError("Waktu mulai harus sebelum waktu selesai.", 400);
 
   if (!isOnline) {
     const conflict = await coreRepo.findRoomScheduleConflict({ defenceId, roomId, date, startTime, endTime });
@@ -487,8 +505,8 @@ export async function setSchedule(defenceId, payload) {
   return scheduleDefence(defenceId, payload);
 }
 
-export async function finalizeSchedule(defenceId) {
-  const defence = await coreRepo.findDefenceBasicById(defenceId);
+export async function finalizeSchedule(defenceId, adminId = null) {
+  const defence = await coreRepo.findDefenceById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
 
   if (defence.status === "scheduled") {
@@ -508,6 +526,45 @@ export async function finalizeSchedule(defenceId) {
     where: { id: defenceId },
     data: { scheduledAt: new Date() }
   });
+
+  try {
+    const studentUserId = defence.thesis?.student?.id;
+    const studentName = defence.thesis?.student?.user?.fullName || "Mahasiswa";
+
+    // Collect participant IDs for notifications
+    const supervisorUserIds = (defence.thesis?.thesisSupervisors || []).map((s) => s.lecturerId).filter(Boolean);
+    const examinerUserIds = (defence.examiners || []).map((e) => e.lecturerId).filter(Boolean);
+
+    const title = "Jadwal Sidang Tugas Akhir Ditetapkan";
+    const dateStr = defence.date.toLocaleDateString("id-ID", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+    const startTimeStr = new Date(defence.startTime).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    const endTimeStr = new Date(defence.endTime).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    const locationStr = defence.room ? defence.room.name : (defence.meetingLink || "Online");
+    const message = `Jadwal sidang tugas akhir untuk ${studentName} telah ditetapkan pada ${dateStr}, pukul ${startTimeStr} - ${endTimeStr} di ${locationStr}.`;
+
+    const allUserIdsToNotify = [...new Set([
+      ...(studentUserId ? [studentUserId] : []),
+      ...supervisorUserIds,
+      ...examinerUserIds,
+    ])];
+
+    if (allUserIdsToNotify.length > 0) {
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers(allUserIdsToNotify, { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers(allUserIdsToNotify, { title, body: message, data: { defenceId, type: "defence_scheduled" } })),
+      ]);
+    }
+
+    // Outlook Calendar Sync
+    try {
+      await syncDefenceToOutlook(defenceId, adminId);
+    } catch (err) {
+      console.error("[OutlookSync Error] Defence sync failed:", err.message);
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify stakeholders on defence schedule finalization:", err.message);
+  }
+
   return { defenceId, status: "scheduled" };
 }
 
@@ -519,6 +576,14 @@ export async function cancelDefence(defenceId, { cancelledReason }) {
     status: "cancelled",
     cancelledReason: cancelledReason || null,
   });
+
+  // Reset supervisor defenceReady so student must re-get approval for next attempt
+  if (defence.thesisId) {
+    await prisma.thesisSupervisors.updateMany({
+      where: { thesisId: defence.thesisId },
+      data: { defenceReady: false },
+    });
+  }
 
   return { defenceId, status: "cancelled" };
 }
@@ -831,7 +896,7 @@ export async function generateAssessmentResultPdf(defenceId) {
   };
 
   // Logo load
-  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
   let logoBase64 = "";
   try {
     if (fs.existsSync(logoPath)) {
@@ -912,9 +977,7 @@ export async function generateAssessmentResultPdf(defenceId) {
     .header-text h2 { margin: 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
     .header-text p { margin: 1px 0; font-size: 8.5pt; }
     
-    .title-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-    .ta-code { width: 90px; border: 1px solid #000; padding: 6px; text-align: center; font-weight: bold; font-size: 14pt; background-color: #d1d5db; }
-    .title-box { border: 1px solid #000; border-left: none; padding: 6px; text-align: center; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; letter-spacing: 1px; }
+    .title-box { width: 100%; border: 1px solid #000; padding: 8px; text-align: center; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; letter-spacing: 1px; margin-bottom: 15px; }
     
     .section-title { font-weight: bold; margin: 12px 0 6px 0; font-size: 10.5pt; }
     .identity-table { width: 100%; margin-left: 15px; border-collapse: collapse; }
@@ -955,12 +1018,7 @@ export async function generateAssessmentResultPdf(defenceId) {
     </tr>
   </table>
 
-  <table class="title-table">
-    <tr>
-      <td class="ta-code">TA – 16</td>
-      <td class="title-box">Formulir Berita Acara Sidang Tugas Akhir</td>
-    </tr>
-  </table>
+  <div class="title-box">Formulir Berita Acara Sidang Tugas Akhir</div>
 
   <div class="section-title">A. Identitas Mahasiswa</div>
   <table class="identity-table">
@@ -1248,7 +1306,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
   const ketuaDeptNip = ketuaDept?.identityNumber || '-';
 
   // Logo base64
-  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
+  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
   let logoBase64 = "";
   try {
     if (fs.existsSync(logoPath)) {
@@ -1267,60 +1325,25 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
   <style>
     @page {
       size: A4;
-      margin: 1.2cm 2cm 1cm 2.5cm;
+      margin: 1.5cm 2cm 1.5cm 2.5cm;
     }
     body {
       font-family: "Times New Roman", Times, serif;
       font-size: 11pt;
-      line-height: 1.2;
+      line-height: 1.3;
       color: #000;
     }
-    .header-table {
-      width: 100%;
-      border-collapse: collapse;
-      border-bottom: 2px solid #000;
-      padding-bottom: 6px;
-      margin-bottom: 10px;
-    }
-    .logo-cell {
-      width: 70px;
-      vertical-align: middle;
-      padding-right: 12px;
-    }
-    .logo-img {
-      width: 70px;
-      height: auto;
-    }
-    .header-text {
-      text-align: center;
-      vertical-align: middle;
-    }
-    .header-text h3 {
-      margin: 0;
-      font-size: 13pt;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    .header-text h4 {
-      margin: 0;
-      font-size: 11pt;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    .header-text h2 {
-      margin: 0;
-      font-size: 15pt;
-      font-weight: bold;
-      color: #0b5c9e;
-      text-transform: uppercase;
-    }
-    .header-text p {
-      margin: 1px 0;
-      font-size: 9pt;
-    }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
+    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
+    .logo-img { width: 80px; height: auto; }
+    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
+    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
+    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
     .details-table {
       width: 100%;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .details-table td {
       vertical-align: top;
@@ -1331,11 +1354,11 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
       list-style-type: decimal;
     }
     .recipient-list li {
-      margin-bottom: 1px;
+      margin-bottom: 2px;
     }
     .content-table {
       width: 100%;
-      margin: 8px 0;
+      margin: 10px 0;
     }
     .content-table td {
       vertical-align: top;
@@ -1344,18 +1367,18 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
     .signature-block {
       float: right;
       width: 220px;
-      margin-top: 15px;
+      margin-top: 25px;
       text-align: left;
     }
     .signature-block .space {
-      height: 50px;
+      height: 55px;
     }
     .tembusan {
-      margin-top: 15px;
+      margin-top: 25px;
       font-size: 10pt;
     }
     .tembusan ol {
-      margin: 2px 0 0 15px;
+      margin: 3px 0 0 15px;
       padding: 0;
     }
     .clear {
@@ -1377,7 +1400,6 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
         <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
         <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
       </td>
-      <td style="width: 60px;"></td>
     </tr>
   </table>
 
@@ -1397,7 +1419,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
     <tr>
       <td>Lamp</td>
       <td>:</td>
-      <td>Draft Tugas Akhir</td>
+      <td>Draft Buku Tugas Akhir</td>
       <td></td>
     </tr>
   </table>
@@ -1407,9 +1429,9 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
     ${lecturersList.map(name => `<li>${name}</li>`).join('')}
   </ol>
   
-  <p style="margin-top: 10px;">Di<br/>Tempat.</p>
+  <p style="margin-top: 15px;">Di<br/>Tempat.</p>
 
-  <p style="margin-top: 15px;">Sesuai dengan Surat Persetujuan Sidang Tugas Akhir dari Pembimbing Utama Tugas Akhir Mahasiswa :</p>
+  <p style="margin-top: 20px;">Sesuai dengan persetujuan Pembimbing Tugas Akhir Mahasiswa:</p>
 
   <table class="content-table" style="margin-left: 25px; width: calc(100% - 25px);">
     <tr>
@@ -1429,7 +1451,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
     </tr>
   </table>
 
-  <p style="margin-top: 15px;">Maka akan diadakan Sidang Tugas Akhir mahasiswa tersebut pada :</p>
+  <p style="margin-top: 20px;">Maka akan diadakan Sidang Pelaksanaan Tugas Akhir mahasiswa tersebut pada:</p>
 
   <table class="content-table" style="margin-left: 25px; width: calc(100% - 25px);">
     <tr>
@@ -1449,7 +1471,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
     </tr>
   </table>
 
-  <p style="margin-top: 15px;">Untuk itu dimohon kesediaan Saudara(i) untuk hadir sebagai Penguji / Pembimbing pada Sidang tersebut.</p>
+  <p style="margin-top: 20px;">Untuk itu dimohon kesediaan Sdr(i) untuk hadir sebagai Penguji / Pembimbing pada Sidang tersebut.</p>
 
   <div class="signature-block">
     <p style="margin-bottom: 0;">Ketua,</p>
@@ -1471,4 +1493,62 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
 </html>`;
 
   return await convertHtmlToPdf(html);
+}
+
+/**
+ * Sync a specific defence to all participants' Outlook calendars
+ */
+export async function syncDefenceToOutlook(defenceId, adminId = null) {
+  try {
+    const defence = await prisma.thesisDefence.findUnique({
+      where: { id: defenceId },
+      include: {
+        thesis: {
+          include: {
+            student: { include: { user: true } },
+            thesisSupervisors: { include: { lecturer: { include: { user: true } } } },
+          },
+        },
+        examiners: true,
+        room: true,
+      },
+    });
+
+    if (!defence) return;
+
+    // Fetch examiner user details
+    const examinerLecturerIds = (defence.examiners || []).map((e) => e.lecturerId);
+    const examinerUsers = await prisma.user.findMany({
+      where: { id: { in: examinerLecturerIds } },
+      select: { id: true, fullName: true, email: true },
+    });
+
+    const participants = {
+      student: {
+        userId: defence.thesis?.student?.user?.id,
+        fullName: defence.thesis?.student?.user?.fullName,
+        email: defence.thesis?.student?.user?.email,
+      },
+      supervisors: (defence.thesis?.thesisSupervisors || []).map((s) => ({
+        userId: s.lecturer?.user?.id,
+        fullName: s.lecturer?.user?.fullName,
+        email: s.lecturer?.user?.email,
+      })),
+      examiners: (defence.examiners || []).map((e) => {
+        const u = examinerUsers.find((user) => user.id === e.lecturerId);
+        return {
+          userId: e.lecturerId,
+          fullName: u?.fullName || "-",
+          email: u?.email,
+        };
+      }),
+      room: defence.room,
+    };
+
+    // Reuse the seminar calendar event creator with defence data
+    const { createSeminarCalendarEvents } = await import("../outlook-calendar.service.js");
+    await createSeminarCalendarEvents(defence, participants, adminId);
+  } catch (err) {
+    console.error("[OutlookSync] Error during defence sync orchestration:", err.message);
+  }
 }

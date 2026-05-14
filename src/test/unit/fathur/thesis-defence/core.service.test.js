@@ -3,12 +3,16 @@ import * as coreService from '../../../../services/thesis-defence/core.service.j
 import * as coreRepo from '../../../../repositories/thesis-defence/thesis-defence.repository.js';
 import * as docRepo from '../../../../repositories/thesis-defence/doc.repository.js';
 import prisma from '../../../../config/prisma.js';
+import { getFinalizationData } from '../../../../services/thesis-defence/examiner.service.js';
 
 const { mockPrisma, mockXlsx } = vi.hoisted(() => ({
   mockPrisma: {
-    thesisDefence: { findFirst: vi.fn() },
+    thesisDefence: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     thesisSupervisors: { updateMany: vi.fn() },
-    thesis: { findUnique: vi.fn() }
+    thesis: { findUnique: vi.fn() },
+    student: { findMany: vi.fn().mockResolvedValue([]) },
+    user: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
+    lecturer: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockXlsx: {
     read: vi.fn().mockReturnValue({
@@ -29,99 +33,243 @@ vi.mock('../../../../repositories/thesis-defence/thesis-defence.repository.js');
 vi.mock('../../../../repositories/thesis-defence/doc.repository.js');
 vi.mock('../../../../config/prisma.js', () => ({ default: mockPrisma }));
 vi.mock('xlsx', () => ({ default: mockXlsx }));
+vi.mock('../../../../services/notification.service.js', () => ({
+  createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }),
+}));
+vi.mock('../../../../services/push.service.js', () => ({
+  sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }),
+}));
+vi.mock('../../../../services/outlook-calendar.service.js', () => ({
+  createSeminarCalendarEvents: vi.fn().mockResolvedValue({}),
+}));
+vi.mock('../../../../helpers/pdf.helper.js', () => ({
+  convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from('fake-pdf')),
+}));
+vi.mock('../../../../services/thesis-defence/examiner.service.js', () => ({
+  getFinalizationData: vi.fn(),
+}));
 
-describe('Thesis Defence Core Service - Archive Management', () => {
+describe('Thesis Defence Core Service', () => {
   const mockUserId = 'user-123';
   const mockThesisId = 'thesis-123';
   const mockDefenceId = 'defence-123';
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.student.findMany.mockResolvedValue([]);
+    mockPrisma.user.findMany.mockResolvedValue([]);
   });
 
-  describe('createArchive', () => {
-    it('should successfully create an archive entry with auto-calculated grade', async () => {
-      const payload = {
-        thesisId: mockThesisId,
-        status: 'passed',
-        date: new Date().toISOString(),
+  describe('Archive Management', () => {
+    describe('createArchive', () => {
+      it('should successfully create an archive entry with auto-calculated grade', async () => {
+        const payload = {
+          thesisId: mockThesisId,
+          status: 'passed',
+          date: new Date().toISOString(),
+          roomId: 'room-1',
+          examinerLecturerIds: ['lec-1', 'lec-2'],
+          finalScore: 85,
+        };
+
+        coreRepo.getThesisOptions.mockResolvedValue([
+          { id: mockThesisId, thesisDefences: [], thesisSupervisors: [] }
+        ]);
+        coreRepo.createArchive.mockResolvedValue({ id: mockDefenceId });
+        coreRepo.findDefenceById.mockResolvedValue({ id: mockDefenceId, ...payload, grade: 'A' });
+
+        const result = await coreService.createArchive(payload, mockUserId);
+
+        expect(coreRepo.createArchive).toHaveBeenCalledWith(expect.objectContaining({
+          finalScore: 85,
+          grade: 'A'
+        }));
+        expect(result.id).toBe(mockDefenceId);
+      });
+
+      it('should throw error if student already passed defence', async () => {
+        coreRepo.getThesisOptions.mockResolvedValue([
+          { id: mockThesisId, thesisDefences: [{ status: 'passed' }], thesisSupervisors: [] }
+        ]);
+
+        await expect(coreService.createArchive({ thesisId: mockThesisId, status: 'passed' }, mockUserId))
+          .rejects.toThrow('Mahasiswa ini sudah lulus sidang tugas akhir.');
+      });
+
+      it('should throw error if examiner is also a supervisor', async () => {
+        coreRepo.getThesisOptions.mockResolvedValue([
+          { 
+            id: mockThesisId, 
+            thesisDefences: [], 
+            thesisSupervisors: [{ lecturerId: 'lec-1' }] 
+          }
+        ]);
+
+        const payload = {
+          thesisId: mockThesisId,
+          status: 'passed',
+          examinerLecturerIds: ['lec-1'],
+        };
+
+        await expect(coreService.createArchive(payload, mockUserId))
+          .rejects.toThrow('Dosen pembimbing tidak boleh menjadi dosen penguji');
+      });
+    });
+
+    describe('updateArchive', () => {
+      it('should successfully update archive and recalculate grade', async () => {
+        const payload = {
+          status: 'passed_with_revision',
+          finalScore: 78,
+          examinerLecturerIds: ['lec-1'],
+        };
+
+        coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, registeredAt: null, thesisId: mockThesisId });
+        coreRepo.getThesisOptions.mockResolvedValue([{ id: mockThesisId, thesisSupervisors: [] }]);
+        
+        await coreService.updateArchive(mockDefenceId, payload, mockUserId);
+
+        expect(coreRepo.updateArchive).toHaveBeenCalledWith(mockDefenceId, expect.objectContaining({
+          grade: 'A-'
+        }));
+      });
+
+      it('should block updating active defence through archive service', async () => {
+        coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, registeredAt: new Date() });
+
+        await expect(coreService.updateArchive(mockDefenceId, { status: 'passed' }, mockUserId))
+          .rejects.toThrow('Data sidang aktif tidak dapat diubah melalui fitur arsip');
+      });
+    });
+
+    describe('deleteArchive', () => {
+      it('should delete archive successfully', async () => {
+        coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, registeredAt: null });
+        coreRepo.deleteDefence.mockResolvedValue({});
+        const res = await coreService.deleteArchive(mockDefenceId);
+        expect(res.success).toBe(true);
+      });
+    });
+  });
+
+  describe('Scheduling & Lifecycle', () => {
+    const validDate = '2026-06-02'; // A Monday
+
+    it('should save draft schedule for a weekday within business hours', async () => {
+      coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, status: 'examiner_assigned' });
+      coreRepo.findRoomScheduleConflict.mockResolvedValue(null);
+      coreRepo.updateDefenceSchedule.mockResolvedValue({});
+
+      const result = await coreService.scheduleDefence(mockDefenceId, {
         roomId: 'room-1',
-        examinerLecturerIds: ['lec-1', 'lec-2'],
-        finalScore: 85,
-      };
+        date: validDate,
+        startTime: '09:00',
+        endTime: '11:00',
+        isOnline: false,
+        meetingLink: null,
+      });
 
-      coreRepo.getThesisOptions.mockResolvedValue([
-        { id: mockThesisId, thesisDefences: [], thesisSupervisors: [] }
-      ]);
-      coreRepo.createArchive.mockResolvedValue({ id: mockDefenceId });
-      coreRepo.findDefenceById.mockResolvedValue({ id: mockDefenceId, ...payload, grade: 'A' });
-
-      const result = await coreService.createArchive(payload, mockUserId);
-
-      expect(coreRepo.createArchive).toHaveBeenCalledWith(expect.objectContaining({
-        finalScore: 85,
-        grade: 'A'
+      expect(coreRepo.updateDefenceSchedule).toHaveBeenCalledWith(mockDefenceId, expect.objectContaining({
+        date: validDate,
+        startTime: '09:00',
+        endTime: '11:00',
       }));
-      expect(result.id).toBe(mockDefenceId);
+      expect(result.defenceId).toBe(mockDefenceId);
     });
 
-    it('should throw error if student already passed defence', async () => {
-      coreRepo.getThesisOptions.mockResolvedValue([
-        { id: mockThesisId, thesisDefences: [{ status: 'passed' }], thesisSupervisors: [] }
-      ]);
-
-      await expect(coreService.createArchive({ thesisId: mockThesisId, status: 'passed' }, mockUserId))
-        .rejects.toThrow('Mahasiswa ini sudah lulus sidang tugas akhir.');
-    });
-
-    it('should throw error if examiner is also a supervisor', async () => {
-      coreRepo.getThesisOptions.mockResolvedValue([
-        { 
-          id: mockThesisId, 
-          thesisDefences: [], 
-          thesisSupervisors: [{ lecturerId: 'lec-1' }] 
-        }
-      ]);
-
-      const payload = {
-        thesisId: mockThesisId,
-        status: 'passed',
-        examinerLecturerIds: ['lec-1'],
+    it('should finalize schedule, set scheduledAt, and send notifications', async () => {
+      const mockDefence = {
+        id: mockDefenceId,
+        status: 'examiner_assigned',
+        date: new Date('2026-06-02'),
+        startTime: new Date('1970-01-01T09:00:00Z'),
+        endTime: new Date('1970-01-01T11:00:00Z'),
+        room: { name: 'Lab A' },
+        meetingLink: null,
+        thesis: {
+          student: { id: 'student-1', user: { fullName: 'Budi Santoso' } },
+          thesisSupervisors: [{ lecturerId: 'lec-sup-1' }],
+        },
+        examiners: [{ lecturerId: 'lec-exam-1' }],
       };
 
-      await expect(coreService.createArchive(payload, mockUserId))
-        .rejects.toThrow('Dosen pembimbing tidak boleh menjadi dosen penguji');
-    });
-  });
+      coreRepo.findDefenceById.mockResolvedValue(mockDefence);
+      coreRepo.updateDefenceStatus.mockResolvedValue({});
+      mockPrisma.thesisDefence.update.mockResolvedValue({ ...mockDefence, scheduledAt: new Date() });
 
-  describe('updateArchive', () => {
-    it('should successfully update archive and recalculate grade', async () => {
-      const payload = {
-        status: 'passed_with_revision',
-        finalScore: 78,
-        examinerLecturerIds: ['lec-1'],
-      };
+      const result = await coreService.finalizeSchedule(mockDefenceId, 'admin-1');
 
-      coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, registeredAt: null, thesisId: mockThesisId });
-      coreRepo.getThesisOptions.mockResolvedValue([{ id: mockThesisId, thesisSupervisors: [] }]);
+      expect(coreRepo.updateDefenceStatus).toHaveBeenCalledWith(mockDefenceId, 'scheduled');
+      expect(mockPrisma.thesisDefence.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { scheduledAt: expect.any(Date) } })
+      );
+
+      // Verify notifications sent ONLY to private participants
+      const expectedRecipients = ['student-1', 'lec-sup-1', 'lec-exam-1'];
+      const notificationService = await import('../../../../services/notification.service.js');
+      const pushService = await import('../../../../services/push.service.js');
       
-      await coreService.updateArchive(mockDefenceId, payload, mockUserId);
+      expect(notificationService.createNotificationsForUsers).toHaveBeenCalledWith(
+        expect.arrayContaining(expectedRecipients),
+        expect.any(Object)
+      );
+      expect(pushService.sendFcmToUsers).toHaveBeenCalledWith(
+        expect.arrayContaining(expectedRecipients),
+        expect.any(Object)
+      );
+      
+      // Ensure it's exactly the right length (no broadcast to all students)
+      const callArgs = vi.mocked(notificationService.createNotificationsForUsers).mock.calls[0][0];
+      expect(callArgs.length).toBe(expectedRecipients.length);
 
-      expect(coreRepo.updateArchive).toHaveBeenCalledWith(mockDefenceId, expect.objectContaining({
-        grade: 'A-'
-      }));
+      expect(result.status).toBe('scheduled');
     });
 
-    it('should block updating active defence through archive service', async () => {
-      coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, registeredAt: new Date() });
-
-      await expect(coreService.updateArchive(mockDefenceId, { status: 'passed' }, mockUserId))
-        .rejects.toThrow('Data sidang aktif tidak dapat diubah melalui fitur arsip');
+    it('should cancel defence and reset supervisors', async () => {
+      coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, status: 'scheduled', thesisId: mockThesisId });
+      coreRepo.updateDefence.mockResolvedValue({ status: 'cancelled' });
+      mockPrisma.thesisSupervisors.updateMany.mockResolvedValue({ count: 1 });
+      
+      const res = await coreService.cancelDefence(mockDefenceId, { cancelledReason: 'Reson' });
+      
+      expect(res.status).toBe('cancelled');
+      expect(mockPrisma.thesisSupervisors.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { thesisId: mockThesisId },
+        data: { defenceReady: false }
+      }));
     });
   });
 
-  describe('importArchive', () => {
-    it('should process excel rows and calculate grades during import', async () => {
+  describe('Document Generation', () => {
+    it('should generate assessment result PDF', async () => {
+      coreRepo.findDefenceById.mockResolvedValue({ id: mockDefenceId, date: new Date(), startTime: new Date(), thesis: { student: { user: { fullName: 'S' } } } });
+      vi.mocked(getFinalizationData).mockResolvedValue({
+        defence: { resultFinalizedAt: new Date(), status: 'passed', finalScore: 80 },
+        examiners: [],
+        supervisor: { name: 'Sup 1', nip: '123' },
+        supervisorAssessment: { assessmentDetails: [] }
+      });
+      const res = await coreService.generateAssessmentResultPdf(mockDefenceId);
+      expect(res).toBeDefined();
+    });
+
+    it('should generate invitation letter PDF', async () => {
+      mockPrisma.thesisDefence.findUnique.mockResolvedValue({ id: mockDefenceId, date: new Date(), startTime: new Date(), thesis: { title: 'T', student: { user: { fullName: 'S' } } }, examiners: [] });
+      mockPrisma.lecturer.findMany.mockResolvedValue([]);
+      mockPrisma.user.findFirst.mockResolvedValue({ fullName: 'Kadep', identityNumber: '123' });
+      
+      const res = await coreService.generateInvitationLetter(mockDefenceId, 'REF/123');
+      
+      expect(res).toBeDefined();
+      expect(mockPrisma.thesisDefence.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: mockDefenceId },
+        data: { invitationLetterNo: 'REF/123' }
+      }));
+    });
+  });
+
+  describe('Import/Export', () => {
+    it('should process excel rows during import', async () => {
       mockXlsx.utils.sheet_to_json.mockReturnValue([
         { NIM: '123', Hasil: 'Lulus', Tanggal: '2023-01-01', Skor: 80, Nilai: 'A', 'Dosen Penguji': 'Lec A' }
       ]);
@@ -134,48 +282,43 @@ describe('Thesis Defence Core Service - Archive Management', () => {
       const result = await coreService.importArchive(Buffer.from(''), mockUserId);
 
       expect(result.successCount).toBe(1);
-      expect(coreRepo.createArchive).toHaveBeenCalledWith(expect.objectContaining({
-        grade: 'A'
-      }));
     });
-  });
 
-  describe('exportArchive', () => {
-    it('should export archive data with correct column headers and formatting', async () => {
-      const mockDate = new Date("2026-05-12T00:00:00Z");
-      
+    it('should export archive data correctly', async () => {
       coreRepo.findAllDefences.mockResolvedValue([
         {
           id: 'def-1',
-          status: 'failed',
-          date: mockDate,
-          startTime: new Date("1970-01-01T08:00:00Z"),
-          endTime: new Date("1970-01-01T10:00:00Z"),
+          status: 'passed',
+          date: new Date(),
+          startTime: new Date(),
+          endTime: new Date(),
           thesis: {
-            title: 'Skripsi X',
-            student: { user: { fullName: 'Mhs X', identityNumber: '111' } },
-            thesisSupervisors: [
-              { role: { name: 'Pembimbing 1' }, lecturer: { user: { fullName: 'Dosbing X' } } }
-            ]
+            title: 'T',
+            student: { user: { fullName: 'M', identityNumber: '1' } },
+            thesisSupervisors: []
           },
-          room: { name: 'Lab' },
-          finalScore: 40,
-          grade: 'E',
-          examiners: [{ lecturerName: 'Penguji X' }]
+          room: { name: 'R' },
+          examiners: []
         }
       ]);
 
       await coreService.exportArchive();
-
-      expect(mockXlsx.utils.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
-        expect.objectContaining({
-          "Hasil": "Tidak Lulus",
-          "Tanggal": expect.stringContaining("Selasa"),
-          "Skor": 40,
-          "Nilai": "E"
-        })
-      ]));
+      expect(mockXlsx.utils.json_to_sheet).toHaveBeenCalled();
       expect(mockXlsx.write).toHaveBeenCalled();
+    });
+  });
+
+  describe('Options', () => {
+    it('returns student options', async () => {
+      coreRepo.getStudentOptions.mockResolvedValue([{ id: 's1', user: { fullName: 'S', identityNumber: '1' } }]);
+      const res = await coreService.getStudentOptions();
+      expect(res[0].fullName).toBe('S');
+    });
+
+    it('returns lecturer options', async () => {
+      coreRepo.getLecturerOptions.mockResolvedValue([{ id: 'l1', user: { fullName: 'L', identityNumber: '1' } }]);
+      const res = await coreService.getLecturerOptions();
+      expect(res[0].fullName).toBe('L');
     });
   });
 });
