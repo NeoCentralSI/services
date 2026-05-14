@@ -258,19 +258,14 @@ export async function verifyDocument(defenceId, docTypeId, { action, notes, user
   // 1. Notify student about specific document status
   try {
     if (thesis?.studentId) {
-      const studentUser = await prisma.student.findUnique({ where: { id: thesis.studentId }, select: { userId: true } });
-      const studentUserId = studentUser?.userId;
-      
-      if (studentUserId) {
-        const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
-        const statusText = action === "approve" ? "disetujui" : "ditolak";
-        const message = `Dokumen "${docTypeName}" untuk sidang TA Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${notes}` : ""}`;
+      const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
+      const statusText = action === "approve" ? "disetujui" : "ditolak";
+      const message = `Dokumen "${docTypeName}" untuk sidang TA Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${notes}` : ""}`;
 
-        await Promise.all([
-          import("../notification.service.js").then(m => m.createNotificationsForUsers([studentUserId], { title, message })),
-          import("../push.service.js").then(m => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_doc_verified" } }))
-        ]);
-      }
+      await Promise.all([
+        import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
+        import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { defenceId, type: "defence_doc_verified" } }))
+      ]);
     }
   } catch (err) {
     console.error("[Notification Error] Failed to notify student on doc verification:", err.message);
@@ -293,16 +288,13 @@ export async function verifyDocument(defenceId, docTypeId, { action, notes, user
 
       // 2. Notify student & Kadep about verification transition
       try {
-        const studentUser = await prisma.student.findUnique({ where: { id: thesis.studentId }, select: { userId: true } });
-        const studentUserId = studentUser?.userId;
-        const studentName = thesis.student?.user?.fullName || "Mahasiswa";
-
-        if (studentUserId) {
+        if (thesis?.studentId) {
+          const studentName = thesis.student?.user?.fullName || "Mahasiswa";
           const title = "Sidang TA Terverifikasi";
           const message = "Seluruh dokumen persyaratan sidang TA Anda telah diverifikasi. Menunggu penetapan penguji.";
           await Promise.all([
-            import("../notification.service.js").then(m => m.createNotificationsForUsers([studentUserId], { title, message })),
-            import("../push.service.js").then(m => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_verified" } }))
+            import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
+            import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { defenceId, type: "defence_verified" } }))
           ]);
         }
 

@@ -109,8 +109,7 @@ describe("Defence Document Service (Full Alignment)", () => {
       mockDocRepo.findDefenceDocumentWithFile.mockResolvedValue({ id: "f1" });
       mockDocRepo.ensureDefenceDocumentTypes.mockResolvedValue({ "Laporan Tugas Akhir": { id: "dt1" } });
       mockDocRepo.getDefenceDocumentTypes.mockResolvedValue([{ id: "dt1", name: "Laporan Tugas Akhir" }]);
-      mockCoreRepo.findThesisById.mockResolvedValue({ studentId: "st1" });
-      mockPrisma.student.findUnique.mockResolvedValue({ userId: "u1" });
+      mockCoreRepo.findThesisById.mockResolvedValue({ id: "t1", studentId: "st1" });
       mockDocRepo.countDefenceDocumentsByStatus.mockResolvedValue([{ documentTypeId: "dt1", status: "submitted" }]);
       
       const res = await verifyDocument("d1", "dt1", { action: "approve", userId: "admin1" });
@@ -123,8 +122,7 @@ describe("Defence Document Service (Full Alignment)", () => {
       mockCoreRepo.findDefenceBasicById.mockResolvedValue({ id: "d1", status: "registered", thesisId: "t1" });
       mockDocRepo.findDefenceDocumentWithFile.mockResolvedValue({ id: "f1" });
       mockDocRepo.ensureDefenceDocumentTypes.mockResolvedValue({ "Laporan Tugas Akhir": { id: "dt1" } });
-      mockCoreRepo.findThesisById.mockResolvedValue({ studentId: "st1" });
-      mockPrisma.student.findUnique.mockResolvedValue({ userId: "u1" });
+      mockCoreRepo.findThesisById.mockResolvedValue({ id: "t1", studentId: "st1" });
 
       const res = await verifyDocument("d1", "dt1", { action: "decline", notes: "Please fix", userId: "admin1" });
       expect(res.status).toBe("declined");
