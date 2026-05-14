@@ -35,6 +35,7 @@ let testTheses = []; // Array of { thesis, originalRating, originalCreatedAt, or
 const LABELS = ["ONGOING_THESIS", "SLOW_THESIS", "AT_RISK_THESIS", "FAILED_THESIS"];
 
 describe("IT-05: CRON Thesis Status Rating", () => {
+  const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   beforeAll(async () => {
     // Find 4 active theses in "Bimbingan" to manipulate dates
     const bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: "Bimbingan" } });
@@ -161,6 +162,11 @@ describe("IT-05: CRON Thesis Status Rating", () => {
   });
 
   afterAll(async () => {
+    if (SKIP_CLEANUP) {
+      console.warn("[IT-05] SKIP_CLEANUP=true, skipping cleanup");
+      await prisma.$disconnect();
+      return;
+    }
     // Restore all test theses to original state
     try {
       for (const entry of testTheses) {

@@ -40,6 +40,7 @@ let targetNotificationId = null;
 let kadepNotificationId = null;
 
 describe("IT-03: Supervisor Transfer Full Flow", () => {
+  const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   beforeAll(async () => {
     // 1. Find a thesis in "Bimbingan" with a Pembimbing 1 supervisor
     sourceThesis = await prisma.thesis.findFirst({
@@ -139,6 +140,11 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
   });
 
   afterAll(async () => {
+    if (SKIP_CLEANUP) {
+      console.warn("[IT-03] SKIP_CLEANUP=true, skipping cleanup");
+      await prisma.$disconnect();
+      return;
+    }
     try {
       // 1. Restore the supervisor record back to original lecturer
       if (thesisSupervisorRecordId && originalLecturerId) {

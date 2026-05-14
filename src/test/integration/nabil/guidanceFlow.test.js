@@ -25,6 +25,7 @@ vi.mock("../../../services/outlook-calendar.service.js", () => ({
 }));
 
 describe("IT-04: Guidance Request & Approval Flow", () => {
+  const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   let testThesis = null;
   let testStudentUserId = null;
   let testSupervisorUserId = null;
@@ -55,6 +56,11 @@ describe("IT-04: Guidance Request & Approval Flow", () => {
   });
 
   afterAll(async () => {
+    if (SKIP_CLEANUP) {
+      console.warn("[IT-04] SKIP_CLEANUP=true, skipping cleanup");
+      await prisma.$disconnect();
+      return;
+    }
     // Cleanup generated guidance data
     if (createdGuidanceId) {
       await prisma.thesisGuidance.delete({ where: { id: createdGuidanceId } }).catch(() => {});
