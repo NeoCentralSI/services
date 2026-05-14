@@ -270,6 +270,38 @@ export async function assignExaminers(defenceId, examinerIds, assignedByUserId) 
     }
   });
 
+  // Notifications for newly added examiners
+  try {
+    const studentName = defence.thesis?.student?.user?.fullName || "Mahasiswa";
+    const studentUserId = defence.thesis?.studentId;
+
+    if (addedExaminerIds.length > 0) {
+      const newLecturers = await prisma.lecturer.findMany({
+        where: { id: { in: addedExaminerIds } },
+        include: { user: { select: { id: true } } },
+      });
+      const userIds = newLecturers.map((l) => l.user.id);
+      const title = "Penugasan Penguji Sidang TA";
+      const message = `Anda telah ditugaskan sebagai penguji sidang tugas akhir mahasiswa ${studentName}. Mohon berikan konfirmasi kesediaan Anda.`;
+
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers(userIds, { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers(userIds, { title, body: message, data: { defenceId, type: "defence_examiner_assigned" } })),
+      ]);
+    }
+
+    if (addedExaminerIds.length > 0 && studentUserId) {
+      const title = "Penetapan Penguji Sidang TA";
+      const message = "Dosen penguji untuk sidang TA Anda telah ditetapkan. Menunggu konfirmasi kesediaan dari penguji.";
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers([studentUserId], { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_examiner_assigned_student" } })),
+      ]);
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify stakeholders on defence examiner assignment:", err.message);
+  }
+
   // Auto-transition if all assigned examiners are available
   const activeExaminers = await examinerRepo.findActiveExaminersByDefence(defenceId);
   const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
@@ -308,6 +340,71 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
   if (allAvailable && defence && defence.status !== "scheduled") {
     await coreRepo.updateDefenceStatus(examiner.thesisDefenceId, "examiner_assigned");
     defenceTransitioned = true;
+  }
+
+  // Notifications
+  try {
+    const thesis = await prisma.thesis.findUnique({
+      where: { id: defence.thesisId },
+      select: {
+        studentId: true,
+        thesisSupervisors: {
+          include: { lecturer: { include: { user: { select: { id: true } } } } },
+        },
+      },
+    });
+    const studentUserId = thesis?.studentId;
+    const studentName = defence.thesis?.student?.user?.fullName || "Mahasiswa";
+    const supervisorUserIds = (thesis?.thesisSupervisors || []).map((s) => s.lecturer?.user?.id).filter(Boolean);
+
+    const lecturerRecord = await prisma.lecturer.findUnique({
+      where: { id: lecturerId },
+      include: { user: { select: { fullName: true } } },
+    });
+    const lecturerName = lecturerRecord?.user?.fullName || "Dosen Penguji";
+
+    // 1. Notify Kadep if unavailable (needs reassignment)
+    if (status === "unavailable") {
+      const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
+      if (kadepIds.length > 0) {
+        const title = "Penguji Sidang TA Berhalangan";
+        const message = `${lecturerName} tidak bersedia menjadi penguji sidang TA mahasiswa ${studentName}. Alasan: ${unavailableReasons || "-"}. Mohon lakukan penetapan ulang.`;
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(kadepIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(kadepIds, { title, body: message, data: { defenceId, type: "defence_examiner_unavailable" } })),
+        ]);
+      }
+    }
+
+    // 2. Notify Student, Admin, and Supervisors if all confirmed (ready for scheduling)
+    if (defenceTransitioned) {
+      const title = "Penguji Sidang TA Lengkap";
+      const message = `Seluruh penguji untuk sidang TA ${studentName} telah bersedia hadir. Menunggu penetapan jadwal oleh Admin.`;
+
+      if (studentUserId) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers([studentUserId], { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_all_examiners_available" } })),
+        ]);
+      }
+
+      const adminIds = await coreRepo.findUserIdsByRole("Admin");
+      if (adminIds.length > 0) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(adminIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(adminIds, { title, body: message, data: { defenceId, type: "defence_all_examiners_available_admin" } })),
+        ]);
+      }
+
+      if (supervisorUserIds.length > 0) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(supervisorUserIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(supervisorUserIds, { title, body: message, data: { defenceId, type: "defence_all_examiners_available_supervisor" } })),
+        ]);
+      }
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify stakeholders on defence examiner response:", err.message);
   }
 
   return { examinerId, availabilityStatus: status, defenceTransitioned };
