@@ -223,6 +223,16 @@ export async function updateDefenceStatus(defenceId, status) {
   return prisma.thesisDefence.update({ where: { id: defenceId }, data: { status } });
 }
 
+export async function createThesisDefence(thesisId) {
+  return prisma.thesisDefence.create({
+    data: {
+      thesisId,
+      status: "registered",
+      registeredAt: new Date(),
+    },
+  });
+}
+
 export async function deleteDefence(id) {
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefenceDocument.deleteMany({ where: { thesisDefenceId: id } });

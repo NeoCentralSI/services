@@ -117,11 +117,24 @@ export async function getOverview(userId) {
     }));
   }
 
+  const milestones = [
+    { id: 'checklist', label: 'Memenuhi Syarat Pendaftaran', checked: allChecklistMet },
+    { id: 'documents', label: 'Dokumen Sidang Lengkap', checked: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentDefence?.status) },
+    { id: 'examiner', label: 'Penetapan Dosen Penguji', checked: ["examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentDefence?.status) },
+    { id: 'schedule', label: 'Penetapan Jadwal Sidang', checked: ["scheduled", "passed", "passed_with_revision"].includes(currentDefence?.status) },
+    { id: 'concluded', label: 'Pelaksanaan Sidang Tugas Akhir', checked: ["passed", "passed_with_revision"].includes(currentDefence?.status) },
+  ];
+
+  // Locking Logic
+  const canUpload = allChecklistMet && (!currentDefence || currentDefence.status === "registered");
+
   return {
     thesisId: thesis.id,
     thesisTitle: thesis.title,
     checklist,
     allChecklistMet,
+    milestones,
+    canUpload,
     defence: currentDefence
       ? {
           id: currentDefence.id,
@@ -156,7 +169,10 @@ export async function getOverview(userId) {
 
 export async function getDefenceHistory(userId) {
   const student = await resolveStudent(userId);
-  const attempts = await coreRepo.getAllStudentDefences(student.id);
+  let attempts = await coreRepo.getAllStudentDefences(student.id);
+
+  // Filter only failed or cancelled as per requirements ("Attempt")
+  attempts = attempts.filter((a) => ["failed", "cancelled"].includes(a.status));
 
   const lecturerNameMap = await buildLecturerNameMap(
     attempts.flatMap((attempt) => (attempt.examiners || []).map((examiner) => examiner.lecturerId))
