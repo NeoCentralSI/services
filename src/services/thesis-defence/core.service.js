@@ -533,7 +533,15 @@ export async function createArchive(body, userId) {
 
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
   
-  const created = await coreRepo.createArchive({ ...body, userId });
+  const finalScore = body.finalScore !== undefined ? body.finalScore : null;
+  const grade = body.grade || (finalScore !== null ? mapScoreToGrade(finalScore) : null);
+
+  const created = await coreRepo.createArchive({ 
+    ...body, 
+    finalScore,
+    grade,
+    userId 
+  });
   return coreRepo.findDefenceById(created.id);
 }
 
@@ -546,7 +554,15 @@ export async function updateArchive(defenceId, body, userId) {
 
   await validateExaminers(defence.thesisId, body.examinerLecturerIds);
   
-  await coreRepo.updateArchive(defenceId, { ...body, userId });
+  const finalScore = body.finalScore !== undefined ? body.finalScore : null;
+  const grade = body.grade || (finalScore !== null ? mapScoreToGrade(finalScore) : null);
+
+  await coreRepo.updateArchive(defenceId, { 
+    ...body, 
+    finalScore,
+    grade,
+    userId 
+  });
   return coreRepo.findDefenceById(defenceId);
 }
 
@@ -698,8 +714,8 @@ export async function importArchive(fileBuffer, userId) {
         if (!isNaN(p.getTime())) date = p.toISOString();
       }
 
-      const finalScore = row["Nilai"] ? Number(row["Nilai"]) : null;
-      const grade = row["Grade"] ? String(row["Grade"]).trim() : null;
+      const finalScore = row["Nilai"] !== undefined ? Number(row["Nilai"]) : null;
+      const grade = row["Grade"] ? String(row["Grade"]).trim() : (finalScore !== null ? mapScoreToGrade(finalScore) : null);
 
       const examinerColumns = [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]]
         .map((value) => String(value || "").trim())
