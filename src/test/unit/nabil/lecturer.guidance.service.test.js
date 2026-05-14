@@ -397,163 +397,43 @@ describe("Module 3 (Dosen): Approve Session Summary", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// Module 9: Transfer Mahasiswa Bimbingan
+// Module 9: Transfer Mahasiswa Bimbingan (Removed from active scope)
 // ══════════════════════════════════════════════════════════════
 describe("Module 9: Transfer Mahasiswa Bimbingan", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("requestStudentTransferService", () => {
-    it("sends transfer request with reason to target lecturer", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([
-        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
-      ]);
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
-      mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
-      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
-      mockRepo.createKadepTransferNotification.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      const result = await requestStudentTransferService("user-dosen-1", {
-        thesisIds: ["thesis-1"],
-        targetLecturerId: "lec-target",
-        reason: "Pindah bidang",
-      });
-
-      expect(result).toMatchObject({ studentCount: 1 });
-      expect(mockRepo.createTransferNotification).toHaveBeenCalled();
-    });
-
-    it("rejects (400) if reason is missing", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([]);
-
+    it("rejects formal supervisor transfer because it is outside active SIMPTA scope", async () => {
       await expect(
         requestStudentTransferService("user-dosen-1", {
           thesisIds: ["thesis-1"],
           targetLecturerId: "lec-target",
-          reason: "",
+          reason: "Pindah bidang",
         })
       ).rejects.toMatchObject({ statusCode: 400 });
-    });
 
-    it("rejects (400) if target is self", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([
-        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
-      ]);
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
-
-      await expect(
-        requestStudentTransferService("user-dosen-1", {
-          thesisIds: ["thesis-1"],
-          targetLecturerId: "lec-1", // self
-          reason: "Test",
-        })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("sends notification with [TRANSFER_REQUEST] tag to target lecturer", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([
-        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
-      ]);
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
-      mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
-      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
-      mockRepo.createKadepTransferNotification.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      await requestStudentTransferService("user-dosen-1", {
-        thesisIds: ["thesis-1"],
-        targetLecturerId: "lec-target",
-        reason: "Pindah bidang",
-      });
-
-      expect(mockRepo.createTransferNotification).toHaveBeenCalledWith(
-        "lec-target",
-        expect.stringContaining("\"t\":\"TX\"")
-      );
+      expect(mockRepo.createTransferNotification).not.toHaveBeenCalled();
+      expect(mockRepo.createKadepTransferNotification).not.toHaveBeenCalled();
     });
   });
 
   describe("approveTransferRequestService", () => {
-    it("approves transfer request, marks notification read and notifies kadep", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.markNotificationRead.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      const result = await approveTransferRequestService("user-dosen-1", "notif-tx-1");
-
-      expect(result).toHaveProperty("message");
-      expect(mockRepo.markNotificationRead).toHaveBeenCalledWith("notif-tx-1");
-    });
-
-    it("rejects (400) if transfer request already processed", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue({
-        ...TRANSFER_NOTIFICATION,
-        isRead: true,
-      });
-
-      await expect(
-        approveTransferRequestService("user-dosen-1", "notif-tx-1")
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects (404) if transfer request not found", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(null);
-
+    it("rejects target approval for removed transfer workflow", async () => {
       await expect(
         approveTransferRequestService("user-dosen-1", "nonexistent")
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
+      ).rejects.toMatchObject({ statusCode: 400 });
 
-    it("sends notification to source and kadep after transfer approval", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.markNotificationRead.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      await approveTransferRequestService("user-dosen-1", "notif-tx-1");
-
-      // Notifies source lecturer
-      expect(mockRepo.createInfoNotification).toHaveBeenCalled();
+      expect(mockRepo.markNotificationRead).not.toHaveBeenCalled();
     });
   });
 
   describe("rejectTransferRequestService", () => {
-    it("rejects transfer request with reason and notifies source lecturer", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.markNotificationRead.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      const result = await rejectTransferRequestService("user-dosen-1", "notif-tx-1", {
-        reason: "Sudah banyak mahasiswa",
-      });
-
-      expect(result).toMatchObject({ message: "Transfer request ditolak" });
-      expect(mockRepo.markNotificationRead).toHaveBeenCalledWith("notif-tx-1");
-    });
-
-    it("rejects (400) if already processed", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue({
-        ...TRANSFER_NOTIFICATION,
-        isRead: true,
-      });
-
+    it("rejects target rejection for removed transfer workflow", async () => {
       await expect(
         rejectTransferRequestService("user-dosen-1", "notif-tx-1", { reason: "test" })
       ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(mockRepo.markNotificationRead).not.toHaveBeenCalled();
     });
   });
 });
@@ -646,57 +526,14 @@ describe("Approve Thesis Proposal", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("approveThesisProposalService", () => {
-    it("approves proposal and sets status to active", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", thesisStatus: { name: "Diajukan" },
-        thesisSupervisors: [{ lecturerId: "lec-1", role: { name: "pembimbing_1" } }],
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-      });
-      mockPrisma.thesis.update = vi.fn().mockResolvedValue({
-        id: "thesis-1", thesisStatusId: null, startDate: new Date(),
-        thesisStatus: null,
-      });
-
-      const result = await approveThesisProposalService("user-dosen-1", "thesis-1");
-
-      expect(result).toHaveProperty("message");
-      expect(result.thesis).toHaveProperty("id", "thesis-1");
-    });
-
-    it("rejects (400) if thesis status is not 'Diajukan'", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", thesisStatus: { name: "Bimbingan" },
-        thesisSupervisors: [{ lecturerId: "lec-1" }],
-        student: { user: { id: "user-mhs-1" } },
-      });
-
+    it("rejects legacy lecturer proposal approval because TA-04 is KaDep-only", async () => {
       await expect(
         approveThesisProposalService("user-dosen-1", "thesis-1")
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects (403) if lecturer is not a supervisor", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", thesisStatus: { name: "Diajukan" },
-        thesisSupervisors: [], // not a supervisor
-        student: { user: { id: "user-mhs-1" } },
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining("TA-04"),
       });
-
-      await expect(
-        approveThesisProposalService("user-dosen-1", "thesis-1")
-      ).rejects.toMatchObject({ statusCode: 403 });
-    });
-
-    it("rejects (404) if thesis not found", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue(null);
-
-      await expect(
-        approveThesisProposalService("user-dosen-1", "nonexistent")
-      ).rejects.toMatchObject({ statusCode: 404 });
+      expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
     });
   });
 });

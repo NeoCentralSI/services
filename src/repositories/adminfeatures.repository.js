@@ -114,10 +114,11 @@ export function ensureUserRole(userId, roleId) {
 	});
 }
 
-export function createStudentForUser({ userId, status, enrollmentYear, skscompleted }) {
-	const sks = Number.isInteger(skscompleted) && skscompleted >= 0 ? skscompleted : 0;
+export function createStudentForUser({ userId, status, enrollmentYear, sksCompleted, skscompleted }) {
+	const rawSks = sksCompleted ?? skscompleted;
+	const sks = Number.isInteger(rawSks) && rawSks >= 0 ? rawSks : 0;
 	return prisma.student.create({
-		data: { id: userId, status: status || "active", enrollmentYear: enrollmentYear ?? null, skscompleted: sks },
+		data: { id: userId, status: status || "active", enrollmentYear: enrollmentYear ?? null, sksCompleted: sks },
 	});
 }
 
@@ -151,6 +152,15 @@ export function upsertUserRole(userId, roleId, status = "active") {
 export function findStudentByUserId(userId) {
 	return prisma.student.findUnique({ where: { id: userId } });
 }
+
+export function updateStudentByUserId(userId, data) {
+	return prisma.student.update({ where: { id: userId }, data });
+}
+
+export function updateLecturerByUserId(userId, data) {
+	return prisma.lecturer.update({ where: { id: userId }, data });
+}
+
 export function findRoleByName(name) {
 	// Search for role name (try exact match first, then case variations)
 	const n = String(name || "").trim();

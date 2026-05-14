@@ -29,6 +29,15 @@ function mapPrismaError(err) {
       return e;
     }
 
+    if (err.code === "P2021" || err.code === "P2022") {
+      const e = new Error(
+        "Skema database belum sinkron dengan code aplikasi. Periksa `npx prisma migrate status` di folder services dan sinkronkan database ke baseline migration repo ini."
+      );
+      e.statusCode = 500;
+      e.code = err.code;
+      return e;
+    }
+
     if (err.code === "P2025") {
       const e = new Error("Data tidak ditemukan");
       e.statusCode = 404;
@@ -38,7 +47,8 @@ function mapPrismaError(err) {
   }
 
   if (err instanceof Prisma.PrismaClientValidationError) {
-    const e = new Error("Input tidak valid");
+    console.error("PrismaClientValidationError Details:", err.message);
+    const e = new Error("Input tidak valid: " + err.message);
     e.statusCode = 400;
     return e;
   }
@@ -72,11 +82,25 @@ export default function errorHandler(err, req, res, next) {
     }
   }
 
+  let message = mappedErr.message || "Internal Server Error";
+  if (statusCode === 400 && Array.isArray(mappedErr.details) && mappedErr.details.length > 0) {
+    const detailsText = mappedErr.details
+      .slice(0, 3)
+      .map((detail) => {
+        const field = detail.path ? `${detail.path}: ` : "";
+        return `${field}${detail.message}`;
+      })
+      .join("; ");
+    if (detailsText) {
+      message = `${message}. ${detailsText}`;
+    }
+  }
+
   // Bentuk respons standar JSON
   const payload = {
     success: false,
     status: statusCode,
-    message: mappedErr.message || "Internal Server Error",
+    message,
     timestamp: new Date().toISOString(),
     path: req.originalUrl,
   };

@@ -20,7 +20,7 @@ export const scheduleSchema = z
       .max(255)
       .optional()
       .nullable(),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "date harus berformat YYYY-MM-DD." }),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date harus berformat YYYY-MM-DD."),
     startTime: z.string().regex(timeRegex, { message: "startTime harus berformat HH:MM." }),
     endTime: z.string().regex(timeRegex, { message: "endTime harus berformat HH:MM." }),
   })
@@ -53,9 +53,7 @@ export const scheduleSchema = z
 // ============================================================
 
 export const assignExaminersSchema = z.object({
-  examinerIds: z
-    .array(z.string().uuid("ID dosen penguji tidak valid"))
-    .length(2, "Harus menetapkan tepat 2 penguji"),
+  examinerIds: z.array(z.string().uuid("ID dosen penguji tidak valid")),
 });
 
 export const respondAssignmentSchema = z.object({
@@ -101,6 +99,7 @@ export const finalizeDefenceSchema = z.object({
 export const createRevisionSchema = z.object({
   defenceExaminerId: z.string().uuid("ID penguji tidak valid"),
   description: z.string().trim().min(1, "Deskripsi revisi wajib diisi"),
+  revisionAction: z.string().trim().optional(),
 });
 
 export const revisionActionSchema = z
@@ -122,3 +121,19 @@ export const revisionActionSchema = z
       });
     }
   });
+
+export const createDefenceSchema = z.object({
+  thesisId: z.string().uuid("thesisId harus berupa UUID yang valid."),
+  date: z.string().datetime("date harus berupa datetime ISO yang valid."),
+  roomId: z.string().uuid("roomId harus berupa UUID yang valid.").optional().nullable(),
+  status: z.enum(["passed", "passed_with_revision", "failed"]),
+  examinerLecturerIds: z.array(z.string().uuid()).min(1, "Minimal satu penguji harus dipilih"),
+  finalScore: z.number().min(0).max(100).optional().nullable(),
+  grade: z.string().max(2).optional().nullable(),
+});
+
+export const updateDefenceSchema = createDefenceSchema.partial().omit({ thesisId: true });
+
+export const cancelDefenceSchema = z.object({
+  cancelledReason: z.string().trim().optional().nullable(),
+});

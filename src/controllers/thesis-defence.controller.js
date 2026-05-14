@@ -10,8 +10,10 @@ import * as studentService from "../services/thesis-defence-student.service.js";
 
 export async function getDefences(req, res, next) {
   try {
-    const { search, status, view } = req.query;
+    const { page, pageSize, search, status, view } = req.query;
     const result = await coreService.getDefenceList({
+      page: parseInt(page) || 1,
+      pageSize: parseInt(pageSize) || 10,
       search: search || "",
       status: status || null,
       view: view || null,
@@ -43,7 +45,109 @@ export async function getSchedulingData(req, res, next) {
 
 export async function setSchedule(req, res, next) {
   try {
-    const result = await coreService.scheduleDefence(req.params.id, req.validated);
+    const result = await coreService.setSchedule(req.params.id, req.body);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function finalizeSchedule(req, res, next) {
+  try {
+    const result = await coreService.finalizeSchedule(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function cancelDefence(req, res, next) {
+  try {
+    const result = await coreService.cancelDefence(req.params.id, req.body);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createArchive(req, res, next) {
+  try {
+    const result = await coreService.createArchive(req.body, req.user.id);
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateArchive(req, res, next) {
+  try {
+    const result = await coreService.updateArchive(req.params.id, req.body, req.user.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteArchive(req, res, next) {
+  try {
+    const result = await coreService.deleteArchive(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getThesisOptions(req, res, next) {
+  try {
+    const result = await coreService.getThesisOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getLecturerOptions(req, res, next) {
+  try {
+    const result = await coreService.getLecturerOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getStudentOptions(req, res, next) {
+  try {
+    const result = await coreService.getStudentOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getRoomOptions(req, res, next) {
+  try {
+    const result = await coreService.getRoomOptions();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportArchive(req, res, next) {
+  try {
+    const buffer = await coreService.exportArchive();
+    res.setHeader("Content-Disposition", 'attachment; filename="Arsip_Sidang_TA.xlsx"');
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function importArchive(req, res, next) {
+  try {
+    if (!req.file) throw Object.assign(new Error("File tidak ditemukan"), { statusCode: 400 });
+    const result = await coreService.importArchive(req.file.buffer, req.user.id);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -150,7 +254,7 @@ export async function respondAssignment(req, res, next) {
 
 export async function getAssessment(req, res, next) {
   try {
-    const result = await examinerService.getAssessment(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getAssessment(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -168,7 +272,7 @@ export async function submitAssessment(req, res, next) {
 
 export async function getFinalizationData(req, res, next) {
   try {
-    const result = await examinerService.getFinalizationData(req.params.id, req.user.lecturerId);
+    const result = await examinerService.getFinalizationData(req.params.id, req.user);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -199,7 +303,12 @@ export async function getRevisions(req, res, next) {
 
 export async function createRevision(req, res, next) {
   try {
-    const result = await revisionService.createRevision(req.params.id, req.body, req.user.studentId);
+    const result = await revisionService.createRevision(
+      req.params.id, 
+      req.body, 
+      req.user.studentId,
+      req.user
+    );
     res.status(201).json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -225,7 +334,8 @@ export async function deleteRevision(req, res, next) {
     const result = await revisionService.deleteRevision(
       req.params.id,
       req.params.revisionId,
-      req.user.studentId
+      req.user.studentId,
+      req.user
     );
     res.json({ success: true, data: result });
   } catch (error) {
@@ -235,7 +345,24 @@ export async function deleteRevision(req, res, next) {
 
 export async function finalizeRevisions(req, res, next) {
   try {
-    const result = await revisionService.finalizeRevisions(req.params.id, req.user.lecturerId);
+    const result = await revisionService.finalizeRevisions(
+      req.params.id, 
+      req.user.lecturerId,
+      req.user
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function unfinalizeRevisions(req, res, next) {
+  try {
+    const result = await revisionService.unfinalizeRevisions(
+      req.params.id, 
+      req.user.lecturerId,
+      req.user
+    );
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -280,4 +407,21 @@ export async function getStudentAssessmentView(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+
+export async function downloadInvitationLetter(req, res, next) {
+  try {
+    const pdfBuffer = await coreService.generateInvitationLetter(req.params.id, req.query.nomorSurat);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=Surat-Undangan-Sidang-TA.pdf`);
+    res.send(pdfBuffer);
+  } catch (error) { next(error); }
+}
+export async function downloadAssessmentResult(req, res, next) {
+  try {
+    const pdfBuffer = await coreService.generateAssessmentResultPdf(req.params.id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=Hasil-Penilaian-Sidang-TA.pdf");
+    res.send(pdfBuffer);
+  } catch (error) { next(error); }
 }

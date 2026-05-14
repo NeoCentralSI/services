@@ -107,6 +107,7 @@ async function getAdminList({ search, status }) {
   const statusFilter = parseStatusFilter(status);
   const where = {
     ...buildSearchWhere(search),
+    registeredAt: { not: null },
     ...(statusFilter.database.length === 1
       ? { status: statusFilter.database[0] }
       : statusFilter.database.length > 1
@@ -292,10 +293,11 @@ export async function createArchive(body, userId) {
   if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
   if (!room) throwError("Ruangan tidak ditemukan", 404);
 
-  // A student can have multiple seminars, but only ONE passed/passed_with_revision result.
-  // If they have a successful result already, block creation.
-  if (existing && ["passed", "passed_with_revision"].includes(existing.status)) {
-    throwError("Tugas Akhir ini sudah memiliki data seminar hasil dengan status Lulus", 409);
+  const existingPassed = await prisma.thesisSeminar.findFirst({
+    where: { thesisId: body.thesisId, status: { in: ["passed", "passed_with_revision"] } }
+  });
+  if (existingPassed) {
+    throwError("Mahasiswa ini sudah lulus seminar hasil.", 409);
   }
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
   const created = await coreRepo.createSeminarWithExaminers({ thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByUserId: userId });
@@ -304,7 +306,11 @@ export async function createArchive(body, userId) {
 
 export async function updateArchive(seminarId, body, userId) {
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status seminar hasil tidak valid", 400);
-  if (!(await coreRepo.findSeminarBasicById(seminarId))) throwError("Data seminar hasil tidak ditemukan", 404);
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Data seminar hasil tidak ditemukan", 404);
+  if (seminar.registeredAt !== null) {
+    throwError("Seminar yang diproses melalui sistem tidak dapat diubah secara manual di arsip", 403);
+  }
   const [thesis, room, dup] = await Promise.all([coreRepo.findThesisById(body.thesisId), coreRepo.findRoomById(body.roomId), coreRepo.findSeminarByThesisIdExcludingId(body.thesisId, seminarId)]);
   if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
   if (!room) throwError("Ruangan tidak ditemukan", 404);
@@ -319,7 +325,11 @@ export async function updateArchive(seminarId, body, userId) {
 }
 
 export async function deleteArchive(seminarId) {
-  if (!(await coreRepo.findSeminarBasicById(seminarId))) throwError("Data seminar hasil tidak ditemukan", 404);
+  const seminar = await coreRepo.findSeminarBasicById(seminarId);
+  if (!seminar) throwError("Data seminar hasil tidak ditemukan", 404);
+  if (seminar.registeredAt !== null) {
+    throwError("Seminar yang diproses melalui sistem tidak dapat dihapus secara manual di arsip", 403);
+  }
   await coreRepo.deleteSeminar(seminarId);
   return { success: true };
 }
@@ -363,7 +373,10 @@ export async function importArchive(fileBuffer, userId) {
       const nim = String(row["NIM"] || "").trim(); if (!nim) throw new Error("NIM kosong");
       const student = await coreRepo.findStudentByNim(nim); if (!student) throw new Error(`NIM ${nim} tidak ditemukan`);
       const thesis = await coreRepo.findActiveThesisByStudentId(student.id); if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
-      if (await coreRepo.findSeminarByThesisId(thesis.id)) throw new Error("Sudah memiliki data seminar hasil");
+      const hasPassed = await prisma.thesisSeminar.findFirst({
+        where: { thesisId: thesis.id, status: { in: ["passed", "passed_with_revision"] } }
+      });
+      if (hasPassed) throw new Error("Sudah lulus seminar hasil");
       const ruangan = String(row["Ruangan"] || "").trim(); let roomId = null;
       if (ruangan && ruangan !== "-") { const room = await coreRepo.findRoomByNameLike(ruangan); if (!room) throw new Error(`Ruangan "${ruangan}" tidak ditemukan`); roomId = room.id; }
       const hasil = String(row["Hasil"] || "").trim().toLowerCase();
@@ -719,7 +732,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   return await convertHtmlToPdf(html);
 }
 
-export async function generateBeritaAcaraPdf(seminarId) {
+export async function generateAssessmentResultPdf(seminarId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
@@ -764,7 +777,7 @@ export async function generateBeritaAcaraPdf(seminarId) {
       logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
     }
   } catch (e) {
-    console.error("Berita acara logo load failed:", e);
+    console.error("Assessment result logo load failed:", e);
   }
 
   const student = seminar.thesis?.student?.user;

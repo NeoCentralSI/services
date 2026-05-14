@@ -9,7 +9,7 @@ export const createThesisSchema = z.object({
   supervisors: z.array(
     z.object({
       lecturerId: z.string().uuid(),
-      roleId: z.string().uuid(),
+      supervisorRole: z.enum(["pembimbing_1", "pembimbing_2"]),
     })
   ).optional(),
 });
@@ -21,7 +21,7 @@ export const updateThesisSchema = z.object({
   supervisors: z.array(
     z.object({
       lecturerId: z.string().uuid(),
-      roleId: z.string().uuid(),
+      supervisorRole: z.enum(["pembimbing_1", "pembimbing_2"]),
     })
   ).optional(),
 });

@@ -18,10 +18,8 @@ export async function checkGotenbergConnection() {
         }
     } catch (err) {
         console.error("❌ Gotenberg connection failed:", err.message);
-        // Don't throw error to prevent server crash on startup if Gotenberg is optional, 
-        // but if it's critical, you might want to. 
-        // matching redis.js behavior (it throws).
-        throw err;
+        // Don't throw error to prevent server crash on startup if Gotenberg is optional.
+        return false;
     }
 }
 

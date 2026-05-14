@@ -1,16 +1,5 @@
 import prisma from "../../config/prisma.js";
-import { normalize } from "../../constants/roles.js";
-
-// Helper functions for role matching
-function isPembimbing1(roleName) {
-  const n = normalize(roleName);
-  return n === "pembimbing 1" || n === "pembimbing1";
-}
-
-function isPembimbing2(roleName) {
-  const n = normalize(roleName);
-  return n === "pembimbing 2" || n === "pembimbing2";
-}
+import { withSupervisorRoleAliases } from "../../utils/supervisorIntegrity.js";
 
 // ============================================
 // Milestone Template Repository
@@ -198,17 +187,10 @@ export function findByIdAndThesisId(id, thesisId) {
 /**
  * Create new milestone
  */
-export async function create(data) {
-  const result = await prisma.thesisMilestone.create({
+export function create(data) {
+  return prisma.thesisMilestone.create({
     data,
   });
-  if (result.thesisId) {
-    await prisma.thesis.update({
-      where: { id: result.thesisId },
-      data: { updatedAt: new Date() }
-    });
-  }
-  return result;
 }
 
 /**
@@ -224,18 +206,11 @@ export function createMany(dataArray) {
 /**
  * Update milestone by ID
  */
-export async function update(id, data) {
-  const result = await prisma.thesisMilestone.update({
+export function update(id, data) {
+  return prisma.thesisMilestone.update({
     where: { id },
     data,
   });
-  if (result.thesisId) {
-    await prisma.thesis.update({
-      where: { id: result.thesisId },
-      data: { updatedAt: new Date() }
-    });
-  }
-  return result;
 }
 
 /**
@@ -250,38 +225,24 @@ export function remove(id) {
 /**
  * Update milestone status
  */
-export async function updateStatus(id, status, additionalData = {}) {
-  const result = await prisma.thesisMilestone.update({
+export function updateStatus(id, status, additionalData = {}) {
+  return prisma.thesisMilestone.update({
     where: { id },
     data: {
       status,
       ...additionalData,
     },
   });
-  if (result.thesisId) {
-    await prisma.thesis.update({
-      where: { id: result.thesisId },
-      data: { updatedAt: new Date() }
-    });
-  }
-  return result;
 }
 
 /**
  * Update progress percentage
  */
-export async function updateProgress(id, progressPercentage) {
-  const result = await prisma.thesisMilestone.update({
+export function updateProgress(id, progressPercentage) {
+  return prisma.thesisMilestone.update({
     where: { id },
     data: { progressPercentage },
   });
-  if (result.thesisId) {
-    await prisma.thesis.update({
-      where: { id: result.thesisId },
-      data: { updatedAt: new Date() }
-    });
-  }
-  return result;
 }
 
 /**
@@ -375,7 +336,7 @@ export async function updateMilestoneStatus(id, newStatus, additionalData = {}) 
  * Validate milestone by supervisor
  */
 export async function validateMilestone(id, validatorId, supervisorNotes = null) {
-  const result = await prisma.thesisMilestone.update({
+  return prisma.thesisMilestone.update({
     where: { id },
     data: {
       status: "completed",
@@ -386,13 +347,6 @@ export async function validateMilestone(id, validatorId, supervisorNotes = null)
       completedAt: new Date(),
     },
   });
-  if (result.thesisId) {
-    await prisma.thesis.update({
-      where: { id: result.thesisId },
-      data: { updatedAt: new Date() }
-    });
-  }
-  return result;
 }
 
 /**
@@ -404,9 +358,6 @@ export async function requestRevision(id, supervisorId, revisionNotes) {
     data: {
       status: "revision_needed",
       supervisorNotes: revisionNotes,
-      progressPercentage: {
-        decrement: 10,
-      },
     },
   });
 }
@@ -418,8 +369,8 @@ export async function requestRevision(id, supervisorId, revisionNotes) {
 /**
  * Get thesis seminar readiness status
  */
-export function getThesisSeminarReadiness(thesisId) {
-  return prisma.thesis.findUnique({
+export async function getThesisSeminarReadiness(thesisId) {
+  const thesis = await prisma.thesis.findUnique({
     where: { id: thesisId },
     select: {
       id: true,
@@ -438,16 +389,12 @@ export function getThesisSeminarReadiness(thesisId) {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
+          role: { select: { name: true } },
           seminarReady: true,
-          role: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
           lecturer: {
             select: {
               user: {
@@ -463,6 +410,12 @@ export function getThesisSeminarReadiness(thesisId) {
       },
     },
   });
+
+  if (!thesis) return null;
+  return {
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis.thesisSupervisors ?? []),
+  };
 }
 
 /**
@@ -473,8 +426,8 @@ export function getThesisSeminarReadiness(thesisId) {
  */
 export async function approveSeminarReadiness(thesisId, lecturerId) {
   // Find the supervisor record for this lecturer on this thesis
-  const supervisor = await prisma.thesisSupervisors.findFirst({
-    where: { thesisId, lecturerId },
+  const supervisor = await prisma.thesisParticipant.findFirst({
+    where: { thesisId, lecturerId, status: "active" },
   });
 
   if (!supervisor) {
@@ -482,23 +435,24 @@ export async function approveSeminarReadiness(thesisId, lecturerId) {
   }
 
   // Update seminarReady to true
-  await prisma.thesisSupervisors.update({
+  await prisma.thesisParticipant.update({
     where: { id: supervisor.id },
     data: { seminarReady: true },
   });
 
   // Return the thesis with updated supervisors
-  return prisma.thesis.findUnique({
+  const thesis = await prisma.thesis.findUnique({
     where: { id: thesisId },
     select: {
       id: true,
       title: true,
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
-          seminarReady: true,
           role: { select: { name: true } },
+          seminarReady: true,
           lecturer: {
             select: {
               user: { select: { id: true, fullName: true } },
@@ -508,6 +462,11 @@ export async function approveSeminarReadiness(thesisId, lecturerId) {
       },
     },
   });
+
+  return {
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis?.thesisSupervisors ?? []),
+  };
 }
 
 /**
@@ -515,8 +474,8 @@ export async function approveSeminarReadiness(thesisId, lecturerId) {
  */
 export async function revokeSeminarReadiness(thesisId, lecturerId) {
   // Find the supervisor record
-  const supervisor = await prisma.thesisSupervisors.findFirst({
-    where: { thesisId, lecturerId },
+  const supervisor = await prisma.thesisParticipant.findFirst({
+    where: { thesisId, lecturerId, status: "active" },
   });
 
   if (!supervisor) {
@@ -524,23 +483,24 @@ export async function revokeSeminarReadiness(thesisId, lecturerId) {
   }
 
   // Update seminarReady to false
-  await prisma.thesisSupervisors.update({
+  await prisma.thesisParticipant.update({
     where: { id: supervisor.id },
     data: { seminarReady: false },
   });
 
   // Return the thesis with updated supervisors
-  return prisma.thesis.findUnique({
+  const thesis = await prisma.thesis.findUnique({
     where: { id: thesisId },
     select: {
       id: true,
       title: true,
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
-          seminarReady: true,
           role: { select: { name: true } },
+          seminarReady: true,
           lecturer: {
             select: {
               user: { select: { id: true, fullName: true } },
@@ -550,18 +510,22 @@ export async function revokeSeminarReadiness(thesisId, lecturerId) {
       },
     },
   });
+
+  return {
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis?.thesisSupervisors ?? []),
+  };
 }
 
 /**
  * Get list of students ready for seminar (all supervisors approved)
  */
-export function findStudentsReadyForSeminar() {
-  return prisma.thesis.findMany({
+export async function findStudentsReadyForSeminar() {
+  const theses = await prisma.thesis.findMany({
     where: {
       thesisSupervisors: {
-        every: {
-          seminarReady: true,
-        },
+        some: { status: "active" },
+        none: { status: "active", seminarReady: false },
       },
     },
     select: {
@@ -581,9 +545,10 @@ export function findStudentsReadyForSeminar() {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
-          seminarReady: true,
           role: { select: { name: true } },
+          seminarReady: true,
           lecturer: {
             select: {
               user: { select: { fullName: true } },
@@ -594,6 +559,11 @@ export function findStudentsReadyForSeminar() {
     },
     orderBy: { updatedAt: "desc" },
   });
+
+  return theses.map((thesis) => ({
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis.thesisSupervisors ?? []),
+  }));
 }
 
 // ============================================
@@ -603,8 +573,8 @@ export function findStudentsReadyForSeminar() {
 /**
  * Get thesis defence readiness status
  */
-export function getThesisDefenceReadiness(thesisId) {
-  return prisma.thesis.findUnique({
+export async function getThesisDefenceReadiness(thesisId) {
+  const thesis = await prisma.thesis.findUnique({
     where: { id: thesisId },
     select: {
       id: true,
@@ -639,16 +609,12 @@ export function getThesisDefenceReadiness(thesisId) {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
+          role: { select: { name: true } },
           defenceReady: true,
-          role: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
           lecturer: {
             select: {
               user: {
@@ -674,6 +640,12 @@ export function getThesisDefenceReadiness(thesisId) {
       },
     },
   });
+
+  if (!thesis) return null;
+  return {
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis.thesisSupervisors ?? []),
+  };
 }
 
 /**
@@ -683,50 +655,62 @@ export function getThesisDefenceReadiness(thesisId) {
  * @param {string} notes - optional notes
  */
 export async function approveDefenceReadiness(thesisId, lecturerId) {
-  return prisma.thesisSupervisors.updateMany({
-    where: { thesisId, lecturerId },
+  await prisma.thesisParticipant.updateMany({
+    where: { thesisId, lecturerId, status: "active" },
     data: { defenceReady: true },
-  }).then(() =>
-    prisma.thesis.findUnique({
-      where: { id: thesisId },
-      select: {
-        id: true,
-        title: true,
-        thesisSupervisors: {
-          select: {
-            lecturerId: true,
-            defenceReady: true,
-            role: { select: { name: true } },
-          },
+  });
+
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      thesisSupervisors: {
+        where: { status: "active" },
+        select: {
+          lecturerId: true,
+          role: { select: { name: true } },
+          defenceReady: true,
         },
       },
-    })
-  );
+    },
+  });
+
+  return {
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis?.thesisSupervisors ?? []),
+  };
 }
 
 /**
  * Revoke defence readiness approval by supervisor
  */
 export async function revokeDefenceReadiness(thesisId, lecturerId) {
-  return prisma.thesisSupervisors.updateMany({
-    where: { thesisId, lecturerId },
+  await prisma.thesisParticipant.updateMany({
+    where: { thesisId, lecturerId, status: "active" },
     data: { defenceReady: false },
-  }).then(() =>
-    prisma.thesis.findUnique({
-      where: { id: thesisId },
-      select: {
-        id: true,
-        title: true,
-        thesisSupervisors: {
-          select: {
-            lecturerId: true,
-            defenceReady: true,
-            role: { select: { name: true } },
-          },
+  });
+
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      thesisSupervisors: {
+        where: { status: "active" },
+        select: {
+          lecturerId: true,
+          role: { select: { name: true } },
+          defenceReady: true,
         },
       },
-    })
-  );
+    },
+  });
+
+  return {
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis?.thesisSupervisors ?? []),
+  };
 }
 
 /**
@@ -758,12 +742,13 @@ export function updateThesisDefenceRequest(thesisId, documentId) {
 /**
  * Get list of students ready for defence (both supervisors approved)
  */
-export function findStudentsReadyForDefence() {
-  return prisma.thesis.findMany({
+export async function findStudentsReadyForDefence() {
+  const theses = await prisma.thesis.findMany({
     where: {
       defenceRequestedAt: { not: null },
       thesisSupervisors: {
-        every: { defenceReady: true },
+        some: { status: "active" },
+        none: { status: "active", defenceReady: false },
       },
     },
     select: {
@@ -790,9 +775,10 @@ export function findStudentsReadyForDefence() {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
-          defenceReady: true,
           role: { select: { name: true } },
+          defenceReady: true,
           lecturer: {
             select: {
               user: { select: { fullName: true } },
@@ -803,54 +789,9 @@ export function findStudentsReadyForDefence() {
     },
     orderBy: { defenceRequestedAt: "desc" },
   });
-}
 
-/**
- * Get all pending_review milestones for a given supervisor (by userId).
- * Single query — avoids N+1 problem.
- */
-export function findPendingReviewBySupervisor(userId) {
-  return prisma.thesisMilestone.findMany({
-    where: {
-      status: "pending_review",
-      thesis: {
-        thesisSupervisors: {
-          some: {
-            lecturer: {
-              id: userId,
-            },
-          },
-        },
-      },
-    },
-    include: {
-      thesis: {
-        select: {
-          id: true,
-          title: true,
-          student: {
-            select: {
-              user: {
-                select: {
-                  fullName: true,
-                  identityNumber: true,
-                },
-              },
-            },
-          },
-          thesisSupervisors: {
-            include: {
-              role: true,
-              lecturer: {
-                include: {
-                  user: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+  return theses.map((thesis) => ({
+    ...thesis,
+    thesisSupervisors: withSupervisorRoleAliases(thesis.thesisSupervisors ?? []),
+  }));
 }

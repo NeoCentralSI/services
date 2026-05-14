@@ -183,7 +183,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         thesisGuidances: [],
         thesisStatus: { name: "Bimbingan" },
         thesisTopic: { name: "ML" },
-        academicYear: { semester: "Ganjil", year: 2024 },
+        academicYear: { semester: "ganjil", year: "2024/2025" },
         startDate: new Date(),
         deadlineDate: new Date(),
         rating: "on_track",
@@ -279,7 +279,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
   // ─── Progress Report ──────────────────────────────────────
   describe("getProgressReportService", () => {
     it("returns comprehensive report data for PDF generation", async () => {
-      mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "Ganjil", year: 2024 });
+      mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: "2024/2025" });
       mockRepo.getStatusDistribution.mockResolvedValue([]);
       mockRepo.getRatingDistribution.mockResolvedValue([]);
       mockRepo.getThesesForReport.mockResolvedValue([]);
@@ -370,7 +370,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     });
 
     it("computes milestone and guidance statistics correctly", async () => {
-      mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: 2025 });
+      mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: "2025/2026" });
       mockRepo.getThesesForReport.mockResolvedValue([
         {
           id: "t1", title: "Thesis 1", rating: "ONGOING",

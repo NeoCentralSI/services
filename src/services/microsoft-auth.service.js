@@ -4,6 +4,8 @@ import axios from "axios";
 import { ENV } from "../config/env.js";
 import prisma from "../config/prisma.js";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import { AppError, ForbiddenError, NotFoundError, UnauthorizedError } from "../utils/errors.js";
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 const MICROSOFT_TOKEN_URL = `https://login.microsoftonline.com/${ENV.TENANT_ID}/oauth2/v2.0/token`;
@@ -17,7 +19,21 @@ const msalConfig = {
   },
 };
 
-const msalClient = new ConfidentialClientApplication(msalConfig);
+let msalClient = null;
+
+function getMsalClient() {
+  if (msalClient) return msalClient;
+
+  if (!ENV.CLIENT_ID || !ENV.CLIENT_SECRET || !ENV.TENANT_ID || !ENV.REDIRECT_URI) {
+    throw new AppError(
+      "Microsoft OAuth belum dikonfigurasi. Lengkapi CLIENT_ID, CLIENT_SECRET, TENANT_ID, dan REDIRECT_URI di .env",
+      503,
+    );
+  }
+
+  msalClient = new ConfidentialClientApplication(msalConfig);
+  return msalClient;
+}
 
 // Scopes for Microsoft OAuth (including Calendar access)
 const MICROSOFT_SCOPES = [
@@ -29,20 +45,80 @@ const MICROSOFT_SCOPES = [
   "offline_access",
 ];
 
+const USER_AUTH_INCLUDE = {
+  userHasRoles: {
+    include: {
+      role: true,
+    },
+  },
+  student: true,
+  lecturer: {
+    include: {
+      scienceGroup: true,
+    },
+  },
+};
+
+function extractIdentityNumberFromMicrosoftProfile(profile) {
+  const candidates = [
+    profile?.mail,
+    profile?.userPrincipalName,
+    profile?.employeeId,
+  ].filter((value) => typeof value === "string");
+
+  for (const value of candidates) {
+    const match = value.match(/\d{8,20}/);
+    if (match) {
+      return match[0];
+    }
+  }
+
+  return null;
+}
+
+async function findUserForMicrosoftLogin({ oauthId, email, identityNumber }) {
+  if (oauthId) {
+    const linkedUser = await prisma.user.findFirst({
+      where: {
+        oauthProvider: "microsoft",
+        oauthId,
+      },
+      include: USER_AUTH_INCLUDE,
+    });
+
+    if (linkedUser) {
+      return linkedUser;
+    }
+  }
+
+  const userByEmail = await prisma.user.findUnique({
+    where: { email },
+    include: USER_AUTH_INCLUDE,
+  });
+
+  if (userByEmail || !identityNumber) {
+    return userByEmail;
+  }
+
+  return prisma.user.findUnique({
+    where: { identityNumber },
+    include: USER_AUTH_INCLUDE,
+  });
+}
+
 /**
  * Get Microsoft OAuth authorization URL
  * @returns {string} Authorization URL
  */
-export function getMicrosoftAuthUrl(isMobile = false) {
+export function getMicrosoftAuthUrl() {
+  const client = getMsalClient();
   const authCodeUrlParameters = {
     scopes: MICROSOFT_SCOPES,
     redirectUri: ENV.REDIRECT_URI,
     prompt: 'select_account',
-    // Encode platform info in state so callback knows how to redirect
-    state: isMobile ? Buffer.from(JSON.stringify({ platform: 'mobile' })).toString('base64') : undefined,
   };
 
-  return msalClient.getAuthCodeUrl(authCodeUrlParameters);
+  return client.getAuthCodeUrl(authCodeUrlParameters);
 }
 
 /**
@@ -53,9 +129,6 @@ export function getMicrosoftAuthUrl(isMobile = false) {
  */
 export async function exchangeCodeForTokens(code) {
   try {
-    console.log('🔄 Attempting to exchange code for tokens (direct HTTP)...');
-    console.log('📍 Redirect URI:', ENV.REDIRECT_URI);
-
     // Use direct HTTP request to get tokens (this guarantees refresh_token)
     const tokenResponse = await axios.post(
       MICROSOFT_TOKEN_URL,
@@ -76,19 +149,11 @@ export async function exchangeCodeForTokens(code) {
 
     const { access_token, refresh_token, id_token } = tokenResponse.data;
 
-    console.log('✅ Token exchange successful');
-    console.log('🔑 Has access token:', !!access_token);
-    console.log('🔄 Has refresh token:', !!refresh_token);
-    console.log('🔄 Fetching user profile from Microsoft Graph...');
-
     // Get user profile from Microsoft Graph
     const userProfile = await getMicrosoftUserProfile(access_token);
 
-    console.log('✅ User profile fetched successfully');
-
     // Check calendar access
     const calendarAccess = await checkCalendarAccessWithToken(access_token);
-    console.log('📅 Calendar access:', calendarAccess ? 'Yes' : 'No');
 
     return {
       accessToken: access_token,
@@ -98,19 +163,21 @@ export async function exchangeCodeForTokens(code) {
       hasCalendarAccess: calendarAccess,
     };
   } catch (error) {
-    console.error("❌ Error exchanging code for tokens:");
-    console.error("Error type:", error.constructor.name);
-    console.error("Error message:", error.message);
-
-    if (error.response) {
-      console.error("Response status:", error.response.status);
-      console.error("Response data:", error.response.data);
-    }
-
-    const err = new Error(`Failed to authenticate with Microsoft: ${error.response?.data?.error_description || error.message || 'Unknown error'}`);
-    err.statusCode = 401;
-    throw err;
+    const detail = error.response?.data?.error_description || error.message || "Unknown error";
+    throw new UnauthorizedError(`Failed to authenticate with Microsoft: ${detail}`);
   }
+}
+
+export async function loginWithMicrosoftAuthorizationCode(code) {
+  const { accessToken, refreshToken, userProfile, hasCalendarAccess } =
+    await exchangeCodeForTokens(code);
+
+  return loginOrRegisterWithMicrosoft(
+    userProfile,
+    accessToken,
+    refreshToken,
+    hasCalendarAccess,
+  );
 }
 
 /**
@@ -128,10 +195,8 @@ async function getMicrosoftUserProfile(accessToken) {
 
     return response.data;
   } catch (error) {
-    console.error("Error fetching Microsoft user profile:", error);
-    const err = new Error("Failed to fetch user profile from Microsoft");
-    err.statusCode = 401;
-    throw err;
+    console.warn("[MicrosoftAuth] User profile fetch failed:", error.response?.status || error.message);
+    throw new UnauthorizedError("Failed to fetch user profile from Microsoft");
   }
 }
 
@@ -166,50 +231,39 @@ async function checkCalendarAccessWithToken(accessToken) {
 export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken, refreshToken = null, hasCalendarAccess = false) {
   const { id: oauthId, mail, userPrincipalName, displayName } = microsoftProfile;
 
-  // ✅ DEBUG: Log semua email info dari Microsoft
-  console.log('🔍 Microsoft Profile Debug:');
-  console.log('  - OAuth ID:', oauthId);
-  console.log('  - mail:', mail);
-  console.log('  - userPrincipalName:', userPrincipalName);
-  console.log('  - displayName:', displayName);
-  console.log('  - Full profile:', JSON.stringify(microsoftProfile, null, 2));
-
-  const email = mail || userPrincipalName;
+  const rawEmail =
+    typeof mail === "string"
+      ? mail
+      : typeof userPrincipalName === "string"
+        ? userPrincipalName
+        : "";
+  const email = rawEmail.trim().toLowerCase();
+  const normalizedDisplayName =
+    typeof displayName === "string" && displayName.trim()
+      ? displayName.trim()
+      : email;
+  const identityNumber = extractIdentityNumberFromMicrosoftProfile(microsoftProfile);
 
   if (!email) {
-    const err = new Error("Email not found in Microsoft account");
-    err.statusCode = 401;
-    throw err;
+    throw new UnauthorizedError("Email not found in Microsoft account");
   }
 
-  console.log(`📧 Using email for lookup: ${email}`);
-
-  // ✅ CHECK: Apakah user sudah ada di database (by email)
-  let user = await prisma.user.findUnique({
-    where: { email },
-    include: {
-      userHasRoles: {
-        include: {
-          role: true,
-        },
-      },
-      student: true,
-      lecturer: true,
-    },
+  // Login utama memakai oauthId karena Microsoft mail/userPrincipalName bisa
+  // berbeda dari email lokal setelah akun pernah terhubung.
+  let user = await findUserForMicrosoftLogin({
+    oauthId,
+    email,
+    identityNumber,
   });
 
   if (!user) {
     // ❌ User BELUM TERDAFTAR - Return error (tidak buat user baru)
-    const err = new Error("Akun belum terdaftar. Silakan hubungi admin.");
-    err.statusCode = 404;
-    throw err;
+    throw new NotFoundError("Akun belum terdaftar. Silakan hubungi admin.");
   }
 
   // ✅ CHECK: Apakah akun sudah aktif?
   if (!user.isVerified) {
-    const err = new Error("Akun belum diaktivasi. Silakan aktivasi akun terlebih dahulu.");
-    err.statusCode = 403;
-    throw err;
+    throw new ForbiddenError("Akun belum diaktivasi. Silakan aktivasi akun terlebih dahulu.");
   }
 
   // ✅ USER SUDAH ADA & AKTIF - UPDATE dengan OAuth info (tidak buat row baru)
@@ -218,19 +272,11 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
     data: {
       oauthProvider: "microsoft",
       oauthId,
-      oauthRefreshToken: refreshToken || user.oauthRefreshToken,
+      oauthRefreshToken: refreshToken,
       // Password TETAP ADA (tidak dihapus) untuk fallback/development
       // fullName dan identityNumber tidak diupdate (preserve existing data)
     },
-    include: {
-      userHasRoles: {
-        include: {
-          role: true,
-        },
-      },
-      student: true,
-      lecturer: true,
-    },
+    include: USER_AUTH_INCLUDE,
   });
 
   // Generate JWT tokens (gunakan 'sub' untuk consistency dengan password login)
@@ -246,37 +292,57 @@ export async function loginOrRegisterWithMicrosoft(microsoftProfile, accessToken
     { expiresIn: ENV.REFRESH_TOKEN_EXPIRES_IN }
   );
 
+  const refreshHash = await bcrypt.hash(jwtRefreshToken, 10);
+
   // Update refresh token in database
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshToken: jwtRefreshToken },
+    data: { refreshToken: refreshHash },
   });
 
-  // Format user response
+  // Format user response.
+  //
+  // DTO whitelist eksplisit — tidak meneruskan row Prisma full untuk
+  // student/lecturer (sebelumnya bisa membocorkan field internal seperti
+  // timestamp audit, FK internal, atau kolom yang tidak relevan untuk klien).
+  // Bandingkan dengan `getUserProfile` di auth.service.js yang mengikuti
+  // pola DTO yang sama.
   const userResponse = {
     id: user.id,
-    fullName: user.fullName,
+    fullName: user.fullName || normalizedDisplayName,
     email: user.email,
     identityNumber: user.identityNumber,
     identityType: user.identityType,
     phoneNumber: user.phoneNumber,
     isVerified: user.isVerified,
+    avatarUrl: user.avatarUrl ?? null,
     roles: user.userHasRoles.map((ur) => ({
       id: ur.role.id,
       name: ur.role.name,
       status: ur.status,
     })),
-    student: user.student ? {
-      id: user.student.id,
-      enrollmentYear: user.student.enrollmentYear,
-      sksCompleted: user.student.skscompleted,
-      status: user.student.status,
-    } : null,
-    lecturer: user.lecturer ? {
-      id: user.lecturer.id,
-      scienceGroup: user.lecturer.scienceGroup?.name || null,
-      data: user.lecturer.data,
-    } : null,
+    student: user.student
+      ? {
+          id: user.student.id,
+          enrollmentYear: user.student.enrollmentYear ?? null,
+          sksCompleted: user.student.sksCompleted ?? 0,
+          currentSemester: user.student.currentSemester ?? null,
+          status: user.student.status ?? null,
+          eligibleMetopen: user.student.eligibleMetopen ?? null,
+          metopenEligibilitySource: user.student.metopenEligibilitySource ?? null,
+          metopenEligibilityUpdatedAt: user.student.metopenEligibilityUpdatedAt ?? null,
+          takingThesisCourse: user.student.takingThesisCourse ?? null,
+          thesisCourseEnrollmentSource: user.student.thesisCourseEnrollmentSource ?? null,
+          thesisCourseEnrollmentUpdatedAt: user.student.thesisCourseEnrollmentUpdatedAt ?? null,
+        }
+      : null,
+    lecturer: user.lecturer
+      ? {
+          id: user.lecturer.id,
+          scienceGroup: user.lecturer.scienceGroup?.name ?? null,
+          data: user.lecturer.data ?? null,
+        }
+      : null,
   };
 
   return {
@@ -302,9 +368,7 @@ export async function refreshMicrosoftToken(userId) {
   });
 
   if (!user || user.oauthProvider !== "microsoft" || !user.oauthRefreshToken) {
-    const err = new Error("Microsoft refresh token not found");
-    err.statusCode = 404;
-    throw err;
+    throw new NotFoundError("Microsoft refresh token not found");
   }
 
   const silentRequest = {
@@ -313,7 +377,8 @@ export async function refreshMicrosoftToken(userId) {
   };
 
   try {
-    const response = await msalClient.acquireTokenByRefreshToken(silentRequest);
+    const client = getMsalClient();
+    const response = await client.acquireTokenByRefreshToken(silentRequest);
 
     // Update tokens in database
     await prisma.user.update({
@@ -325,33 +390,7 @@ export async function refreshMicrosoftToken(userId) {
 
     return response.accessToken;
   } catch (error) {
-    console.error("Error refreshing Microsoft token:", error);
-    const err = new Error("Failed to refresh Microsoft token");
-    err.statusCode = 401;
-    throw err;
+    console.warn("[MicrosoftAuth] Token refresh failed:", error.message);
+    throw new UnauthorizedError("Failed to refresh Microsoft token");
   }
-}
-
-/**
- * Login using a raw Microsoft Graph access token (mobile OAuth flow).
- * Called by POST /auth/microsoft/mobile – the mobile app gets an MS token
- * directly via flutter_appauth and sends it here for validation.
- *
- * @param {string} msAccessToken - Microsoft Graph access token from flutter_appauth
- * @returns {Promise<Object>} { accessToken, refreshToken, user }
- */
-export async function loginWithMicrosoftToken(msAccessToken) {
-  // 1. Validate token by fetching user profile from Microsoft Graph
-  const userProfile = await getMicrosoftUserProfile(msAccessToken);
-
-  // 2. Optional calendar access check (non-blocking)
-  const hasCalendarAccess = await checkCalendarAccessWithToken(msAccessToken);
-
-  // 3. Reuse existing business logic: find user in DB, issue our JWT
-  return loginOrRegisterWithMicrosoft(
-    userProfile,
-    msAccessToken,
-    null,            // no MS refresh token; we store our own JWT refresh token
-    hasCalendarAccess
-  );
 }

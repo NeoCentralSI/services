@@ -4,6 +4,7 @@ import morgan from "morgan";
 import { fileURLToPath, pathToFileURL } from "url";
 import path from "path";
 import fs from "fs";
+import { createCorsOptions } from "./config/cors.js";
 import errorHandler from "./middlewares/error.middleware.js";
 import dateFormatMiddleware from "./middlewares/dateFormat.middleware.js";
 import { authGuard } from "./middlewares/auth.middleware.js";
@@ -11,9 +12,20 @@ import { checkThesisFileAccess } from "./middlewares/fileAccess.middleware.js";
 
 const app = express();
 
-app.use(cors());
+app.use(cors(createCorsOptions()));
 app.use(express.json());
 app.use(morgan("dev"));
+app.use((req, res, next) => {
+  const writeLocked = ["true", "1", "yes"].includes(
+    String(process.env.SIMPTA_WRITE_LOCK || process.env.MAINTENANCE_MODE || "").toLowerCase(),
+  );
+  if (!writeLocked || ["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
+
+  return res.status(503).json({
+    success: false,
+    message: "Sistem sedang maintenance/migrasi. Operasi tulis sementara dikunci.",
+  });
+});
 // Include weekday (Indonesian) in all formatted date fields
 app.use(dateFormatMiddleware({ withSeconds: false, withDay: true }));
 
@@ -31,13 +43,19 @@ try {
   // Protect yudisium uploads with authGuard
   app.use("/uploads/yudisium", authGuard, express.static(path.join(uploadsDir, "yudisium")));
 
-  // Serve internship and general uploads statically
-  app.use("/uploads/internship", express.static(path.join(uploadsDir, "internship")));
-  app.use("/uploads/general", express.static(path.join(uploadsDir, "general")));
-  app.use("/uploads/logbooks", express.static(path.join(uploadsDir, "logbooks")));
-  app.use("/uploads/field-assessments", express.static(path.join(uploadsDir, "field-assessments")));
+  // Internship and metopen uploads now require authentication (basic gate).
+  app.use("/uploads/internship", authGuard, express.static(path.join(uploadsDir, "internship")));
+  app.use("/uploads/metopen", authGuard, express.static(path.join(uploadsDir, "metopen")));
+  app.use("/uploads/logbooks", authGuard, express.static(path.join(uploadsDir, "logbooks")));
+  app.use("/uploads/field-assessments", authGuard, express.static(path.join(uploadsDir, "field-assessments")));
+  app.use("/uploads/documents", authGuard, (_req, res) => {
+    res.status(404).json({
+      success: false,
+      message: "Akses dokumen akademik harus melalui endpoint /documents/:id/download",
+    });
+  });
 
-  console.log("📁 Serving protected thesis uploads and public internship/general uploads");
+  console.log("📁 Serving authenticated uploads (thesis, yudisium, metopen, internship) and guarded document downloads via /documents/:id/download");
 } catch (err) {
   console.warn("⚠️ Failed to set up static uploads serving:", err.message);
 }

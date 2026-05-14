@@ -1,0 +1,83 @@
+import prisma from "../config/prisma.js";
+
+export const AUDIT_ACTIONS = {
+  CHANGE_REQUEST_APPROVED: "CHANGE_REQUEST_APPROVED",
+  CHANGE_REQUEST_CREATED: "CHANGE_REQUEST_CREATED",
+  CHANGE_REQUEST_REJECTED: "CHANGE_REQUEST_REJECTED",
+  CHANGE_REQUEST_REVIEWED: "CHANGE_REQUEST_REVIEWED",
+  DEFENCE_READINESS_APPROVED: "DEFENCE_READINESS_APPROVED",
+  DEFENCE_READINESS_REVOKED: "DEFENCE_READINESS_REVOKED",
+  DEFENCE_REQUESTED: "DEFENCE_REQUESTED",
+  GUIDANCE_REQUESTED: "GUIDANCE_REQUESTED",
+  MILESTONE_CREATED: "MILESTONE_CREATED",
+  MILESTONE_REVISION_REQUESTED: "MILESTONE_REVISION_REQUESTED",
+  MILESTONE_SUBMITTED: "MILESTONE_SUBMITTED",
+  MILESTONE_VALIDATED: "MILESTONE_VALIDATED",
+  REQUEST_ADVISOR_ACCEPTED: "REQUEST_ADVISOR_ACCEPTED",
+  REQUEST_ADVISOR_CANCELLED: "REQUEST_ADVISOR_CANCELLED",
+  REQUEST_ADVISOR_CREATED: "REQUEST_ADVISOR_CREATED",
+  REQUEST_ADVISOR_ESCALATED_TO_KADEP: "REQUEST_ADVISOR_ESCALATED_TO_KADEP",
+  REQUEST_ADVISOR_KADEP_APPROVED: "REQUEST_ADVISOR_KADEP_APPROVED",
+  REQUEST_ADVISOR_KADEP_REVISION_REQUESTED: "REQUEST_ADVISOR_KADEP_REVISION_REQUESTED",
+  REQUEST_ADVISOR_KADEP_REJECTED: "REQUEST_ADVISOR_KADEP_REJECTED",
+  REQUEST_ADVISOR_PROMOTED_TO_ACTIVE: "REQUEST_ADVISOR_PROMOTED_TO_ACTIVE",
+  REQUEST_ADVISOR_REJECTED: "REQUEST_ADVISOR_REJECTED",
+  SEMINAR_READINESS_APPROVED: "SEMINAR_READINESS_APPROVED",
+  SEMINAR_READINESS_REVOKED: "SEMINAR_READINESS_REVOKED",
+  THESIS_CREATED: "THESIS_CREATED",
+  THESIS_DELETED: "THESIS_DELETED",
+  THESIS_STATUS_CHANGED: "THESIS_STATUS_CHANGED",
+  THESIS_UPDATED: "THESIS_UPDATED",
+};
+
+export const ENTITY_TYPES = {
+  THESIS: "THESIS",
+  THESIS_ADVISOR_REQUEST: "THESIS_ADVISOR_REQUEST",
+  THESIS_CHANGE_REQUEST: "THESIS_CHANGE_REQUEST",
+  THESIS_GUIDANCE: "THESIS_GUIDANCE",
+  THESIS_MILESTONE: "THESIS_MILESTONE",
+};
+
+export async function logAudit({
+  actorUserId = null,
+  action,
+  entityType,
+  entityId = null,
+  oldValues = null,
+  newValues = null,
+  metadata = null,
+  ipAddress = null,
+  userAgent = null,
+} = {}) {
+  if (!action || !entityType) return null;
+
+  try {
+    return await prisma.auditLog.create({
+      data: {
+        userId: actorUserId,
+        action,
+        entity: entityType,
+        entityId,
+        changes:
+          oldValues != null || newValues != null || metadata != null
+            ? {
+                oldValues: oldValues ?? null,
+                newValues: newValues ?? null,
+                metadata: metadata ?? null,
+              }
+            : null,
+        ipAddress,
+        userAgent,
+      },
+    });
+  } catch (error) {
+    console.error("[AuditLog] Failed to persist audit log:", error?.message || error);
+    return null;
+  }
+}
+
+export default {
+  logAudit,
+  AUDIT_ACTIONS,
+  ENTITY_TYPES,
+};

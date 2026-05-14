@@ -2,16 +2,20 @@ import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { uploadSeminarDocFile } from "../middlewares/file.middleware.js";
+import upload from "../middlewares/file.middleware.js";
 import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
 import { populateProfile } from "../middlewares/thesis-seminar.middleware.js";
 import * as ctrl from "../controllers/thesis-defence.controller.js";
 
 import {
   scheduleSchema,
+  createDefenceSchema,
+  updateDefenceSchema,
   assignExaminersSchema,
   respondAssignmentSchema,
   submitAssessmentSchema,
   finalizeDefenceSchema,
+  cancelDefenceSchema,
   createRevisionSchema,
   revisionActionSchema,
 } from "../validators/thesis-defence.validator.js";
@@ -19,8 +23,27 @@ import {
 const router = express.Router();
 const ALL_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 
+router.get("/debug", (req, res) => res.json({ message: "Defence debug route ok (public)" }));
+
 router.use(authGuard);
 router.use(populateProfile);
+
+// ============================================================
+// ADMIN ONLY: Global Options, Templates, & Imports
+// ============================================================
+// Using a sub-router for options to ensure clean separation
+const optionsRouter = express.Router();
+optionsRouter.use(requireAnyRole([ROLES.ADMIN]));
+optionsRouter.get("/theses", ctrl.getThesisOptions);
+optionsRouter.get("/lecturers", ctrl.getLecturerOptions);
+optionsRouter.get("/students", ctrl.getStudentOptions);
+optionsRouter.get("/rooms", ctrl.getRoomOptions);
+
+router.use("/options", optionsRouter);
+
+// Archive exports & imports
+router.get("/export", requireAnyRole([ROLES.ADMIN]), ctrl.exportArchive);
+router.post("/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctrl.importArchive);
 
 // ============================================================
 // STUDENT ONLY: Self overview, history, document types
@@ -34,6 +57,8 @@ router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocume
 // ============================================================
 router.get("/", requireAnyRole(ALL_ROLES), ctrl.getDefences);
 router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getDefenceDetail);
+router.get("/:id/invitation-letter", requireAnyRole(ALL_ROLES), ctrl.downloadInvitationLetter);
+router.get("/:id/assessment-result", requireAnyRole(ALL_ROLES), ctrl.downloadAssessmentResult);
 router.get("/:id/documents", requireAnyRole(ALL_ROLES), ctrl.getDocuments);
 router.get("/:id/documents/:documentTypeId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
 
@@ -52,6 +77,15 @@ router.post(
   requireAnyRole([ROLES.ADMIN]),
   ctrl.validateDocument
 );
+
+// ============================================================
+// ADMIN: Archive Management
+// ============================================================
+router.post("/", requireAnyRole([ROLES.ADMIN]), validate(createDefenceSchema), ctrl.createArchive);
+router.patch("/:id", requireAnyRole([ROLES.ADMIN]), validate(updateDefenceSchema), ctrl.updateArchive);
+router.delete("/:id", requireAnyRole([ROLES.ADMIN]), ctrl.deleteArchive);
+router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelDefenceSchema), ctrl.cancelDefence);
+router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
 
 // ============================================================
 // STUDENT: Document upload & revisions
@@ -98,14 +132,14 @@ router.post(
   validate(respondAssignmentSchema),
   ctrl.respondAssignment
 );
-router.get("/:id/assessment", requireAnyRole(LECTURER_ROLES), ctrl.getAssessment);
+router.get("/:id/assessment", requireAnyRole(ALL_ROLES), ctrl.getAssessment);
 router.post(
   "/:id/assessment",
   requireAnyRole(LECTURER_ROLES),
   validate(submitAssessmentSchema),
   ctrl.submitAssessment
 );
-router.get("/:id/finalization", requireAnyRole(LECTURER_ROLES), ctrl.getFinalizationData);
+router.get("/:id/finalization", requireAnyRole(ALL_ROLES), ctrl.getFinalizationData);
 router.post(
   "/:id/finalize",
   requireAnyRole(LECTURER_ROLES),
@@ -113,6 +147,7 @@ router.post(
   ctrl.finalizeDefence
 );
 router.post("/:id/revisions/finalize", requireAnyRole(LECTURER_ROLES), ctrl.finalizeRevisions);
+router.post("/:id/revisions/unfinalize", requireAnyRole(LECTURER_ROLES), ctrl.unfinalizeRevisions);
 
 // ============================================================
 // KETUA DEPARTEMEN: examiner assignment

@@ -1,5 +1,7 @@
 import { getSyncStatus, getAllCachedStudents } from "../services/sia.store.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
+import { fetchStudentsFull } from "../services/sia.client.js";
+import { ENV } from "../config/env.js";
 
 export async function triggerSiaSync(req, res, next) {
   try {
@@ -21,7 +23,26 @@ export async function siaSyncStatus(req, res, next) {
 
 export async function getCachedStudents(req, res, next) {
   try {
-    const data = await getAllCachedStudents();
+    let data = [];
+
+    // Try Redis first
+    try {
+      data = await getAllCachedStudents();
+    } catch (redisErr) {
+      console.warn("⚠️  Redis unavailable, falling back to SIA source:", redisErr.message);
+    }
+
+    // If Redis is empty (not yet synced) or errored, try SIA directly (mock or real)
+    if (!data || data.length === 0) {
+      console.log("ℹ️  Redis cache empty, reading from SIA source directly...");
+      try {
+        data = await fetchStudentsFull(1);
+      } catch (siaErr) {
+        console.warn("⚠️  SIA fetch also failed:", siaErr.message);
+        data = [];
+      }
+    }
+
     res.json({ success: true, count: data.length, data });
   } catch (err) {
     next(err);

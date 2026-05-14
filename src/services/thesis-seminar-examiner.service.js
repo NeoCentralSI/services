@@ -320,7 +320,9 @@ export async function getExaminerAssessment(seminarId, user) {
     where: { userId: user.sub || user.id, status: "active" },
     select: { role: { select: { name: true } } },
   });
-  const isAdmin = userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) || 
+                   userRoles.some((r) => adminRoleNames.includes(String(r.role?.name || "").toLowerCase()));
   const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
   
   const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
@@ -335,8 +337,8 @@ export async function getExaminerAssessment(seminarId, user) {
       throwError("Anda tidak memiliki akses untuk melihat form penilaian seminar ini.", 403);
     }
   } else {
-    if (!isExaminer) {
-      throwError("Hanya dosen penguji yang dapat mengakses form penilaian.", 403);
+    if (!isExaminer && !isAdmin) {
+      throwError("Hanya dosen penguji atau pimpinan yang dapat mengakses form penilaian.", 403);
     }
   }
 
@@ -431,7 +433,9 @@ export async function getFinalizationData(seminarId, user) {
       select: { role: { select: { name: true } } },
     });
   }
-  const isAdmin = user.role === 'admin' || userRoles.some((r) => String(r.role?.name || "").toLowerCase() === "admin");
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) || 
+                   userRoles.some((r) => adminRoleNames.includes(String(r.role?.name || "").toLowerCase()));
   const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
   
   const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
@@ -447,8 +451,8 @@ export async function getFinalizationData(seminarId, user) {
       throwError("Anda tidak memiliki akses untuk melihat data finalisasi seminar ini.", 403);
     }
   } else {
-    if (!isSupervisor) {
-      throwError("Hanya dosen pembimbing yang dapat melihat data rekap awal.", 403);
+    if (!isSupervisor && !isAdmin) {
+      throwError("Hanya dosen pembimbing atau pimpinan yang dapat melihat data rekap awal.", 403);
     }
   }
 
@@ -513,6 +517,7 @@ export async function getFinalizationData(seminarId, user) {
 // ============================================================
 
 export async function finalizeSeminar(seminarId, lecturerId, payload) {
+  const { recommendRevision } = payload;
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
   if (seminar.resultFinalizedAt) throwError("Hasil seminar sudah pernah ditetapkan.", 400);
@@ -531,14 +536,30 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
 
   const avgScore = examiners.reduce((s, e) => s + (e.assessmentScore || 0), 0) / examiners.length;
 
+  // Determine status based on business rules
+  let targetStatus = "passed";
+  if (avgScore < 55) {
+    targetStatus = "failed";
+  } else if (recommendRevision) {
+    targetStatus = "passed_with_revision";
+  }
+
   const finalized = await coreRepo.updateSeminar(seminarId, {
-    status: payload.status, finalScore: avgScore, resultFinalizedAt: new Date(),
+    status: targetStatus,
+    finalScore: avgScore,
+    resultFinalizedAt: new Date(),
   });
 
   // If failed, reset seminarReady so student can re-register
-  if (payload.status === "failed" && seminar.thesisId) {
+  if (targetStatus === "failed" && seminar.thesisId) {
     await prisma.thesisSupervisors.updateMany({ where: { thesisId: seminar.thesisId }, data: { seminarReady: false } });
   }
 
-  return { seminarId: finalized.id, status: finalized.status, finalScore: finalized.finalScore, grade: mapScoreToGrade(avgScore), resultFinalizedAt: finalized.resultFinalizedAt };
+  return { 
+    seminarId: finalized.id, 
+    status: finalized.status, 
+    finalScore: finalized.finalScore, 
+    grade: mapScoreToGrade(avgScore), 
+    resultFinalizedAt: finalized.resultFinalizedAt 
+  };
 }

@@ -311,3 +311,100 @@ export async function addGuidanceTablePages(basePdfBytes, opts) {
     const finalBytes = await pdfDoc.save();
     return Buffer.from(finalBytes);
 }
+
+/**
+ * Create a lightweight text-based PDF letter.
+ * Useful for department-generated static letters such as TA-04 and title approval.
+ */
+export async function createSimpleLetterPdf({
+	title,
+	subtitle = null,
+	lines = [],
+	fileLabel = null,
+}) {
+	const pdfDoc = await PDFDocument.create();
+	const page = pdfDoc.addPage([595.28, 841.89]); // A4
+	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+	const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+	let cursorY = 800;
+	const left = 56;
+	const bodyFontSize = 11;
+	const lineHeight = 16;
+	const wrapWidth = 480;
+
+	const wrapText = (text, currentFont = font, size = bodyFontSize) => {
+		const words = String(text || "").split(/\s+/);
+		const wrapped = [];
+		let currentLine = "";
+
+		for (const word of words) {
+			const nextLine = currentLine ? `${currentLine} ${word}` : word;
+			if (currentFont.widthOfTextAtSize(nextLine, size) > wrapWidth) {
+				if (currentLine) wrapped.push(currentLine);
+				currentLine = word;
+			} else {
+				currentLine = nextLine;
+			}
+		}
+
+		if (currentLine) wrapped.push(currentLine);
+		return wrapped.length ? wrapped : [""];
+	};
+
+	page.drawText(title, {
+		x: left,
+		y: cursorY,
+		size: 16,
+		font: fontBold,
+		color: rgb(0, 0, 0),
+	});
+	cursorY -= 24;
+
+	if (subtitle) {
+		page.drawText(subtitle, {
+			x: left,
+			y: cursorY,
+			size: 11,
+			font,
+			color: rgb(0.25, 0.25, 0.25),
+		});
+		cursorY -= 24;
+	}
+
+	for (const rawLine of lines) {
+		const normalizedLine = rawLine == null ? "" : String(rawLine);
+		if (normalizedLine.trim() === "") {
+			cursorY -= 10;
+			continue;
+		}
+
+		const segments = normalizedLine.split("\n");
+		for (const segment of segments) {
+			const wrappedLines = wrapText(segment);
+			for (const wrappedLine of wrappedLines) {
+				page.drawText(wrappedLine, {
+					x: left,
+					y: cursorY,
+					size: bodyFontSize,
+					font,
+					color: rgb(0, 0, 0),
+				});
+				cursorY -= lineHeight;
+			}
+		}
+	}
+
+	if (fileLabel) {
+		page.drawText(fileLabel, {
+			x: left,
+			y: 24,
+			size: 9,
+			font,
+			color: rgb(0.45, 0.45, 0.45),
+		});
+	}
+
+	const bytes = await pdfDoc.save();
+	return Buffer.from(bytes);
+}

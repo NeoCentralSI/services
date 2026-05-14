@@ -34,11 +34,6 @@ export async function runDailyThesisReminderJob() {
           select: { name: true }
         },
         thesisSupervisors: {
-          where: {
-            role: {
-              name: { in: ["Pembimbing 1", "Pembimbing 2"] }
-            }
-          },
           include: {
             lecturer: {
               include: {

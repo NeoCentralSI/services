@@ -27,6 +27,7 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
+      SIMPTA_SCHEMA_STRICT: "true"
       REDIS_URL: redis://redis:6379
       GOTENBERG_URL: http://gotenberg:3000
       SIA_BASE_URL: http://sia:4000
@@ -49,6 +50,19 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
+
+  # ── Backend DB migrator ───────────────────────────────────────
+  backend-migrator:
+    image: neocentral/services-migrate:latest
+    profiles:
+      - tools
+    env_file: .env
+    environment:
+      NODE_ENV: production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - neocentral-net
 
   # ── Frontend (Nginx SPA) ───────────────────────────────────────
   frontend:

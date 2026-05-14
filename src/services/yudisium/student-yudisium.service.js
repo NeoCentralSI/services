@@ -33,7 +33,7 @@ const findStudentContext = async (userId) => {
         where: { id: userId },
         select: {
             id: true,
-            skscompleted: true,
+            sksCompleted: true,
             mandatoryCoursesCompleted: true,
             mkwuCompleted: true,
             internshipCompleted: true,
@@ -217,10 +217,12 @@ export const getStudentYudisiumOverview = async (userId) => {
     }
 
     if (currentYudisium?.id && thesis?.id) {
-        submittedExitSurvey = await prisma.studentExitSurveyResponse.findFirst({
+        submittedExitSurvey = await prisma.studentExitSurveyResponse.findUnique({
             where: {
-                yudisiumId: currentYudisium.id,
-                thesisId: thesis.id,
+                yudisiumId_thesisId: {
+                    yudisiumId: currentYudisium.id,
+                    thesisId: thesis.id,
+                },
             },
             select: {
                 id: true,
@@ -228,10 +230,12 @@ export const getStudentYudisiumOverview = async (userId) => {
             },
         });
 
-        participant = await prisma.yudisiumParticipant.findFirst({
+        participant = await prisma.yudisiumParticipant.findUnique({
             where: {
-                yudisiumId: currentYudisium.id,
-                thesisId: thesis.id,
+                thesisId_yudisiumId: {
+                    thesisId: thesis.id,
+                    yudisiumId: currentYudisium.id,
+                },
             },
             select: {
                 status: true,
@@ -271,8 +275,8 @@ export const getStudentYudisiumOverview = async (userId) => {
     const checklist = {
         sks: {
             label: `Menyelesaikan ${REQUIRED_SKS} SKS`,
-            met: (student.skscompleted ?? 0) >= REQUIRED_SKS,
-            current: student.skscompleted ?? 0,
+            met: (student.sksCompleted ?? 0) >= REQUIRED_SKS,
+            current: student.sksCompleted ?? 0,
             required: REQUIRED_SKS,
         },
         revisiSidang: {
@@ -394,10 +398,12 @@ export const getStudentExitSurvey = async (userId) => {
         throw new NotFoundError("Exit survey belum dikonfigurasi pada periode yudisium ini");
     }
 
-    const existingResponse = await prisma.studentExitSurveyResponse.findFirst({
+    const existingResponse = await prisma.studentExitSurveyResponse.findUnique({
         where: {
-            yudisiumId: currentYudisium.id,
-            thesisId: thesis.id,
+            yudisiumId_thesisId: {
+                yudisiumId: currentYudisium.id,
+                thesisId: thesis.id,
+            },
         },
         include: {
             answers: true,
@@ -438,10 +444,12 @@ export const submitStudentExitSurvey = async (userId, payload) => {
         throw new NotFoundError("Exit survey belum dikonfigurasi pada periode yudisium ini");
     }
 
-    const existingResponse = await prisma.studentExitSurveyResponse.findFirst({
+    const existingResponse = await prisma.studentExitSurveyResponse.findUnique({
         where: {
-            yudisiumId: currentYudisium.id,
-            thesisId: thesis.id,
+            yudisiumId_thesisId: {
+                yudisiumId: currentYudisium.id,
+                thesisId: thesis.id,
+            },
         },
     });
 
@@ -530,29 +538,37 @@ export const submitStudentExitSurvey = async (userId, payload) => {
         throw new ValidationError("Jawaban exit survey tidak boleh kosong");
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-        const response = await tx.studentExitSurveyResponse.create({
-            data: {
-                yudisiumId: currentYudisium.id,
-                thesisId: thesis.id,
-                submittedAt: new Date(),
-            },
-        });
+    let created;
+    try {
+        created = await prisma.$transaction(async (tx) => {
+            const response = await tx.studentExitSurveyResponse.create({
+                data: {
+                    yudisiumId: currentYudisium.id,
+                    thesisId: thesis.id,
+                    submittedAt: new Date(),
+                },
+            });
 
-        await tx.studentExitSurveyAnswer.createMany({
-            data: answerRows.map((row) => ({
-                studentExitSurveyResponseId: response.id,
-                exitSurveyQuestionId: row.exitSurveyQuestionId,
-                exitSurveyOptionId: row.exitSurveyOptionId,
-                answerText: row.answerText,
-            })),
-        });
+            await tx.studentExitSurveyAnswer.createMany({
+                data: answerRows.map((row) => ({
+                    studentExitSurveyResponseId: response.id,
+                    exitSurveyQuestionId: row.exitSurveyQuestionId,
+                    exitSurveyOptionId: row.exitSurveyOptionId,
+                    answerText: row.answerText,
+                })),
+            });
 
-        return await tx.studentExitSurveyResponse.findUnique({
-            where: { id: response.id },
-            include: { answers: true },
+            return await tx.studentExitSurveyResponse.findUnique({
+                where: { id: response.id },
+                include: { answers: true },
+            });
         });
-    });
+    } catch (error) {
+        if (error?.code === "P2002") {
+            throw new ConflictError("Exit survey sudah pernah dikirim dan tidak dapat diubah");
+        }
+        throw error;
+    }
 
     return {
         response: mapStudentExitSurveyResponse(created),
@@ -576,8 +592,13 @@ export const getStudentYudisiumRequirements = async (userId) => {
         select: { id: true, name: true, description: true, notes: true },
     });
 
-    const participant = await prisma.yudisiumParticipant.findFirst({
-        where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
+    const participant = await prisma.yudisiumParticipant.findUnique({
+        where: {
+            thesisId_yudisiumId: {
+                thesisId: thesis.id,
+                yudisiumId: currentYudisium.id,
+            },
+        },
         select: {
             id: true,
             status: true,
@@ -652,20 +673,21 @@ export const uploadYudisiumDocument = async (userId, file, requirementId) => {
     }
 
     // Get or auto-create participant on first upload
-    let participant = await prisma.yudisiumParticipant.findFirst({
-        where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
-    });
-
-    if (!participant) {
-        participant = await prisma.yudisiumParticipant.create({
-            data: {
+    const participant = await prisma.yudisiumParticipant.upsert({
+        where: {
+            thesisId_yudisiumId: {
                 thesisId: thesis.id,
                 yudisiumId: currentYudisium.id,
-                registeredAt: new Date(),
-                status: "registered",
             },
-        });
-    }
+        },
+        create: {
+            thesisId: thesis.id,
+            yudisiumId: currentYudisium.id,
+            registeredAt: new Date(),
+            status: "registered",
+        },
+        update: {},
+    });
 
     // Check if already approved (block re-upload)
     const existing = await prisma.yudisiumParticipantRequirement.findUnique({

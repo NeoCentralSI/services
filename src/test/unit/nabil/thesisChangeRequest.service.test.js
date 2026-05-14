@@ -16,6 +16,7 @@ const { mockRepo, mockPrisma, mockNotif, mockPush, mockRoles } = vi.hoisted(() =
     updateApproval: vi.fn(),
   },
   mockPrisma: {
+    document: { findUnique: vi.fn() },
     thesisTopic: { findUnique: vi.fn() },
     thesis: { findFirst: vi.fn(), update: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     thesisStatus: { findFirst: vi.fn(), create: vi.fn() },
@@ -25,6 +26,7 @@ const { mockRepo, mockPrisma, mockNotif, mockPush, mockRoles } = vi.hoisted(() =
     thesisMilestone: { createMany: vi.fn() },
     academicYear: { findFirst: vi.fn() },
     user: { findMany: vi.fn() },
+    auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
     $transaction: vi.fn(),
   },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
@@ -56,11 +58,14 @@ import {
 
 // ── Test Data ──────────────────────────────────────────────────
 const STUDENT_ID = "student-1";
+const SUPPORTING_DOC_ID = "550e8400-e29b-41d4-a716-446655440099";
 const THESIS = {
   id: "thesis-1",
   title: "Old Thesis",
   studentId: STUDENT_ID,
+  rating: "ONGOING",
   student: { id: STUDENT_ID, user: { id: "user-mhs-1", fullName: "Budi", identityNumber: "123", email: "b@t.com" } },
+  thesisStatus: { id: "status-bimbingan", name: "Bimbingan" },
   thesisTopic: { id: "topic-old", name: "Old Topic" },
   thesisSupervisors: [
     {
@@ -92,7 +97,13 @@ const PENDING_REQUEST = {
 // Module 6: Pengajuan Ganti Topik
 // ══════════════════════════════════════════════════════════════
 describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPrisma.document.findUnique.mockResolvedValue({
+      id: SUPPORTING_DOC_ID,
+      userId: STUDENT_ID,
+    });
+  });
 
   // ─── Submit Request ───────────────────────────────────────
   describe("submitRequest", () => {
@@ -115,12 +126,19 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       const result = await submitRequest(STUDENT_ID, {
         requestType: "topic",
         reason: "Ganti topik",
+        supportingDocumentId: SUPPORTING_DOC_ID,
         newTitle: "New Thesis Title",
         newTopicId: "topic-new",
       });
 
       expect(result).toHaveProperty("id");
       expect(mockRepo.create).toHaveBeenCalled();
+      expect(mockPrisma.thesis.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          studentId: STUDENT_ID,
+          thesisStatus: { name: "Bimbingan" },
+        }),
+      }));
     });
 
     it("rejects (400) if required fields (newTitle, newTopicId) are missing", async () => {
@@ -135,12 +153,15 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
     });
 
     it("rejects (404) if new topic doesn't exist", async () => {
+      mockPrisma.thesis.findFirst.mockResolvedValue(THESIS);
+      mockRepo.findPendingByThesisId.mockResolvedValue(null);
       mockPrisma.thesisTopic.findUnique.mockResolvedValue(null);
 
       await expect(
         submitRequest(STUDENT_ID, {
           requestType: "topic",
           reason: "Ganti",
+          supportingDocumentId: SUPPORTING_DOC_ID,
           newTitle: "New Title",
           newTopicId: "nonexistent",
         })
@@ -156,13 +177,14 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
         submitRequest(STUDENT_ID, {
           requestType: "topic",
           reason: "Ganti",
+          supportingDocumentId: SUPPORTING_DOC_ID,
           newTitle: "New",
           newTopicId: "topic-new",
         })
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("sends notification to supervisors and kadep", async () => {
+    it("sends notification to pembimbing saat ini (tier 1)", async () => {
       mockPrisma.thesisTopic.findUnique.mockResolvedValue({ id: "topic-new", name: "ML" });
       mockPrisma.thesis.findFirst.mockResolvedValue(THESIS);
       mockRepo.findPendingByThesisId.mockResolvedValue(null);
@@ -181,12 +203,15 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       await submitRequest(STUDENT_ID, {
         requestType: "topic",
         reason: "Ganti",
+        supportingDocumentId: SUPPORTING_DOC_ID,
         newTitle: "New Title",
         newTopicId: "topic-new",
       });
 
-      // Should attempt notification to supervisors and kadep
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
+      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledWith(
+        ["lec-1", "lec-2"],
+        expect.objectContaining({ type: "THESIS_CHANGE_REQUEST" })
+      );
     });
   });
 
@@ -197,11 +222,21 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       mockPrisma.$transaction.mockImplementation(async (cb) => {
         const tx = {
           thesisChangeRequest: { update: vi.fn().mockResolvedValue({ ...PENDING_REQUEST, status: "approved", thesis: THESIS }) },
-          thesisStatus: { findFirst: vi.fn().mockResolvedValue({ id: "status-bimbingan", name: "Bimbingan" }), create: vi.fn() },
+          thesisStatus: {
+            findFirst: vi.fn().mockImplementation((q) => {
+              const w = q?.where || {};
+              if (w.name === "Dibatalkan") return Promise.resolve({ id: "status-dibatalkan", name: "Dibatalkan" });
+              if (w.name === "Diajukan") return Promise.resolve({ id: "status-diajukan", name: "Diajukan" });
+              if (w.name === "Bimbingan") return Promise.resolve({ id: "status-bimbingan", name: "Bimbingan" });
+              return Promise.resolve(null);
+            }),
+            create: vi.fn(),
+          },
           thesis: {
             update: vi.fn().mockResolvedValue({}),
             findFirst: vi.fn().mockResolvedValue({ id: "thesis-new", thesisTopicId: "topic-new" }),
           },
+          academicYear: { findFirst: vi.fn().mockResolvedValue(null) },
           thesisSupervisors: { updateMany: vi.fn().mockResolvedValue({}) },
           thesisMilestoneTemplate: { findMany: vi.fn().mockResolvedValue([]) },
           thesisMilestone: { createMany: vi.fn().mockResolvedValue({}) },
@@ -263,6 +298,7 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
             update: txThesisUpdate,
             findFirst: vi.fn().mockResolvedValue({ id: "thesis-new", thesisTopicId: "topic-new" }),
           },
+          academicYear: { findFirst: vi.fn().mockResolvedValue(null) },
           thesisSupervisors: { updateMany: vi.fn().mockResolvedValue({}) },
           thesisMilestoneTemplate: { findMany: vi.fn().mockResolvedValue([]) },
           thesisMilestone: { createMany: vi.fn().mockResolvedValue({}) },
@@ -283,8 +319,17 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       mockPrisma.$transaction.mockImplementation(async (cb) => {
         const tx = {
           thesisChangeRequest: { update: vi.fn().mockResolvedValue({ ...PENDING_REQUEST, status: "approved", thesis: THESIS }) },
-          thesisStatus: { findFirst: vi.fn().mockResolvedValue({ id: "s" }) },
+          thesisStatus: {
+            findFirst: vi.fn().mockImplementation((q) => {
+              const n = q?.where?.name;
+              if (n === "Dibatalkan") return Promise.resolve({ id: "sd" });
+              if (n === "Diajukan") return Promise.resolve({ id: "sd2" });
+              if (n === "Bimbingan") return Promise.resolve({ id: "s" });
+              return Promise.resolve(null);
+            }),
+          },
           thesis: { update: vi.fn(), findFirst: vi.fn().mockResolvedValue({ id: "tn", thesisTopicId: "tp" }) },
+          academicYear: { findFirst: vi.fn().mockResolvedValue(null) },
           thesisSupervisors: { updateMany: vi.fn() },
           thesisMilestoneTemplate: { findMany: vi.fn().mockResolvedValue([]) },
           thesisMilestone: { createMany: vi.fn() },

@@ -6,26 +6,28 @@ const statusKey = "sia:sync:status";
 const studentKey = (nim) => `sia:student:${nim}`;
 const metaKey = (nim) => `sia:student:${nim}:meta`;
 
-// Lazy-probe whether the Redis *server* supports the RedisJSON module.
-// The client library always exposes `json.set()` even if the server lacks the module.
-let _hasJson = null;
-async function hasJsonSupport() {
-  if (_hasJson !== null) return _hasJson;
+/**
+ * Runtime probe — check once whether the Redis server actually supports
+ * the RedisJSON module (the client library always exposes .json methods
+ * even when the server doesn't have the module loaded).
+ */
+let _jsonSupported = null; // null = not probed yet
+async function serverHasJson() {
+  if (_jsonSupported !== null) return _jsonSupported;
   try {
-    await redisClient.json.set("sia:json:probe", "$", { ok: true });
-    await redisClient.del("sia:json:probe");
-    _hasJson = true;
+    await redisClient.json.type("__json_probe__");
+    _jsonSupported = true;
   } catch {
-    _hasJson = false;
-    console.log("ℹ️  RedisJSON module not available – falling back to plain STRING storage");
+    _jsonSupported = false;
   }
-  return _hasJson;
+  return _jsonSupported;
 }
 
 export async function saveStudents(students) {
   let updated = 0;
   let skipped = 0;
   const updatedNims = [];
+  const useJson = await serverHasJson();
 
   for (const student of students) {
     const nim = student?.nim;
@@ -38,7 +40,6 @@ export async function saveStudents(students) {
       continue;
     }
 
-    const useJson = await hasJsonSupport();
     const multi = redisClient.multi();
 
     if (useJson) {
@@ -68,11 +69,24 @@ export async function getSyncStatus() {
   return redisClient.hGetAll(statusKey);
 }
 
+export async function getCachedStudent(nim) {
+  if (!nim) return null;
+  const useJson = await serverHasJson();
+  if (useJson) {
+    const val = await redisClient.json.get(studentKey(nim), { path: "$" });
+    return Array.isArray(val) ? val[0] : val;
+  }
+  const raw = await redisClient.get(studentKey(nim));
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
 export async function getAllCachedStudents() {
   const nims = await redisClient.sMembers(indexKey);
   if (!nims || nims.length === 0) return [];
 
-  if (await hasJsonSupport()) {
+  const useJson = await serverHasJson();
+  if (useJson) {
     const values = await redisClient.json.mGet(nims.map(studentKey), "$");
     return values.map((v) => (Array.isArray(v) ? v[0] : v)).filter(Boolean);
   }

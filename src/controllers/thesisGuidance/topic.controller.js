@@ -87,6 +87,60 @@ export async function deleteTopic(req, res, next) {
   }
 }
 
+// ============================================
+// Lecturer-Offered Topics (Bursa Topik Dosen)
+// ============================================
+
+export async function getMyOfferedTopics(req, res, next) {
+  try {
+    const data = await topicService.getMyOfferedTopics(req.user.sub);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createOfferedTopic(req, res, next) {
+  try {
+    const body = req.validated ?? req.body;
+    const data = await topicService.createOfferedTopic(req.user.sub, body);
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateOfferedTopic(req, res, next) {
+  try {
+    const { id } = req.params;
+    const body = req.validated ?? req.body;
+    const data = await topicService.updateOfferedTopic(id, req.user.sub, body);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteOfferedTopic(req, res, next) {
+  try {
+    const { id } = req.params;
+    const data = await topicService.deleteOfferedTopic(id, req.user.sub);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function togglePublishOfferedTopic(req, res, next) {
+  try {
+    const { id } = req.params;
+    const data = await topicService.togglePublishOfferedTopic(id, req.user.sub);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /**
  * DELETE /api/topics/bulk
  * Bulk delete topics (Sekretaris Departemen only)

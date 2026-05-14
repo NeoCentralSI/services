@@ -6,14 +6,22 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "prisma:generate": "prisma generate",
+    "prisma:generate:no-engine": "prisma generate --no-engine",
     "test:unit": "vitest run --config vitest.unit.config.js",
     "test:unit:nabil": "vitest run src/test/unit/nabil --config vitest.unit.config.js",
     "test:unit:fathur": "vitest run src/test/unit/fathur --config vitest.unit.config.js",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "test:integration:nabil": "vitest run src/test/integration/nabil --config vitest.integration.config.js",
     "test:integration:fathur": "vitest run src/test/integration/fathur --config vitest.integration.config.js",
+    "test:integration:fariz": "vitest run src/test/integration/fariz --config vitest.integration.config.js",
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "ensure-users": "node scripts/ensure-users.js",
+    "integrity:audit-supervisors": "node scripts/audit-supervisor-integrity.js",
+    "integrity:repair-supervisors": "node scripts/repair-supervisor-integrity.js",
+    "seed:metopen-eligible": "node scripts/seed-metopen-eligible-students.js",
+    "worker": "node scripts/run-workers.js"
   },
   "devDependencies": {
     "prisma": "^6.2.0",

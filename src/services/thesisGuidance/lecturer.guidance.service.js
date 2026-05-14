@@ -24,9 +24,6 @@ import {
 	// Transfer
 	findEligibleTransferLecturers,
 	findSupervisorRecords,
-	transferSupervisor,
-	updateSupervisorRole,
-	getRoleIdByName,
 	lecturerHasRole,
 	createTransferNotification,
 	findPendingTransferNotifications,
@@ -50,6 +47,8 @@ import { resolve } from "path";
 import path from "path";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
+import { ForbiddenError } from "../../utils/errors.js";
+import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
@@ -57,6 +56,14 @@ function ensureLecturer(lecturer) {
 		err.statusCode = 404;
 		throw err;
 	}
+}
+
+function throwSupervisorTransferRemoved() {
+	const err = new Error(
+		"Penggantian/transfer dosen pembimbing formal tidak difasilitasi pada scope aktif SIMPTA.",
+	);
+	err.statusCode = 400;
+	throw err;
 }
 
 // Normalize a guidance record into a flat, tidy shape
@@ -174,6 +181,9 @@ export async function getStudentDetailService(userId, thesisId) {
 		},
 		orderBy: { requestedDate: "desc" },
 	});
+	const activeProposalDocument = thesis.finalProposalVersion?.document ?? thesis.proposalDocument ?? null;
+	const thesisDocumentPath = thesis.document?.filePath ?? "";
+	const activeProposalDocumentPath = activeProposalDocument?.filePath ?? "";
 
 	return {
 		thesisId: thesis.id,
@@ -190,17 +200,22 @@ export async function getStudentDetailService(userId, thesisId) {
 		},
 		document: thesis.document ? {
 			id: thesis.document.id,
-			fileName: path.basename(thesis.document.filePath || "") || thesis.document.fileName,
-			url: thesis.document.filePath.startsWith('uploads/')
-				? `/${thesis.document.filePath}`
-				: `/uploads/${thesis.document.filePath}`
+			fileName: path.basename(thesisDocumentPath) || thesis.document.fileName,
+			url: thesisDocumentPath
+				? (thesisDocumentPath.startsWith('uploads/')
+					? `/${thesisDocumentPath}`
+					: `/uploads/${thesisDocumentPath}`)
+				: null
 		} : null,
-		proposalDocument: thesis.thesisProposal?.document ? {
-			id: thesis.thesisProposal.document.id,
-			fileName: path.basename(thesis.thesisProposal.document.filePath || "") || thesis.thesisProposal.document.fileName,
-			url: thesis.thesisProposal.document.filePath.startsWith('uploads/')
-				? `/${thesis.thesisProposal.document.filePath}`
-				: `/uploads/${thesis.thesisProposal.document.filePath}`
+		proposalDocument: activeProposalDocument ? {
+			id: activeProposalDocument.id,
+			version: thesis.finalProposalVersion?.version ?? null,
+			fileName: path.basename(activeProposalDocumentPath) || activeProposalDocument.fileName,
+			url: activeProposalDocumentPath
+				? (activeProposalDocumentPath.startsWith('uploads/')
+					? `/${activeProposalDocumentPath}`
+					: `/uploads/${activeProposalDocumentPath}`)
+				: null
 		} : null,
 		uploadedFiles: guidanceDocuments
 			.filter((g) => g.document)
@@ -221,6 +236,7 @@ export async function getStudentDetailService(userId, thesisId) {
 			targetDate: m.targetDate,
 			targetDateFormatted: m.targetDate ? formatDateTimeJakarta(m.targetDate, { withDay: true }) : null,
 		})),
+		researchMethodScore: thesis.researchMethodScores?.[0] || null,
 		guidanceHistory: await (async () => {
 			const studentId = thesis.student?.id || thesis.studentId;
 			if (!studentId) return { count: 0, items: [] };
@@ -549,7 +565,7 @@ export async function approveStudentProgressComponentsService(userId, studentId,
 		err.statusCode = 404;
 		throw err;
 	}
-	const result = await upsertCompletionsValidated(thesis.id, componentIds);
+	const result = await upsertCompletionsValidated(thesis.id, componentIds, lecturer.id);
 	return { thesisId: thesis.id, ...result };
 }
 
@@ -932,67 +948,11 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
  * @param {string} thesisId
  */
 export async function approveThesisProposalService(userId, thesisId) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-
-	const thesis = await prisma.thesis.findUnique({
-		where: { id: thesisId },
-		include: {
-			thesisStatus: true,
-			thesisSupervisors: {
-				where: { lecturerId: lecturer.id },
-				include: { role: true }
-			},
-			student: { include: { user: true } }
-		}
-	});
-
-	if (!thesis) {
-		const err = new Error("Thesis not found");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	// Check if lecturer is supervisor
-	if (thesis.thesisSupervisors.length === 0) {
-		const err = new Error("You are not a supervisor for this thesis");
-		err.statusCode = 403;
-		throw err;
-	}
-
-	// Check status
-	if (thesis.thesisStatus?.name !== "Diajukan") {
-		const err = new Error(`Thesis status is '${thesis.thesisStatus?.name || 'Unknown'}', not 'Diajukan'. Request cannot be processed.`);
-		err.statusCode = 400;
-		throw err;
-	}
-
-	// Update status to NULL (Active)
-	const updatedThesis = await prisma.thesis.update({
-		where: { id: thesisId },
-		data: {
-			thesisStatusId: null,
-			startDate: new Date() // Set start date to now
-		},
-		include: { thesisStatus: true }
-	});
-
-	// Notify Student
-	const studentUserId = thesis.student?.user?.id;
-	if (studentUserId) {
-		const lecturerName = toTitleCaseName(lecturer.user?.fullName || "Dosen Pembimbing");
-		await createNotificationsForUsers([studentUserId], {
-			title: "Proposal Disetujui",
-			message: `Proposal Tugas Akhir Anda telah disetujui oleh ${lecturerName}. Status kini Aktif.`,
-			type: "thesis_status_update",
-			referenceId: thesisId
-		});
-	}
-
-	return {
-		message: "Proposal berhasil disetujui. Tugas Akhir kini Aktif.",
-		thesis: updatedThesis
-	};
+	void userId;
+	void thesisId;
+	throw new ForbiddenError(
+		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan proses melalui penilaian TA-03; keputusan TA-04 diputuskan oleh KaDep.",
+	);
 }
 
 // ==================== STUDENT TRANSFER ====================
@@ -1001,6 +961,7 @@ export async function approveThesisProposalService(userId, thesisId) {
  * Get eligible lecturers for student transfer (have active "Pembimbing 1" role)
  */
 export async function getEligibleTransferLecturersService(userId) {
+	throwSupervisorTransferRemoved();
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const lecturers = await findEligibleTransferLecturers(lecturer.id);
@@ -1011,6 +972,7 @@ export async function getEligibleTransferLecturersService(userId) {
  * Request student transfer to another lecturer
  */
 export async function requestStudentTransferService(userId, { thesisIds, targetLecturerId, reason }) {
+	throwSupervisorTransferRemoved();
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1131,6 +1093,7 @@ export async function requestStudentTransferService(userId, { thesisIds, targetL
  * Reads compact payload from notification and enriches with student details from DB
  */
 export async function getIncomingTransferRequestsService(userId) {
+	throwSupervisorTransferRemoved();
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1151,7 +1114,7 @@ export async function getIncomingTransferRequestsService(userId) {
 			// Enrich student details from thesis supervisor records
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.ThesisSupervisors.findMany({
+				? await prisma.thesisParticipant.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1206,6 +1169,7 @@ export async function getIncomingTransferRequestsService(userId) {
  * and notifies kadep + source that target has approved.
  */
 export async function approveTransferRequestService(userId, notificationId) {
+	throwSupervisorTransferRemoved();
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1292,6 +1256,7 @@ export async function approveTransferRequestService(userId, notificationId) {
  * Marks target notification read, updates kadep notifications to st=target_rejected, notifies source.
  */
 export async function rejectTransferRequestService(userId, notificationId, { reason } = {}) {
+	throwSupervisorTransferRemoved();
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1364,6 +1329,7 @@ export async function rejectTransferRequestService(userId, notificationId, { rea
  * Get pending transfer requests for Kadep review
  */
 export async function getKadepPendingTransfersService(userId) {
+	throwSupervisorTransferRemoved();
 	const notifications = await findPendingKadepTransferNotifications(userId);
 	const transfers = [];
 
@@ -1387,7 +1353,7 @@ export async function getKadepPendingTransfersService(userId) {
 			// Get student details
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.ThesisSupervisors.findMany({
+				? await prisma.thesisParticipant.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1443,6 +1409,7 @@ export async function getKadepPendingTransfersService(userId) {
  * Get ALL kadep transfer notifications (for history view with pagination)
  */
 export async function getKadepAllTransfersService(userId, { page = 1, pageSize = 10, search = "", status = "" } = {}) {
+	throwSupervisorTransferRemoved();
 	const { notifications, total } = await findAllKadepTransferNotifications(userId, { page, pageSize, search });
 	const transfers = [];
 
@@ -1460,7 +1427,7 @@ export async function getKadepAllTransfersService(userId, { page = 1, pageSize =
 
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.ThesisSupervisors.findMany({
+				? await prisma.thesisParticipant.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1525,6 +1492,7 @@ export async function getKadepAllTransfersService(userId, { page = 1, pageSize =
  * Only allowed if target lecturer has already approved (tgtApproved=true)
  */
 export async function kadepApproveTransferService(userId, notificationId) {
+	throwSupervisorTransferRemoved();
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");
@@ -1563,49 +1531,62 @@ export async function kadepApproveTransferService(userId, notificationId) {
 	const refs = payload.refs || [];
 
 	// Execute the actual supervisor swap in a transaction
-	const p1RoleId = await getRoleIdByName(ROLES.PEMBIMBING_1);
-
 	const results = await prisma.$transaction(async (tx) => {
 		const txResults = [];
 		for (const ref of refs) {
-			// Transfer the supervisor record to the target lecturer
-			await tx.thesisSupervisors.update({
+			const sourceRecord = await tx.thesisParticipant.findFirst({
+				where: { id: ref.sId, thesisId: ref.tId, status: "active" },
+				include: {
+					role: { select: { id: true, name: true } },
+					thesis: { select: { academicYearId: true } },
+				},
+			});
+
+			if (!sourceRecord) {
+				throw new Error(`Active supervisor record not found for thesis ${ref.tId}`);
+			}
+
+			const targetActiveRecords = await tx.thesisParticipant.findMany({
+				where: {
+					thesisId: ref.tId,
+					lecturerId: targetLecturerId,
+					status: "active",
+					id: { not: ref.sId },
+				},
+				select: { id: true },
+			});
+
+			if (targetActiveRecords.length > 0) {
+				await tx.thesisParticipant.updateMany({
+					where: { id: { in: targetActiveRecords.map((record) => record.id) } },
+					data: { status: "terminated" },
+				});
+			}
+
+			// Transfer the supervisor record to the target lecturer.
+			await tx.thesisParticipant.update({
 				where: { id: ref.sId },
 				data: { lecturerId: targetLecturerId },
 			});
 
-			// Check if target lecturer already had a P2 record on this thesis
-			const allSupRecords = await tx.thesisSupervisors.findMany({
-				where: { thesisId: ref.tId },
+			const allSupRecords = await tx.thesisParticipant.findMany({
+				where: { thesisId: ref.tId, status: "active" },
 				include: { role: { select: { id: true, name: true } } },
 			});
 
-			const targetRecords = allSupRecords.filter((r) => r.lecturerId === targetLecturerId);
-			const targetP2Record = targetRecords.find((r) => r.role?.name === ROLES.PEMBIMBING_2);
-			if (targetP2Record) {
-				await tx.thesisSupervisors.delete({ where: { id: targetP2Record.id } });
-				console.log(`[Transfer] Deleted duplicate P2 record for target ${targetLecturerId} on thesis ${ref.tId}`);
-			}
-
-			// Check for P2→P1 auto-promotion for OTHER P2 lecturers
-			const otherP2 = allSupRecords.find(
-				(r) => r.role?.name === ROLES.PEMBIMBING_2 && r.lecturerId !== targetLecturerId
+			const duplicateRole = [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2].find(
+				(roleName) => allSupRecords.filter((record) => record.role?.name === roleName).length > 1,
 			);
-
-			let promoted = false;
-			if (otherP2 && p1RoleId) {
-				const p2HasP1Role = await lecturerHasRole(otherP2.lecturerId, ROLES.PEMBIMBING_1);
-				if (p2HasP1Role) {
-					await tx.thesisSupervisors.update({
-						where: { id: otherP2.id },
-						data: { roleId: p1RoleId },
-					});
-					promoted = true;
-					console.log(`[Transfer] P2 (${otherP2.lecturerId}) promoted to P1 on thesis ${ref.tId}`);
-				}
+			if (duplicateRole) {
+				throw new Error(`Duplicate active ${duplicateRole} remains after transfer for thesis ${ref.tId}`);
 			}
 
-			txResults.push({ thesisId: ref.tId, success: true, promoted });
+			if (sourceRecord.thesis?.academicYearId) {
+				await syncLecturerQuotaCurrentCount(sourceLecturerId, sourceRecord.thesis.academicYearId, { client: tx });
+				await syncLecturerQuotaCurrentCount(targetLecturerId, sourceRecord.thesis.academicYearId, { client: tx });
+			}
+
+			txResults.push({ thesisId: ref.tId, success: true, promoted: false });
 		}
 		return txResults;
 	});
@@ -1695,6 +1676,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
  * Kadep rejects a transfer request
  */
 export async function kadepRejectTransferService(userId, notificationId, { reason } = {}) {
+	throwSupervisorTransferRemoved();
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");

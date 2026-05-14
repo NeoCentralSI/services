@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: NeoCentral — Thesis change requests (TA-05) [DEPRECATED]
+  version: 1.0.0
+  description: |
+    **DEPRECATED — frozen, do not extend.**
+
+    Pergantian judul/topik dan/atau pembimbing (FR-CHG-01). Flow digital TA-05
+    dibekukan untuk seluruh siklus rilis aktif (KONTEKS_KANONIS_SIMPTA.md §5.11).
+    Endpoint berikut tetap didokumentasikan sebatas kompatibilitas dan tidak
+    boleh dijadikan jalur operasional baru.
+
+    Base path relatif ke API root: `/thesis-change-requests`.
+servers:
+  - url: /
+tags:
+  - name: thesis-change-requests
+    description: |
+      Deprecated — frozen. Do not extend.
+paths:
+  /thesis-change-requests/submit:
+    post:
+      tags: [thesis-change-requests]
+      summary: Ajukan permohonan TA-05 (Mahasiswa)
+      description: |
+        Wajib `supportingDocumentId` (unggah dokumen via `POST /documents/upload` terlebih dahulu).
+        Jika ada dua pembimbing aktif dan `requestType` supervisor/both, kirim `replaceSupervisorLecturerId`.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitThesisChangeRequest"
+      responses:
+        "201":
+          description: Dibuat
+        "400":
+          description: Validasi / kuota / dokumen tidak valid
+  /thesis-change-requests/my-requests:
+    get:
+      tags: [thesis-change-requests]
+      summary: Daftar permohonan saya (Mahasiswa)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+  /thesis-change-requests/lecturer/pending:
+    get:
+      tags: [thesis-change-requests]
+      summary: Antrian yang dapat ditindaklanjuti dosen (tier 1 lalu tier 2)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+  /thesis-change-requests/thesis/{thesisId}/pending:
+    get:
+      tags: [thesis-change-requests]
+      summary: Permohonan pending untuk satu thesis (dosen pembimbing)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: thesisId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+  /thesis-change-requests/pending:
+    get:
+      tags: [thesis-change-requests]
+      summary: Antrian KaDep (hanya jika semua persetujuan dosen selesai)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+  /thesis-change-requests/{id}:
+    get:
+      tags: [thesis-change-requests]
+      summary: Detail permohonan
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+  /thesis-change-requests/{id}/review:
+    post:
+      tags: [thesis-change-requests]
+      summary: Setujui/tolak oleh dosen (pembimbing lama atau baru sesuai tier)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [approved, rejected] }
+                notes: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+  /thesis-change-requests/{id}/approve:
+    post:
+      tags: [thesis-change-requests]
+      summary: Keputusan akhir KaDep (setujui)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reviewNotes: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+  /thesis-change-requests/{id}/reject:
+    post:
+      tags: [thesis-change-requests]
+      summary: Keputusan akhir KaDep (tolak)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewNotes]
+              properties:
+                reviewNotes: { type: string, minLength: 10 }
+      responses:
+        "200":
+          description: OK
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SubmitThesisChangeRequest:
+      type: object
+      required: [requestType, reason, supportingDocumentId]
+      properties:
+        requestType:
+          type: string
+          enum: [topic, supervisor, both]
+        reason:
+          type: string
+          minLength: 20
+          maxLength: 1000
+        supportingDocumentId:
+          type: string
+          format: uuid
+        replaceSupervisorLecturerId:
+          type: string
+          format: uuid
+          description: Wajib jika dua pembimbing aktif dan mengganti pembimbing
+        newTitle:
+          type: string
+        newTopicId:
+          type: string
+        newSupervisorId:
+          type: string
+          format: uuid

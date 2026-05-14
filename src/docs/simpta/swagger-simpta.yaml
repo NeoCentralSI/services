@@ -1,0 +1,969 @@
+paths:
+  /advisorRequest/access-state:
+    get:
+      tags: [AdvisorRequest]
+      summary: Get canonical advisor access state
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Advisor access state resolved
+        '401':
+          description: Unauthorized
+
+  /advisorRequest/catalog:
+    get:
+      tags: [AdvisorRequest]
+      summary: Browse lecturer advisor catalog with quota traffic light
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lecturer catalog returned
+
+  /advisorRequest/draft:
+    get:
+      tags: [AdvisorRequest]
+      summary: Get editable TA-01/TA-02 working draft for the current student
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Advisor request draft returned
+    put:
+      tags: [AdvisorRequest]
+      summary: Save editable TA-01/TA-02 working draft for the current student
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lecturerId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                topicId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                proposedTitle:
+                  type: string
+                  nullable: true
+                backgroundSummary:
+                  type: string
+                  nullable: true
+                problemStatement:
+                  type: string
+                  nullable: true
+                proposedSolution:
+                  type: string
+                  nullable: true
+                researchObject:
+                  type: string
+                  nullable: true
+                researchPermitStatus:
+                  type: string
+                  enum: [approved, in_process, not_approved]
+                  nullable: true
+                justificationText:
+                  type: string
+                  nullable: true
+                  deprecated: true
+                  description: Alias legacy untuk studentJustification.
+                studentJustification:
+                  type: string
+                  nullable: true
+                  description: Working-copy justifikasi akademik mahasiswa untuk escalated TA-01.
+                attachmentId:
+                  type: string
+                  format: uuid
+                  nullable: true
+      responses:
+        '200':
+          description: Advisor request draft saved
+
+  /advisorRequest:
+    post:
+      tags: [AdvisorRequest]
+      summary: Submit advisor request (TA-01 normal or TA-02 digital via KaDep)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lecturerId, topicId, proposedTitle, backgroundSummary, problemStatement, proposedSolution, researchObject, researchPermitStatus]
+              properties:
+                lecturerId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Opsional untuk TA-02 digital saat mahasiswa belum memiliki calon dosen pembimbing.
+                topicId:
+                  type: string
+                  format: uuid
+                proposedTitle:
+                  type: string
+                backgroundSummary:
+                  type: string
+                problemStatement:
+                  type: string
+                proposedSolution:
+                  type: string
+                researchObject:
+                  type: string
+                researchPermitStatus:
+                  type: string
+                  enum: [approved, in_process, not_approved]
+                justificationText:
+                  type: string
+                  deprecated: true
+                  description: Alias legacy untuk studentJustification.
+                studentJustification:
+                  type: string
+                  minLength: 20
+                  description: Wajib untuk escalated TA-01 bila mahasiswa tetap memilih dosen dengan kuota merah.
+      responses:
+        '200':
+          description: Advisor request submitted
+
+  /advisorRequest/{id}/respond:
+    post:
+      tags: [AdvisorRequest]
+      summary: Lecturer accepts or rejects a TA-01 advisor request
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [accept, reject]
+                approvalNote:
+                  type: string
+                  description: Generic lecturer approval note. For overquota acceptance, lecturerOverquotaReason is preferred.
+                lecturerOverquotaReason:
+                  type: string
+                  minLength: 10
+                  description: Required when the lecturer accepts an overquota request and forwards it to KaDep.
+                rejectionReason:
+                  type: string
+      responses:
+        '200':
+          description: Lecturer response stored
+
+  /thesisGuidance/student/proposal/upload:
+    post:
+      tags: [Proposal]
+      summary: Upload a new proposal document version
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Proposal version uploaded
+
+  /thesisGuidance/student/proposal/versions:
+    get:
+      tags: [Proposal]
+      summary: Get proposal document version history for the current student
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Proposal versions returned
+
+  /thesisGuidance/student/proposal/status:
+    get:
+      tags: [Proposal]
+      summary: Get current final-proposal submission status for the current student
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Final proposal submission status returned
+
+  /thesisGuidance/student/proposal/submit-final:
+    post:
+      tags: [Proposal]
+      summary: Mark the latest proposal version as the official final proposal for TA-03 review
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Final proposal submission stored
+
+  /metopen/me/proposal-approval:
+    get:
+      tags: [Metopen]
+      summary: Read student's title approval status and generated TA-04/title-approval document metadata
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Proposal approval status returned
+
+  /metopen/me/seminar-eligibility:
+    get:
+      tags: [Metopen]
+      summary: Check Seminar Hasil eligibility under canonical SIMPTA rules
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Eligibility evaluation returned
+
+  /metopen/me/proposal-queue/sync:
+    post:
+      tags: [Metopen]
+      summary: Synchronize automatic KaDep title-approval queue after final proposal, TA-03A, TA-03B, and SIA thesis-course confirmation
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Queue synchronization result returned
+
+  /metopen/kadep/title-reports/pending:
+    get:
+      tags: [Metopen]
+      summary: List pending title approvals for KaDep review
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Pending title approvals returned
+
+  /metopen/kadep/thesis/{thesisId}/title-report/review:
+    post:
+      tags: [Metopen]
+      summary: Review title approval request as KaDep
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [accept, reject]
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Title report reviewed
+
+  /assessment/criteria/{formCode}:
+    get:
+      tags: [Assessment]
+      summary: Get active rubric criteria for TA-03A or TA-03B
+      description: Returns research-method assessment criteria and rubric descriptors for the requested form code.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: formCode
+          required: true
+          schema:
+            type: string
+            enum: [TA-03A, TA-03B]
+      responses:
+        '200':
+          description: Assessment criteria returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      formCode:
+                        type: string
+                      criteria:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                              nullable: true
+                            maxScore:
+                              type: integer
+                              nullable: true
+                            displayOrder:
+                              type: integer
+                            cpmk:
+                              type: object
+                              nullable: true
+                              properties:
+                                id:
+                                  type: string
+                                  format: uuid
+                                code:
+                                  type: string
+                                  nullable: true
+                                description:
+                                  type: string
+                            assessmentRubrics:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  id:
+                                    type: string
+                                    format: uuid
+                                  minScore:
+                                    type: integer
+                                  maxScore:
+                                    type: integer
+                                  description:
+                                    type: string
+
+  /assessment/supervisor/queue:
+    get:
+      tags: [Assessment]
+      summary: List TA-03A queue for the authenticated supervisor
+      description: Returns only active students with open thesis status, submitted final proposal, and no TA-03A score.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: TA-03A queue returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        thesisId:
+                          type: string
+                          format: uuid
+                        thesisTitle:
+                          type: string
+                          nullable: true
+                        student:
+                          type: object
+                          nullable: true
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            fullName:
+                              type: string
+                            identityNumber:
+                              type: string
+                        supervisorScore:
+                          type: integer
+                          nullable: true
+
+  /assessment/supervisor/{thesisId}/score:
+    get:
+      tags: [Assessment]
+      summary: Get TA-03A score detail for supervisor
+      description: Requires an active supervisor relation and an active thesis with final proposal submitted.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: TA-03A score detail returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    nullable: true
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      thesisId:
+                        type: string
+                        format: uuid
+                      supervisorScore:
+                        type: integer
+                        nullable: true
+                      lecturerScore:
+                        type: integer
+                        nullable: true
+                      finalScore:
+                        type: integer
+                        nullable: true
+                      isFinalized:
+                        type: boolean
+                      researchMethodScoreDetails:
+                        type: array
+                        items:
+                          type: object
+    post:
+      tags: [Assessment]
+      summary: Submit TA-03A supervisor score
+      description: Only Pembimbing 1 can submit TA-03A. The student must be active, thesis must not be closed, and final proposal must be submitted.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scores]
+              properties:
+                scores:
+                  type: array
+                  items:
+                    type: object
+                    required: [criteriaId, score]
+                    properties:
+                      criteriaId:
+                        type: string
+                        format: uuid
+                      rubricId:
+                        type: string
+                        format: uuid
+                        nullable: true
+                        description: Selected AssessmentRubric descriptor for this criteria when rubric options exist.
+                      score:
+                        type: integer
+      responses:
+        '200':
+          description: TA-03A score stored
+
+  /assessment/metopen/queue:
+    get:
+      tags: [Assessment]
+      summary: List TA-03B queue for Koordinator Matkul Metopen
+      description: Returns active students with open thesis status, submitted final proposal, and no TA-03B score. TA-03B may run in parallel with TA-03A.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: TA-03B queue returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        thesisId:
+                          type: string
+                          format: uuid
+                        thesisTitle:
+                          type: string
+                          nullable: true
+                        student:
+                          type: object
+                          nullable: true
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            fullName:
+                              type: string
+                            identityNumber:
+                              type: string
+                        supervisorName:
+                          type: string
+                          nullable: true
+                        supervisorScore:
+                          type: integer
+                          nullable: true
+                        lecturerScore:
+                          type: integer
+                          nullable: true
+
+  /assessment/metopen/{thesisId}/score:
+    get:
+      tags: [Assessment]
+      summary: Get TA-03B score detail for Koordinator Matkul Metopen
+      description: Koordinator Matkul Metopen can read an unscored active final-proposal thesis, or the score they submitted.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: TA-03B score detail returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    nullable: true
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      thesisId:
+                        type: string
+                        format: uuid
+                      supervisorScore:
+                        type: integer
+                        nullable: true
+                      lecturerScore:
+                        type: integer
+                        nullable: true
+                      finalScore:
+                        type: integer
+                        nullable: true
+                      isFinalized:
+                        type: boolean
+                      researchMethodScoreDetails:
+                        type: array
+                        items:
+                          type: object
+    post:
+      tags: [Assessment]
+      summary: Submit TA-03B lecturer score
+      description: The Koordinator Matkul Metopen can submit TA-03B for active students with a submitted final proposal. Final score auto-finalizes when TA-03A and TA-03B are both present.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scores]
+              properties:
+                scores:
+                  type: array
+                  items:
+                    type: object
+                    required: [criteriaId, score]
+                    properties:
+                      criteriaId:
+                        type: string
+                        format: uuid
+                      rubricId:
+                        type: string
+                        format: uuid
+                        nullable: true
+                        description: Selected AssessmentRubric descriptor for this criteria when rubric options exist.
+                      score:
+                        type: integer
+      responses:
+        '200':
+          description: TA-03B score stored
+
+  /assessment/metopen/{thesisId}/publish:
+    post:
+      tags: [Assessment]
+      summary: Legacy manual finalization endpoint for TA-03 score
+      description: Backward-compatible endpoint only. Current SIMPTA flow auto-finalizes the score when TA-03A and TA-03B are both present.
+      deprecated: true
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: TA-03 score finalized when it was not already finalized
+
+  /rubric-metopen/criteria:
+    get:
+      tags: [MetopenAssessmentAdmin]
+      summary: List Metopen assessment criteria
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: role
+          schema:
+            type: string
+            enum: [default, supervisor]
+      responses:
+        '200':
+          description: Criteria list returned
+    post:
+      tags: [MetopenAssessmentAdmin]
+      summary: Create Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cpmkId, name, role, maxScore]
+              properties:
+                cpmkId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [default, supervisor]
+                maxScore:
+                  type: integer
+                displayOrder:
+                  type: integer
+                isActive:
+                  type: boolean
+      responses:
+        '201':
+          description: Criterion created
+
+  /rubric-metopen/criteria/{criteriaId}:
+    patch:
+      tags: [MetopenAssessmentAdmin]
+      summary: Update Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: criteriaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Criterion updated
+    delete:
+      tags: [MetopenAssessmentAdmin]
+      summary: Soft-delete Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: criteriaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Criterion soft-deleted
+
+  /rubric-metopen/criteria/{criteriaId}/rubrics:
+    get:
+      tags: [MetopenAssessmentAdmin]
+      summary: List rubrics for a Metopen assessment criterion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: criteriaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rubrics returned
+    post:
+      tags: [MetopenAssessmentAdmin]
+      summary: Create Metopen assessment rubric
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: criteriaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [minScore, maxScore, description]
+              properties:
+                minScore:
+                  type: integer
+                maxScore:
+                  type: integer
+                description:
+                  type: string
+                displayOrder:
+                  type: integer
+      responses:
+        '201':
+          description: Rubric created
+
+  /rubric-metopen/rubrics/{rubricId}:
+    patch:
+      tags: [MetopenAssessmentAdmin]
+      summary: Update Metopen assessment rubric
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: rubricId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rubric updated
+    delete:
+      tags: [MetopenAssessmentAdmin]
+      summary: Soft-delete Metopen assessment rubric
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: rubricId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rubric soft-deleted
+
+  /supervision-quota/default/{academicYearId}:
+    get:
+      tags: [SupervisionQuota]
+      summary: Get default supervision quota configuration
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Default quota returned
+    put:
+      tags: [SupervisionQuota]
+      summary: Set default supervision quota configuration
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Default quota saved and propagated
+
+  /supervision-quota/lecturers/{academicYearId}:
+    get:
+      tags: [SupervisionQuota]
+      summary: List lecturer quotas for an academic year
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lecturer quota list returned
+
+  /supervision-quota/lecturers/{lecturerId}/{academicYearId}:
+    patch:
+      tags: [SupervisionQuota]
+      summary: Update lecturer-specific quota override
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: lecturerId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lecturer quota updated
+  /thesis-supervisors/co-advisor:
+    post:
+      tags: [ThesisParticipants]
+      summary: KaDep/Admin assigns Pembimbing 2 (co-advisor)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thesisId, lecturerId]
+              properties:
+                thesisId:
+                  type: string
+                  format: uuid
+                lecturerId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Co-advisor assigned
+        '400':
+          description: Already has Pembimbing 2 or invalid lecturer
+
+  /thesis-supervisors/evaluations:
+    post:
+      tags: [ThesisParticipants]
+      summary: Dosen submit evaluasi bimbingan (TA-17)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thesisId, evaluationType, recommendation]
+              properties:
+                thesisId:
+                  type: string
+                  format: uuid
+                evaluationType:
+                  type: string
+                  enum: [6_month, 1_year]
+                recommendation:
+                  type: string
+                  enum: [extend_1_month, revise_proposal, terminate_supervision]
+                notes:
+                  type: string
+      responses:
+        '201':
+          description: Evaluasi submitted
+        '400':
+          description: Invalid type/recommendation combination
+
+  /thesis-supervisors/evaluations/pending:
+    get:
+      tags: [ThesisParticipants]
+      summary: KaDep list evaluasi tertunda
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Pending evaluations returned
+
+  /thesis-supervisors/evaluations/{id}/review:
+    post:
+      tags: [ThesisParticipants]
+      summary: KaDep approve/reject evaluasi TA-17
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+                kadepNotes:
+                  type: string
+      responses:
+        '200':
+          description: Review completed
+
+  /thesis-supervisors/evaluations/thesis/{thesisId}:
+    get:
+      tags: [ThesisParticipants]
+      summary: Dosen list evaluasi untuk thesis
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Evaluation history returned

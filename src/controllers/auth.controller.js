@@ -102,7 +102,14 @@ export async function updateProfileHandler(req, res, next) {
 			response.student = {
 				id: updatedUser.student.id,
 				enrollmentYear: updatedUser.student.enrollmentYear,
-				sksCompleted: updatedUser.student.skscompleted,
+				sksCompleted: updatedUser.student.sksCompleted ?? 0,
+				currentSemester: updatedUser.student.currentSemester ?? null,
+				eligibleMetopen: updatedUser.student.eligibleMetopen ?? null,
+				metopenEligibilitySource: updatedUser.student.metopenEligibilitySource ?? null,
+				metopenEligibilityUpdatedAt: updatedUser.student.metopenEligibilityUpdatedAt ?? null,
+				takingThesisCourse: updatedUser.student.takingThesisCourse ?? null,
+				thesisCourseEnrollmentSource: updatedUser.student.thesisCourseEnrollmentSource ?? null,
+				thesisCourseEnrollmentUpdatedAt: updatedUser.student.thesisCourseEnrollmentUpdatedAt ?? null,
 				status: updatedUser.student.status || null,
 			};
 		}

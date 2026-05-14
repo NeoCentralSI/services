@@ -3,7 +3,7 @@ import * as coreRepo from "../repositories/thesis-defence.repository.js";
 import * as docRepo from "../repositories/thesis-defence-doc.repository.js";
 import * as examinerRepo from "../repositories/thesis-defence-examiner.repository.js";
 import { computeEffectiveDefenceStatus } from "../utils/defenceStatus.util.js";
-import { mapScoreToGrade } from "./thesis-defence.service.js";
+import { mapScoreToGrade } from "../utils/score.util.js";
 import prisma from "../config/prisma.js";
 
 function throwError(message, statusCode) {
@@ -98,7 +98,12 @@ export async function getOverview(userId) {
     checklist.revisiSeminar.met &&
     checklist.pembimbing.met;
 
-  const currentDefence = thesis.thesisDefences?.[0] || null;
+  let currentDefence = thesis.thesisDefences?.[0] || null;
+
+  // If latest defence is failed/cancelled, treat as inactive for student registration flow
+  if (currentDefence && ["failed", "cancelled"].includes(currentDefence.status)) {
+    currentDefence = null;
+  }
 
   let enrichedExaminers = [];
   if (currentDefence?.examiners?.length) {
@@ -208,6 +213,13 @@ export async function getDefenceDetail(userId, defenceId) {
         filePath: fileMeta?.filePath || null,
       };
     }),
+    examinerNotes: (detail.examiners || [])
+      .filter((e) => e.revisionNotes)
+      .map((e) => ({
+        examinerOrder: e.order,
+        lecturerName: lecturerNameMap.get(e.lecturerId) || "-",
+        revisionNotes: e.revisionNotes,
+      })),
     status: computeEffectiveDefenceStatus(detail.status, detail.date, detail.startTime, detail.endTime),
   };
 }

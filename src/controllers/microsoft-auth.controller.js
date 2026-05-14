@@ -1,10 +1,39 @@
 // src/controllers/microsoft-auth.controller.js
 import {
   getMicrosoftAuthUrl,
-  exchangeCodeForTokens,
-  loginOrRegisterWithMicrosoft,
-  loginWithMicrosoftToken,
+  loginWithMicrosoftAuthorizationCode,
 } from "../services/microsoft-auth.service.js";
+import {
+  storeExchangePayload,
+  consumeExchangePayload,
+} from "../services/oauth-exchange.service.js";
+
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const ONE_SHOT_CODE_PATTERN = /^[a-f0-9]{64}$/i;
+const GENERIC_AUTH_CALLBACK_ERROR = "Sistem autentikasi belum siap. Hubungi admin.";
+
+function getSafeCallbackErrorMessage(error) {
+  if (error?.statusCode === 404 && /akun belum terdaftar/i.test(error.message || "")) {
+    return error.message;
+  }
+
+  if (error?.statusCode === 401) {
+    return "Login Microsoft gagal. Silakan coba lagi atau hubungi admin.";
+  }
+
+  return GENERIC_AUTH_CALLBACK_ERROR;
+}
+
+function logCallbackError(error) {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  console.error("[MicrosoftAuth] Callback failed:", error?.message || error);
+  if (error?.stack) {
+    console.error(error.stack);
+  }
+}
 
 /**
  * Initiate Microsoft OAuth login
@@ -12,8 +41,7 @@ import {
  */
 export async function initiateLogin(req, res, next) {
   try {
-    const isMobile = req.query.platform === 'mobile';
-    const authUrl = await getMicrosoftAuthUrl(isMobile);
+    const authUrl = await getMicrosoftAuthUrl();
     res.redirect(authUrl);
   } catch (error) {
     next(error);
@@ -23,90 +51,86 @@ export async function initiateLogin(req, res, next) {
 /**
  * Handle Microsoft OAuth callback
  * GET /auth/microsoft/callback
+ *
+ * Tidak lagi mengirim token (access + refresh) lewat URL. Sebagai gantinya,
+ * server menyimpan payload di Redis (atau in-memory fallback) dengan TTL
+ * pendek dan memberi `?code=<exchangeCode>` ke frontend. Frontend kemudian
+ * menukar code itu sekali lewat POST /auth/microsoft/exchange.
  */
 export async function handleCallback(req, res, next) {
-  let isMobile = false;
   try {
-    const { code, error: oauthError, error_description, state } = req.query;
-    // Detect mobile flow: state carries platform=mobile (encoded by getMicrosoftAuthUrl)
-    isMobile = state && Buffer.from(state, 'base64').toString().includes('"platform":"mobile"');
+    const { code, error: oauthError, error_description } = req.query;
 
-    // Handle OAuth errors dari Microsoft
     if (oauthError) {
-      const errorMsg = error_description || oauthError || 'Login failed';
-      if (isMobile) return res.redirect(`neocentral://auth?error=${encodeURIComponent(errorMsg)}`);
-      const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=${encodeURIComponent(errorMsg)}`;
-      return res.redirect(frontendUrl);
+      const errorMsg = error_description || oauthError || "Login failed";
+      return res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(errorMsg)}`);
     }
 
     if (!code) {
-      if (isMobile) return res.redirect(`neocentral://auth?error=${encodeURIComponent('Authorization code is required')}`);
-      const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=${encodeURIComponent('Authorization code is required')}`;
-      return res.redirect(frontendUrl);
+      return res.redirect(
+        `${FRONTEND_URL}/login?error=${encodeURIComponent("Authorization code is required")}`,
+      );
     }
 
-    // Exchange code for tokens and get user profile (including calendar access check)
-    const { accessToken, refreshToken, userProfile, hasCalendarAccess } = await exchangeCodeForTokens(code);
+    const result = await loginWithMicrosoftAuthorizationCode(code);
 
-    // Login or register user with calendar access status
-    const result = await loginOrRegisterWithMicrosoft(
-      userProfile,
-      accessToken,
-      refreshToken,
-      hasCalendarAccess
-    );
-
-    // Base64 encode token data to avoid special characters in URL
-    const tokenData = {
+    const exchangeCode = await storeExchangePayload({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       user: result.user,
-    };
-    const encodedTokens = Buffer.from(JSON.stringify(tokenData)).toString('base64');
+      hasCalendarAccess: result.hasCalendarAccess,
+    });
 
-    if (isMobile) {
-      // Mobile: redirect to custom scheme intercepted by flutter_web_auth_2
-      return res.redirect(`neocentral://auth?tokens=${encodedTokens}`);
-    }
-
-    // Web: redirect to frontend callback
-    const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/microsoft/callback`;
-    res.redirect(`${frontendUrl}?tokens=${encodedTokens}`);
+    return res.redirect(
+      `${FRONTEND_URL}/auth/microsoft/callback?code=${encodeURIComponent(exchangeCode)}`,
+    );
   } catch (error) {
-    // If account not verified (403)
     if (error.statusCode === 403) {
-      if (isMobile) return res.redirect(`neocentral://auth?error=${encodeURIComponent('Akun belum diaktivasi')}`);
-      const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/inactive`;
-      return res.redirect(frontendUrl);
+      return res.redirect(`${FRONTEND_URL}/auth/inactive`);
     }
-    const errorMsg = error.message || 'Authentication failed';
-    if (isMobile) return res.redirect(`neocentral://auth?error=${encodeURIComponent(errorMsg)}`);
-    const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=${encodeURIComponent(errorMsg)}`;
-    res.redirect(frontendUrl);
+    logCallbackError(error);
+    const errorMsg = getSafeCallbackErrorMessage(error);
+    res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(errorMsg)}`);
   }
 }
 
 /**
- * Mobile Microsoft OAuth login
- * POST /auth/microsoft/mobile
- * Body: { accessToken: string }  – Microsoft Graph access token from flutter_appauth
+ * Exchange the one-shot code for actual tokens.
+ * POST /auth/microsoft/exchange  body: { code }
  */
-export async function mobileLogin(req, res, next) {
+export async function exchangeOauthCode(req, res, next) {
   try {
-    const { accessToken } = req.body;
-
-    if (!accessToken) {
-      return res.status(400).json({ message: "accessToken is required" });
+    const { code } = req.body ?? {};
+    if (!code || typeof code !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Exchange code is required",
+      });
     }
 
-    const result = await loginWithMicrosoftToken(accessToken);
+    const payload = await consumeExchangePayload(code);
+    if (payload) {
+      return res.status(200).json({ success: true, data: payload });
+    }
 
-    res.json({
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
+    if (ONE_SHOT_CODE_PATTERN.test(code)) {
+      return res.status(400).json({
+        success: false,
+        message: "Exchange code is invalid, expired, or already used",
+      });
+    }
+
+    const result = await loginWithMicrosoftAuthorizationCode(code);
+    return res.status(200).json({
+      success: true,
+      data: {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+        hasCalendarAccess: result.hasCalendarAccess,
+      },
     });
-  } catch (error) {
-    next(error);
+  } catch (err) {
+    next(err);
   }
 }

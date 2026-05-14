@@ -1,4 +1,9 @@
 import prisma from "../config/prisma.js";
+import { syncQuotaCount } from "../utils/quotaSync.js";
+import {
+    createSupervisorAssignments,
+    replaceSupervisorAssignments,
+} from "../utils/supervisorIntegrity.js";
 
 export const findAllTheses = async () => {
     return await prisma.thesis.findMany({
@@ -12,6 +17,7 @@ export const findAllTheses = async () => {
             },
             thesisTopic: true,
             thesisSupervisors: {
+                where: { status: "active" },
                 include: {
                     lecturer: {
                         include: {
@@ -43,6 +49,7 @@ export const findThesisById = async (id) => {
             },
             thesisTopic: true,
             thesisSupervisors: {
+                where: { status: "active" },
                 include: {
                     lecturer: {
                         include: {
@@ -76,13 +83,15 @@ export const createThesis = async (data) => {
         });
 
         if (data.supervisors && data.supervisors.length > 0) {
-            await tx.thesisSupervisors.createMany({
-                data: data.supervisors.map(s => ({
-                    thesisId: thesis.id,
-                    lecturerId: s.lecturerId,
-                    roleId: s.roleId
-                }))
+            const supervisorResult = await createSupervisorAssignments(tx, thesis.id, data.supervisors, {
+                requireP1: true,
             });
+
+            if (data.academicYearId) {
+                for (const lecturerId of supervisorResult.affectedLecturerIds) {
+                    await syncQuotaCount(tx, lecturerId, data.academicYearId);
+                }
+            }
         }
 
         return thesis;
@@ -91,6 +100,13 @@ export const createThesis = async (data) => {
 
 export const updateThesis = async (id, data) => {
     return await prisma.$transaction(async (tx) => {
+        const oldSupervisors = data.supervisors
+            ? await tx.thesisParticipant.findMany({
+                  where: { thesisId: id },
+                  select: { lecturerId: true },
+              })
+            : [];
+
         const thesis = await tx.thesis.update({
             where: { id },
             data: {
@@ -105,20 +121,19 @@ export const updateThesis = async (id, data) => {
         });
 
         if (data.supervisors) {
-            // Delete existing supervisors
-            await tx.thesisSupervisors.deleteMany({
-                where: { thesisId: id }
+            const supervisorResult = await replaceSupervisorAssignments(tx, id, data.supervisors, {
+                requireP1: data.supervisors.length > 0,
             });
 
-            // Insert new supervisors
-            if (data.supervisors.length > 0) {
-                await tx.thesisSupervisors.createMany({
-                    data: data.supervisors.map(s => ({
-                        thesisId: id,
-                        lecturerId: s.lecturerId,
-                        roleId: s.roleId
-                    }))
-                });
+            const ayId = data.academicYearId || thesis.academicYearId;
+            if (ayId) {
+                const affectedIds = new Set([
+                    ...oldSupervisors.map((s) => s.lecturerId),
+                    ...supervisorResult.affectedLecturerIds,
+                ]);
+                for (const lecturerId of affectedIds) {
+                    await syncQuotaCount(tx, lecturerId, ayId);
+                }
             }
         }
 

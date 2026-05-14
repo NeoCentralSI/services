@@ -22,6 +22,9 @@ import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import { ROLES } from "../../constants/roles.js";
+import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
+import { checkQuotaAvailability } from "../quota.service.js";
+import { syncQuotaCount } from "../../utils/quotaSync.js";
 
 const PROMOTE_THRESHOLD = 10;
 
@@ -98,6 +101,14 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 		throw err;
 	}
 
+	// 3b. Quota enforcement — reject if lecturer quota is full
+	const quotaResult = await checkQuotaAvailability(lecturerId, thesis.academicYearId);
+	if (!quotaResult.allowed) {
+		const err = new Error(quotaResult.reason || "Kuota pembimbing penuh, pilih dosen lain atau tunggu.");
+		err.statusCode = 400;
+		throw err;
+	}
+
 	// 4. Get student name and thesis title for notification
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
@@ -113,7 +124,7 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 		studentId: student.id,
 	});
 
-	// 6. Send FCM to the lecturer (Target only web platform)
+	// 6. Send FCM to the lecturer
 	await sendFcmToUsers([lecturerId], {
 		title: "Permintaan Pembimbing 2",
 		body: `${toTitleCaseName(studentName)} mengajukan Anda sebagai Pembimbing 2 untuk tugas akhir "${thesisTitle}"`,
@@ -123,13 +134,21 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 			thesisId: thesis.id,
 		},
 		dataOnly: true,
-		targetPlatform: "web",
 	});
 
 	// 7. Also create a regular notification for the lecturer
 	await createNotificationsForUsers([lecturerId], {
 		title: "Permintaan Pembimbing 2",
 		message: `${toTitleCaseName(studentName)} mengajukan Anda sebagai Pembimbing 2 untuk tugas akhir "${thesisTitle}"`,
+	});
+
+	// Audit log: advisor request created
+	await logAudit({
+		actorUserId: userId,
+		action: AUDIT_ACTIONS.REQUEST_ADVISOR_CREATED,
+		entityType: ENTITY_TYPES.THESIS_ADVISOR_REQUEST,
+		entityId: request.id,
+		newValues: { thesisId: thesis.id, lecturerId, lecturerName: selectedLecturer.fullName },
 	});
 
 	return {
@@ -172,6 +191,16 @@ export async function cancelSupervisor2RequestService(userId) {
 	}
 
 	await markSupervisor2RequestProcessed(pending.id);
+
+	// Audit log: advisor request cancelled
+	await logAudit({
+		actorUserId: userId,
+		action: AUDIT_ACTIONS.REQUEST_ADVISOR_CANCELLED,
+		entityType: ENTITY_TYPES.THESIS_ADVISOR_REQUEST,
+		entityId: pending.id,
+		newValues: { thesisId: thesis.id },
+	});
+
 	return { success: true };
 }
 
@@ -249,6 +278,13 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 
 	// 4. Create ThesisSupervisors
 	await createThesisSupervisors(thesisId, lecturerId);
+	const thesis = await prisma.thesis.findUnique({
+		where: { id: thesisId },
+		select: { academicYearId: true },
+	});
+	if (thesis?.academicYearId) {
+		await syncQuotaCount(prisma, lecturerId, thesis.academicYearId);
+	}
 
 	// 5. Mark request as processed
 	await markSupervisor2RequestProcessed(requestId);
@@ -271,7 +307,15 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 		body: `${lecturerName} telah menyetujui menjadi Pembimbing 2 untuk tugas akhir Anda.`,
 		data: { type: "supervisor2_approved", thesisId },
 		dataOnly: true,
-		targetPlatform: "web",
+	});
+
+	// Audit log: advisor request accepted
+	await logAudit({
+		actorUserId: lecturerId,
+		action: AUDIT_ACTIONS.REQUEST_ADVISOR_ACCEPTED,
+		entityType: ENTITY_TYPES.THESIS_ADVISOR_REQUEST,
+		entityId: requestId,
+		newValues: { thesisId, studentId, lecturerId, lecturerName, role: 'pembimbing_2' },
 	});
 
 	return { success: true, lecturerName };
@@ -320,7 +364,15 @@ export async function rejectSupervisor2RequestService(lecturerId, requestId, { r
 		body: `${lecturerName} menolak permintaan menjadi Pembimbing 2 untuk tugas akhir Anda${reasonText}`,
 		data: { type: "supervisor2_rejected", thesisId },
 		dataOnly: true,
-		targetPlatform: "web",
+	});
+
+	// Audit log: advisor request rejected
+	await logAudit({
+		actorUserId: lecturerId,
+		action: AUDIT_ACTIONS.REQUEST_ADVISOR_REJECTED,
+		entityType: ENTITY_TYPES.THESIS_ADVISOR_REQUEST,
+		entityId: requestId,
+		newValues: { thesisId, studentId, reason: reason || null },
 	});
 
 	return { success: true };
@@ -368,15 +420,9 @@ export async function checkAndPromoteSupervisor(lecturerId) {
  * Call this when a thesis status changes to "Selesai"
  */
 export async function checkPromotionForThesisSupervisors(thesisId) {
-	const pembimbing2Role = await prisma.userRole.findFirst({
-		where: { name: ROLES.PEMBIMBING_2 },
-		select: { id: true },
-	});
-	if (!pembimbing2Role) return [];
-
 	// Get all Pembimbing 2 on this thesis
-	const participants = await prisma.ThesisSupervisors.findMany({
-		where: { thesisId, roleId: pembimbing2Role.id },
+	const participants = await prisma.thesisParticipant.findMany({
+		where: { thesisId, status: "active", role: { name: ROLES.PEMBIMBING_2 } },
 		select: { lecturerId: true },
 	});
 

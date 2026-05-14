@@ -112,14 +112,13 @@ export async function findDefenceAssessmentCpmks(role) {
   return prisma.cpmk.findMany({
     where: {
       type: "thesis",
-      isActive: true,
       assessmentCriterias: {
-        some: { appliesTo: "defence", role, isActive: true },
+        some: { appliesTo: "defence", role },
       },
     },
     include: {
       assessmentCriterias: {
-        where: { appliesTo: "defence", role, isActive: true },
+        where: { appliesTo: "defence", role },
         include: { assessmentRubrics: { orderBy: { displayOrder: "asc" } } },
         orderBy: { displayOrder: "asc" },
       },
@@ -128,8 +127,7 @@ export async function findDefenceAssessmentCpmks(role) {
   });
 }
 
-export async function saveDefenceExaminerAssessment({ examinerId, scores, revisionNotes }) {
-  const now = new Date();
+export async function saveDefenceExaminerAssessment({ examinerId, scores, revisionNotes, isDraft }) {
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefenceExaminerAssessmentDetail.deleteMany({
       where: { thesisDefenceExaminerId: examinerId },
@@ -151,7 +149,7 @@ export async function saveDefenceExaminerAssessment({ examinerId, scores, revisi
       data: {
         assessmentScore: totalScore,
         revisionNotes: revisionNotes || null,
-        assessmentSubmittedAt: now,
+        assessmentSubmittedAt: isDraft ? undefined : new Date(),
       },
     });
   });

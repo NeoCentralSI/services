@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { finalizeBatchTA04 } from "../services/advisorRequest.service.js";
 
 export async function syncActiveAcademicYear() {
     try {
@@ -18,6 +19,7 @@ export async function syncActiveAcademicYear() {
         });
 
         const currentActive = academicYears.filter(ay => ay.isActive);
+        const previousActive = currentActive.length === 1 ? currentActive[0] : null;
 
         // If there is one that should be active and it's not the ONLY active one, sync it
         if (shouldBeActive) {
@@ -37,6 +39,17 @@ export async function syncActiveAcademicYear() {
                         data: { isActive: true },
                     }),
                 ]);
+
+                // Finalize TA-04 for the previous academic year when the active semester rolls over.
+                if (previousActive && previousActive.id !== shouldBeActive.id) {
+                    try {
+                        const result = await finalizeBatchTA04(previousActive.id);
+                        const status = result.alreadyFinalized ? "already finalized" : "finalized";
+                        console.log(`[AcademicYear Sync] TA-04 batch ${status} for previous semester: ${previousActive.semester} ${previousActive.year}`);
+                    } catch (ta04Error) {
+                        console.error("[AcademicYear Sync] Failed finalizing previous semester TA-04 batch:", ta04Error.message);
+                    }
+                }
             }
         } else {
             // Nothing should be active? Turn them all off if any are on
