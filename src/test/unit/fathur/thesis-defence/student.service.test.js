@@ -166,6 +166,22 @@ describe("Student Defence Service — Overview Milestones", () => {
     expect(result.defence).toBeNull(); 
     expect(result.milestones.find(m => m.id === 'documents').checked).toBe(false);
   });
+
+  it("sets revisiSeminar.isVisible based on seminar status", async () => {
+    // Case 1: passed (should be hidden)
+    mockCoreRepo.getStudentThesisWithDefenceInfo.mockResolvedValue(makeThesis());
+    let result = await getOverview("user-1");
+    expect(result.checklist.revisiSeminar.isVisible).toBe(false);
+    expect(result.checklist.revisiSeminar.met).toBe(true);
+
+    // Case 2: passed_with_revision (should be visible)
+    const thesis = makeThesis();
+    thesis.thesisSeminars = [{ id: 'sem-2', status: 'passed_with_revision', revisionFinalizedAt: new Date() }];
+    mockCoreRepo.getStudentThesisWithDefenceInfo.mockResolvedValue(thesis);
+    result = await getOverview("user-1");
+    expect(result.checklist.revisiSeminar.isVisible).toBe(true);
+    expect(result.checklist.revisiSeminar.met).toBe(true);
+  });
 });
 
 describe("Student Defence Service — Logic & History", () => {

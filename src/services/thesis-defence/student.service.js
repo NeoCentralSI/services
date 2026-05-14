@@ -80,6 +80,7 @@ export async function getOverview(userId) {
       seminarStatus,
       total: seminarRevisionTotal,
       finished: seminarRevisionFinished,
+      isVisible: seminarStatus === "passed_with_revision",
     },
     pembimbing: {
       met: allSupervisorsReady,
