@@ -38,6 +38,7 @@ let createdRequestId = null;
 let newThesisId = null;
 
 describe("IT-02: Topic Change Full Flow", () => {
+  const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   beforeAll(async () => {
     // 1. Find a thesis in "Bimbingan" status with at least 1 supervisor
     testThesis = await prisma.thesis.findFirst({
@@ -100,6 +101,11 @@ describe("IT-02: Topic Change Full Flow", () => {
   });
 
   afterAll(async () => {
+    if (SKIP_CLEANUP) {
+      console.warn("[IT-02] SKIP_CLEANUP=true, skipping cleanup");
+      await prisma.$disconnect();
+      return;
+    }
     // Cleanup: Restore original state
     try {
       if (testThesis) {

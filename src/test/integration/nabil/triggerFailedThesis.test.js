@@ -18,6 +18,7 @@ import { updateAllThesisStatuses } from "../../../services/thesisStatus.service.
 let THESIS_ID = null;
 
 describe("Trigger FAILED thesis flow", () => {
+    const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
     let originalCreatedAt = null;
     let originalRating = null;
     let originalThesisStatusId = null;
@@ -26,6 +27,11 @@ describe("Trigger FAILED thesis flow", () => {
 
     // Restore original data after test
     afterAll(async () => {
+        if (SKIP_CLEANUP) {
+            console.warn("[triggerFailedThesis] SKIP_CLEANUP=true, skipping cleanup");
+            await prisma.$disconnect();
+            return;
+        }
         if (THESIS_ID && originalCreatedAt !== null) {
             console.log("[cleanup] Restoring thesis to original state...");
             await prisma.thesis.update({
