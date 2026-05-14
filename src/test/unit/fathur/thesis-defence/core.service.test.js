@@ -123,7 +123,7 @@ describe('Thesis Defence Core Service - Archive Management', () => {
   describe('importArchive', () => {
     it('should process excel rows and calculate grades during import', async () => {
       mockXlsx.utils.sheet_to_json.mockReturnValue([
-        { NIM: '123', Hasil: 'Lulus', Tanggal: '2023-01-01', Nilai: 80, 'Dosen Penguji': 'Lec A' }
+        { NIM: '123', Hasil: 'Lulus', Tanggal: '2023-01-01', Skor: 80, Nilai: 'A', 'Dosen Penguji': 'Lec A' }
       ]);
 
       coreRepo.getStudentOptions.mockResolvedValue([{ user: { identityNumber: '123' }, id: 'stud-1' }]);
@@ -159,6 +159,8 @@ describe('Thesis Defence Core Service - Archive Management', () => {
             ]
           },
           room: { name: 'Lab' },
+          finalScore: 40,
+          grade: 'E',
           examiners: [{ lecturerName: 'Penguji X' }]
         }
       ]);
@@ -168,7 +170,9 @@ describe('Thesis Defence Core Service - Archive Management', () => {
       expect(mockXlsx.utils.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
         expect.objectContaining({
           "Hasil": "Tidak Lulus",
-          "Tanggal": expect.stringContaining("Selasa")
+          "Tanggal": expect.stringContaining("Selasa"),
+          "Skor": 40,
+          "Nilai": "E"
         })
       ]));
       expect(mockXlsx.write).toHaveBeenCalled();

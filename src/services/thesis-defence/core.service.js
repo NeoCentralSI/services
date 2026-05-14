@@ -700,7 +700,9 @@ export async function exportArchive() {
       "Ruangan": d.room?.name || "-",
       "Dosen Penguji": examiners || "-",
       "Dijadwalkan pada": formatFullDate(d.scheduledAt),
-      "Hasil": hasil
+      "Hasil": hasil,
+      "Skor": d.finalScore ?? "-",
+      "Nilai": d.grade || "-"
     };
   });
 
@@ -757,8 +759,8 @@ export async function importArchive(fileBuffer, userId) {
         if (!isNaN(p.getTime())) date = p.toISOString();
       }
 
-      const finalScore = row["Nilai"] !== undefined ? Number(row["Nilai"]) : null;
-      const grade = row["Grade"] ? String(row["Grade"]).trim() : (finalScore !== null ? mapScoreToGrade(finalScore) : null);
+      const finalScore = row["Skor"] !== undefined ? Number(row["Skor"]) : null;
+      const grade = row["Nilai"] ? String(row["Nilai"]).trim() : (finalScore !== null ? mapScoreToGrade(finalScore) : null);
 
       const examinerColumns = [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]]
         .map((value) => String(value || "").trim())
