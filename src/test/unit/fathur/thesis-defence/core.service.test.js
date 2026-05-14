@@ -152,6 +152,53 @@ describe('Thesis Defence Core Service', () => {
     });
   });
 
+  describe('View Queries', () => {
+    describe('getDefenceDetail', () => {
+      it('should return defence detail with enriched examiners', async () => {
+        const mockDefence = {
+          id: mockDefenceId,
+          status: 'verified',
+          thesis: { studentId: 'st-1' },
+          examiners: [{ order: 1, lecturerName: 'L1', revisionNotes: 'Notes' }]
+        };
+        coreRepo.findDefenceById.mockResolvedValue(mockDefence);
+        
+        const res = await coreService.getDefenceDetail(mockDefenceId, { studentId: 'st-1' });
+        
+        expect(res.id).toBe(mockDefenceId);
+        expect(res.examinerNotes).toHaveLength(1);
+        expect(res.examinerNotes[0].lecturerName).toBe('L1');
+      });
+
+      it('should throw error if defence not found', async () => {
+        coreRepo.findDefenceById.mockResolvedValue(null);
+        await expect(coreService.getDefenceDetail('wrong', {}))
+          .rejects.toThrow('Sidang tidak ditemukan.');
+      });
+    });
+
+    describe('getDefenceList', () => {
+      it('should return admin list by default', async () => {
+        coreRepo.findDefencesPaginated.mockResolvedValue({ data: [], total: 0 });
+        const res = await coreService.getDefenceList({ view: 'verification' });
+        expect(res.defences).toBeDefined();
+        expect(coreRepo.findDefencesPaginated).toHaveBeenCalled();
+      });
+
+      it('should return supervisor list when view is supervised_students', async () => {
+        coreRepo.findDefencesBySupervisor.mockResolvedValue([]);
+        await coreService.getDefenceList({ view: 'supervised_students', user: { lecturerId: 'lec-1' } });
+        expect(coreRepo.findDefencesBySupervisor).toHaveBeenCalledWith('lec-1', expect.any(Object));
+      });
+
+      it('should return examiner list when view is examiner_requests', async () => {
+        coreRepo.findDefencesByExaminer.mockResolvedValue([]);
+        await coreService.getDefenceList({ view: 'examiner_requests', user: { lecturerId: 'lec-1' } });
+        expect(coreRepo.findDefencesByExaminer).toHaveBeenCalledWith('lec-1', expect.any(Object));
+      });
+    });
+  });
+
   describe('Scheduling & Lifecycle', () => {
     const validDate = '2026-06-02'; // A Monday
 
