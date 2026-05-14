@@ -37,6 +37,12 @@ function groupAssessmentDetailsByCpmk(details = []) {
       maxScore: item.criteria.maxScore,
       score: item.score,
       displayOrder: item.criteria.displayOrder,
+      rubrics: (item.criteria.assessmentRubrics || []).map((r) => ({
+        id: r.id,
+        minScore: r.minScore,
+        maxScore: r.maxScore,
+        description: r.description,
+      })),
     });
   });
   Object.values(byGroup).forEach((g) =>
@@ -693,17 +699,21 @@ export async function getFinalizationData(defenceId, user) {
       canFinalize:
         isSupervisor && effectiveStatus === "ongoing" && !defence.resultFinalizedAt,
     },
-    examiners: examiners.map((item) => ({
-      id: item.id,
-      lecturerId: item.lecturerId,
-      lecturerName:
-        (defence.examiners || []).find((x) => x.lecturerId === item.lecturerId)?.lecturerName || "-",
-      order: item.order,
-      assessmentScore: item.assessmentScore,
-      revisionNotes: item.revisionNotes,
-      assessmentSubmittedAt: item.assessmentSubmittedAt,
-      assessmentDetails: groupAssessmentDetailsByCpmk(item.thesisDefenceExaminerAssessmentDetails || []),
-    })),
+    examiners: examiners.map((item) => {
+      const isSubmitted = !!item.assessmentSubmittedAt;
+      return {
+        id: item.id,
+        lecturerId: item.lecturerId,
+        lecturerName:
+          (defence.examiners || []).find((x) => x.lecturerId === item.lecturerId)?.lecturerName || "-",
+        order: item.order,
+        assessmentScore: item.assessmentScore,
+        revisionNotes: item.revisionNotes,
+        assessmentSubmittedAt: item.assessmentSubmittedAt,
+        isDraft: !isSubmitted && item.assessmentScore !== null,
+        assessmentDetails: groupAssessmentDetailsByCpmk(item.thesisDefenceExaminerAssessmentDetails || []),
+      };
+    }),
     supervisorAssessment: {
       assessmentScore: defence.supervisorScore,
       supervisorNotes: defence.supervisorNotes,
@@ -758,7 +768,7 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
 
   // Determine status based on business rules
   let targetStatus = "passed";
-  if (finalScore < 50) {
+  if (finalScore < 55) {
     targetStatus = "failed";
   } else if (payload.recommendRevision) {
     targetStatus = "passed_with_revision";
@@ -772,7 +782,6 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
     finalScore,
     grade: finalGrade,
     resultFinalizedBy: mySupervisor.id,
-    recommendRevision: !!payload.recommendRevision,
   });
 
   if (payload.status === "failed") {

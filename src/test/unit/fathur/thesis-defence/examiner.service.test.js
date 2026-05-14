@@ -189,5 +189,30 @@ describe("Thesis Defence Examiner Service (Full Suite)", () => {
       );
       expect(res.grade).toBe("A");
     });
+
+    it("finalizes defence as failed when score is below 55", async () => {
+      mockCoreRepo.findDefenceById.mockResolvedValue({
+        id: "d1", status: "scheduled", thesisId: "t1",
+        supervisorScore: 10,
+        thesis: { id: "t1", studentId: "st1" },
+      });
+      mockStatusUtil.computeEffectiveDefenceStatus.mockReturnValue("ongoing");
+      mockCoreRepo.findDefenceSupervisorRole.mockResolvedValue({ id: "membership1", lecturerId: "sup1" });
+      mockExaminerRepo.findActiveExaminersWithAssessments.mockResolvedValue([
+        { lecturerId: "l1", assessmentSubmittedAt: new Date(), assessmentScore: 20 },
+        { lecturerId: "l2", assessmentSubmittedAt: new Date(), assessmentScore: 24 },
+      ]);
+      // examinerAvg = (20+24)/2 = 22, supervisorScore = 10 => finalScore = 32 (Failed)
+      mockCoreRepo.finalizeDefenceResult.mockResolvedValue({
+        id: "d1", status: "failed", examinerAverageScore: 22,
+        supervisorScore: 10, finalScore: 32, grade: "E", resultFinalizedAt: new Date(),
+      });
+
+      const res = await finalizeDefence("d1", { recommendRevision: false }, "sup1");
+      expect(mockCoreRepo.finalizeDefenceResult).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "failed", finalScore: 32 })
+      );
+      expect(res.status).toBe("failed");
+    });
   });
 });

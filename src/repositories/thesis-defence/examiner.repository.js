@@ -168,6 +168,10 @@ export async function findActiveExaminersWithAssessments(defenceId) {
               maxScore: true,
               displayOrder: true,
               cpmk: { select: { id: true, code: true, description: true } },
+              assessmentRubrics: {
+                select: { id: true, minScore: true, maxScore: true, description: true },
+                orderBy: { displayOrder: "asc" },
+              },
             },
           },
         },
@@ -194,6 +198,10 @@ export async function findStudentDefenceExaminerAssessmentDetails(defenceId) {
           maxScore: true,
           displayOrder: true,
           cpmk: { select: { id: true, code: true, description: true } },
+          assessmentRubrics: {
+            select: { id: true, minScore: true, maxScore: true, description: true },
+            orderBy: { displayOrder: "asc" },
+          },
         },
       },
     },

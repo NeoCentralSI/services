@@ -533,6 +533,10 @@ export async function findDefenceSupervisorAssessmentDetails(defenceId) {
           maxScore: true,
           displayOrder: true,
           cpmk: { select: { id: true, code: true, description: true } },
+          assessmentRubrics: {
+            select: { id: true, minScore: true, maxScore: true, description: true },
+            orderBy: { displayOrder: "asc" },
+          },
         },
       },
     },
@@ -580,7 +584,6 @@ export async function finalizeDefenceResult({
   finalScore,
   grade,
   resultFinalizedBy,
-  recommendRevision,
 }) {
   return prisma.thesisDefence.update({
     where: { id: defenceId },
@@ -592,7 +595,6 @@ export async function finalizeDefenceResult({
       grade,
       resultFinalizedAt: new Date(),
       resultFinalizedBy,
-      recommendRevision: !!recommendRevision,
     },
   });
 }
@@ -621,6 +623,7 @@ export async function getStudentThesisWithDefenceInfo(studentId) {
     where: { studentId },
     select: {
       id: true,
+      studentId: true,
       title: true,
       thesisSupervisors: {
         select: {

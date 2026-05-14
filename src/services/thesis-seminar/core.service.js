@@ -964,7 +964,9 @@ export async function generateAssessmentResultPdf(seminarId) {
     .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
     .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
     
-    .title-box { width: 100%; border: 2px solid #000; padding: 8px; text-align: center; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #e5e7eb; margin-bottom: 15px; }
+    .doc-title-table { width: 100%; border: 1.5px solid #000; border-collapse: collapse; margin-bottom: 20px; }
+    .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; text-align: center; vertical-align: middle; }
+    .doc-title-table td.doc-no { width: 100px; font-size: 14pt; letter-spacing: 1px; }
     
     .section-title { font-weight: bold; margin: 15px 0 8px 0; }
     .identity-table { width: 100%; margin-left: 20px; border-collapse: collapse; }
@@ -997,17 +999,22 @@ export async function generateAssessmentResultPdf(seminarId) {
         ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
       </td>
       <td class="header-text">
-        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
-        <h4>Universitas Andalas</h4>
-        <h4>Fakultas Teknologi Informasi</h4>
-        <h2>Departemen Sistem Informasi</h2>
-        <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
-        <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
+        <h3>KEMENTERIAN PENDIDIKAN TINGGI, SAINS, DAN TEKNOLOGI</h3>
+        <h4>UNIVERSITAS ANDALAS</h4>
+        <h4>FAKULTAS TEKNOLOGI INFORMASI</h4>
+        <h2>DEPARTEMEN SISTEM INFORMASI</h2>
+        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
+        <p>Website: <a href="http://si.fti.unand.ac.id">http://si.fti.unand.ac.id</a> dan email: <a href="mailto:jurusan_si@fti.unand.ac.id">jurusan_si@fti.unand.ac.id</a></p>
       </td>
     </tr>
   </table>
 
-  <div class="title-box">Formulir Berita Acara Seminar Hasil Tugas Akhir</div>
+  <table class="doc-title-table">
+    <tr>
+      <td class="doc-no">TA – 11</td>
+      <td>Formulir Berita Acara Seminar Hasil Tugas Akhir</td>
+    </tr>
+  </table>
 
   <div class="section-title">A. Identitas Mahasiswa</div>
   <table class="identity-table">

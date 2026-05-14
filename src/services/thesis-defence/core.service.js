@@ -977,7 +977,9 @@ export async function generateAssessmentResultPdf(defenceId) {
     .header-text h2 { margin: 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
     .header-text p { margin: 1px 0; font-size: 8.5pt; }
     
-    .title-box { width: 100%; border: 1px solid #000; padding: 8px; text-align: center; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; letter-spacing: 1px; margin-bottom: 15px; }
+    .doc-title-table { width: 100%; border: 1.5px solid #000; border-collapse: collapse; margin-bottom: 20px; }
+    .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; text-align: center; vertical-align: middle; }
+    .doc-title-table td.doc-no { width: 100px; font-size: 14pt; letter-spacing: 1px; }
     
     .section-title { font-weight: bold; margin: 12px 0 6px 0; font-size: 10.5pt; }
     .identity-table { width: 100%; margin-left: 15px; border-collapse: collapse; }
@@ -1018,7 +1020,12 @@ export async function generateAssessmentResultPdf(defenceId) {
     </tr>
   </table>
 
-  <div class="title-box">Formulir Berita Acara Sidang Tugas Akhir</div>
+  <table class="doc-title-table">
+    <tr>
+      <td class="doc-no">TA – 16</td>
+      <td>Formulir Berita Acara Sidang Tugas Akhir</td>
+    </tr>
+  </table>
 
   <div class="section-title">A. Identitas Mahasiswa</div>
   <table class="identity-table">

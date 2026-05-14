@@ -103,4 +103,37 @@ describe("Thesis Seminar Revision Service", () => {
         .rejects.toMatchObject({ statusCode: 400, message: /difinalisasi/ });
     });
   });
+
+  describe("finalizeRevisions (strict approval logic)", () => {
+    it("blocks finalization if there are submitted but unapproved items", async () => {
+      const seminar = { id: "sem-1", revisionFinalizedBy: null };
+      mockCoreRepo.findSeminarById.mockResolvedValue(seminar);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup-rel-1", thesis: { thesisSupervisors: [{ id: "my-sup-id" }] } });
+      
+      // 1 approved, 1 submitted but not approved
+      mockRevisionRepo.findRevisionsBySeminarId.mockResolvedValue([
+        { id: "rev-1", studentSubmittedAt: new Date(), supervisorApprovedAt: new Date() },
+        { id: "rev-2", studentSubmittedAt: new Date(), supervisorApprovedAt: null },
+      ]);
+
+      const { finalizeRevisions } = await import("../../../../services/thesis-seminar/revision.service.js");
+      await expect(finalizeRevisions("sem-1", "lect-1"))
+        .rejects.toMatchObject({ statusCode: 400, message: /belum disetujui/ });
+    });
+
+    it("allows finalization if all submitted items are approved", async () => {
+      const seminar = { id: "sem-1", revisionFinalizedBy: null };
+      mockCoreRepo.findSeminarById.mockResolvedValue(seminar);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup-rel-1", thesis: { thesisSupervisors: [{ id: "my-sup-id" }] } });
+      
+      mockRevisionRepo.findRevisionsBySeminarId.mockResolvedValue([
+        { id: "rev-1", studentSubmittedAt: new Date(), supervisorApprovedAt: new Date() },
+      ]);
+      mockCoreRepo.updateSeminar.mockResolvedValue({ id: "sem-1", revisionFinalizedAt: new Date() });
+
+      const { finalizeRevisions } = await import("../../../../services/thesis-seminar/revision.service.js");
+      const result = await finalizeRevisions("sem-1", "lect-1");
+      expect(result.seminarId).toBe("sem-1");
+    });
+  });
 });

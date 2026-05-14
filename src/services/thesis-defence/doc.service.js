@@ -44,6 +44,10 @@ async function getOrCreateDefence(thesis) {
   if (existing && !["failed", "cancelled"].includes(existing.status)) return existing;
 
   // Verify requirements before auto-registration
+  if (!thesis.studentId) {
+    throwError("Data mahasiswa tidak ditemukan pada tugas akhir ini.", 400);
+  }
+
   const student = await prisma.student.findUnique({ 
     where: { id: thesis.studentId },
     select: { skscompleted: true }
