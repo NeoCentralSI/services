@@ -288,8 +288,9 @@ export async function verifyDocument(defenceId, docTypeId, { action, notes, user
 
       // 2. Notify student & Kadep about verification transition
       try {
+        const studentName = thesis?.student?.user?.fullName || "Mahasiswa";
+
         if (thesis?.studentId) {
-          const studentName = thesis.student?.user?.fullName || "Mahasiswa";
           const title = "Sidang TA Terverifikasi";
           const message = "Seluruh dokumen persyaratan sidang TA Anda telah diverifikasi. Menunggu penetapan penguji.";
           await Promise.all([
