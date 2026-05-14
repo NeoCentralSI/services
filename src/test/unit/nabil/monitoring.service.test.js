@@ -241,7 +241,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
   // ─── Warning Notification ─────────────────────────────────
   describe("sendWarningNotificationService", () => {
     it("sends FCM + in-app notification for SLOW warning", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findUnique.mockResolvedValue({
         id: "thesis-1",
         title: "AI Research",
@@ -255,7 +255,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     });
 
     it("sends notification for AT_RISK warning type", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findUnique.mockResolvedValue({
         id: "thesis-1",
         title: "AI Research",
