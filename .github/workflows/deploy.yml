@@ -1,13 +1,13 @@
 # ─────────────────────────────────────────────────────────────────
 # CI/CD – Backend (services)
-# Triggers on push to main branch
+# Triggers on push to prod-nabil branch
 # Self-hosted runner on VM → build Docker image locally → deploy
 # ─────────────────────────────────────────────────────────────────
 name: Deploy Backend
 
 on:
   push:
-    branches: [main]
+    branches: [prod-nabil]
   workflow_dispatch:
 
 env:
@@ -23,6 +23,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: prod-nabil
 
       - name: Build Docker image locally
         run: docker build -t ${{ env.IMAGE_TAG }} .
