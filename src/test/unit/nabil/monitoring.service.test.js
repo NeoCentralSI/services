@@ -28,6 +28,7 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
     thesis: { findUnique: vi.fn(), findFirst: vi.fn() },
     thesisStatus: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
+    thesisSupervisors: { findFirst: vi.fn(), count: vi.fn() },
   },
   mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
@@ -267,7 +268,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     });
 
     it("throws 404 if thesis not found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
@@ -321,7 +322,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
   // ─── Batch Warning Notification ─────────────────────
   describe("sendBatchWarningNotificationService", () => {
     it("sends batch SLOW warnings to multiple students", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([
         {
           id: "thesis-1", daysSinceActivity: 65,
@@ -347,7 +348,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     });
 
     it("throws error if no theses are found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([]);
 
       await expect(
