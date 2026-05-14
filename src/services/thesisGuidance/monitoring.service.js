@@ -577,12 +577,33 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
     throw new Error("Daftar mahasiswa (thesisId) tidak boleh kosong");
   }
 
-  // Get user info for sender name
-  const sender = await prisma.user.findUnique({
+  // Get user info and roles for authorization
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { fullName: true }
+    include: { userHasRoles: { include: { role: true } } }
   });
-  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
+
+  const isKadep = (user.userHasRoles || []).some(
+    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+  );
+
+  // If not kadep, ensure the user supervises ALL theses in the list
+  if (!isKadep) {
+    const supervisedCount = await prisma.thesisSupervisors.count({
+      where: { thesisId: { in: thesisIds }, lecturerId: userId }
+    });
+    if (supervisedCount !== thesisIds.length) {
+      const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang mengawasi tesis tersebut yang dapat mengirim peringatan massal");
+      err.statusCode = 403;
+      throw err;
+    }
+  }
 
   // Get all theses with student user info
   const theses = await prisma.thesis.findMany({
