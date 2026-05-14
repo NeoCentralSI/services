@@ -1,6 +1,7 @@
 import * as monitoringRepository from "../../repositories/thesisGuidance/monitoring.repository.js";
 import { getKadepAllTransfersService } from "./lecturer.guidance.service.js";
 import { sendFcmToUsers } from "../push.service.js";
+import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import fs from "fs";
@@ -466,12 +467,34 @@ export async function getThesisDetail(thesisId) {
  * Send warning notification to student about thesis progress (for department roles: Kadep, Sekdep, GKM)
  */
 export async function sendWarningNotificationService(userId, thesisId, warningType) {
-  // Get user info for sender name
-  const sender = await prisma.user.findUnique({
+  // Get user info and roles for authorization
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { fullName: true }
+    include: { userHasRoles: { include: { role: true } } }
   });
-  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
+
+  // Authorization: only Ketua Departemen or supervisors may send warnings
+  const isKadep = (user.userHasRoles || []).some(
+    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+  );
+
+  // Check if user is supervisor for this thesis (Lecturer.id is user id)
+  const supRecord = await prisma.thesisSupervisors.findFirst({
+    where: { thesisId: thesisId, lecturerId: userId }
+  });
+  const isSupervisor = Boolean(supRecord);
+
+  if (!isKadep && !isSupervisor) {
+    const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang dapat mengirim peringatan tugas akhir");
+    err.statusCode = 403;
+    throw err;
+  }
 
   // Get thesis with student info
   const thesis = await prisma.thesis.findUnique({
