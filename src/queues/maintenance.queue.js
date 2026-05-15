@@ -6,7 +6,6 @@ import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
-import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
@@ -194,21 +193,6 @@ export async function scheduleDailyThesisReminder() {
   }
 }
 
-export async function scheduleYudisiumFinalize() {
-  // Run daily at 00:15 WIB to finalize yudisium events whose event date has passed
-  const pattern = "15 0 * * *";
-  const tz = "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "yudisium-finalize",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled yudisium-finalize job with cron: "${pattern}" tz="${tz}"`);
-}
 
 export async function scheduleDailyInternshipStatus() {
   // Run daily at 00:00 WIB to enforce internship reporting/seminar deadlines
@@ -282,8 +266,6 @@ export const maintenanceWorker = new Worker(
       case "daily-thesis-reminder":
         await runDailyThesisReminderJob();
         break;
-      case "yudisium-finalize":
-        await finalizeCompletedYudisium();
         break;
       case "internship-status":
         await runInternshipStatusJob();
