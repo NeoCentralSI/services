@@ -1,3 +1,9 @@
+/**
+ * Exit Survey Service.
+ * 
+ * Manages the data master for exit survey forms, including sessions, questions,
+ * and processing student responses during the yudisium process.
+ */
 import * as repo from "../../repositories/yudisium/exit-survey.repository.js";
 import { findStudentContext } from "./student.service.js";
 import prisma from "../../config/prisma.js";
@@ -265,47 +271,39 @@ export const updateSession = async (formId, sessionId, data) => {
 };
 
 export const deleteSession = async (formId, sessionId) => {
-  console.log(`[Service] Attempting to delete session: ${sessionId} for form: ${formId}`);
   const session = await repo.findSessionById(sessionId);
   if (!session || session.exitSurveyFormId !== formId) {
-    console.error(`[Service] Session not found or mismatch. Session: ${JSON.stringify(session)}`);
     throwError("Sesi tidak ditemukan", 404);
   }
 
   return await prisma.$transaction(async (tx) => {
-    console.log(`[Service] Deep cleaning all data for session: ${sessionId}`);
-    
     // 1. Delete all answers for all questions in this session
-    const ansResult = await tx.studentExitSurveyAnswer.deleteMany({
+    await tx.studentExitSurveyAnswer.deleteMany({
       where: {
         question: {
           exitSurveySessionId: sessionId
         }
       }
     });
-    console.log(`[Service] Deleted ${ansResult.count} answers associated with session ${sessionId}`);
 
     // 2. Delete all options for all questions in this session
-    const optResult = await tx.exitSurveyOption.deleteMany({
+    await tx.exitSurveyOption.deleteMany({
       where: {
         question: {
           exitSurveySessionId: sessionId
         }
       }
     });
-    console.log(`[Service] Deleted ${optResult.count} options associated with session ${sessionId}`);
 
     // 3. Delete all questions in this session
-    const qResult = await tx.exitSurveyQuestion.deleteMany({
+    await tx.exitSurveyQuestion.deleteMany({
       where: { exitSurveySessionId: sessionId }
     });
-    console.log(`[Service] Deleted ${qResult.count} questions associated with session ${sessionId}`);
     
-    console.log(`[Service] Deleting the session itself: ${sessionId}`);
     const result = await tx.exitSurveySession.delete({
       where: { id: sessionId }
     });
-    console.log(`[Service] Session deleted successfully`);
+    
     return result;
   });
 };
