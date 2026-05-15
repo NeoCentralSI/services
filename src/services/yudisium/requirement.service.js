@@ -1,3 +1,9 @@
+/**
+ * Yudisium Requirement Service.
+ * 
+ * Manages the data master for documents required from students during yudisium registration.
+ * Handles CRUD operations, status toggling, and data formatting for the frontend.
+ */
 import * as repository from "../../repositories/yudisium/requirement.repository.js";
 
 function throwError(msg, code) {
@@ -91,7 +97,7 @@ export const deleteRequirement = async (id) => {
 
   if (await repository.hasRelatedData(id)) {
     throwError(
-      "Tidak dapat menghapus persyaratan yudisium karena sudah memiliki data dokumen peserta",
+      `Tidak dapat menghapus persyaratan "${existing.name}" karena sudah memiliki data dokumen peserta yang terhubung.`,
       409
     );
   }
