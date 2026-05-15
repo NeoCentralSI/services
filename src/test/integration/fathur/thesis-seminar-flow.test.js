@@ -117,8 +117,13 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
   });
 
   it("Step 5: Admin drafts and finalizes the schedule", async () => {
+    // Ensure we pick a weekday (Next Monday)
+    const nextMonday = new Date();
+    nextMonday.setDate(nextMonday.getDate() + ((7 - nextMonday.getDay() + 1) % 7 || 7));
+    const dateStr = nextMonday.toISOString().split("T")[0];
+
     await coreService.scheduleSeminar(seminarId, {
-      date: new Date(Date.now() + 86400000).toISOString().split("T")[0],
+      date: dateStr,
       startTime: "10:00", endTime: "12:00", isOnline: true, meetingLink: "https://zoom.us"
     });
     
