@@ -113,6 +113,82 @@ const notifyCplValidationCompleted = async (participant) => {
   });
 };
 
+const notifyFinalizedParticipants = async ({ yudisium, appointedParticipants, rejectedParticipants }) => {
+  const yudisiumName = yudisium?.name || "Yudisium";
+  const eventDateText = yudisium?.eventDate
+    ? new Date(yudisium.eventDate).toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    })
+    : "-";
+
+  const appointedUserIds = appointedParticipants
+    .map((p) => p.thesis?.student?.user?.id)
+    .filter(Boolean);
+  const rejectedUserIds = rejectedParticipants
+    .map((p) => p.thesis?.student?.user?.id)
+    .filter(Boolean);
+
+  await notifyUsers(appointedUserIds, {
+    title: "Ditetapkan sebagai Peserta Yudisium",
+    message: `Anda telah ditetapkan sebagai peserta ${yudisiumName}. Jadwal pelaksanaan: ${eventDateText}.`,
+    data: { yudisiumId: yudisium.id, type: "yudisium_participant_appointed" },
+  });
+  await notifyUsers(rejectedUserIds, {
+    title: "Hasil Finalisasi Yudisium",
+    message: `Anda belum dapat ditetapkan sebagai peserta ${yudisiumName} karena persyaratan belum lengkap atau CPL belum tervalidasi.`,
+    data: { yudisiumId: yudisium.id, type: "yudisium_participant_rejected" },
+  });
+};
+
+const syncYudisiumToOutlook = async ({ yudisium, appointedParticipants, organizerId }) => {
+  if (!yudisium?.eventDate || appointedParticipants.length === 0) return;
+
+  try {
+    const outlook = await import("../outlook-calendar.service.js");
+    const startTime = new Date(yudisium.eventDate);
+    const endTime = new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
+    const location = yudisium.room?.name || "Departemen Sistem Informasi";
+    const attendees = [
+      ...new Set(appointedParticipants.map((p) => p.thesis?.student?.user?.email).filter(Boolean)),
+    ];
+    const participantNames = appointedParticipants
+      .map((p, index) => `${index + 1}. ${p.thesis?.student?.user?.fullName || "-"}`)
+      .join("\n");
+
+    const eventData = {
+      subject: `${yudisium.name} - Yudisium`,
+      body: `Pelaksanaan ${yudisium.name}\n\nPeserta:\n${participantNames}\n\nDisinkronkan dari Neo Central.`,
+      startTime,
+      endTime,
+      location,
+      attendees,
+    };
+
+    const organizerCandidates = [
+      organizerId,
+      ...appointedParticipants.map((p) => p.thesis?.student?.user?.id),
+    ].filter(Boolean);
+
+    let selectedOrganizer = null;
+    for (const userId of organizerCandidates) {
+      const access = await outlook.hasCalendarAccess(userId);
+      if (typeof access === "object" ? access.hasAccess : access) {
+        selectedOrganizer = userId;
+        break;
+      }
+    }
+
+    if (selectedOrganizer) {
+      await outlook.createCalendarEvent(selectedOrganizer, eventData);
+    }
+  } catch (err) {
+    console.error("[OutlookSync] Failed to sync yudisium finalization:", err.message);
+  }
+};
+
 const areAllRelevantCplScoresValidated = (activeCpls, scores) => {
   const activeCplIds = new Set(activeCpls.map((cpl) => cpl.id));
   const relevantScores = scores.filter((score) => activeCplIds.has(score.cplId));
@@ -1102,7 +1178,7 @@ export const exportParticipants = async (yudisiumId, userId) => {
       room: true,
       participants: {
         where: {
-          status: { in: ["cpl_validated", "appointed", "finalized"] }
+          status: { in: ["appointed", "finalized"] }
         },
         include: {
           thesis: {
@@ -1422,13 +1498,28 @@ export const exportParticipants = async (yudisiumId, userId) => {
   return await convertHtmlToPdf(html);
 };
 
-export const finalizeParticipants = async (yudisiumId) => {
+export const finalizeParticipants = async (yudisiumId, userId = null) => {
   const yudisium = await prisma.yudisium.findUnique({
     where: { id: yudisiumId },
-    select: { registrationCloseDate: true },
+    include: {
+      room: true,
+      participants: {
+        where: { status: { in: ["registered", "verified", "cpl_validated"] } },
+        include: {
+          thesis: {
+            include: {
+              student: { include: { user: true } },
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
+  if (yudisium.appointedAt) {
+    throwError("Peserta yudisium sudah difinalisasi", 409);
+  }
 
   const now = new Date();
   const isClosed = yudisium.registrationCloseDate && now > new Date(yudisium.registrationCloseDate);
@@ -1436,10 +1527,28 @@ export const finalizeParticipants = async (yudisiumId) => {
     throwError("Finalisasi hanya dapat dilakukan setelah pendaftaran ditutup", 400);
   }
 
-  // Finalize statuses
-  // 1. cpl_validated -> appointed
-  // 2. registered, verified -> rejected
-  const result = await participantRepo.finalizeAllParticipants(yudisiumId);
+  const appointedParticipants = yudisium.participants.filter((p) => p.status === "cpl_validated");
+  const rejectedParticipants = yudisium.participants.filter((p) =>
+    ["registered", "verified"].includes(p.status)
+  );
+  const appointedAt = new Date();
 
-  return result;
+  const [appointedResult, rejectedResult] = await participantRepo.finalizeAllParticipants(
+    yudisiumId,
+    appointedAt
+  );
+
+  try {
+    await notifyFinalizedParticipants({ yudisium, appointedParticipants, rejectedParticipants });
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify yudisium finalization:", err.message);
+  }
+
+  await syncYudisiumToOutlook({ yudisium, appointedParticipants, organizerId: userId });
+
+  return {
+    appointed: appointedResult?.count ?? appointedParticipants.length,
+    rejected: rejectedResult?.count ?? rejectedParticipants.length,
+    appointedAt,
+  };
 };

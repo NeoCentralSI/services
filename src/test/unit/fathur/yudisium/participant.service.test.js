@@ -6,6 +6,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { convertHtmlToPdf } from "../../../../utils/pdf.util.js";
 import { createNotificationsForUsers } from "../../../../services/notification.service.js";
 import { sendFcmToUsers } from "../../../../services/push.service.js";
+import { createCalendarEvent, hasCalendarAccess } from "../../../../services/outlook-calendar.service.js";
 
 vi.mock("../../../../repositories/yudisium/participant.repository.js");
 vi.mock("../../../../repositories/yudisium/requirement.repository.js");
@@ -36,6 +37,10 @@ vi.mock("../../../../services/notification.service.js", () => ({
 }));
 vi.mock("../../../../services/push.service.js", () => ({
   sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }),
+}));
+vi.mock("../../../../services/outlook-calendar.service.js", () => ({
+  hasCalendarAccess: vi.fn().mockResolvedValue(false),
+  createCalendarEvent: vi.fn().mockResolvedValue({ id: "calendar-event-1" }),
 }));
 
 import prisma from "../../../../config/prisma.js";
@@ -874,6 +879,126 @@ describe("Unit Test: Yudisium Participant Service", () => {
       const html = convertHtmlToPdf.mock.calls[0][0];
       expect(html).toContain("Firhan Hadi Yoza");
       expect(html).toContain("Koordinator Asesmen CPL");
+    });
+  });
+
+  describe("finalizeParticipants", () => {
+    const closedYudisium = {
+      id: "y1",
+      name: "Yudisium Periode 5",
+      registrationCloseDate: new Date("2026-05-01T00:00:00.000Z"),
+      eventDate: new Date("2026-05-20T03:00:00.000Z"),
+      appointedAt: null,
+      room: { name: "Ruang Seminar" },
+      participants: [
+        {
+          id: "p-appointed",
+          status: "cpl_validated",
+          thesis: {
+            student: {
+              user: {
+                id: "student-appointed",
+                fullName: "Ayu",
+                email: "ayu@example.test",
+              },
+            },
+          },
+        },
+        {
+          id: "p-registered",
+          status: "registered",
+          thesis: {
+            student: {
+              user: {
+                id: "student-registered",
+                fullName: "Budi",
+                email: "budi@example.test",
+              },
+            },
+          },
+        },
+        {
+          id: "p-verified",
+          status: "verified",
+          thesis: {
+            student: {
+              user: {
+                id: "student-verified",
+                fullName: "Cici",
+                email: "cici@example.test",
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    it("appoints CPL-validated participants, rejects incomplete participants, stamps appointedAt, notifies, and syncs Outlook", async () => {
+      prisma.yudisium.findUnique.mockResolvedValue(closedYudisium);
+      participantRepo.finalizeAllParticipants.mockResolvedValue([
+        { count: 1 },
+        { count: 2 },
+        { id: "y1", appointedAt: new Date("2026-05-16T00:00:00.000Z") },
+      ]);
+      hasCalendarAccess.mockImplementation(async (userId) => userId === "koor-1");
+
+      const result = await service.finalizeParticipants("y1", "koor-1");
+
+      expect(participantRepo.finalizeAllParticipants).toHaveBeenCalledWith(
+        "y1",
+        expect.any(Date)
+      );
+      expect(result).toEqual({
+        appointed: 1,
+        rejected: 2,
+        appointedAt: expect.any(Date),
+      });
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-appointed"],
+        expect.objectContaining({ title: "Ditetapkan sebagai Peserta Yudisium" })
+      );
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-registered", "student-verified"],
+        expect.objectContaining({ title: "Hasil Finalisasi Yudisium" })
+      );
+      expect(sendFcmToUsers).toHaveBeenCalledWith(
+        ["student-appointed"],
+        expect.objectContaining({
+          data: expect.objectContaining({ type: "yudisium_participant_appointed" }),
+        })
+      );
+      expect(createCalendarEvent).toHaveBeenCalledWith(
+        "koor-1",
+        expect.objectContaining({
+          subject: "Yudisium Periode 5 - Yudisium",
+          location: "Ruang Seminar",
+          attendees: ["ayu@example.test"],
+        })
+      );
+    });
+
+    it("rejects finalization before registration is closed", async () => {
+      prisma.yudisium.findUnique.mockResolvedValue({
+        ...closedYudisium,
+        registrationCloseDate: new Date("2026-06-01T00:00:00.000Z"),
+      });
+
+      await expect(service.finalizeParticipants("y1", "koor-1")).rejects.toThrow(
+        "Finalisasi hanya dapat dilakukan setelah pendaftaran ditutup"
+      );
+      expect(participantRepo.finalizeAllParticipants).not.toHaveBeenCalled();
+    });
+
+    it("rejects finalization when participants were already finalized", async () => {
+      prisma.yudisium.findUnique.mockResolvedValue({
+        ...closedYudisium,
+        appointedAt: new Date("2026-05-15T00:00:00.000Z"),
+      });
+
+      await expect(service.finalizeParticipants("y1", "koor-1")).rejects.toThrow(
+        "Peserta yudisium sudah difinalisasi"
+      );
+      expect(participantRepo.finalizeAllParticipants).not.toHaveBeenCalled();
     });
   });
 });

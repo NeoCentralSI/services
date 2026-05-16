@@ -156,6 +156,71 @@ describe("Unit Test: Yudisium Core Service", () => {
     });
   });
 
+  describe("getAnnouncements", () => {
+    it("includes archive yudisium when it has finalized participants", async () => {
+      repository.findAll.mockResolvedValue([
+        makeYudisium({
+          id: "archive-1",
+          name: "Arsip Yudisium 2025",
+          eventDate: new Date("2025-04-16T03:00:00.000Z"),
+          _count: { participants: 1, studentExitSurveyResponses: 0 },
+        }),
+      ]);
+      prisma.yudisiumParticipant.findMany.mockResolvedValue([
+        {
+          id: "participant-1",
+          status: "finalized",
+          thesis: {
+            title: "Sistem Informasi Akademik",
+            student: {
+              user: { fullName: "Ayu Putri", identityNumber: "2211520001" },
+            },
+          },
+        },
+      ]);
+
+      const result = await service.getAnnouncements();
+
+      expect(prisma.yudisiumParticipant.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            yudisiumId: "archive-1",
+            status: { in: ["appointed", "finalized"] },
+          },
+        })
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: "archive-1",
+        name: "Arsip Yudisium 2025",
+        participants: [
+          {
+            id: "participant-1",
+            studentName: "Ayu Putri",
+            studentNim: "2211520001",
+            thesisTitle: "Sistem Informasi Akademik",
+            status: "finalized",
+          },
+        ],
+      });
+    });
+
+    it("does not include archive yudisium without finalized participants", async () => {
+      repository.findAll.mockResolvedValue([
+        makeYudisium({
+          id: "archive-empty",
+          name: "Arsip Kosong",
+          eventDate: new Date("2025-04-16T03:00:00.000Z"),
+        }),
+      ]);
+      prisma.yudisiumParticipant.findMany.mockResolvedValue([]);
+
+      const result = await service.getAnnouncements();
+
+      expect(result).toEqual([]);
+    });
+  });
+
   describe("updateYudisium", () => {
     it("allows active yudisium operational updates after registration has participants", async () => {
       const existing = activeYudisium();

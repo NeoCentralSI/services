@@ -454,7 +454,7 @@ export const findYudisiumWithParticipantsForDraft = async (yudisiumId) => {
   });
 };
 
-export const finalizeAllParticipants = async (yudisiumId) => {
+export const finalizeAllParticipants = async (yudisiumId, appointedAt = new Date()) => {
   return await prisma.$transaction([
     // 1. cpl_validated -> appointed
     prisma.yudisiumParticipant.updateMany({
@@ -468,6 +468,10 @@ export const finalizeAllParticipants = async (yudisiumId) => {
         status: { in: ["registered", "verified"] } 
       },
       data: { status: "rejected" },
+    }),
+    prisma.yudisium.update({
+      where: { id: yudisiumId },
+      data: { appointedAt },
     }),
   ]);
 };

@@ -207,6 +207,7 @@ export const getAnnouncements = async () => {
   const allEvents = await repository.findAll();
 
   const filtered = allEvents.filter((item) => {
+    if (isArchiveYudisium(item)) return true;
     const closeDate = item.registrationCloseDate ? new Date(item.registrationCloseDate) : null;
     return closeDate && now > closeDate;
   });
@@ -227,6 +228,8 @@ export const getAnnouncements = async () => {
         },
       });
 
+      if (isArchiveYudisium(item) && participants.length === 0) return null;
+
       return {
         ...formatYudisium(item),
         participants: participants.map((p) => ({
@@ -240,7 +243,7 @@ export const getAnnouncements = async () => {
     })
   );
 
-  return announcements;
+  return announcements.filter(Boolean);
 };
 
 export const getRepository = async (search) => {
