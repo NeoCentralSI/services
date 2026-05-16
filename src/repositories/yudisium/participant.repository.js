@@ -136,8 +136,19 @@ export const findStudentByParticipant = async (participantId) => {
     where: { id: participantId },
     select: {
       id: true,
+      yudisiumId: true,
       status: true,
-      thesis: { select: { student: { select: { id: true } } } },
+      yudisium: { select: { id: true, name: true } },
+      thesis: {
+        select: {
+          student: {
+            select: {
+              id: true,
+              user: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+      },
     },
   });
 };
@@ -170,10 +181,10 @@ export const createFinalizedForThesis = async (yudisiumId, thesisId) => {
   });
 };
 
-export const updateStatus = async (participantId, status) => {
+export const updateStatus = async (participantId, status, additionalData = {}) => {
   return await prisma.yudisiumParticipant.update({
     where: { id: participantId },
-    data: { status },
+    data: { status, ...additionalData },
   });
 };
 

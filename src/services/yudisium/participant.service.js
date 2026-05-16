@@ -84,6 +84,45 @@ const assertArchiveYudisium = (yudisium) => {
   }
 };
 
+const assertParticipantReadyForCplValidation = (participant) => {
+  if (participant.status === "verified") return;
+
+  if (participant.status === "registered") {
+    throwError(
+      "Validasi CPL hanya dapat dilakukan setelah seluruh dokumen yudisium terverifikasi",
+      400
+    );
+  }
+
+  throwError("Validasi CPL tidak dapat diubah pada status peserta saat ini", 400);
+};
+
+const notifyCplValidationCompleted = async (participant) => {
+  const studentUserId = participant.thesis?.student?.user?.id;
+  if (!studentUserId) return;
+
+  const yudisiumName = participant.yudisium?.name || "Yudisium";
+  await notifyUsers([studentUserId], {
+    title: "CPL Yudisium Tervalidasi",
+    message: `Seluruh nilai CPL Anda untuk ${yudisiumName} telah divalidasi. Anda telah menjadi calon peserta yudisium.`,
+    data: {
+      yudisiumId: participant.yudisiumId,
+      participantId: participant.id,
+      type: "yudisium_cpl_validated",
+    },
+  });
+};
+
+const areAllRelevantCplScoresValidated = (activeCpls, scores) => {
+  const activeCplIds = new Set(activeCpls.map((cpl) => cpl.id));
+  const relevantScores = scores.filter((score) => activeCplIds.has(score.cplId));
+
+  return (
+    relevantScores.length > 0 &&
+    relevantScores.every((score) => score.status === "validated")
+  );
+};
+
 const normalizeImportText = (value) => String(value ?? "").trim().replace(/\s+/g, " ");
 const normalizeImportKey = (value) => normalizeImportText(value).toLowerCase();
 
@@ -147,11 +186,11 @@ export const getParticipants = async (yudisiumId) => {
   });
 
   return {
-    yudisium: { 
-      id: yudisium.id, 
-      name: yudisium.name, 
+    yudisium: {
+      id: yudisium.id,
+      name: yudisium.name,
       status: deriveYudisiumStatus(yudisium),
-      appointedAt: yudisium.appointedAt 
+      appointedAt: yudisium.appointedAt
     },
     participants: mapped,
   };
@@ -187,10 +226,10 @@ export const getParticipantDetail = async (participantId, viewer = null) => {
       verifiedBy: uploaded?.verifier?.fullName ?? null,
       document: uploaded?.document
         ? {
-            id: uploaded.document.id,
-            fileName: uploaded.document.fileName,
-            filePath: uploaded.document.filePath,
-          }
+          id: uploaded.document.id,
+          fileName: uploaded.document.fileName,
+          filePath: uploaded.document.filePath,
+        }
         : null,
     };
   });
@@ -472,7 +511,7 @@ export const verifyParticipantDocument = async (
     }).length;
 
     if (approvedCount >= expectedCount) {
-      await participantRepo.updateStatus(participantId, "verified");
+      await participantRepo.updateStatus(participantId, "verified", { verifiedAt: new Date() });
       participantTransitioned = true;
 
       try {
@@ -553,6 +592,7 @@ export const getParticipantCplScores = async (participantId, viewer = null) => {
 export const validateCplScore = async (participantId, cplId, userId) => {
   const participant = await participantRepo.findStudentByParticipant(participantId);
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
+  assertParticipantReadyForCplValidation(participant);
 
   const studentId = participant.thesis?.student?.id;
   if (!studentId) throwError("Data mahasiswa tidak ditemukan", 404);
@@ -563,14 +603,18 @@ export const validateCplScore = async (participantId, cplId, userId) => {
 
   await participantRepo.validateStudentCplScore(studentId, cplId, userId);
 
-  // If all active CPLs are validated, move verified participants to cpl_validated.
+  // If all of the student's scores for active CPLs are validated, move verified participants.
   const activeCpls = await participantRepo.findCplsActive();
   const allScores = await participantRepo.findStudentCplScores(studentId);
-  const scoreStatusMap = new Map(allScores.map((s) => [s.cplId, s.status]));
-  const allValidated = activeCpls.every((cpl) => scoreStatusMap.get(cpl.id) === "validated");
+  const allValidated = areAllRelevantCplScoresValidated(activeCpls, allScores);
 
   if (allValidated && participant.status === "verified") {
     await participantRepo.updateStatus(participantId, "cpl_validated");
+    try {
+      await notifyCplValidationCompleted(participant);
+    } catch (err) {
+      console.error("[Notification Error] Failed to notify student on CPL validation completion:", err.message);
+    }
   }
 
   return { cplId, status: "validated", allCplValidated: allValidated };
@@ -583,12 +627,27 @@ export const saveCplRepairment = async (
 ) => {
   const participant = await participantRepo.findStudentByParticipant(participantId);
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
+  assertParticipantReadyForCplValidation(participant);
 
   const studentId = participant.thesis?.student?.id;
   if (!studentId) throwError("Data mahasiswa tidak ditemukan", 404);
 
   const score = await participantRepo.findStudentCplScore(studentId, cplId);
   if (!score) throwError("Skor CPL mahasiswa tidak ditemukan", 404);
+  if (score.status === "validated") throwError("CPL ini sudah tervalidasi", 400);
+
+  const cpl = await participantRepo.findCplById(cplId);
+  if (!cpl) throwError("Data CPL tidak ditemukan", 404);
+
+  const parsedNewScore = Number.parseInt(newScore, 10);
+  const parsedOldScore = Number.parseInt(oldScore, 10);
+  if (Number.isNaN(parsedNewScore)) throwError("Skor baru wajib diisi", 400);
+  if (parsedNewScore < cpl.minimalScore) {
+    throwError("Skor baru harus memenuhi nilai minimal CPL", 400);
+  }
+  if (!recommendationFile || !settlementFile) {
+    throwError("Dokumen rekomendasi dan penyelesaian CPL wajib diunggah", 400);
+  }
 
   // Handle files
   const uploadsRoot = path.join(process.cwd(), "uploads", "yudisium", "cpl-repair", studentId);
@@ -625,9 +684,9 @@ export const saveCplRepairment = async (
     setDocId = doc.id;
   }
 
-  const result = await participantRepo.saveCplRepairment(studentId, cplId, {
-    score: parseInt(newScore),
-    oldCplScore: parseInt(oldScore),
+  await participantRepo.saveCplRepairment(studentId, cplId, {
+    score: parsedNewScore,
+    oldCplScore: Number.isNaN(parsedOldScore) ? score.score : parsedOldScore,
     recommendationDocumentId: recDocId,
     settlementDocumentId: setDocId,
     verifiedBy: userId,
@@ -636,14 +695,18 @@ export const saveCplRepairment = async (
   // Re-check overall transition if necessary
   const activeCpls = await participantRepo.findCplsActive();
   const allScores = await participantRepo.findStudentCplScores(studentId);
-  const scoreStatusMap = new Map(allScores.map((s) => [s.cplId, s.status]));
-  const allVerified = activeCpls.every((cpl) => scoreStatusMap.get(cpl.id) === "verified");
+  const allValidated = areAllRelevantCplScoresValidated(activeCpls, allScores);
 
-  if (allVerified && participant.status === "verified") {
+  if (allValidated && participant.status === "verified") {
     await participantRepo.updateStatus(participantId, "cpl_validated");
+    try {
+      await notifyCplValidationCompleted(participant);
+    } catch (err) {
+      console.error("[Notification Error] Failed to notify student on CPL validation completion:", err.message);
+    }
   }
 
-  return { cplId, status: "verified", allCplVerified: allVerified };
+  return { cplId, status: "validated", allCplValidated: allValidated };
 };
 
 // ============================================================
@@ -652,7 +715,7 @@ export const saveCplRepairment = async (
 
 const STATUS_LABELS = {
   registered: "Menunggu Verifikasi Dokumen",
-  verified: "Menunggu Verifikasi CPL",
+  verified: "Menunggu Validasi CPL",
   cpl_validated: "Calon Peserta Yudisium",
   appointed: "Peserta Yudisium",
   finalized: "Lulus",
@@ -665,8 +728,8 @@ export const exportParticipants = async (yudisiumId, userId) => {
     include: {
       room: true,
       participants: {
-        where: { 
-          status: { in: ["cpl_validated", "appointed", "finalized"] } 
+        where: {
+          status: { in: ["cpl_validated", "appointed", "finalized"] }
         },
         include: {
           thesis: {

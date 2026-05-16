@@ -338,8 +338,6 @@ export const getOverview = async (userId) => {
     const studentId = student.id;
     const activeCpls = await participantRepo.findCplsActive();
     const scores = await participantRepo.findStudentCplScores(studentId);
-    const scoreMap = new Map(scores.map((s) => [s.cplId, s]));
-
     // Only show CPLs that the student actually has scores for
     cplScores = scores.map((sc) => {
       const cpl = sc.cpl;
@@ -359,9 +357,11 @@ export const getOverview = async (userId) => {
       };
     });
 
+    const activeCplIds = new Set(activeCpls.map((cpl) => cpl.id));
+    const relevantScores = scores.filter((score) => activeCplIds.has(score.cplId));
     allCplVerified =
-      activeCpls.length > 0 &&
-      activeCpls.every((cpl) => scoreMap.get(cpl.id)?.status === "validated");
+      relevantScores.length > 0 &&
+      relevantScores.every((score) => score.status === "validated");
   }
 
   return {

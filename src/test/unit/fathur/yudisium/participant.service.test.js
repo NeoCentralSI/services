@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as service from "../../../../services/yudisium/participant.service.js";
 import * as participantRepo from "../../../../repositories/yudisium/participant.repository.js";
 import * as xlsx from "xlsx";
+import { mkdir, writeFile } from "fs/promises";
 import { convertHtmlToPdf } from "../../../../utils/pdf.util.js";
 import { createNotificationsForUsers } from "../../../../services/notification.service.js";
 import { sendFcmToUsers } from "../../../../services/push.service.js";
@@ -13,6 +14,10 @@ vi.mock("xlsx", () => ({
   utils: {
     sheet_to_json: vi.fn(),
   },
+}));
+vi.mock("fs/promises", () => ({
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
@@ -449,7 +454,11 @@ describe("Unit Test: Yudisium Participant Service", () => {
         userId: "admin-1",
       });
 
-      expect(participantRepo.updateStatus).toHaveBeenCalledWith("participant-1", "verified");
+      expect(participantRepo.updateStatus).toHaveBeenCalledWith(
+        "participant-1",
+        "verified",
+        { verifiedAt: expect.any(Date) }
+      );
       expect(result).toMatchObject({
         status: "approved",
         participantTransitioned: true,
@@ -472,6 +481,174 @@ describe("Unit Test: Yudisium Participant Service", () => {
         expect.objectContaining({
           data: expect.objectContaining({ type: "yudisium_need_cpl_validation" }),
         })
+      );
+    });
+  });
+
+  describe("CPL validation", () => {
+    const verifiedParticipant = {
+      id: "participant-1",
+      yudisiumId: "y1",
+      status: "verified",
+      yudisium: { id: "y1", name: "Yudisium Mei 2026" },
+      thesis: {
+        student: {
+          id: "student-1",
+          user: { id: "student-user-1", fullName: "Ayu" },
+        },
+      },
+    };
+
+    it("rejects CPL validation before all documents are verified", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue({
+        ...verifiedParticipant,
+        status: "registered",
+      });
+
+      await expect(
+        service.validateCplScore("participant-1", "cpl-1", "gkm-1")
+      ).rejects.toThrow("Validasi CPL hanya dapat dilakukan setelah seluruh dokumen yudisium terverifikasi");
+
+      expect(participantRepo.validateStudentCplScore).not.toHaveBeenCalled();
+      expect(participantRepo.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it("validates a CPL without transitioning when other CPLs are still pending", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue(verifiedParticipant);
+      participantRepo.findStudentCplScore.mockResolvedValue({
+        cplId: "cpl-1",
+        score: 80,
+        status: "calculated",
+      });
+      participantRepo.validateStudentCplScore.mockResolvedValue({});
+      participantRepo.findCplsActive.mockResolvedValue([
+        { id: "cpl-1" },
+        { id: "cpl-2" },
+      ]);
+      participantRepo.findStudentCplScores.mockResolvedValue([
+        { cplId: "cpl-1", status: "validated" },
+        { cplId: "cpl-2", status: "calculated" },
+      ]);
+
+      const result = await service.validateCplScore("participant-1", "cpl-1", "gkm-1");
+
+      expect(participantRepo.validateStudentCplScore).toHaveBeenCalledWith(
+        "student-1",
+        "cpl-1",
+        "gkm-1"
+      );
+      expect(result).toEqual({ cplId: "cpl-1", status: "validated", allCplValidated: false });
+      expect(participantRepo.updateStatus).not.toHaveBeenCalled();
+      expect(createNotificationsForUsers).not.toHaveBeenCalled();
+    });
+
+    it("transitions to cpl_validated when all student scores for active CPLs are validated", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue(verifiedParticipant);
+      participantRepo.findStudentCplScore.mockResolvedValue({
+        cplId: "cpl-1",
+        score: 80,
+        status: "calculated",
+      });
+      participantRepo.validateStudentCplScore.mockResolvedValue({});
+      participantRepo.findCplsActive.mockResolvedValue([
+        { id: "cpl-1" },
+        { id: "cpl-2" },
+        { id: "cpl-3" },
+        { id: "cpl-4" },
+        { id: "cpl-5" },
+        { id: "cpl-6" },
+        { id: "cpl-7" },
+        { id: "cpl-8" },
+      ]);
+      participantRepo.findStudentCplScores.mockResolvedValue([
+        { cplId: "cpl-1", status: "validated" },
+        { cplId: "cpl-2", status: "validated" },
+        { cplId: "cpl-3", status: "validated" },
+      ]);
+      participantRepo.updateStatus.mockResolvedValue({});
+
+      const result = await service.validateCplScore("participant-1", "cpl-1", "gkm-1");
+
+      expect(participantRepo.updateStatus).toHaveBeenCalledWith("participant-1", "cpl_validated");
+      expect(result).toEqual({ cplId: "cpl-1", status: "validated", allCplValidated: true });
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-user-1"],
+        expect.objectContaining({
+          title: "CPL Yudisium Tervalidasi",
+          message: expect.stringContaining("Yudisium Mei 2026"),
+        })
+      );
+      expect(sendFcmToUsers).toHaveBeenCalledWith(
+        ["student-user-1"],
+        expect.objectContaining({
+          data: expect.objectContaining({ type: "yudisium_cpl_validated" }),
+        })
+      );
+    });
+
+    it("rejects CPL repair before all documents are verified and does not write files", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue({
+        ...verifiedParticipant,
+        status: "registered",
+      });
+
+      await expect(
+        service.saveCplRepairment("participant-1", "cpl-1", {
+          newScore: 75,
+          oldScore: 60,
+          recommendationFile: { originalname: "rekomendasi.pdf", buffer: Buffer.from("pdf") },
+          settlementFile: { originalname: "penyelesaian.pdf", buffer: Buffer.from("pdf") },
+          userId: "gkm-1",
+        })
+      ).rejects.toThrow("Validasi CPL hanya dapat dilakukan setelah seluruh dokumen yudisium terverifikasi");
+
+      expect(mkdir).not.toHaveBeenCalled();
+      expect(writeFile).not.toHaveBeenCalled();
+      expect(participantRepo.saveCplRepairment).not.toHaveBeenCalled();
+    });
+
+    it("saves CPL repair as validated, transitions, and notifies the student when all CPLs are complete", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue(verifiedParticipant);
+      participantRepo.findStudentCplScore.mockResolvedValue({
+        cplId: "cpl-1",
+        score: 60,
+        status: "calculated",
+      });
+      participantRepo.findCplById.mockResolvedValue({ id: "cpl-1", minimalScore: 70 });
+      participantRepo.createDocument
+        .mockResolvedValueOnce({ id: "doc-rec" })
+        .mockResolvedValueOnce({ id: "doc-set" });
+      participantRepo.saveCplRepairment.mockResolvedValue({});
+      participantRepo.findCplsActive.mockResolvedValue([{ id: "cpl-1" }]);
+      participantRepo.findStudentCplScores.mockResolvedValue([{ cplId: "cpl-1", status: "validated" }]);
+      participantRepo.updateStatus.mockResolvedValue({});
+
+      const result = await service.saveCplRepairment("participant-1", "cpl-1", {
+        newScore: 75,
+        oldScore: 60,
+        recommendationFile: { originalname: "rekomendasi.pdf", buffer: Buffer.from("pdf") },
+        settlementFile: { originalname: "penyelesaian.pdf", buffer: Buffer.from("pdf") },
+        userId: "gkm-1",
+      });
+
+      expect(mkdir).toHaveBeenCalled();
+      expect(writeFile).toHaveBeenCalledTimes(2);
+      expect(participantRepo.saveCplRepairment).toHaveBeenCalledWith(
+        "student-1",
+        "cpl-1",
+        expect.objectContaining({
+          score: 75,
+          oldCplScore: 60,
+          recommendationDocumentId: "doc-rec",
+          settlementDocumentId: "doc-set",
+          verifiedBy: "gkm-1",
+        })
+      );
+      expect(participantRepo.updateStatus).toHaveBeenCalledWith("participant-1", "cpl_validated");
+      expect(result).toEqual({ cplId: "cpl-1", status: "validated", allCplValidated: true });
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-user-1"],
+        expect.objectContaining({ title: "CPL Yudisium Tervalidasi" })
       );
     });
   });
