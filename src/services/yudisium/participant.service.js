@@ -622,185 +622,208 @@ export const exportParticipants = async (yudisiumId, userId) => {
     },
   });
 
-  // Helpers
-  const indonesianMonths = [
-    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  const escapeHtml = (value) =>
+    String(value ?? "-")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const formatDateLong = (dateObj) => {
+    if (!dateObj) return "-";
+    return new Date(dateObj).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  const formatDayDate = (dateObj) => {
+    if (!dateObj) return "-";
+    return new Date(dateObj).toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  const formatTime = (dateObj) => {
+    if (!dateObj) return "-";
+    return new Date(dateObj).toLocaleTimeString("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Jakarta",
+    });
+  };
+
+  const possibleLogoPaths = [
+    path.resolve(__dirname, "../../assets/unand-logo.png"),
+    path.resolve(__dirname, "../assets/unand-logo.png"),
+    path.resolve(process.cwd(), "src/assets/unand-logo.png"),
   ];
 
-  function formatIndoDate(dateObj) {
-    if (!dateObj) return '-';
-    const d = new Date(dateObj);
-    return `${d.getDate()} ${indonesianMonths[d.getMonth()]} ${d.getFullYear()}`;
-  }
-
-  function getIndoDay(dateObj) {
-    if (!dateObj) return '-';
-    const d = new Date(dateObj);
-    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    return days[d.getDay()];
-  }
-
-  function formatTime(dateObj) {
-    if (!dateObj) return '-';
-    const d = new Date(dateObj);
-    const hours = String(d.getUTCHours()).padStart(2, '0');
-    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
-    return `${hours}.${minutes}`;
-  }
-
-  function terbilang(n) {
-    const words = ["nol", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh", "sebelas"];
-    if (n < 12) return words[n];
-    if (n < 20) return terbilang(n - 10) + " belas";
-    if (n < 100) {
-      const p = Math.floor(n / 10);
-      const s = n % 10;
-      return (p === 1 ? "sepuluh" : words[p] + " puluh") + (s > 0 ? " " + words[s] : "");
-    }
-    return String(n);
-  }
-
-  const logoPath = path.resolve(__dirname, "../assets/unand-logo.png");
   let logoBase64 = "";
-  try {
-    if (fs.existsSync(logoPath)) {
-      const logoBuffer = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+  for (const p of possibleLogoPaths) {
+    try {
+      if (fs.existsSync(p)) {
+        const logoBuffer = fs.readFileSync(p);
+        logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+        break;
+      }
+    } catch {
+      // Continue to the next known path.
     }
-  } catch (e) {
-    console.error("Yudisium export logo load failed:", e);
   }
 
-  const participants = yudisium.participants || [];
+  const participants = [...(yudisium.participants || [])].sort((a, b) => {
+    const nimA = a.thesis?.student?.user?.identityNumber || "";
+    const nimB = b.thesis?.student?.user?.identityNumber || "";
+    if (nimA !== nimB) return nimA.localeCompare(nimB);
+    return (a.thesis?.student?.user?.fullName || "").localeCompare(
+      b.thesis?.student?.user?.fullName || ""
+    );
+  });
   const studentCount = participants.length;
-  const studentCountWords = terbilang(studentCount);
+  const dateStr = formatDateLong(new Date());
+
+  const participantRows = participants.length > 0 ? participants.map((p, i) => `
+        <tr>
+          <td class="text-center">${i + 1}</td>
+          <td class="text-center">${escapeHtml(p.thesis?.student?.user?.identityNumber)}</td>
+          <td>${escapeHtml(p.thesis?.student?.user?.fullName)}</td>
+        </tr>
+      `).join("") : `
+        <tr>
+          <td colspan="3" class="text-center">Belum ada peserta yudisium</td>
+        </tr>
+      `;
 
   const html = `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <title>Penetapan Jadwal Pelaksanaan Yudisium</title>
+  <title>Daftar Peserta Yudisium</title>
   <style>
     @page {
       size: A4;
       margin: 1.5cm 2cm 1.5cm 2.5cm;
     }
     body {
-      font-family: "Times New Roman", Times, serif;
+      font-family: 'Times New Roman', Times, serif;
       font-size: 11pt;
-      line-height: 1.3;
+      line-height: 1.35;
       color: #000;
+      margin: 0;
+      padding: 0;
     }
     .header-table {
       width: 100%;
       border-collapse: collapse;
       border-bottom: 2px solid #000;
-      padding-bottom: 6px;
-      margin-bottom: 12px;
+      padding-bottom: 8px;
+      margin-bottom: 14px;
     }
     .logo-cell {
-      width: 70px;
+      width: 80px;
       vertical-align: middle;
-      padding-right: 12px;
+      padding-bottom: 10px;
     }
     .logo-img {
-      width: 70px;
+      width: 75px;
       height: auto;
+      display: block;
     }
     .header-text {
       text-align: center;
       vertical-align: middle;
+      padding-right: 80px;
     }
-    .header-text h3 {
-      margin: 0;
-      font-size: 13pt;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    .header-text h4 {
+    .header-text h3, .header-text h4 {
       margin: 0;
       font-size: 11pt;
-      font-weight: bold;
+      font-weight: normal;
       text-transform: uppercase;
     }
     .header-text h2 {
-      margin: 0;
-      font-size: 15pt;
+      margin: 1px 0;
+      font-size: 14pt;
       font-weight: bold;
-      color: #0b5c9e;
       text-transform: uppercase;
     }
     .header-text p {
       margin: 1px 0;
       font-size: 9pt;
-    }
-    .yd-box {
-      border: 1px solid #000;
-      padding: 3px 8px;
-      font-size: 11pt;
-      font-weight: bold;
-      text-align: center;
+      font-weight: normal;
     }
     .title {
       text-align: center;
-      font-weight: bold;
       font-size: 12pt;
+      font-weight: bold;
       text-decoration: underline;
-      margin: 20px 0;
       text-transform: uppercase;
+      margin: 14px 0 18px 0;
     }
     .section-title {
       font-weight: bold;
-      margin-top: 15px;
+      margin-top: 16px;
       margin-bottom: 5px;
     }
     .info-table {
       width: 100%;
-      margin-left: 20px;
       border-collapse: collapse;
+      margin-left: 20px;
+      margin-bottom: 10px;
     }
     .info-table td {
-      vertical-align: top;
       padding: 2px 0;
+      vertical-align: top;
     }
-    .info-label {
-      width: 180px;
-    }
-    .info-separator {
-      width: 15px;
-    }
-    .participants-table {
+    .info-label { width: 180px; }
+    .info-colon { width: 15px; text-align: center; }
+    .data-table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 10px;
+      margin-top: 6px;
     }
-    .participants-table th, .participants-table td {
+    .data-table th, .data-table td {
       border: 1px solid #000;
-      padding: 5px;
-      text-align: left;
+      padding: 4px 6px;
+      font-size: 10pt;
+      vertical-align: top;
     }
-    .participants-table th {
+    .data-table th {
       text-align: center;
       background-color: #f2f2f2;
+      font-weight: bold;
     }
-    .signature-container {
-      margin-top: 30px;
+    .text-center { text-align: center; }
+    .signature-note { margin: 0 0 18px 20px; }
+    .signature-block {
+      margin-left: 20px;
+      margin-top: 18px;
       width: 100%;
     }
-    .signature-row {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 20px;
+    .signature-table {
+      border-collapse: collapse;
+      margin-top: 8px;
+      margin-left: 18px;
+      width: 80%;
     }
-    .signature-block {
-      width: 250px;
+    .signature-table td {
+      padding: 2px 0;
+      vertical-align: top;
     }
-    .signature-space {
-      height: 60px;
-    }
-    .clear {
-      clear: both;
+    .signature-label { width: 92px; }
+    .signature-colon { width: 14px; text-align: center; }
+    .signature-line { border-bottom: 1px dotted #000; min-width: 220px; display: inline-block; }
+    .signature-gap { height: 22px; }
+    .page-break-before { page-break-before: auto; }
+    .avoid-break { page-break-inside: avoid; }
+    .small-note {
+      font-size: 10pt;
     }
   </style>
 </head>
@@ -811,32 +834,29 @@ export const exportParticipants = async (yudisiumId, userId) => {
         ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
       </td>
       <td class="header-text">
-        <h3>Kementerian Pendidikan, Kebudayaan, Riset Dan Teknologi</h3>
+        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
         <h4>Universitas Andalas</h4>
         <h4>Fakultas Teknologi Informasi</h4>
         <h2>Departemen Sistem Informasi</h2>
-        <p>Kampus Universitas Andalas, Limau Manis, Padang, Kode Pos 25163</p>
-        <p>Email: jurusan_si@fti.unand.ac.id dan website: http://si.fti.unand.ac.id</p>
-      </td>
-      <td style="width: 70px; vertical-align: top; text-align: right;">
-        <div class="yd-box">YD-006</div>
+        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
+        <p>Website: http://si.fti.unand.ac.id dan email: jurusan_si@fti.unand.ac.id</p>
       </td>
     </tr>
   </table>
 
-  <div class="title">PENETAPAN JADWAL PELAKSANAAN YUDISIUM</div>
+  <div class="title">Daftar Peserta Yudisium</div>
 
   <div class="section-title">A. INFORMASI UMUM</div>
   <table class="info-table">
     <tr>
       <td class="info-label">Periode Yudisium</td>
-      <td class="info-separator">:</td>
-      <td>${yudisium.name}</td>
+      <td class="info-colon">:</td>
+      <td>${escapeHtml(yudisium.name)}</td>
     </tr>
     <tr>
       <td class="info-label">Jumlah Mahasiswa Lulus</td>
-      <td class="info-separator">:</td>
-      <td>${studentCount} (${studentCountWords})</td>
+      <td class="info-colon">:</td>
+      <td>${studentCount}</td>
     </tr>
   </table>
 
@@ -844,90 +864,80 @@ export const exportParticipants = async (yudisiumId, userId) => {
   <table class="info-table">
     <tr>
       <td class="info-label">Hari / Tanggal</td>
-      <td class="info-separator">:</td>
-      <td>${getIndoDay(yudisium.eventDate)}, ${formatIndoDate(yudisium.eventDate)}</td>
+      <td class="info-colon">:</td>
+      <td>${escapeHtml(formatDayDate(yudisium.eventDate))}</td>
     </tr>
     <tr>
       <td class="info-label">Waktu</td>
-      <td class="info-separator">:</td>
-      <td>${formatTime(yudisium.eventDate)} WIB</td>
+      <td class="info-colon">:</td>
+      <td>${escapeHtml(formatTime(yudisium.eventDate))} WIB</td>
     </tr>
     <tr>
       <td class="info-label">Tempat Pelaksanaan</td>
-      <td class="info-separator">:</td>
-      <td>${yudisium.room?.name || '-'}</td>
+      <td class="info-colon">:</td>
+      <td>${escapeHtml(yudisium.room?.name)}</td>
     </tr>
   </table>
 
   <div class="section-title">C. DAFTAR MAHASISWA PESERTA YUDISIUM</div>
-  <table class="participants-table">
+  <table class="data-table">
     <thead>
       <tr>
-        <th style="width: 40px;">No.</th>
-        <th style="width: 120px;">NIM</th>
+        <th style="width: 38px;">No</th>
+        <th style="width: 105px;">NIM</th>
         <th>Nama Mahasiswa</th>
       </tr>
     </thead>
     <tbody>
-      ${participants.length > 0 ? participants.map((p, i) => `
-        <tr>
-          <td style="text-align: center;">${i + 1}</td>
-          <td>${p.thesis?.student?.user?.identityNumber || '-'}</td>
-          <td>${p.thesis?.student?.user?.fullName || '-'}</td>
-        </tr>
-      `).join('') : `
-        <tr>
-          <td colspan="3" style="text-align: center;">Belum ada peserta yang ditetapkan lulus</td>
-        </tr>
-      `}
+      ${participantRows}
     </tbody>
   </table>
 
-  <div class="section-title">D. TANDA TANGAN KOORDINATOR YUDISIUM</div>
-  <p>Dengan ini menetapkan jadwal pelaksanaan yudisium berdasarkan data mahasiswa yang telah memenuhi seluruh persyaratan akademik dan administratif.</p>
+  <div class="avoid-break">
+    <div class="section-title">D. TANDA TANGAN KOORDINATOR YUDISIUM</div>
+    <p class="signature-note">
+      Dengan ini menetapkan jadwal pelaksanaan yudisium berdasarkan data mahasiswa yang telah memenuhi seluruh persyaratan akademik dan administratif.
+    </p>
 
-  <div style="margin-top: 20px;">
     <div class="signature-block">
       <p>Koordinator Yudisium</p>
-      <table style="width: 100%;">
+      <table class="signature-table">
         <tr>
-          <td style="width: 80px;">Nama</td>
-          <td style="width: 10px;">:</td>
-          <td>${koordinator?.fullName || '-'}</td>
+          <td class="signature-label">Nama</td>
+          <td class="signature-colon">:</td>
+          <td>${escapeHtml(koordinator?.fullName || "-")}</td>
         </tr>
         <tr>
           <td>Tanda Tangan</td>
-          <td>:</td>
-          <td class="signature-space">.........................................</td>
+          <td class="signature-colon">:</td>
+          <td><span class="signature-line">&nbsp;</span></td>
         </tr>
         <tr>
           <td>Tanggal</td>
-          <td>:</td>
-          <td>${formatIndoDate(new Date())}</td>
+          <td class="signature-colon">:</td>
+          <td><span class="signature-line">${escapeHtml(dateStr)}</span></td>
         </tr>
       </table>
     </div>
-  </div>
 
-  <div style="margin-top: 30px;">
-    <p>Mengetahui,</p>
-    <p>Ketua Departemen Sistem Informasi,</p>
-    <div class="signature-block" style="margin-top: 5px;">
-      <table style="width: 100%;">
+    <div class="signature-block" style="margin-top: 30px;">
+      <p>Mengetahui,</p>
+      <p>Ketua Departemen Sistem Informasi,</p>
+      <table class="signature-table">
         <tr>
-          <td style="width: 80px;">Nama</td>
-          <td style="width: 10px;">:</td>
-          <td>${ketuaDept?.fullName || '-'}</td>
+          <td class="signature-label">Nama</td>
+          <td class="signature-colon">:</td>
+          <td>${escapeHtml(ketuaDept?.fullName || "-")}</td>
         </tr>
         <tr>
           <td>Tanda Tangan</td>
-          <td>:</td>
-          <td class="signature-space">.........................................</td>
+          <td class="signature-colon">:</td>
+          <td><span class="signature-line">&nbsp;</span></td>
         </tr>
         <tr>
           <td>Tanggal</td>
-          <td>:</td>
-          <td>.........................................</td>
+          <td class="signature-colon">:</td>
+          <td><span class="signature-line">&nbsp;</span></td>
         </tr>
       </table>
     </div>

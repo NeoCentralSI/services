@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as service from "../../../../services/yudisium/participant.service.js";
 import * as participantRepo from "../../../../repositories/yudisium/participant.repository.js";
 import * as xlsx from "xlsx";
+import { convertHtmlToPdf } from "../../../../utils/pdf.util.js";
 
 vi.mock("../../../../repositories/yudisium/participant.repository.js");
 vi.mock("../../../../repositories/yudisium/requirement.repository.js");
@@ -13,12 +14,16 @@ vi.mock("xlsx", () => ({
 }));
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
+    yudisium: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), findFirst: vi.fn() },
     yudisiumRequirementItem: { count: vi.fn(), findMany: vi.fn() },
   },
 }));
 vi.mock("../../../../utils/pdf.util.js", () => ({
   convertHtmlToPdf: vi.fn(),
 }));
+
+import prisma from "../../../../config/prisma.js";
 
 const archiveYudisium = {
   id: "y1",
@@ -236,6 +241,79 @@ describe("Unit Test: Yudisium Participant Service", () => {
         "Peserta manual hanya dapat dikelola pada yudisium arsip"
       );
       expect(participantRepo.removeParticipant).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("exportParticipants", () => {
+    it("generates official participant PDF layout with logo and legacy document sections", async () => {
+      convertHtmlToPdf.mockResolvedValue(Buffer.from("pdf"));
+      prisma.yudisium.findUnique.mockResolvedValue({
+        id: "y1",
+        name: "Yudisium Periode 5 TA 2025",
+        eventDate: new Date("2026-05-16T03:00:00.000Z"),
+        room: { name: "Ruang Seminar Departemen Sistem Informasi" },
+        participants: [
+          {
+            status: "finalized",
+            thesis: {
+              title: "Judul Tugas Akhir Tidak Ditampilkan",
+              student: {
+                user: { fullName: "Budi", identityNumber: "002" },
+              },
+            },
+          },
+          {
+            status: "appointed",
+            thesis: {
+              title: "Judul Tugas Akhir Tidak Ditampilkan",
+              student: {
+                user: { fullName: "Ayu", identityNumber: "001" },
+              },
+            },
+          },
+        ],
+      });
+      prisma.user.findUnique.mockResolvedValue({
+        fullName: "Koordinator Yudisium",
+        identityNumber: "1988000000000001",
+      });
+      prisma.user.findFirst.mockResolvedValue({
+        fullName: "Ketua Departemen",
+        identityNumber: "1977000000000001",
+      });
+
+      const result = await service.exportParticipants("y1", "user-1");
+
+      expect(result).toEqual(Buffer.from("pdf"));
+      expect(convertHtmlToPdf).toHaveBeenCalledTimes(1);
+      const html = convertHtmlToPdf.mock.calls[0][0];
+
+      expect(html).toContain("data:image/png;base64,");
+      expect(html).toContain("Daftar Peserta Yudisium");
+      expect(html).toContain("A. INFORMASI UMUM");
+      expect(html).toContain("B. JADWAL PELAKSANAAN YUDISIUM");
+      expect(html).toContain("C. DAFTAR MAHASISWA PESERTA YUDISIUM");
+      expect(html).toContain("D. TANDA TANGAN KOORDINATOR YUDISIUM");
+      expect(html).toContain("Jumlah Mahasiswa Lulus");
+      expect(html).toContain("2</td>");
+      expect(html).toContain("<th style=\"width: 105px;\">NIM</th>");
+      expect(html).toContain("<th>Nama Mahasiswa</th>");
+      expect(html).not.toContain("Judul Tugas Akhir</th>");
+      expect(html).not.toContain("Dicetak melalui NeoCentral");
+
+      const ayuIndex = html.indexOf("Ayu");
+      const budiIndex = html.indexOf("Budi");
+      expect(ayuIndex).toBeGreaterThan(-1);
+      expect(budiIndex).toBeGreaterThan(ayuIndex);
+    });
+
+    it("throws 404 when exporting participants for missing yudisium", async () => {
+      prisma.yudisium.findUnique.mockResolvedValue(null);
+
+      await expect(service.exportParticipants("missing", "user-1")).rejects.toThrow(
+        "Periode yudisium tidak ditemukan"
+      );
+      expect(convertHtmlToPdf).not.toHaveBeenCalled();
     });
   });
 });
