@@ -247,6 +247,9 @@ export const duplicateForm = async (id) => {
 export const createSession = async (formId, data) => {
   const form = await repo.findFormById(formId);
   if (!form) throwError("Form exit survey tidak ditemukan", 404);
+  if (await repo.formHasLinkedResponses(formId)) {
+    throwError("Sesi tidak dapat ditambahkan karena form sudah digunakan mahasiswa", 409);
+  }
 
   return await repo.createSession({
     exitSurveyFormId: formId,
@@ -261,6 +264,9 @@ export const updateSession = async (formId, sessionId, data) => {
   if (!session || session.exitSurveyFormId !== formId) {
     throwError("Sesi tidak ditemukan", 404);
   }
+  if (await repo.formHasLinkedResponses(formId)) {
+    throwError("Sesi tidak dapat diubah karena form sudah digunakan mahasiswa", 409);
+  }
 
   const updateData = {};
   if (data.name !== undefined) updateData.name = data.name;
@@ -274,6 +280,9 @@ export const deleteSession = async (formId, sessionId) => {
   const session = await repo.findSessionById(sessionId);
   if (!session || session.exitSurveyFormId !== formId) {
     throwError("Sesi tidak ditemukan", 404);
+  }
+  if (await repo.formHasLinkedResponses(formId)) {
+    throwError("Sesi tidak dapat dihapus karena form sudah digunakan mahasiswa", 409);
   }
 
   return await prisma.$transaction(async (tx) => {
@@ -410,7 +419,7 @@ export const updateQuestion = async (formId, questionId, data) => {
 
   const isChoice = (t) => t === "single_choice" || t === "multiple_choice";
   if (isChoice(data.questionType) || isChoice(existing.questionType)) {
-    if (data.questionType === "text" || data.questionType === "textarea") {
+    if (data.questionType !== undefined && !isChoice(data.questionType)) {
       payload.options = [];
     } else if (Array.isArray(data.options)) {
       payload.options = data.options.map((opt, i) => ({
@@ -463,7 +472,6 @@ export const getStudentSurvey = async (userId) => {
     yudisium: {
       id: currentYudisium.id,
       name: currentYudisium.name,
-      status: currentYudisium.status,
     },
     form: {
       id: currentYudisium.exitSurveyForm.id,

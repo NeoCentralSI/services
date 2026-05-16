@@ -52,9 +52,9 @@ router.post(
 // ============================================================
 router.get("/announcements", requireAnyRole(ALL_ROLES), ctrl.getAnnouncements);
 router.get("/repository", requireAnyRole(ALL_ROLES), ctrl.getRepository);
+router.get("/options/rooms", requireAnyRole(EVENT_MANAGER_ROLES), ctrl.getRoomOptions);
 router.get("/", requireAnyRole(ALL_ROLES), ctrl.getEvents);
 router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getEventById);
-router.get("/options/rooms", requireAnyRole(EVENT_MANAGER_ROLES), ctrl.getRoomOptions);
 
 // ============================================================
 // MANAGEMENT: Event create / update / delete

@@ -117,6 +117,11 @@ const finalizeYudisiumResults = async (yudisiumId) => {
           finalizedAt: new Date()
         }
       });
+
+      await prisma.student.updateMany({
+        where: { id: { in: studentIds } },
+        data: { status: "lulus" },
+      });
     }
   } catch (err) {
     console.error(`Failed to finalize yudisium ${yudisiumId}:`, err);
@@ -369,15 +374,16 @@ export const createYudisium = async (data) => {
     });
 
     // Link back to yudisium
-    await repository.update(created.id, { 
+    const updated = await repository.update(created.id, { 
       documentId: doc.id,
       decreeUploadedBy: userId,
       decreeUploadedAt: new Date()
     });
-    created.documentId = doc.id;
 
     // Trigger finalization side-effect
     await finalizeYudisiumResults(created.id);
+
+    return formatYudisium(updated);
   }
 
   return formatYudisium(created);
@@ -445,6 +451,19 @@ export const updateYudisium = async (id, data) => {
     } else {
       updateData.registrationCloseDate = null;
     }
+  }
+
+  const finalOpenDate =
+    updateData.registrationOpenDate !== undefined
+      ? updateData.registrationOpenDate
+      : existing.registrationOpenDate;
+  const finalCloseDate =
+    updateData.registrationCloseDate !== undefined
+      ? updateData.registrationCloseDate
+      : existing.registrationCloseDate;
+
+  if ((finalOpenDate && !finalCloseDate) || (!finalOpenDate && finalCloseDate)) {
+    throwError("Tanggal pembukaan dan penutupan pendaftaran harus diisi bersama", 422);
   }
 
   // === exitSurveyFormId ===

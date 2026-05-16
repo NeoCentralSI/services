@@ -215,10 +215,19 @@ describe("Unit Test: Exit Survey Service", () => {
   describe("deleteSession", () => {
     it("should delete session and all its children via transaction", async () => {
       repo.findSessionById.mockResolvedValue({ id: "s1", exitSurveyFormId: "f1" });
+      repo.formHasLinkedResponses.mockResolvedValue(false);
       
       await service.deleteSession("f1", "s1");
 
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it("should prevent deleting session if form has linked responses", async () => {
+      repo.findSessionById.mockResolvedValue({ id: "s1", exitSurveyFormId: "f1" });
+      repo.formHasLinkedResponses.mockResolvedValue(true);
+
+      await expect(service.deleteSession("f1", "s1")).rejects.toThrow("sudah digunakan mahasiswa");
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it("should throw 404 if session mismatch", async () => {
@@ -233,6 +242,7 @@ describe("Unit Test: Exit Survey Service", () => {
   describe("createQuestion", () => {
     it("should validate question type", async () => {
       repo.findFormById.mockResolvedValue({ id: "f1", sessions: [] });
+      repo.formHasLinkedResponses.mockResolvedValue(false);
       await expect(service.createQuestion("f1", { questionType: "invalid" })).rejects.toThrow("Jenis pertanyaan tidak valid");
     });
 

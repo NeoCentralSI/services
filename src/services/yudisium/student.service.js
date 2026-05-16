@@ -59,6 +59,25 @@ const yudisiumContextSelect = {
   requirementItems: { select: { id: true, yudisiumRequirementId: true } },
 };
 
+const deriveYudisiumStatus = (item) => {
+  const now = new Date();
+  const openDate = item.registrationOpenDate ? new Date(item.registrationOpenDate) : null;
+  const closeDate = item.registrationCloseDate ? new Date(item.registrationCloseDate) : null;
+  const eventDate = item.eventDate ? new Date(item.eventDate) : null;
+
+  if (eventDate) {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 86400000 - 1);
+    if (eventDate < todayStart) return "completed";
+    if (eventDate >= todayStart && eventDate <= todayEnd) return "ongoing";
+  }
+
+  if (!openDate) return "draft";
+  if (now < openDate) return "draft";
+  if (closeDate && now > closeDate) return "closed";
+  return "open";
+};
+
 export const findStudentContext = async (userId) => {
   const student = await prisma.student.findUnique({
     where: { id: userId },
@@ -95,12 +114,13 @@ export const findStudentContext = async (userId) => {
   const thesis = student.thesis[0] ?? null;
   let currentYudisium = null;
 
-  // Prefer the yudisium where the student is currently registered (not rejected)
+  // Prefer the yudisium where the student is currently in progress.
+  // Completed/finalized records stay in history and should not block a newer open period.
   if (thesis?.id) {
     const participantRecord = await prisma.yudisiumParticipant.findFirst({
       where: { 
         thesisId: thesis.id,
-        status: { not: 'rejected' }
+        status: { in: ["registered", "verified", "cpl_validated", "appointed"] }
       },
       orderBy: { createdAt: "desc" },
       select: { yudisium: { select: yudisiumContextSelect } },
@@ -297,6 +317,7 @@ export const getOverview = async (userId) => {
       ? {
           id: currentYudisium.id,
           name: currentYudisium.name,
+          status: deriveYudisiumStatus(currentYudisium),
           registrationOpenDate: currentYudisium.registrationOpenDate,
           registrationCloseDate: currentYudisium.registrationCloseDate,
           eventDate: currentYudisium.eventDate,

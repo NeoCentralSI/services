@@ -95,7 +95,7 @@ export const getParticipants = async (yudisiumId) => {
     yudisium: { 
       id: yudisium.id, 
       name: yudisium.name, 
-      status: yudisium.status,
+      status: deriveYudisiumStatus(yudisium),
       appointedAt: yudisium.appointedAt 
     },
     participants: mapped,
@@ -281,7 +281,7 @@ export const validateCplScore = async (participantId, cplId, userId) => {
 
   await participantRepo.validateStudentCplScore(studentId, cplId, userId);
 
-  // If all active CPLs validated and participant is under_review → transition to approved
+  // If all active CPLs are validated, move verified participants to cpl_validated.
   const activeCpls = await participantRepo.findCplsActive();
   const allScores = await participantRepo.findStudentCplScores(studentId);
   const scoreStatusMap = new Map(allScores.map((s) => [s.cplId, s.status]));

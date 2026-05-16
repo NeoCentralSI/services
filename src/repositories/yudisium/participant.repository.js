@@ -38,7 +38,6 @@ export const findDetailById = async (participantId) => {
       id: true,
       status: true,
       registeredAt: true,
-      appointedAt: true,
       notes: true,
       yudisium: { 
         select: { 

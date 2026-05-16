@@ -68,8 +68,16 @@ export const createYudisiumSchema = z
     const closeDate = data.registrationCloseDate ? new Date(data.registrationCloseDate) : null;
     const eventDate = new Date(data.eventDate);
 
+    if ((openDate && !closeDate) || (!openDate && closeDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: openDate ? ["registrationCloseDate"] : ["registrationOpenDate"],
+        message: "Tanggal pembukaan dan penutupan pendaftaran harus diisi bersama",
+      });
+    }
+
     // Validate registration dates if provided
-    if (openDate) {
+    if (openDate && closeDate) {
       if (openDate < today) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -78,32 +86,6 @@ export const createYudisiumSchema = z
         });
       }
 
-      if (closeDate) {
-        if (closeDate < today) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["registrationCloseDate"],
-            message: "Tanggal penutupan pendaftaran tidak boleh sebelum hari ini",
-          });
-        }
-        if (closeDate < openDate) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["registrationCloseDate"],
-            message: "Tanggal penutupan pendaftaran tidak boleh lebih awal dari tanggal pembukaan",
-          });
-        }
-        // If registration dates are set, event must be after close date
-        if (eventDate < closeDate) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["eventDate"],
-            message: "Tanggal pelaksanaan tidak boleh sebelum tanggal penutupan pendaftaran",
-          });
-        }
-      }
-    } else if (closeDate) {
-      // closeDate provided but openDate not
       if (closeDate < today) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -111,15 +93,19 @@ export const createYudisiumSchema = z
           message: "Tanggal penutupan pendaftaran tidak boleh sebelum hari ini",
         });
       }
-    } else {
-      // No registration dates: eventDate can be any time after yesterday (for archiving)
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      if (eventDate < yesterday) {
+      if (closeDate < openDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["registrationCloseDate"],
+          message: "Tanggal penutupan pendaftaran tidak boleh lebih awal dari tanggal pembukaan",
+        });
+      }
+      // If registration dates are set, event must be after close date
+      if (eventDate < closeDate) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["eventDate"],
-          message: "Tanggal pelaksanaan tidak boleh sebelum kemarin",
+          message: "Tanggal pelaksanaan tidak boleh sebelum tanggal penutupan pendaftaran",
         });
       }
     }
