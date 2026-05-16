@@ -75,6 +75,75 @@ const safeGetTime = (date) => {
   return isNaN(d.getTime()) ? null : d.getTime();
 };
 
+const isArchiveYudisium = (item) => !item.registrationOpenDate && !item.registrationCloseDate;
+const isActiveYudisium = (item) => !!item.registrationOpenDate && !!item.registrationCloseDate;
+
+const isRegistrationStarted = (item) => {
+  if (!item.registrationOpenDate) return false;
+  return new Date(item.registrationOpenDate) <= new Date();
+};
+
+const isFinalizedOrAppointed = (item) => !!item.appointedAt || !!item.documentId;
+
+const assertValidYudisiumState = ({
+  registrationOpenDate,
+  registrationCloseDate,
+  eventDate,
+  roomId,
+  exitSurveyFormId,
+  requirementIds = [],
+}) => {
+  const hasOpen = !!registrationOpenDate;
+  const hasClose = !!registrationCloseDate;
+
+  if (hasOpen !== hasClose) {
+    throwError("Tanggal pembukaan dan penutupan pendaftaran harus diisi bersama", 422);
+  }
+
+  if (!eventDate) {
+    throwError("Tanggal pelaksanaan wajib diisi", 422);
+  }
+
+  if (!roomId) {
+    throwError("Ruangan yudisium wajib dipilih", 422);
+  }
+
+  if (!hasOpen && !hasClose) return;
+
+  const openDate = new Date(registrationOpenDate);
+  const closeDate = new Date(registrationCloseDate);
+  const yudisiumDate = new Date(eventDate);
+
+  if (closeDate < openDate) {
+    throwError("Tanggal penutupan tidak boleh lebih awal dari tanggal pembukaan", 422);
+  }
+
+  if (yudisiumDate <= closeDate) {
+    throwError("Tanggal pelaksanaan harus setelah tanggal penutupan pendaftaran", 422);
+  }
+
+  if (!exitSurveyFormId) {
+    throwError("Template exit survey wajib dipilih untuk yudisium aktif", 422);
+  }
+
+  if (!Array.isArray(requirementIds) || requirementIds.length === 0) {
+    throwError("Minimal satu persyaratan wajib dipilih untuk yudisium aktif", 422);
+  }
+};
+
+const assertRegistrationDatesNotInPast = (registrationOpenDate, registrationCloseDate) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (registrationOpenDate && new Date(registrationOpenDate) < today) {
+    throwError("Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini", 422);
+  }
+
+  if (registrationCloseDate && new Date(registrationCloseDate) < today) {
+    throwError("Tanggal penutupan pendaftaran tidak boleh sebelum hari ini", 422);
+  }
+};
+
 /**
  * Finalizes all participants and their CPL scores when a decree is uploaded.
  */
@@ -336,13 +405,26 @@ export const getRoomOptions = async () => {
 
 export const createYudisium = async (data) => {
   const { requirementIds = [], decreeFile, userId, ...rest } = data;
+  const registrationOpenDate = rest.registrationOpenDate ? new Date(rest.registrationOpenDate) : null;
+  const registrationCloseDate = rest.registrationCloseDate ? new Date(rest.registrationCloseDate) : null;
+  const eventDate = rest.eventDate ? new Date(rest.eventDate) : null;
+
+  assertValidYudisiumState({
+    registrationOpenDate,
+    registrationCloseDate,
+    eventDate,
+    roomId: rest.roomId || null,
+    exitSurveyFormId: rest.exitSurveyFormId || null,
+    requirementIds,
+  });
+  assertRegistrationDatesNotInPast(registrationOpenDate, registrationCloseDate);
 
   // 1. Create Yudisium first to get the ID
   const created = await repository.create({
     name: rest.name.trim(),
-    eventDate: new Date(rest.eventDate),
-    registrationOpenDate: rest.registrationOpenDate ? new Date(rest.registrationOpenDate) : null,
-    registrationCloseDate: rest.registrationCloseDate ? new Date(rest.registrationCloseDate) : null,
+    eventDate,
+    registrationOpenDate,
+    registrationCloseDate,
     notes: rest.notes || null,
     exitSurveyFormId: rest.exitSurveyFormId || null,
     roomId: rest.roomId || null,
@@ -395,22 +477,56 @@ export const updateYudisium = async (id, data) => {
 
   const { requirementIds, decreeFile, userId, ...rest } = data;
   const updateData = {};
+  const wasArchive = isArchiveYudisium(existing);
+  const hasAnyParticipants = await repository.hasParticipants(id);
+  const hasRegParticipants = hasAnyParticipants
+    ? await repository.hasRegisteredParticipants(id)
+    : false;
+  const started = isRegistrationStarted(existing);
+  const registrationLocked = isActiveYudisium(existing) && (started || hasRegParticipants);
+  const fullyLocked = isActiveYudisium(existing) && isFinalizedOrAppointed(existing);
+
+  const requestedOpenDate =
+    rest.registrationOpenDate !== undefined
+      ? (rest.registrationOpenDate ? new Date(rest.registrationOpenDate) : null)
+      : existing.registrationOpenDate;
+  const requestedCloseDate =
+    rest.registrationCloseDate !== undefined
+      ? (rest.registrationCloseDate ? new Date(rest.registrationCloseDate) : null)
+      : existing.registrationCloseDate;
+
+  if (hasAnyParticipants && wasArchive !== (!requestedOpenDate && !requestedCloseDate)) {
+    throwError("Tipe yudisium tidak dapat diubah karena sudah memiliki peserta", 409);
+  }
 
   if (rest.name !== undefined) updateData.name = rest.name.trim();
   if (rest.eventDate !== undefined) updateData.eventDate = rest.eventDate ? new Date(rest.eventDate) : null;
   if (rest.notes !== undefined) updateData.notes = rest.notes || null;
   if (rest.roomId !== undefined) updateData.roomId = rest.roomId || null;
 
+  if (fullyLocked) {
+    const blockedFields = [
+      "registrationOpenDate",
+      "registrationCloseDate",
+      "eventDate",
+      "roomId",
+      "exitSurveyFormId",
+    ].filter((field) => rest[field] !== undefined);
+
+    if (blockedFields.length > 0 || requirementIds !== undefined) {
+      throwError(
+        "Data yudisium aktif tidak dapat diubah setelah peserta ditetapkan atau SK diunggah",
+        409
+      );
+    }
+  }
+
   // === registrationOpenDate ===
   if (rest.registrationOpenDate !== undefined) {
-    const hasRegParticipants = await repository.hasRegisteredParticipants(id);
     const newOpenTime = safeGetTime(rest.registrationOpenDate);
     const existingOpenTime = safeGetTime(existing.registrationOpenDate);
-    const now = new Date();
-    const isRegistrationStarted = existing.registrationOpenDate && new Date(existing.registrationOpenDate) <= now;
-    const isLocked = isRegistrationStarted || hasRegParticipants;
 
-    if (isLocked && newOpenTime !== existingOpenTime) {
+    if (registrationLocked && newOpenTime !== existingOpenTime) {
       throwError("Tanggal pembukaan pendaftaran tidak dapat diubah karena pendaftaran sudah dimulai atau sudah ada peserta", 409);
     }
 
@@ -447,8 +563,16 @@ export const updateYudisium = async (id, data) => {
       if (finalOpenDate && newClose < new Date(finalOpenDate)) {
         throwError("Tanggal penutupan tidak boleh lebih awal dari tanggal pembukaan", 422);
       }
+
+      if (registrationLocked && existingClose && newClose < existingClose) {
+        throwError("Tanggal penutupan pendaftaran hanya dapat diperpanjang setelah pendaftaran dimulai atau sudah ada peserta", 409);
+      }
+
       updateData.registrationCloseDate = newClose;
     } else {
+      if (registrationLocked) {
+        throwError("Tanggal penutupan pendaftaran tidak dapat dikosongkan karena pendaftaran sudah dimulai atau sudah ada peserta", 409);
+      }
       updateData.registrationCloseDate = null;
     }
   }
@@ -466,14 +590,13 @@ export const updateYudisium = async (id, data) => {
     throwError("Tanggal pembukaan dan penutupan pendaftaran harus diisi bersama", 422);
   }
 
+  if (hasAnyParticipants && wasArchive !== (!finalOpenDate && !finalCloseDate)) {
+    throwError("Tipe yudisium tidak dapat diubah karena sudah memiliki peserta", 409);
+  }
+
   // === exitSurveyFormId ===
   if (rest.exitSurveyFormId !== undefined) {
-    const hasRegParticipants = await repository.hasRegisteredParticipants(id);
-    const now = new Date();
-    const isRegistrationStarted = existing.registrationOpenDate && new Date(existing.registrationOpenDate) <= now;
-    const isLocked = isRegistrationStarted || hasRegParticipants;
-
-    if (isLocked && rest.exitSurveyFormId !== existing.exitSurveyFormId) {
+    if (registrationLocked && rest.exitSurveyFormId !== existing.exitSurveyFormId) {
       throwError(
         "Template exit survey tidak dapat diubah karena pendaftaran sudah dimulai atau sudah ada peserta",
         409
@@ -489,12 +612,7 @@ export const updateYudisium = async (id, data) => {
     const isChanged = JSON.stringify(currentIds) !== JSON.stringify(nextIds);
 
     if (isChanged) {
-      const hasRegParticipants = await repository.hasRegisteredParticipants(id);
-      const now = new Date();
-      const isRegistrationStarted = existing.registrationOpenDate && new Date(existing.registrationOpenDate) <= now;
-      const isLocked = isRegistrationStarted || hasRegParticipants;
-
-      if (isLocked) {
+      if (registrationLocked) {
         throwError(
           "Persyaratan yudisium tidak dapat diubah karena pendaftaran sudah dimulai atau sudah ada peserta",
           409
@@ -510,6 +628,22 @@ export const updateYudisium = async (id, data) => {
       };
     }
   }
+
+  const currentRequirementIds = existing.requirementItems?.map((ri) => ri.yudisiumRequirementId) ?? [];
+  const finalRequirementIds = requirementIds !== undefined ? requirementIds : currentRequirementIds;
+  const finalEventDate = updateData.eventDate !== undefined ? updateData.eventDate : existing.eventDate;
+  const finalRoomId = updateData.roomId !== undefined ? updateData.roomId : existing.roomId;
+  const finalExitSurveyFormId =
+    updateData.exitSurveyFormId !== undefined ? updateData.exitSurveyFormId : existing.exitSurveyFormId;
+
+  assertValidYudisiumState({
+    registrationOpenDate: finalOpenDate,
+    registrationCloseDate: finalCloseDate,
+    eventDate: finalEventDate,
+    roomId: finalRoomId,
+    exitSurveyFormId: finalExitSurveyFormId,
+    requirementIds: finalRequirementIds,
+  });
 
   // === decreeFile — upload new SK ===
   if (decreeFile) {
@@ -544,6 +678,9 @@ export const updateYudisium = async (id, data) => {
 export const finalizeRegistration = async (yudisiumId) => {
   const yudisium = await repository.findById(yudisiumId);
   if (!yudisium) throwError("Data yudisium tidak ditemukan", 404);
+  if (!isActiveYudisium(yudisium)) {
+    throwError("Finalisasi pendaftaran hanya berlaku untuk yudisium aktif", 400);
+  }
 
   const participants = await prisma.yudisiumParticipant.findMany({
     where: { yudisiumId },
@@ -602,6 +739,11 @@ export const finalizeRegistration = async (yudisiumId) => {
 export const deleteYudisium = async (id) => {
   const existing = await repository.findById(id);
   if (!existing) throwError("Data yudisium tidak ditemukan", 404);
+
+  if (isArchiveYudisium(existing)) {
+    await repository.removeWithParticipants(id);
+    return;
+  }
 
   if (await repository.hasParticipants(id)) {
     throwError("Tidak dapat menghapus data yudisium karena sudah memiliki peserta", 409);

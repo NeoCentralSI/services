@@ -51,6 +51,20 @@ export const remove = async (id) => {
   return await prisma.yudisium.delete({ where: { id } });
 };
 
+export const removeWithParticipants = async (id) => {
+  return await prisma.$transaction(async (tx) => {
+    await tx.studentExitSurveyAnswer.deleteMany({
+      where: { response: { yudisiumId: id } },
+    });
+    await tx.studentExitSurveyResponse.deleteMany({ where: { yudisiumId: id } });
+    await tx.yudisiumParticipantRequirement.deleteMany({
+      where: { participant: { yudisiumId: id } },
+    });
+    await tx.yudisiumParticipant.deleteMany({ where: { yudisiumId: id } });
+    return await tx.yudisium.delete({ where: { id } });
+  });
+};
+
 export const hasParticipants = async (id) => {
   const count = await prisma.yudisiumParticipant.count({ where: { yudisiumId: id } });
   return count > 0;
