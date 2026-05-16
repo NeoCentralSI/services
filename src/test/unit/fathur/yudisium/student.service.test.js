@@ -4,8 +4,12 @@ const {
   mockPrisma,
   mockParticipantRepo,
   mockRequirementRepo,
+  mockFs,
+  mockNotificationService,
+  mockPushService,
 } = vi.hoisted(() => ({
   mockPrisma: {
+    document: { findUnique: vi.fn(), delete: vi.fn() },
     student: { findUnique: vi.fn() },
     yudisium: { findFirst: vi.fn() },
     yudisiumParticipant: { findFirst: vi.fn(), findMany: vi.fn() },
@@ -20,15 +24,30 @@ const {
     findRequirementRecord: vi.fn(),
     createDocument: vi.fn(),
     upsertRequirementRecord: vi.fn(),
+    findUserIdsByRole: vi.fn(),
   },
   mockRequirementRepo: {
     findAll: vi.fn(),
+  },
+  mockFs: {
+    mkdir: vi.fn(),
+    writeFile: vi.fn(),
+    unlink: vi.fn(),
+  },
+  mockNotificationService: {
+    createNotificationsForUsers: vi.fn(),
+  },
+  mockPushService: {
+    sendFcmToUsers: vi.fn(),
   },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../../repositories/yudisium/participant.repository.js", () => mockParticipantRepo);
 vi.mock("../../../../repositories/yudisium/requirement.repository.js", () => mockRequirementRepo);
+vi.mock("fs/promises", () => mockFs);
+vi.mock("../../../../services/notification.service.js", () => mockNotificationService);
+vi.mock("../../../../services/push.service.js", () => mockPushService);
 
 import * as service from "../../../../services/yudisium/student.service.js";
 
@@ -83,9 +102,37 @@ describe("Unit Test: Yudisium Student Service", () => {
     mockPrisma.yudisiumRequirement.findMany.mockResolvedValue([
       { id: "req-1", name: "Bebas Pustaka", description: "Surat bebas pustaka" },
     ]);
+    mockPrisma.yudisiumRequirement.findUnique.mockResolvedValue({
+      id: "req-1",
+      name: "Bebas Pustaka",
+      description: "Surat bebas pustaka",
+    });
     mockPrisma.studentExitSurveyResponse.findFirst.mockResolvedValue(null);
+    mockPrisma.document.findUnique.mockResolvedValue(null);
+    mockPrisma.document.delete.mockResolvedValue({});
     mockParticipantRepo.findCplsActive.mockResolvedValue([]);
     mockParticipantRepo.findStudentCplScores.mockResolvedValue([]);
+    mockParticipantRepo.findByThesisAndYudisium.mockResolvedValue({
+      id: "participant-1",
+      yudisiumId: "yudisium-1",
+      thesisId: "thesis-1",
+      status: "registered",
+    });
+    mockParticipantRepo.createForThesis.mockResolvedValue({
+      id: "participant-1",
+      yudisiumId: "yudisium-1",
+      thesisId: "thesis-1",
+      status: "registered",
+    });
+    mockParticipantRepo.findRequirementRecord.mockResolvedValue(null);
+    mockParticipantRepo.createDocument.mockResolvedValue({ id: "document-1" });
+    mockParticipantRepo.upsertRequirementRecord.mockResolvedValue({});
+    mockParticipantRepo.findUserIdsByRole.mockResolvedValue([]);
+    mockFs.mkdir.mockResolvedValue(undefined);
+    mockFs.writeFile.mockResolvedValue(undefined);
+    mockFs.unlink.mockResolvedValue(undefined);
+    mockNotificationService.createNotificationsForUsers.mockResolvedValue({ count: 1 });
+    mockPushService.sendFcmToUsers.mockResolvedValue({ success: true });
     mockRequirementRepo.findAll.mockResolvedValue([
       { id: "req-1", name: "Bebas Pustaka", description: "Surat bebas pustaka" },
     ]);
@@ -328,6 +375,91 @@ describe("Unit Test: Yudisium Student Service", () => {
 
       expect(mockPrisma.yudisiumRequirement.findUnique).not.toHaveBeenCalled();
       expect(mockParticipantRepo.createDocument).not.toHaveBeenCalled();
+    });
+
+    it("rejects document upload until academic requirements and exit survey are complete", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue(makeStudent({ kknCompleted: false }));
+
+      await expect(service.uploadOwnDocument(
+        "student-user-1",
+        { originalname: "dokumen.pdf", buffer: Buffer.from("pdf") },
+        "req-1"
+      )).rejects.toThrow("Upload dokumen hanya dapat dilakukan setelah seluruh persyaratan akademik terpenuhi");
+
+      mockPrisma.student.findUnique.mockResolvedValue(makeStudent());
+      mockPrisma.studentExitSurveyResponse.findFirst.mockResolvedValue(null);
+
+      await expect(service.uploadOwnDocument(
+        "student-user-1",
+        { originalname: "dokumen.pdf", buffer: Buffer.from("pdf") },
+        "req-1"
+      )).rejects.toThrow("Upload dokumen hanya dapat dilakukan setelah exit survey diisi");
+      expect(mockParticipantRepo.createDocument).not.toHaveBeenCalled();
+    });
+
+    it("uploads a yudisium requirement document and notifies admins", async () => {
+      mockPrisma.studentExitSurveyResponse.findFirst.mockResolvedValue({ id: "response-1" });
+      mockParticipantRepo.findByThesisAndYudisium.mockResolvedValue(null);
+      mockParticipantRepo.findUserIdsByRole.mockResolvedValue(["admin-1"]);
+
+      const result = await service.uploadOwnDocument(
+        "student-user-1",
+        { originalname: "bebas-pustaka.pdf", buffer: Buffer.from("pdf") },
+        "req-1"
+      );
+
+      expect(mockParticipantRepo.createForThesis).toHaveBeenCalledWith("yudisium-1", "thesis-1");
+      expect(mockFs.mkdir).toHaveBeenCalled();
+      expect(mockFs.writeFile).toHaveBeenCalled();
+      expect(mockParticipantRepo.upsertRequirementRecord).toHaveBeenCalledWith("participant-1", "item-1", {
+        documentId: "document-1",
+      });
+      expect(mockNotificationService.createNotificationsForUsers).toHaveBeenCalledWith(
+        ["admin-1"],
+        expect.objectContaining({ title: "Dokumen Yudisium Baru" })
+      );
+      expect(mockPushService.sendFcmToUsers).toHaveBeenCalledWith(
+        ["admin-1"],
+        expect.objectContaining({
+          data: expect.objectContaining({ type: "yudisium_doc_upload" }),
+        })
+      );
+      expect(result).toMatchObject({
+        documentId: "document-1",
+        requirementId: "req-1",
+        fileName: "bebas-pustaka.pdf",
+        status: "submitted",
+      });
+    });
+
+    it("allows re-upload for submitted or declined documents but blocks approved documents", async () => {
+      mockPrisma.studentExitSurveyResponse.findFirst.mockResolvedValue({ id: "response-1" });
+      mockParticipantRepo.findRequirementRecord.mockResolvedValueOnce({
+        documentId: "old-doc-1",
+        status: "declined",
+      });
+      mockPrisma.document.findUnique.mockResolvedValue({ filePath: "uploads/yudisium/old.pdf" });
+
+      await service.uploadOwnDocument(
+        "student-user-1",
+        { originalname: "dokumen-baru.pdf", buffer: Buffer.from("pdf") },
+        "req-1"
+      );
+
+      expect(mockFs.unlink).toHaveBeenCalled();
+      expect(mockPrisma.document.delete).toHaveBeenCalledWith({ where: { id: "old-doc-1" } });
+      expect(mockParticipantRepo.upsertRequirementRecord).toHaveBeenCalled();
+
+      mockParticipantRepo.findRequirementRecord.mockResolvedValueOnce({
+        documentId: "approved-doc",
+        status: "approved",
+      });
+
+      await expect(service.uploadOwnDocument(
+        "student-user-1",
+        { originalname: "dokumen-baru.pdf", buffer: Buffer.from("pdf") },
+        "req-1"
+      )).rejects.toThrow("Dokumen ini sudah diverifikasi dan tidak dapat diubah");
     });
   });
 });

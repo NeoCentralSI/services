@@ -27,6 +27,18 @@ const assertCanViewParticipant = (participant, viewer) => {
   }
 };
 
+const notifyUsers = async (userIds, { title, message, data }) => {
+  if (!userIds?.length) return;
+  await Promise.all([
+    import("../notification.service.js").then((m) =>
+      m.createNotificationsForUsers(userIds, { title, message })
+    ),
+    import("../push.service.js").then((m) =>
+      m.sendFcmToUsers(userIds, { title, body: message, data })
+    ),
+  ]);
+};
+
 const PARTICIPANT_STATUS_PRIORITY = {
   registered: 0,
   verified: 1,
@@ -421,6 +433,29 @@ export const verifyParticipantDocument = async (
     verifiedAt: new Date(),
   });
 
+  const verificationContext = await participantRepo.findVerificationContext(participantId, requirementId);
+  const studentUserId = verificationContext?.thesis?.student?.user?.id;
+  const studentName = verificationContext?.thesis?.student?.user?.fullName || "Mahasiswa";
+  const requirementName =
+    verificationContext?.yudisiumParticipantRequirements?.[0]?.requirement?.yudisiumRequirement?.name ||
+    "Dokumen Persyaratan";
+  const yudisiumName = verificationContext?.yudisium?.name || "Yudisium";
+
+  try {
+    if (studentUserId) {
+      const title = action === "approve" ? "Dokumen Yudisium Disetujui" : "Dokumen Yudisium Ditolak";
+      const statusText = action === "approve" ? "disetujui" : "ditolak";
+      const message = `Dokumen "${requirementName}" untuk ${yudisiumName} telah ${statusText}.${notes ? ` Catatan: ${notes}` : ""}`;
+      await notifyUsers([studentUserId], {
+        title,
+        message,
+        data: { yudisiumId: participant.yudisiumId, participantId, type: "yudisium_doc_verified" },
+      });
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify student on yudisium doc verification:", err.message);
+  }
+
   // Auto-transition: when all docs approved → move participant to verified
   let participantTransitioned = false;
   if (action === "approve") {
@@ -439,6 +474,31 @@ export const verifyParticipantDocument = async (
     if (approvedCount >= expectedCount) {
       await participantRepo.updateStatus(participantId, "verified");
       participantTransitioned = true;
+
+      try {
+        if (studentUserId) {
+          const title = "Dokumen Yudisium Terverifikasi";
+          const message = "Seluruh dokumen persyaratan yudisium Anda telah diverifikasi. Menunggu validasi CPL.";
+          await notifyUsers([studentUserId], {
+            title,
+            message,
+            data: { yudisiumId: participant.yudisiumId, participantId, type: "yudisium_docs_verified" },
+          });
+        }
+
+        const gkmIds = await participantRepo.findUserIdsByRole(ROLES.GKM);
+        if (gkmIds.length > 0) {
+          const title = "Validasi CPL Yudisium";
+          const message = `Mahasiswa ${studentName} telah melewati verifikasi dokumen yudisium. Mohon segera melakukan validasi CPL.`;
+          await notifyUsers(gkmIds, {
+            title,
+            message,
+            data: { yudisiumId: participant.yudisiumId, participantId, type: "yudisium_need_cpl_validation" },
+          });
+        }
+      } catch (err) {
+        console.error("[Notification Error] Failed to notify on yudisium verification transition:", err.message);
+      }
     }
   }
 

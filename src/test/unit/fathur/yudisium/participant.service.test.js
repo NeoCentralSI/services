@@ -3,6 +3,8 @@ import * as service from "../../../../services/yudisium/participant.service.js";
 import * as participantRepo from "../../../../repositories/yudisium/participant.repository.js";
 import * as xlsx from "xlsx";
 import { convertHtmlToPdf } from "../../../../utils/pdf.util.js";
+import { createNotificationsForUsers } from "../../../../services/notification.service.js";
+import { sendFcmToUsers } from "../../../../services/push.service.js";
 
 vi.mock("../../../../repositories/yudisium/participant.repository.js");
 vi.mock("../../../../repositories/yudisium/requirement.repository.js");
@@ -21,6 +23,12 @@ vi.mock("../../../../config/prisma.js", () => ({
 }));
 vi.mock("../../../../utils/pdf.util.js", () => ({
   convertHtmlToPdf: vi.fn(),
+}));
+vi.mock("../../../../services/notification.service.js", () => ({
+  createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }),
+}));
+vi.mock("../../../../services/push.service.js", () => ({
+  sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 import prisma from "../../../../config/prisma.js";
@@ -42,6 +50,8 @@ const activeYudisium = {
 describe("Unit Test: Yudisium Participant Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    participantRepo.findVerificationContext?.mockResolvedValue?.(null);
+    participantRepo.findUserIdsByRole?.mockResolvedValue?.([]);
   });
 
   describe("getArchiveParticipantOptions", () => {
@@ -344,6 +354,125 @@ describe("Unit Test: Yudisium Participant Service", () => {
         roles: ["Mahasiswa"],
       })).rejects.toThrow("Anda tidak memiliki akses ke data peserta yudisium ini");
       expect(participantRepo.findStudentCplScores).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("verifyParticipantDocument", () => {
+    const verificationContext = {
+      id: "participant-1",
+      status: "registered",
+      yudisiumId: "y1",
+      yudisium: { id: "y1", name: "Yudisium Mei 2026" },
+      thesis: {
+        student: {
+          id: "student-1",
+          user: { id: "student-user-1", fullName: "Ayu", identityNumber: "001" },
+        },
+      },
+      yudisiumParticipantRequirements: [
+        {
+          yudisiumRequirementItemId: "item-1",
+          requirement: { yudisiumRequirement: { name: "Bebas Pustaka" } },
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      participantRepo.findStatusById.mockResolvedValue({
+        id: "participant-1",
+        status: "registered",
+        yudisiumId: "y1",
+      });
+      participantRepo.findRequirementRecord.mockResolvedValue({
+        yudisiumParticipantId: "participant-1",
+        yudisiumRequirementItemId: "item-1",
+        documentId: "doc-1",
+        status: "submitted",
+      });
+      participantRepo.updateRequirementRecord.mockResolvedValue({});
+      participantRepo.findVerificationContext.mockResolvedValue(verificationContext);
+      participantRepo.listRequirementRecords.mockResolvedValue([
+        { yudisiumRequirementItemId: "item-1", status: "submitted" },
+        { yudisiumRequirementItemId: "item-2", status: "submitted" },
+      ]);
+      participantRepo.updateStatus.mockResolvedValue({});
+      participantRepo.findUserIdsByRole.mockResolvedValue([]);
+      prisma.yudisiumRequirementItem.count.mockResolvedValue(2);
+    });
+
+    it("notifies the student when a document is declined", async () => {
+      const result = await service.verifyParticipantDocument("participant-1", "item-1", {
+        action: "decline",
+        notes: "File tidak sesuai",
+        userId: "admin-1",
+      });
+
+      expect(result).toMatchObject({
+        requirementId: "item-1",
+        status: "declined",
+        participantTransitioned: false,
+      });
+      expect(participantRepo.updateRequirementRecord).toHaveBeenCalledWith(
+        "participant-1",
+        "item-1",
+        expect.objectContaining({
+          status: "declined",
+          notes: "File tidak sesuai",
+          verifiedBy: "admin-1",
+        })
+      );
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-user-1"],
+        expect.objectContaining({
+          title: "Dokumen Yudisium Ditolak",
+          message: expect.stringContaining("Catatan: File tidak sesuai"),
+        })
+      );
+      expect(sendFcmToUsers).toHaveBeenCalledWith(
+        ["student-user-1"],
+        expect.objectContaining({
+          data: expect.objectContaining({ type: "yudisium_doc_verified" }),
+        })
+      );
+      expect(participantRepo.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it("transitions participant to verified and notifies student plus GKM when all documents are approved", async () => {
+      participantRepo.listRequirementRecords.mockResolvedValue([
+        { yudisiumRequirementItemId: "item-1", status: "submitted" },
+        { yudisiumRequirementItemId: "item-2", status: "approved" },
+      ]);
+      participantRepo.findUserIdsByRole.mockResolvedValue(["gkm-1"]);
+
+      const result = await service.verifyParticipantDocument("participant-1", "item-1", {
+        action: "approve",
+        userId: "admin-1",
+      });
+
+      expect(participantRepo.updateStatus).toHaveBeenCalledWith("participant-1", "verified");
+      expect(result).toMatchObject({
+        status: "approved",
+        participantTransitioned: true,
+        newParticipantStatus: "verified",
+      });
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-user-1"],
+        expect.objectContaining({ title: "Dokumen Yudisium Disetujui" })
+      );
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["student-user-1"],
+        expect.objectContaining({ title: "Dokumen Yudisium Terverifikasi" })
+      );
+      expect(createNotificationsForUsers).toHaveBeenCalledWith(
+        ["gkm-1"],
+        expect.objectContaining({ title: "Validasi CPL Yudisium" })
+      );
+      expect(sendFcmToUsers).toHaveBeenCalledWith(
+        ["gkm-1"],
+        expect.objectContaining({
+          data: expect.objectContaining({ type: "yudisium_need_cpl_validation" }),
+        })
+      );
     });
   });
 

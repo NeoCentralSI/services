@@ -97,6 +97,40 @@ export const findStatusById = async (participantId) => {
   });
 };
 
+export const findVerificationContext = async (participantId, requirementItemId) => {
+  return await prisma.yudisiumParticipant.findUnique({
+    where: { id: participantId },
+    select: {
+      id: true,
+      status: true,
+      yudisiumId: true,
+      yudisium: { select: { id: true, name: true } },
+      thesis: {
+        select: {
+          student: {
+            select: {
+              id: true,
+              user: { select: { id: true, fullName: true, identityNumber: true } },
+            },
+          },
+        },
+      },
+      yudisiumParticipantRequirements: {
+        where: { yudisiumRequirementItemId: requirementItemId },
+        select: {
+          yudisiumRequirementItemId: true,
+          requirement: {
+            select: {
+              yudisiumRequirement: { select: { name: true } },
+            },
+          },
+        },
+        take: 1,
+      },
+    },
+  });
+};
+
 export const findStudentByParticipant = async (participantId) => {
   return await prisma.yudisiumParticipant.findUnique({
     where: { id: participantId },
@@ -416,4 +450,16 @@ export const updateYudisiumDecree = async (id, data) => {
 
 export const createDocument = async ({ userId, fileName, filePath }) => {
   return await prisma.document.create({ data: { userId, fileName, filePath } });
+};
+
+export const findUserIdsByRole = async (roleName) => {
+  const users = await prisma.user.findMany({
+    where: {
+      userHasRoles: {
+        some: { role: { name: roleName } },
+      },
+    },
+    select: { id: true },
+  });
+  return users.map((user) => user.id);
 };

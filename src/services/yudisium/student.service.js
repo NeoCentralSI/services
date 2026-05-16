@@ -81,6 +81,34 @@ const deriveYudisiumStatus = (item) => {
 
 const isYudisiumRegistrationOpen = (item) => deriveYudisiumStatus(item) === "open";
 
+const hasMetAcademicRequirements = (student, thesis) => {
+  const latestDefence = thesis?.thesisDefences?.[0] ?? null;
+  const needsRevision = latestDefence?.status === "passed_with_revision";
+  const revisionFinalized =
+    !!latestDefence?.revisionFinalizedAt && !!latestDefence?.revisionFinalizedBy;
+
+  return (
+    (student?.skscompleted ?? 0) >= REQUIRED_SKS &&
+    (!needsRevision || revisionFinalized) &&
+    !!student?.mandatoryCoursesCompleted &&
+    !!student?.mkwuCompleted &&
+    !!student?.internshipCompleted &&
+    !!student?.kknCompleted
+  );
+};
+
+const notifyUsers = async (userIds, { title, message, data }) => {
+  if (!userIds?.length) return;
+  await Promise.all([
+    import("../notification.service.js").then((m) =>
+      m.createNotificationsForUsers(userIds, { title, message })
+    ),
+    import("../push.service.js").then((m) =>
+      m.sendFcmToUsers(userIds, { title, body: message, data })
+    ),
+  ]);
+};
+
 export const findStudentContext = async (userId) => {
   const student = await prisma.student.findUnique({
     where: { id: userId },
@@ -469,13 +497,24 @@ export const uploadOwnDocument = async (userId, file, requirementId) => {
   if (!file) throwError("File dokumen wajib diunggah", 400);
   if (!requirementId) throwError("ID persyaratan wajib diisi", 400);
 
-  const { currentYudisium, thesis } = await findStudentContext(userId);
+  const { student, currentYudisium, thesis } = await findStudentContext(userId);
 
   if (!currentYudisium) throwError("Belum ada periode yudisium yang berlangsung", 404);
   if (!isYudisiumRegistrationOpen(currentYudisium)) {
     throwError("Upload dokumen hanya dapat dilakukan saat pendaftaran yudisium dibuka", 400);
   }
   if (!thesis?.id) throwError("Data tugas akhir mahasiswa belum tersedia", 400);
+  if (!hasMetAcademicRequirements(student, thesis)) {
+    throwError("Upload dokumen hanya dapat dilakukan setelah seluruh persyaratan akademik terpenuhi", 400);
+  }
+
+  const submittedExitSurvey = await prisma.studentExitSurveyResponse.findFirst({
+    where: { yudisiumId: currentYudisium.id, thesisId: thesis.id },
+    select: { id: true },
+  });
+  if (!submittedExitSurvey) {
+    throwError("Upload dokumen hanya dapat dilakukan setelah exit survey diisi", 400);
+  }
 
   const requirement = await prisma.yudisiumRequirement.findUnique({
     where: { id: requirementId },
@@ -543,10 +582,25 @@ export const uploadOwnDocument = async (userId, file, requirementId) => {
     documentId: document.id,
   });
 
+  try {
+    const adminIds = await participantRepo.findUserIdsByRole("Admin");
+    const studentName = student.user?.fullName || "Mahasiswa";
+    const title = "Dokumen Yudisium Baru";
+    const message = `${studentName} telah mengunggah dokumen "${requirement.name}" untuk ${currentYudisium.name}.`;
+    await notifyUsers(adminIds, {
+      title,
+      message,
+      data: { yudisiumId: currentYudisium.id, participantId: participant.id, type: "yudisium_doc_upload" },
+    });
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify admins on yudisium doc upload:", err.message);
+  }
+
   return {
     documentId: document.id,
     requirementId,
     fileName: file.originalname,
+    filePath: relPath,
     status: "submitted",
   };
 };
