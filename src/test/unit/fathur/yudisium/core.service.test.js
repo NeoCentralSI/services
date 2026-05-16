@@ -244,6 +244,70 @@ describe("Unit Test: Yudisium Core Service", () => {
       ).rejects.toThrow("Tipe yudisium tidak dapat diubah");
     });
 
+    it("allows archive yudisium basic updates after manual or imported participants exist", async () => {
+      const existing = makeYudisium({
+        _count: { participants: 2, studentExitSurveyResponses: 0 },
+        participants: [{ id: "participant-1" }, { id: "participant-2" }],
+      });
+      const updated = makeYudisium({
+        name: "Arsip Yudisium Revisi",
+        eventDate: new Date("2024-08-03T02:00:00.000Z"),
+        roomId: "room-2",
+        room: { id: "room-2", name: "Auditorium" },
+        notes: "Catatan arsip",
+        _count: { participants: 2, studentExitSurveyResponses: 0 },
+        participants: [{ id: "participant-1" }, { id: "participant-2" }],
+      });
+      repository.findById.mockResolvedValue(existing);
+      repository.hasParticipants.mockResolvedValue(true);
+      repository.hasRegisteredParticipants.mockResolvedValue(true);
+      repository.update.mockResolvedValue(updated);
+
+      const result = await service.updateYudisium("y1", {
+        name: "Arsip Yudisium Revisi",
+        eventDate: "2024-08-03T02:00:00.000Z",
+        roomId: "room-2",
+        notes: "Catatan arsip",
+      });
+
+      expect(repository.update).toHaveBeenCalledWith(
+        "y1",
+        expect.objectContaining({
+          name: "Arsip Yudisium Revisi",
+          eventDate: new Date("2024-08-03T02:00:00.000Z"),
+          roomId: "room-2",
+          notes: "Catatan arsip",
+        })
+      );
+      expect(result).toMatchObject({
+        name: "Arsip Yudisium Revisi",
+        status: "completed",
+        participantCount: 2,
+        room: { id: "room-2" },
+      });
+    });
+
+    it("blocks converting archive yudisium to active after manual or imported participants exist", async () => {
+      repository.findById.mockResolvedValue(
+        makeYudisium({
+          _count: { participants: 1, studentExitSurveyResponses: 0 },
+          participants: [{ id: "participant-1" }],
+        })
+      );
+      repository.hasParticipants.mockResolvedValue(true);
+      repository.hasRegisteredParticipants.mockResolvedValue(true);
+
+      await expect(
+        service.updateYudisium("y1", {
+          registrationOpenDate: "2026-07-01T00:00:00.000Z",
+          registrationCloseDate: "2026-07-20T00:00:00.000Z",
+          exitSurveyFormId: "form-1",
+          requirementIds: ["req-1"],
+        })
+      ).rejects.toThrow("Tipe yudisium tidak dapat diubah");
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
     it("locks active yudisium schedule and setup after appointment", async () => {
       repository.findById.mockResolvedValue(
         activeYudisium({ appointedAt: new Date("2026-07-26T00:00:00.000Z") })

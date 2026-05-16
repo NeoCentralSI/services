@@ -119,6 +119,42 @@ export const getParticipants = async (req, res, next) => {
   }
 };
 
+export const getArchiveParticipantOptions = async (req, res, next) => {
+  try {
+    const data = await participantService.getArchiveParticipantOptions(req.params.id);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const addArchiveParticipant = async (req, res, next) => {
+  try {
+    const data = await participantService.addArchiveParticipant(req.params.id, req.body);
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const importArchiveParticipants = async (req, res, next) => {
+  try {
+    const data = await participantService.importArchiveParticipants(req.params.id, req.file);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const removeArchiveParticipant = async (req, res, next) => {
+  try {
+    const data = await participantService.removeArchiveParticipant(req.params.id, req.params.participantId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getParticipantDetail = async (req, res, next) => {
   try {
     const { participantId } = req.params;

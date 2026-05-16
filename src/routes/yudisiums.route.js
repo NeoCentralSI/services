@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { uploadYudisiumDocFile, uploadCplRepairFiles } from "../middlewares/file.middleware.js";
+import upload, { uploadYudisiumDocFile, uploadCplRepairFiles } from "../middlewares/file.middleware.js";
 import { populateProfile } from "../middlewares/yudisium.middleware.js";
 import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
 import * as ctrl from "../controllers/yudisium.controller.js";
@@ -76,9 +76,30 @@ router.delete("/:id", requireAnyRole(EVENT_MANAGER_ROLES), ctrl.removeEvent);
 // ============================================================
 router.get("/:id/participants", requireAnyRole(VIEWER_ROLES), ctrl.getParticipants);
 router.get(
+  "/:id/participants/options",
+  requireAnyRole(EVENT_MANAGER_ROLES),
+  ctrl.getArchiveParticipantOptions
+);
+router.post(
+  "/:id/participants",
+  requireAnyRole(EVENT_MANAGER_ROLES),
+  ctrl.addArchiveParticipant
+);
+router.post(
+  "/:id/participants/import",
+  requireAnyRole(EVENT_MANAGER_ROLES),
+  upload.single("file"),
+  ctrl.importArchiveParticipants
+);
+router.get(
   "/:id/participants/:participantId",
   requireAnyRole(VIEWER_ROLES),
   ctrl.getParticipantDetail
+);
+router.delete(
+  "/:id/participants/:participantId",
+  requireAnyRole(EVENT_MANAGER_ROLES),
+  ctrl.removeArchiveParticipant
 );
 router.get(
   "/:id/participants/:participantId/requirements",

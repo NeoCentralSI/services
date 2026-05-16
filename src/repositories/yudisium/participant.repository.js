@@ -125,10 +125,96 @@ export const createForThesis = async (yudisiumId, thesisId) => {
   });
 };
 
+export const createFinalizedForThesis = async (yudisiumId, thesisId) => {
+  return await prisma.yudisiumParticipant.create({
+    data: {
+      thesisId,
+      yudisiumId,
+      registeredAt: new Date(),
+      status: "finalized",
+    },
+  });
+};
+
 export const updateStatus = async (participantId, status) => {
   return await prisma.yudisiumParticipant.update({
     where: { id: participantId },
     data: { status },
+  });
+};
+
+export const findThesisById = async (thesisId) => {
+  return await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      student: {
+        select: {
+          id: true,
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
+    },
+  });
+};
+
+export const findStudentWithThesesByNim = async (nim) => {
+  return await prisma.student.findFirst({
+    where: {
+      user: { identityNumber: nim },
+    },
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+      thesis: {
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+    },
+  });
+};
+
+export const findAvailableThesesForArchiveParticipant = async (yudisiumId) => {
+  return await prisma.thesis.findMany({
+    where: {
+      yudisiumParticipants: {
+        none: { yudisiumId },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      student: {
+        select: {
+          id: true,
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
+    },
+  });
+};
+
+export const findByIdAndYudisium = async (participantId, yudisiumId) => {
+  return await prisma.yudisiumParticipant.findFirst({
+    where: { id: participantId, yudisiumId },
+    select: { id: true, yudisiumId: true, thesisId: true, status: true },
+  });
+};
+
+export const removeParticipant = async (participantId) => {
+  return await prisma.$transaction(async (tx) => {
+    await tx.yudisiumParticipantRequirement.deleteMany({
+      where: { yudisiumParticipantId: participantId },
+    });
+
+    return tx.yudisiumParticipant.delete({
+      where: { id: participantId },
+    });
   });
 };
 

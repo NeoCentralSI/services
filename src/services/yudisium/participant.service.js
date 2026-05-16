@@ -6,6 +6,7 @@ import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import prisma from "../../config/prisma.js";
 import * as participantRepo from "../../repositories/yudisium/participant.repository.js";
 import * as requirementRepo from "../../repositories/yudisium/requirement.repository.js";
+import * as xlsx from "xlsx";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +43,38 @@ const deriveYudisiumStatus = (item) => {
   if (now < openDate) return "draft";
   if (closeDate && now > closeDate) return "closed";
   return "open";
+};
+
+const PARTICIPANT_IMPORT_REQUIRED_COLUMNS = [
+  "No",
+  "Nama Mahasiswa",
+  "NIM",
+  "Judul Tugas Akhir",
+];
+
+const isArchiveYudisium = (yudisium) => {
+  return !yudisium.registrationOpenDate && !yudisium.registrationCloseDate;
+};
+
+const assertArchiveYudisium = (yudisium) => {
+  if (!isArchiveYudisium(yudisium)) {
+    throwError("Peserta manual hanya dapat dikelola pada yudisium arsip", 400);
+  }
+};
+
+const normalizeImportText = (value) => String(value ?? "").trim().replace(/\s+/g, " ");
+const normalizeImportKey = (value) => normalizeImportText(value).toLowerCase();
+
+const buildImportFailure = (row, error) => ({ row, error });
+
+const getFriendlyImportError = (err) => {
+  if (err?.code?.startsWith?.("P")) {
+    return "Gagal menyimpan data peserta karena kendala database. Silakan periksa data dan coba lagi.";
+  }
+  if (String(err?.message || "").toLowerCase().includes("prisma")) {
+    return "Gagal menyimpan data peserta karena kendala database. Silakan periksa data dan coba lagi.";
+  }
+  return err?.message || "Terjadi kesalahan saat memproses baris ini.";
 };
 
 // ============================================================
@@ -161,6 +194,183 @@ export const getParticipantDetail = async (participantId) => {
     supervisors,
     documents,
   };
+};
+
+export const getArchiveParticipantOptions = async (yudisiumId) => {
+  const yudisium = await participantRepo.findYudisiumById(yudisiumId);
+  if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
+  assertArchiveYudisium(yudisium);
+
+  const theses = await participantRepo.findAvailableThesesForArchiveParticipant(yudisiumId);
+
+  return theses
+    .map((thesis) => ({
+      thesisId: thesis.id,
+      thesisTitle: thesis.title || "-",
+      studentId: thesis.student?.id || null,
+      studentName: thesis.student?.user?.fullName || "-",
+      studentNim: thesis.student?.user?.identityNumber || "-",
+    }))
+    .sort((a, b) => a.studentName.localeCompare(b.studentName));
+};
+
+export const addArchiveParticipant = async (yudisiumId, { thesisId }) => {
+  if (!thesisId) throwError("Thesis wajib dipilih", 400);
+
+  const yudisium = await participantRepo.findYudisiumById(yudisiumId);
+  if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
+  assertArchiveYudisium(yudisium);
+
+  const thesis = await participantRepo.findThesisById(thesisId);
+  if (!thesis) throwError("Data thesis tidak ditemukan", 404);
+
+  const existing = await participantRepo.findByThesisAndYudisium(yudisiumId, thesisId);
+  if (existing) throwError("Mahasiswa sudah terdaftar sebagai peserta yudisium ini", 409);
+
+  const participant = await participantRepo.createFinalizedForThesis(yudisiumId, thesisId);
+
+  return {
+    id: participant.id,
+    status: participant.status,
+    registeredAt: participant.registeredAt,
+    thesisId,
+    studentName: thesis.student?.user?.fullName || "-",
+    studentNim: thesis.student?.user?.identityNumber || "-",
+    thesisTitle: thesis.title || "-",
+  };
+};
+
+export const importArchiveParticipants = async (yudisiumId, file) => {
+  if (!file?.buffer) throwError("File import peserta wajib diunggah", 400);
+
+  const yudisium = await participantRepo.findYudisiumById(yudisiumId);
+  if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
+  assertArchiveYudisium(yudisium);
+
+  let rows = [];
+  try {
+    const workbook = xlsx.read(file.buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames?.[0];
+    const sheet = sheetName ? workbook.Sheets[sheetName] : null;
+    if (!sheet) throw new Error("Sheet pertama tidak ditemukan");
+    rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
+  } catch {
+    throwError("File Excel tidak dapat dibaca. Pastikan format file sesuai template.", 400);
+  }
+
+  if (rows.length === 0) {
+    throwError("File import tidak memiliki data peserta", 400);
+  }
+
+  const availableColumns = new Set(Object.keys(rows[0] || {}).map(normalizeImportKey));
+  const missingColumns = PARTICIPANT_IMPORT_REQUIRED_COLUMNS.filter(
+    (column) => !availableColumns.has(normalizeImportKey(column))
+  );
+  if (missingColumns.length > 0) {
+    throwError(
+      `Format file tidak sesuai. Kolom wajib: ${PARTICIPANT_IMPORT_REQUIRED_COLUMNS.join(", ")}`,
+      400
+    );
+  }
+
+  const result = {
+    total: rows.length,
+    successCount: 0,
+    failed: 0,
+    failedRows: [],
+  };
+  const seenNims = new Set();
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const excelRowNumber = index + 2;
+    const row = rows[index];
+    const name = normalizeImportText(row["Nama Mahasiswa"]);
+    const nim = normalizeImportText(row["NIM"]);
+    const thesisTitle = normalizeImportText(row["Judul Tugas Akhir"]);
+
+    const fail = (message) => {
+      result.failed += 1;
+      result.failedRows.push(buildImportFailure(excelRowNumber, message));
+    };
+
+    if (!name && !nim && !thesisTitle) {
+      fail("Baris kosong tidak dapat diproses");
+      continue;
+    }
+    if (!name) {
+      fail("Nama Mahasiswa wajib diisi");
+      continue;
+    }
+    if (!nim) {
+      fail("NIM wajib diisi");
+      continue;
+    }
+    if (!thesisTitle) {
+      fail("Judul Tugas Akhir wajib diisi");
+      continue;
+    }
+
+    const nimKey = normalizeImportKey(nim);
+    if (seenNims.has(nimKey)) {
+      fail(`NIM ${nim} duplikat pada file import`);
+      continue;
+    }
+    seenNims.add(nimKey);
+
+    try {
+      const student = await participantRepo.findStudentWithThesesByNim(nim);
+      if (!student) {
+        fail(`Mahasiswa dengan NIM ${nim} tidak ditemukan di sistem`);
+        continue;
+      }
+
+      const registeredName = normalizeImportText(student.user?.fullName);
+      if (normalizeImportKey(registeredName) !== normalizeImportKey(name)) {
+        fail(`Nama Mahasiswa tidak sesuai dengan NIM ${nim} di sistem`);
+        continue;
+      }
+
+      const theses = student.thesis || [];
+      if (theses.length === 0) {
+        fail(`Mahasiswa ${registeredName} belum memiliki data Tugas Akhir di sistem`);
+        continue;
+      }
+
+      const thesis = theses.find(
+        (item) => normalizeImportKey(item.title) === normalizeImportKey(thesisTitle)
+      );
+      if (!thesis) {
+        fail(`Judul Tugas Akhir tidak sesuai dengan data di sistem untuk NIM ${nim}`);
+        continue;
+      }
+
+      const existing = await participantRepo.findByThesisAndYudisium(yudisiumId, thesis.id);
+      if (existing) {
+        fail(`Mahasiswa ${registeredName} sudah terdaftar sebagai peserta yudisium ini`);
+        continue;
+      }
+
+      await participantRepo.createFinalizedForThesis(yudisiumId, thesis.id);
+      result.successCount += 1;
+    } catch (err) {
+      fail(getFriendlyImportError(err));
+    }
+  }
+
+  return result;
+};
+
+export const removeArchiveParticipant = async (yudisiumId, participantId) => {
+  const yudisium = await participantRepo.findYudisiumById(yudisiumId);
+  if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
+  assertArchiveYudisium(yudisium);
+
+  const participant = await participantRepo.findByIdAndYudisium(participantId, yudisiumId);
+  if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
+
+  await participantRepo.removeParticipant(participantId);
+
+  return { id: participantId };
 };
 
 // ============================================================
