@@ -21,12 +21,76 @@ async function resolveStudent(userId) {
   return student;
 }
 
+function buildSeminarMilestones(allChecklistMet, currentSeminar) {
+  return [
+    { id: "checklist", label: "Memenuhi Syarat Pendaftaran", checked: allChecklistMet },
+    {
+      id: "documents",
+      label: "Dokumen Seminar Lengkap",
+      checked: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(
+        currentSeminar?.status
+      ),
+    },
+    {
+      id: "examiner",
+      label: "Penetapan Dosen Penguji",
+      checked: ["examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(
+        currentSeminar?.status
+      ),
+    },
+    {
+      id: "schedule",
+      label: "Penetapan Jadwal Seminar",
+      checked: ["scheduled", "passed", "passed_with_revision"].includes(currentSeminar?.status),
+    },
+    {
+      id: "concluded",
+      label: "Pelaksanaan Seminar Hasil",
+      checked: ["passed", "passed_with_revision"].includes(currentSeminar?.status),
+    },
+  ];
+}
+
+async function buildOverviewWithoutThesis(student) {
+  const seminarAttendance = await coreRepo.countSeminarAttendance(student.id);
+  const checklist = {
+    bimbingan: {
+      met: false,
+      current: 0,
+      required: MIN_BIMBINGAN,
+      label: `${MIN_BIMBINGAN} Bimbingan`,
+    },
+    kehadiran: {
+      met: seminarAttendance >= MIN_KEHADIRAN,
+      current: seminarAttendance,
+      required: MIN_KEHADIRAN,
+      label: `${MIN_KEHADIRAN} Kehadiran Seminar`,
+    },
+    metopen: { met: Boolean(student.researchMethodCompleted), label: "Lulus Mata Kuliah Metode Penelitian" },
+    pembimbing: {
+      met: false,
+      label: "Persetujuan Dosen Pembimbing",
+      supervisors: [],
+    },
+  };
+
+  return {
+    thesisId: null,
+    thesisTitle: null,
+    checklist,
+    allChecklistMet: false,
+    milestones: buildSeminarMilestones(false, null),
+    canUpload: false,
+    seminar: null,
+  };
+}
+
 // ==================== OVERVIEW ====================
 
 export async function getOverview(userId) {
   const student = await resolveStudent(userId);
   const thesis = await coreRepo.getStudentThesisWithSeminarInfo(student.id);
-  if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
+  if (!thesis) return buildOverviewWithoutThesis(student);
 
   const completedGuidances = thesis.thesisGuidances?.length ?? 0;
   const seminarAttendance = await coreRepo.countSeminarAttendance(student.id);
@@ -48,14 +112,7 @@ export async function getOverview(userId) {
     currentSeminar = null;
   }
 
-  // Define Stepper Milestones
-  const milestones = [
-    { id: 'checklist', label: 'Memenuhi Syarat Pendaftaran', checked: allChecklistMet },
-    { id: 'documents', label: 'Dokumen Seminar Lengkap', checked: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentSeminar?.status) },
-    { id: 'examiner', label: 'Penetapan Dosen Penguji', checked: ["examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentSeminar?.status) },
-    { id: 'schedule', label: 'Penetapan Jadwal Seminar', checked: ["scheduled", "passed", "passed_with_revision"].includes(currentSeminar?.status) },
-    { id: 'concluded', label: 'Pelaksanaan Seminar Hasil', checked: ["passed", "passed_with_revision"].includes(currentSeminar?.status) },
-  ];
+  const milestones = buildSeminarMilestones(allChecklistMet, currentSeminar);
 
   // Locking Logic
   // 1. Cannot upload if checklist not met

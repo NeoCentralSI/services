@@ -173,6 +173,22 @@ describe("Student Seminar Service — Overview Milestones", () => {
     expect(result.milestones.every(m => m.checked)).toBe(true);
   });
 
+  it("returns preview overview when student has no thesis", async () => {
+    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(null);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(3);
+
+    const result = await getOverview("user-1");
+
+    expect(result.thesisId).toBeNull();
+    expect(result.thesisTitle).toBeNull();
+    expect(result.seminar).toBeNull();
+    expect(result.allChecklistMet).toBe(false);
+    expect(result.canUpload).toBe(false);
+    expect(result.checklist.bimbingan.met).toBe(false);
+    expect(result.checklist.kehadiran.current).toBe(3);
+    expect(result.milestones.every((m) => !m.checked)).toBe(true);
+  });
+
   it("resets overview when latest seminar is failed (treats as no active seminar)", async () => {
     const thesis = makeThesis();
     thesis.thesisSeminars = [makeSeminar({ id: "failed-sem", status: "failed" })];

@@ -35,6 +35,72 @@ async function resolveStudent(userId) {
   return student;
 }
 
+function buildDefenceMilestones(allChecklistMet, currentDefence) {
+  return [
+    { id: "checklist", label: "Memenuhi Syarat Pendaftaran", checked: allChecklistMet },
+    {
+      id: "documents",
+      label: "Dokumen Sidang Lengkap",
+      checked: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(
+        currentDefence?.status
+      ),
+    },
+    {
+      id: "examiner",
+      label: "Penetapan Dosen Penguji",
+      checked: ["examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(
+        currentDefence?.status
+      ),
+    },
+    {
+      id: "schedule",
+      label: "Penetapan Jadwal Sidang",
+      checked: ["scheduled", "passed", "passed_with_revision"].includes(currentDefence?.status),
+    },
+    {
+      id: "concluded",
+      label: "Pelaksanaan Sidang Tugas Akhir",
+      checked: ["passed", "passed_with_revision"].includes(currentDefence?.status),
+    },
+  ];
+}
+
+async function buildOverviewWithoutThesis(student) {
+  const sks = student.skscompleted ?? 0;
+  const checklist = {
+    lulusSeminar: { met: false, label: "Lulus Seminar Hasil", seminarStatus: null },
+    sks: {
+      met: sks >= 142,
+      current: sks,
+      required: 142,
+      label: "Menyelesaikan Minimal 142 SKS",
+    },
+    revisiSeminar: {
+      met: false,
+      label: "Penyelesaian Revisi Seminar Hasil",
+      seminarStatus: null,
+      total: 0,
+      finished: 0,
+      isVisible: false,
+    },
+    pembimbing: {
+      met: false,
+      label: "Persetujuan Dosen Pembimbing",
+      supervisors: [],
+    },
+  };
+
+  return {
+    thesisId: null,
+    thesisTitle: null,
+    checklist,
+    allChecklistMet: false,
+    milestones: buildDefenceMilestones(false, null),
+    canUpload: false,
+    defence: null,
+  };
+}
+
 // ============================================================
 // OVERVIEW
 // ============================================================
@@ -42,7 +108,7 @@ async function resolveStudent(userId) {
 export async function getOverview(userId) {
   const student = await resolveStudent(userId);
   const thesis = await coreRepo.getStudentThesisWithDefenceInfo(student.id);
-  if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
+  if (!thesis) return buildOverviewWithoutThesis(student);
 
   const sks = student.skscompleted ?? 0;
 
@@ -118,13 +184,7 @@ export async function getOverview(userId) {
     }));
   }
 
-  const milestones = [
-    { id: 'checklist', label: 'Memenuhi Syarat Pendaftaran', checked: allChecklistMet },
-    { id: 'documents', label: 'Dokumen Sidang Lengkap', checked: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentDefence?.status) },
-    { id: 'examiner', label: 'Penetapan Dosen Penguji', checked: ["examiner_assigned", "scheduled", "passed", "passed_with_revision"].includes(currentDefence?.status) },
-    { id: 'schedule', label: 'Penetapan Jadwal Sidang', checked: ["scheduled", "passed", "passed_with_revision"].includes(currentDefence?.status) },
-    { id: 'concluded', label: 'Pelaksanaan Sidang Tugas Akhir', checked: ["passed", "passed_with_revision"].includes(currentDefence?.status) },
-  ];
+  const milestones = buildDefenceMilestones(allChecklistMet, currentDefence);
 
   // Locking Logic
   const canUpload = allChecklistMet && (!currentDefence || currentDefence.status === "registered");

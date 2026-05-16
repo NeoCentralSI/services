@@ -156,6 +156,22 @@ describe("Student Defence Service — Overview Milestones", () => {
     expect(result.milestones.every(m => m.checked)).toBe(true);
   });
 
+  it("returns preview overview when student has no thesis", async () => {
+    mockCoreRepo.getStudentThesisWithDefenceInfo.mockResolvedValue(null);
+
+    const result = await getOverview("user-1");
+
+    expect(result.thesisId).toBeNull();
+    expect(result.thesisTitle).toBeNull();
+    expect(result.defence).toBeNull();
+    expect(result.allChecklistMet).toBe(false);
+    expect(result.canUpload).toBe(false);
+    expect(result.checklist.lulusSeminar.met).toBe(false);
+    expect(result.checklist.sks.met).toBe(true);
+    expect(result.checklist.revisiSeminar.isVisible).toBe(false);
+    expect(result.milestones.every((m) => !m.checked)).toBe(true);
+  });
+
   it("resets overview when latest defence is failed (treats as no active attempt)", async () => {
     const thesis = makeThesis();
     thesis.thesisDefences = [makeDefence({ id: "failed-def", status: "failed" })];
