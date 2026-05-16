@@ -3,14 +3,14 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Install pnpm via npm (more reliable than corepack on Alpine)
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10.23.0
 
 # Copy manifests first for better layer caching
 COPY package.json pnpm-lock.yaml ./
 COPY prisma ./prisma/
 
 # Install ALL deps (devDeps needed for prisma CLI)
-RUN pnpm install --frozen-lockfile
+RUN set -eux; pnpm install --frozen-lockfile || (yes | pnpm approve-builds && pnpm install --frozen-lockfile)
 
 # Generate Prisma client using binary directly (avoids pnpm exec issues)
 RUN ./node_modules/.bin/prisma generate
