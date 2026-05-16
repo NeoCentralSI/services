@@ -39,6 +39,7 @@ const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil } = vi.hoisted(() => 
     findSeminarSupervisorRole: vi.fn(),
     findSeminarsPaginated: vi.fn().mockResolvedValue({ data: [], total: 0 }),
     countSeminars: vi.fn().mockResolvedValue(0),
+    getAllAnnouncedSeminarsForBoard: vi.fn(),
   },
   mockXlsx: {
     read: vi.fn().mockReturnValue({
@@ -73,6 +74,39 @@ describe("Thesis Seminar Core Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStatusUtil.computeEffectiveStatus.mockImplementation((s) => s);
+  });
+
+  describe("Announcements", () => {
+    it("returns board announcements without audience context for staff", async () => {
+      mockCoreRepo.getAllAnnouncedSeminarsForBoard.mockResolvedValue([
+        {
+          id: "sem-1",
+          date: new Date("2026-06-01"),
+          startTime: new Date("2026-06-01T08:00:00Z"),
+          endTime: new Date("2026-06-01T10:00:00Z"),
+          status: "scheduled",
+          meetingLink: null,
+          room: { id: "r1", name: "Ruang A" },
+          thesis: {
+            title: "Judul TA",
+            student: { id: "st-1", user: { fullName: "Mahasiswa A" } },
+            thesisSupervisors: [],
+          },
+          examiners: [{ order: 1, lecturerId: "lec-1" }],
+        },
+      ]);
+      mockPrisma.lecturer.findMany.mockResolvedValue([
+        { id: "lec-1", user: { fullName: "Penguji 1" } },
+      ]);
+
+      const result = await coreService.getAnnouncements();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].isRegistered).toBe(false);
+      expect(result[0].isPresent).toBe(false);
+      expect(result[0].isOwn).toBe(false);
+      expect(result[0].presenterName).toBe("Mahasiswa A");
+    });
   });
 
   describe("List & Detail", () => {

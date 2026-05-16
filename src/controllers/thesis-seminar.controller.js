@@ -4,7 +4,7 @@ import * as audienceService from "../services/thesis-seminar/audience.service.js
 import * as examinerService from "../services/thesis-seminar/examiner.service.js";
 import * as revisionService from "../services/thesis-seminar/revision.service.js";
 import * as studentService from "../services/thesis-seminar/student.service.js";
-import { ROLES } from "../constants/roles.js";
+import { ROLES, isStudentRole } from "../constants/roles.js";
 
 // ============================================================
 // CORE (Admin / Lecturer List)
@@ -354,9 +354,15 @@ export async function getStudentOverview(req, res, next) {
   } catch (error) { next(error); }
 }
 
+function userHasStudentRole(user) {
+  return (user?.roles || []).some((role) => isStudentRole(role));
+}
+
 export async function getAnnouncements(req, res, next) {
   try {
-    const result = await studentService.getAnnouncements(req.user.id);
+    const result = userHasStudentRole(req.user)
+      ? await studentService.getAnnouncements(req.user.id)
+      : await coreService.getAnnouncements();
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }

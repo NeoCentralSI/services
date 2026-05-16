@@ -1214,3 +1214,66 @@ export async function syncSeminarToOutlook(seminarId, adminId = null) {
     console.error("[OutlookSync] Error during seminar sync orchestration:", err.message);
   }
 }
+
+// ==================== ANNOUNCEMENTS (all roles, read-only board) ====================
+
+async function buildLecturerNameMapForSeminars(seminars) {
+  const allLecIds = [
+    ...new Set(seminars.flatMap((s) => (s.examiners || []).map((e) => e.lecturerId).filter(Boolean))),
+  ];
+  if (allLecIds.length === 0) return new Map();
+  const lecs = await prisma.lecturer.findMany({
+    where: { id: { in: allLecIds } },
+    select: { id: true, user: { select: { fullName: true } } },
+  });
+  return new Map(lecs.map((l) => [l.id, l.user?.fullName || "-"]));
+}
+
+/**
+ * Map raw seminar rows to announcement board items.
+ * @param {object[]} seminars
+ * @param {{ ownIds?: Set<string> }} options
+ */
+export async function mapSeminarsToAnnouncementItems(seminars, { ownIds = new Set() } = {}) {
+  const lecMap = await buildLecturerNameMapForSeminars(seminars);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return seminars.map((s) => {
+    const sd = s.date ? new Date(s.date) : null;
+    if (sd) sd.setHours(0, 0, 0, 0);
+    const aud = s.audiences?.[0] || null;
+    return {
+      id: s.id,
+      date: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
+      resultFinalizedAt: s.resultFinalizedAt || null,
+      meetingLink: s.meetingLink,
+      room: s.room,
+      thesisTitle: s.thesis?.title || "-",
+      presenterName: s.thesis?.student?.user?.fullName || "-",
+      presenterStudentId: s.thesis?.student?.id || null,
+      supervisors: (s.thesis?.thesisSupervisors || []).map((ts) => ({
+        role: ts.role?.name || "-",
+        name: ts.lecturer?.user?.fullName || "-",
+      })),
+      examiners: (s.examiners || []).map((e) => ({
+        order: e.order,
+        name: lecMap.get(e.lecturerId) || "-",
+      })),
+      isOwn: ownIds.has(s.id),
+      isPast: sd ? sd < today : false,
+      isRegistered: !!aud,
+      isPresent: Boolean(aud?.approvedAt),
+      registeredAt: aud?.registeredAt || null,
+    };
+  });
+}
+
+/** Announcement board for non-student roles (no audience self-registration context). */
+export async function getAnnouncements() {
+  const seminars = await coreRepo.getAllAnnouncedSeminarsForBoard();
+  return mapSeminarsToAnnouncementItems(seminars, { ownIds: new Set() });
+}

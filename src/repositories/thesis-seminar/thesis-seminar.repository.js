@@ -661,7 +661,9 @@ export async function getSeminarAttendanceHistory(studentId) {
         select: {
           id: true,
           date: true,
+          endTime: true,
           status: true,
+          resultFinalizedAt: true,
           thesis: {
             select: {
               title: true,
@@ -679,50 +681,68 @@ export async function getSeminarAttendanceHistory(studentId) {
   });
 }
 
+const announcedSeminarSelect = {
+  id: true,
+  date: true,
+  startTime: true,
+  endTime: true,
+  status: true,
+  resultFinalizedAt: true,
+  meetingLink: true,
+  room: { select: { id: true, name: true } },
+  thesis: {
+    select: {
+      id: true,
+      title: true,
+      student: {
+        select: {
+          id: true,
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
+      thesisSupervisors: {
+        select: {
+          role: { select: { name: true } },
+          lecturer: {
+            select: { user: { select: { fullName: true } } },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  },
+  examiners: {
+    where: { availabilityStatus: "available" },
+    select: { order: true, lecturerId: true },
+    orderBy: { order: "asc" },
+  },
+};
+
+const announcedSeminarWhere = {
+  status: { in: ["scheduled", "passed", "passed_with_revision", "failed"] },
+  date: { not: null },
+};
+
+/**
+ * Get all announced seminars for the public announcement board (all roles).
+ */
+export async function getAllAnnouncedSeminarsForBoard() {
+  return prisma.thesisSeminar.findMany({
+    where: announcedSeminarWhere,
+    select: announcedSeminarSelect,
+    orderBy: { date: "desc" },
+  });
+}
+
 /**
  * Get all announced seminars for student announcement board.
  * Includes the student's own audience registration status.
  */
 export async function getAllAnnouncedSeminars(studentId) {
   return prisma.thesisSeminar.findMany({
-    where: {
-      status: { in: ["scheduled", "passed", "passed_with_revision", "failed"] },
-      date: { not: null },
-    },
+    where: announcedSeminarWhere,
     select: {
-      id: true,
-      date: true,
-      startTime: true,
-      endTime: true,
-      status: true,
-      meetingLink: true,
-      room: { select: { id: true, name: true } },
-      thesis: {
-        select: {
-          id: true,
-          title: true,
-          student: {
-            select: {
-              id: true,
-              user: { select: { fullName: true, identityNumber: true } },
-            },
-          },
-          thesisSupervisors: {
-            select: {
-              role: { select: { name: true } },
-              lecturer: {
-                select: { user: { select: { fullName: true } } },
-              },
-            },
-            orderBy: { createdAt: "asc" },
-          },
-        },
-      },
-      examiners: {
-        where: { availabilityStatus: "available" },
-        select: { order: true, lecturerId: true },
-        orderBy: { order: "asc" },
-      },
+      ...announcedSeminarSelect,
       audiences: {
         where: { studentId },
         select: { studentId: true, approvedAt: true, registeredAt: true },

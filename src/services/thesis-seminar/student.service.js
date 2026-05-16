@@ -1,5 +1,6 @@
 import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
+import { mapSeminarsToAnnouncementItems } from "./core.service.js";
 import * as examinerRepo from "../../repositories/thesis-seminar/examiner.repository.js";
 import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
 import * as revisionRepo from "../../repositories/thesis-seminar/revision.repository.js";
@@ -162,32 +163,13 @@ export async function getOverview(userId) {
 
 export async function getAnnouncements(userId) {
   const student = await resolveStudent(userId);
-  const ownThesis = await prisma.thesis.findFirst({ where: { studentId: student.id }, select: { thesisSeminars: { select: { id: true } } } });
+  const ownThesis = await prisma.thesis.findFirst({
+    where: { studentId: student.id },
+    select: { thesisSeminars: { select: { id: true } } },
+  });
   const ownIds = new Set((ownThesis?.thesisSeminars || []).map((s) => s.id));
   const seminars = await coreRepo.getAllAnnouncedSeminars(student.id);
-
-  const allLecIds = [...new Set(seminars.flatMap((s) => (s.examiners || []).map((e) => e.lecturerId).filter(Boolean)))];
-  const lecMap = new Map();
-  if (allLecIds.length > 0) {
-    const lecs = await prisma.lecturer.findMany({ where: { id: { in: allLecIds } }, select: { id: true, user: { select: { fullName: true } } } });
-    for (const l of lecs) lecMap.set(l.id, l.user?.fullName || "-");
-  }
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  return seminars.map((s) => {
-    const sd = s.date ? new Date(s.date) : null; if (sd) sd.setHours(0, 0, 0, 0);
-    const aud = s.audiences?.[0] || null;
-    return {
-      id: s.id, date: s.date, startTime: s.startTime, endTime: s.endTime,
-      status: computeEffectiveStatus(s.status, s.date, s.startTime, s.endTime),
-      meetingLink: s.meetingLink, room: s.room, thesisTitle: s.thesis?.title || "-",
-      presenterName: s.thesis?.student?.user?.fullName || "-", presenterStudentId: s.thesis?.student?.id || null,
-      supervisors: (s.thesis?.thesisSupervisors || []).map((ts) => ({ role: ts.role?.name || "-", name: ts.lecturer?.user?.fullName || "-" })),
-      examiners: (s.examiners || []).map((e) => ({ order: e.order, name: lecMap.get(e.lecturerId) || "-" })),
-      isOwn: ownIds.has(s.id), isPast: sd ? sd < today : false, isRegistered: !!aud,
-      isPresent: Boolean(aud?.approvedAt), registeredAt: aud?.registeredAt || null,
-    };
-  });
+  return mapSeminarsToAnnouncementItems(seminars, { ownIds });
 }
 
 // ==================== ATTENDANCE HISTORY ====================

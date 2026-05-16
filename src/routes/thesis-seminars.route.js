@@ -46,7 +46,7 @@ router.post("/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctr
 router.get("/me/overview", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentOverview);
 router.get("/me/attendance", requireAnyRole([ROLES.MAHASISWA]), ctrl.getAttendanceHistory);
 router.get("/me/history", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentHistory);
-router.get("/announcements", requireAnyRole([ROLES.MAHASISWA]), ctrl.getAnnouncements);
+router.get("/announcements", requireAnyRole(ALL_ROLES), ctrl.getAnnouncements);
 router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocumentTypes);
 
 // ============================================================

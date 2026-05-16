@@ -220,17 +220,21 @@ describe("Student Seminar Service — History & Attendance", () => {
 
   it("calculates attendance summary correctly", async () => {
     mockCoreRepo.getSeminarAttendanceHistory.mockResolvedValue([
-      { approvedAt: new Date() },
-      { approvedAt: null },
+      { approvedAt: new Date(), seminar: { status: "passed", endTime: new Date("1970-01-01T10:00:00.000Z"), resultFinalizedAt: new Date("2026-05-01T00:00:00.000Z") } },
+      { approvedAt: null, seminar: { status: "passed", endTime: new Date("1970-01-01T10:00:00.000Z"), resultFinalizedAt: new Date("2026-05-01T00:00:00.000Z") } },
     ]);
     const result = await getAttendanceHistory("user-1");
     expect(result.summary.attended).toBe(1);
     expect(result.summary.total).toBe(2);
+    expect(result.records[1].seminarStatus).toBe("passed");
+    expect(result.records[1].seminarEndTime).toBeTruthy();
+    expect(result.records[1].seminarResultFinalizedAt).toBeTruthy();
   });
 
   it("getAnnouncements returns list of ongoing/scheduled seminars", async () => {
     mockCoreRepo.getAllAnnouncedSeminars.mockResolvedValue([makeSeminar({ id: "s1" })]);
-    const result = await getAnnouncements();
+    mockPrisma.lecturer.findMany.mockResolvedValue([]);
+    const result = await getAnnouncements("user-1");
     expect(result).toHaveLength(1);
   });
 });
