@@ -7,6 +7,7 @@ import prisma from "../../config/prisma.js";
 import * as participantRepo from "../../repositories/yudisium/participant.repository.js";
 import * as requirementRepo from "../../repositories/yudisium/requirement.repository.js";
 import * as xlsx from "xlsx";
+import { ROLES } from "../../constants/roles.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +17,15 @@ function throwError(msg, code) {
   e.statusCode = code;
   throw e;
 }
+
+const isStudentViewer = (viewer) => (viewer?.roles ?? []).includes(ROLES.MAHASISWA);
+
+const assertCanViewParticipant = (participant, viewer) => {
+  if (!isStudentViewer(viewer)) return;
+  if (!viewer?.studentId || participant.thesis?.student?.id !== viewer.studentId) {
+    throwError("Anda tidak memiliki akses ke data peserta yudisium ini", 403);
+  }
+};
 
 const PARTICIPANT_STATUS_PRIORITY = {
   registered: 0,
@@ -135,9 +145,10 @@ export const getParticipants = async (yudisiumId) => {
   };
 };
 
-export const getParticipantDetail = async (participantId) => {
+export const getParticipantDetail = async (participantId, viewer = null) => {
   const participant = await participantRepo.findDetailById(participantId);
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
+  assertCanViewParticipant(participant, viewer);
 
   // Use requirements specifically assigned to this Yudisium period
   const yudisiumRequirements = await prisma.yudisiumRequirementItem.findMany({
@@ -443,9 +454,10 @@ export const verifyParticipantDocument = async (
 // CPL — Scores, Verification, Recommendations
 // ============================================================
 
-export const getParticipantCplScores = async (participantId) => {
+export const getParticipantCplScores = async (participantId, viewer = null) => {
   const participant = await participantRepo.findStudentByParticipant(participantId);
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
+  assertCanViewParticipant(participant, viewer);
 
   const studentId = participant.thesis?.student?.id;
   if (!studentId) throwError("Data mahasiswa tidak ditemukan", 404);

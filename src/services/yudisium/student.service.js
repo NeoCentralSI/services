@@ -55,6 +55,7 @@ const yudisiumContextSelect = {
   eventDate: true,
   documentId: true,
   document: { select: { id: true, fileName: true, filePath: true } },
+  room: { select: { id: true, name: true } },
   exitSurveyForm: { select: exitSurveyFormInclude },
   requirementItems: { select: { id: true, yudisiumRequirementId: true } },
 };
@@ -77,6 +78,8 @@ const deriveYudisiumStatus = (item) => {
   if (closeDate && now > closeDate) return "closed";
   return "open";
 };
+
+const isYudisiumRegistrationOpen = (item) => deriveYudisiumStatus(item) === "open";
 
 export const findStudentContext = async (userId) => {
   const student = await prisma.student.findUnique({
@@ -114,10 +117,23 @@ export const findStudentContext = async (userId) => {
   const thesis = student.thesis[0] ?? null;
   let currentYudisium = null;
 
-  // Prefer the yudisium where the student is currently in progress.
-  // Completed/finalized records stay in history and should not block a newer open period.
   if (thesis?.id) {
-    const participantRecord = await prisma.yudisiumParticipant.findFirst({
+    const finalizedRecord = await prisma.yudisiumParticipant.findFirst({
+      where: {
+        thesisId: thesis.id,
+        status: "finalized",
+      },
+      orderBy: { createdAt: "desc" },
+      select: { yudisium: { select: yudisiumContextSelect } },
+    });
+
+    if (finalizedRecord) currentYudisium = finalizedRecord.yudisium;
+  }
+
+  // If the student has already passed yudisium, keep showing that completed period.
+  // Otherwise, prefer the period where they are currently being processed.
+  if (!currentYudisium && thesis?.id) {
+    const inProgressRecord = await prisma.yudisiumParticipant.findFirst({
       where: { 
         thesisId: thesis.id,
         status: { in: ["registered", "verified", "cpl_validated", "appointed"] }
@@ -125,7 +141,7 @@ export const findStudentContext = async (userId) => {
       orderBy: { createdAt: "desc" },
       select: { yudisium: { select: yudisiumContextSelect } },
     });
-    if (participantRecord) currentYudisium = participantRecord.yudisium;
+    if (inProgressRecord) currentYudisium = inProgressRecord.yudisium;
   }
 
   // Otherwise fall back to the most recent published yudisium that is currently open
@@ -190,9 +206,10 @@ export const getOverview = async (userId) => {
       },
     });
 
-  // Determine current participant: the most recent one that is NOT rejected
-  // OR if all are rejected, the most recent one (but we'll filter it later in frontend)
-  participant = allParticipations.find(p => p.status !== 'rejected') || null;
+  // Current participant must belong to the yudisium context shown on the page.
+  participant = currentYudisium?.id
+    ? allParticipations.find(p => p.status !== 'rejected' && p.yudisium?.id === currentYudisium.id) || null
+    : null;
   
   // History is ONLY rejected ones
   history = allParticipations.filter(p => p.status === 'rejected');
@@ -268,7 +285,7 @@ export const getOverview = async (userId) => {
       met: !!submittedExitSurvey,
       submittedAt: submittedExitSurvey?.submittedAt ?? null,
       responseId: submittedExitSurvey?.id ?? null,
-      isAvailable: !!currentYudisium, // Only available if there's an active yudisium
+      isAvailable: !!currentYudisium && isYudisiumRegistrationOpen(currentYudisium),
     },
   };
 
@@ -279,6 +296,10 @@ export const getOverview = async (userId) => {
     checklist.mataKuliahMkwu.met && 
     checklist.mataKuliahKerjaPraktik.met && 
     checklist.mataKuliahKkn.met;
+  checklist.exitSurvey.isAvailable =
+    !!currentYudisium &&
+    isYudisiumRegistrationOpen(currentYudisium) &&
+    academicChecklistMet;
 
   const allChecklistMet = academicChecklistMet && checklist.exitSurvey.met;
 
@@ -304,6 +325,9 @@ export const getOverview = async (userId) => {
         validatedBy: sc.validator?.fullName || null,
         validatedByNip: sc.validator?.identityNumber || null,
         validatedAt: sc.validatedAt || null,
+        verifiedBy: sc.validator?.fullName || null,
+        verifiedByNip: sc.validator?.identityNumber || null,
+        verifiedAt: sc.validatedAt || null,
       };
     });
 
@@ -321,6 +345,12 @@ export const getOverview = async (userId) => {
           registrationOpenDate: currentYudisium.registrationOpenDate,
           registrationCloseDate: currentYudisium.registrationCloseDate,
           eventDate: currentYudisium.eventDate,
+          room: currentYudisium.room
+            ? {
+                id: currentYudisium.room.id,
+                name: currentYudisium.room.name,
+              }
+            : null,
           decreeDocument: currentYudisium.document
             ? {
                 id: currentYudisium.document.id,
@@ -442,6 +472,9 @@ export const uploadOwnDocument = async (userId, file, requirementId) => {
   const { currentYudisium, thesis } = await findStudentContext(userId);
 
   if (!currentYudisium) throwError("Belum ada periode yudisium yang berlangsung", 404);
+  if (!isYudisiumRegistrationOpen(currentYudisium)) {
+    throwError("Upload dokumen hanya dapat dilakukan saat pendaftaran yudisium dibuka", 400);
+  }
   if (!thesis?.id) throwError("Data tugas akhir mahasiswa belum tersedia", 400);
 
   const requirement = await prisma.yudisiumRequirement.findUnique({

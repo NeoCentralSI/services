@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as service from "../../../../services/yudisium/exit-survey.service.js";
 import * as repo from "../../../../repositories/yudisium/exit-survey.repository.js";
 import * as studentService from "../../../../services/yudisium/student.service.js";
@@ -31,9 +31,52 @@ vi.mock("../../../../config/prisma.js", () => ({
   },
 }));
 
+const makeYudisiumContext = (overrides = {}) => ({
+  id: "y1",
+  name: "Yudisium Mei 2026",
+  registrationOpenDate: new Date("2026-05-01T00:00:00.000Z"),
+  registrationCloseDate: new Date("2026-05-31T23:59:59.000Z"),
+  eventDate: new Date("2026-06-10T02:00:00.000Z"),
+  exitSurveyForm: {
+    id: "f1",
+    name: "Exit Survey",
+    description: null,
+    sessions: [],
+  },
+  ...overrides,
+});
+
+const makeStudentContext = (overrides = {}) => ({
+  id: "student-1",
+  skscompleted: 150,
+  mandatoryCoursesCompleted: true,
+  mkwuCompleted: true,
+  internshipCompleted: true,
+  kknCompleted: true,
+  ...overrides,
+});
+
+const makeThesisContext = (overrides = {}) => ({
+  id: "t1",
+  thesisDefences: [
+    {
+      status: "passed",
+      revisionFinalizedAt: null,
+      revisionFinalizedBy: null,
+    },
+  ],
+  ...overrides,
+});
+
 describe("Unit Test: Exit Survey Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-16T00:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ============================================================
@@ -277,8 +320,9 @@ describe("Unit Test: Exit Survey Service", () => {
   describe("getStudentSurvey", () => {
     it("should return student context and form", async () => {
       studentService.findStudentContext.mockResolvedValue({
-        currentYudisium: { id: "y1", exitSurveyForm: { id: "f1", sessions: [] } },
-        thesis: { id: "t1" }
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext(),
+        thesis: makeThesisContext()
       });
       repo.findResponseByYudisiumThesis.mockResolvedValue(null);
 
@@ -286,16 +330,68 @@ describe("Unit Test: Exit Survey Service", () => {
       expect(result.yudisium.id).toBe("y1");
       expect(result.isSubmitted).toBe(false);
     });
+
+    it("should block new survey when registration is not open", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({
+          registrationOpenDate: new Date("2026-04-01T00:00:00.000Z"),
+          registrationCloseDate: new Date("2026-04-30T23:59:59.000Z"),
+          eventDate: new Date("2026-06-10T02:00:00.000Z"),
+        }),
+        thesis: makeThesisContext(),
+      });
+      repo.findResponseByYudisiumThesis.mockResolvedValue(null);
+
+      await expect(service.getStudentSurvey("user1"))
+        .rejects.toThrow("Exit survey hanya dapat diisi saat pendaftaran yudisium dibuka");
+    });
+
+    it("should still allow reading an existing survey response after registration closes", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({
+          registrationOpenDate: new Date("2026-04-01T00:00:00.000Z"),
+          registrationCloseDate: new Date("2026-04-30T23:59:59.000Z"),
+          eventDate: new Date("2026-06-10T02:00:00.000Z"),
+        }),
+        thesis: makeThesisContext(),
+      });
+      repo.findResponseByYudisiumThesis.mockResolvedValue({
+        id: "response-1",
+        submittedAt: new Date("2026-04-10T00:00:00.000Z"),
+        answers: [],
+      });
+
+      const result = await service.getStudentSurvey("user1");
+
+      expect(result.isSubmitted).toBe(true);
+      expect(result.response.id).toBe("response-1");
+    });
+
+    it("should block survey access until academic requirements are met", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext({ kknCompleted: false }),
+        currentYudisium: makeYudisiumContext(),
+        thesis: makeThesisContext(),
+      });
+
+      await expect(service.getStudentSurvey("user1"))
+        .rejects.toThrow("Exit survey hanya dapat diakses setelah seluruh persyaratan akademik terpenuhi");
+    });
   });
 
   describe("submitStudentSurvey", () => {
     it("should submit answers successfully", async () => {
       studentService.findStudentContext.mockResolvedValue({
-        currentYudisium: { id: "y1", exitSurveyForm: { 
-          id: "f1", 
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({ exitSurveyForm: { 
+          id: "f1",
+          name: "Exit Survey",
+          description: null,
           sessions: [{ questions: [{ id: "q1", isRequired: true, questionType: "short_answer" }] }] 
-        } },
-        thesis: { id: "t1" }
+        } }),
+        thesis: makeThesisContext()
       });
       repo.findResponseByYudisiumThesis.mockResolvedValue(null);
       repo.createResponseWithAnswers.mockResolvedValue({ id: "r1", answers: [] });
@@ -310,16 +406,49 @@ describe("Unit Test: Exit Survey Service", () => {
 
     it("should throw error if required question is missing", async () => {
       studentService.findStudentContext.mockResolvedValue({
-        currentYudisium: { id: "y1", exitSurveyForm: { 
-          id: "f1", 
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({ exitSurveyForm: { 
+          id: "f1",
+          name: "Exit Survey",
+          description: null,
           sessions: [{ questions: [{ id: "q1", isRequired: true, question: "Req Q" }] }] 
-        } },
-        thesis: { id: "t1" }
+        } }),
+        thesis: makeThesisContext()
       });
       repo.findResponseByYudisiumThesis.mockResolvedValue(null);
 
       await expect(service.submitStudentSurvey("user1", { answers: [] }))
         .rejects.toThrow("Pertanyaan wajib belum dijawab: Req Q");
+    });
+
+    it("should block submission when registration is not open", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({
+          registrationOpenDate: new Date("2026-04-01T00:00:00.000Z"),
+          registrationCloseDate: new Date("2026-04-30T23:59:59.000Z"),
+          eventDate: new Date("2026-06-10T02:00:00.000Z"),
+        }),
+        thesis: makeThesisContext(),
+      });
+
+      await expect(service.submitStudentSurvey("user1", {
+        answers: [{ questionId: "q1", answerText: "Valid Answer" }],
+      })).rejects.toThrow("Exit survey hanya dapat diisi saat pendaftaran yudisium dibuka");
+      expect(repo.createResponseWithAnswers).not.toHaveBeenCalled();
+    });
+
+    it("should block submission until academic requirements are met", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext({ skscompleted: 120 }),
+        currentYudisium: makeYudisiumContext(),
+        thesis: makeThesisContext(),
+      });
+
+      await expect(service.submitStudentSurvey("user1", {
+        answers: [{ questionId: "q1", answerText: "Valid Answer" }],
+      })).rejects.toThrow("Exit survey hanya dapat diisi setelah seluruh persyaratan akademik terpenuhi");
+      expect(repo.createResponseWithAnswers).not.toHaveBeenCalled();
     });
   });
 });

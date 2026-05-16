@@ -158,7 +158,7 @@ export const removeArchiveParticipant = async (req, res, next) => {
 export const getParticipantDetail = async (req, res, next) => {
   try {
     const { participantId } = req.params;
-    const data = await participantService.getParticipantDetail(participantId);
+    const data = await participantService.getParticipantDetail(participantId, req.user);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -168,7 +168,7 @@ export const getParticipantDetail = async (req, res, next) => {
 export const getParticipantRequirements = async (req, res, next) => {
   try {
     const { participantId } = req.params;
-    const data = await participantService.getParticipantDetail(participantId);
+    const data = await participantService.getParticipantDetail(participantId, req.user);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -197,7 +197,7 @@ export const verifyParticipantDocument = async (req, res, next) => {
 export const getParticipantCplScores = async (req, res, next) => {
   try {
     const { participantId } = req.params;
-    const data = await participantService.getParticipantCplScores(participantId);
+    const data = await participantService.getParticipantCplScores(participantId, req.user);
     res.json({ success: true, data });
   } catch (err) {
     next(err);

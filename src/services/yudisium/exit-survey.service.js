@@ -15,9 +15,47 @@ function throwError(msg, code) {
 }
 
 const QUESTION_TYPES = ["short_answer", "paragraph", "single_choice", "multiple_choice", "date"];
+const REQUIRED_SKS = 146;
 
 const validateQuestionType = (value) => {
   if (!QUESTION_TYPES.includes(value)) throwError("Jenis pertanyaan tidak valid", 400);
+};
+
+const deriveYudisiumStatus = (item) => {
+  const now = new Date();
+  const openDate = item.registrationOpenDate ? new Date(item.registrationOpenDate) : null;
+  const closeDate = item.registrationCloseDate ? new Date(item.registrationCloseDate) : null;
+  const eventDate = item.eventDate ? new Date(item.eventDate) : null;
+
+  if (eventDate) {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 86400000 - 1);
+    if (eventDate < todayStart) return "completed";
+    if (eventDate >= todayStart && eventDate <= todayEnd) return "ongoing";
+  }
+
+  if (!openDate) return "draft";
+  if (now < openDate) return "draft";
+  if (closeDate && now > closeDate) return "closed";
+  return "open";
+};
+
+const isYudisiumRegistrationOpen = (item) => deriveYudisiumStatus(item) === "open";
+
+const hasMetAcademicRequirements = (student, thesis) => {
+  const latestDefence = thesis?.thesisDefences?.[0] ?? null;
+  const needsRevision = latestDefence?.status === "passed_with_revision";
+  const revisionFinalized =
+    !!latestDefence?.revisionFinalizedAt && !!latestDefence?.revisionFinalizedBy;
+
+  return (
+    (student?.skscompleted ?? 0) >= REQUIRED_SKS &&
+    (!needsRevision || revisionFinalized) &&
+    !!student?.mandatoryCoursesCompleted &&
+    !!student?.mkwuCompleted &&
+    !!student?.internshipCompleted &&
+    !!student?.kknCompleted
+  );
 };
 
 const formatFormSummary = (item) => {
@@ -454,10 +492,13 @@ export const deleteQuestion = async (formId, questionId) => {
 // ============================================================
 
 export const getStudentSurvey = async (userId) => {
-  const { currentYudisium, thesis } = await findStudentContext(userId);
+  const { student, currentYudisium, thesis } = await findStudentContext(userId);
 
   if (!currentYudisium) throwError("Belum ada periode yudisium yang berlangsung", 404);
   if (!thesis?.id) throwError("Data tugas akhir mahasiswa belum tersedia", 400);
+  if (!hasMetAcademicRequirements(student, thesis)) {
+    throwError("Exit survey hanya dapat diakses setelah seluruh persyaratan akademik terpenuhi", 400);
+  }
   if (!currentYudisium.exitSurveyForm) {
     throwError("Exit survey belum dikonfigurasi pada periode yudisium ini", 404);
   }
@@ -467,6 +508,10 @@ export const getStudentSurvey = async (userId) => {
     thesis.id,
     true
   );
+
+  if (!existingResponse && !isYudisiumRegistrationOpen(currentYudisium)) {
+    throwError("Exit survey hanya dapat diisi saat pendaftaran yudisium dibuka", 400);
+  }
 
   return {
     yudisium: {
@@ -491,10 +536,16 @@ export const getStudentSurvey = async (userId) => {
 };
 
 export const submitStudentSurvey = async (userId, payload) => {
-  const { currentYudisium, thesis } = await findStudentContext(userId);
+  const { student, currentYudisium, thesis } = await findStudentContext(userId);
 
   if (!currentYudisium) throwError("Belum ada periode yudisium yang berlangsung", 404);
+  if (!isYudisiumRegistrationOpen(currentYudisium)) {
+    throwError("Exit survey hanya dapat diisi saat pendaftaran yudisium dibuka", 400);
+  }
   if (!thesis?.id) throwError("Data tugas akhir mahasiswa belum tersedia", 400);
+  if (!hasMetAcademicRequirements(student, thesis)) {
+    throwError("Exit survey hanya dapat diisi setelah seluruh persyaratan akademik terpenuhi", 400);
+  }
   if (!currentYudisium.exitSurveyForm) {
     throwError("Exit survey belum dikonfigurasi pada periode yudisium ini", 404);
   }

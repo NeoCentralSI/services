@@ -244,6 +244,109 @@ describe("Unit Test: Yudisium Participant Service", () => {
     });
   });
 
+  describe("participant detail access", () => {
+    const participantDetail = {
+      id: "participant-1",
+      status: "rejected",
+      registeredAt: new Date("2026-05-01T00:00:00.000Z"),
+      notes: null,
+      yudisium: {
+        id: "y1",
+        name: "Yudisium Mei 2026",
+        registrationOpenDate: new Date("2026-05-01T00:00:00.000Z"),
+        registrationCloseDate: new Date("2026-05-31T00:00:00.000Z"),
+        eventDate: new Date("2026-06-10T00:00:00.000Z"),
+        appointedAt: null,
+      },
+      thesis: {
+        title: "Judul TA",
+        student: {
+          id: "student-1",
+          user: { fullName: "Ayu", identityNumber: "001" },
+        },
+        thesisSupervisors: [],
+      },
+      yudisiumParticipantRequirements: [],
+    };
+
+    it("allows a student to read their own historical participant detail", async () => {
+      participantRepo.findDetailById.mockResolvedValue(participantDetail);
+      prisma.yudisiumRequirementItem.findMany.mockResolvedValue([
+        {
+          id: "item-1",
+          order: 1,
+          yudisiumRequirement: { name: "Bebas Pustaka", description: "Surat bebas pustaka" },
+        },
+      ]);
+
+      const result = await service.getParticipantDetail("participant-1", {
+        studentId: "student-1",
+        roles: ["Mahasiswa"],
+      });
+
+      expect(result.id).toBe("participant-1");
+      expect(result.studentName).toBe("Ayu");
+      expect(result.documents).toHaveLength(1);
+    });
+
+    it("blocks a student from reading another student's participant detail", async () => {
+      participantRepo.findDetailById.mockResolvedValue(participantDetail);
+
+      await expect(service.getParticipantDetail("participant-1", {
+        studentId: "student-2",
+        roles: ["Mahasiswa"],
+      })).rejects.toThrow("Anda tidak memiliki akses ke data peserta yudisium ini");
+      expect(prisma.yudisiumRequirementItem.findMany).not.toHaveBeenCalled();
+    });
+
+    it("allows a student to read their own CPL scores", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue({
+        id: "participant-1",
+        status: "rejected",
+        thesis: { student: { id: "student-1" } },
+      });
+      participantRepo.findStudentCplScores.mockResolvedValue([
+        {
+          cplId: "cpl-1",
+          score: 80,
+          oldCplScore: null,
+          status: "validated",
+          recommendationDocument: null,
+          settlementDocument: null,
+          validatedAt: new Date("2026-05-10T00:00:00.000Z"),
+          validator: { fullName: "Validator", identityNumber: "1988" },
+          cpl: { code: "CPL-01", description: "Deskripsi CPL", minimalScore: 70 },
+        },
+      ]);
+
+      const result = await service.getParticipantCplScores("participant-1", {
+        studentId: "student-1",
+        roles: ["Mahasiswa"],
+      });
+
+      expect(result.participantId).toBe("participant-1");
+      expect(result.cplScores[0]).toMatchObject({
+        code: "CPL-01",
+        passed: true,
+        validatedBy: "Validator",
+      });
+    });
+
+    it("blocks a student from reading another student's CPL scores", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue({
+        id: "participant-1",
+        status: "rejected",
+        thesis: { student: { id: "student-1" } },
+      });
+
+      await expect(service.getParticipantCplScores("participant-1", {
+        studentId: "student-2",
+        roles: ["Mahasiswa"],
+      })).rejects.toThrow("Anda tidak memiliki akses ke data peserta yudisium ini");
+      expect(participantRepo.findStudentCplScores).not.toHaveBeenCalled();
+    });
+  });
+
   describe("exportParticipants", () => {
     it("generates official participant PDF layout with logo and legacy document sections", async () => {
       convertHtmlToPdf.mockResolvedValue(Buffer.from("pdf"));

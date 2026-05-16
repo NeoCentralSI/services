@@ -17,6 +17,7 @@ const router = express.Router();
 // Role bundles
 const ALL_ROLES = [ROLES.ADMIN, ROLES.MAHASISWA, ...LECTURER_ROLES];
 const VIEWER_ROLES = [ROLES.ADMIN, ...LECTURER_ROLES];
+const PARTICIPANT_DETAIL_VIEWER_ROLES = [ROLES.MAHASISWA, ...VIEWER_ROLES];
 const EVENT_MANAGER_ROLES = [ROLES.KOORDINATOR_YUDISIUM];
 const CPL_VALIDATOR_ROLES = [ROLES.ADMIN, ROLES.GKM];
 
@@ -93,7 +94,7 @@ router.post(
 );
 router.get(
   "/:id/participants/:participantId",
-  requireAnyRole(VIEWER_ROLES),
+  requireAnyRole(PARTICIPANT_DETAIL_VIEWER_ROLES),
   ctrl.getParticipantDetail
 );
 router.delete(
@@ -103,7 +104,7 @@ router.delete(
 );
 router.get(
   "/:id/participants/:participantId/requirements",
-  requireAnyRole(VIEWER_ROLES),
+  requireAnyRole(PARTICIPANT_DETAIL_VIEWER_ROLES),
   ctrl.getParticipantRequirements
 );
 router.post(
@@ -117,7 +118,7 @@ router.post(
 // ============================================================
 router.get(
   "/:id/participants/:participantId/cpl-scores",
-  requireAnyRole(VIEWER_ROLES),
+  requireAnyRole(PARTICIPANT_DETAIL_VIEWER_ROLES),
   ctrl.getParticipantCplScores
 );
 router.post(
