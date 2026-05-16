@@ -58,6 +58,7 @@ describe('Thesis Defence Core Service', () => {
     vi.clearAllMocks();
     mockPrisma.student.findMany.mockResolvedValue([]);
     mockPrisma.user.findMany.mockResolvedValue([]);
+    docRepo.getDefenceDocumentTypes.mockResolvedValue([]);
   });
 
   describe('Archive Management', () => {
@@ -179,10 +180,10 @@ describe('Thesis Defence Core Service', () => {
 
     describe('getDefenceList', () => {
       it('should return admin list by default', async () => {
-        coreRepo.findDefencesPaginated.mockResolvedValue({ data: [], total: 0 });
+        coreRepo.findAllDefences.mockResolvedValue([]);
         const res = await coreService.getDefenceList({ view: 'verification' });
-        expect(res.defences).toBeDefined();
-        expect(coreRepo.findDefencesPaginated).toHaveBeenCalled();
+        expect(Array.isArray(res)).toBe(true);
+        expect(coreRepo.findAllDefences).toHaveBeenCalled();
       });
 
       it('should return supervisor list when view is supervised_students', async () => {
