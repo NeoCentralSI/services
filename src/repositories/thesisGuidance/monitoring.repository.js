@@ -538,6 +538,65 @@ export async function getStudentsReadyForSeminar(academicYear) {
   });
 }
 
+/**
+ * Get thesis supervisor assignment rows for lecturer workload summary
+ */
+export async function getSupervisorWorkloadRows(academicYear) {
+  const thesisWhere = {
+    isProposal: false,
+    thesisStatus: {
+      name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
+    },
+  };
+
+  if (academicYear) {
+    Object.assign(thesisWhere, await buildAcademicYearFilter(academicYear));
+  }
+
+  return prisma.thesisSupervisors.findMany({
+    where: {
+      role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
+      thesis: thesisWhere,
+    },
+    include: {
+      lecturer: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            },
+          },
+        },
+      },
+      role: true,
+      thesis: {
+        select: {
+          id: true,
+          title: true,
+          student: {
+            include: {
+              user: {
+                select: {
+                  fullName: true,
+                  identityNumber: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { lecturer: { user: { fullName: "asc" } } },
+      { thesis: { student: { user: { fullName: "asc" } } } },
+    ],
+  });
+}
+
 /** * Get all academic years for filter options
  */
 export async function getAllAcademicYears() {

@@ -8,6 +8,7 @@ import {
   getAtRiskStudents,
   getSlowStudents,
   getStudentsReadyForSeminar,
+  getSupervisorWorkloads,
   getThesisDetail,
   sendWarningNotification,
   sendBatchWarnings,
@@ -45,6 +46,9 @@ router.get("/slow", getSlowStudents);
 
 // Students ready for seminar
 router.get("/ready-seminar", getStudentsReadyForSeminar);
+
+// Lecturer supervision workload
+router.get("/supervisor-loads", getSupervisorWorkloads);
 
 // Thesis detail by ID
 router.get("/theses/:thesisId", getThesisDetail);

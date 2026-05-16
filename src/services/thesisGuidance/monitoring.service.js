@@ -72,13 +72,14 @@ function calculateLastActivity(thesis) {
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
+  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, supervisorLoads, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
     monitoringRepository.getRatingDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
     monitoringRepository.getAtRiskStudents(5, academicYear),
     monitoringRepository.getStudentsReadyForSeminar(academicYear),
     monitoringRepository.getSlowStudents(5, academicYear),
+    getSupervisorWorkloads(academicYear),
     monitoringRepository.getTopicDistribution(academicYear),
     monitoringRepository.getBatchDistribution(academicYear),
     monitoringRepository.getProgressDistribution(academicYear),
@@ -100,6 +101,7 @@ export async function getMonitoringDashboard(academicYear) {
     guidanceTrend,
     atRiskStudents,
     slowStudents,
+    supervisorLoads,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({
       thesisId: t.id,
       title: t.title,
@@ -114,6 +116,62 @@ export async function getMonitoringDashboard(academicYear) {
       })),
     })),
   };
+}
+
+/**
+ * Get lecturer supervision workload, grouped by lecturer.
+ */
+export async function getSupervisorWorkloads(academicYear) {
+  const rows = await monitoringRepository.getSupervisorWorkloadRows(academicYear);
+  const lecturerMap = new Map();
+
+  rows.forEach((row) => {
+    const lecturerId = row.lecturerId;
+    if (!lecturerId || !row.lecturer?.user) return;
+
+    if (!lecturerMap.has(lecturerId)) {
+      lecturerMap.set(lecturerId, {
+        lecturerId,
+        lecturerName: row.lecturer.user.fullName,
+        lecturerNip: row.lecturer.user.identityNumber,
+        lecturerEmail: row.lecturer.user.email,
+        studentsByThesis: new Map(),
+      });
+    }
+
+    const lecturer = lecturerMap.get(lecturerId);
+    const thesisId = row.thesis?.id;
+    if (!thesisId || lecturer.studentsByThesis.has(thesisId)) return;
+
+    lecturer.studentsByThesis.set(thesisId, {
+      thesisId,
+      thesisTitle: row.thesis?.title,
+      role: row.role?.name,
+      name: row.thesis?.student?.user?.fullName,
+      nim: row.thesis?.student?.user?.identityNumber,
+      email: row.thesis?.student?.user?.email,
+    });
+  });
+
+  return Array.from(lecturerMap.values())
+    .map((lecturer) => {
+      const students = Array.from(lecturer.studentsByThesis.values())
+        .filter((student) => student.name || student.nim)
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+      return {
+        lecturerId: lecturer.lecturerId,
+        lecturerName: lecturer.lecturerName,
+        lecturerNip: lecturer.lecturerNip,
+        lecturerEmail: lecturer.lecturerEmail,
+        studentCount: students.length,
+        students,
+      };
+    })
+    .sort((a, b) => {
+      if (b.studentCount !== a.studentCount) return b.studentCount - a.studentCount;
+      return (a.lecturerName || "").localeCompare(b.lecturerName || "");
+    });
 }
 
 /**
