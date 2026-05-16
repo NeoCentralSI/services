@@ -722,6 +722,374 @@ const STATUS_LABELS = {
   rejected: "Belum Lulus",
 };
 
+const CPL_REPORT_ALLOWED_STATUSES = ["cpl_validated", "appointed", "finalized"];
+
+const escapeHtml = (value) =>
+  String(value ?? "-")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const formatDateLong = (dateObj) => {
+  if (!dateObj) return "-";
+  return new Date(dateObj).toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+};
+
+const getUnandLogoBase64 = () => {
+  const possibleLogoPaths = [
+    path.resolve(__dirname, "../../assets/unand-logo.png"),
+    path.resolve(__dirname, "../assets/unand-logo.png"),
+    path.resolve(process.cwd(), "src/assets/unand-logo.png"),
+  ];
+
+  for (const p of possibleLogoPaths) {
+    try {
+      if (fs.existsSync(p)) {
+        const logoBuffer = fs.readFileSync(p);
+        return `data:image/png;base64,${logoBuffer.toString("base64")}`;
+      }
+    } catch {
+      // Continue to the next known path.
+    }
+  }
+
+  return "";
+};
+
+const mapCplScoresForReport = (scores) =>
+  scores.map((sc) => {
+    const cpl = sc.cpl || {};
+    const score = sc.score ?? null;
+    const minimalScore = cpl.minimalScore ?? 0;
+    return {
+      code: cpl.code || "-",
+      description: cpl.description || "-",
+      score,
+      minimalScore,
+      status: score !== null && score >= minimalScore ? "Tercapai" : "Belum Tercapai",
+    };
+  });
+
+const buildRadarSvg = (scores) => {
+  const size = 310;
+  const center = size / 2;
+  const radius = 108;
+  const axisCount = Math.max(scores.length, 3);
+  const getPoint = (index, value) => {
+    const angle = (-Math.PI / 2) + (2 * Math.PI * index) / axisCount;
+    const r = radius * Math.max(0, Math.min(100, Number(value) || 0)) / 100;
+    return [center + Math.cos(angle) * r, center + Math.sin(angle) * r];
+  };
+  const polygon = (values) =>
+    values
+      .map((value, index) => getPoint(index, value).map((n) => n.toFixed(1)).join(","))
+      .join(" ");
+  const labelPoint = (index) => {
+    const angle = (-Math.PI / 2) + (2 * Math.PI * index) / axisCount;
+    const r = radius + 20;
+    return [center + Math.cos(angle) * r, center + Math.sin(angle) * r];
+  };
+
+  const rings = [50, 60, 70, 80, 90, 100]
+    .map((value) => {
+      const points = Array.from({ length: axisCount }, (_, index) =>
+        getPoint(index, value).map((n) => n.toFixed(1)).join(",")
+      ).join(" ");
+      return `<polygon points="${points}" fill="none" stroke="#d8dee9" stroke-width="1" />`;
+    })
+    .join("");
+
+  const axes = scores
+    .map((score, index) => {
+      const [x, y] = getPoint(index, 100);
+      const [lx, ly] = labelPoint(index);
+      return `
+        <line x1="${center}" y1="${center}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" />
+        <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#41668f">${escapeHtml(score.code)}</text>
+      `;
+    })
+    .join("");
+
+  const scoreValues = scores.map((score) => score.score ?? 0);
+  const thresholdValues = scores.map((score) => score.minimalScore || 0);
+
+  return `
+    <svg viewBox="0 0 ${size} ${size}" class="radar-chart" xmlns="http://www.w3.org/2000/svg">
+      ${rings}
+      ${axes}
+      <polygon points="${polygon(scoreValues)}" fill="#2f78c4" fill-opacity="0.84" stroke="#2f78c4" stroke-width="2" />
+      <polygon points="${polygon(thresholdValues)}" fill="#df4b43" fill-opacity="0.82" stroke="#df4b43" stroke-width="2" />
+      <rect x="92" y="286" width="8" height="8" fill="#2f78c4" />
+      <text x="104" y="293" font-size="8" fill="#45556c">Nilai CPL</text>
+      <rect x="158" y="286" width="8" height="8" fill="#df4b43" />
+      <text x="170" y="293" font-size="8" fill="#45556c">Threshold</text>
+    </svg>
+  `;
+};
+
+const buildCplReportPdf = async ({ studentName, studentNim, scores }) => {
+  const logoBase64 = getUnandLogoBase64();
+  const mappedScores = mapCplScoresForReport(scores);
+  const rows = mappedScores.length > 0
+    ? mappedScores.map((score) => `
+      <tr>
+        <td class="text-center">${escapeHtml(score.code)}</td>
+        <td>${escapeHtml(score.description)}</td>
+        <td class="text-center">${score.score ?? "-"}</td>
+        <td class="text-center">${escapeHtml(score.status)}</td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="4" class="text-center">Belum ada data nilai CPL</td></tr>`;
+  const today = formatDateLong(new Date());
+  const allPassed = mappedScores.length > 0 && mappedScores.every((score) => score.status === "Tercapai");
+
+  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Formulir Penilaian CPL</title>
+  <style>
+    @page { size: A4; margin: 1.25cm 1.6cm; }
+    body {
+      font-family: 'Times New Roman', Times, serif;
+      font-size: 10.5pt;
+      line-height: 1.22;
+      color: #000;
+      margin: 0;
+    }
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-bottom: 2px solid #000;
+      margin-bottom: 10px;
+    }
+    .logo-cell { width: 78px; vertical-align: middle; padding-bottom: 8px; }
+    .logo-img { width: 70px; height: auto; display: block; }
+    .header-text { text-align: center; vertical-align: middle; padding-right: 78px; }
+    .header-text h3, .header-text h4 {
+      margin: 0;
+      font-size: 10.5pt;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .header-text h2 {
+      margin: 1px 0;
+      font-size: 13pt;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .header-text p { margin: 1px 0; font-size: 8.5pt; }
+    .title {
+      text-align: center;
+      font-size: 12pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      text-decoration: underline;
+      margin: 9px 0 8px;
+    }
+    .section-title {
+      font-weight: bold;
+      text-transform: uppercase;
+      margin-top: 9px;
+      margin-bottom: 4px;
+    }
+    .info-table { border-collapse: collapse; margin-left: 12px; }
+    .info-table td { padding: 1px 0; vertical-align: top; }
+    .info-label { width: 115px; }
+    .info-colon { width: 14px; text-align: center; }
+    .assessment-grid {
+      display: grid;
+      grid-template-columns: 42% minmax(0, 1fr);
+      gap: 8px;
+      align-items: stretch;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .chart-box {
+      border: 1px solid #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+      padding: 2px;
+      box-sizing: border-box;
+      min-width: 0;
+    }
+    .chart-title {
+      text-align: center;
+      font-size: 9.5pt;
+      font-weight: bold;
+      color: #2f5597;
+      line-height: 1.15;
+      margin-bottom: 2px;
+    }
+    .radar-chart { width: 100%; max-width: 315px; height: auto; display: block; }
+    .data-table {
+      width: 100%;
+      max-width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      box-sizing: border-box;
+    }
+    .data-table th, .data-table td {
+      border: 1px solid #000;
+      padding: 3px 4px;
+      font-size: 7.8pt;
+      vertical-align: top;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+    }
+    .data-table th {
+      font-weight: bold;
+      text-align: center;
+      background: #f3f3f3;
+    }
+    .text-center { text-align: center; }
+    .conclusion-list { margin: 2px 0 0 14px; padding: 0; list-style: none; }
+    .signature {
+      width: 255px;
+      margin-left: auto;
+      margin-top: 22px;
+      text-align: left;
+      page-break-inside: avoid;
+    }
+    .signature-space { height: 58px; }
+    .signature-name { font-weight: bold; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td class="logo-cell">
+        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ""}
+      </td>
+      <td class="header-text">
+        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
+        <h4>Universitas Andalas</h4>
+        <h4>Fakultas Teknologi Informasi</h4>
+        <h2>Departemen Sistem Informasi</h2>
+        <p>Kampus Universitas Andalas, Limau Manis, Padang, Kode Pos 25163</p>
+        <p>Email: jurusan_si@fti.unand.ac.id dan website: http://si.fti.unand.ac.id</p>
+      </td>
+    </tr>
+  </table>
+
+  <div class="title">Formulir Penilaian Capaian Pembelajaran Lulusan (CPL)</div>
+
+  <div class="section-title">A. Data Mahasiswa</div>
+  <table class="info-table">
+    <tr><td class="info-label">Nama Lengkap</td><td class="info-colon">:</td><td>${escapeHtml(studentName)}</td></tr>
+    <tr><td class="info-label">NIM</td><td class="info-colon">:</td><td>${escapeHtml(studentNim)}</td></tr>
+  </table>
+
+  <div class="section-title">B. Penilaian Capaian Pembelajaran Lulusan (CPL)</div>
+  <div class="assessment-grid">
+    <div class="chart-box">
+      <div class="chart-title">${escapeHtml(studentName)}<br />${escapeHtml(studentNim)}</div>
+      ${buildRadarSvg(mappedScores)}
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width: 14%;">Kode CPL</th>
+          <th style="width: 54%;">Deskripsi CPL</th>
+          <th style="width: 11%;">Nilai</th>
+          <th style="width: 21%;">Status Capaian</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
+
+  <div class="section-title">C. Kesimpulan Asesmen</div>
+  <ul class="conclusion-list">
+    <li>${allPassed ? "☑" : "☐"} Seluruh CPL telah dicapai sesuai standar minimum kelulusan.</li>
+    <li>${allPassed ? "☐" : "☑"} Ada CPL yang belum tercapai.</li>
+    <li>☐ Perlu tindak lanjut.</li>
+  </ul>
+
+  <div class="signature">
+    <div>Padang, ${escapeHtml(today)}</div>
+    <div>Koordinator Asesmen CPL.</div>
+    <div class="signature-space"></div>
+    <div class="signature-name">Ullya Mega Wahyuni, M.Kom</div>
+    <div>NIP: 199011032019032008</div>
+  </div>
+</body>
+</html>`;
+
+  return await convertHtmlToPdf(html);
+};
+
+const assertCplReportDownloadable = (participant) => {
+  if (!CPL_REPORT_ALLOWED_STATUSES.includes(participant.status)) {
+    throwError("Laporan CPL hanya dapat diunduh setelah validasi CPL selesai", 400);
+  }
+};
+
+export const exportParticipantCplReport = async (participantId, viewer = null) => {
+  const participant = await participantRepo.findStudentByParticipant(participantId);
+  if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
+  assertCanViewParticipant(participant, viewer);
+  assertCplReportDownloadable(participant);
+
+  const student = participant.thesis?.student;
+  if (!student?.id) throwError("Data mahasiswa tidak ditemukan", 404);
+  const scores = await participantRepo.findStudentCplScores(student.id);
+
+  return await buildCplReportPdf({
+    studentName: student.user?.fullName || "-",
+    studentNim: student.user?.identityNumber || "-",
+    scores,
+  });
+};
+
+export const exportCurrentStudentCplReport = async (userId) => {
+  const student = await prisma.student.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      user: { select: { fullName: true, identityNumber: true } },
+      thesis: {
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+        select: { id: true },
+      },
+    },
+  });
+
+  if (!student) throwError("Data mahasiswa tidak ditemukan", 404);
+  const thesisId = student.thesis?.[0]?.id;
+  if (!thesisId) throwError("Data tugas akhir mahasiswa tidak ditemukan", 404);
+
+  const participant = await prisma.yudisiumParticipant.findFirst({
+    where: {
+      thesisId,
+      status: { in: CPL_REPORT_ALLOWED_STATUSES },
+    },
+    orderBy: { registeredAt: "desc" },
+    select: { id: true, status: true },
+  });
+
+  if (!participant) {
+    throwError("Laporan CPL hanya dapat diunduh setelah validasi CPL selesai", 400);
+  }
+
+  const scores = await participantRepo.findStudentCplScores(student.id);
+  return await buildCplReportPdf({
+    studentName: student.user?.fullName || "-",
+    studentNim: student.user?.identityNumber || "-",
+    scores,
+  });
+};
+
 export const exportParticipants = async (yudisiumId, userId) => {
   const yudisium = await prisma.yudisium.findUnique({
     where: { id: yudisiumId },
@@ -757,23 +1125,6 @@ export const exportParticipants = async (yudisiumId, userId) => {
     },
   });
 
-  const escapeHtml = (value) =>
-    String(value ?? "-")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-
-  const formatDateLong = (dateObj) => {
-    if (!dateObj) return "-";
-    return new Date(dateObj).toLocaleDateString("id-ID", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  };
-
   const formatDayDate = (dateObj) => {
     if (!dateObj) return "-";
     return new Date(dateObj).toLocaleDateString("id-ID", {
@@ -794,24 +1145,7 @@ export const exportParticipants = async (yudisiumId, userId) => {
     });
   };
 
-  const possibleLogoPaths = [
-    path.resolve(__dirname, "../../assets/unand-logo.png"),
-    path.resolve(__dirname, "../assets/unand-logo.png"),
-    path.resolve(process.cwd(), "src/assets/unand-logo.png"),
-  ];
-
-  let logoBase64 = "";
-  for (const p of possibleLogoPaths) {
-    try {
-      if (fs.existsSync(p)) {
-        const logoBuffer = fs.readFileSync(p);
-        logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-        break;
-      }
-    } catch {
-      // Continue to the next known path.
-    }
-  }
+  const logoBase64 = getUnandLogoBase64();
 
   const participants = [...(yudisium.participants || [])].sort((a, b) => {
     const nimA = a.thesis?.student?.user?.identityNumber || "";

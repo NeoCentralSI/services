@@ -229,6 +229,17 @@ export const saveCplRepairment = async (req, res, next) => {
   }
 };
 
+export const exportParticipantCplReport = async (req, res, next) => {
+  try {
+    const { participantId } = req.params;
+    const data = await participantService.exportParticipantCplReport(participantId, req.user);
+    res.contentType("application/pdf");
+    res.send(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 
 // ============================================================
@@ -301,6 +312,16 @@ export const uploadStudentDocument = async (req, res, next) => {
   try {
     const data = await studentService.uploadOwnDocument(req.user.id, req.file, req.body.requirementId);
     res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const exportStudentCplReport = async (req, res, next) => {
+  try {
+    const data = await participantService.exportCurrentStudentCplReport(req.user.id);
+    res.contentType("application/pdf");
+    res.send(data);
   } catch (err) {
     next(err);
   }

@@ -42,6 +42,7 @@ router.post(
   uploadYudisiumDocFile,
   ctrl.uploadStudentDocument
 );
+router.get("/me/cpl-report", requireAnyRole([ROLES.MAHASISWA]), ctrl.exportStudentCplReport);
 
 // ============================================================
 // SHARED: Event list & detail
@@ -120,6 +121,11 @@ router.get(
   "/:id/participants/:participantId/cpl-scores",
   requireAnyRole(PARTICIPANT_DETAIL_VIEWER_ROLES),
   ctrl.getParticipantCplScores
+);
+router.get(
+  "/:id/participants/:participantId/cpl-report",
+  requireAnyRole(PARTICIPANT_DETAIL_VIEWER_ROLES),
+  ctrl.exportParticipantCplReport
 );
 router.post(
   "/:id/participants/:participantId/cpl/:cplId/validate",

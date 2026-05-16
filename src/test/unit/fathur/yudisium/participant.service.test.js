@@ -22,6 +22,8 @@ vi.mock("fs/promises", () => ({
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
     yudisium: { findUnique: vi.fn() },
+    yudisiumParticipant: { findFirst: vi.fn() },
+    student: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), findFirst: vi.fn() },
     yudisiumRequirementItem: { count: vi.fn(), findMany: vi.fn() },
   },
@@ -723,6 +725,112 @@ describe("Unit Test: Yudisium Participant Service", () => {
         "Periode yudisium tidak ditemukan"
       );
       expect(convertHtmlToPdf).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("exportParticipantCplReport", () => {
+    const cplScores = [
+      {
+        cplId: "cpl-1",
+        score: 78,
+        status: "validated",
+        cpl: {
+          code: "CPL-01",
+          description: "Mampu mengidentifikasi kebutuhan sistem informasi",
+          minimalScore: 70,
+        },
+      },
+      {
+        cplId: "cpl-2",
+        score: 74,
+        status: "validated",
+        cpl: {
+          code: "CPL-02",
+          description: "Mampu mengembangkan solusi berbasis teknologi informasi",
+          minimalScore: 70,
+        },
+      },
+    ];
+
+    it("generates a backend CPL report PDF with official header and radar chart", async () => {
+      convertHtmlToPdf.mockResolvedValue(Buffer.from("cpl-pdf"));
+      participantRepo.findStudentByParticipant.mockResolvedValue({
+        id: "participant-1",
+        status: "cpl_validated",
+        thesis: {
+          student: {
+            id: "student-1",
+            user: { fullName: "Firhan Hadi Yoza", identityNumber: "1811522016" },
+          },
+        },
+      });
+      participantRepo.findStudentCplScores.mockResolvedValue(cplScores);
+
+      const result = await service.exportParticipantCplReport("participant-1", { roles: ["Admin"] });
+
+      expect(result).toEqual(Buffer.from("cpl-pdf"));
+      expect(convertHtmlToPdf).toHaveBeenCalledTimes(1);
+      const html = convertHtmlToPdf.mock.calls[0][0];
+      expect(html).toContain("Formulir Penilaian Capaian Pembelajaran Lulusan (CPL)");
+      expect(html).toContain("A. Data Mahasiswa");
+      expect(html).toContain("B. Penilaian Capaian Pembelajaran Lulusan (CPL)");
+      expect(html).toContain("C. Kesimpulan Asesmen");
+      expect(html).toContain("<svg");
+      expect(html).toContain("Firhan Hadi Yoza");
+      expect(html).toContain("1811522016");
+      expect(html).toContain("CPL-01");
+      expect(html).toContain("Tercapai");
+      expect(html).toContain("Ullya Mega Wahyuni, M.Kom");
+      expect(html).toContain("NIP: 199011032019032008");
+      expect(html).not.toContain("YD-003");
+      expect(html).not.toContain("D. Tanda Tangan");
+    });
+
+    it("blocks participant CPL report before CPL validation is completed", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue({
+        id: "participant-1",
+        status: "verified",
+        thesis: {
+          student: {
+            id: "student-1",
+            user: { fullName: "Firhan Hadi Yoza", identityNumber: "1811522016" },
+          },
+        },
+      });
+
+      await expect(service.exportParticipantCplReport("participant-1", { roles: ["Admin"] })).rejects.toThrow(
+        "Laporan CPL hanya dapat diunduh setelah validasi CPL selesai"
+      );
+      expect(convertHtmlToPdf).not.toHaveBeenCalled();
+    });
+
+    it("generates the current student's CPL report from their passed participant record", async () => {
+      convertHtmlToPdf.mockResolvedValue(Buffer.from("student-cpl-pdf"));
+      prisma.student.findUnique.mockResolvedValue({
+        id: "student-1",
+        user: { fullName: "Firhan Hadi Yoza", identityNumber: "1811522016" },
+        thesis: [{ id: "thesis-1" }],
+      });
+      prisma.yudisiumParticipant.findFirst.mockResolvedValue({
+        id: "participant-1",
+        status: "finalized",
+      });
+      participantRepo.findStudentCplScores.mockResolvedValue(cplScores);
+
+      const result = await service.exportCurrentStudentCplReport("student-1");
+
+      expect(result).toEqual(Buffer.from("student-cpl-pdf"));
+      expect(prisma.yudisiumParticipant.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            thesisId: "thesis-1",
+            status: { in: ["cpl_validated", "appointed", "finalized"] },
+          }),
+        })
+      );
+      const html = convertHtmlToPdf.mock.calls[0][0];
+      expect(html).toContain("Firhan Hadi Yoza");
+      expect(html).toContain("Koordinator Asesmen CPL");
     });
   });
 });

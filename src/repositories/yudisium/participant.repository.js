@@ -144,7 +144,7 @@ export const findStudentByParticipant = async (participantId) => {
           student: {
             select: {
               id: true,
-              user: { select: { id: true, fullName: true } },
+              user: { select: { id: true, fullName: true, identityNumber: true } },
             },
           },
         },
