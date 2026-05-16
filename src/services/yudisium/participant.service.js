@@ -634,7 +634,6 @@ export const saveCplRepairment = async (
 
   const score = await participantRepo.findStudentCplScore(studentId, cplId);
   if (!score) throwError("Skor CPL mahasiswa tidak ditemukan", 404);
-  if (score.status === "validated") throwError("CPL ini sudah tervalidasi", 400);
 
   const cpl = await participantRepo.findCplById(cplId);
   if (!cpl) throwError("Data CPL tidak ditemukan", 404);
@@ -645,7 +644,13 @@ export const saveCplRepairment = async (
   if (parsedNewScore < cpl.minimalScore) {
     throwError("Skor baru harus memenuhi nilai minimal CPL", 400);
   }
-  if (!recommendationFile || !settlementFile) {
+  if (!recommendationFile && !score.recommendationDocumentId) {
+    throwError("Dokumen rekomendasi CPL wajib diunggah", 400);
+  }
+  if (!settlementFile && !score.settlementDocumentId) {
+    throwError("Dokumen penyelesaian CPL wajib diunggah", 400);
+  }
+  if (!recommendationFile && !settlementFile && score.recommendationDocumentId && score.settlementDocumentId) {
     throwError("Dokumen rekomendasi dan penyelesaian CPL wajib diunggah", 400);
   }
 
@@ -653,8 +658,8 @@ export const saveCplRepairment = async (
   const uploadsRoot = path.join(process.cwd(), "uploads", "yudisium", "cpl-repair", studentId);
   await mkdir(uploadsRoot, { recursive: true });
 
-  let recDocId = null;
-  let setDocId = null;
+  let recDocId = score.recommendationDocumentId ?? null;
+  let setDocId = score.settlementDocumentId ?? null;
 
   if (recommendationFile) {
     const ext = path.extname(recommendationFile.originalname).toLowerCase();

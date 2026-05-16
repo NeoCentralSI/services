@@ -653,6 +653,49 @@ describe("Unit Test: Yudisium Participant Service", () => {
         expect.objectContaining({ title: "CPL Yudisium Tervalidasi" })
       );
     });
+
+    it("allows replacing an existing CPL repair document while the participant is still in CPL validation", async () => {
+      participantRepo.findStudentByParticipant.mockResolvedValue(verifiedParticipant);
+      participantRepo.findStudentCplScore.mockResolvedValue({
+        cplId: "cpl-1",
+        score: 75,
+        status: "validated",
+        oldCplScore: 60,
+        recommendationDocumentId: "old-rec",
+        settlementDocumentId: "old-set",
+      });
+      participantRepo.findCplById.mockResolvedValue({ id: "cpl-1", minimalScore: 70 });
+      participantRepo.createDocument.mockResolvedValueOnce({ id: "new-rec" });
+      participantRepo.saveCplRepairment.mockResolvedValue({});
+      participantRepo.findCplsActive.mockResolvedValue([{ id: "cpl-1" }, { id: "cpl-2" }]);
+      participantRepo.findStudentCplScores.mockResolvedValue([
+        { cplId: "cpl-1", status: "validated" },
+        { cplId: "cpl-2", status: "calculated" },
+      ]);
+
+      const result = await service.saveCplRepairment("participant-1", "cpl-1", {
+        newScore: 78,
+        oldScore: 60,
+        recommendationFile: { originalname: "rekomendasi-baru.pdf", buffer: Buffer.from("pdf") },
+        settlementFile: null,
+        userId: "gkm-1",
+      });
+
+      expect(writeFile).toHaveBeenCalledTimes(1);
+      expect(participantRepo.saveCplRepairment).toHaveBeenCalledWith(
+        "student-1",
+        "cpl-1",
+        expect.objectContaining({
+          score: 78,
+          oldCplScore: 60,
+          recommendationDocumentId: "new-rec",
+          settlementDocumentId: "old-set",
+          verifiedBy: "gkm-1",
+        })
+      );
+      expect(participantRepo.updateStatus).not.toHaveBeenCalled();
+      expect(result).toEqual({ cplId: "cpl-1", status: "validated", allCplValidated: false });
+    });
   });
 
   describe("exportParticipants", () => {

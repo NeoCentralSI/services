@@ -389,13 +389,34 @@ export const validateStudentCplScore = async (studentId, cplId, userId) => {
 };
 
 export const saveCplRepairment = async (studentId, cplId, data) => {
+  const {
+    recommendationDocumentId,
+    settlementDocumentId,
+    verifiedBy,
+    ...scoreData
+  } = data;
+
+  const updateData = {
+    ...scoreData,
+    status: "validated",
+    validatedAt: new Date(),
+  };
+
+  if (recommendationDocumentId) {
+    updateData.recommendationDocument = { connect: { id: recommendationDocumentId } };
+  }
+
+  if (settlementDocumentId) {
+    updateData.settlementDocument = { connect: { id: settlementDocumentId } };
+  }
+
+  if (verifiedBy) {
+    updateData.validator = { connect: { id: verifiedBy } };
+  }
+
   return await prisma.studentCplScore.update({
     where: { studentId_cplId: { studentId, cplId } },
-    data: {
-      ...data,
-      status: "validated",
-      validatedAt: new Date(),
-    },
+    data: updateData,
   });
 };
 
