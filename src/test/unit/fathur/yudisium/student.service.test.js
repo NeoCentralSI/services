@@ -175,6 +175,34 @@ describe("Unit Test: Yudisium Student Service", () => {
       expect(result.allChecklistMet).toBe(false);
     });
 
+    it("requires the student to pass thesis defence before exit survey and document upload are available", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue(makeStudent({
+        thesis: [
+          {
+            id: "thesis-1",
+            title: "Sistem Informasi Yudisium",
+            thesisDefences: [
+              {
+                id: "defence-1",
+                status: "failed",
+                revisionFinalizedAt: null,
+                revisionFinalizedBy: null,
+              },
+            ],
+          },
+        ],
+      }));
+
+      const result = await service.getOverview("student-user-1");
+
+      expect(result.checklist.lulusSidang).toEqual({
+        label: "Lulus Sidang TA",
+        met: false,
+      });
+      expect(result.checklist.exitSurvey.isAvailable).toBe(false);
+      expect(result.allChecklistMet).toBe(false);
+    });
+
     it("keeps exit survey unavailable when the current participant is in a closed period", async () => {
       mockPrisma.yudisiumParticipant.findFirst
         .mockResolvedValueOnce(null)
@@ -394,6 +422,27 @@ describe("Unit Test: Yudisium Student Service", () => {
         { originalname: "dokumen.pdf", buffer: Buffer.from("pdf") },
         "req-1"
       )).rejects.toThrow("Upload dokumen hanya dapat dilakukan setelah exit survey diisi");
+      expect(mockParticipantRepo.createDocument).not.toHaveBeenCalled();
+    });
+
+    it("rejects document upload when the student has not passed thesis defence", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue(makeStudent({
+        thesis: [
+          {
+            id: "thesis-1",
+            title: "Sistem Informasi Yudisium",
+            thesisDefences: [],
+          },
+        ],
+      }));
+      mockPrisma.studentExitSurveyResponse.findFirst.mockResolvedValue({ id: "response-1" });
+
+      await expect(service.uploadOwnDocument(
+        "student-user-1",
+        { originalname: "dokumen.pdf", buffer: Buffer.from("pdf") },
+        "req-1"
+      )).rejects.toThrow("Upload dokumen hanya dapat dilakukan setelah seluruh persyaratan akademik terpenuhi");
+
       expect(mockParticipantRepo.createDocument).not.toHaveBeenCalled();
     });
 

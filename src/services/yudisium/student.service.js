@@ -83,12 +83,14 @@ const isYudisiumRegistrationOpen = (item) => deriveYudisiumStatus(item) === "ope
 
 const hasMetAcademicRequirements = (student, thesis) => {
   const latestDefence = thesis?.thesisDefences?.[0] ?? null;
+  const hasPassedDefence = ["passed", "passed_with_revision"].includes(latestDefence?.status);
   const needsRevision = latestDefence?.status === "passed_with_revision";
   const revisionFinalized =
     !!latestDefence?.revisionFinalizedAt && !!latestDefence?.revisionFinalizedBy;
 
   return (
     (student?.skscompleted ?? 0) >= REQUIRED_SKS &&
+    hasPassedDefence &&
     (!needsRevision || revisionFinalized) &&
     !!student?.mandatoryCoursesCompleted &&
     !!student?.mkwuCompleted &&
@@ -197,6 +199,7 @@ export const getOverview = async (userId) => {
   const { student, currentYudisium, thesis } = await findStudentContext(userId);
 
   const latestDefence = thesis?.thesisDefences?.[0] ?? null;
+  const hasPassedDefence = ["passed", "passed_with_revision"].includes(latestDefence?.status);
   const revisionFinalized =
     !!latestDefence?.revisionFinalizedAt && !!latestDefence?.revisionFinalizedBy;
 
@@ -285,6 +288,10 @@ export const getOverview = async (userId) => {
       current: student.skscompleted ?? 0,
       required: REQUIRED_SKS,
     },
+    lulusSidang: {
+      label: "Lulus Sidang TA",
+      met: hasPassedDefence,
+    },
     ...(needsRevision ? {
       revisiSidang: {
         label: "Menyelesaikan revisi sidang TA",
@@ -319,6 +326,7 @@ export const getOverview = async (userId) => {
 
   const academicChecklistMet = 
     checklist.sks.met && 
+    checklist.lulusSidang.met &&
     (!checklist.revisiSidang || checklist.revisiSidang.met) && 
     checklist.mataKuliahWajib.met && 
     checklist.mataKuliahMkwu.met && 

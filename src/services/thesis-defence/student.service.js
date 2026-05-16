@@ -77,7 +77,7 @@ async function buildOverviewWithoutThesis(student) {
     },
     revisiSeminar: {
       met: false,
-      label: "Penyelesaian Revisi Seminar Hasil",
+      label: "Menyelesaikan Revisi Seminar Hasil",
       seminarStatus: null,
       total: 0,
       finished: 0,
@@ -142,7 +142,7 @@ export async function getOverview(userId) {
     sks: { met: sks >= 142, current: sks, required: 142, label: "Menyelesaikan Minimal 142 SKS" },
     revisiSeminar: {
       met: seminarRevisionMet,
-      label: "Penyelesaian Revisi Seminar Hasil",
+      label: "Menyelesaikan Revisi Seminar Hasil",
       seminarStatus,
       total: seminarRevisionTotal,
       finished: seminarRevisionFinished,
@@ -198,28 +198,28 @@ export async function getOverview(userId) {
     canUpload,
     defence: currentDefence
       ? {
-          id: currentDefence.id,
-          status: computeEffectiveDefenceStatus(
-            currentDefence.status,
-            currentDefence.date,
-            currentDefence.startTime,
-            currentDefence.endTime
-          ),
-          registeredAt: currentDefence.registeredAt,
-          date: currentDefence.date,
-          startTime: currentDefence.startTime,
-          endTime: currentDefence.endTime,
-          meetingLink: currentDefence.meetingLink,
-          finalScore: currentDefence.finalScore,
-          grade: currentDefence.grade,
-          resultFinalizedAt: currentDefence.resultFinalizedAt,
-          cancelledReason: currentDefence.cancelledReason,
-          scheduledAt: currentDefence.scheduledAt,
-          invitationLetterNo: currentDefence.invitationLetterNo,
-          room: currentDefence.room,
-          documents: currentDefence.documents,
-          examiners: enrichedExaminers,
-        }
+        id: currentDefence.id,
+        status: computeEffectiveDefenceStatus(
+          currentDefence.status,
+          currentDefence.date,
+          currentDefence.startTime,
+          currentDefence.endTime
+        ),
+        registeredAt: currentDefence.registeredAt,
+        date: currentDefence.date,
+        startTime: currentDefence.startTime,
+        endTime: currentDefence.endTime,
+        meetingLink: currentDefence.meetingLink,
+        finalScore: currentDefence.finalScore,
+        grade: currentDefence.grade,
+        resultFinalizedAt: currentDefence.resultFinalizedAt,
+        cancelledReason: currentDefence.cancelledReason,
+        scheduledAt: currentDefence.scheduledAt,
+        invitationLetterNo: currentDefence.invitationLetterNo,
+        room: currentDefence.room,
+        documents: currentDefence.documents,
+        examiners: enrichedExaminers,
+      }
       : null,
   };
 }
@@ -271,9 +271,9 @@ export async function getDefenceDetail(userId, defenceId) {
   const docIds = (detail.documents || []).map((doc) => doc.documentId).filter(Boolean);
   const docFiles = docIds.length
     ? await prisma.document.findMany({
-        where: { id: { in: docIds } },
-        select: { id: true, fileName: true, filePath: true },
-      })
+      where: { id: { in: docIds } },
+      select: { id: true, fileName: true, filePath: true },
+    })
     : [];
   const docFileMap = new Map(docFiles.map((doc) => [doc.id, doc]));
 
