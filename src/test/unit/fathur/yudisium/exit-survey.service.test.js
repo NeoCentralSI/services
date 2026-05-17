@@ -3,6 +3,7 @@ import * as service from "../../../../services/yudisium/exit-survey.service.js";
 import * as repo from "../../../../repositories/yudisium/exit-survey.repository.js";
 import * as studentService from "../../../../services/yudisium/student.service.js";
 import prisma from "../../../../config/prisma.js";
+import { convertHtmlToPdf } from "../../../../utils/pdf.util.js";
 
 vi.mock("../../../../repositories/yudisium/exit-survey.repository.js");
 vi.mock("../../../../services/yudisium/student.service.js");
@@ -29,6 +30,9 @@ vi.mock("../../../../config/prisma.js", () => ({
         },
     })),
   },
+}));
+vi.mock("../../../../utils/pdf.util.js", () => ({
+  convertHtmlToPdf: vi.fn(),
 }));
 
 const makeYudisiumContext = (overrides = {}) => ({
@@ -124,7 +128,9 @@ describe("Unit Test: Exit Survey Service", () => {
         _count: { yudisiums: 1 },
       };
       repo.findFormById.mockResolvedValue(mockForm);
-      prisma.studentExitSurveyResponse.count.mockResolvedValue(10);
+      prisma.studentExitSurveyResponse.findMany.mockResolvedValue(
+        Array.from({ length: 10 }, (_, i) => ({ thesisId: `thesis-${i}` }))
+      );
 
       const result = await service.getFormDetail("1");
 
@@ -202,16 +208,157 @@ describe("Unit Test: Exit Survey Service", () => {
       prisma.studentExitSurveyResponse.findMany.mockResolvedValue([
         {
           id: "r1",
+          thesisId: "t1",
           submittedAt: new Date(),
           yudisium: { name: "Yud A" },
           answers: [],
-          thesis: { student: { user: { fullName: "Fathur" }, enrollmentYear: 2020 } }
+          thesis: {
+            student: {
+              enrollmentYear: 2020,
+              gpa: 3.82,
+              graduationPredicate: "Dengan Pujian",
+              user: { fullName: "Fathur", gender: false },
+            },
+          },
         }
       ]);
 
       const result = await service.getFormResponses("f1");
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe("Fathur");
+      expect(result[0].thesisId).toBe("t1");
+      expect(result[0].genderLabel).toBe("Laki-laki");
+      expect(result[0].gpa).toBe(3.82);
+    });
+
+    it("exports PDF report for choice-question responses using backend renderer", async () => {
+      convertHtmlToPdf.mockResolvedValue(Buffer.from("exit-survey-pdf"));
+      repo.findFormById.mockResolvedValue({
+        id: "f1",
+        name: "Exit Survey Alumni",
+        sessions: [
+          {
+            id: "s1",
+            name: "Akademik",
+            order: 1,
+            questions: [
+              {
+                id: "q1",
+                question: "Kesesuaian kurikulum",
+                questionType: "single_choice",
+                orderNumber: 1,
+                options: [
+                  { id: "o1", optionText: "Sangat Sesuai", orderNumber: 1 },
+                  { id: "o2", optionText: "Sesuai", orderNumber: 2 },
+                ],
+              },
+              {
+                id: "q2",
+                question: "Saran",
+                questionType: "paragraph",
+                orderNumber: 2,
+                options: [],
+              },
+            ],
+          },
+        ],
+      });
+      prisma.studentExitSurveyResponse.findMany.mockResolvedValue([
+        {
+          id: "r1",
+          thesisId: "t1",
+          submittedAt: new Date("2026-05-16T00:22:00.000Z"),
+          yudisiumId: "y1",
+          yudisium: { name: "Yudisium Mei 2026" },
+          answers: [
+            {
+              exitSurveyQuestionId: "q1",
+              exitSurveyOptionId: "o1",
+              answerText: null,
+              option: { optionText: "Sangat Sesuai" },
+              question: { question: "Kesesuaian kurikulum" },
+            },
+            {
+              exitSurveyQuestionId: "q2",
+              exitSurveyOptionId: null,
+              answerText: "Bagus",
+              option: null,
+              question: { question: "Saran" },
+            },
+          ],
+          thesis: {
+            student: {
+              enrollmentYear: 2020,
+              gpa: 3.81,
+              user: { fullName: "Fathur", identityNumber: "001", gender: false },
+            },
+          },
+        },
+      ]);
+
+      const result = await service.exportFormResponsesPdf("f1");
+
+      expect(result).toEqual(Buffer.from("exit-survey-pdf"));
+      const html = convertHtmlToPdf.mock.calls[0][0];
+      expect(html).toContain("Laporan Exit Survey");
+      expect(html).toContain("Daftar Isi");
+      expect(html).toContain("Identitas Responden");
+      expect(html).toContain("Kesesuaian kurikulum");
+      expect(html).toContain("Sangat Sesuai");
+      expect(html).not.toContain("Bagus");
+    });
+
+    it("exports Excel report with respondent identity and answers", async () => {
+      repo.findFormById.mockResolvedValue({
+        id: "f1",
+        name: "Exit Survey Alumni",
+        sessions: [
+          {
+            id: "s1",
+            name: "Akademik",
+            order: 1,
+            questions: [
+              {
+                id: "q1",
+                question: "Kesesuaian kurikulum",
+                questionType: "single_choice",
+                orderNumber: 1,
+                options: [{ id: "o1", optionText: "Sangat Sesuai", orderNumber: 1 }],
+              },
+            ],
+          },
+        ],
+      });
+      prisma.studentExitSurveyResponse.findMany.mockResolvedValue([
+        {
+          id: "r1",
+          thesisId: "t1",
+          submittedAt: new Date("2026-05-16T00:22:00.000Z"),
+          yudisiumId: "y1",
+          yudisium: { name: "Yudisium Mei 2026" },
+          answers: [
+            {
+              exitSurveyQuestionId: "q1",
+              exitSurveyOptionId: "o1",
+              answerText: null,
+              option: { optionText: "Sangat Sesuai" },
+              question: { question: "Kesesuaian kurikulum" },
+            },
+          ],
+          thesis: {
+            student: {
+              enrollmentYear: 2020,
+              gpa: 3.81,
+              user: { fullName: "Fathur", identityNumber: "001", gender: false },
+            },
+          },
+        },
+      ]);
+
+      const result = await service.exportFormResponsesExcel("f1");
+
+      expect(Buffer.isBuffer(result)).toBe(true);
+      expect(result.length).toBeGreaterThan(0);
     });
   });
 

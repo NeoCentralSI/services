@@ -420,8 +420,37 @@ export const getExitSurveyFormById = async (req, res, next) => {
 
 export const getExitSurveyResponses = async (req, res, next) => {
   try {
-    const data = await exitSurveyService.getFormResponses(req.params.id);
+    const data = await exitSurveyService.getFormResponses(req.params.id, {
+      yudisiumId: req.query.yudisiumId && req.query.yudisiumId !== "all" ? req.query.yudisiumId : undefined,
+    });
     res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const exportExitSurveyResponsesPdf = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.exportFormResponsesPdf(req.params.id, {
+      yudisiumId: req.query.yudisiumId && req.query.yudisiumId !== "all" ? req.query.yudisiumId : undefined,
+    });
+    res.contentType("application/pdf");
+    res.send(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const exportExitSurveyResponsesExcel = async (req, res, next) => {
+  try {
+    const data = await exitSurveyService.exportFormResponsesExcel(req.params.id, {
+      yudisiumId: req.query.yudisiumId && req.query.yudisiumId !== "all" ? req.query.yudisiumId : undefined,
+    });
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.send(data);
   } catch (err) {
     next(err);
   }

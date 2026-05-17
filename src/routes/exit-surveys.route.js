@@ -31,6 +31,8 @@ router.get("/", ctrl.getAllExitSurveyForms);
 router.post("/", validate(createExitSurveyFormSchema), ctrl.createExitSurveyForm);
 router.get("/:id", ctrl.getExitSurveyFormById);
 router.get("/:id/responses", ctrl.getExitSurveyResponses);
+router.get("/:id/responses/export.pdf", ctrl.exportExitSurveyResponsesPdf);
+router.get("/:id/responses/export.xlsx", ctrl.exportExitSurveyResponsesExcel);
 router.patch("/:id", validate(updateExitSurveyFormSchema), ctrl.updateExitSurveyForm);
 router.delete("/:id", ctrl.removeExitSurveyForm);
 router.post("/:id/duplicate", ctrl.duplicateExitSurveyForm);
