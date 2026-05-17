@@ -6,7 +6,7 @@ import prisma from "../../../../config/prisma.js";
 vi.mock("../../../../repositories/yudisium/yudisium.repository.js");
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
-    document: { create: vi.fn() },
+    document: { create: vi.fn(), findMany: vi.fn() },
     yudisiumParticipant: {
       findMany: vi.fn(),
       update: vi.fn(),
@@ -305,6 +305,106 @@ describe("Unit Test: Yudisium Core Service", () => {
       const result = await service.getAnnouncements();
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe("getRepository", () => {
+    it("returns panels from public requirements and only documents from finalized participants", async () => {
+      prisma.yudisiumRequirement.findMany.mockResolvedValue([
+        { id: "req-public", name: "Laporan Tugas Akhir", isPublic: true },
+        { id: "req-public-2", name: "Poster Tugas Akhir", isPublic: true },
+      ]);
+      prisma.yudisiumRequirementItem.findMany.mockResolvedValue([
+        { id: "item-public", yudisiumRequirementId: "req-public" },
+        { id: "item-public-2", yudisiumRequirementId: "req-public-2" },
+      ]);
+      prisma.yudisiumParticipantRequirement.findMany.mockResolvedValue([
+        {
+          yudisiumParticipantId: "participant-finalized",
+          yudisiumRequirementItemId: "item-public",
+          documentId: "doc-finalized",
+        },
+        {
+          yudisiumParticipantId: "participant-registered",
+          yudisiumRequirementItemId: "item-public",
+          documentId: "doc-registered",
+        },
+      ]);
+      prisma.document.findMany.mockResolvedValue([
+        { id: "doc-finalized", fileName: "Laporan.pdf", filePath: "uploads/laporan.pdf" },
+        { id: "doc-registered", fileName: "Draft.pdf", filePath: "uploads/draft.pdf" },
+      ]);
+      prisma.yudisiumParticipant.findMany.mockResolvedValue([
+        { id: "participant-finalized", thesisId: "thesis-1" },
+      ]);
+      prisma.thesis.findMany.mockResolvedValue([
+        {
+          id: "thesis-1",
+          title: "Sistem Informasi Repositori",
+          studentId: "student-1",
+          thesisTopicId: "topic-1",
+        },
+      ]);
+      prisma.user.findMany.mockResolvedValue([
+        { id: "student-1", fullName: "Ayu Putri", identityNumber: "2211520001" },
+      ]);
+      prisma.thesisTopic.findMany.mockResolvedValue([
+        { id: "topic-1", name: "Data Engineering" },
+      ]);
+
+      const result = await service.getRepository();
+
+      expect(prisma.yudisiumRequirement.findMany).toHaveBeenCalledWith({
+        where: { isPublic: true },
+        orderBy: { name: "asc" },
+      });
+      expect(prisma.yudisiumParticipantRequirement.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: "approved",
+            yudisiumRequirementItemId: { in: ["item-public", "item-public-2"] },
+          },
+        })
+      );
+      expect(prisma.yudisiumParticipant.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: { in: ["participant-finalized", "participant-registered"] },
+            status: "finalized",
+          },
+        })
+      );
+      expect(result).toEqual([
+        {
+          id: "req-public",
+          name: "Laporan Tugas Akhir",
+          documents: [
+            {
+              id: "participant-finalized-item-public",
+              thesisTitle: "Sistem Informasi Repositori",
+              studentName: "Ayu Putri",
+              studentNim: "2211520001",
+              topicName: "Data Engineering",
+              filePath: "uploads/laporan.pdf",
+              fileName: "Laporan.pdf",
+            },
+          ],
+        },
+        {
+          id: "req-public-2",
+          name: "Poster Tugas Akhir",
+          documents: [],
+        },
+      ]);
+    });
+
+    it("returns an empty list when no requirement is public", async () => {
+      prisma.yudisiumRequirement.findMany.mockResolvedValue([]);
+
+      const result = await service.getRepository();
+
+      expect(result).toEqual([]);
+      expect(prisma.yudisiumRequirementItem.findMany).not.toHaveBeenCalled();
     });
   });
 
