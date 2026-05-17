@@ -70,6 +70,20 @@ export const ENV = {
   // Daily thesis reminder cron controls (for active thesis students)
   DAILY_THESIS_REMINDER_CRON: process.env.DAILY_THESIS_REMINDER_CRON || "0 9 * * *", // 09:00 every day
   DAILY_THESIS_REMINDER_TZ: process.env.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
+  // Academic event and yudisium lifecycle reminders
+  ACADEMIC_EVENT_H_MINUS_ONE_CRON: process.env.ACADEMIC_EVENT_H_MINUS_ONE_CRON || "0 18 * * *", // H-1 18:00 WIB
+  ACADEMIC_EVENT_DAY_CRON: process.env.ACADEMIC_EVENT_DAY_CRON || "0 7 * * *", // Hari H 07:00 WIB
+  ACADEMIC_EVENT_REMINDER_TZ: process.env.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta",
+  YUDISIUM_REGISTRATION_CLOSING_REMINDER_CRON:
+    process.env.YUDISIUM_REGISTRATION_CLOSING_REMINDER_CRON || "0 12 * * *", // H-1 close 12:00 WIB
+  YUDISIUM_REGISTRATION_OPEN_REMINDER_CRON:
+    process.env.YUDISIUM_REGISTRATION_OPEN_REMINDER_CRON || "0 6 * * *", // Open date 06:00 WIB
+  YUDISIUM_REGISTRATION_CLOSED_REMINDER_CRON:
+    process.env.YUDISIUM_REGISTRATION_CLOSED_REMINDER_CRON || "0 6 * * *", // Close date 06:00 WIB
+  YUDISIUM_REGISTRATION_REMINDER_TZ: process.env.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta",
+  EXAMINER_NO_RESPONSE_REMINDER_CRON:
+    process.env.EXAMINER_NO_RESPONSE_REMINDER_CRON || "0 8 * * *", // H+3 assignment 08:00 WIB
+  EXAMINER_NO_RESPONSE_REMINDER_TZ: process.env.EXAMINER_NO_RESPONSE_REMINDER_TZ || "Asia/Jakarta",
 
   // ===============================
   // 🎓 SEMINAR THRESHOLDS (Testing)

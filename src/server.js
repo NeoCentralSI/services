@@ -1,7 +1,22 @@
 import app from "./app.js";
 import { ENV } from "./config/env.js";
 import { initConnections } from "./config/db.js";
-import { scheduleDailyThesisStatus, scheduleSiaSync, scheduleGuidanceReminder, scheduleDailyThesisReminder, scheduleAcademicYearSync, scheduleDailyInternshipStatus, scheduleInternshipSeminarReminder, scheduleInternshipLogbookReminder } from "./queues/maintenance.queue.js";
+import {
+  scheduleAcademicEventDayReminder,
+  scheduleAcademicEventHMinusOneReminder,
+  scheduleAcademicYearSync,
+  scheduleDailyInternshipStatus,
+  scheduleDailyThesisReminder,
+  scheduleDailyThesisStatus,
+  scheduleExaminerNoResponseReminder,
+  scheduleGuidanceReminder,
+  scheduleInternshipLogbookReminder,
+  scheduleInternshipSeminarReminder,
+  scheduleSiaSync,
+  scheduleYudisiumRegistrationClosedReminder,
+  scheduleYudisiumRegistrationClosingReminder,
+  scheduleYudisiumRegistrationOpenReminder,
+} from "./queues/maintenance.queue.js";
 // removed password queue worker; using user-initiated account activation instead
 
 const PORT = ENV.PORT || 3000;
@@ -25,6 +40,15 @@ async function startServer() {
     await scheduleInternshipSeminarReminder();
     // Schedule internship logbook reminder (16:00 and 17:00 WIB daily)
     await scheduleInternshipLogbookReminder();
+    // Schedule academic event reminders for seminar, defence, and yudisium
+    await scheduleAcademicEventHMinusOneReminder();
+    await scheduleAcademicEventDayReminder();
+    // Schedule yudisium registration lifecycle reminders
+    await scheduleYudisiumRegistrationClosingReminder();
+    await scheduleYudisiumRegistrationOpenReminder();
+    await scheduleYudisiumRegistrationClosedReminder();
+    // Schedule examiner no-response reminder for Kadep
+    await scheduleExaminerNoResponseReminder();
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running at http://localhost:${PORT}`);
     });

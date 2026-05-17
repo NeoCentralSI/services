@@ -9,6 +9,13 @@ import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
+import {
+  runAcademicEventReminderJob,
+  runExaminerNoResponseReminderJob,
+  runYudisiumRegistrationClosedReminderJob,
+  runYudisiumRegistrationClosingReminderJob,
+  runYudisiumRegistrationOpenReminderJob,
+} from "../jobs/academic-event-notification.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -246,6 +253,67 @@ export async function scheduleInternshipLogbookReminder() {
   console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
 }
 
+async function scheduleRepeatableMaintenanceJob(name, pattern, tz = "Asia/Jakarta") {
+  await maintenanceQueue.add(
+    name,
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: 50,
+      removeOnFail: 100,
+    }
+  );
+  console.log(`🗓️  Scheduled repeatable ${name} job with cron: "${pattern}" tz="${tz}"`);
+}
+
+export async function scheduleAcademicEventHMinusOneReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "academic-event-h-minus-one-reminder",
+    ENV.ACADEMIC_EVENT_H_MINUS_ONE_CRON || "0 18 * * *",
+    ENV.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleAcademicEventDayReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "academic-event-day-reminder",
+    ENV.ACADEMIC_EVENT_DAY_CRON || "0 7 * * *",
+    ENV.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationClosingReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-closing-reminder",
+    ENV.YUDISIUM_REGISTRATION_CLOSING_REMINDER_CRON || "0 12 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationOpenReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-open-reminder",
+    ENV.YUDISIUM_REGISTRATION_OPEN_REMINDER_CRON || "0 6 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationClosedReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-closed-reminder",
+    ENV.YUDISIUM_REGISTRATION_CLOSED_REMINDER_CRON || "0 6 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleExaminerNoResponseReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "examiner-no-response-reminder",
+    ENV.EXAMINER_NO_RESPONSE_REMINDER_CRON || "0 8 * * *",
+    ENV.EXAMINER_NO_RESPONSE_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -275,6 +343,24 @@ export const maintenanceWorker = new Worker(
         break;
       case "internship-logbook-reminder":
         await runInternshipLogbookReminderJob();
+        break;
+      case "academic-event-h-minus-one-reminder":
+        await runAcademicEventReminderJob({ offsetDays: 1, phase: "h_minus_one" });
+        break;
+      case "academic-event-day-reminder":
+        await runAcademicEventReminderJob({ offsetDays: 0, phase: "event_day" });
+        break;
+      case "yudisium-registration-closing-reminder":
+        await runYudisiumRegistrationClosingReminderJob();
+        break;
+      case "yudisium-registration-open-reminder":
+        await runYudisiumRegistrationOpenReminderJob();
+        break;
+      case "yudisium-registration-closed-reminder":
+        await runYudisiumRegistrationClosedReminderJob();
+        break;
+      case "examiner-no-response-reminder":
+        await runExaminerNoResponseReminderJob();
         break;
       default:
         // no-op
