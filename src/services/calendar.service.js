@@ -117,6 +117,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
         where: {
           thesis: { studentId: user.student.id },
           date: { not: null },
+          registeredAt: { not: null },
           ...(startDate && endDate && {
             date: {
               gte: new Date(startDate),
@@ -153,6 +154,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
         where: {
           thesis: { studentId: user.student.id },
           date: { not: null },
+          registeredAt: { not: null },
           ...(startDate && endDate && {
             date: {
               gte: new Date(startDate),
@@ -285,6 +287,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
             { examiners: { some: { lecturerId: user.lecturer.id } } }
           ],
           date: { not: null },
+          registeredAt: { not: null },
           ...(startDate && endDate && {
             date: {
               gte: new Date(startDate),
@@ -329,6 +332,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
             { examiners: { some: { lecturerId: user.lecturer.id } } }
           ],
           date: { not: null },
+          registeredAt: { not: null },
           ...(startDate && endDate && {
             date: {
               gte: new Date(startDate),
