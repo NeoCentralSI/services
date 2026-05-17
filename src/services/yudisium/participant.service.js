@@ -45,7 +45,7 @@ const PARTICIPANT_STATUS_PRIORITY = {
   cpl_validated: 2,
   appointed: 3,
   finalized: 4,
-  rejected: 99,
+  rejected: 5,
 };
 
 const deriveYudisiumStatus = (item) => {
@@ -258,7 +258,8 @@ export const getParticipants = async (yudisiumId) => {
     if (pa !== pb) return pa - pb;
     const dateA = a.registeredAt ? new Date(a.registeredAt).getTime() : 0;
     const dateB = b.registeredAt ? new Date(b.registeredAt).getTime() : 0;
-    return dateA - dateB;
+    if (dateA !== dateB) return dateA - dateB;
+    return a.studentName.localeCompare(b.studentName);
   });
 
   return {

@@ -238,6 +238,7 @@ export const getAnnouncements = async () => {
           studentNim: p.thesis?.student?.user?.identityNumber || "-",
           thesisTitle: p.thesis?.title || "-",
           status: p.status,
+          registeredAt: p.registeredAt,
         })),
       };
     })
