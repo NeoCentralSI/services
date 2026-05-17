@@ -805,6 +805,7 @@ const STATUS_LABELS = {
 };
 
 const CPL_REPORT_ALLOWED_STATUSES = ["cpl_validated", "appointed", "finalized"];
+const CERTIFICATE_ALLOWED_STATUSES = ["appointed", "finalized"];
 
 const escapeHtml = (value) =>
   String(value ?? "-")
@@ -822,6 +823,33 @@ const formatDateLong = (dateObj) => {
     year: "numeric",
   });
 };
+
+const formatGpa = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return numeric.toFixed(2);
+};
+
+const formatStudyDuration = (enrollmentYear, endDate) => {
+  const year = Number(enrollmentYear);
+  if (!Number.isInteger(year) || !endDate) return "-";
+
+  const start = new Date(year, 7, 1);
+  const end = new Date(endDate);
+  if (Number.isNaN(end.getTime()) || end < start) return "-";
+
+  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  if (end.getDate() >= start.getDate()) months += 1;
+  months = Math.max(months, 1);
+
+  const years = Math.floor(months / 12);
+  const remainingMonths = months % 12;
+  if (years <= 0) return `${remainingMonths} Bulan`;
+  if (remainingMonths <= 0) return `${years} Tahun`;
+  return `${years} Tahun ${remainingMonths} Bulan`;
+};
+
+const padCertificateNumber = (value) => String(Math.max(1, Number(value) || 1)).padStart(2, "0");
 
 const getUnandLogoBase64 = () => {
   const possibleLogoPaths = [
@@ -1112,9 +1140,306 @@ const buildCplReportPdf = async ({ studentName, studentNim, scores }) => {
   return await convertHtmlToPdf(html);
 };
 
+const getDepartmentHead = async () => {
+  return await prisma.user.findFirst({
+    where: {
+      userHasRoles: {
+        some: {
+          status: "active",
+          role: { name: ROLES.KETUA_DEPARTEMEN },
+        },
+      },
+    },
+    select: { fullName: true, identityNumber: true },
+  });
+};
+
+const getCertificatePeriodCode = async (yudisium) => {
+  const eventDate = yudisium?.eventDate ? new Date(yudisium.eventDate) : null;
+  const year = eventDate && !Number.isNaN(eventDate.getTime())
+    ? eventDate.getFullYear()
+    : new Date().getFullYear();
+  const startOfYear = new Date(year, 0, 1);
+  const startOfNextYear = new Date(year + 1, 0, 1);
+  const periods = await prisma.yudisium.findMany({
+    where: {
+      eventDate: {
+        gte: startOfYear,
+        lt: startOfNextYear,
+      },
+    },
+    orderBy: [{ eventDate: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+  });
+  const index = periods.findIndex((period) => period.id === yudisium?.id);
+  return `YD.${padCertificateNumber(index >= 0 ? index + 1 : periods.length + 1)}/${year}`;
+};
+
+const getCertificateParticipantNumber = async (participant) => {
+  const participants = await prisma.yudisiumParticipant.findMany({
+    where: {
+      yudisiumId: participant.yudisiumId,
+      status: { in: CERTIFICATE_ALLOWED_STATUSES },
+    },
+    orderBy: [{ registeredAt: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+  });
+  const index = participants.findIndex((item) => item.id === participant.id);
+  return padCertificateNumber(index >= 0 ? index + 1 : participants.length + 1);
+};
+
+const buildLearningCertificatePdf = async ({
+  participant,
+  scores,
+  departmentHead,
+  certificateNumber,
+}) => {
+  const logoBase64 = getUnandLogoBase64();
+  const student = participant.thesis?.student || {};
+  const user = student.user || {};
+  const yudisium = participant.yudisium || {};
+  const thesis = participant.thesis || {};
+  const mappedScores = mapCplScoresForReport(scores);
+  const signatureDate = yudisium.appointedAt || yudisium.eventDate || new Date();
+  const studentName = user.fullName || "-";
+  const studentNim = user.identityNumber || "-";
+  const rows = mappedScores.length > 0
+    ? mappedScores.map((score, index) => `
+      <tr>
+        <td class="text-center">${index + 1}</td>
+        <td class="text-center">${escapeHtml(score.code)}</td>
+        <td>${escapeHtml(score.description)}</td>
+        <td class="text-center score-cell">${score.score ?? "-"}</td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="4" class="text-center">Belum ada data nilai CPL</td></tr>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Surat Keterangan Capaian Pembelajaran</title>
+  <style>
+    @page { size: A4; margin: 1.05cm 1.2cm; }
+    body {
+      font-family: 'Times New Roman', Times, serif;
+      font-size: 10pt;
+      line-height: 1.28;
+      color: #001b3d;
+      margin: 0;
+    }
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-bottom: 2px solid #000;
+      margin-bottom: 12px;
+    }
+    .logo-cell { width: 88px; vertical-align: middle; padding-bottom: 7px; }
+    .logo-img { width: 78px; height: auto; display: block; }
+    .header-text { text-align: center; vertical-align: middle; padding-right: 88px; color: #000; }
+    .header-text h3, .header-text h4 {
+      margin: 0;
+      font-size: 11pt;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .header-text h2 {
+      margin: 2px 0 1px;
+      font-size: 15pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      color: #003c73;
+    }
+    .header-text p { margin: 1px 0; font-size: 8.7pt; }
+    .title {
+      text-align: center;
+      color: #000;
+      font-weight: bold;
+      text-transform: uppercase;
+      text-decoration: underline;
+      font-size: 13pt;
+      margin: 8px 0 0;
+    }
+    .number {
+      text-align: center;
+      color: #000;
+      font-size: 10.5pt;
+      margin-bottom: 16px;
+    }
+    .content-grid {
+      display: grid;
+      grid-template-columns: 30% minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .identity {
+      border-right: 1.5px solid #2f78c4;
+      padding-right: 16px;
+      min-height: 590px;
+    }
+    .identity p { margin: 0 0 11px; }
+    .student-name {
+      color: #003c73;
+      font-size: 13pt;
+      font-weight: bold;
+      text-decoration: underline;
+      text-transform: uppercase;
+      margin-top: 10px;
+    }
+    .student-nim {
+      font-weight: bold;
+      color: #003c73;
+      margin-bottom: 18px;
+    }
+    .study-program {
+      color: #003c73;
+      font-weight: bold;
+      text-transform: uppercase;
+      line-height: 1.25;
+      margin: 13px 0;
+    }
+    .metric-list { margin: 10px 0 18px; color: #000; }
+    .metric-list div { margin: 2px 0; }
+    .thesis-title {
+      color: #003c73;
+      font-weight: bold;
+      text-transform: uppercase;
+      line-height: 1.35;
+      margin-top: 7px;
+    }
+    .statement { color: #000; text-align: justify; margin-bottom: 10px; }
+    .data-table {
+      width: calc(100% - 1px);
+      border-collapse: collapse;
+      table-layout: fixed;
+      color: #000;
+      box-sizing: border-box;
+      margin-right: 1px;
+    }
+    .data-table th, .data-table td {
+      border: 1px solid #0a4f86;
+      padding: 5px 6px;
+      vertical-align: top;
+      font-size: 8.4pt;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+    }
+    .data-table th {
+      text-align: center;
+      font-weight: bold;
+      background: #f6fbff;
+    }
+    .text-center { text-align: center; }
+    .score-cell {
+      color: #003c73;
+      font-size: 15pt !important;
+      font-weight: bold;
+      vertical-align: middle !important;
+    }
+    .signature {
+      width: 270px;
+      margin-left: auto;
+      margin-top: 20px;
+      text-align: right;
+      color: #000;
+      page-break-inside: avoid;
+    }
+    .signature-space { height: 66px; }
+    .signature-name {
+      color: #003c73;
+      font-weight: bold;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td class="logo-cell">
+        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ""}
+      </td>
+      <td class="header-text">
+        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
+        <h4>Universitas Andalas</h4>
+        <h4>Fakultas Teknologi Informasi</h4>
+        <h2>Departemen Sistem Informasi</h2>
+        <p>Kampus Universitas Andalas, Limau Manis, Padang, Kode Pos 25163</p>
+        <p>Website: http://si.fti.unand.ac.id dan email: jurusan_si@fti.unand.ac.id</p>
+      </td>
+    </tr>
+  </table>
+
+  <div class="title">Surat Keterangan Capaian Pembelajaran</div>
+  <div class="number">No: ${escapeHtml(certificateNumber)}</div>
+
+  <div class="content-grid">
+    <aside class="identity">
+      <p>Menyatakan, bahwa</p>
+      <div class="student-name">${escapeHtml(studentName)}</div>
+      <div class="student-nim">NIM: ${escapeHtml(studentNim)}</div>
+
+      <p>telah menyelesaikan studi di:</p>
+      <div class="study-program">
+        Program Studi Sistem Informasi<br />
+        Fakultas Teknologi Informasi<br />
+        Universitas Andalas
+      </div>
+
+      <p>dengan capaian:</p>
+      <div class="metric-list">
+        <div>IPK: <strong>${escapeHtml(formatGpa(student.gpa))}</strong></div>
+        <div>Total SKS Lulus: <strong>${escapeHtml(student.skscompleted ?? "-")} SKS</strong></div>
+        <div>Lama Studi: <strong>${escapeHtml(formatStudyDuration(student.enrollmentYear, signatureDate))}</strong></div>
+        <div>Predikat: <strong>${escapeHtml(student.graduationPredicate || "-")}</strong></div>
+      </div>
+
+      <p>Gelar Lulusan: <strong>S. Kom</strong></p>
+      <p>Judul Tugas Akhir:</p>
+      <div class="thesis-title">${escapeHtml(thesis.title || "-")}</div>
+    </aside>
+
+    <main>
+      <p class="statement">
+        Berdasarkan hasil evaluasi pembelajaran, mahasiswa yang bersangkutan telah mencapai
+        Capaian Pembelajaran Lulusan (CPL) dengan rincian sebagai berikut:
+      </p>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 9%;">No.</th>
+            <th style="width: 15%;">Kode CPL</th>
+            <th>Deskripsi Capaian Pembelajaran</th>
+            <th style="width: 13%;">Nilai</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <div class="signature">
+        <div>Padang, ${escapeHtml(formatDateLong(signatureDate))}</div>
+        <div>Ketua Departemen Sistem Informasi</div>
+        <div>Fakultas Teknologi Informasi - Universitas Andalas</div>
+        <div class="signature-space"></div>
+        <div class="signature-name">${escapeHtml(departmentHead?.fullName || "-")}</div>
+        <div>NIP. ${escapeHtml(departmentHead?.identityNumber || "-")}</div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>`;
+
+  return await convertHtmlToPdf(html);
+};
+
 const assertCplReportDownloadable = (participant) => {
   if (!CPL_REPORT_ALLOWED_STATUSES.includes(participant.status)) {
     throwError("Laporan CPL hanya dapat diunduh setelah validasi CPL selesai", 400);
+  }
+};
+
+const assertCertificateDownloadable = (participant) => {
+  if (!CERTIFICATE_ALLOWED_STATUSES.includes(participant.status)) {
+    throwError("Sertifikat hanya dapat diunduh setelah peserta yudisium ditetapkan", 400);
   }
 };
 
@@ -1171,6 +1496,64 @@ export const exportCurrentStudentCplReport = async (userId) => {
     studentName: student.user?.fullName || "-",
     studentNim: student.user?.identityNumber || "-",
     scores,
+  });
+};
+
+export const exportCurrentStudentCertificate = async (userId) => {
+  const student = await prisma.student.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      thesis: {
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+        select: { id: true },
+      },
+    },
+  });
+
+  if (!student) throwError("Data mahasiswa tidak ditemukan", 404);
+  const thesisId = student.thesis?.[0]?.id;
+  if (!thesisId) throwError("Data tugas akhir mahasiswa tidak ditemukan", 404);
+
+  const participant = await prisma.yudisiumParticipant.findFirst({
+    where: {
+      thesisId,
+      status: { in: CERTIFICATE_ALLOWED_STATUSES },
+    },
+    orderBy: [{ registeredAt: "desc" }, { createdAt: "desc" }],
+    include: {
+      yudisium: true,
+      thesis: {
+        include: {
+          student: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!participant) {
+    throwError("Sertifikat hanya dapat diunduh setelah peserta yudisium ditetapkan", 400);
+  }
+
+  assertCertificateDownloadable(participant);
+
+  const [scores, departmentHead, participantNumber, periodCode] = await Promise.all([
+    participantRepo.findStudentCplScores(student.id),
+    getDepartmentHead(),
+    getCertificateParticipantNumber(participant),
+    getCertificatePeriodCode(participant.yudisium),
+  ]);
+
+  return await buildLearningCertificatePdf({
+    participant,
+    scores,
+    departmentHead,
+    certificateNumber: `${participantNumber}/UN.16.15.3.2/${periodCode}`,
   });
 };
 

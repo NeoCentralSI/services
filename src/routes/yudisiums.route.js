@@ -43,6 +43,7 @@ router.post(
   ctrl.uploadStudentDocument
 );
 router.get("/me/cpl-report", requireAnyRole([ROLES.MAHASISWA]), ctrl.exportStudentCplReport);
+router.get("/me/certificate", requireAnyRole([ROLES.MAHASISWA]), ctrl.exportStudentCertificate);
 
 // ============================================================
 // SHARED: Event list & detail

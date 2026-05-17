@@ -22,8 +22,8 @@ vi.mock("fs/promises", () => ({
 }));
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
-    yudisium: { findUnique: vi.fn() },
-    yudisiumParticipant: { findFirst: vi.fn() },
+    yudisium: { findUnique: vi.fn(), findMany: vi.fn() },
+    yudisiumParticipant: { findFirst: vi.fn(), findMany: vi.fn() },
     student: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), findFirst: vi.fn() },
     yudisiumRequirementItem: { count: vi.fn(), findMany: vi.fn() },
@@ -879,6 +879,101 @@ describe("Unit Test: Yudisium Participant Service", () => {
       const html = convertHtmlToPdf.mock.calls[0][0];
       expect(html).toContain("Firhan Hadi Yoza");
       expect(html).toContain("Koordinator Asesmen CPL");
+    });
+
+    it("generates the current student's official learning achievement certificate", async () => {
+      const eventDate = new Date("2025-09-03T02:00:00.000Z");
+      convertHtmlToPdf.mockResolvedValue(Buffer.from("certificate-pdf"));
+      prisma.student.findUnique.mockResolvedValue({
+        id: "student-1",
+        thesis: [{ id: "thesis-1" }],
+      });
+      prisma.yudisiumParticipant.findFirst.mockResolvedValue({
+        id: "participant-2",
+        thesisId: "thesis-1",
+        yudisiumId: "yudisium-3",
+        registeredAt: new Date("2025-08-12T03:00:00.000Z"),
+        createdAt: new Date("2025-08-12T03:00:00.000Z"),
+        status: "appointed",
+        yudisium: {
+          id: "yudisium-3",
+          name: "Yudisium September 2025",
+          eventDate,
+          appointedAt: eventDate,
+        },
+        thesis: {
+          title: "Penerapan Business Intelligence Berbasis Dashboard",
+          student: {
+            id: "student-1",
+            enrollmentYear: 2021,
+            skscompleted: 147,
+            gpa: 3.382,
+            graduationPredicate: "Sangat Memuaskan",
+            user: { fullName: "Firhan Hadi Yoza", identityNumber: "1811522016" },
+          },
+        },
+      });
+      prisma.yudisiumParticipant.findMany.mockResolvedValue([
+        { id: "participant-1" },
+        { id: "participant-2" },
+      ]);
+      prisma.yudisium.findMany.mockResolvedValue([
+        { id: "yudisium-1" },
+        { id: "yudisium-2" },
+        { id: "yudisium-3" },
+      ]);
+      prisma.user.findFirst.mockResolvedValue({
+        fullName: "Ricky Akbar, M.Kom",
+        identityNumber: "198410062012121001",
+      });
+      participantRepo.findStudentCplScores.mockResolvedValue(cplScores);
+
+      const result = await service.exportCurrentStudentCertificate("student-1");
+
+      expect(result).toEqual(Buffer.from("certificate-pdf"));
+      expect(prisma.yudisiumParticipant.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            thesisId: "thesis-1",
+            status: { in: ["appointed", "finalized"] },
+          },
+        })
+      );
+      expect(prisma.yudisium.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            eventDate: {
+              gte: new Date(2025, 0, 1),
+              lt: new Date(2026, 0, 1),
+            },
+          },
+        })
+      );
+      const html = convertHtmlToPdf.mock.calls[0][0];
+      expect(html).toContain("Surat Keterangan Capaian Pembelajaran");
+      expect(html).toContain("No: 02/UN.16.15.3.2/YD.03/2025");
+      expect(html).toContain("Firhan Hadi Yoza");
+      expect(html).toContain("1811522016");
+      expect(html).toContain("IPK: <strong>3.38</strong>");
+      expect(html).toContain("Total SKS Lulus: <strong>147 SKS</strong>");
+      expect(html).toContain("Predikat: <strong>Sangat Memuaskan</strong>");
+      expect(html).toContain("Penerapan Business Intelligence Berbasis Dashboard");
+      expect(html).toContain("Ketua Departemen Sistem Informasi");
+      expect(html).toContain("Ricky Akbar, M.Kom");
+      expect(html).toContain("NIP. 198410062012121001");
+    });
+
+    it("blocks the current student's certificate before participant appointment", async () => {
+      prisma.student.findUnique.mockResolvedValue({
+        id: "student-1",
+        thesis: [{ id: "thesis-1" }],
+      });
+      prisma.yudisiumParticipant.findFirst.mockResolvedValue(null);
+
+      await expect(service.exportCurrentStudentCertificate("student-1")).rejects.toThrow(
+        "Sertifikat hanya dapat diunduh setelah peserta yudisium ditetapkan"
+      );
+      expect(convertHtmlToPdf).not.toHaveBeenCalled();
     });
   });
 

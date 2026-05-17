@@ -240,6 +240,16 @@ export const exportParticipantCplReport = async (req, res, next) => {
   }
 };
 
+export const exportStudentCertificate = async (req, res, next) => {
+  try {
+    const data = await participantService.exportCurrentStudentCertificate(req.user.id);
+    res.contentType("application/pdf");
+    res.send(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 
 // ============================================================
