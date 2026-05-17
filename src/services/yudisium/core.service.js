@@ -45,6 +45,7 @@ const formatYudisium = (item) => ({
   registrationOpenDate: item.registrationOpenDate,
   registrationCloseDate: item.registrationCloseDate,
   eventDate: item.eventDate,
+  appointedAt: item.appointedAt,
   notes: item.notes,
   status: deriveDisplayStatus(item),
   decreeDocument: item.document
@@ -64,7 +65,7 @@ const formatYudisium = (item) => ({
   participantCount: item._count?.participants ?? 0,
   responseCount: item._count?.studentExitSurveyResponses ?? 0,
   hasRegisteredParticipants: (item.participants?.length ?? 0) > 0,
-  canDelete: (item._count?.participants ?? 0) === 0,
+  canDelete: isArchiveYudisium(item) || (item._count?.participants ?? 0) === 0,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
 });
@@ -141,6 +142,44 @@ const assertRegistrationDatesNotInPast = (registrationOpenDate, registrationClos
 
   if (registrationCloseDate && new Date(registrationCloseDate) < today) {
     throwError("Tanggal penutupan pendaftaran tidak boleh sebelum hari ini", 422);
+  }
+};
+
+const assertUniqueYudisiumPeriod = async ({
+  name,
+  registrationOpenDate,
+  registrationCloseDate,
+  eventDate,
+  roomId,
+  excludeId = null,
+  checkName = true,
+  checkRegistrationPeriod = true,
+  checkEventSchedule = true,
+}) => {
+  const normalizedName = name?.trim();
+  if (checkName && normalizedName) {
+    const duplicateName = await repository.findDuplicateName(normalizedName, excludeId);
+    if (duplicateName) {
+      throwError("Nama periode yudisium sudah digunakan", 409);
+    }
+  }
+
+  if (checkRegistrationPeriod && registrationOpenDate && registrationCloseDate) {
+    const overlappingPeriod = await repository.findOverlappingActivePeriod(
+      registrationOpenDate,
+      registrationCloseDate,
+      excludeId
+    );
+    if (overlappingPeriod) {
+      throwError("Rentang pendaftaran yudisium bertabrakan dengan periode lain", 409);
+    }
+  }
+
+  if (checkEventSchedule && eventDate && roomId) {
+    const duplicateSchedule = await repository.findDuplicateEventSchedule(eventDate, roomId, excludeId);
+    if (duplicateSchedule) {
+      throwError("Ruangan sudah digunakan untuk yudisium lain pada tanggal pelaksanaan tersebut", 409);
+    }
   }
 };
 
@@ -409,6 +448,10 @@ export const getRoomOptions = async () => {
 
 export const createYudisium = async (data) => {
   const { requirementIds = [], decreeFile, userId, ...rest } = data;
+  if (decreeFile) {
+    throwError("SK yudisium hanya dapat diunggah setelah peserta ditetapkan", 422);
+  }
+
   const registrationOpenDate = rest.registrationOpenDate ? new Date(rest.registrationOpenDate) : null;
   const registrationCloseDate = rest.registrationCloseDate ? new Date(rest.registrationCloseDate) : null;
   const eventDate = rest.eventDate ? new Date(rest.eventDate) : null;
@@ -422,13 +465,22 @@ export const createYudisium = async (data) => {
     requirementIds,
   });
   assertRegistrationDatesNotInPast(registrationOpenDate, registrationCloseDate);
+  await assertUniqueYudisiumPeriod({
+    name: rest.name,
+    registrationOpenDate,
+    registrationCloseDate,
+    eventDate,
+    roomId: rest.roomId || null,
+  });
 
   // 1. Create Yudisium first to get the ID
+  const isArchive = !registrationOpenDate && !registrationCloseDate;
   const created = await repository.create({
     name: rest.name.trim(),
     eventDate,
     registrationOpenDate,
     registrationCloseDate,
+    appointedAt: isArchive ? eventDate : null,
     notes: rest.notes || null,
     exitSurveyFormId: rest.exitSurveyFormId || null,
     roomId: rest.roomId || null,
@@ -489,6 +541,27 @@ export const updateYudisium = async (id, data) => {
   const started = isRegistrationStarted(existing);
   const registrationLocked = isActiveYudisium(existing) && (started || hasRegParticipants);
   const fullyLocked = isActiveYudisium(existing) && isFinalizedOrAppointed(existing);
+  const completedLocked = isActiveYudisium(existing) && deriveDisplayStatus(existing) === "completed";
+
+  if (decreeFile && !existing.appointedAt) {
+    throwError("SK yudisium hanya dapat diunggah setelah peserta ditetapkan", 422);
+  }
+
+  if (completedLocked) {
+    const blockedCompletedFields = [
+      "name",
+      "registrationOpenDate",
+      "registrationCloseDate",
+      "eventDate",
+      "roomId",
+      "exitSurveyFormId",
+      "notes",
+    ].filter((field) => rest[field] !== undefined);
+
+    if (blockedCompletedFields.length > 0 || requirementIds !== undefined) {
+      throwError("Data yudisium aktif yang sudah selesai tidak dapat diubah", 409);
+    }
+  }
 
   const requestedOpenDate =
     rest.registrationOpenDate !== undefined
@@ -639,6 +712,7 @@ export const updateYudisium = async (id, data) => {
   const finalRoomId = updateData.roomId !== undefined ? updateData.roomId : existing.roomId;
   const finalExitSurveyFormId =
     updateData.exitSurveyFormId !== undefined ? updateData.exitSurveyFormId : existing.exitSurveyFormId;
+  const finalName = updateData.name !== undefined ? updateData.name : existing.name;
 
   assertValidYudisiumState({
     registrationOpenDate: finalOpenDate,
@@ -647,6 +721,18 @@ export const updateYudisium = async (id, data) => {
     roomId: finalRoomId,
     exitSurveyFormId: finalExitSurveyFormId,
     requirementIds: finalRequirementIds,
+  });
+  await assertUniqueYudisiumPeriod({
+    name: finalName,
+    registrationOpenDate: finalOpenDate,
+    registrationCloseDate: finalCloseDate,
+    eventDate: finalEventDate,
+    roomId: finalRoomId,
+    excludeId: id,
+    checkName: updateData.name !== undefined,
+    checkRegistrationPeriod:
+      updateData.registrationOpenDate !== undefined || updateData.registrationCloseDate !== undefined,
+    checkEventSchedule: updateData.eventDate !== undefined || updateData.roomId !== undefined,
   });
 
   // === decreeFile — upload new SK ===

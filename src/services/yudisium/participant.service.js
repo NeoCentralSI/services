@@ -859,14 +859,16 @@ const mapCplScoresForReport = (scores) =>
   });
 
 const buildRadarSvg = (scores) => {
-  const size = 310;
-  const center = size / 2;
-  const radius = 108;
+  const width = 310;
+  const height = 338;
+  const centerX = width / 2;
+  const centerY = 142;
+  const radius = 102;
   const axisCount = Math.max(scores.length, 3);
   const getPoint = (index, value) => {
     const angle = (-Math.PI / 2) + (2 * Math.PI * index) / axisCount;
     const r = radius * Math.max(0, Math.min(100, Number(value) || 0)) / 100;
-    return [center + Math.cos(angle) * r, center + Math.sin(angle) * r];
+    return [centerX + Math.cos(angle) * r, centerY + Math.sin(angle) * r];
   };
   const polygon = (values) =>
     values
@@ -875,7 +877,7 @@ const buildRadarSvg = (scores) => {
   const labelPoint = (index) => {
     const angle = (-Math.PI / 2) + (2 * Math.PI * index) / axisCount;
     const r = radius + 20;
-    return [center + Math.cos(angle) * r, center + Math.sin(angle) * r];
+    return [centerX + Math.cos(angle) * r, centerY + Math.sin(angle) * r];
   };
 
   const rings = [50, 60, 70, 80, 90, 100]
@@ -892,7 +894,7 @@ const buildRadarSvg = (scores) => {
       const [x, y] = getPoint(index, 100);
       const [lx, ly] = labelPoint(index);
       return `
-        <line x1="${center}" y1="${center}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" />
+        <line x1="${centerX}" y1="${centerY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" />
         <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#41668f">${escapeHtml(score.code)}</text>
       `;
     })
@@ -902,15 +904,15 @@ const buildRadarSvg = (scores) => {
   const thresholdValues = scores.map((score) => score.minimalScore || 0);
 
   return `
-    <svg viewBox="0 0 ${size} ${size}" class="radar-chart" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 ${width} ${height}" class="radar-chart" xmlns="http://www.w3.org/2000/svg">
       ${rings}
       ${axes}
       <polygon points="${polygon(scoreValues)}" fill="#2f78c4" fill-opacity="0.84" stroke="#2f78c4" stroke-width="2" />
       <polygon points="${polygon(thresholdValues)}" fill="#df4b43" fill-opacity="0.82" stroke="#df4b43" stroke-width="2" />
-      <rect x="92" y="286" width="8" height="8" fill="#2f78c4" />
-      <text x="104" y="293" font-size="8" fill="#45556c">Nilai CPL</text>
-      <rect x="158" y="286" width="8" height="8" fill="#df4b43" />
-      <text x="170" y="293" font-size="8" fill="#45556c">Threshold</text>
+      <rect x="92" y="314" width="8" height="8" fill="#2f78c4" />
+      <text x="104" y="321" font-size="8" fill="#45556c">Nilai CPL</text>
+      <rect x="158" y="314" width="8" height="8" fill="#df4b43" />
+      <text x="170" y="321" font-size="8" fill="#45556c">Threshold</text>
     </svg>
   `;
 };

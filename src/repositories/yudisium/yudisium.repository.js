@@ -32,6 +32,51 @@ export const findById = async (id) => {
   });
 };
 
+export const findDuplicateName = async (name, excludeId = null) => {
+  const normalizedName = name.trim().toLowerCase();
+  const candidates = await prisma.yudisium.findMany({
+    where: {
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { id: true, name: true },
+  });
+
+  return candidates.find((item) => item.name?.trim().toLowerCase() === normalizedName) ?? null;
+};
+
+export const findOverlappingActivePeriod = async (registrationOpenDate, registrationCloseDate, excludeId = null) => {
+  return await prisma.yudisium.findFirst({
+    where: {
+      registrationOpenDate: { not: null, lte: registrationCloseDate },
+      registrationCloseDate: { not: null, gte: registrationOpenDate },
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: {
+      id: true,
+      name: true,
+      registrationOpenDate: true,
+      registrationCloseDate: true,
+    },
+  });
+};
+
+export const findDuplicateEventSchedule = async (eventDate, roomId, excludeId = null) => {
+  const start = new Date(eventDate);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  return await prisma.yudisium.findFirst({
+    where: {
+      roomId,
+      eventDate: { gte: start, lt: end },
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { id: true, name: true, eventDate: true, roomId: true },
+  });
+};
+
 export const create = async (data) => {
   return await prisma.yudisium.create({
     data,

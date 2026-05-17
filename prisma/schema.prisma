@@ -77,6 +77,8 @@ model Student {
   status                         StudentStatus        @default(active) @map("student_status")
   enrollmentYear                 Int?                 @map("enrollment_year")
   skscompleted                   Int
+  gpa                            Float?
+  graduationPredicate            String?              @map("graduation_predicate") @db.VarChar(100)
   mandatoryCoursesCompleted      Boolean              @default(false) @map("mandatory_courses_completed")
   mkwuCompleted                  Boolean              @default(false) @map("mkwu_completed")
   internshipCompleted            Boolean              @default(false) @map("internship_completed")

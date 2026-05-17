@@ -54,6 +54,14 @@ function deriveEnrollmentYearFromNIM(nim) {
 	}
 	return null;
 }
+
+function normalizeGpa(value) {
+	if (value === null || value === undefined || value === "") return null;
+	const parsed = Number(value);
+	if (Number.isNaN(parsed)) return null;
+	return Math.round(parsed * 100) / 100;
+}
+
 export async function adminUpdateUser(id, payload = {}) {
 	if (!id) {
 		const err = new Error("User id is required");
@@ -977,6 +985,8 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 				id: user.student.id,
 				enrollmentYear: user.student.enrollmentYear,
 				sksCompleted: user.student.skscompleted,
+				gpa: user.student.gpa,
+				graduationPredicate: user.student.graduationPredicate,
 				mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
 				mkwuCompleted: user.student.mkwuCompleted,
 				internshipCompleted: user.student.internshipCompleted,
@@ -1498,6 +1508,8 @@ export async function getStudentDetail(userId) {
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.skscompleted,
+			gpa: user.student.gpa,
+			graduationPredicate: user.student.graduationPredicate,
 			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
 			mkwuCompleted: user.student.mkwuCompleted,
 			internshipCompleted: user.student.internshipCompleted,
@@ -1692,6 +1704,12 @@ export async function adminUpdateStudent(id, data) {
 	if (data.skscompleted !== undefined) updateData.skscompleted = parseInt(data.skscompleted);
 	if (data.enrollmentYear !== undefined) updateData.enrollmentYear = parseInt(data.enrollmentYear);
 	if (data.currentSemester !== undefined) updateData.currentSemester = data.currentSemester === "" ? null : parseInt(data.currentSemester);
+	if (data.gpa !== undefined) updateData.gpa = normalizeGpa(data.gpa);
+	if (data.graduationPredicate !== undefined) {
+		updateData.graduationPredicate = data.graduationPredicate
+			? String(data.graduationPredicate).trim()
+			: null;
+	}
 
 	if (data.mandatoryCoursesCompleted !== undefined) updateData.mandatoryCoursesCompleted = !!data.mandatoryCoursesCompleted;
 	if (data.mkwuCompleted !== undefined) updateData.mkwuCompleted = !!data.mkwuCompleted;

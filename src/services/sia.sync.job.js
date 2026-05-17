@@ -93,6 +93,13 @@ export async function runSiaSync() {
  * Batch update student academic fields in database (optimized version)
  * Uses single query with updateMany instead of N+1 queries
  */
+const parseGpa = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return null;
+  return Math.round(parsed * 100) / 100;
+};
+
 async function updateStudentAcademicBatch(stamped) {
   // Prepare updates data
   const updates = stamped
@@ -108,6 +115,10 @@ async function updateStudentAcademicBatch(stamped) {
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
           : Number(entry.data.currentSemester),
+      gpa: parseGpa(entry.data?.gpa),
+      graduationPredicate: entry.data?.graduationPredicate
+        ? String(entry.data.graduationPredicate).trim()
+        : null,
     }))
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
@@ -140,6 +151,8 @@ async function updateStudentAcademicBatch(stamped) {
             kknCompleted: u.kknCompleted,
             researchMethodCompleted: u.researchMethodCompleted,
             currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
+            gpa: u.gpa,
+            graduationPredicate: u.graduationPredicate,
           },
         })
       );
@@ -169,6 +182,8 @@ async function updateStudentAcademicIndividual(updates) {
     kknCompleted,
     researchMethodCompleted,
     currentSemester,
+    gpa,
+    graduationPredicate,
   } of updates) {
     try {
       const user = await prisma.user.findUnique({
@@ -187,6 +202,8 @@ async function updateStudentAcademicIndividual(updates) {
           kknCompleted,
           researchMethodCompleted,
           currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
+          gpa,
+          graduationPredicate,
         },
       });
       updated++;

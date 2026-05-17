@@ -71,6 +71,9 @@ describe("Unit Test: Yudisium Core Service", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-16T00:00:00.000Z"));
+    repository.findDuplicateName.mockResolvedValue(null);
+    repository.findOverlappingActivePeriod.mockResolvedValue(null);
+    repository.findDuplicateEventSchedule.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -95,6 +98,7 @@ describe("Unit Test: Yudisium Core Service", () => {
           name: "Arsip 2024",
           registrationOpenDate: null,
           registrationCloseDate: null,
+          appointedAt: new Date("2024-08-01T02:00:00.000Z"),
           exitSurveyFormId: null,
           roomId: "room-1",
         })
@@ -152,6 +156,89 @@ describe("Unit Test: Yudisium Core Service", () => {
           requirementIds: ["req-1"],
         })
       ).rejects.toThrow("Tanggal pembukaan pendaftaran tidak boleh sebelum hari ini");
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it("blocks SK upload while creating yudisium", async () => {
+      await expect(
+        service.createYudisium({
+          name: "Yudisium Aktif",
+          eventDate: "2026-08-01T02:00:00.000Z",
+          registrationOpenDate: "2026-07-01T00:00:00.000Z",
+          registrationCloseDate: "2026-07-20T00:00:00.000Z",
+          roomId: "room-1",
+          exitSurveyFormId: "form-1",
+          requirementIds: ["req-1"],
+          decreeFile: { originalname: "sk.pdf", buffer: Buffer.from("pdf"), size: 3 },
+        })
+      ).rejects.toThrow("SK yudisium hanya dapat diunggah setelah peserta ditetapkan");
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it("blocks duplicate yudisium names", async () => {
+      repository.findDuplicateName.mockResolvedValue({ id: "existing", name: "Yudisium Aktif" });
+
+      await expect(
+        service.createYudisium({
+          name: " Yudisium Aktif ",
+          eventDate: "2026-08-01T02:00:00.000Z",
+          registrationOpenDate: "2026-07-01T00:00:00.000Z",
+          registrationCloseDate: "2026-07-20T00:00:00.000Z",
+          roomId: "room-1",
+          exitSurveyFormId: "form-1",
+          requirementIds: ["req-1"],
+        })
+      ).rejects.toThrow("Nama periode yudisium sudah digunakan");
+
+      expect(repository.findDuplicateName).toHaveBeenCalledWith("Yudisium Aktif", null);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it("blocks overlapping active registration periods", async () => {
+      repository.findOverlappingActivePeriod.mockResolvedValue({
+        id: "existing",
+        name: "Yudisium Periode 2",
+      });
+
+      await expect(
+        service.createYudisium({
+          name: "Yudisium Aktif",
+          eventDate: "2026-08-01T02:00:00.000Z",
+          registrationOpenDate: "2026-07-10T00:00:00.000Z",
+          registrationCloseDate: "2026-07-25T00:00:00.000Z",
+          roomId: "room-1",
+          exitSurveyFormId: "form-1",
+          requirementIds: ["req-1"],
+        })
+      ).rejects.toThrow("Rentang pendaftaran yudisium bertabrakan");
+
+      expect(repository.findOverlappingActivePeriod).toHaveBeenCalledWith(
+        new Date("2026-07-10T00:00:00.000Z"),
+        new Date("2026-07-25T00:00:00.000Z"),
+        null
+      );
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it("blocks duplicate room schedule on the same event date", async () => {
+      repository.findDuplicateEventSchedule.mockResolvedValue({
+        id: "existing",
+        name: "Yudisium Lain",
+      });
+
+      await expect(
+        service.createYudisium({
+          name: "Arsip 2024",
+          eventDate: "2024-08-01T02:00:00.000Z",
+          roomId: "room-1",
+        })
+      ).rejects.toThrow("Ruangan sudah digunakan");
+
+      expect(repository.findDuplicateEventSchedule).toHaveBeenCalledWith(
+        new Date("2024-08-01T02:00:00.000Z"),
+        "room-1",
+        null
+      );
       expect(repository.create).not.toHaveBeenCalled();
     });
   });
@@ -348,8 +435,26 @@ describe("Unit Test: Yudisium Core Service", () => {
         name: "Arsip Yudisium Revisi",
         status: "completed",
         participantCount: 2,
+        canDelete: true,
         room: { id: "room-2" },
       });
+    });
+
+    it("allows notes update without rechecking period uniqueness", async () => {
+      const existing = activeYudisium({ notes: "Lama" });
+      const updated = activeYudisium({ notes: "Baru" });
+      repository.findById.mockResolvedValue(existing);
+      repository.hasParticipants.mockResolvedValue(false);
+      repository.update.mockResolvedValue(updated);
+
+      const result = await service.updateYudisium("y1", {
+        notes: "Baru",
+      });
+
+      expect(repository.findDuplicateName).not.toHaveBeenCalled();
+      expect(repository.findOverlappingActivePeriod).not.toHaveBeenCalled();
+      expect(repository.findDuplicateEventSchedule).not.toHaveBeenCalled();
+      expect(result.notes).toBe("Baru");
     });
 
     it("blocks converting archive yudisium to active after manual or imported participants exist", async () => {
@@ -385,6 +490,92 @@ describe("Unit Test: Yudisium Core Service", () => {
           eventDate: "2026-08-05T02:00:00.000Z",
         })
       ).rejects.toThrow("tidak dapat diubah setelah peserta ditetapkan");
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it("blocks SK upload before participants are appointed", async () => {
+      repository.findById.mockResolvedValue(activeYudisium());
+      repository.hasParticipants.mockResolvedValue(false);
+
+      await expect(
+        service.updateYudisium("y1", {
+          decreeFile: { originalname: "sk.pdf", buffer: Buffer.from("pdf"), size: 3 },
+        })
+      ).rejects.toThrow("SK yudisium hanya dapat diunggah setelah peserta ditetapkan");
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it("locks completed active yudisium notes", async () => {
+      vi.setSystemTime(new Date("2026-08-02T00:00:00.000Z"));
+      repository.findById.mockResolvedValue(activeYudisium());
+      repository.hasParticipants.mockResolvedValue(false);
+
+      await expect(
+        service.updateYudisium("y1", {
+          notes: "Catatan selesai",
+        })
+      ).rejects.toThrow("sudah selesai tidak dapat diubah");
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it("blocks update to duplicate yudisium name", async () => {
+      repository.findById.mockResolvedValue(activeYudisium());
+      repository.hasParticipants.mockResolvedValue(false);
+      repository.findDuplicateName.mockResolvedValue({ id: "other", name: "Yudisium Baru" });
+
+      await expect(
+        service.updateYudisium("y1", {
+          name: "Yudisium Baru",
+        })
+      ).rejects.toThrow("Nama periode yudisium sudah digunakan");
+
+      expect(repository.findDuplicateName).toHaveBeenCalledWith("Yudisium Baru", "y1");
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it("blocks update to overlapping active registration period", async () => {
+      repository.findById.mockResolvedValue(activeYudisium());
+      repository.hasParticipants.mockResolvedValue(false);
+      repository.findOverlappingActivePeriod.mockResolvedValue({
+        id: "other",
+        name: "Yudisium Lain",
+      });
+
+      await expect(
+        service.updateYudisium("y1", {
+          registrationOpenDate: "2026-06-20T00:00:00.000Z",
+          registrationCloseDate: "2026-07-05T00:00:00.000Z",
+        })
+      ).rejects.toThrow("Rentang pendaftaran yudisium bertabrakan");
+
+      expect(repository.findOverlappingActivePeriod).toHaveBeenCalledWith(
+        new Date("2026-06-20T00:00:00.000Z"),
+        new Date("2026-07-05T00:00:00.000Z"),
+        "y1"
+      );
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it("blocks update to duplicate room schedule on the same event date", async () => {
+      repository.findById.mockResolvedValue(makeYudisium());
+      repository.hasParticipants.mockResolvedValue(false);
+      repository.findDuplicateEventSchedule.mockResolvedValue({
+        id: "other",
+        name: "Yudisium Lain",
+      });
+
+      await expect(
+        service.updateYudisium("y1", {
+          eventDate: "2026-08-01T09:00:00.000Z",
+          roomId: "room-1",
+        })
+      ).rejects.toThrow("Ruangan sudah digunakan");
+
+      expect(repository.findDuplicateEventSchedule).toHaveBeenCalledWith(
+        new Date("2026-08-01T09:00:00.000Z"),
+        "room-1",
+        "y1"
+      );
       expect(repository.update).not.toHaveBeenCalled();
     });
   });
