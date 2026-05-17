@@ -512,49 +512,58 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
     .header-text h2 { margin: 1px 0; font-size: 15pt; text-transform: uppercase; color: #003c73; }
     .header-text p { margin: 1px 0; font-size: 8.7pt; }
     .cover {
-      min-height: 600px;
+      min-height: 245mm;
       display: flex;
       flex-direction: column;
+      align-items: center;
       justify-content: center;
       text-align: center;
       page-break-after: always;
+      box-sizing: border-box;
+      padding: 12mm 0 8mm;
+    }
+    .cover-main {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transform: translateY(-6mm);
     }
     .cover-logo {
-      width: 118px;
+      width: 126px;
       height: auto;
       display: block;
-      margin: 46px auto 46px;
+      margin: 34mm auto 34mm;
     }
     .cover h1 {
-      font-size: 21pt;
+      font-size: 20pt;
       text-transform: uppercase;
-      margin: 0 0 14px;
+      margin: 0 0 10px;
       line-height: 1.25;
       font-weight: bold;
     }
     .cover h2 {
-      font-size: 16pt;
+      font-size: 14pt;
       text-transform: uppercase;
-      margin: 0 0 8px;
+      margin: 0 0 7px;
       color: #000;
       line-height: 1.25;
       font-weight: bold;
     }
     .cover .form-title {
-      font-size: 13pt;
+      font-size: 12pt;
       text-transform: uppercase;
       margin: 6px 0 0;
       font-weight: bold;
     }
     .cover-footer {
-      margin-top: 150px;
       font-size: 13pt;
       text-transform: uppercase;
       font-weight: bold;
-      line-height: 1.45;
+      line-height: 1.5;
     }
     .cover-year {
-      margin-top: 10px;
+      margin-top: 9px;
       font-size: 13pt;
       font-weight: bold;
     }
@@ -656,16 +665,20 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
 </head>
 <body>
   <section class="cover">
-    <h1>Laporan Exit Survey</h1>
-    <h2>${escapeHtml(periodLabel)}</h2>
-    <div class="form-title">${escapeHtml(form.name)}</div>
-    ${logoBase64 ? `<img src="${logoBase64}" class="cover-logo" alt="Logo UNAND" />` : ""}
-    <div class="cover-footer">
-      Departemen Sistem Informasi<br />
-      Fakultas Teknologi Informasi<br />
-      Universitas Andalas
+    <div class="cover-main">
+      <div>
+        <h1>Laporan Exit Survey</h1>
+        <h2>${escapeHtml(periodLabel)}</h2>
+        <div class="form-title">${escapeHtml(form.name)}</div>
+      </div>
+      ${logoBase64 ? `<img src="${logoBase64}" class="cover-logo" alt="Logo UNAND" />` : ""}
+      <div class="cover-footer">
+        Departemen Sistem Informasi<br />
+        Fakultas Teknologi Informasi<br />
+        Universitas Andalas
+      </div>
+      <div class="cover-year">${escapeHtml(new Date().getFullYear())}</div>
     </div>
-    <div class="cover-year">${escapeHtml(new Date().getFullYear())}</div>
   </section>
 
   <table class="header-table">
