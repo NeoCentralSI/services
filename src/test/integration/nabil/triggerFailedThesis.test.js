@@ -14,6 +14,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import prisma from "../../../config/prisma.js";
 import { updateAllThesisStatuses } from "../../../services/thesisStatus.service.js";
+import { runCleanupIfEnabled } from "./cleanup.js";
 
 let THESIS_ID = null;
 
@@ -26,36 +27,38 @@ describe("Trigger FAILED thesis flow", () => {
 
     // Restore original data after test
     afterAll(async () => {
-        if (THESIS_ID && originalCreatedAt !== null) {
-            console.log("[cleanup] Restoring thesis to original state...");
-            await prisma.thesis.update({
-                where: { id: THESIS_ID },
-                data: {
-                    createdAt: originalCreatedAt,
-                    rating: originalRating,
-                    thesisStatusId: originalThesisStatusId,
-                    deadlineDate: originalDeadlineDate,
-                },
-            });
-            // Restore updatedAt via raw query (Prisma auto-sets it)
-            if (originalUpdatedAt) {
-                await prisma.$executeRaw`UPDATE thesis SET updated_at = ${originalUpdatedAt} WHERE id = ${THESIS_ID}`;
+        await runCleanupIfEnabled("triggerFailedThesis", async () => {
+            if (THESIS_ID && originalCreatedAt !== null) {
+                console.log("[cleanup] Restoring thesis to original state...");
+                await prisma.thesis.update({
+                    where: { id: THESIS_ID },
+                    data: {
+                        createdAt: originalCreatedAt,
+                        rating: originalRating,
+                        thesisStatusId: originalThesisStatusId,
+                        deadlineDate: originalDeadlineDate,
+                    },
+                });
+                // Restore updatedAt via raw query (Prisma auto-sets it)
+                if (originalUpdatedAt) {
+                    await prisma.$executeRaw`UPDATE thesis SET updated_at = ${originalUpdatedAt} WHERE id = ${THESIS_ID}`;
+                }
+
+                // Also restore any cancelled guidances back to their original state
+                // (we can't perfectly restore these, but set them back to 'requested')
+                await prisma.thesisGuidance.updateMany({
+                    where: {
+                        thesisId: THESIS_ID,
+                        status: "cancelled",
+                    },
+                    data: {
+                        status: "requested",
+                    },
+                });
+
+                console.log("[cleanup] Thesis restored successfully.");
             }
-
-            // Also restore any cancelled guidances back to their original state
-            // (we can't perfectly restore these, but set them back to 'requested')
-            await prisma.thesisGuidance.updateMany({
-                where: {
-                    thesisId: THESIS_ID,
-                    status: "cancelled",
-                },
-                data: {
-                    status: "requested",
-                },
-            });
-
-            console.log("[cleanup] Thesis restored successfully.");
-        }
+        });
         await prisma.$disconnect();
     });
 

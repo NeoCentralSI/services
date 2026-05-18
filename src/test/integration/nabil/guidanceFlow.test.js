@@ -13,6 +13,7 @@ import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 import prisma from "../../../config/prisma.js";
 import { requestGuidanceService, markSessionCompleteService } from "../../../services/thesisGuidance/student.guidance.service.js";
 import { approveGuidanceService } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
+import { runCleanupIfEnabled } from "./cleanup.js";
 
 // Mock FCM and Calendar to avoid real network calls during integration test
 vi.mock("../../../services/push.service.js", () => ({
@@ -55,10 +56,12 @@ describe("IT-04: Guidance Request & Approval Flow", () => {
   });
 
   afterAll(async () => {
-    // Cleanup generated guidance data
-    if (createdGuidanceId) {
-      await prisma.thesisGuidance.delete({ where: { id: createdGuidanceId } }).catch(() => {});
-    }
+    await runCleanupIfEnabled("IT-04", async () => {
+      // Cleanup generated guidance data
+      if (createdGuidanceId) {
+        await prisma.thesisGuidance.delete({ where: { id: createdGuidanceId } }).catch(() => {});
+      }
+    });
     await prisma.$disconnect();
   });
 

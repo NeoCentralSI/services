@@ -23,6 +23,7 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
     getBatchDistribution: vi.fn(),
     getProgressDistribution: vi.fn(),
     getGuidanceTrend: vi.fn(),
+    getSupervisorWorkloadRows: vi.fn(),
   },
   mockPrisma: {
     thesis: { findUnique: vi.fn(), findFirst: vi.fn() },
@@ -84,6 +85,30 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       mockRepo.getBatchDistribution.mockResolvedValue([{ id: "2022", name: "Angkatan 2022", count: 15 }]);
       mockRepo.getProgressDistribution.mockResolvedValue([{ label: "0-25%", count: 5 }]);
       mockRepo.getGuidanceTrend.mockResolvedValue([{ month: "2025-01", count: 12 }]);
+      mockRepo.getSupervisorWorkloadRows.mockResolvedValue([
+        {
+          lecturerId: "l1",
+          lecturer: {
+            user: {
+              fullName: "Dr. Andi",
+              identityNumber: "19800101",
+              email: "andi@test.com",
+            },
+          },
+          role: { name: "Pembimbing 1" },
+          thesis: {
+            id: "t1",
+            title: "AI Research",
+            student: {
+              user: {
+                fullName: "Budi",
+                identityNumber: "123",
+                email: "budi@test.com",
+              },
+            },
+          },
+        },
+      ]);
 
       const result = await getMonitoringDashboard(ACADEMIC_YEAR);
 
@@ -94,12 +119,33 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toHaveProperty("batchDistribution");
       expect(result).toHaveProperty("progressDistribution");
       expect(result).toHaveProperty("guidanceTrend");
+      expect(result).toHaveProperty("supervisorLoads");
       expect(result).toHaveProperty("atRiskStudents");
       expect(result).toHaveProperty("slowStudents");
       expect(result).toHaveProperty("readyForSeminar");
+      expect(result.supervisorLoads).toEqual([
+        {
+          lecturerId: "l1",
+          lecturerName: "Dr. Andi",
+          lecturerNip: "19800101",
+          lecturerEmail: "andi@test.com",
+          studentCount: 1,
+          students: [
+            {
+              thesisId: "t1",
+              thesisTitle: "AI Research",
+              role: "Pembimbing 1",
+              name: "Budi",
+              nim: "123",
+              email: "budi@test.com",
+            },
+          ],
+        },
+      ]);
       expect(mockRepo.getProgressStatistics).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getBatchDistribution).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getGuidanceTrend).toHaveBeenCalledWith(ACADEMIC_YEAR);
+      expect(mockRepo.getSupervisorWorkloadRows).toHaveBeenCalledWith(ACADEMIC_YEAR);
     });
   });
 

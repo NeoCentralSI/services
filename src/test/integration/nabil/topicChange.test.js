@@ -23,6 +23,7 @@ import {
   reviewRequestByLecturer,
   approveRequest,
 } from "../../../services/thesisChangeRequest.service.js";
+import { runCleanupIfEnabled } from "./cleanup.js";
 
 // ── Test Data References ──
 // We'll pick a real thesis from DB in beforeAll
@@ -100,53 +101,55 @@ describe("IT-02: Topic Change Full Flow", () => {
   });
 
   afterAll(async () => {
-    // Cleanup: Restore original state
-    try {
-      if (testThesis) {
-        // 1. Restore old thesis to Bimbingan status
-        const bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: "Bimbingan" } });
-        if (bimbinganStatus) {
-          await prisma.thesis.update({
-            where: { id: testThesis.id },
-            data: {
-              thesisStatusId: bimbinganStatus.id,
-              rating: testThesis.rating || "ONGOING",
+    await runCleanupIfEnabled("IT-02", async () => {
+      // Cleanup: Restore original state
+      try {
+        if (testThesis) {
+          // 1. Restore old thesis to Bimbingan status
+          const bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: "Bimbingan" } });
+          if (bimbinganStatus) {
+            await prisma.thesis.update({
+              where: { id: testThesis.id },
+              data: {
+                thesisStatusId: bimbinganStatus.id,
+                rating: testThesis.rating || "ONGOING",
+              },
+            });
+          }
+
+          // 2. Move supervisors back to old thesis (if they were moved)
+          if (newThesisId) {
+            await prisma.thesisSupervisors.updateMany({
+              where: { thesisId: newThesisId },
+              data: { thesisId: testThesis.id },
+            });
+          }
+
+          // 3. Delete the new thesis and its milestones
+          if (newThesisId) {
+            await prisma.thesisMilestone.deleteMany({ where: { thesisId: newThesisId } });
+            await prisma.thesis.delete({ where: { id: newThesisId } }).catch(() => {});
+          }
+
+          // 4. Delete change request and approvals
+          if (createdRequestId) {
+            await prisma.thesisChangeRequestApproval.deleteMany({ where: { requestId: createdRequestId } });
+            await prisma.thesisChangeRequest.delete({ where: { id: createdRequestId } }).catch(() => {});
+          }
+
+          // 5. Clean up notifications created during test
+          await prisma.notification.deleteMany({
+            where: {
+              createdAt: { gte: new Date(Date.now() - 60000) },
+              title: { contains: "Pergantian" },
             },
           });
         }
-
-        // 2. Move supervisors back to old thesis (if they were moved)
-        if (newThesisId) {
-          await prisma.thesisSupervisors.updateMany({
-            where: { thesisId: newThesisId },
-            data: { thesisId: testThesis.id },
-          });
-        }
-
-        // 3. Delete the new thesis and its milestones
-        if (newThesisId) {
-          await prisma.thesisMilestone.deleteMany({ where: { thesisId: newThesisId } });
-          await prisma.thesis.delete({ where: { id: newThesisId } }).catch(() => {});
-        }
-
-        // 4. Delete change request and approvals
-        if (createdRequestId) {
-          await prisma.thesisChangeRequestApproval.deleteMany({ where: { requestId: createdRequestId } });
-          await prisma.thesisChangeRequest.delete({ where: { id: createdRequestId } }).catch(() => {});
-        }
-
-        // 5. Clean up notifications created during test
-        await prisma.notification.deleteMany({
-          where: {
-            createdAt: { gte: new Date(Date.now() - 60000) },
-            title: { contains: "Pergantian" },
-          },
-        });
+        console.log("[IT-02 cleanup] Restored original state.");
+      } catch (err) {
+        console.error("[IT-02 cleanup] Error:", err.message);
       }
-      console.log("[IT-02 cleanup] Restored original state.");
-    } catch (err) {
-      console.error("[IT-02 cleanup] Error:", err.message);
-    }
+    });
     await prisma.$disconnect();
   });
 

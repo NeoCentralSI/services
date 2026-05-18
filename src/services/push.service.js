@@ -4,35 +4,74 @@ import { getFcmMessaging } from "../config/fcm.js";
 const KEY_PREFIX = "fcm:tokens:"; // per-user set of tokens
 const REVERSE_KEY_PREFIX = "fcm:token-owner:"; // reverse index: token → userId
 
-export async function registerFcmToken(userId, token, platform = "unknown") {
-  if (!userId || !token) return { registered: 0 };
-  if (!redisClient.isOpen) await redisClient.connect();
-  const res = await redisClient.sAdd(KEY_PREFIX + userId, token);
-  return { registered: res };
+function maskToken(token) {
+  if (!token) return "";
+  return token.length > 16 ? `${token.slice(0, 8)}...${token.slice(-8)}` : token;
+}
 
-  // ── Dedup: ensure a device token belongs to only ONE user ──
-  const previousOwner = await redisClient.get(REVERSE_KEY_PREFIX + token);
-  if (previousOwner && previousOwner !== String(userId)) {
-    // Remove the token from the old user's set
-    await redisClient.sRem(KEY_PREFIX + previousOwner, token);
-    console.log(`[FCM] Token migrated from user ${previousOwner} → ${userId}`);
+function getStoredToken(raw) {
+  if (!raw?.startsWith?.("{")) return raw;
+  try {
+    return JSON.parse(raw).token || raw;
+  } catch {
+    return raw;
   }
+}
 
-  // We store the token in a Redis Hash so we can store metadata like `platform`
-  // But to keep backwards compatibility with sMembers, we can store a JSON string
-  const tokenData = JSON.stringify({ token, platform });
-
-  // Clean up any old tokens that don't have JSON format to prevent duplicates
+async function removeUserToken(userId, token) {
   const existingTokens = await redisClient.sMembers(KEY_PREFIX + userId);
-  for (const t of existingTokens) {
-    if (t === token || (t.startsWith('{') && JSON.parse(t).token === token)) {
-      await redisClient.sRem(KEY_PREFIX + userId, t);
+  let removedCount = 0;
+  for (const raw of existingTokens) {
+    if (getStoredToken(raw) === token) {
+      removedCount += await redisClient.sRem(KEY_PREFIX + userId, raw);
     }
   }
+  if (removedCount > 0) {
+    await redisClient.del(REVERSE_KEY_PREFIX + token);
+  }
+  console.log(`[FCM] Removed invalid token user=${userId} token=${maskToken(token)} removed=${removedCount}`);
+  return removedCount;
+}
 
-  await redisClient.sAdd(KEY_PREFIX + userId, tokenData);
-  await redisClient.set(REVERSE_KEY_PREFIX + token, String(userId));
-  return { registered: 1 };
+export async function registerFcmToken(userId, token, platform = "web") {
+  if (!userId || !token) return { registered: 0 };
+  try {
+    if (!redisClient.isOpen) await redisClient.connect();
+  } catch (err) {
+    console.error("[FCM] Redis connection failed while registering token:", err.message);
+    const error = new Error("Gagal menyimpan token notifikasi: Redis tidak terhubung");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  // ── Dedup: ensure a device token belongs to only ONE user ──
+  try {
+    const previousOwner = await redisClient.get(REVERSE_KEY_PREFIX + token);
+    if (previousOwner && previousOwner !== String(userId)) {
+      await removeUserToken(previousOwner, token);
+      console.log(`[FCM] Token migrated from user ${previousOwner} → ${userId}`);
+    }
+
+    // We store token metadata as JSON while keeping backwards compatibility with raw tokens.
+    const tokenData = JSON.stringify({ token, platform });
+
+    // Clean up any old tokens that don't have JSON format to prevent duplicates
+    const existingTokens = await redisClient.sMembers(KEY_PREFIX + userId);
+    for (const t of existingTokens) {
+      if (getStoredToken(t) === token) {
+        await redisClient.sRem(KEY_PREFIX + userId, t);
+      }
+    }
+
+    await redisClient.sAdd(KEY_PREFIX + userId, tokenData);
+    await redisClient.set(REVERSE_KEY_PREFIX + token, String(userId));
+    return { registered: 1 };
+  } catch (err) {
+    console.error("[FCM] Failed to register token:", err.message);
+    const error = new Error("Gagal menyimpan token notifikasi");
+    error.statusCode = 500;
+    throw error;
+  }
 }
 
 export async function unregisterFcmToken(userId, token) {
@@ -42,7 +81,7 @@ export async function unregisterFcmToken(userId, token) {
   const existingTokens = await redisClient.sMembers(KEY_PREFIX + userId);
   let removedCount = 0;
   for (const t of existingTokens) {
-    if (t === token || (t.startsWith('{') && JSON.parse(t).token === token)) {
+    if (getStoredToken(t) === token) {
       removedCount += await redisClient.sRem(KEY_PREFIX + userId, t);
     }
   }
@@ -69,19 +108,20 @@ export async function getUserFcmTokens(userId, targetPlatform = null) {
           validTokens.push(data.token);
         }
       } else {
-        // Legacy raw token - assume web if not specified otherwise
-        if (!targetPlatform || targetPlatform === "web") {
+        // Legacy raw tokens do not carry platform metadata. Only use them for
+        // unfiltered sends; platform-filtered sends should use registered JSON tokens.
+        if (!targetPlatform) {
           validTokens.push(raw);
         }
       }
     } catch (e) {
-      if (!targetPlatform || targetPlatform === "web") validTokens.push(raw);
+      if (!targetPlatform) validTokens.push(raw);
     }
   }
   return validTokens;
 }
 
-export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly, targetPlatform } = {}) {
+export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly, targetPlatform = "web" } = {}) {
   const messaging = getFcmMessaging();
   if (!messaging) return { success: false, reason: "fcm-not-configured" };
   const uniqueTokens = new Set();
@@ -118,7 +158,11 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
       const code = r.error?.code || "";
       const errorMsg = r.error?.message || "unknown error";
       console.error(`[FCM] Failed to send to token ${idx}: ${code} - ${errorMsg}`);
-      if (code.includes("registration-token-not-registered") || code.includes("invalid-argument")) {
+      if (
+        code.includes("registration-token-not-registered") ||
+        code.includes("invalid-argument") ||
+        code.includes("third-party-auth-error")
+      ) {
         invalidTokens.push(tokens[idx]);
       }
     }
@@ -126,7 +170,9 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
   if (invalidTokens.length) {
     if (!redisClient.isOpen) await redisClient.connect();
     for (const uid of userIds) {
-      await redisClient.sRem(KEY_PREFIX + uid, invalidTokens);
+      for (const token of invalidTokens) {
+        await removeUserToken(uid, token);
+      }
     }
   }
   return { success: true, sent: resp.successCount, failed: resp.failureCount };

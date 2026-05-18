@@ -105,7 +105,7 @@ export async function deleteAllNotifications(req, res, next) {
 export async function registerFcm(req, res, next) {
 	try {
 		const userId = req.user.sub;
-		const { token, platform } = req.body || {};
+		const { token, platform = "web" } = req.body || {};
 		if (!token) {
 			const e = new Error("token is required");
 			e.statusCode = 400;
