@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { unlink } from "fs/promises";
 import path from "path";
 import prisma from "../../../config/prisma.js";
+import * as coreService from "../../../services/yudisium/core.service.js";
 import * as studentService from "../../../services/yudisium/student.service.js";
 import * as participantService from "../../../services/yudisium/participant.service.js";
 
@@ -31,12 +32,14 @@ describe("Integration: Yudisium Flow", () => {
   let thesis;
   let defence;
   let room;
+  let exitSurveyForm;
   let yudisium;
   let requirements = [];
   let requirementItems = [];
   let cpls = [];
   let participantId;
   let response;
+  let decreeDocumentId;
 
   const fakeFile = (name = "dokumen-yudisium.pdf") => ({
     originalname: name,
@@ -116,11 +119,19 @@ describe("Integration: Yudisium Flow", () => {
     room = await prisma.room.create({
       data: { name: `Ruang Yudisium Flow ${ts}`, location: "Integration Test" },
     });
+    exitSurveyForm = await prisma.exitSurveyForm.create({
+      data: {
+        name: `Exit Survey Flow ${ts}`,
+        description: "Exit survey integration flow",
+        isActive: true,
+      },
+    });
 
     yudisium = await prisma.yudisium.create({
       data: {
         name: `Yudisium Flow ${ts}`,
         roomId: room.id,
+        exitSurveyFormId: exitSurveyForm.id,
         registrationOpenDate: new Date(Date.now() - 1000),
         registrationCloseDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         eventDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
@@ -204,6 +215,17 @@ describe("Integration: Yudisium Flow", () => {
         await unlink(path.join(process.cwd(), filePath)).catch(() => {});
       }
 
+      if (decreeDocumentId && yudisium?.id) {
+        await prisma.yudisium.update({
+          where: { id: yudisium.id },
+          data: {
+            documentId: null,
+            decreeUploadedBy: null,
+            decreeUploadedAt: null,
+          },
+        }).catch(() => {});
+      }
+
       if (participantId) {
         await prisma.yudisiumParticipantRequirement.deleteMany({
           where: { yudisiumParticipantId: participantId },
@@ -225,6 +247,7 @@ describe("Integration: Yudisium Flow", () => {
       await prisma.yudisiumRequirement.deleteMany({
         where: { id: { in: requirements.map((item) => item.id) } },
       }).catch(() => {});
+      await prisma.exitSurveyForm.delete({ where: { id: exitSurveyForm.id } }).catch(() => {});
       await prisma.room.delete({ where: { id: room.id } }).catch(() => {});
       await prisma.thesisDefence.delete({ where: { id: defence.id } }).catch(() => {});
       await prisma.thesis.delete({ where: { id: thesis.id } }).catch(() => {});
@@ -319,5 +342,34 @@ describe("Integration: Yudisium Flow", () => {
     expect(result.rejected).toBe(0);
     expect(participant.status).toBe("appointed");
     expect(updatedYudisium.appointedAt).toBeTruthy();
+  });
+
+  it("finalizes appointed participants, CPL scores, and student status when SK is uploaded", async () => {
+    const result = await coreService.updateYudisium(yudisium.id, {
+      userId: coordinatorUser.id,
+      decreeFile: fakeFile("sk-yudisium-final.pdf"),
+    });
+
+    decreeDocumentId = result.decreeDocument?.id;
+    if (result.decreeDocument?.id) documentIds.push(result.decreeDocument.id);
+    if (result.decreeDocument?.filePath) uploadedPaths.push(result.decreeDocument.filePath);
+
+    const [participant, scores, updatedStudent, updatedYudisium] = await Promise.all([
+      prisma.yudisiumParticipant.findUnique({ where: { id: participantId } }),
+      prisma.studentCplScore.findMany({
+        where: { studentId: student.id, cplId: { in: cpls.map((item) => item.id) } },
+      }),
+      prisma.student.findUnique({ where: { id: student.id } }),
+      prisma.yudisium.findUnique({ where: { id: yudisium.id } }),
+    ]);
+
+    expect(participant.status).toBe("finalized");
+    expect(scores).toHaveLength(cpls.length);
+    expect(scores.every((score) => score.status === "finalized")).toBe(true);
+    expect(scores.every((score) => score.finalizedAt)).toBe(true);
+    expect(updatedStudent.status).toBe("lulus");
+    expect(updatedYudisium.documentId).toBe(decreeDocumentId);
+    expect(updatedYudisium.decreeUploadedBy).toBe(coordinatorUser.id);
+    expect(updatedYudisium.decreeUploadedAt).toBeTruthy();
   });
 });
