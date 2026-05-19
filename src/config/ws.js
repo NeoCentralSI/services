@@ -1,16 +1,4 @@
-// Deprecated: WebSocket implementation removed. Kept as no-op to avoid import errors.
-export function initWebSocket() {
-  // no-op
-}
-export function wsSendToUser() {
-  return 0;
-}
-export function wsBroadcast() {
-  return 0;
-}
-export function getWsServer() {
-  return null;
-}
+
 import { WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
 import { ENV } from "./env.js";

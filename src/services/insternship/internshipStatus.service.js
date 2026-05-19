@@ -119,7 +119,7 @@ export async function syncInternshipCompletionStatus(internshipId) {
     // Documents check
     const isLogbookApproved = internship.logbookDocumentStatus === 'APPROVED';
     const isReceiptApproved = internship.companyReceiptStatus === 'APPROVED';
-    const isFinalReportApproved = internship.reportFinalStatus === 'APPROVED';
+    const isFinalReportApproved = internship.reportStatus === 'APPROVED';
 
     const allRequirementsMet = 
         isLecturerAssessmentDone && 

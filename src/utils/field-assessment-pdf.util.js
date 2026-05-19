@@ -110,7 +110,7 @@ export async function generateFieldAssessmentPdf(opts) {
     function drawTableRow(cells, y, isHeader = false) {
         const f = isHeader ? fontBold : font;
         const sz = 9;
-        
+
         // Multi-line support for CPMK Name
         const maxW_CPMK = colWidths[1] - 8;
         const cpmkWords = String(cells[1]).split(" ");

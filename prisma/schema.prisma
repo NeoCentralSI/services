@@ -1899,6 +1899,7 @@ enum InternshipSeminarStatus {
   APPROVED
   REJECTED
   COMPLETED
+  FAILED
 }
 
 enum InternshipSeminarAudienceStatus {
