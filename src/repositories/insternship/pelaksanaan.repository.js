@@ -25,7 +25,8 @@ export async function getStudentInternship(studentId) {
                         include: {
                             user: true
                         }
-                    }
+                    },
+                    beritaAcaraDocument: true
                 },
                 orderBy: {
                     createdAt: 'desc'
@@ -43,7 +44,6 @@ export async function getStudentInternship(studentId) {
             companyReceiptDoc: true,
             companyReportDoc: true,
             logbookDocument: true,
-            reportFinalDoc: true,
             supLetter: {
                 include: {
                     document: true
@@ -302,47 +302,6 @@ export async function updateLogbookDocument(studentId, documentId) {
         },
         include: {
             logbookDocument: true
-        }
-    });
-}
-
-/**
- * Update internship final fixed report document (post-seminar).
- * Status defaults to APPROVED on upload.
- * @param {string} studentId 
- * @param {string} documentId 
- * @returns {Promise<Object>}
- */
-export async function updateFinalReport(studentId, title, documentId) {
-    const internship = await prisma.internship.findFirst({
-        where: { studentId, status: { in: ['ONGOING', 'COMPLETED', 'FAILED'] } },
-        include: { seminars: true }
-    });
-
-    if (!internship) {
-        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
-    }
-
-    // Check if seminar is completed
-    const latestSeminar = internship.seminars && internship.seminars.length > 0 ? internship.seminars[0] : null;
-    if (!latestSeminar || latestSeminar.status !== 'COMPLETED') {
-        throw new Error("Seminar belum berstatus selesai.");
-    }
-
-    if (internship.reportFinalStatus === 'APPROVED') {
-        throw new Error("Laporan final sudah disetujui dan tidak dapat diubah.");
-    }
-
-    return prisma.internship.update({
-        where: { id: internship.id },
-        data: {
-            reportFinalTitle: title,
-            reportFinalDocId: documentId,
-            reportFinalStatus: 'APPROVED', // Auto-approve
-            reportFinalUploadedAt: new Date()
-        },
-        include: {
-            reportFinalDoc: true
         }
     });
 }

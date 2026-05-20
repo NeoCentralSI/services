@@ -1,5 +1,6 @@
 
 import * as pelaksanaanRepository from "../../repositories/insternship/pelaksanaan.repository.js";
+import * as registrationRepository from "../../repositories/insternship/pendaftaran.repository.js";
 
 import crypto from "crypto";
 import { ENV } from "../../config/env.js";
@@ -9,7 +10,6 @@ import { ROLES } from "../../constants/roles.js";
 import { fieldAssessmentRequestTemplate } from "../../utils/emailTemplate.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
-import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 
 
 /**
@@ -82,6 +82,57 @@ export async function updateLogbook(logbookId, studentId, activityDescription) {
  */
 export async function updateInternshipDetails(studentId, data) {
     return pelaksanaanRepository.updateInternshipDetails(studentId, data);
+}
+
+/**
+ * Submit or update the internship report for lecturer verification.
+ * Reusing an existing documentId supports title-only edits.
+ * @param {string} studentId
+ * @param {string} title
+ * @param {string} documentId
+ */
+export async function submitInternshipReport(studentId, title, documentId) {
+    const internship = await pelaksanaanRepository.getStudentInternship(studentId);
+    if (!internship) {
+        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (internship.reportStatus === "APPROVED") {
+        const error = new Error("Laporan akhir sudah disetujui dan tidak dapat diubah.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const result = await pelaksanaanRepository.createReport({
+        internshipId: internship.id,
+        title,
+        documentId
+    });
+
+    try {
+        if (internship.supervisorId) {
+            const studentName = internship.student?.user?.fullName || "Mahasiswa";
+            const titleNotif = "Laporan Akhir KP Baru";
+            const message = `${studentName} telah mengirim laporan akhir untuk diverifikasi.`;
+
+            await createNotificationsForUsers([internship.supervisorId], { title: titleNotif, message });
+            await sendFcmToUsers([internship.supervisorId], {
+                title: titleNotif,
+                body: message,
+                data: {
+                    type: "internship_final_report_submitted",
+                    internshipId: internship.id
+                },
+                dataOnly: true
+            });
+        }
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi upload laporan akhir:", err);
+    }
+
+    return result;
 }
 
 /**
@@ -238,54 +289,6 @@ export async function submitCompanyReport(studentId, documentId) {
     }
 
     return { ...result, assessmentInfo };
-}
-
-/**
- * Submit the final fixed internship report post-seminar.
- * @param {string} studentId 
- * @param {string} documentId 
- * @returns {Promise<Object>}
- */
-export async function submitFinalReport(studentId, title, documentId) {
-    const internship = await pelaksanaanRepository.getStudentInternship(studentId);
-    if (!internship) {
-        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
-        error.statusCode = 404;
-        throw error;
-    }
-
-    const result = await pelaksanaanRepository.updateFinalReport(studentId, title, documentId);
-
-    // Notify Sekdep
-    try {
-        const sekdeps = await registrationRepository.findUsersByRole(ROLES.SEKRETARIS_DEPARTEMEN);
-        const sekdepIds = sekdeps.map(s => s.id);
-
-        if (sekdepIds.length > 0) {
-            const studentName = internship.student?.user?.fullName || "Mahasiswa";
-            const titleNotif = "Laporan Final KP Baru (Post-Seminar)";
-            const message = `${studentName} telah mengunggah Laporan Final Fix beserta lembar pengesahan.`;
-
-            await createNotificationsForUsers(sekdepIds, { title: titleNotif, message });
-            await sendFcmToUsers(sekdepIds, {
-                title: titleNotif,
-                body: message,
-                data: {
-                    type: 'internship_reporting_document_uploaded',
-                    documentType: 'reportFinal',
-                    internshipId: internship.id
-                },
-                dataOnly: true
-            });
-        }
-    } catch (err) {
-        console.error("Gagal mengirim notifikasi upload laporan final:", err);
-    }
-
-    // Holistic Completion Check
-    await syncInternshipCompletionStatus(internship.id);
-
-    return result;
 }
 
 /**

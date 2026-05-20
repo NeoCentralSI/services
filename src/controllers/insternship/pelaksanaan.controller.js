@@ -208,24 +208,3 @@ export async function submitLogbook(req, res, next) {
     }
 }
 
-/**
- * Submit final fixed internship report.
- */
-export async function submitFinalReport(req, res, next) {
-    try {
-        const userId = req.user.sub;
-        const { reportFinalTitle, documentId } = req.body;
-
-        if (!reportFinalTitle || !documentId) {
-            const error = new Error("Judul dan file laporan final wajib diisi.");
-            error.statusCode = 400;
-            throw error;
-        }
-
-        const data = await activityService.submitFinalReport(userId, reportFinalTitle, documentId);
-        res.json({ success: true, message: "Laporan final berhasil diunggah", data });
-    } catch (error) {
-        next(error);
-    }
-}
-

@@ -2,7 +2,15 @@
 import * as pelaksanaanRepository from "../../repositories/insternship/pelaksanaan.repository.js";
 import * as seminarRepository from "../../repositories/insternship/seminar.repository.js";
 
+import crypto from "crypto";
+import fs from "fs";
+import fsPromises from "fs/promises";
+import path from "path";
 import prisma from "../../config/prisma.js";
+import { ENV } from "../../config/env.js";
+import { convertDocxToPdf } from "../../utils/pdf.util.js";
+import { stampQRCode } from "../../utils/pdf-sign.util.js";
+import { generateSeminarMinutesPdf } from "../../utils/seminar-minutes-pdf.util.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
@@ -30,6 +38,102 @@ function buildSeminarAttendanceWindow(seminarDate, startTime) {
     ));
 
     return { dayStart, dayEnd, seminarStart };
+}
+
+async function loadKopHeaderPdf() {
+    const kopTemplates = await prisma.document.findMany({
+        where: {
+            fileName: { contains: "KOP" }
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10
+    });
+
+    for (const kopTemplate of kopTemplates) {
+        if (!kopTemplate?.filePath) continue;
+
+        try {
+            const templatePath = path.isAbsolute(kopTemplate.filePath)
+                ? kopTemplate.filePath
+                : path.resolve(kopTemplate.filePath);
+            const templateBuffer = await fsPromises.readFile(templatePath);
+            const lowerFilePath = kopTemplate.filePath.toLowerCase();
+
+            if (lowerFilePath.endsWith(".docx")) {
+                return convertDocxToPdf(templateBuffer, "KOP.docx");
+            }
+
+            if (lowerFilePath.endsWith(".pdf")) {
+                return templateBuffer;
+            }
+        } catch (error) {
+            const missingFile = error?.code === "ENOENT";
+            const message = missingFile
+                ? `Template KOP tidak ditemukan (${kopTemplate.filePath}), berita acara dibuat tanpa KOP.`
+                : `Template KOP gagal dimuat (${kopTemplate.filePath}), berita acara dibuat tanpa KOP.`;
+            console.warn(message);
+        }
+    }
+
+    return null;
+}
+
+async function generateSeminarMinutesDocument(seminar) {
+    if (seminar.beritaAcaraDocumentId) {
+        return seminar.beritaAcaraDocumentId;
+    }
+
+    const headerPdfBuffer = await loadKopHeaderPdf();
+    const audiences = (seminar.audiences || []).map((audience) => ({
+        studentName: audience.student?.user?.fullName,
+        studentNim: audience.student?.user?.identityNumber,
+        status: audience.status === "VALIDATED" ? "Hadir" : "Belum Valid",
+        validatedAt: audience.validatedAt
+    }));
+
+    const pdfBuffer = await generateSeminarMinutesPdf({
+        studentName: seminar.internship.student?.user?.fullName,
+        studentNim: seminar.internship.student?.user?.identityNumber,
+        companyName: seminar.internship.proposal?.targetCompany?.companyName,
+        supervisorName: seminar.internship.supervisor?.user?.fullName,
+        moderatorName: seminar.moderatorStudent?.user?.fullName,
+        roomName: seminar.room?.name,
+        seminarDate: seminar.seminarDate,
+        startTime: seminar.startTime,
+        endTime: seminar.endTime,
+        notes: seminar.supervisorNotes,
+        audiences,
+        headerPdfBuffer
+    });
+
+    const verifyUrl = `${ENV.FRONTEND_URL}/verify/seminar-minutes/${seminar.id}`;
+    const stampedPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, {
+        x: 520,
+        y: 790,
+        pageNumber: 1,
+        size: 64
+    });
+    const fileHash = crypto.createHash("sha256").update(stampedPdfBuffer).digest("hex");
+
+    const uploadsDir = path.resolve("uploads/seminar");
+    if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    const nim = seminar.internship.student?.user?.identityNumber || "mahasiswa";
+    const fileName = `berita-acara-seminar-${nim}-${Date.now()}.pdf`;
+    const filePath = path.join(uploadsDir, fileName);
+    fs.writeFileSync(filePath, stampedPdfBuffer);
+
+    const document = await prisma.document.create({
+        data: {
+            fileName,
+            filePath: `uploads/seminar/${fileName}`,
+            fileHash
+        }
+    });
+
+    return document.id;
 }
 
 /**
@@ -492,7 +596,8 @@ export async function completeSeminar(seminarId, lecturerUserId) {
         throw error;
     }
 
-    const result = await seminarRepository.completeSeminar(seminarId);
+    const beritaAcaraDocumentId = await generateSeminarMinutesDocument(seminar);
+    const result = await seminarRepository.completeSeminar(seminarId, beritaAcaraDocumentId);
 
     // Notify student
     try {

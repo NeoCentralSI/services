@@ -224,8 +224,13 @@ export async function findInternshipById(id) {
                         include: {
                             user: true
                         }
-                    }
-                }
+                    },
+                    beritaAcaraDocument: true
+                },
+                orderBy: [
+                    { seminarDate: 'desc' },
+                    { createdAt: 'desc' }
+                ]
             },
             lecturerScores: {
                 include: {

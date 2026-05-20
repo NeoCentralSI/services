@@ -36,6 +36,9 @@ try {
   app.use("/uploads/general", express.static(path.join(uploadsDir, "general")));
   app.use("/uploads/logbooks", express.static(path.join(uploadsDir, "logbooks")));
   app.use("/uploads/field-assessments", express.static(path.join(uploadsDir, "field-assessments")));
+  app.use("/uploads/seminar", express.static(path.join(uploadsDir, "seminar")));
+  // Backward compatibility for documents generated before the folder rename.
+  app.use("/uploads/seminar-minutes", express.static(path.join(uploadsDir, "seminar")));
 
   console.log("📁 Serving protected thesis uploads and public internship/general uploads");
 } catch (err) {

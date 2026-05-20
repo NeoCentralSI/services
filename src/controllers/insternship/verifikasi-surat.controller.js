@@ -199,7 +199,7 @@ export async function verifySeminarMinutes(req, res, next) {
 		const data = {
 			id: seminar.id,
 			type: 'SEMINAR_MINUTES',
-			documentNumber: "Form KP-006",
+			documentNumber: "Form Berita Acara Seminar",
 			dateIssued: seminar.seminarDate,
 			coordinatorName: seminar.internship?.student?.user?.fullName,
 			coordinatorNim: seminar.internship?.student?.user?.identityNumber,

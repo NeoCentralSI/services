@@ -244,9 +244,24 @@ export async function findSeminarById(seminarId) {
                     },
                     supervisor: {
                         include: { user: { select: { fullName: true, id: true } } }
+                    },
+                    proposal: {
+                        include: {
+                            targetCompany: { select: { companyName: true } },
+                            academicYear: { select: { year: true, semester: true } }
+                        }
                     }
                 }
-            }
+            },
+            audiences: {
+                include: {
+                    student: {
+                        include: { user: { select: { fullName: true, identityNumber: true } } }
+                    }
+                },
+                orderBy: { createdAt: 'asc' }
+            },
+            beritaAcaraDocument: true
         }
     });
 }
@@ -448,12 +463,19 @@ export async function updateSeminarNotes(seminarId, notes) {
 
 /**
  * Mark a seminar as COMPLETED.
- * @param {string} seminarId 
+ * @param {string} seminarId
+ * @param {string|null} documentId
  */
-export async function completeSeminar(seminarId) {
+export async function completeSeminar(seminarId, documentId = null) {
     return prisma.internshipSeminar.update({
         where: { id: seminarId },
-        data: { status: 'COMPLETED' }
+        data: {
+            status: 'COMPLETED',
+            ...(documentId ? { beritaAcaraDocumentId: documentId } : {})
+        },
+        include: {
+            beritaAcaraDocument: true
+        }
     });
 }
 

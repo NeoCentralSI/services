@@ -655,15 +655,9 @@ export async function verifyFinalReport(lecturerId, internshipId, { status, note
         feedbackDocumentId = document.id;
     }
 
-    // Update report verification. An approved report is the final report.
     const updateData = {
         reportStatus: status,
-        reportNotes: notes || null,
-        reportFinalTitle: status === "APPROVED" ? internship.reportTitle : internship.reportFinalTitle,
-        reportFinalDocId: status === "APPROVED" ? internship.reportDocumentId : internship.reportFinalDocId,
-        reportFinalStatus: status,
-        reportFinalNotes: notes || null,
-        reportFinalUploadedAt: status === "APPROVED" ? new Date() : internship.reportFinalUploadedAt
+        reportNotes: notes || null
     };
     
     if (feedbackDocumentId !== null) {

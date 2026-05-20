@@ -363,18 +363,18 @@ export async function findSupervisedInternshipById(internshipId, supervisorId) {
                     filePath: true
                 }
             },
-            reportFinalDoc: {
-                select: {
-                    id: true,
-                    fileName: true,
-                    filePath: true
-                }
-            },
             seminars: {
                 include: {
                     room: true,
                     moderatorStudent: {
                         include: { user: { select: { fullName: true } } }
+                    },
+                    beritaAcaraDocument: {
+                        select: {
+                            id: true,
+                            fileName: true,
+                            filePath: true
+                        }
                     },
                     audiences: {
                         include: {

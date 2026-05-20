@@ -3,7 +3,11 @@ import * as penilaianRepository from "../../repositories/insternship/penilaian.r
 
 import crypto from "crypto";
 import prisma from "../../config/prisma.js";
+import { generateFieldAssessmentPdf } from "../../utils/field-assessment-pdf.util.js";
+import { generateLogbookPdfFromTemplate } from "../../utils/logbook-pdf.util.js";
+import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
+import { syncInternshipCompletionStatus } from "./internshipStatus.service.js";
 
 
 /**
@@ -74,6 +78,92 @@ export async function calculateFinalResults(internshipId) {
         finalNumericScore: parseFloat(finalNumericScore.toFixed(2)),
         finalGrade
     };
+}
+
+async function loadKopHeaderPdfForFieldAssessment() {
+    const kopTemplates = await prisma.document.findMany({
+        where: {
+            fileName: { contains: "KOP" }
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10
+    });
+
+    for (const kopTemplate of kopTemplates) {
+        if (!kopTemplate?.filePath) continue;
+
+        try {
+            const fs = await import("fs/promises");
+            const path = await import("path");
+            const { convertDocxToPdf } = await import("../../utils/pdf.util.js");
+            const templatePath = path.isAbsolute(kopTemplate.filePath)
+                ? kopTemplate.filePath
+                : path.resolve(kopTemplate.filePath);
+            const templateBuffer = await fs.readFile(templatePath);
+            const lowerFilePath = kopTemplate.filePath.toLowerCase();
+
+            if (lowerFilePath.endsWith(".docx")) {
+                return convertDocxToPdf(templateBuffer, "KOP.docx");
+            }
+
+            if (lowerFilePath.endsWith(".pdf")) {
+                return templateBuffer;
+            }
+        } catch (error) {
+            const missingFile = error?.code === "ENOENT";
+            const message = missingFile
+                ? `Template KOP tidak ditemukan (${kopTemplate.filePath}), penilaian lapangan dan logbook dibuat tanpa KOP.`
+                : `Template KOP gagal dimuat (${kopTemplate.filePath}), penilaian lapangan dan logbook dibuat tanpa KOP.`;
+            console.warn(message);
+        }
+    }
+
+    return null;
+}
+
+async function generateLogbookPdf(studentUserId, signatureBase64, signatureHash) {
+    const internship = await prisma.internship.findFirst({
+        where: {
+            studentId: studentUserId,
+            status: { in: ["ONGOING", "COMPLETED", "FAILED"] }
+        },
+        include: {
+            student: {
+                include: { user: { select: { fullName: true, identityNumber: true } } }
+            },
+            proposal: {
+                include: {
+                    targetCompany: { select: { companyName: true } },
+                    academicYear: { select: { year: true, semester: true } }
+                }
+            },
+            logbooks: {
+                orderBy: { activityDate: "asc" }
+            }
+        },
+        orderBy: [
+            { updatedAt: "desc" },
+            { createdAt: "desc" }
+        ]
+    });
+
+    if (!internship) {
+        throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan untuk membuat logbook.");
+    }
+
+    const headerPdfBuffer = await loadKopHeaderPdfForFieldAssessment();
+
+    return generateLogbookPdfFromTemplate({
+        studentName: internship.student.user.fullName,
+        studentNim: internship.student.user.identityNumber,
+        companyName: internship.proposal.targetCompany?.companyName || "-",
+        fieldSupervisorName: internship.fieldSupervisorName || "-",
+        academicYear: `${internship.proposal.academicYear.year} - ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`,
+        logbooks: internship.logbooks || [],
+        signatureBase64,
+        signatureHash,
+        headerPdfBuffer
+    });
 }
 
 /**
@@ -617,30 +707,7 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
             orderBy: { code: "desc" },
         });
 
-        // Find "KOP" template from SOP manager
-        const kopTemplate = await prisma.document.findFirst({
-            where: {
-                fileName: { contains: "KOP" }
-            },
-            orderBy: { createdAt: 'desc' }
-        });
-
-        let headerPdfBuffer = null;
-        if (kopTemplate) {
-            try {
-                const fs = await import("fs/promises");
-                const path = await import("path");
-                const templateBuffer = await fs.readFile(path.join(process.cwd(), kopTemplate.filePath));
-                if (kopTemplate.filePath.endsWith('.docx')) {
-                    const { convertDocxToPdf } = await import("../../utils/pdf.util.js");
-                    headerPdfBuffer = await convertDocxToPdf(templateBuffer, "KOP.docx");
-                } else if (kopTemplate.filePath.endsWith('.pdf')) {
-                    headerPdfBuffer = templateBuffer;
-                }
-            } catch (err) {
-                console.error("Gagal memuat template KOP untuk penilaian lapangan:", err);
-            }
-        }
+        const headerPdfBuffer = await loadKopHeaderPdfForFieldAssessment();
 
         const pdfBuffer = await generateFieldAssessmentPdf({
             studentName: internship.student.user.fullName,

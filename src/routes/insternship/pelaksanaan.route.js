@@ -21,7 +21,6 @@ activityRouter.post("/certificate", authGuard, pelaksanaanController.updateCompl
 activityRouter.post("/receipt", authGuard, pelaksanaanController.updateCompanyReceipt);
 activityRouter.post("/company-report", authGuard, pelaksanaanController.submitCompanyReport);
 activityRouter.post("/logbook-doc", authGuard, pelaksanaanController.submitLogbook);
-activityRouter.post("/final-fix-report", authGuard, pelaksanaanController.submitFinalReport);
 
 router.use("/activity", activityRouter);
 

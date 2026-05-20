@@ -1026,7 +1026,6 @@ model Document {
   internshipCompanyReportDocs         Internship[]                     @relation("InternshipCompanyReportDoc")
   internshipSeminarBeritaAcara        InternshipSeminar[]              @relation("InternshipSeminarBeritaAcara")
   internshipLogbookDoc                Internship[]                     @relation("InternshipLogbookDoc")
-  internshipReportFinalDocs           Internship[]                     @relation("InternshipReportFinalDoc")
   thesis                              Thesis[]
   thesisFinalDocument                 Thesis[]                         @relation("FinalThesisDocument")
   thesisGuidances                     ThesisGuidance[]
@@ -1239,7 +1238,7 @@ model Internship {
   supLetterId String?                     @map("sup_letter_id")
   supLetter   InternshipSupervisorLetter? @relation(fields: [supLetterId], references: [id], onDelete: SetNull)
 
-  // Report fields (merged from InternshipReport)
+  // Report fields 
   reportTitle              String?                 @map("report_title")
   reportDocumentId         String?                 @map("report_document_id")
   reportStatus             InternshipReportStatus? @map("report_status")
@@ -1273,19 +1272,11 @@ model Internship {
   companyReportStatus InternshipReportStatus? @map("company_report_status")
   companyReportNotes  String?                 @map("company_report_notes") @db.Text
 
-  // Final Fix Report (post-seminar, with approval/signature page)
-  reportFinalTitle      String?                 @map("report_final_title")
-  reportFinalDocId      String?                 @map("report_final_doc_id")
-  reportFinalStatus     InternshipReportStatus? @map("report_final_status")
-  reportFinalNotes      String?                 @map("report_final_notes") @db.Text
-  reportFinalUploadedAt DateTime?               @map("report_final_uploaded_at")
-
   fieldAssessmentDoc       Document? @relation("InternshipFieldAssessmentDoc", fields: [fieldAssessmentDocId], references: [id])
   completionCertificateDoc Document? @relation("InternshipCompletionCertificateDoc", fields: [completionCertificateDocId], references: [id])
   companyReceiptDoc        Document? @relation("InternshipCompanyReceiptDoc", fields: [companyReceiptDocId], references: [id])
   companyReportDoc         Document? @relation("InternshipCompanyReportDoc", fields: [companyReportDocId], references: [id])
   logbookDocument          Document? @relation("InternshipLogbookDoc", fields: [logbookDocumentId], references: [id])
-  reportFinalDoc           Document? @relation("InternshipReportFinalDoc", fields: [reportFinalDocId], references: [id])
 
   lecturerScores InternshipLecturerScore[]
   fieldScores    InternshipFieldScore[]
@@ -1311,7 +1302,6 @@ model Internship {
   @@index([companyReceiptDocId], map: "internships_company_receipt_doc_id_fkey")
   @@index([reportDocumentId], map: "internships_report_document_id_fkey")
   @@index([reportFeedbackDocumentId], map: "internships_report_feedback_document_id_fkey")
-  @@index([reportFinalDocId], map: "internships_report_final_doc_id_fkey")
   @@map("internships")
 }
 

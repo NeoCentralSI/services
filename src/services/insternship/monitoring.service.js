@@ -40,6 +40,9 @@ export async function getInternshipDetail(id) {
     const guidanceItems = internship.proposal?.academicYear?.internshipGuidanceQuestions || [];
     const uniqueWeeks = [...new Set(guidanceItems.map(q => q.weekNumber))];
     const guidanceTotal = uniqueWeeks.length > 0 ? Math.max(...uniqueWeeks) : 8;
+    const seminarMinutesDocument = (internship.seminars || [])
+        .find(seminar => seminar.status === 'COMPLETED' && seminar.beritaAcaraDocument)
+        ?.beritaAcaraDocument || null;
 
     const formatTime = (timeStr) => {
         if (!timeStr) return null;
@@ -132,6 +135,11 @@ export async function getInternshipDetail(id) {
                 document: internship.fieldAssessmentDoc,
                 status: internship.fieldAssessmentStatus,
                 notes: null
+            },
+            beritaAcara: {
+                document: seminarMinutesDocument,
+                status: seminarMinutesDocument ? 'APPROVED' : null,
+                notes: null
             }
         },
         supervisorLetter: internship.supLetter ? {
@@ -146,7 +154,7 @@ export async function getInternshipDetail(id) {
 }
 
 /**
- * Sekdep rejects the approved final report causing the student to have to re-upload.
+ * Sekdep rejects the approved internship report causing the student to have to re-upload.
  * @param {string} internshipId 
  * @param {string} notes 
  * @returns {Promise<Object>}
@@ -173,17 +181,15 @@ export async function rejectFinalReport(internshipId, notes) {
         where: { id: internshipId },
         data: {
             reportStatus: 'REVISION_NEEDED',
-            reportNotes: notes,
-            reportFinalStatus: 'REVISION_NEEDED',
-            reportFinalNotes: notes
+            reportNotes: notes
         }
     });
 
     // Notify student
     try {
         const studentId = internship.studentId;
-        const title = "Laporan Final Ditolak Sekretaris Departemen";
-        const message = `Laporan Final KP Anda dikembalikan. Catatan: ${notes || 'Silakan unggah ulang dokumen yang benar.'}`;
+        const title = "Laporan Akhir Ditolak Sekretaris Departemen";
+        const message = `Laporan Akhir KP Anda dikembalikan. Catatan: ${notes || 'Silakan unggah ulang dokumen yang benar.'}`;
 
         await notificationService.createNotificationsForUsers([studentId], { title, message });
         await sendFcmToUsers([studentId], {
