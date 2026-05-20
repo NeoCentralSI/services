@@ -339,8 +339,8 @@ export async function getSupervisedStudents(lecturerId) {
             ? `${academicYear.year} ${academicYear.semester.charAt(0).toUpperCase() + academicYear.semester.slice(1)}`
             : '-';
 
-        const latestSeminar = internship.seminars && internship.seminars.length > 0 
-            ? internship.seminars[0] 
+        const latestSeminar = internship.seminars && internship.seminars.length > 0
+            ? internship.seminars[0]
             : null;
 
         return {
@@ -437,7 +437,7 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
 
         const session = sessions.find(s => s.weekNumber === w);
         let status = "NOT_AVAILABLE";
-        
+
         if (session) {
             status = session.status;
         } else if (today >= weekStart) {
@@ -472,7 +472,7 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
  */
 export async function getGuidanceWeekDetail(lecturerId, internshipId, weekNumber) {
     const numWeek = parseInt(weekNumber);
-    
+
     // 1. Verify internship belongs to this lecturer
     const internship = await guidanceRepo.findSupervisedInternshipById(internshipId, lecturerId);
     if (!internship) {
@@ -483,7 +483,7 @@ export async function getGuidanceWeekDetail(lecturerId, internshipId, weekNumber
 
     // 2. Fetch session details
     const session = await guidanceRepo.findGuidanceSessionWithDetails(internshipId, numWeek);
-    
+
     // 3. Fetch master criteria for this week
     const ayId = internship.proposal?.academicYearId;
     const allCriteria = await guidanceRepo.findAllCriteria(ayId);
@@ -606,7 +606,7 @@ export async function verifyFinalReport(lecturerId, internshipId, { status, note
     if (feedbackFile) {
         const fs = await import('fs');
         const path = await import('path');
-        
+
         // Delete old feedback file if exists
         if (internship.reportFeedbackDocumentId) {
             try {
@@ -659,7 +659,7 @@ export async function verifyFinalReport(lecturerId, internshipId, { status, note
         reportStatus: status,
         reportNotes: notes || null
     };
-    
+
     if (feedbackDocumentId !== null) {
         updateData.reportFeedbackDocumentId = feedbackDocumentId;
     }
