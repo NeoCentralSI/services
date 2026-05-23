@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import jwt from "jsonwebtoken";
 import app from "../../../app.js";
 import prisma from "../../../config/prisma.js";
-import { ENV } from "../../../config/env.js";
+import { createOngoingInternship, getUserByEmailOrThrow, makeAuthToken } from "./test-utils.js";
 
 describe("Internship Pelaksanaan Integration Test", () => {
   let tokens = {};
@@ -18,43 +17,16 @@ describe("Internship Pelaksanaan Integration Test", () => {
     ];
 
     for (const role of roles) {
-      const user = await prisma.user.findFirst({ 
-        where: { email: role.email },
-        include: { student: true }
-      });
-      if (!user) throw new Error(`User ${role.key} (${role.email}) not found.`);
+      const user = await getUserByEmailOrThrow(role.email, { student: true });
       users[role.key] = user;
-      tokens[role.key] = jwt.sign({ sub: user.id, email: user.email }, ENV.JWT_SECRET);
+      tokens[role.key] = makeAuthToken(user);
     }
 
-    // 2. Find or create internship
-    testInternship = await prisma.internship.findFirst({
-      where: { studentId: users.student.student.id }
+    // 2. Create a fresh active internship fixture
+    testInternship = await createOngoingInternship({
+      studentUser: users.student,
+      companyName: "PT Pelaksanaan Integration",
     });
-
-    if (!testInternship) {
-      const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-      const company = await prisma.company.findFirst() || await prisma.company.create({
-        data: { name: "PT Default", address: "Default Address" }
-      });
-      const proposal = await prisma.internshipProposal.create({
-        data: {
-          coordinatorId: users.student.id,
-          academicYearId: academicYear.id,
-          targetCompanyId: company.id,
-          proposedStartDate: new Date(),
-          proposedEndDate: new Date(),
-          status: "APPROVED_PROPOSAL"
-        }
-      });
-      testInternship = await prisma.internship.create({
-        data: {
-          studentId: users.student.student.id,
-          proposalId: proposal.id,
-          status: "ONGOING"
-        }
-      });
-    }
 
     // 3. Create a dummy logbook entry if not exists
     testLogbook = await prisma.internshipLogbook.findFirst({
@@ -99,7 +71,7 @@ describe("Internship Pelaksanaan Integration Test", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(Array.isArray(response.body.data)).toBe(true);
+    expect(Array.isArray(response.body.data.logbooks)).toBe(true);
   });
 
   it("should successfully update a logbook entry", async () => {

@@ -15,6 +15,7 @@ export async function generateFieldAssessmentPdf(opts) {
         academicYear,
         cpmks,
         scores,
+        notes,
         signatureBase64,
         signatureHash,
         submittedAt,
@@ -56,6 +57,25 @@ export async function generateFieldAssessmentPdf(opts) {
     function drawCentered(text, y, size, f = font) {
         const tw = f.widthOfTextAtSize(text, size);
         drawText(text, (W - tw) / 2, y, size, f);
+    }
+
+    function wrapText(text, maxWidth, size, f = font) {
+        const words = String(text || "").split(/\s+/).filter(Boolean);
+        const lines = [];
+        let currentLine = "";
+
+        for (const word of words) {
+            const testLine = currentLine ? `${currentLine} ${word}` : word;
+            if (f.widthOfTextAtSize(testLine, size) > maxWidth && currentLine) {
+                lines.push(currentLine);
+                currentLine = word;
+            } else {
+                currentLine = testLine;
+            }
+        }
+
+        if (currentLine) lines.push(currentLine);
+        return lines;
     }
 
     // Helper: new page if needed
@@ -200,6 +220,31 @@ export async function generateFieldAssessmentPdf(opts) {
     curY -= 15;
     drawText(`Total Nilai Tertimbang: ${totalWeightedScore.toFixed(2)}`, ML, curY, 11, fontBold);
     curY -= 30;
+
+    // ===== NOTES SECTION =====
+    ensureSpace(90);
+    drawText("B. Catatan untuk Mahasiswa", ML, curY, 12, fontBold);
+    curY -= 18;
+
+    const noteLines = wrapText(notes || "-", contentW - 18, 10, font);
+    const noteBoxH = Math.max(48, noteLines.length * 13 + 18);
+    ensureSpace(noteBoxH + 20);
+    page.drawRectangle({
+        x: ML,
+        y: curY - noteBoxH,
+        width: contentW,
+        height: noteBoxH,
+        borderColor: rgb(0, 0, 0),
+        borderWidth: 0.5,
+        color: rgb(1, 1, 1),
+    });
+
+    let noteY = curY - 14;
+    for (const line of noteLines) {
+        drawText(line, ML + 9, noteY, 10);
+        noteY -= 13;
+    }
+    curY -= noteBoxH + 25;
 
     // ===== SIGNATURE SECTION =====
     ensureSpace(160);

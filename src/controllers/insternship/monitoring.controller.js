@@ -124,6 +124,28 @@ export async function sendFieldAssessment(req, res, next) {
 }
 
 /**
+ * Update field supervisor and unit information for Sekdep.
+ */
+export async function updateInternshipFieldInfo(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { fieldSupervisorName, fieldSupervisorEmail, unitSection } = req.body;
+        const data = await monitoringService.updateInternshipFieldInfo(id, {
+            fieldSupervisorName,
+            fieldSupervisorEmail,
+            unitSection
+        });
+        res.status(200).json({
+            success: true,
+            message: "Informasi lapangan berhasil diperbarui.",
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * Reject the approved internship report (Sekdep).
  * @param {import('express').Request} req 
  * @param {import('express').Response} res 

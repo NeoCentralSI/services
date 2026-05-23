@@ -1,14 +1,5 @@
 
-import * as pendaftaranService from "../../services/insternship/pendaftaran.service.js";
-import * as penunjukanPembimbingService from "../../services/insternship/penunjukan-pembimbing.service.js";
-import * as pelaksanaanService from "../../services/insternship/pelaksanaan.service.js";
-import * as bimbinganService from "../../services/insternship/bimbingan.service.js";
-import * as seminarService from "../../services/insternship/seminar.service.js";
-import * as penilaianService from "../../services/insternship/penilaian.service.js";
-import * as monitoringService from "../../services/insternship/monitoring.service.js";
 
-import path from "path";
-import fs from "fs";
 
 // Legacy imports mapping to avoid breaking controller logic during refactor
 import * as guidanceService from "../../services/insternship/bimbingan.service.js";
@@ -150,6 +141,19 @@ export async function getSupervisedStudents(req, res, next) {
     try {
         const lecturerId = req.user.sub;
         const data = await guidanceService.getSupervisedStudents(lecturerId);
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Get academic years available for lecturer guidance filters.
+ */
+export async function getLecturerAcademicYears(req, res, next) {
+    try {
+        const lecturerId = req.user.sub;
+        const data = await guidanceService.getLecturerAcademicYears(lecturerId);
         res.status(200).json({ success: true, data });
     } catch (error) {
         next(error);

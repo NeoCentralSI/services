@@ -21,6 +21,9 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import crypto from "crypto";
 import prisma from "../../config/prisma.js";
+import { ENV } from "../../config/env.js";
+import { sendMail } from "../../config/mailer.js";
+import { fieldAssessmentRequestTemplate } from "../../utils/emailTemplate.js";
 
 
 
@@ -111,10 +114,12 @@ export async function getInternshipDetail(id) {
             : '-',
         reportingDocuments: {
             report: {
-                document: internship.reportDocument,
-                status: internship.reportStatus,
-                notes: internship.reportNotes,
-                uploadedAt: internship.reportUploadedAt
+                document: internship.companyReportDoc,
+                status: ['COMPLETED', 'APPROVED'].includes(internship.fieldAssessmentStatus)
+                    ? 'APPROVED'
+                    : internship.companyReportStatus,
+                notes: internship.companyReportNotes,
+                uploadedAt: null
             },
             completionCertificate: {
                 document: internship.completionCertificateDoc,
@@ -134,7 +139,7 @@ export async function getInternshipDetail(id) {
             fieldAssessmentDocument: {
                 document: internship.fieldAssessmentDoc,
                 status: internship.fieldAssessmentStatus,
-                notes: null
+                notes: internship.fieldAssessmentNotes
             },
             beritaAcara: {
                 document: seminarMinutesDocument,
@@ -151,6 +156,48 @@ export async function getInternshipDetail(id) {
         } : null,
         createdAt: internship.createdAt
     };
+}
+
+/**
+ * Update field supervisor and unit information for Sekdep.
+ * @param {string} internshipId
+ * @param {Object} data
+ * @returns {Promise<Object>}
+ */
+export async function updateInternshipFieldInfo(internshipId, data) {
+    const internship = await prisma.internship.findUnique({
+        where: { id: internshipId }
+    });
+
+    if (!internship) {
+        const error = new Error("Data Kerja Praktik tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    if (internship.fieldAssessmentStatus === "COMPLETED") {
+        const error = new Error("Penilaian lapangan sudah selesai sehingga informasi lapangan tidak dapat diubah.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const normalizeString = (value) => typeof value === "string" ? value.trim() : "";
+    const payload = {
+        fieldSupervisorName: normalizeString(data?.fieldSupervisorName),
+        fieldSupervisorEmail: normalizeString(data?.fieldSupervisorEmail),
+        unitSection: normalizeString(data?.unitSection)
+    };
+
+    if (!payload.fieldSupervisorName || !payload.fieldSupervisorEmail || !payload.unitSection) {
+        const error = new Error("Nama pembimbing lapangan, email pembimbing lapangan, dan unit kerja wajib diisi.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return prisma.internship.update({
+        where: { id: internshipId },
+        data: payload
+    });
 }
 
 /**
@@ -584,6 +631,18 @@ export async function sendFieldAssessmentRequest(internshipId) {
         throw Object.assign(new Error("Internship tidak ditemukan."), { statusCode: 404 });
     }
 
+    if (!internship.isLogbookLocked) {
+        throw Object.assign(new Error("Logbook harus dikunci terlebih dahulu sebelum link penilaian dikirim."), { statusCode: 400 });
+    }
+
+    if (!internship.companyReportDocId) {
+        throw Object.assign(new Error("Laporan instansi harus diunggah terlebih dahulu sebelum link penilaian dikirim."), { statusCode: 400 });
+    }
+
+    if (["COMPLETED", "APPROVED"].includes(internship.fieldAssessmentStatus)) {
+        throw Object.assign(new Error("Penilaian lapangan sudah selesai sehingga link penilaian tidak perlu dikirim ulang."), { statusCode: 400 });
+    }
+
     if (!internship.fieldSupervisorEmail) {
         throw Object.assign(new Error("Email pembimbing lapangan belum diisi oleh mahasiswa."), { statusCode: 400 });
     }
@@ -624,12 +683,6 @@ export async function sendFieldAssessmentRequest(internshipId) {
         pin,
         expiresInDays: 7,
     });
-
-    // We need email template generator and sendMail function.
-    // Let's import those!
-    const { sendMail } = await import("../../config/mailer.js");
-    const { fieldAssessmentRequestTemplate } = await import("../../utils/emailTemplate.js");
-    const { ENV } = await import("../../config/env.js");
 
     await sendMail({
         to: internship.fieldSupervisorEmail,

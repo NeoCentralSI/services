@@ -1,13 +1,13 @@
 import express from "express";
-import { authGuard, requireRole, requireAnyRole } from "../middlewares/auth.middleware.js";
+import { createAcademicYearController, createRoomController, createUserByAdminController, deleteRoomController, getAcademicYearsController, getActiveAcademicYearController, getFailedThesesController, getKadepQuickActionsController, getLecturerDetailController, getLecturersController, getRoomsController, getStudentDetailController, getStudentsController, getUsersController, importAcademicYearsExcelController, importLecturersExcelController, importStudentsCsv, importStudentsExcelController, importUsersExcelController, updateAcademicYearController, updateLecturerByAdminController, updateRoomController, updateStudentByAdminController, updateUserByAdmin } from "../controllers/adminfeatures.controller.js";
+import { authGuard, requireAnyRole, requireRole } from "../middlewares/auth.middleware.js";
 import { uploadCsv } from "../middlewares/file.middleware.js";
-import { importStudentsExcelController, importLecturersExcelController, importUsersExcelController, importAcademicYearsExcelController, importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getKadepQuickActionsController, getFailedThesesController, updateLecturerByAdminController, updateStudentByAdminController, createRoomController, updateRoomController, getRoomsController, deleteRoomController } from "../controllers/adminfeatures.controller.js";
-import { updateUserSchema, createUserSchema } from "../validators/user.validator.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
 import { createRoomSchema, updateRoomSchema } from "../validators/master-data/room.validator.js";
+import { createUserSchema, updateUserSchema } from "../validators/user.validator.js";
 
-import { ROLES } from "../constants/roles.js";
+import { LECTURER_ROLES, ROLES } from "../constants/roles.js";
 
 
 const router = express.Router();
@@ -22,7 +22,7 @@ router.get("/lecturers/:id", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA
 router.patch("/lecturers/:id", authGuard, requireRole(ROLES.ADMIN), updateLecturerByAdminController);
 router.post("/users", authGuard, requireRole(ROLES.ADMIN), validate(createUserSchema), createUserByAdminController);
 router.patch("/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateUserSchema), updateUserByAdmin);
-router.get("/academic-years", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getAcademicYearsController);
+router.get("/academic-years", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ...LECTURER_ROLES]), getAcademicYearsController);
 router.get("/academic-years/active", authGuard, getActiveAcademicYearController);
 router.post("/academic-years", authGuard, requireRole(ROLES.ADMIN), validate(createAcademicYearSchema), createAcademicYearController);
 router.patch("/academic-years/:id", authGuard, requireRole(ROLES.ADMIN), validate(updateAcademicYearSchema), updateAcademicYearController);

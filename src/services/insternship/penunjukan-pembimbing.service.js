@@ -48,13 +48,26 @@ export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrde
  * @returns {Promise<Object>}
  */
 export async function assignSupervisorsBulk({ internshipIds, supervisorId }) {
+    const internships = await penunjukanPembimbingRepository.findInternshipsWithStudents(internshipIds);
+    const lockedInternships = internships.filter(i => i.supLetterId);
+
+    if (lockedInternships.length > 0) {
+        const names = lockedInternships
+            .map(i => i.student?.user?.fullName)
+            .filter(Boolean)
+            .join(", ");
+        const suffix = names ? `: ${names}` : "";
+        const error = new Error(`Dosen pembimbing tidak dapat diganti karena surat tugas sudah terbit${suffix}`);
+        error.statusCode = 400;
+        throw error;
+    }
+
     // 1. Perform bulk update
     const result = await penunjukanPembimbingRepository.bulkUpdateInternshipSupervisor(internshipIds, supervisorId);
 
     // 2. Send Notifications to Supervisor (Lecturer) and Students
     try {
         // Get data for messages
-        const internships = await penunjukanPembimbingRepository.findInternshipsWithStudents(internshipIds);
         const supervisor = await penunjukanPembimbingRepository.findLecturerForLetter(supervisorId);
         const supervisorName = supervisor?.user?.fullName || "Dosen Pembimbing";
 
@@ -193,6 +206,8 @@ export async function getSupervisorLetterDetail(supervisorId) {
             nim: i.student?.user?.identityNumber,
             name: i.student?.user?.fullName,
             companyName: i.proposal?.targetCompany?.companyName || "Unknown Company",
+            actualStartDate: i.actualStartDate || null,
+            actualEndDate: i.actualEndDate || null,
             documents: {
                 appLetterDocNumber: i.proposal?.appLetterDocNumber || null,
                 assignLetterDocNumber: i.proposal?.assignLetterDocNumber || null,

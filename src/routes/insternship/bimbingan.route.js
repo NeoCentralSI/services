@@ -1,7 +1,7 @@
 import express from "express";
+import { LECTURER_ROLES, ROLES } from "../../constants/roles.js";
 import * as bimbinganController from "../../controllers/insternship/bimbingan.controller.js";
-import { authGuard, requireRole, requireAnyRole } from "../../middlewares/auth.middleware.js";
-import { ROLES, LECTURER_ROLES } from "../../constants/roles.js";
+import { authGuard, requireAnyRole, requireRole } from "../../middlewares/auth.middleware.js";
 import { uploadThesisFile } from "../../middlewares/file.middleware.js";
 
 const router = express.Router();
@@ -14,6 +14,7 @@ activityRouter.post("/guidance/submit", authGuard, bimbinganController.submitStu
 
 // ==================== Lecturer Guidance ====================
 activityRouter.get("/guidance/lecturer/students", authGuard, requireAnyRole(LECTURER_ROLES), bimbinganController.getSupervisedStudents);
+activityRouter.get("/guidance/lecturer/academic-years", authGuard, requireAnyRole(LECTURER_ROLES), bimbinganController.getLecturerAcademicYears);
 activityRouter.get("/guidance/lecturer/students/:internshipId", authGuard, requireAnyRole(LECTURER_ROLES), bimbinganController.getSupervisedStudentTimeline);
 activityRouter.get("/guidance/lecturer/students/:internshipId/week/:weekNumber", authGuard, requireAnyRole(LECTURER_ROLES), bimbinganController.getSupervisedStudentWeekDetail);
 activityRouter.post("/guidance/lecturer/students/:internshipId/week/:weekNumber/evaluate", authGuard, requireAnyRole(LECTURER_ROLES), bimbinganController.submitLecturerEvaluation);
@@ -26,12 +27,12 @@ router.use("/activity", activityRouter);
 const sekdepRouter = express.Router();
 sekdepRouter.use(authGuard, requireRole(ROLES.SEKRETARIS_DEPARTEMEN));
 
-sekdepRouter.get("/guidance/questions", bimbinganController.getQuestions);
+sekdepRouter.get("/guidance/questions", authGuard, requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ...LECTURER_ROLES]), bimbinganController.getQuestions);
 sekdepRouter.post("/guidance/questions", bimbinganController.createQuestion);
 sekdepRouter.put("/guidance/questions/:id", bimbinganController.updateQuestion);
 sekdepRouter.delete("/guidance/questions/:id", bimbinganController.deleteQuestion);
 
-sekdepRouter.get("/guidance/criteria", bimbinganController.getCriteria);
+sekdepRouter.get("/guidance/criteria", authGuard, requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ...LECTURER_ROLES]), bimbinganController.getCriteria);
 sekdepRouter.post("/guidance/criteria", bimbinganController.createCriteria);
 sekdepRouter.put("/guidance/criteria/:id", bimbinganController.updateCriteria);
 sekdepRouter.delete("/guidance/criteria/:id", bimbinganController.deleteCriteria);

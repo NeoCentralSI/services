@@ -259,8 +259,8 @@ export async function updateCompanyReport(studentId, documentId) {
         throw new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
     }
 
-    if (['APPROVED', 'SUBMITTED'].includes(internship.companyReportStatus)) {
-        throw new Error("Dokumen sudah diunggah dan sedang diproses atau sudah disetujui.");
+    if (internship.companyReportStatus === 'APPROVED' || ['COMPLETED', 'APPROVED'].includes(internship.fieldAssessmentStatus)) {
+        throw new Error("Laporan instansi sudah terverifikasi dan tidak dapat diubah.");
     }
 
     return prisma.internship.update({

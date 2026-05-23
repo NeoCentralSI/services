@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import prisma from "../../../config/prisma.js";
 import { updateAllInternshipDeadlineStatuses } from "../../../services/insternship/internshipStatus.service.js";
+import { ensureActiveAcademicYear, ensureCompany } from "./test-utils.js";
 
 describe("Internship Cron Job Integration Test", () => {
   let testStudent;
@@ -30,11 +31,9 @@ describe("Internship Cron Job Integration Test", () => {
       }
     });
 
-    // Find academic year and company
-    const academicYear = await prisma.academicYear.findFirst({ orderBy: { year: 'desc' } });
-    const company = await prisma.company.findFirst();
-    
-    if (!academicYear || !company) throw new Error("AcademicYear or Company not found for test.");
+    // Find or create academic year and company
+    const academicYear = await ensureActiveAcademicYear();
+    const company = await ensureCompany({ companyName: "PT Cron Integration" });
 
     // Create a dummy proposal
     testProposal = await prisma.internshipProposal.create({

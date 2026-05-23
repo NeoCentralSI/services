@@ -181,7 +181,11 @@ export async function submitCompanyReport(req, res, next) {
         }
 
         const data = await activityService.submitCompanyReport(userId, documentId);
-        res.json({ success: true, message: "Laporan akhir instansi berhasil diunggah. Email ke pembimbing lapangan telah dikirim.", data });
+        res.json({
+            success: true,
+            message: data.message || "Laporan akhir instansi berhasil diunggah.",
+            data
+        });
     } catch (error) {
         next(error);
     }

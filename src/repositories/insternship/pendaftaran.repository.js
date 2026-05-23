@@ -147,6 +147,7 @@ export async function getActiveAcademicYear() {
  */
 export async function createProposal(data) {
     const { coordinatorId, proposalDocumentId, academicYearId, targetCompanyId, proposedStartDate, proposedEndDate, memberIds = [] } = data;
+    const normalizedMemberIds = [...new Set(memberIds.filter(id => id && id !== coordinatorId))];
 
     return prisma.internshipProposal.create({
         data: {
@@ -160,7 +161,7 @@ export async function createProposal(data) {
             internships: {
                 create: [
                     { studentId: coordinatorId, status: 'ACCEPTED' },
-                    ...memberIds.map(id => ({
+                    ...normalizedMemberIds.map(id => ({
                         studentId: id,
                         status: 'PENDING'
                     }))
@@ -183,6 +184,7 @@ export async function createProposal(data) {
  */
 export async function updateProposal(proposalId, data) {
     const { coordinatorId, proposalDocumentId, targetCompanyId, memberIds = [] } = data;
+    const normalizedMemberIds = [...new Set(memberIds.filter(id => id && id !== coordinatorId))];
 
     return prisma.$transaction(async (tx) => {
         // 1. Get old document info for deletion
@@ -222,7 +224,7 @@ export async function updateProposal(proposalId, data) {
         const currentStudentIds = currentInternships.map(i => i.studentId);
 
         // Required IDs now include the coordinator
-        const requiredStudentIds = [coordinatorId, ...memberIds];
+        const requiredStudentIds = [coordinatorId, ...normalizedMemberIds].filter(Boolean);
 
         // Members to keep (exists in current and required)
         const membersToKeep = requiredStudentIds.filter(id => currentStudentIds.includes(id));
@@ -779,14 +781,29 @@ export async function updateAssignmentLetter(proposalId, data) {
         throw error;
     }
 
-    return prisma.internshipProposal.update({
-        where: { id: proposalId },
-        data: {
-            assignLetterDocNumber: documentNumber,
-            assignLetterDateIssued: new Date(),
-            startDateActual: startDateActual ? new Date(startDateActual) : null,
-            endDateActual: endDateActual ? new Date(endDateActual) : null
-        }
+    const actualStartDate = startDateActual ? new Date(startDateActual) : null;
+    const actualEndDate = endDateActual ? new Date(endDateActual) : null;
+
+    return prisma.$transaction(async (tx) => {
+        const updatedProposal = await tx.internshipProposal.update({
+            where: { id: proposalId },
+            data: {
+                assignLetterDocNumber: documentNumber,
+                assignLetterDateIssued: new Date(),
+                startDateActual: actualStartDate,
+                endDateActual: actualEndDate
+            }
+        });
+
+        await tx.internship.updateMany({
+            where: { proposalId },
+            data: {
+                actualStartDate,
+                actualEndDate
+            }
+        });
+
+        return updatedProposal;
     });
 }
 
@@ -1070,7 +1087,14 @@ export async function findApprovedProposals(academicYearId) {
             },
             targetCompany: true,
             academicYear: true,
-            appLetterDoc: true
+            appLetterDoc: true,
+            internships: {
+                include: {
+                    student: {
+                        include: { user: true }
+                    }
+                }
+            }
         },
         orderBy: {
             createdAt: 'desc'
@@ -1083,8 +1107,10 @@ export async function findApprovedProposals(academicYearId) {
  */
 export async function findProposalsForAssignment(academicYearId) {
     const whereClause = {
+        appLetterDocId: { not: null },
+        appLetterSignedById: { not: null },
         status: {
-            in: ['ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED']
+            in: ['APPROVED_PROPOSAL', 'WAITING_FOR_VERIFICATION', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED']
         }
     };
 
@@ -1102,7 +1128,15 @@ export async function findProposalsForAssignment(academicYearId) {
             },
             targetCompany: true,
             academicYear: true,
-            assignLetterDoc: true
+            assignLetterDoc: true,
+            companyResponseDoc: true,
+            internships: {
+                include: {
+                    student: {
+                        include: { user: true }
+                    }
+                }
+            }
         },
         orderBy: {
             createdAt: 'desc'
@@ -1141,9 +1175,9 @@ export async function updateApplicationLetter(proposalId, data) {
         where: { id: proposalId },
         data: {
             appLetterDocNumber: data.letterNumber,
-            proposedStartDate: data.proposedStartDate,
-            proposedEndDate: data.proposedEndDate,
-            status: 'WAITING_FOR_VERIFICATION'
+            appLetterDateIssued: new Date(),
+            startDatePlanned: data.startDatePlanned,
+            endDatePlanned: data.endDatePlanned
         }
     });
 }
@@ -1199,13 +1233,49 @@ export async function updateAssignmentLetterDocumentId(proposalId, documentId) {
 /**
  * Update company response document ID.
  */
-export async function updateCompanyResponseDoc(proposalId, documentId) {
-    return prisma.internshipProposal.update({
-        where: { id: proposalId },
-        data: {
-            companyResponseDocId: documentId,
-            status: 'WAITING_FOR_VERIFICATION'
+export async function updateCompanyResponseDoc(proposalId, documentId, acceptedMemberIds) {
+    return prisma.$transaction(async (tx) => {
+        const internships = await tx.internship.findMany({
+            where: { proposalId },
+            select: { studentId: true }
+        });
+        const allStudentIds = internships.map(i => i.studentId);
+        const acceptedSet = Array.isArray(acceptedMemberIds)
+            ? new Set(acceptedMemberIds)
+            : new Set(allStudentIds);
+        const acceptedCount = allStudentIds.filter(id => acceptedSet.has(id)).length;
+        const proposalStatus = acceptedCount === allStudentIds.length
+            ? 'ACCEPTED_BY_COMPANY'
+            : acceptedCount > 0
+                ? 'PARTIALLY_ACCEPTED'
+                : 'REJECTED_BY_COMPANY';
+
+        const updatedProposal = await tx.internshipProposal.update({
+            where: { id: proposalId },
+            data: {
+                companyResponseDocId: documentId,
+                status: proposalStatus,
+                companyResponseNotes: null
+            },
+            include: {
+                targetCompany: true,
+                companyResponseDoc: true,
+                internships: true
+            }
+        });
+
+        for (const studentId of allStudentIds) {
+            await tx.internship.updateMany({
+                where: { proposalId, studentId },
+                data: {
+                    status: acceptedSet.has(studentId)
+                        ? 'ACCEPTED_BY_COMPANY'
+                        : 'REJECTED_BY_COMPANY'
+                }
+            });
         }
+
+        return updatedProposal;
     });
 }
 
@@ -1216,8 +1286,7 @@ export async function updateCompanyResponseDoc(proposalId, documentId) {
  */
 export async function findPendingApplicationLetters(academicYearId) {
     const where = {
-        appLetterDocId: { not: null },
-        appLetterSignedById: null
+        appLetterDocId: { not: null }
     };
 
     if (academicYearId && academicYearId !== 'all') {
@@ -1229,6 +1298,7 @@ export async function findPendingApplicationLetters(academicYearId) {
         include: {
             coordinator: { include: { user: true } },
             targetCompany: true,
+            academicYear: true,
             internships: {
                 include: {
                     student: { include: { user: true } }
@@ -1247,8 +1317,7 @@ export async function findPendingApplicationLetters(academicYearId) {
  */
 export async function findPendingAssignmentLetters(academicYearId) {
     const where = {
-        assignLetterDocId: { not: null },
-        assignLetterSignedById: null
+        assignLetterDocId: { not: null }
     };
 
     if (academicYearId && academicYearId !== 'all') {
@@ -1260,6 +1329,7 @@ export async function findPendingAssignmentLetters(academicYearId) {
         include: {
             coordinator: { include: { user: true } },
             targetCompany: true,
+            academicYear: true,
             internships: {
                 include: {
                     student: { include: { user: true } }
@@ -1277,10 +1347,18 @@ export async function findPendingAssignmentLetters(academicYearId) {
  */
 export async function findPendingSupervisorLetters() {
     return prisma.internshipSupervisorLetter.findMany({
-        where: { signedById: null },
+        where: { documentId: { not: null } },
         include: {
             supervisor: { include: { user: true } },
-            internships: true,
+            internships: {
+                include: {
+                    proposal: {
+                        include: {
+                            academicYear: true
+                        }
+                    }
+                }
+            },
             document: true
         },
         orderBy: { createdAt: 'desc' }

@@ -254,6 +254,7 @@ export async function findInternshipById(id) {
             logbookDocument: true,
             completionCertificateDoc: true,
             companyReceiptDoc: true,
+            companyReportDoc: true,
             fieldAssessmentDoc: true
         }
     });

@@ -12,6 +12,7 @@ sekdepRouter.use(authGuard, requireRole(ROLES.SEKRETARIS_DEPARTEMEN));
 
 sekdepRouter.get("/internships", monitoringController.getInternshipList);
 sekdepRouter.get("/internships/:id", monitoringController.getInternshipDetail);
+sekdepRouter.put("/internships/:id/field-info", monitoringController.updateInternshipFieldInfo);
 sekdepRouter.put("/internships/:id/verify-document", monitoringController.verifyDocument);
 sekdepRouter.put("/internships/:id/verify-documents-bulk", monitoringController.bulkVerifyDocuments);
 sekdepRouter.post("/internships/:id/send-field-assessment", monitoringController.sendFieldAssessment);

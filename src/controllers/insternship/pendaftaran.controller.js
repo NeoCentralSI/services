@@ -1,6 +1,6 @@
 
 
-import fs from "fs";
+import fs from "fs/promises";
 import path from "path";
 
 // Legacy imports mapping to avoid breaking controller logic during refactor
@@ -798,8 +798,8 @@ export async function updateProposalLetter(req, res, next) {
             ...req.body,
             // Keep backward compatibility with existing clients/tests.
             letterNumber: req.body.letterNumber ?? req.body.documentNumber,
-            proposedStartDate: req.body.proposedStartDate ?? req.body.startDatePlanned,
-            proposedEndDate: req.body.proposedEndDate ?? req.body.endDatePlanned
+            startDatePlanned: req.body.startDatePlanned ?? req.body.proposedStartDate,
+            endDatePlanned: req.body.endDatePlanned ?? req.body.proposedEndDate
         };
 
         const data = await adminService.saveApplicationLetter(id, payload);
@@ -820,7 +820,7 @@ export async function updateProposalLetter(req, res, next) {
 export async function adminSubmitCompanyResponse(req, res, next) {
     try {
         const { id: proposalId } = req.params;
-        const { documentId } = req.body;
+        const { documentId, acceptedMemberIds } = req.body;
 
         if (!documentId) {
             const err = new Error("ID Dokumen harus disertakan.");
@@ -828,10 +828,10 @@ export async function adminSubmitCompanyResponse(req, res, next) {
             throw err;
         }
 
-        await adminService.adminSubmitCompanyResponse(proposalId, documentId);
+        await adminService.adminSubmitCompanyResponse(proposalId, documentId, acceptedMemberIds);
         res.status(200).json({
             success: true,
-            message: "Surat balasan perusahaan berhasil diunggah."
+            message: "Surat balasan perusahaan berhasil diunggah dan diverifikasi."
         });
     } catch (error) {
         next(error);

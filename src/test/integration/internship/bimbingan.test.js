@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import jwt from "jsonwebtoken";
 import app from "../../../app.js";
 import prisma from "../../../config/prisma.js";
-import { ENV } from "../../../config/env.js";
+import { createOngoingInternship, getUserByEmailOrThrow, makeAuthToken } from "./test-utils.js";
 
 describe("Internship Bimbingan Integration Test", () => {
   let tokens = {};
@@ -21,48 +20,16 @@ describe("Internship Bimbingan Integration Test", () => {
     ];
 
     for (const role of roles) {
-      const user = await prisma.user.findFirst({ 
-        where: { email: role.email },
-        include: { student: true, lecturer: true }
-      });
-      if (!user) throw new Error(`User ${role.key} (${role.email}) not found.`);
+      const user = await getUserByEmailOrThrow(role.email, { student: true, lecturer: true });
       users[role.key] = user;
-      tokens[role.key] = jwt.sign({ sub: user.id, email: user.email, roles: [role.key] }, ENV.JWT_SECRET);
+      tokens[role.key] = makeAuthToken(user, { roles: [role.key] });
     }
 
-    // 2. Find or create internship
-    testInternship = await prisma.internship.findFirst({
-      where: { studentId: users.student.student.id }
-    });
-
-    if (!testInternship) {
-      const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-      const company = await prisma.company.findFirst() || await prisma.company.create({
-        data: { name: "PT Default", address: "Default Address" }
-      });
-      const proposal = await prisma.internshipProposal.create({
-        data: {
-          coordinatorId: users.student.id,
-          academicYearId: academicYear.id,
-          targetCompanyId: company.id,
-          proposedStartDate: new Date(),
-          proposedEndDate: new Date(),
-          status: "APPROVED_PROPOSAL"
-        }
-      });
-      testInternship = await prisma.internship.create({
-        data: {
-          studentId: users.student.student.id,
-          proposalId: proposal.id,
-          status: "ONGOING"
-        }
-      });
-    }
-
-    // Assign supervisor to internship
-    await prisma.internship.update({
-      where: { id: testInternship.id },
-      data: { supervisorId: users.lecturer.lecturer.id }
+    // 2. Create a fresh active internship fixture
+    testInternship = await createOngoingInternship({
+      studentUser: users.student,
+      supervisorUser: users.lecturer,
+      companyName: "PT Bimbingan Integration",
     });
   });
 

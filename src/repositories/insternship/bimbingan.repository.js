@@ -209,6 +209,7 @@ export async function findSupervisedInternships(supervisorId) {
                     },
                     academicYear: {
                         select: {
+                            id: true,
                             year: true,
                             semester: true
                         }

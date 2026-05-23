@@ -1255,6 +1255,7 @@ model Internship {
   // Assessment fields (merged from InternshipAssessment)
   lecturerAssessmentStatus    InternshipAssessmentStatus? @map("lecturer_assessment_status")
   fieldAssessmentStatus       InternshipAssessmentStatus? @map("field_assessment_status")
+  fieldAssessmentNotes        String?                     @map("field_assessment_notes") @db.Text
   fieldAssessmentDocId        String?                     @map("field_assessment_doc_id")
   completionCertificateDocId  String?                     @map("completion_certificate_doc_id")
   completionCertificateStatus InternshipReportStatus?     @map("completion_certificate_status")

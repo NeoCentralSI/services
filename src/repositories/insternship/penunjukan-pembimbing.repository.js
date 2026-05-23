@@ -72,7 +72,8 @@ export async function bulkUpdateInternshipSupervisor(internshipIds, supervisorId
         // Update all selected internships
         const result = await tx.internship.updateMany({
             where: {
-                id: { in: internshipIds }
+                id: { in: internshipIds },
+                supLetterId: null
             },
             data: {
                 supervisorId,

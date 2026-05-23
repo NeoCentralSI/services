@@ -19,6 +19,29 @@ async function getActiveYear() {
     return activeYear;
 }
 
+function buildGuidanceAnchor(questions, criteria, sessions) {
+    const activeWeeks = Array.from(new Set([
+        ...questions.map(q => q.weekNumber),
+        ...criteria.map(c => c.weekNumber),
+        ...sessions.map(s => s.weekNumber)
+    ])).sort((a, b) => a - b);
+
+    return {
+        activeWeeks,
+        firstWeekNumber: activeWeeks[0] ?? 1
+    };
+}
+
+function buildGuidanceWeekWindow(startDate, weekNumber, firstWeekNumber) {
+    const weekStartDate = new Date(startDate);
+    weekStartDate.setDate(startDate.getDate() + (weekNumber - firstWeekNumber) * 7);
+
+    const weekEndDate = new Date(weekStartDate);
+    weekEndDate.setDate(weekStartDate.getDate() + 6);
+
+    return { weekStartDate, weekEndDate };
+}
+
 
 /**
  * Get all guidance questions grouped by week.
@@ -186,21 +209,11 @@ export async function getStudentGuidance(studentId) {
         guidanceRepo.findGuidanceSessions(internship.id)
     ]);
 
-    const activeWeeksSet = new Set([
-        ...questions.map(q => q.weekNumber),
-        ...criteria.map(c => c.weekNumber),
-        ...sessions.map(s => s.weekNumber)
-    ]);
-
-    const activeWeeks = Array.from(activeWeeksSet).sort((a, b) => a - b);
+    const { activeWeeks, firstWeekNumber } = buildGuidanceAnchor(questions, criteria, sessions);
 
     const timeline = [];
     for (const w of activeWeeks) {
-        const weekStartDate = new Date(startDate);
-        weekStartDate.setDate(startDate.getDate() + (w - 1) * 7);
-
-        const weekEndDate = new Date(weekStartDate);
-        weekEndDate.setDate(weekStartDate.getDate() + 6);
+        const { weekStartDate, weekEndDate } = buildGuidanceWeekWindow(startDate, w, firstWeekNumber);
 
         const session = sessions.find(s => s.weekNumber === w);
         const weekQuestions = questions.filter(q => q.weekNumber === w);
@@ -237,7 +250,10 @@ export async function getStudentGuidance(studentId) {
         });
     }
 
-    const currentWeekIdx = Math.floor((today - startDate) / (7 * 24 * 60 * 60 * 1000)) + 1;
+    const currentWeekIdx = Math.max(
+        firstWeekNumber,
+        Math.floor((today - startDate) / (7 * 24 * 60 * 60 * 1000)) + firstWeekNumber
+    );
 
     // Format report data for student guidance
     const reportData = {
@@ -282,8 +298,15 @@ export async function submitGuidance(studentId, weekNumber, answers) {
 
     // 1. Get internship and week details to check deadline
     const startDate = new Date(internship.actualStartDate);
-    const weekEndDate = new Date(startDate);
-    weekEndDate.setDate(startDate.getDate() + (parseInt(weekNumber) - 1) * 7 + 6);
+    const ayId = internship.proposal?.academicYearId;
+    const [questions, criteria, sessions] = await Promise.all([
+        guidanceRepo.findAllQuestions(ayId),
+        guidanceRepo.findAllCriteria(ayId),
+        guidanceRepo.findGuidanceSessions(internship.id)
+    ]);
+    const { firstWeekNumber } = buildGuidanceAnchor(questions, criteria, sessions);
+
+    const weekEndDate = buildGuidanceWeekWindow(startDate, parseInt(weekNumber), firstWeekNumber).weekEndDate;
     weekEndDate.setHours(23, 59, 59, 999);
 
     const today = new Date();
@@ -305,7 +328,7 @@ export async function submitGuidance(studentId, weekNumber, answers) {
                 body: message,
                 data: {
                     type: 'internship_guidance:submitted',
-                    internshipId,
+                    internshipId: internship.id,
                     weekNumber
                 },
                 dataOnly: true
@@ -324,13 +347,37 @@ export async function submitGuidance(studentId, weekNumber, answers) {
 export async function getSupervisedStudents(lecturerId) {
     const internships = await guidanceRepo.findSupervisedInternships(lecturerId);
 
+    const academicYearIds = [
+        ...new Set(
+            internships
+                .map(internship => internship.proposal?.academicYear?.id)
+                .filter(Boolean)
+        )
+    ];
+
+    const totalWeeksByAcademicYear = new Map();
+    await Promise.all(
+        academicYearIds.map(async (academicYearId) => {
+            const [questions, criteria] = await Promise.all([
+                guidanceRepo.findAllQuestions(academicYearId),
+                guidanceRepo.findAllCriteria(academicYearId)
+            ]);
+
+            const configuredWeeks = new Set([
+                ...questions.map(q => q.weekNumber),
+                ...criteria.map(c => c.weekNumber)
+            ]);
+
+            totalWeeksByAcademicYear.set(academicYearId, configuredWeeks.size);
+        })
+    );
+
     return internships.map(internship => {
         const student = internship.student.user;
-        const totalWeeks = internship.actualStartDate && internship.actualEndDate
-            ? Math.ceil((internship.actualEndDate.getTime() - internship.actualStartDate.getTime()) / (1000 * 60 * 60 * 24 * 7))
-            : 0;
-
         const sessions = internship.guidanceSessions || [];
+        const sessionWeeks = new Set(sessions.map(s => s.weekNumber));
+        const academicYearId = internship.proposal?.academicYear?.id;
+        const totalWeeks = totalWeeksByAcademicYear.get(academicYearId) || sessionWeeks.size || 0;
         const submittedCount = sessions.filter(s => s.status === "SUBMITTED").length;
         const approvedCount = sessions.filter(s => s.status === "APPROVED").length;
 
@@ -416,24 +463,18 @@ export async function getLecturerGuidanceTimeline(lecturerId, internshipId) {
         guidanceRepo.findGuidanceSessions(internshipId)
     ]);
 
-    const activeWeeksSet = new Set([
-        ...questions.map(q => q.weekNumber),
-        ...criteria.map(c => c.weekNumber),
-        ...sessions.map(s => s.weekNumber)
-    ]);
-
-    const activeWeeks = Array.from(activeWeeksSet).sort((a, b) => a - b);
+    const { activeWeeks, firstWeekNumber } = buildGuidanceAnchor(questions, criteria, sessions);
 
     const startDate = new Date(internship.actualStartDate);
     const today = new Date();
-    const currentWeekIdx = Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7));
+    const currentWeekIdx = Math.max(
+        firstWeekNumber,
+        Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7)) + firstWeekNumber - 1
+    );
 
     const timeline = [];
     for (const w of activeWeeks) {
-        const weekStart = new Date(startDate);
-        weekStart.setDate(startDate.getDate() + (w - 1) * 7);
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6);
+        const { weekStartDate: weekStart, weekEndDate: weekEnd } = buildGuidanceWeekWindow(startDate, w, firstWeekNumber);
 
         const session = sessions.find(s => s.weekNumber === w);
         let status = "NOT_AVAILABLE";

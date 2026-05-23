@@ -20,8 +20,6 @@ import verifikasiSuratRouter from "./insternship/verifikasi-surat.route.js";
 
 const router = express.Router();
 
-// Each DFD route file manages its own sub-prefix internally,
-// so we mount all at root level and let the files define full paths.
 router.use(pendaftaranRouter);
 router.use(penunjukanPembimbingRouter);
 router.use(pelaksanaanRouter);

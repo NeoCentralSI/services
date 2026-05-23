@@ -5,7 +5,6 @@ const holidayRepository = registrationRepository;
 const kadepRepository = registrationRepository;
 
 import crypto from "crypto";
-import fs from "fs";
 import * as fsPromises from "fs/promises";
 import path from "path";
 import { ENV } from "../../config/env.js";
@@ -13,6 +12,7 @@ import prisma from "../../config/prisma.js";
 import { ROLES } from "../../constants/roles.js";
 import { getWorkingDays } from "../../utils/internship-date.util.js";
 import { stampQRCode } from "../../utils/pdf-sign.util.js";
+import { convertDocxToPdf } from "../../utils/pdf.util.js";
 import * as documentService from "../document.service.js";
 import * as notificationService from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
@@ -139,6 +139,7 @@ export async function getStudentProposals(studentId, academicYearId) {
 
         return {
             id: proposal.id,
+            coordinatorId: proposal.coordinatorId,
             nama: name,
             nim: nim,
             koordinatorAtauMember: roleInProposal,
@@ -217,6 +218,7 @@ export async function submitProposal(data) {
         proposedEndDate,
         memberIds = [] 
     } = data;
+    const normalizedMemberIds = [...new Set(memberIds.filter(id => id && id !== coordinatorId))];
 
     // 1. Validate coordinator state
     const activeCoordinator = await registrationRepository.findActiveProposalOrInternship(coordinatorId);
@@ -228,8 +230,8 @@ export async function submitProposal(data) {
     }
 
     // 2. Validate members state
-    if (memberIds.length > 0) {
-        for (const memberId of memberIds) {
+    if (normalizedMemberIds.length > 0) {
+        for (const memberId of normalizedMemberIds) {
             const activeMember = await registrationRepository.findActiveProposalOrInternship(memberId);
             if (activeMember) {
                 const typeLabel = activeMember.type === 'INTERNSHIP' ? 'magang yang sedang berjalan' : 'proposal aktif';
@@ -283,7 +285,7 @@ export async function submitProposal(data) {
         targetCompanyId: finalCompanyId,
         proposedStartDate,
         proposedEndDate,
-        memberIds
+        memberIds: normalizedMemberIds
     });
 
     // 4. Send Notifications
@@ -291,16 +293,16 @@ export async function submitProposal(data) {
         const proposalCompany = companyName || proposal.targetCompany?.companyName || "perusahaan";
 
         // A. Notify Members (if any)
-        if (memberIds.length > 0) {
+        if (normalizedMemberIds.length > 0) {
             const memberTitle = "Undangan Grup Kerja Praktik";
             const memberMessage = `Anda telah ditambahkan sebagai anggota untuk pengajuan KP di ${proposalCompany}.`;
 
-            await notificationService.createNotificationsForUsers(memberIds, {
+            await notificationService.createNotificationsForUsers(normalizedMemberIds, {
                 title: memberTitle,
                 message: memberMessage
             });
 
-            await sendFcmToUsers(memberIds, {
+            await sendFcmToUsers(normalizedMemberIds, {
                 title: memberTitle,
                 body: memberMessage,
                 data: {
@@ -338,6 +340,7 @@ export async function updateProposal(proposalId, data) {
         proposedEndDate,
         memberIds = [] 
     } = data;
+    const normalizedMemberIds = [...new Set(memberIds.filter(id => id && id !== coordinatorId))];
 
     // 1. Verify existence and state
     const proposal = await registrationRepository.findProposalById(proposalId);
@@ -361,8 +364,8 @@ export async function updateProposal(proposalId, data) {
 
     // 2. Validate member eligibility (excluding current members of THIS proposal)
     const existingMemberIds = proposal.internships.map(i => i.studentId);
-    if (memberIds.length > 0) {
-        for (const memberId of memberIds) {
+    if (normalizedMemberIds.length > 0) {
+        for (const memberId of normalizedMemberIds) {
             // If they are already in this proposal, skip eligibility check against THIS proposal
             if (existingMemberIds.includes(memberId)) continue;
 
@@ -400,11 +403,12 @@ export async function updateProposal(proposalId, data) {
 
     // 3. Perform update
     const updated = await registrationRepository.updateProposal(proposalId, {
+        coordinatorId,
         proposalDocumentId,
         targetCompanyId: finalCompanyId,
         proposedStartDate,
         proposedEndDate,
-        memberIds
+        memberIds: normalizedMemberIds
     });
 
     // 4. Notifications
@@ -412,7 +416,7 @@ export async function updateProposal(proposalId, data) {
         const proposalCompany = companyName || updated.targetCompany?.companyName || "perusahaan";
 
         // Notify new members (those who weren't in the original proposal)
-        const newMemberIds = memberIds.filter(id => !existingMemberIds.includes(id));
+        const newMemberIds = normalizedMemberIds.filter(id => !existingMemberIds.includes(id));
         if (newMemberIds.length > 0) {
             const title = "Undangan Grup Kerja Praktik";
             const message = `Anda telah ditambahkan sebagai anggota untuk pengajuan KP di ${proposalCompany}.`;
@@ -807,7 +811,7 @@ export async function saveTemplate(name, content, type = "HTML", filePath = null
     const oldTemplate = await prisma.documentTemplate.findUnique({ where: { name } });
     if (oldTemplate && oldTemplate.filePath && filePath && oldTemplate.filePath !== filePath) {
         try {
-            await fs.unlink(path.resolve(oldTemplate.filePath));
+            await fsPromises.unlink(path.resolve(oldTemplate.filePath));
         } catch (err) {
             console.warn(`Failed to delete old template file: ${oldTemplate.filePath}`, err);
         }
@@ -829,6 +833,10 @@ export async function saveTemplate(name, content, type = "HTML", filePath = null
     });
 
     return template;
+}
+
+export async function saveSekdepTemplate(name, content, type = "HTML", filePath = null) {
+    return saveTemplate(name, content, type, filePath);
 }
 
 /**
@@ -856,14 +864,14 @@ export async function generatePreview(name) {
 
     // Check if the file actually exists on disk
     try {
-        await fs.access(templatePath);
+        await fsPromises.access(templatePath);
     } catch {
         const err = new Error("File template tidak ditemukan di server. Silakan upload ulang.");
         err.code = "FILE_NOT_FOUND";
         throw err;
     }
 
-    const content = await fs.readFile(templatePath);
+    const content = await fsPromises.readFile(templatePath);
 
     // SKIP Templating to show raw tags
     // doc.render(dummyData);
@@ -880,12 +888,12 @@ export async function generatePreview(name) {
 
     // Ensure uploads directory exists
     try {
-        await fs.access(path.dirname(tempPdfPath));
+        await fsPromises.access(path.dirname(tempPdfPath));
     } catch {
-        await fs.mkdir(path.dirname(tempPdfPath), { recursive: true });
+        await fsPromises.mkdir(path.dirname(tempPdfPath), { recursive: true });
     }
 
-    await fs.writeFile(tempPdfPath, pdfBuffer);
+    await fsPromises.writeFile(tempPdfPath, pdfBuffer);
 
     return tempPdfPath;
 }
@@ -1041,7 +1049,7 @@ export async function deleteCompany(id) {
  * @returns {Promise<Object>}
  */
 export async function getAssignmentLetterDetail(id) {
-    const p = await adminRepository.findProposalForAssignment(id);
+    const p = await registrationRepository.findProposalForAssignment(id);
     if (!p) {
         const error = new Error("Pengajuan tidak ditemukan.");
         error.statusCode = 404;
@@ -1061,10 +1069,7 @@ export async function getAssignmentLetterDetail(id) {
         })),
         letterNumber: p.assignLetterDocNumber || "",
         appLetterNumber: p.appLetterDocNumber || "",
-        period: p.startDateActual ? {
-            start: p.startDateActual,
-            end: p.endDateActual
-        } : null,
+        period: formatPeriod(p.startDateActual ?? p.startDatePlanned, p.endDateActual ?? p.endDatePlanned),
         letterFile: p.assignLetterDoc ? {
             id: p.assignLetterDoc.id,
             fileName: p.assignLetterDoc.fileName,
@@ -1090,7 +1095,7 @@ export async function getAssignmentLetterDetail(id) {
  * @returns {Promise<Object>}
  */
 export async function getProposalLetterDetail(id) {
-    const p = await adminRepository.findProposalForLetter(id);
+    const p = await registrationRepository.findProposalForLetter(id);
     if (!p) {
         const error = new Error("Pengajuan tidak ditemukan.");
         error.statusCode = 404;
@@ -1109,10 +1114,9 @@ export async function getProposalLetterDetail(id) {
             isCoordinator: i.studentId === p.coordinatorId
         })),
         letterNumber: p.appLetterDocNumber || "",
-        period: p.startDatePlanned ? {
-            start: p.startDatePlanned,
-            end: p.endDatePlanned
-        } : null,
+        period: formatPeriod(p.startDatePlanned, p.endDatePlanned),
+        startDatePlanned: p.startDatePlanned,
+        endDatePlanned: p.endDatePlanned,
         proposedStartDate: p.proposedStartDate,
         proposedEndDate: p.proposedEndDate,
         letterFile: p.appLetterDoc ? {
@@ -1257,6 +1261,9 @@ export async function getPendingLetters(academicYearId) {
         coordinatorNim: p.coordinator?.user?.identityNumber,
         coordinatorStudentId: p.coordinatorId,
         companyName: p.targetCompany?.companyName || "—",
+        academicYearName: p.academicYear
+            ? `${p.academicYear.year} ${p.academicYear.semester.charAt(0).toUpperCase() + p.academicYear.semester.slice(1)}`
+            : '-',
         coordinatorStatus: p.internships.find(i => i.studentId === p.coordinatorId)?.status || 'PENDING',
         members: p.internships
             .filter(i => i.studentId !== p.coordinatorId)
@@ -1267,10 +1274,7 @@ export async function getPendingLetters(academicYearId) {
                 status: i.status
             })),
         acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
-        period: p.startDatePlanned ? {
-            start: p.startDatePlanned,
-            end: p.endDatePlanned
-        } : null,
+        period: formatPeriod(p.startDatePlanned, p.endDatePlanned),
         createdAt: p.createdAt,
         signedById: p.appLetterSignedById,
         document: p.appLetterDoc ? {
@@ -1288,6 +1292,9 @@ export async function getPendingLetters(academicYearId) {
         coordinatorNim: p.coordinator?.user?.identityNumber,
         coordinatorStudentId: p.coordinatorId,
         companyName: p.targetCompany?.companyName || "—",
+        academicYearName: p.academicYear
+            ? `${p.academicYear.year} ${p.academicYear.semester.charAt(0).toUpperCase() + p.academicYear.semester.slice(1)}`
+            : '-',
         coordinatorStatus: p.internships.find(i => i.studentId === p.coordinatorId)?.status || 'PENDING',
         members: p.internships
             .filter(i => i.studentId !== p.coordinatorId)
@@ -1298,10 +1305,7 @@ export async function getPendingLetters(academicYearId) {
                 status: i.status
             })),
         acceptedMemberCount: p.internships.filter(i => ['ACCEPTED_BY_COMPANY', 'ONGOING', 'COMPLETED'].includes(i.status)).length,
-        period: p.startDateActual ? {
-            start: p.startDateActual,
-            end: p.endDateActual
-        } : null,
+        period: formatPeriod(p.startDateActual ?? p.startDatePlanned, p.endDateActual ?? p.endDatePlanned),
         createdAt: p.createdAt,
         signedById: p.assignLetterSignedById,
         document: p.assignLetterDoc ? {
@@ -1317,6 +1321,9 @@ export async function getPendingLetters(academicYearId) {
         documentNumber: l.documentNumber,
         lecturerName: l.supervisor?.user?.fullName,
         lecturerNip: l.supervisor?.user?.identityNumber,
+        academicYearName: l.internships?.[0]?.proposal?.academicYear
+            ? `${l.internships[0].proposal.academicYear.year} ${l.internships[0].proposal.academicYear.semester.charAt(0).toUpperCase() + l.internships[0].proposal.academicYear.semester.slice(1)}`
+            : '-',
         memberCount: l.internships.length,
         period: {
             start: l.startDate,
@@ -1482,6 +1489,10 @@ function formatDocument(doc) {
     } : null;
 }
 
+function formatPeriod(start, end) {
+    return start && end ? { start, end } : null;
+}
+
 function formatSekdepProposalItem(p) {
     const internships = p.internships || [];
     const internshipStatuses = internships.map(i => i.status);
@@ -1563,6 +1574,7 @@ export async function getCompaniesStats({ q, skip, take, sortBy, sortOrder, stat
         return {
             id: c.id,
             companyName: c.companyName,
+            address: c.companyAddress,
             companyAddress: c.companyAddress,
             alasan: c.alasan,
             status: c.status,
@@ -1581,20 +1593,31 @@ export async function getApprovedProposals(academicYearId) {
     const proposals = await registrationRepository.findApprovedProposals(academicYearId);
     return proposals.map(p => ({
         id: p.id,
-        nim: p.coordinator?.user?.identityNumber,
-        name: p.coordinator?.user?.fullName,
+        coordinatorName: p.coordinator?.user?.fullName || "-",
+        coordinatorNim: p.coordinator?.user?.identityNumber || "-",
         companyName: p.targetCompany?.companyName || "Unknown",
-        academicYearName: p.academicYear
-            ? `${p.academicYear.year} ${p.academicYear.semester.charAt(0).toUpperCase() + p.academicYear.semester.slice(1)}`
-            : '-',
-        status: p.status,
-        appLetterFile: p.appLetterDoc ? {
+        companyAddress: p.targetCompany?.companyAddress || "-",
+        members: (p.internships || []).map(i => ({
+            name: i.student?.user?.fullName || "-",
+            nim: i.student?.user?.identityNumber || "-",
+            isCoordinator: i.studentId === p.coordinatorId
+        })) || [],
+        letterNumber: p.appLetterDocNumber || "",
+        letterFile: p.appLetterDoc ? {
             id: p.appLetterDoc.id,
             fileName: p.appLetterDoc.fileName,
             filePath: p.appLetterDoc.filePath
         } : null,
+        period: formatPeriod(p.startDatePlanned, p.endDatePlanned),
         isSigned: !!p.appLetterSignedById,
-        createdAt: p.createdAt
+        startDatePlanned: p.startDatePlanned,
+        endDatePlanned: p.endDatePlanned,
+        proposedStartDate: p.proposedStartDate,
+        proposedEndDate: p.proposedEndDate,
+        academicYearName: p.academicYear
+            ? `${p.academicYear.year} ${p.academicYear.semester.charAt(0).toUpperCase() + p.academicYear.semester.slice(1)}`
+            : '-',
+        updatedAt: p.updatedAt || p.createdAt
     }));
 }
 
@@ -1605,20 +1628,42 @@ export async function getProposalsForAssignment(academicYearId) {
     const proposals = await registrationRepository.findProposalsForAssignment(academicYearId);
     return proposals.map(p => ({
         id: p.id,
-        nim: p.coordinator?.user?.identityNumber,
-        name: p.coordinator?.user?.fullName,
+        coordinatorName: p.coordinator?.user?.fullName || "-",
+        coordinatorNim: p.coordinator?.user?.identityNumber || "-",
         companyName: p.targetCompany?.companyName || "Unknown",
-        academicYearName: p.academicYear
-            ? `${p.academicYear.year} ${p.academicYear.semester.charAt(0).toUpperCase() + p.academicYear.semester.slice(1)}`
-            : '-',
-        status: p.status,
-        assignLetterFile: p.assignLetterDoc ? {
+        companyAddress: p.targetCompany?.companyAddress || "-",
+        status: p.status || "PENDING",
+        members: (p.internships || []).map(i => ({
+            id: i.studentId,
+            name: i.student?.user?.fullName || "-",
+            nim: i.student?.user?.identityNumber || "-",
+            isCoordinator: i.studentId === p.coordinatorId,
+            status: i.status || "PENDING",
+            role: i.studentId === p.coordinatorId ? "KOORDINATOR" : "MEMBER"
+        })) || [],
+        letterNumber: p.assignLetterDocNumber || "",
+        letterFile: p.assignLetterDoc ? {
             id: p.assignLetterDoc.id,
             fileName: p.assignLetterDoc.fileName,
             filePath: p.assignLetterDoc.filePath
         } : null,
+        companyResponseFile: p.companyResponseDoc ? {
+            id: p.companyResponseDoc.id,
+            fileName: p.companyResponseDoc.fileName,
+            filePath: p.companyResponseDoc.filePath
+        } : null,
+        period: formatPeriod(p.startDateActual ?? p.startDatePlanned, p.endDateActual ?? p.endDatePlanned),
         isSigned: !!p.assignLetterSignedById,
-        createdAt: p.createdAt
+        startDatePlanned: p.startDatePlanned,
+        endDatePlanned: p.endDatePlanned,
+        proposedStartDate: p.proposedStartDate,
+        proposedEndDate: p.proposedEndDate,
+        appLetterNumber: p.appLetterDocNumber || "",
+        companyResponseNotes: p.companyResponseNotes,
+        academicYearName: p.academicYear
+            ? `${p.academicYear.year} ${p.academicYear.semester.charAt(0).toUpperCase() + p.academicYear.semester.slice(1)}`
+            : '-',
+        updatedAt: p.updatedAt || p.createdAt
     }));
 }
 
@@ -1626,15 +1671,23 @@ export async function getProposalsForAssignment(academicYearId) {
  * Save assignment letter details and generate doc.
  */
 export async function saveAssignmentLetter(id, data) {
-    const { letterNumber, startDatePlanned, endDatePlanned, proposedStartDate, proposedEndDate } = data;
+    const {
+        letterNumber,
+        documentNumber,
+        startDateActual,
+        endDateActual,
+        startDatePlanned,
+        endDatePlanned
+    } = data;
+    const finalLetterNumber = letterNumber ?? documentNumber;
+    const finalStartDate = startDateActual ?? startDatePlanned;
+    const finalEndDate = endDateActual ?? endDatePlanned;
 
     // 1. Update letter details
     const updated = await registrationRepository.updateAssignmentLetter(id, {
-        letterNumber,
-        startDatePlanned: startDatePlanned ? new Date(startDatePlanned) : null,
-        endDatePlanned: endDatePlanned ? new Date(endDatePlanned) : null,
-        proposedStartDate: proposedStartDate ? new Date(proposedStartDate) : null,
-        proposedEndDate: proposedEndDate ? new Date(proposedEndDate) : null
+        documentNumber: finalLetterNumber,
+        startDateActual: finalStartDate,
+        endDateActual: finalEndDate
     });
 
     // 2. Fetch full detail for document generation
@@ -1642,13 +1695,13 @@ export async function saveAssignmentLetter(id, data) {
 
     // 3. Format data for Word Template
     const genData = {
-        documentNumber: letterNumber,
+        documentNumber: finalLetterNumber,
         dateIssued: new Date(),
         coordinatorId: proposal.coordinatorId,
         companyName: proposal.targetCompany?.companyName,
         companyAddress: proposal.targetCompany?.companyAddress,
-        startDate: startDatePlanned ? new Date(startDatePlanned) : (proposedStartDate ? new Date(proposedStartDate) : null),
-        endDate: endDatePlanned ? new Date(endDatePlanned) : (proposedEndDate ? new Date(proposedEndDate) : null),
+        startDate: finalStartDate ? new Date(finalStartDate) : null,
+        endDate: finalEndDate ? new Date(finalEndDate) : null,
         coordinatorName: proposal.coordinator?.user?.fullName,
         coordinatorNim: proposal.coordinator?.user?.identityNumber,
         members: proposal.internships.map(i => ({
@@ -1706,15 +1759,23 @@ export async function saveAssignmentLetter(id, data) {
  * Save application letter details and generate doc.
  */
 export async function saveApplicationLetter(id, data) {
-    const { letterNumber, proposedStartDate, proposedEndDate, actualStartDate, actualEndDate } = data;
+    const {
+        letterNumber,
+        documentNumber,
+        startDatePlanned,
+        endDatePlanned,
+        proposedStartDate,
+        proposedEndDate
+    } = data;
+    const finalLetterNumber = letterNumber ?? documentNumber;
+    const finalStartDate = startDatePlanned ?? proposedStartDate;
+    const finalEndDate = endDatePlanned ?? proposedEndDate;
 
     // 1. Update letter details
     const updated = await registrationRepository.updateApplicationLetter(id, {
-        letterNumber,
-        proposedStartDate: proposedStartDate ? new Date(proposedStartDate) : null,
-        proposedEndDate: proposedEndDate ? new Date(proposedEndDate) : null,
-        actualStartDate: actualStartDate ? new Date(actualStartDate) : null,
-        actualEndDate: actualEndDate ? new Date(actualEndDate) : null
+        letterNumber: finalLetterNumber,
+        startDatePlanned: finalStartDate ? new Date(finalStartDate) : null,
+        endDatePlanned: finalEndDate ? new Date(finalEndDate) : null
     });
 
     // 2. Fetch full detail for document generation
@@ -1722,13 +1783,13 @@ export async function saveApplicationLetter(id, data) {
 
     // 3. Format data for Word Template
     const genData = {
-        documentNumber: letterNumber,
+        documentNumber: finalLetterNumber,
         dateIssued: new Date(),
         coordinatorId: proposal.coordinatorId,
         companyName: proposal.targetCompany?.companyName,
         companyAddress: proposal.targetCompany?.companyAddress,
-        startDate: proposedStartDate ? new Date(proposedStartDate) : null,
-        endDate: proposedEndDate ? new Date(proposedEndDate) : null,
+        startDate: finalStartDate ? new Date(finalStartDate) : null,
+        endDate: finalEndDate ? new Date(finalEndDate) : null,
         coordinatorName: proposal.coordinator?.user?.fullName,
         coordinatorNim: proposal.coordinator?.user?.identityNumber,
         members: proposal.internships.map(i => ({
@@ -1785,8 +1846,8 @@ export async function saveApplicationLetter(id, data) {
 /**
  * Admin uploads company response document.
  */
-export async function adminSubmitCompanyResponse(proposalId, documentId) {
-    const result = await registrationRepository.updateCompanyResponseDoc(proposalId, documentId);
+export async function adminSubmitCompanyResponse(proposalId, documentId, acceptedMemberIds) {
+    const result = await registrationRepository.updateCompanyResponseDoc(proposalId, documentId, acceptedMemberIds);
 
     try {
         const proposal = await registrationRepository.findProposalById(proposalId);

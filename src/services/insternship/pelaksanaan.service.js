@@ -81,7 +81,40 @@ export async function updateLogbook(logbookId, studentId, activityDescription) {
  * @returns {Promise<Object>}
  */
 export async function updateInternshipDetails(studentId, data) {
-    return pelaksanaanRepository.updateInternshipDetails(studentId, data);
+    const internship = await pelaksanaanRepository.getStudentInternship(studentId);
+    if (!internship || internship.status !== "ONGOING") {
+        const error = new Error("Kegiatan Kerja Praktik aktif tidak ditemukan.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    const hasValue = (value) => typeof value === "string" && value.trim().length > 0;
+    const hasExistingDetails = [
+        internship.fieldSupervisorName,
+        internship.fieldSupervisorEmail,
+        internship.unitSection
+    ].some(hasValue);
+
+    if (hasExistingDetails) {
+        const error = new Error("Informasi Kerja Praktik sudah diisi dan tidak dapat diubah kembali.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const normalizeString = (value) => typeof value === "string" ? value.trim() : "";
+    const payload = {
+        fieldSupervisorName: normalizeString(data?.fieldSupervisorName),
+        fieldSupervisorEmail: normalizeString(data?.fieldSupervisorEmail),
+        unitSection: normalizeString(data?.unitSection)
+    };
+
+    if (!payload.fieldSupervisorName || !payload.fieldSupervisorEmail || !payload.unitSection) {
+        const error = new Error("Nama pembimbing lapangan, email pembimbing lapangan, dan unit kerja wajib diisi.");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return pelaksanaanRepository.updateInternshipDetails(studentId, payload);
 }
 
 /**
@@ -225,7 +258,7 @@ export async function updateCompanyReceipt(studentId, documentId) {
 
 /**
  * Submit internship company report document (laporan akhir instansi).
- * Triggers the magic link generation for field supervisor assessment.
+ * The first upload triggers the field assessment link; re-uploads only replace the file.
  * @param {string} studentId 
  * @param {string} documentId 
  */
@@ -243,6 +276,7 @@ export async function submitCompanyReport(studentId, documentId) {
         throw error;
     }
 
+    const shouldSendAssessmentLink = !internship.companyReportDocId;
     const result = await pelaksanaanRepository.updateCompanyReport(studentId, documentId);
 
     // Notify Sekdep
@@ -255,12 +289,14 @@ export async function submitCompanyReport(studentId, documentId) {
 
         if (internshipWithStudent) {
             // Trigger automatic magic link email
-            try {
-                assessmentInfo = await sendFieldAssessmentRequest(internshipWithStudent.id);
-                console.log(`Berhasil mengirim magic link secara otomatis untuk internship: ${internshipWithStudent.id}`);
-            } catch (emailErr) {
-                console.error("Gagal mengirim magic link otomatis:", emailErr);
-                // Kita tidak throw error agar proses upload tetap berhasil meskipun email gagal sementara
+            if (shouldSendAssessmentLink) {
+                try {
+                    assessmentInfo = await sendFieldAssessmentRequest(internshipWithStudent.id);
+                    console.log(`Berhasil mengirim magic link secara otomatis untuk internship: ${internshipWithStudent.id}`);
+                } catch (emailErr) {
+                    console.error("Gagal mengirim magic link otomatis:", emailErr);
+                    // Kita tidak throw error agar proses upload tetap berhasil meskipun email gagal sementara
+                }
             }
 
             const sekdeps = await registrationRepository.findUsersByRole(ROLES.SEKRETARIS_DEPARTEMEN);
@@ -269,7 +305,9 @@ export async function submitCompanyReport(studentId, documentId) {
             if (sekdepIds.length > 0) {
                 const studentName = internshipWithStudent.student?.user?.fullName || "Mahasiswa";
                 const titleNotif = "Laporan Akhir (Instansi) Baru";
-                const message = `${studentName} telah mengunggah Laporan Akhir untuk instansi. Link penilaian pembimbing lapangan otomatis dikirim.`;
+                const message = shouldSendAssessmentLink
+                    ? `${studentName} telah mengunggah Laporan Akhir untuk instansi. Link penilaian pembimbing lapangan otomatis dikirim.`
+                    : `${studentName} telah mengunggah ulang Laporan Akhir untuk instansi. Link penilaian pembimbing lapangan tidak dibuat ulang.`;
 
                 await createNotificationsForUsers(sekdepIds, { title: titleNotif, message });
                 await sendFcmToUsers(sekdepIds, {
@@ -288,7 +326,13 @@ export async function submitCompanyReport(studentId, documentId) {
         console.error("Gagal memproses post-upload laporan akhir instansi:", err);
     }
 
-    return { ...result, assessmentInfo };
+    return {
+        ...result,
+        assessmentInfo,
+        message: shouldSendAssessmentLink
+            ? "Laporan akhir instansi berhasil diunggah. Email ke pembimbing lapangan telah dikirim."
+            : "Laporan akhir instansi berhasil diunggah ulang tanpa membuat link penilaian baru."
+    };
 }
 
 /**
@@ -316,6 +360,10 @@ export async function sendFieldAssessmentRequest(internshipId) {
 
     if (!internship.fieldSupervisorEmail) {
         throw Object.assign(new Error("Email pembimbing lapangan belum diisi oleh mahasiswa."), { statusCode: 400 });
+    }
+
+    if (["COMPLETED", "APPROVED"].includes(internship.fieldAssessmentStatus)) {
+        throw Object.assign(new Error("Penilaian lapangan sudah selesai sehingga link penilaian tidak perlu dikirim ulang."), { statusCode: 400 });
     }
 
     // Invalidate existing unused tokens

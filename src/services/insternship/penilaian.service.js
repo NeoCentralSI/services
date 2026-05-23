@@ -600,6 +600,7 @@ export async function validateToken(token, pin = null) {
         logbooks: internship.logbooks,
         fieldAssessmentStatus: internship.fieldAssessmentStatus,
         fieldAssessmentSubmittedAt: internship.fieldAssessmentSubmittedAt,
+        fieldAssessmentNotes: internship.fieldAssessmentNotes,
     });
 
     result.cpmks = cpmks;
@@ -643,7 +644,7 @@ export async function verifyPin(token, pin) {
  * 7. Invalidate token
  * 8. Recalculate final score
  */
-export async function submitFieldAssessment(token, scores, signatureBase64) {
+export async function submitFieldAssessment(token, scores, signatureBase64, notes = null) {
     // 1. Validate token
     const record = await prisma.fieldAssessmentToken.findUnique({
         where: { token },
@@ -688,6 +689,7 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
     const internship = record.internship;
     const internshipId = internship.id;
     const now = new Date();
+    const normalizedNotes = typeof notes === "string" && notes.trim() ? notes.trim() : null;
 
     // 2. Create signature hash (encrypted verification code)
     const signaturePayload = `${internshipId}:${token}:${now.toISOString()}`;
@@ -719,6 +721,7 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
             academicYear: `${internship.proposal.academicYear.year} - ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`,
             cpmks,
             scores,
+            notes: normalizedNotes,
             signatureBase64,
             signatureHash,
             submittedAt: now,
@@ -794,8 +797,10 @@ export async function submitFieldAssessment(token, scores, signatureBase64) {
         // Update internship metadata
         const updateData = {
             fieldAssessmentStatus: "COMPLETED",
+            companyReportStatus: "APPROVED",
             fieldAssessmentSignatureHash: signatureHash,
             fieldAssessmentSubmittedAt: now,
+            fieldAssessmentNotes: normalizedNotes,
             logbookFieldSignatureHash: signatureHash,
             logbookFieldSignedAt: now,
             logbookDocumentStatus: "APPROVED",

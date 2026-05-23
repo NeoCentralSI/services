@@ -6,6 +6,7 @@ import path from "path";
 import app from "../../../app.js";
 import prisma from "../../../config/prisma.js";
 import { ENV } from "../../../config/env.js";
+import { createOngoingInternship } from "./test-utils.js";
 
 describe("Internship Penunjukan Pembimbing Integration Test", () => {
   let tokens = {};
@@ -30,51 +31,11 @@ describe("Internship Penunjukan Pembimbing Integration Test", () => {
       tokens[role.key] = jwt.sign({ sub: user.id, email: user.email }, ENV.JWT_SECRET);
     }
 
-    // 2. Find or create an internship for the student
-    testInternship = await prisma.internship.findFirst({
-      where: { studentId: users.student.student.id }
+    // 2. Create a fresh assignable internship for the student
+    testInternship = await createOngoingInternship({
+      studentUser: users.student,
+      companyName: "PT Penunjukan Pembimbing Integration",
     });
-
-    if (!testInternship) {
-      // Find proposal first
-      let proposal = await prisma.internshipProposal.findFirst({
-        where: { coordinatorId: users.student.id }
-      });
-      if (!proposal) {
-        const docType = await prisma.documentType.findFirst({ where: { name: "Proposal Internship" } }) || 
-                        await prisma.documentType.create({ data: { name: "Proposal Internship" } });
-        const dummyDoc = await prisma.document.create({
-          data: {
-            userId: users.student.id,
-            documentTypeId: docType.id,
-            fileName: "test_proposal.pdf",
-            filePath: "uploads/test/test_proposal.pdf",
-          },
-        });
-        const company = await prisma.company.findFirst() || await prisma.company.create({
-          data: { name: "PT Default", address: "Default Address" }
-        });
-        const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-        proposal = await prisma.internshipProposal.create({
-          data: {
-            coordinatorId: users.student.id,
-            academicYearId: academicYear.id,
-            targetCompanyId: company.id,
-            proposalDocumentId: dummyDoc.id,
-            proposedStartDate: new Date(),
-            proposedEndDate: new Date(),
-            status: "APPROVED_PROPOSAL"
-          }
-        });
-      }
-      testInternship = await prisma.internship.create({
-        data: {
-          studentId: users.student.student.id,
-          proposalId: proposal.id,
-          status: "ONGOING"
-        }
-      });
-    }
 
     // Ensure templates are on disk
     const templatesDir = path.join(process.cwd(), "uploads/internship/templates");

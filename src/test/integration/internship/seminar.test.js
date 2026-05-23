@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import app from "../../../app.js";
 import { ENV } from "../../../config/env.js";
 import prisma from "../../../config/prisma.js";
+import { createOngoingInternship, nextWeekdayDateString } from "./test-utils.js";
 
 describe("Internship Seminar Integration Test", () => {
   let tokens = {};
@@ -28,44 +29,21 @@ describe("Internship Seminar Integration Test", () => {
       tokens[role.key] = jwt.sign({ sub: user.id, email: user.email, roles: [role.key] }, ENV.JWT_SECRET);
     }
 
-    // 2. Find or create internship
-    testInternship = await prisma.internship.findFirst({
-      where: { studentId: users.student.student.id }
+    // 2. Create a fresh active internship fixture
+    testInternship = await createOngoingInternship({
+      studentUser: users.student,
+      supervisorUser: users.lecturer,
+      companyName: "PT Seminar Integration",
     });
 
-    if (!testInternship) {
-      const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-      const company = await prisma.company.findFirst() || await prisma.company.create({
-        data: { name: "PT Default", address: "Default Address" }
-      });
-      const proposal = await prisma.internshipProposal.create({
-        data: {
-          coordinatorId: users.student.id,
-          academicYearId: academicYear.id,
-          targetCompanyId: company.id,
-          proposedStartDate: new Date(),
-          proposedEndDate: new Date(),
-          status: "APPROVED_PROPOSAL"
-        }
-      });
-      testInternship = await prisma.internship.create({
-        data: {
-          studentId: users.student.student.id,
-          proposalId: proposal.id,
-          status: "ONGOING"
-        }
-      });
-    }
-
-    // Assign supervisor
-    await prisma.internship.update({
-      where: { id: testInternship.id },
-      data: { supervisorId: users.lecturer.lecturer.id }
-    });
-
-    // Clean up any old seminar records
+    // Clean up old seminar records that can conflict on moderator/date.
     await prisma.internshipSeminar.deleteMany({
-      where: { internshipId: testInternship.id }
+      where: {
+        OR: [
+          { internshipId: testInternship.id },
+          { moderatorStudentId: users.student.student.id },
+        ],
+      },
     });
   });
 
@@ -75,10 +53,10 @@ describe("Internship Seminar Integration Test", () => {
 
   it("should successfully register an internship seminar proposal as Student", async () => {
     const payload = {
-      seminarDate: "2025-09-15",
-      seminarTimeStart: "09:00:00",
-      seminarTimeEnd: "10:00:00",
-      room: "Ruang Rapat FTI",
+      seminarDate: nextWeekdayDateString(),
+      startTime: "09:00",
+      endTime: "10:00",
+      room: `Ruang Rapat FTI ${Date.now()}`,
       title: "Rancang Bangun Sistem Informasi Magang"
     };
 
@@ -89,9 +67,9 @@ describe("Internship Seminar Integration Test", () => {
     expect(response.status).toBe(201);
     expect(response.body.success).toBe(true);
 
-    testSeminar = await prisma.internshipSeminar.findFirst({
-      where: { internshipId: testInternship.id }
-    });
+    testSeminar = Array.isArray(response.body.data)
+      ? response.body.data[0]
+      : response.body.data;
     expect(testSeminar).toBeDefined();
   });
 

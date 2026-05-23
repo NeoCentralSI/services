@@ -58,12 +58,12 @@ export async function validateToken(req, res, next) {
 /**
  * Submit field assessment scores + signature.
  * POST /api/insternship/field-assessment/submit/:token
- * Body: { scores: [{ chosenRubricId, score }], signature: "<base64 png string>" }
+ * Body: { scores: [{ chosenRubricId, score }], signature: "<base64 png string>", notes?: string }
  */
 export async function submitFieldAssessment(req, res, next) {
     try {
         const { token } = req.params;
-        const { scores, signature } = req.body;
+        const { scores, signature, notes } = req.body;
 
         if (!scores || !Array.isArray(scores) || scores.length === 0) {
             const error = new Error("Daftar nilai wajib diisi.");
@@ -77,7 +77,13 @@ export async function submitFieldAssessment(req, res, next) {
             throw error;
         }
 
-        const data = await penilaianService.submitFieldAssessment(token, scores, signature);
+        if (typeof notes === "string" && notes.length > 1200) {
+            const error = new Error("Catatan maksimal 1200 karakter.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        const data = await penilaianService.submitFieldAssessment(token, scores, signature, notes);
         res.status(200).json({
             success: true,
             message: "Penilaian berhasil dikirim. Terima kasih!",
