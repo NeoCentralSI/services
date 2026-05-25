@@ -1,5 +1,6 @@
 import express from "express";
 import * as pendaftaranController from "../../controllers/insternship/pendaftaran.controller.js";
+import * as penunjukanPembimbingController from "../../controllers/insternship/penunjukan-pembimbing.controller.js";
 import { authGuard, requireRole } from "../../middlewares/auth.middleware.js";
 import { ROLES } from "../../constants/roles.js";
 import multer from "multer";
@@ -98,7 +99,12 @@ kadepRouter.post("/companies", pendaftaranController.createCompany);
 kadepRouter.put("/companies/:id", pendaftaranController.updateCompany);
 kadepRouter.delete("/companies/:id", pendaftaranController.deleteCompany);
 
+
+kadepRouter.patch("/replacement-request/:requestId/approve", penunjukanPembimbingController.approveReplacement);
+kadepRouter.patch("/replacement-request/:requestId/reject", penunjukanPembimbingController.rejectReplacement);
+
 router.use("/kadep", kadepRouter);
+
 
 // ==================== 5. Holidays (/holidays/*) ====================
 const holidayRouter = express.Router();

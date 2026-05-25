@@ -148,4 +148,41 @@ describe("Internship Pendaftaran Integration Test", () => {
     const signed = await prisma.internshipProposal.findUnique({ where: { id: testProposal.id } });
     expect(signed.appLetterSignedById).toBe(users.kadep.id);
   });
+
+  it("should allow a student with a FAILED internship to submit a new proposal", async () => {
+    await prisma.internshipProposal.update({
+      where: { id: testProposal.id },
+      data: { status: "ACCEPTED_BY_COMPANY" }
+    });
+    await prisma.internship.updateMany({
+      where: { proposalId: testProposal.id, studentId: users.student.id },
+      data: { status: "FAILED" }
+    });
+
+    const dummyDoc = await prisma.document.create({
+      data: {
+        userId: users.student.id,
+        documentTypeId: docType.id,
+        fileName: "test_proposal_after_failed.pdf",
+        filePath: "uploads/test/test_proposal_after_failed.pdf",
+      },
+    });
+
+    const response = await request(app)
+      .post("/insternship/registration/submit")
+      .set("Authorization", `Bearer ${tokens.student}`)
+      .send({
+        proposalDocumentId: dummyDoc.id,
+        proposedStartDate: "2025-10-01",
+        proposedEndDate: "2025-12-01",
+        newCompany: {
+          companyName: "PT Pendaftaran Ulang Integration",
+          address: "Jl. Pendaftaran Ulang No. 1",
+          alasan: "Testing re-registration after failed internship",
+        },
+        memberIds: [],
+      });
+
+    expect(response.status).toBe(201);
+  });
 });

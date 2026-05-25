@@ -43,7 +43,10 @@ model User {
   defenceExaminerAssignments ThesisDefenceExaminer[]          @relation("DefenceExaminerAssignedBy")
   defenceDocVerifications    ThesisDefenceDocument[]          @relation("DefenceDocVerifiedBy")
 
-  internshipSupLetterSigned  InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
+  internshipSupLetterSigned InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
+
+  replacementRequestsMade     SupervisorReplacementRequest[] @relation("ReplacementRequestedBy")
+  replacementRequestsApproved SupervisorReplacementRequest[] @relation("ReplacementApprovedBy")
 
   @@map("users")
 }
@@ -128,16 +131,18 @@ model StudentCplScore {
 }
 
 model Lecturer {
-  id                            String                        @id @map("user_id")
-  scienceGroupId                String?                       @map("science_group_id")
+  id                            String                         @id @map("user_id")
+  scienceGroupId                String?                        @map("science_group_id")
   data                          Json?
-  createdAt                     DateTime                      @default(now()) @map("created_at")
-  updatedAt                     DateTime                      @updatedAt @map("updated_at")
-  internshipAppLettersSigned    InternshipProposal[]          @relation("InternshipAppLetterSigner")
-  internshipAssignLettersSigned InternshipProposal[]          @relation("InternshipAssignLetterSigner")
-  internshipsSupervisored       Internship[]                  @relation("InternshipSupervisor")
-  scienceGroup                  ScienceGroup?                 @relation(fields: [scienceGroupId], references: [id])
-  user                          User                          @relation(fields: [id], references: [id], onDelete: Cascade)
+  createdAt                     DateTime                       @default(now()) @map("created_at")
+  updatedAt                     DateTime                       @updatedAt @map("updated_at")
+  internshipAppLettersSigned    InternshipProposal[]           @relation("InternshipAppLetterSigner")
+  internshipAssignLettersSigned InternshipProposal[]           @relation("InternshipAssignLetterSigner")
+  internshipsSupervisored       Internship[]                   @relation("InternshipSupervisor")
+  replacementRequestsAsOld      SupervisorReplacementRequest[] @relation("ReplacementOldSupervisor")
+  replacementRequestsAsNew      SupervisorReplacementRequest[] @relation("ReplacementNewSupervisor")
+  scienceGroup                  ScienceGroup?                  @relation(fields: [scienceGroupId], references: [id])
+  user                          User                           @relation(fields: [id], references: [id], onDelete: Cascade)
   thesisChangeRequestApprovals  ThesisChangeRequestApproval[]
   thesisChangeRequestsReviewed  ThesisChangeRequest[]
   thesisGuidances               ThesisGuidance[]
@@ -228,8 +233,8 @@ model Cpmk {
   code           String   @db.VarChar(255)
   description    String   @db.VarChar(255)
   type           CpmkType
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   academicYear        AcademicYear?        @relation(fields: [academicYearId], references: [id])
   assessmentCriterias AssessmentCriteria[]
@@ -1205,7 +1210,12 @@ model InternshipSupervisorLetter {
   signedBy     User?     @relation("InternshipSupLetterSigner", fields: [signedById], references: [id])
   signedAsRole UserRole? @relation("InternshipSupLetterRole", fields: [signedAsRoleId], references: [id])
 
-  internships Internship[]
+  status           SupervisorLetterStatus @default(ACTIVE)
+  supersededAt     DateTime?              @map("superseded_at")
+  supersededReason String?                @map("superseded_reason") @db.Text
+
+  internships         Internship[]
+  replacementRequests SupervisorReplacementRequest[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1222,6 +1232,8 @@ model Internship {
   supervisorId         String?                @map("supervisor_id")
   fieldSupervisorName  String?                @map("field_supervisor_name")
   fieldSupervisorEmail String?                @map("field_supervisor_email")
+  fieldSupervisorPhone String?                @map("field_supervisor_phone")
+  fieldSupervisorNip   String?                @map("field_supervisor_nip")
   unitSection          String?                @map("unit_section")
   actualStartDate      DateTime?              @map("actual_start_date") @db.Date
   actualEndDate        DateTime?              @map("actual_end_date") @db.Date
@@ -1246,11 +1258,12 @@ model Internship {
   reportUploadedAt         DateTime?               @map("report_uploaded_at")
   reportFeedbackDocumentId String?                 @map("report_feedback_document_id")
 
-  reportDocument         Document?                   @relation("InternshipReportDocument", fields: [reportDocumentId], references: [id])
-  reportFeedbackDocument Document?                   @relation("InternshipReportFeedbackDocument", fields: [reportFeedbackDocumentId], references: [id])
+  reportDocument         Document?                      @relation("InternshipReportDocument", fields: [reportDocumentId], references: [id])
+  reportFeedbackDocument Document?                      @relation("InternshipReportFeedbackDocument", fields: [reportFeedbackDocumentId], references: [id])
   logbooks               InternshipLogbook[]
   guidanceSessions       InternshipGuidanceSession[]
   seminars               InternshipSeminar[]
+  replacementRequests    SupervisorReplacementRequest[]
 
   // Assessment fields (merged from InternshipAssessment)
   lecturerAssessmentStatus    InternshipAssessmentStatus? @map("lecturer_assessment_status")
@@ -1938,4 +1951,44 @@ enum ExitSurveyQuestionType {
   multiple_choice
   text
   textarea
+}
+
+enum SupervisorLetterStatus {
+  ACTIVE
+  SUPERSEDED
+}
+
+enum ReplacementRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model SupervisorReplacementRequest {
+  id              String                   @id @default(uuid())
+  letterId        String                   @map("letter_id")
+  internshipId    String                   @map("internship_id")
+  oldSupervisorId String                   @map("old_supervisor_id")
+  newSupervisorId String                   @map("new_supervisor_id")
+  reason          String                   @db.Text
+  status          ReplacementRequestStatus @default(PENDING)
+  requestedById   String                   @map("requested_by_id")
+  approvedById    String?                  @map("approved_by_id")
+  requestedAt     DateTime                 @default(now()) @map("requested_at")
+  resolvedAt      DateTime?                @map("resolved_at")
+  rejectionNotes  String?                  @map("rejection_notes") @db.Text
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  letter        InternshipSupervisorLetter @relation(fields: [letterId], references: [id])
+  internship    Internship                 @relation(fields: [internshipId], references: [id])
+  oldSupervisor Lecturer                   @relation("ReplacementOldSupervisor", fields: [oldSupervisorId], references: [id])
+  newSupervisor Lecturer                   @relation("ReplacementNewSupervisor", fields: [newSupervisorId], references: [id])
+  requestedBy   User                       @relation("ReplacementRequestedBy", fields: [requestedById], references: [id])
+  approvedBy    User?                      @relation("ReplacementApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([letterId])
+  @@index([internshipId])
+  @@index([status])
+  @@map("supervisor_replacement_requests")
 }

@@ -147,9 +147,14 @@ export async function getInternshipWithGroup(internshipId) {
  * @returns {Promise<Array>}
  */
 export async function getUpcomingSeminars() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     return prisma.internshipSeminar.findMany({
         where: {
-            status: { in: ['REQUESTED', 'APPROVED', 'COMPLETED'] }
+            status: { in: ['REQUESTED', 'APPROVED'] },
+            seminarDate: { gte: today },
+            internship: { status: 'ONGOING' }
         },
         include: {
             room: true,

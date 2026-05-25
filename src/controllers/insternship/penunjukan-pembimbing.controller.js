@@ -109,3 +109,41 @@ export async function updateSupervisorLetter(req, res, next) {
     }
 }
 
+
+
+/**
+ * Sekdep: Request supervisor replacement.
+ */
+export async function requestReplacement(req, res, next) {
+    try {
+        const { internshipId, newSupervisorId, reason } = req.body;
+        const result = await sekdepService.requestSupervisorReplacement({
+            internshipId, newSupervisorId, reason,
+            requestedById: req.user.sub
+        });
+        res.status(201).json({ success: true, data: result });
+    } catch (error) { next(error); }
+}
+
+/**
+ * Kadep: Approve supervisor replacement.
+ */
+export async function approveReplacement(req, res, next) {
+    try {
+        const { requestId } = req.params;
+        const result = await sekdepService.approveReplacementRequest(requestId, req.user.sub);
+        res.status(200).json({ success: true, ...result });
+    } catch (error) { next(error); }
+}
+
+/**
+ * Kadep: Reject supervisor replacement.
+ */
+export async function rejectReplacement(req, res, next) {
+    try {
+        const { requestId } = req.params;
+        const { notes } = req.body;
+        const result = await sekdepService.rejectReplacementRequest(requestId, req.user.sub, notes);
+        res.status(200).json({ success: true, ...result });
+    } catch (error) { next(error); }
+}

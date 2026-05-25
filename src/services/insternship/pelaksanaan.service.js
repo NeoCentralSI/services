@@ -33,6 +33,14 @@ export async function getStudentLogbooks(studentId) {
 }
 
 /**
+ * Get terminal internship history for the current student.
+ * @param {string} studentId
+ */
+export async function getStudentInternshipHistory(studentId) {
+    return pelaksanaanRepository.getStudentInternshipHistory(studentId);
+}
+
+/**
  * Update logbook entry with time validation.
  * @param {string} logbookId 
  * @param {string} studentId 
@@ -102,9 +110,15 @@ export async function updateInternshipDetails(studentId, data) {
     }
 
     const normalizeString = (value) => typeof value === "string" ? value.trim() : "";
+    const normalizeOptionalString = (value) => {
+        const normalized = normalizeString(value);
+        return normalized || null;
+    };
     const payload = {
         fieldSupervisorName: normalizeString(data?.fieldSupervisorName),
         fieldSupervisorEmail: normalizeString(data?.fieldSupervisorEmail),
+        fieldSupervisorPhone: normalizeOptionalString(data?.fieldSupervisorPhone),
+        fieldSupervisorNip: normalizeOptionalString(data?.fieldSupervisorNip),
         unitSection: normalizeString(data?.unitSection)
     };
 

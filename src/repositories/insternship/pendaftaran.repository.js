@@ -10,6 +10,21 @@ const SEKDEP_PROPOSAL_TRACKING_STATUSES = [
     'REJECTED_BY_COMPANY'
 ];
 
+const ACTIVE_STUDENT_INTERNSHIP_STATUSES = [
+    'PENDING',
+    'ACCEPTED',
+    'ACCEPTED_BY_COMPANY',
+    'ONGOING',
+    'COMPLETED'
+];
+
+const ACTIVE_PROPOSAL_STATUSES = [
+    'PENDING',
+    'APPROVED_PROPOSAL',
+    'ACCEPTED_BY_COMPANY',
+    'PARTIALLY_ACCEPTED'
+];
+
 /**
  * Get all internship proposals where the student is either a coordinator or has an internship.
  * After consolidation, uses `internships` relation instead of `members`.
@@ -84,16 +99,11 @@ export async function getEligibleStudents() {
     return prisma.student.findMany({
         where: {
             skscompleted: { gte: 90 },
-            // Filter out students who already have ongoing internships
+            // Filter out students who already have an active/non-repeatable internship state.
+            // FAILED and rejected states are intentionally not blocked so students can register again.
             internships: {
                 none: {
-                    status: 'ONGOING'
-                }
-            },
-            // Filter out coordinators of active proposals
-            internshipProposalsCoordinated: {
-                none: {
-                    status: { in: ['PENDING', 'APPROVED_PROPOSAL'] }
+                    status: { in: ACTIVE_STUDENT_INTERNSHIP_STATUSES }
                 }
             }
         },
@@ -270,7 +280,7 @@ export async function updateProposal(proposalId, data) {
  * @returns {Promise<Object|null>}
  */
 export async function findActiveProposalOrInternship(studentId) {
-    // Check for ongoing internship
+    // Check for ongoing internship first so the caller can show a more specific message.
     const activeInternship = await prisma.internship.findFirst({
         where: {
             studentId,
@@ -280,24 +290,18 @@ export async function findActiveProposalOrInternship(studentId) {
 
     if (activeInternship) return { type: 'INTERNSHIP', data: activeInternship };
 
-    // Check for active proposal (coordinator or member via internship)
+    // Check for active proposal based on this student's own internship status.
+    // A proposal can stay ACCEPTED_BY_COMPANY/PARTIALLY_ACCEPTED as group history even when
+    // one student's internship has FAILED, so do not block only from the proposal status.
     const activeProposal = await prisma.internshipProposal.findFirst({
         where: {
-            OR: [
-                {
-                    coordinatorId: studentId,
-                    status: { in: ['PENDING', 'APPROVED_PROPOSAL', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED'] }
-                },
-                {
-                    internships: {
-                        some: {
-                            studentId,
-                            status: { in: ['PENDING', 'ACCEPTED', 'ACCEPTED_BY_COMPANY'] }
-                        }
-                    },
-                    status: { in: ['PENDING', 'APPROVED_PROPOSAL', 'ACCEPTED_BY_COMPANY', 'PARTIALLY_ACCEPTED'] }
+            status: { in: ACTIVE_PROPOSAL_STATUSES },
+            internships: {
+                some: {
+                    studentId,
+                    status: { in: ACTIVE_STUDENT_INTERNSHIP_STATUSES }
                 }
-            ]
+            }
         },
         include: {
             targetCompany: true,
@@ -1347,7 +1351,13 @@ export async function findPendingAssignmentLetters(academicYearId) {
  */
 export async function findPendingSupervisorLetters() {
     return prisma.internshipSupervisorLetter.findMany({
-        where: { documentId: { not: null } },
+        where: { 
+            documentId: { not: null },
+            OR: [
+                { status: 'ACTIVE' },
+                { status: 'SUPERSEDED', signedById: { not: null } }
+            ]
+        },
         include: {
             supervisor: { include: { user: true } },
             internships: {
@@ -1355,6 +1365,19 @@ export async function findPendingSupervisorLetters() {
                     proposal: {
                         include: {
                             academicYear: true
+                        }
+                    }
+                }
+            },
+            replacementRequests: {
+                include: {
+                    internship: {
+                        include: {
+                            proposal: {
+                                include: {
+                                    academicYear: true
+                                }
+                            }
                         }
                     }
                 }

@@ -8,6 +8,8 @@ describe("Internship Pelaksanaan Integration Test", () => {
   let tokens = {};
   let users = {};
   let testInternship;
+  let completedInternship;
+  let failedInternship;
   let testLogbook;
 
   beforeAll(async () => {
@@ -26,6 +28,18 @@ describe("Internship Pelaksanaan Integration Test", () => {
     testInternship = await createOngoingInternship({
       studentUser: users.student,
       companyName: "PT Pelaksanaan Integration",
+    });
+
+    completedInternship = await createOngoingInternship({
+      studentUser: users.student,
+      companyName: "PT Pelaksanaan Completed History",
+      status: "COMPLETED",
+    });
+
+    failedInternship = await createOngoingInternship({
+      studentUser: users.student,
+      companyName: "PT Pelaksanaan Failed History",
+      status: "FAILED",
     });
 
     // 3. Create a dummy logbook entry if not exists
@@ -72,6 +86,18 @@ describe("Internship Pelaksanaan Integration Test", () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(Array.isArray(response.body.data.logbooks)).toBe(true);
+    expect(response.body.data.internship.id).toBe(testInternship.id);
+  });
+
+  it("should retrieve terminal internship history without making terminal internships current", async () => {
+    const response = await request(app)
+      .get("/insternship/activity/history")
+      .set("Authorization", `Bearer ${tokens.student}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.some((item) => item.id === completedInternship.id)).toBe(true);
+    expect(response.body.data.some((item) => item.id === failedInternship.id)).toBe(true);
   });
 
   it("should successfully update a logbook entry", async () => {

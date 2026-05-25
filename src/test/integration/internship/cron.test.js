@@ -7,6 +7,7 @@ describe("Internship Cron Job Integration Test", () => {
   let testStudent;
   let testProposal;
   let testDocument;
+  let testRoom;
 
   beforeAll(async () => {
     console.log("🔍 [SETUP] Initializing internship cron test data...");
@@ -34,6 +35,16 @@ describe("Internship Cron Job Integration Test", () => {
     // Find or create academic year and company
     const academicYear = await ensureActiveAcademicYear();
     const company = await ensureCompany({ companyName: "PT Cron Integration" });
+    testRoom = await prisma.room.findFirst();
+    if (!testRoom) {
+      testRoom = await prisma.room.create({
+        data: {
+          name: "Ruang Cron KP",
+          location: "Kampus",
+          capacity: 20
+        }
+      });
+    }
 
     // Create a dummy proposal
     testProposal = await prisma.internshipProposal.create({
@@ -132,5 +143,44 @@ describe("Internship Cron Job Integration Test", () => {
     const updated = await prisma.internship.findUnique({ where: { id: internship.id } });
     expect(updated.status).toBe('COMPLETED');
     console.log(`✅ [SCENARIO 4] COMPLETED status remained unchanged.`);
+  });
+
+  it("Scenario 5: Should change to FAILED if all requirements are met but final grade is D", async () => {
+    console.log("Final grade D scenario...");
+    const recentlyEnded = new Date();
+    recentlyEnded.setDate(recentlyEnded.getDate() - 7);
+
+    const internship = await createTestInternship(recentlyEnded, true);
+    await prisma.internship.update({
+      where: { id: internship.id },
+      data: {
+        lecturerAssessmentStatus: 'COMPLETED',
+        fieldAssessmentStatus: 'COMPLETED',
+        logbookDocumentStatus: 'APPROVED',
+        companyReceiptStatus: 'APPROVED',
+        reportStatus: 'APPROVED',
+        finalNumericScore: 46,
+        finalGrade: 'D'
+      }
+    });
+
+    await prisma.internshipSeminar.create({
+      data: {
+        internshipId: internship.id,
+        roomId: testRoom.id,
+        moderatorStudentId: testStudent.id,
+        seminarDate: new Date(),
+        startTime: new Date("1970-01-01T09:00:00.000Z"),
+        endTime: new Date("1970-01-01T10:00:00.000Z"),
+        status: 'COMPLETED'
+      }
+    });
+
+    const result = await updateAllInternshipDeadlineStatuses();
+
+    const updated = await prisma.internship.findUnique({ where: { id: internship.id } });
+    expect(updated.status).toBe('FAILED');
+    expect(updated.finalGrade).toBe('D');
+    expect(result.gradeFailed).toBeGreaterThanOrEqual(1);
   });
 });

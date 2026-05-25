@@ -1,13 +1,14 @@
 import prisma from "../../config/prisma.js";
 
 /**
- * Get active internship for a student.
+ * Get current internship for a student.
+ * Terminal internships are historical and should not drive the active student UI.
  * @param {string} studentId 
  * @returns {Promise<Object>}
  */
 export async function getStudentInternship(studentId) {
     return prisma.internship.findFirst({
-        where: { studentId, status: { in: ['ONGOING', 'COMPLETED', 'FAILED'] } },
+        where: { studentId, status: 'ONGOING' },
         include: {
             student: {
                 include: { user: true }
@@ -15,10 +16,35 @@ export async function getStudentInternship(studentId) {
             proposal: {
                 include: {
                     targetCompany: true,
-                    academicYear: true
+                    academicYear: true,
+                    internships: {
+                        where: { status: 'ONGOING' },
+                        include: {
+                            student: {
+                                include: {
+                                    user: true
+                                }
+                            },
+                            supervisor: {
+                                include: {
+                                    user: true
+                                }
+                            },
+                            seminars: {
+                                where: { status: { in: ['REQUESTED', 'APPROVED'] } },
+                                select: {
+                                    id: true,
+                                    status: true
+                                }
+                            }
+                        }
+                    }
                 }
             },
             seminars: {
+                where: {
+                    status: 'COMPLETED'
+                },
                 include: {
                     room: true,
                     moderatorStudent: {
@@ -46,7 +72,12 @@ export async function getStudentInternship(studentId) {
             logbookDocument: true,
             supLetter: {
                 include: {
-                    document: true
+                    document: true,
+                    supervisor: {
+                        include: {
+                            user: true
+                        }
+                    }
                 }
             }
         },
@@ -78,6 +109,112 @@ export async function getStudentLogbooks(studentId) {
         internship,
         logbooks
     };
+}
+
+/**
+ * Get terminal internship history for a student.
+ * Used by the student overview history tab so old FAILED/COMPLETED internships
+ * remain accessible without being treated as the current active internship.
+ * @param {string} studentId
+ * @returns {Promise<Array>}
+ */
+export async function getStudentInternshipHistory(studentId) {
+    return prisma.internship.findMany({
+        where: {
+            studentId,
+            status: { in: ['COMPLETED', 'FAILED'] }
+        },
+        include: {
+            proposal: {
+                include: {
+                    targetCompany: true,
+                    academicYear: true,
+                    proposalDocument: true,
+                    appLetterDoc: true,
+                    companyResponseDoc: true,
+                    assignLetterDoc: true
+                }
+            },
+            supervisor: {
+                include: {
+                    user: true
+                }
+            },
+            seminars: {
+                include: {
+                    room: true,
+                    moderatorStudent: {
+                        include: {
+                            user: true
+                        }
+                    },
+                    beritaAcaraDocument: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            },
+            guidanceSessions: {
+                include: {
+                    studentAnswers: {
+                        include: {
+                            question: true
+                        }
+                    },
+                    lecturerAnswers: {
+                        include: {
+                            criteria: true
+                        }
+                    }
+                },
+                orderBy: {
+                    weekNumber: 'asc'
+                }
+            },
+            reportDocument: true,
+            reportFeedbackDocument: true,
+            fieldAssessmentDoc: true,
+            completionCertificateDoc: true,
+            companyReceiptDoc: true,
+            companyReportDoc: true,
+            logbookDocument: true,
+            supLetter: {
+                include: {
+                    document: true,
+                    supervisor: {
+                        include: {
+                            user: true
+                        }
+                    }
+                }
+            },
+            lecturerScores: {
+                include: {
+                    chosenRubric: {
+                        include: {
+                            cpmk: true
+                        }
+                    }
+                }
+            },
+            fieldScores: {
+                include: {
+                    chosenRubric: {
+                        include: {
+                            cpmk: true
+                        }
+                    }
+                }
+            },
+            logbooks: {
+                orderBy: { activityDate: 'asc' }
+            }
+        },
+        orderBy: [
+            { updatedAt: 'desc' },
+            { createdAt: 'desc' }
+        ]
+    });
 }
 
 /**
@@ -122,7 +259,7 @@ export async function updateLogbook(logbookId, studentId, activityDescription) {
  * @param {Object} data 
  * @returns {Promise<Object>}
  */
-export async function updateInternshipDetails(studentId, { fieldSupervisorName, fieldSupervisorEmail, unitSection }) {
+export async function updateInternshipDetails(studentId, { fieldSupervisorName, fieldSupervisorEmail, fieldSupervisorPhone, fieldSupervisorNip, unitSection }) {
     const internship = await prisma.internship.findFirst({
         where: { studentId, status: 'ONGOING' }
     });
@@ -133,7 +270,7 @@ export async function updateInternshipDetails(studentId, { fieldSupervisorName, 
 
     return prisma.internship.update({
         where: { id: internship.id },
-        data: { fieldSupervisorName, fieldSupervisorEmail, unitSection }
+        data: { fieldSupervisorName, fieldSupervisorEmail, fieldSupervisorPhone, fieldSupervisorNip, unitSection }
     });
 }
 

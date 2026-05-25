@@ -1,0 +1,730 @@
+// Prisma schema subset for the Internship module.
+// Includes internship tables plus required master/reference tables and relations.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma-internship"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== Core Master Data ====================
+
+model User {
+  id                         String              @id @default(uuid())
+  fullName                   String              @map("full_name")
+  identityNumber             String              @unique @map("identity_number")
+  identityType               IdentityType        @map("identity_type")
+  email                      String?             @unique
+  password                   String?
+  phoneNumber                String?             @map("phone_number")
+  isVerified                 Boolean             @default(false)
+  token                      String?             @db.Text
+  refreshToken               String?             @map("refresh_token") @db.Text
+  oauthProvider              String?             @map("oauth_provider")
+  oauthId                    String?             @map("oauth_id")
+  oauthRefreshToken          String?             @map("oauth_refresh_token") @db.Text
+  avatarUrl                  String?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  documents                  Document[]
+  internshipSeminarApprovals InternshipSeminar[] @relation("InternshipSeminarApprover")
+  lecturer                   Lecturer?
+  student                    Student?
+  userHasRoles               UserHasRole[]
+  internshipSupLetterSigned  InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
+
+  @@map("users")
+}
+
+model UserRole {
+  id   String @id @default(uuid())
+  name String
+
+  userHasRoles                       UserHasRole[]
+  internshipAppLetterSignedAsRole    InternshipProposal[]         @relation("InternshipAppLetterRole")
+  internshipAssignLetterSignedAsRole InternshipProposal[]         @relation("InternshipAssignLetterRole")
+  internshipSupLetterSignedAsRole    InternshipSupervisorLetter[] @relation("InternshipSupLetterRole")
+
+  @@map("user_roles")
+}
+
+model UserHasRole {
+  userId String     @map("user_id")
+  roleId String     @map("role_id")
+  status RoleStatus
+  role   UserRole   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId], map: "user_has_roles_role_id_fkey")
+  @@map("user_has_roles")
+}
+
+model Student {
+  id                             String                      @id @map("user_id")
+  status                         StudentStatus               @default(active) @map("student_status")
+  enrollmentYear                 Int?                        @map("enrollment_year")
+  skscompleted                   Int
+  mandatoryCoursesCompleted      Boolean                     @default(false) @map("mandatory_courses_completed")
+  mkwuCompleted                  Boolean                     @default(false) @map("mkwu_completed")
+  internshipCompleted            Boolean                     @default(false) @map("internship_completed")
+  kknCompleted                   Boolean                     @default(false) @map("kkn_completed")
+  researchMethodCompleted        Boolean                     @default(false) @map("research_method_completed")
+  currentSemester                Int?                        @map("current_semester")
+  createdAt                      DateTime                    @default(now()) @map("created_at")
+  updatedAt                      DateTime                    @updatedAt @map("updated_at")
+  internships                    Internship[]
+  internshipProposalsCoordinated InternshipProposal[]
+  internshipSeminarModerator     InternshipSeminar[]         @relation("InternshipSeminarModerator")
+  internshipSeminarAudiences     InternshipSeminarAudience[] @relation("InternshipSeminarAudience")
+  user                           User                        @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@index([skscompleted], map: "idx_students_skscompleted")
+  @@map("students")
+}
+
+model Lecturer {
+  id                            String                       @id @map("user_id")
+  scienceGroupId                String?                      @map("science_group_id")
+  data                          Json?
+  createdAt                     DateTime                     @default(now()) @map("created_at")
+  updatedAt                     DateTime                     @updatedAt @map("updated_at")
+  internshipAppLettersSigned    InternshipProposal[]         @relation("InternshipAppLetterSigner")
+  internshipAssignLettersSigned InternshipProposal[]         @relation("InternshipAssignLetterSigner")
+  internshipsSupervisored       Internship[]                 @relation("InternshipSupervisor")
+  scienceGroup                  ScienceGroup?                @relation(fields: [scienceGroupId], references: [id])
+  user                          User                         @relation(fields: [id], references: [id], onDelete: Cascade)
+  internshipSupervisorLetters   InternshipSupervisorLetter[]
+
+  @@index([scienceGroupId], map: "lecturers_science_group_id_fkey")
+  @@map("lecturers")
+}
+
+model ScienceGroup {
+  id        String     @id @default(uuid())
+  name      String
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  lecturers Lecturer[]
+
+  @@map("science_groups")
+}
+
+model AcademicYear {
+  id                                 String                               @id @default(uuid())
+  semester                           Semester                             @default(ganjil)
+  year                               String?                              @db.VarChar(20)
+  startDate                          DateTime?                            @map("start_date")
+  endDate                            DateTime?                            @map("end_date")
+  isActive                           Boolean                              @default(false) @map("is_active")
+  createdAt                          DateTime                             @default(now()) @map("created_at")
+  updatedAt                          DateTime                             @updatedAt @map("updated_at")
+  internshipProposals                InternshipProposal[]
+  internshipCpmks                    InternshipCpmk[]
+  internshipGuidanceQuestions        InternshipGuidanceQuestion[]
+  internshipGuidanceLecturerCriteria InternshipGuidanceLecturerCriteria[]
+
+  @@map("academic_years")
+}
+
+model Room {
+  id                 String              @id @default(uuid())
+  name               String
+  location           String?             @db.VarChar(255)
+  capacity           Int?
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  internshipSeminars InternshipSeminar[]
+
+  @@map("rooms")
+}
+
+model Document {
+  id                                  String                       @id @default(uuid())
+  userId                              String?                      @map("user_id")
+  documentTypeId                      String?                      @map("document_type_id")
+  filePath                            String?                      @map("file_path")
+  fileName                            String?                      @map("file_name")
+  fileHash                            String?                      @map("file_hash") @db.VarChar(255)
+  createdAt                           DateTime                     @default(now()) @map("created_at")
+  updatedAt                           DateTime                     @updatedAt @map("updated_at")
+  documentType                        DocumentType?                @relation(fields: [documentTypeId], references: [id])
+  user                                User?                        @relation(fields: [userId], references: [id])
+  internshipProposalDocs              InternshipProposal[]         @relation("InternshipProposalDocument")
+  internshipAppLetterDocs             InternshipProposal[]         @relation("InternshipAppLetterDocument")
+  internshipCompanyRespDocs           InternshipProposal[]         @relation("InternshipCompanyRespDocument")
+  internshipAssignLetterDocs          InternshipProposal[]         @relation("InternshipAssignLetterDocument")
+  internshipSupLetterDocs             InternshipSupervisorLetter[] @relation("InternshipSupLetterDocument")
+  internshipFieldAssessmentDocs       Internship[]                 @relation("InternshipFieldAssessmentDoc")
+  internshipReportDocs                Internship[]                 @relation("InternshipReportDocument")
+  internshipReportFeedbackDocs        Internship[]                 @relation("InternshipReportFeedbackDocument")
+  internshipCompletionCertificateDocs Internship[]                 @relation("InternshipCompletionCertificateDoc")
+  internshipCompanyReceiptDocs        Internship[]                 @relation("InternshipCompanyReceiptDoc")
+  internshipCompanyReportDocs         Internship[]                 @relation("InternshipCompanyReportDoc")
+  internshipSeminarBeritaAcara        InternshipSeminar[]          @relation("InternshipSeminarBeritaAcara")
+  internshipLogbookDoc                Internship[]                 @relation("InternshipLogbookDoc")
+
+  @@index([documentTypeId], map: "documents_document_type_id_fkey")
+  @@index([userId], map: "documents_user_id_fkey")
+  @@map("documents")
+}
+
+model DocumentType {
+  id        String     @id @default(uuid())
+  name      String?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  documents Document[]
+
+  @@map("document_types")
+}
+
+model DocumentTemplate {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  type      String   @default("HTML")
+  content   String?  @db.LongText
+  filePath  String?  @map("file_path") @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("document_templates")
+}
+
+// ==================== Internship Registration ====================
+
+model Company {
+  id                  String               @id @default(uuid())
+  companyName         String               @map("company_name")
+  companyAddress      String               @map("company_address")
+  alasan              String?              @map("alasan") @db.Text
+  status              CompanyStatus        @default(save)
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @default(now()) @map("updated_at")
+  internshipProposals InternshipProposal[]
+
+  @@map("companies")
+}
+
+model InternshipProposal {
+  id                  String                   @id @default(uuid())
+  coordinatorId       String                   @map("coordinator_id")
+  proposalDocumentId  String                   @map("proposal_document_id")
+  academicYearId      String                   @map("academic_year_id")
+  targetCompanyId     String                   @map("target_company_id")
+  status              InternshipProposalStatus @default(PENDING)
+  proposalSekdepNotes String?                  @map("proposal_sekdep_notes") @db.Text
+  proposedStartDate   DateTime                 @map("proposed_start_date") @db.Date
+  proposedEndDate     DateTime                 @map("proposed_end_date") @db.Date
+
+  appLetterDocNumber      String?   @unique @map("app_letter_doc_number")
+  appLetterDateIssued     DateTime? @map("app_letter_date_issued") @db.Date
+  startDatePlanned        DateTime? @map("start_date_planned") @db.Date
+  endDatePlanned          DateTime? @map("end_date_planned") @db.Date
+  appLetterDocId          String?   @map("app_letter_doc_id")
+  appLetterSignedById     String?   @map("app_letter_signed_by_id")
+  appLetterSignedAsRoleId String?   @map("app_letter_signed_as_role_id")
+
+  companyResponseDocId String? @map("company_response_doc_id")
+  companyResponseNotes String? @map("company_response_notes") @db.Text
+
+  assignLetterDocNumber      String?   @unique @map("assign_letter_doc_number")
+  assignLetterDateIssued     DateTime? @map("assign_letter_date_issued") @db.Date
+  startDateActual            DateTime? @map("start_date_actual") @db.Date
+  endDateActual              DateTime? @map("end_date_actual") @db.Date
+  assignLetterDocId          String?   @map("assign_letter_doc_id")
+  assignLetterSignedById     String?   @map("assign_letter_signed_by_id")
+  assignLetterSignedAsRoleId String?   @map("assign_letter_signed_as_role_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  coordinator      Student      @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
+  proposalDocument Document     @relation("InternshipProposalDocument", fields: [proposalDocumentId], references: [id])
+  academicYear     AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  targetCompany    Company?     @relation(fields: [targetCompanyId], references: [id])
+
+  appLetterDoc          Document? @relation("InternshipAppLetterDocument", fields: [appLetterDocId], references: [id])
+  appLetterSignedBy     Lecturer? @relation("InternshipAppLetterSigner", fields: [appLetterSignedById], references: [id])
+  appLetterSignedAsRole UserRole? @relation("InternshipAppLetterRole", fields: [appLetterSignedAsRoleId], references: [id])
+
+  companyResponseDoc Document? @relation("InternshipCompanyRespDocument", fields: [companyResponseDocId], references: [id])
+
+  assignLetterDoc          Document? @relation("InternshipAssignLetterDocument", fields: [assignLetterDocId], references: [id])
+  assignLetterSignedBy     Lecturer? @relation("InternshipAssignLetterSigner", fields: [assignLetterSignedById], references: [id])
+  assignLetterSignedAsRole UserRole? @relation("InternshipAssignLetterRole", fields: [assignLetterSignedAsRoleId], references: [id])
+
+  internships Internship[]
+
+  @@index([coordinatorId], map: "internship_proposals_coordinator_id_fkey")
+  @@index([proposalDocumentId], map: "internship_proposals_proposal_document_id_fkey")
+  @@index([academicYearId], map: "internship_proposals_academic_year_id_fkey")
+  @@index([targetCompanyId], map: "internship_proposals_target_company_id_fkey")
+  @@index([appLetterDocId], map: "internship_proposals_app_letter_doc_id_fkey")
+  @@index([appLetterSignedById], map: "internship_proposals_app_letter_signed_by_id_fkey")
+  @@index([appLetterSignedAsRoleId], map: "internship_proposals_app_letter_signed_as_role_id_fkey")
+  @@index([companyResponseDocId], map: "internship_proposals_company_response_doc_id_fkey")
+  @@index([assignLetterDocId], map: "internship_proposals_assign_letter_doc_id_fkey")
+  @@index([assignLetterSignedById], map: "internship_proposals_assign_letter_signed_by_id_fkey")
+  @@index([assignLetterSignedAsRoleId], map: "internship_proposals_assign_letter_signed_as_role_id_fkey")
+  @@map("internship_proposals")
+}
+
+model InternshipSupervisorLetter {
+  id             String   @id @default(uuid())
+  documentNumber String   @unique @map("document_number")
+  dateIssued     DateTime @map("date_issued") @db.Date
+  startDate      DateTime @map("start_date") @db.Date
+  endDate        DateTime @map("end_date") @db.Date
+  supervisorId   String   @map("supervisor_id")
+  documentId     String?  @map("document_id")
+  signedById     String?  @map("signed_by_id")
+  signedAsRoleId String?  @map("signed_as_role_id")
+
+  supervisor   Lecturer  @relation(fields: [supervisorId], references: [id], onDelete: Cascade)
+  document     Document? @relation("InternshipSupLetterDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  signedBy     User?     @relation("InternshipSupLetterSigner", fields: [signedById], references: [id])
+  signedAsRole UserRole? @relation("InternshipSupLetterRole", fields: [signedAsRoleId], references: [id])
+
+  internships Internship[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("internship_supervisor_letters")
+}
+
+// ==================== Internship Execution ====================
+
+model Internship {
+  id                   String                 @id @default(uuid())
+  studentId            String                 @map("student_id")
+  proposalId           String                 @map("proposal_id")
+  supervisorId         String?                @map("supervisor_id")
+  fieldSupervisorName  String?                @map("field_supervisor_name")
+  fieldSupervisorEmail String?                @map("field_supervisor_email")
+  unitSection          String?                @map("unit_section")
+  actualStartDate      DateTime?              @map("actual_start_date") @db.Date
+  actualEndDate        DateTime?              @map("actual_end_date") @db.Date
+  status               InternshipActiveStatus @default(PENDING)
+  isLogbookLocked      Boolean                @default(false) @map("is_logbook_locked")
+  logbookLockedAt      DateTime?              @map("logbook_locked_at")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @default(now()) @map("updated_at")
+  student              Student                @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  proposal             InternshipProposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  supervisor           Lecturer?              @relation("InternshipSupervisor", fields: [supervisorId], references: [id])
+
+  supLetterId String?                     @map("sup_letter_id")
+  supLetter   InternshipSupervisorLetter? @relation(fields: [supLetterId], references: [id], onDelete: SetNull)
+
+  reportTitle              String?                 @map("report_title")
+  reportDocumentId         String?                 @map("report_document_id")
+  reportStatus             InternshipReportStatus? @map("report_status")
+  reportNotes              String?                 @map("report_notes") @db.Text
+  reportUploadedAt         DateTime?               @map("report_uploaded_at")
+  reportFeedbackDocumentId String?                 @map("report_feedback_document_id")
+
+  reportDocument         Document?                   @relation("InternshipReportDocument", fields: [reportDocumentId], references: [id])
+  reportFeedbackDocument Document?                   @relation("InternshipReportFeedbackDocument", fields: [reportFeedbackDocumentId], references: [id])
+  logbooks               InternshipLogbook[]
+  guidanceSessions       InternshipGuidanceSession[]
+  seminars               InternshipSeminar[]
+
+  lecturerAssessmentStatus    InternshipAssessmentStatus? @map("lecturer_assessment_status")
+  fieldAssessmentStatus       InternshipAssessmentStatus? @map("field_assessment_status")
+  fieldAssessmentNotes        String?                     @map("field_assessment_notes") @db.Text
+  fieldAssessmentDocId        String?                     @map("field_assessment_doc_id")
+  completionCertificateDocId  String?                     @map("completion_certificate_doc_id")
+  completionCertificateStatus InternshipReportStatus?     @map("completion_certificate_status")
+  completionCertificateNotes  String?                     @map("completion_certificate_notes") @db.Text
+
+  companyReceiptDocId  String?                 @map("company_receipt_doc_id")
+  companyReceiptStatus InternshipReportStatus? @map("company_receipt_status")
+  companyReceiptNotes  String?                 @map("company_receipt_notes") @db.Text
+
+  logbookDocumentId     String?                 @map("logbook_document_id")
+  logbookDocumentStatus InternshipReportStatus? @map("logbook_document_status")
+  logbookDocumentNotes  String?                 @map("logbook_document_notes") @db.Text
+
+  companyReportDocId  String?                 @map("company_report_doc_id")
+  companyReportStatus InternshipReportStatus? @map("company_report_status")
+  companyReportNotes  String?                 @map("company_report_notes") @db.Text
+
+  fieldAssessmentDoc       Document? @relation("InternshipFieldAssessmentDoc", fields: [fieldAssessmentDocId], references: [id])
+  completionCertificateDoc Document? @relation("InternshipCompletionCertificateDoc", fields: [completionCertificateDocId], references: [id])
+  companyReceiptDoc        Document? @relation("InternshipCompanyReceiptDoc", fields: [companyReceiptDocId], references: [id])
+  companyReportDoc         Document? @relation("InternshipCompanyReportDoc", fields: [companyReportDocId], references: [id])
+  logbookDocument          Document? @relation("InternshipLogbookDoc", fields: [logbookDocumentId], references: [id])
+
+  lecturerScores InternshipLecturerScore[]
+  fieldScores    InternshipFieldScore[]
+
+  fieldAssessmentSubmittedAt   DateTime?              @map("field_assessment_submitted_at")
+  fieldAssessmentSignatureHash String?                @map("field_assessment_signature_hash") @db.VarChar(255)
+  fieldAssessmentTokens        FieldAssessmentToken[]
+
+  logbookFieldSignatureHash String?   @map("logbook_field_signature_hash") @db.VarChar(255)
+  logbookFieldSignedAt      DateTime? @map("logbook_field_signed_at")
+
+  finalNumericScore Float?  @map("final_numeric_score")
+  finalGrade        String? @map("final_grade") @db.VarChar(10)
+
+  @@unique([studentId, proposalId])
+  @@index([studentId], map: "internships_student_id_fkey")
+  @@index([proposalId], map: "internships_proposal_id_fkey")
+  @@index([supervisorId], map: "internships_supervisor_id_fkey")
+  @@index([supLetterId], map: "internships_sup_letter_id_fkey")
+  @@index([fieldAssessmentDocId], map: "internships_field_assessment_doc_id_fkey")
+  @@index([completionCertificateDocId], map: "internships_completion_certificate_doc_id_fkey")
+  @@index([companyReceiptDocId], map: "internships_company_receipt_doc_id_fkey")
+  @@index([reportDocumentId], map: "internships_report_document_id_fkey")
+  @@index([reportFeedbackDocumentId], map: "internships_report_feedback_document_id_fkey")
+  @@map("internships")
+}
+
+model InternshipLogbook {
+  id                  String     @id @default(uuid())
+  internshipId        String     @map("internship_id")
+  activityDate        DateTime   @map("activity_date") @db.Date
+  activityDescription String     @map("activity_description") @db.Text
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at")
+  internship          Internship @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+
+  @@index([internshipId], map: "internship_logbooks_internship_id_fkey")
+  @@map("internship_logbooks")
+}
+
+// ==================== Internship Guidance ====================
+
+model InternshipGuidanceQuestion {
+  id             String                            @id @default(uuid())
+  weekNumber     Int                               @map("week_number")
+  questionText   String                            @map("question_text") @db.Text
+  orderIndex     Int                               @default(0) @map("order_index")
+  academicYearId String                            @map("academic_year_id")
+  createdAt      DateTime                          @default(now()) @map("created_at")
+  updatedAt      DateTime                          @default(now()) @updatedAt @map("updated_at")
+  academicYear   AcademicYear                      @relation(fields: [academicYearId], references: [id])
+  studentAnswers InternshipGuidanceStudentAnswer[]
+
+  @@map("internship_guidance_questions")
+}
+
+model InternshipGuidanceLecturerCriteria {
+  id              String                                     @id @default(uuid())
+  criteriaName    String                                     @map("criteria_name")
+  weekNumber      Int                                        @map("week_number")
+  inputType       InternshipGuidanceInputType                @map("input_type")
+  orderIndex      Int                                        @default(0) @map("order_index")
+  academicYearId  String                                     @map("academic_year_id")
+  createdAt       DateTime                                   @default(now()) @map("created_at")
+  updatedAt       DateTime                                   @default(now()) @updatedAt @map("updated_at")
+  academicYear    AcademicYear                               @relation(fields: [academicYearId], references: [id])
+  lecturerAnswers InternshipGuidanceLecturerAnswer[]
+  options         InternshipGuidanceLecturerCriteriaOption[]
+
+  @@map("internship_guidance_lecturer_criteria")
+}
+
+model InternshipGuidanceLecturerCriteriaOption {
+  id         String                             @id @default(uuid())
+  criteriaId String                             @map("criteria_id")
+  optionText String                             @map("option_text")
+  orderIndex Int                                @default(0) @map("order_index")
+  createdAt  DateTime                           @default(now()) @map("created_at")
+  updatedAt  DateTime                           @default(now()) @updatedAt @map("updated_at")
+  criteria   InternshipGuidanceLecturerCriteria @relation(fields: [criteriaId], references: [id], onDelete: Cascade)
+
+  @@map("internship_guidance_lecturer_criteria_options")
+}
+
+model InternshipGuidanceSession {
+  id              String                          @id @default(uuid())
+  internshipId    String                          @map("internship_id")
+  weekNumber      Int                             @map("week_number")
+  status          InternshipGuidanceSessionStatus @default(SUBMITTED)
+  submissionDate  DateTime?                       @map("submission_date") @db.Date
+  approvedAt      DateTime?                       @map("approved_at")
+  createdAt       DateTime                        @default(now()) @map("created_at")
+  updatedAt       DateTime                        @default(now()) @map("updated_at")
+  internship      Internship                      @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  studentAnswers  InternshipGuidanceStudentAnswer[]
+  lecturerAnswers InternshipGuidanceLecturerAnswer[]
+
+  @@index([internshipId], map: "internship_guidance_sessions_internship_id_fkey")
+  @@map("internship_guidance_sessions")
+}
+
+model InternshipGuidanceStudentAnswer {
+  guidanceSessionId String                    @map("guidance_session_id")
+  questionId        String                    @map("question_id")
+  weekNumber        Int                       @map("week_number")
+  answerText        String                    @map("answer_text") @db.Text
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at")
+  guidanceSession   InternshipGuidanceSession @relation(fields: [guidanceSessionId], references: [id], onDelete: Cascade)
+  question          InternshipGuidanceQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@id([guidanceSessionId, questionId, weekNumber])
+  @@index([guidanceSessionId], map: "internship_guidance_student_answers_session_id_fkey")
+  @@index([questionId], map: "internship_guidance_student_answers_question_id_fkey")
+  @@map("internship_guidance_student_answers")
+}
+
+model InternshipGuidanceLecturerAnswer {
+  guidanceSessionId String                             @map("guidance_session_id")
+  criteriaId        String                             @map("criteria_id")
+  weekNumber        Int                                @map("week_number")
+  evaluationValue   String?                            @map("evaluation_value")
+  answerText        String?                            @map("answer_text") @db.Text
+  createdAt         DateTime                           @default(now()) @map("created_at")
+  updatedAt         DateTime                           @default(now()) @updatedAt @map("updated_at")
+  guidanceSession   InternshipGuidanceSession          @relation(fields: [guidanceSessionId], references: [id], onDelete: Cascade)
+  criteria          InternshipGuidanceLecturerCriteria @relation(fields: [criteriaId], references: [id], onDelete: Cascade)
+
+  @@id([guidanceSessionId, criteriaId, weekNumber])
+  @@index([guidanceSessionId], map: "internship_guidance_lecturer_answers_session_id_fkey")
+  @@index([criteriaId], map: "internship_guidance_lecturer_answers_criteria_id_fkey")
+  @@map("internship_guidance_lecturer_answers")
+}
+
+// ==================== Internship Seminar ====================
+
+model InternshipSeminar {
+  id                    String                      @id @default(uuid())
+  internshipId          String                      @map("internship_id")
+  roomId                String                      @map("room_id")
+  seminarDate           DateTime                    @map("seminar_date") @db.Date
+  startTime             DateTime                    @map("start_time") @db.Time(0)
+  endTime               DateTime                    @map("end_time") @db.Time(0)
+  linkMeeting           String?                     @map("link_meeting")
+  moderatorStudentId    String                      @map("moderator_student_id")
+  status                InternshipSeminarStatus     @default(REQUESTED)
+  approvedBy            String?                     @map("approved_by")
+  supervisorNotes       String?                     @map("supervisor_notes") @db.Text
+  beritaAcaraDocumentId String?                     @map("berita_acara_document_id")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @default(now()) @map("updated_at")
+  internship            Internship                  @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  room                  Room                        @relation(fields: [roomId], references: [id])
+  moderatorStudent      Student                     @relation("InternshipSeminarModerator", fields: [moderatorStudentId], references: [id])
+  approver              User?                       @relation("InternshipSeminarApprover", fields: [approvedBy], references: [id])
+  beritaAcaraDocument   Document?                   @relation("InternshipSeminarBeritaAcara", fields: [beritaAcaraDocumentId], references: [id])
+  audiences             InternshipSeminarAudience[]
+
+  @@index([internshipId], map: "internship_seminars_internship_id_fkey")
+  @@index([roomId], map: "internship_seminars_room_id_fkey")
+  @@index([moderatorStudentId], map: "internship_seminars_moderator_student_id_fkey")
+  @@index([approvedBy], map: "internship_seminars_approved_by_fkey")
+  @@index([beritaAcaraDocumentId], map: "internship_seminars_berita_acara_document_id_fkey")
+  @@map("internship_seminars")
+}
+
+model InternshipSeminarAudience {
+  seminarId   String                          @map("seminar_id")
+  studentId   String                          @map("student_id")
+  status      InternshipSeminarAudienceStatus @default(PENDING)
+  validatedAt DateTime?                       @map("validated_at")
+  createdAt   DateTime                        @default(now()) @map("created_at")
+  updatedAt   DateTime                        @default(now()) @updatedAt @map("updated_at")
+  seminar     InternshipSeminar               @relation(fields: [seminarId], references: [id], onDelete: Cascade)
+  student     Student                         @relation("InternshipSeminarAudience", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@id([seminarId, studentId])
+  @@index([seminarId], map: "internship_seminar_audiences_seminar_id_fkey")
+  @@index([studentId], map: "internship_seminar_audiences_student_id_fkey")
+  @@map("internship_seminar_audiences")
+}
+
+// ==================== Internship Assessment ====================
+
+model InternshipCpmk {
+  id             String                       @id @default(uuid())
+  code           String
+  name           String                       @db.Text
+  weight         Float
+  assessorType   String                       @map("assessor_type") @db.VarChar(20)
+  academicYearId String                       @map("academic_year_id")
+  createdAt      DateTime                     @default(now()) @map("created_at")
+  updatedAt      DateTime                     @default(now()) @updatedAt @map("updated_at")
+  academicYear   AcademicYear                 @relation(fields: [academicYearId], references: [id])
+  rubrics        InternshipAssessmentRubric[]
+
+  @@map("internship_cpmks")
+}
+
+model InternshipAssessmentRubric {
+  id                       String                    @id @default(uuid())
+  cpmkId                   String                    @map("cpmk_id")
+  levelName                String                    @map("level_name")
+  rubricLevelDescription   String                    @map("rubric_level_description") @db.Text
+  minScore                 Float                     @map("min_score")
+  maxScore                 Float                     @map("max_score")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @default(now()) @updatedAt @map("updated_at")
+  cpmk                     InternshipCpmk            @relation(fields: [cpmkId], references: [id], onDelete: Cascade)
+  internshipLecturerScores InternshipLecturerScore[]
+  internshipFieldScores    InternshipFieldScore[]
+
+  @@unique([cpmkId, minScore])
+  @@unique([cpmkId, maxScore])
+  @@index([cpmkId], map: "internship_assessment_rubrics_cpmk_id_fkey")
+  @@map("internship_assessment_rubrics")
+}
+
+model InternshipLecturerScore {
+  internshipId   String                     @map("internship_id")
+  chosenRubricId String                     @map("chosen_rubric_id")
+  score          Float
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @default(now()) @updatedAt @map("updated_at")
+  internship     Internship                 @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  chosenRubric   InternshipAssessmentRubric @relation(fields: [chosenRubricId], references: [id], onDelete: Cascade)
+
+  @@id([internshipId, chosenRubricId])
+  @@index([internshipId], map: "internship_lecturer_scores_internship_id_fkey")
+  @@index([chosenRubricId], map: "internship_lecturer_scores_chosen_rubric_id_fkey")
+  @@map("internship_lecturer_scores")
+}
+
+model InternshipFieldScore {
+  internshipId   String                     @map("internship_id")
+  chosenRubricId String                     @map("chosen_rubric_id")
+  score          Float
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @default(now()) @updatedAt @map("updated_at")
+  internship     Internship                 @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  chosenRubric   InternshipAssessmentRubric @relation(fields: [chosenRubricId], references: [id], onDelete: Cascade)
+
+  @@id([internshipId, chosenRubricId])
+  @@index([internshipId], map: "internship_field_scores_internship_id_fkey")
+  @@index([chosenRubricId], map: "internship_field_scores_chosen_rubric_id_fkey")
+  @@map("internship_field_scores")
+}
+
+model FieldAssessmentToken {
+  id           String    @id @default(uuid())
+  internshipId String    @map("internship_id")
+  token        String    @unique @db.VarChar(255)
+  pin          String?   @db.VarChar(6)
+  expiresAt    DateTime  @map("expires_at")
+  isUsed       Boolean   @default(false) @map("is_used")
+  usedAt       DateTime? @map("used_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  internship Internship @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+
+  @@index([internshipId], map: "field_assessment_tokens_internship_id_fkey")
+  @@index([token], map: "field_assessment_tokens_token_idx")
+  @@map("field_assessment_tokens")
+}
+
+model InternshipHoliday {
+  id          String   @id @default(uuid())
+  holidayDate DateTime @map("holiday_date") @db.Date
+  name        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([holidayDate])
+  @@map("internship_holidays")
+}
+
+// ==================== Shared Enums ====================
+
+enum IdentityType {
+  NIM
+  NIP
+  OTHER
+}
+
+enum RoleStatus {
+  active
+  nonActive
+}
+
+enum StudentStatus {
+  dropout
+  bss
+  lulus
+  mengundurkan_diri
+  active
+}
+
+enum Semester {
+  ganjil
+  genap
+}
+
+// ==================== Internship Enums ====================
+
+enum CompanyStatus {
+  save
+  blacklist
+  diajukan
+}
+
+enum InternshipProposalStatus {
+  PENDING
+  APPROVED_PROPOSAL
+  REJECTED_PROPOSAL
+  WAITING_FOR_VERIFICATION
+  ACCEPTED_BY_COMPANY
+  PARTIALLY_ACCEPTED
+  REJECTED_BY_COMPANY
+}
+
+enum InternshipActiveStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  ACCEPTED_BY_COMPANY
+  REJECTED_BY_COMPANY
+  ONGOING
+  COMPLETED
+  FAILED
+}
+
+enum InternshipGuidanceSessionStatus {
+  SUBMITTED
+  LATE
+  APPROVED
+}
+
+enum InternshipGuidanceInputType {
+  EVALUATION
+  TEXT
+}
+
+enum InternshipSeminarStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  COMPLETED
+  FAILED
+}
+
+enum InternshipSeminarAudienceStatus {
+  PENDING
+  VALIDATED
+  REJECTED
+}
+
+enum InternshipAssessmentStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+}
+
+enum InternshipReportStatus {
+  SUBMITTED
+  APPROVED
+  REVISION_NEEDED
+}

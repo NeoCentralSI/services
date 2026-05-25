@@ -34,6 +34,15 @@ sekdepRouter.get("/lecturers/:supervisorId/supervisor-letter", penunjukanPembimb
  */
 sekdepRouter.post("/lecturers/:supervisorId/supervisor-letter", penunjukanPembimbingController.updateSupervisorLetter);
 
+
+
+/**
+ * @route POST /insternship/sekdep/internships/replacement-request
+ * @desc Request supervisor replacement (needs Kadep approval)
+ */
+sekdepRouter.post("/internships/replacement-request", penunjukanPembimbingController.requestReplacement);
+
 router.use("/sekdep", sekdepRouter);
+
 
 export default router;

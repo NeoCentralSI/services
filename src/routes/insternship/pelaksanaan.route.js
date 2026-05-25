@@ -6,6 +6,7 @@ const router = express.Router();
 const activityRouter = express.Router();
 
 // Logbook
+activityRouter.get("/history", authGuard, pelaksanaanController.getInternshipHistory);
 activityRouter.get("/logbook", authGuard, pelaksanaanController.getLogbooks);
 activityRouter.get("/logbook/download", authGuard, pelaksanaanController.downloadLogbookPdf);
 activityRouter.get("/download-docx", authGuard, pelaksanaanController.downloadLogbookDocx);

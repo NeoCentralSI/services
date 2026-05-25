@@ -11,6 +11,7 @@ describe("Internship Seminar Integration Test", () => {
   let users = {};
   let testInternship;
   let testSeminar;
+  let completedHistorySeminar;
 
   beforeAll(async () => {
     // 1. Get All Required Users
@@ -43,6 +44,27 @@ describe("Internship Seminar Integration Test", () => {
           { internshipId: testInternship.id },
           { moderatorStudentId: users.student.student.id },
         ],
+      },
+    });
+
+    const completedInternship = await createOngoingInternship({
+      studentUser: users.student,
+      supervisorUser: users.lecturer,
+      companyName: "PT Seminar Completed History",
+      status: "COMPLETED",
+    });
+    const completedRoom = await prisma.room.create({
+      data: { name: `Ruang Completed History ${Date.now()}` },
+    });
+    completedHistorySeminar = await prisma.internshipSeminar.create({
+      data: {
+        internshipId: completedInternship.id,
+        roomId: completedRoom.id,
+        seminarDate: new Date(nextWeekdayDateString(21)),
+        startTime: new Date("1970-01-01T13:00:00Z"),
+        endTime: new Date("1970-01-01T14:00:00Z"),
+        moderatorStudentId: users.student.student.id,
+        status: "COMPLETED",
       },
     });
   });
@@ -80,6 +102,8 @@ describe("Internship Seminar Integration Test", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
+    expect(response.body.data.some((item) => item.id === testSeminar.id)).toBe(true);
+    expect(response.body.data.some((item) => item.id === completedHistorySeminar.id)).toBe(false);
   });
 
   it("should approve the seminar as Lecturer", async () => {

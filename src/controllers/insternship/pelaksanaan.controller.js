@@ -28,6 +28,19 @@ export async function getLogbooks(req, res, next) {
 }
 
 /**
+ * Get terminal internship history for student.
+ */
+export async function getInternshipHistory(req, res, next) {
+    try {
+        const userId = req.user.sub;
+        const data = await activityService.getStudentInternshipHistory(userId);
+        res.json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * Download Logbook as PDF.
  */
 export async function downloadLogbookPdf(req, res, next) {
@@ -94,9 +107,15 @@ export async function updateLogbook(req, res, next) {
 export async function updateInternshipDetails(req, res, next) {
     try {
         const userId = req.user.sub;
-        const { fieldSupervisorName, fieldSupervisorEmail, unitSection } = req.body;
+        const { fieldSupervisorName, fieldSupervisorEmail, fieldSupervisorPhone, fieldSupervisorNip, unitSection } = req.body;
 
-        const data = await activityService.updateInternshipDetails(userId, { fieldSupervisorName, fieldSupervisorEmail, unitSection });
+        const data = await activityService.updateInternshipDetails(userId, {
+            fieldSupervisorName,
+            fieldSupervisorEmail,
+            fieldSupervisorPhone,
+            fieldSupervisorNip,
+            unitSection
+        });
         res.json({ success: true, message: "Informasi KP berhasil diperbarui", data });
     } catch (error) {
         next(error);

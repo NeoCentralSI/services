@@ -68,7 +68,9 @@ export async function getInternshipDetail(id) {
         supervisor: {
             name: internship.supervisor?.user?.fullName || "Belum Ditentukan",
             fieldSupervisor: internship.fieldSupervisorName || "Belum Ditentukan",
-            fieldSupervisorEmail: internship.fieldSupervisorEmail || null
+            fieldSupervisorEmail: internship.fieldSupervisorEmail || null,
+            fieldSupervisorPhone: internship.fieldSupervisorPhone || null,
+            fieldSupervisorNip: internship.fieldSupervisorNip || null
         },
         logbookProgress: {
             filled: internship._count?.logbooks || 0,
@@ -158,6 +160,218 @@ export async function getInternshipDetail(id) {
     };
 }
 
+async function resolveInternshipAcademicYearId(academicYearId) {
+    if (academicYearId === "all") {
+        return null;
+    }
+
+    if (academicYearId) {
+        return academicYearId;
+    }
+
+    const activeYear = await prisma.academicYear.findFirst({
+        where: { isActive: true },
+        select: { id: true }
+    });
+
+    return activeYear?.id || null;
+}
+
+const sortCpmksByCode = (a, b) =>
+    (a.code || "").localeCompare(b.code || "", "id", {
+        numeric: true,
+        sensitivity: "base"
+    });
+
+const FAILING_FINAL_GRADES = new Set(["D", "E"]);
+
+function getGradeStatus(finalGrade) {
+    const normalizedGrade = String(finalGrade || "").trim().toUpperCase();
+    if (!normalizedGrade) return "PENDING";
+    return FAILING_FINAL_GRADES.has(normalizedGrade) ? "FAILED" : "PASSED";
+}
+
+function buildGradeStatusFilter(gradeStatus) {
+    switch (String(gradeStatus || "").toUpperCase()) {
+        case "FAILED":
+            return { finalGrade: { in: Array.from(FAILING_FINAL_GRADES) } };
+        case "PASSED":
+            return {
+                AND: [
+                    { finalGrade: { not: null } },
+                    { finalGrade: { notIn: Array.from(FAILING_FINAL_GRADES) } }
+                ]
+            };
+        case "PENDING":
+            return { finalGrade: null };
+        default:
+            return {};
+    }
+}
+
+function buildGradeRecapOrderBy(sortBy, sortOrder) {
+    const order = sortOrder === "desc" ? "desc" : "asc";
+    switch (sortBy) {
+        case "studentNim":
+        case "nim":
+            return [{ student: { user: { identityNumber: order } } }, { createdAt: "desc" }];
+        case "studentName":
+        case "name":
+            return [{ student: { user: { fullName: order } } }, { createdAt: "desc" }];
+        default:
+            return [{ student: { user: { fullName: "asc" } } }, { createdAt: "desc" }];
+    }
+}
+
+/**
+ * Get student grade recap with dynamic CPMK columns.
+ * @param {Object} params
+ * @param {string} params.academicYearId
+ * @param {string} params.q
+ * @param {string} params.gradeStatus
+ * @param {string} params.sortBy
+ * @param {string} params.sortOrder
+ * @param {number} params.skip
+ * @param {number} params.take
+ */
+export async function getGradeRecap({ academicYearId, q, gradeStatus, sortBy, sortOrder, skip = 0, take = 10 }) {
+    const resolvedAcademicYearId = await resolveInternshipAcademicYearId(academicYearId);
+    const academicYearFilter = resolvedAcademicYearId ? { academicYearId: resolvedAcademicYearId } : {};
+    const searchTerm = typeof q === "string" ? q.trim() : "";
+    const gradeStatusFilter = buildGradeStatusFilter(gradeStatus);
+
+    const where = {
+        status: { in: ["ONGOING", "COMPLETED", "FAILED"] },
+        ...(resolvedAcademicYearId ? { proposal: academicYearFilter } : {}),
+        ...gradeStatusFilter,
+        ...(searchTerm
+            ? {
+                OR: [
+                    { student: { user: { fullName: { contains: searchTerm } } } },
+                    { student: { user: { identityNumber: { contains: searchTerm } } } }
+                ]
+            }
+            : {})
+    };
+
+    const [cpmks, internships, total] = await Promise.all([
+        prisma.internshipCpmk.findMany({
+            where: academicYearFilter,
+            select: {
+                id: true,
+                code: true,
+                name: true,
+                weight: true,
+                assessorType: true
+            }
+        }),
+        prisma.internship.findMany({
+            where,
+            skip,
+            take,
+            orderBy: buildGradeRecapOrderBy(sortBy, sortOrder),
+            include: {
+                student: {
+                    include: {
+                        user: {
+                            select: {
+                                fullName: true,
+                                identityNumber: true
+                            }
+                        }
+                    }
+                },
+                proposal: {
+                    include: {
+                        targetCompany: {
+                            select: {
+                                companyName: true
+                            }
+                        },
+                        academicYear: {
+                            select: {
+                                id: true,
+                                year: true,
+                                semester: true
+                            }
+                        }
+                    }
+                },
+                lecturerScores: {
+                    include: {
+                        chosenRubric: {
+                            include: {
+                                cpmk: true
+                            }
+                        }
+                    }
+                },
+                fieldScores: {
+                    include: {
+                        chosenRubric: {
+                            include: {
+                                cpmk: true
+                            }
+                        }
+                    }
+                }
+            }
+        }),
+        prisma.internship.count({ where })
+    ]);
+
+    const sortedCpmks = [...cpmks].sort(sortCpmksByCode);
+
+    const items = internships.map((internship) => {
+        const scores = {};
+        const allScores = [
+            ...(internship.lecturerScores || []),
+            ...(internship.fieldScores || [])
+        ];
+
+        for (const scoreItem of allScores) {
+            const cpmk = scoreItem.chosenRubric?.cpmk;
+            if (!cpmk) continue;
+
+            const score = Number(scoreItem.score);
+            scores[cpmk.id] = {
+                score,
+                weightedScore: Number(((score * Number(cpmk.weight || 0)) / 100).toFixed(2)),
+                assessorType: cpmk.assessorType
+            };
+        }
+
+        const computedTotal = Object.values(scores).reduce((totalScore, value) => {
+            return totalScore + (Number(value?.weightedScore) || 0);
+        }, 0);
+        const hasScores = Object.keys(scores).length > 0;
+
+        return {
+            id: internship.id,
+            studentName: internship.student?.user?.fullName || "-",
+            studentNim: internship.student?.user?.identityNumber || "-",
+            companyName: internship.proposal?.targetCompany?.companyName || "-",
+            academicYearName: internship.proposal?.academicYear
+                ? `${internship.proposal.academicYear.year} ${internship.proposal.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
+                : "-",
+            status: internship.status,
+            gradeStatus: getGradeStatus(internship.finalGrade),
+            scores,
+            totalScore: internship.finalNumericScore ?? (hasScores ? Number(computedTotal.toFixed(2)) : null),
+            finalGrade: internship.finalGrade || null
+        };
+    });
+
+    return {
+        data: {
+            academicYearId: resolvedAcademicYearId,
+            cpmks: sortedCpmks,
+            items
+        },
+        total
+    };
+}
+
 /**
  * Update field supervisor and unit information for Sekdep.
  * @param {string} internshipId
@@ -182,9 +396,15 @@ export async function updateInternshipFieldInfo(internshipId, data) {
     }
 
     const normalizeString = (value) => typeof value === "string" ? value.trim() : "";
+    const normalizeOptionalString = (value) => {
+        const normalized = normalizeString(value);
+        return normalized || null;
+    };
     const payload = {
         fieldSupervisorName: normalizeString(data?.fieldSupervisorName),
         fieldSupervisorEmail: normalizeString(data?.fieldSupervisorEmail),
+        fieldSupervisorPhone: normalizeOptionalString(data?.fieldSupervisorPhone),
+        fieldSupervisorNip: normalizeOptionalString(data?.fieldSupervisorNip),
         unitSection: normalizeString(data?.unitSection)
     };
 
@@ -438,7 +658,8 @@ export async function listInternships({ academicYearId, status, supervisorId, q,
         supervisorLetter: i.supLetter ? {
             id: i.supLetter.document?.id,
             fileName: i.supLetter.document?.fileName,
-            filePath: i.supLetter.document?.filePath
+            filePath: i.supLetter.document?.filePath,
+            status: i.supLetter.status
         } : null,
         finalScore: i.finalNumericScore,
         finalGrade: i.finalGrade,

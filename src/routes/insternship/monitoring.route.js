@@ -1,8 +1,8 @@
 import express from "express";
+import { ROLES } from "../../constants/roles.js";
 import * as monitoringController from "../../controllers/insternship/monitoring.controller.js";
 import { getOverviewCompanies, getOverviewReports, getOverviewStats } from "../../controllers/insternship/overview.controller.js";
-import { authGuard, requireRole, requireAnyRole } from "../../middlewares/auth.middleware.js";
-import { ROLES } from "../../constants/roles.js";
+import { authGuard, requireAnyRole, requireRole } from "../../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
@@ -11,6 +11,8 @@ const sekdepRouter = express.Router();
 sekdepRouter.use(authGuard, requireRole(ROLES.SEKRETARIS_DEPARTEMEN));
 
 sekdepRouter.get("/internships", monitoringController.getInternshipList);
+sekdepRouter.get("/grade-recap", monitoringController.getGradeRecap);
+sekdepRouter.get("/grade-recap/download", monitoringController.downloadGradeRecapPdf);
 sekdepRouter.get("/internships/:id", monitoringController.getInternshipDetail);
 sekdepRouter.put("/internships/:id/field-info", monitoringController.updateInternshipFieldInfo);
 sekdepRouter.put("/internships/:id/verify-document", monitoringController.verifyDocument);

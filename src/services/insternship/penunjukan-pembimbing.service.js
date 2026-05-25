@@ -5,6 +5,7 @@ import * as bimbinganRepository from "../../repositories/insternship/bimbingan.r
 import * as seminarRepository from "../../repositories/insternship/seminar.repository.js";
 import * as penilaianRepository from "../../repositories/insternship/penilaian.repository.js";
 import * as monitoringRepository from "../../repositories/insternship/monitoring.repository.js";
+import * as replacementRepository from "../../repositories/insternship/replacement-request.repository.js";
 
 import * as notificationService from "../notification.service.js";
 import * as documentService from "../document.service.js";
@@ -36,7 +37,7 @@ export async function getLecturersWorkloadList({ q, skip, take, sortBy, sortOrde
         name: l.user?.fullName || "Unknown",
         nip: l.user?.identityNumber || "-",
         activeInternshipCount: l._count?.internshipsSupervisored || 0,
-        supervisorLetterStatus: `${l.internshipsSupervisored.filter(i => i.supLetterId).length}/${l._count?.internshipsSupervisored || 0}`
+        supervisorLetterStatus: `${l.internshipsSupervisored.filter(i => i.supLetterId && i.supLetter?.status === 'ACTIVE').length}/${l._count?.internshipsSupervisored || 0}`
     }));
 
     return { data, total };
@@ -57,7 +58,7 @@ export async function assignSupervisorsBulk({ internshipIds, supervisorId }) {
             .filter(Boolean)
             .join(", ");
         const suffix = names ? `: ${names}` : "";
-        const error = new Error(`Dosen pembimbing tidak dapat diganti karena surat tugas sudah terbit${suffix}`);
+        const error = new Error(`Dosen pembimbing tidak dapat di-assign langsung karena surat tugas sudah terbit${suffix}. Gunakan fitur "Ganti Pembimbing" di halaman Kelola Surat Tugas.`);
         error.statusCode = 400;
         throw error;
     }
@@ -216,12 +217,19 @@ export async function getSupervisorLetterDetail(supervisorId) {
                 supLetterStartDate: i.supLetter?.startDate || null,
                 supLetterEndDate: i.supLetter?.endDate || null,
                 supLetterDocId: i.supLetter?.documentId || null,
+                supLetterSignedById: i.supLetter?.signedById || null,
                 supLetterFile: i.supLetter?.document ? {
                     id: i.supLetter.document.id,
                     fileName: i.supLetter.document.fileName,
                     filePath: i.supLetter.document.filePath
                 } : null
-            }
+            },
+            pendingReplacement: i.replacementRequests?.[0] ? {
+                id: i.replacementRequests[0].id,
+                newSupervisorName: i.replacementRequests[0].newSupervisor?.user?.fullName,
+                reason: i.replacementRequests[0].reason,
+                requestedAt: i.replacementRequests[0].requestedAt
+            } : null
         }))
     };
 }
@@ -329,4 +337,141 @@ export async function saveSupervisorLetter(supervisorId, data) {
         message: "Surat Tugas Pembimbing berhasil digenerate dan disimpan",
         updatedCount: result.count
     };
+}
+
+
+/**
+ * Sekdep mengajukan penggantian dosen pembimbing.
+ */
+export async function requestSupervisorReplacement({ internshipId, newSupervisorId, reason, requestedById }) {
+    const internship = await prisma.internship.findUnique({
+        where: { id: internshipId },
+        include: { supLetter: true, supervisor: { include: { user: true } } }
+    });
+    
+    if (!internship) throw Object.assign(new Error("Internship tidak ditemukan"), { statusCode: 404 });
+    if (!internship.supLetterId) throw Object.assign(new Error("Mahasiswa ini belum memiliki surat tugas pembimbing"), { statusCode: 400 });
+    if (!internship.supLetter?.signedById) throw Object.assign(new Error("Surat tugas belum ditandatangani. Ubah pembimbing langsung via assign biasa."), { statusCode: 400 });
+    
+    const existing = await replacementRepository.findPendingRequestsByInternship(internshipId);
+    if (existing.length > 0) throw Object.assign(new Error("Sudah ada permintaan penggantian yang menunggu persetujuan untuk mahasiswa ini"), { statusCode: 409 });
+    
+    if (internship.supervisorId === newSupervisorId) throw Object.assign(new Error("Dosen pengganti harus berbeda dengan dosen saat ini"), { statusCode: 400 });
+
+    const request = await replacementRepository.createReplacementRequest({
+        letterId: internship.supLetterId,
+        internshipId,
+        oldSupervisorId: internship.supervisorId,
+        newSupervisorId,
+        reason,
+        requestedById
+    });
+
+    const kadeps = await prisma.user.findMany({
+        where: { userHasRoles: { some: { role: { name: ROLES.KETUA_DEPARTEMEN } } } },
+        select: { id: true }
+    });
+    const kadepIds = kadeps.map(k => k.id);
+    
+    if (kadepIds.length > 0) {
+        const oldName = internship.supervisor?.user?.fullName || "Dosen Lama";
+        await notificationService.createNotificationsForUsers(kadepIds, {
+            title: "Permintaan Penggantian Pembimbing KP",
+            message: `Sekdep mengajukan penggantian dosen pembimbing KP dari ${oldName}. Alasan: ${reason}. Mohon segera ditindaklanjuti.`
+        });
+    }
+
+    return request;
+}
+
+/**
+ * Kadep menyetujui penggantian dosen pembimbing.
+ */
+export async function approveReplacementRequest(requestId, approvedById) {
+    const request = await replacementRepository.findRequestById(requestId);
+    if (!request) throw Object.assign(new Error("Request tidak ditemukan"), { statusCode: 404 });
+    if (request.status !== 'PENDING') throw Object.assign(new Error("Request sudah diproses"), { statusCode: 400 });
+
+    await prisma.$transaction(async (tx) => {
+        await tx.internship.update({
+            where: { id: request.internshipId },
+            data: {
+                supervisorId: request.newSupervisorId,
+                supLetterId: null
+            }
+        });
+
+        await tx.supervisorReplacementRequest.update({
+            where: { id: requestId },
+            data: { status: 'APPROVED', approvedById, resolvedAt: new Date() }
+        });
+
+        const remaining = await tx.internship.count({
+            where: { supLetterId: request.letterId }
+        });
+
+        if (remaining === 0) {
+            await tx.internshipSupervisorLetter.update({
+                where: { id: request.letterId },
+                data: {
+                    status: 'SUPERSEDED',
+                    supersededAt: new Date(),
+                    supersededReason: request.reason
+                }
+            });
+        }
+    });
+
+    try {
+        const oldSupervisorName = request.oldSupervisor?.user?.fullName || "Dosen Lama";
+        const newSupervisorName = request.newSupervisor?.user?.fullName || "Dosen Baru";
+        const studentName = request.internship?.student?.user?.fullName || "Mahasiswa";
+
+        await notificationService.createNotificationsForUsers([request.oldSupervisorId], {
+            title: "Perubahan Penugasan Pembimbing KP",
+            message: `Bimbingan KP untuk ${studentName} telah dialihkan ke ${newSupervisorName}. Alasan: ${request.reason}`
+        });
+
+        await notificationService.createNotificationsForUsers([request.newSupervisorId], {
+            title: "Penugasan Pembimbing KP Baru",
+            message: `Anda ditugaskan menjadi pembimbing KP untuk ${studentName} (menggantikan ${oldSupervisorName}).`
+        });
+
+        await notificationService.createNotificationsForUsers([request.internship.studentId], {
+            title: "Perubahan Dosen Pembimbing KP",
+            message: `Dosen pembimbing KP Anda telah diubah dari ${oldSupervisorName} menjadi ${newSupervisorName}.`
+        });
+
+        await notificationService.createNotificationsForUsers([request.requestedById], {
+            title: "Penggantian Pembimbing Disetujui",
+            message: `Permintaan penggantian pembimbing untuk ${studentName} telah disetujui oleh Kadep. Silakan generate surat tugas baru.`
+        });
+    } catch (err) {
+        console.error("[approveReplacement] Notification failed:", err);
+    }
+
+    return { message: "Penggantian pembimbing disetujui" };
+}
+
+/**
+ * Kadep menolak penggantian dosen pembimbing.
+ */
+export async function rejectReplacementRequest(requestId, approvedById, rejectionNotes) {
+    const request = await replacementRepository.findRequestById(requestId);
+    if (!request) throw Object.assign(new Error("Request tidak ditemukan"), { statusCode: 404 });
+    if (request.status !== 'PENDING') throw Object.assign(new Error("Request sudah diproses"), { statusCode: 400 });
+
+    await replacementRepository.updateRequestStatus(requestId, 'REJECTED', approvedById, rejectionNotes);
+
+    try {
+        const studentName = request.internship?.student?.user?.fullName || "Mahasiswa";
+        await notificationService.createNotificationsForUsers([request.requestedById], {
+            title: "Penggantian Pembimbing Ditolak",
+            message: `Permintaan penggantian pembimbing untuk ${studentName} ditolak oleh Kadep. ${rejectionNotes ? `Catatan: ${rejectionNotes}` : ''}`
+        });
+    } catch (err) {
+        console.error("[rejectReplacement] Notification failed:", err);
+    }
+
+    return { message: "Penggantian pembimbing ditolak" };
 }

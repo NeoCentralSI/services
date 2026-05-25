@@ -125,11 +125,12 @@ export async function deleteCriteria(id) {
 }
 
 /**
- * Find active internship for a student with basic details.
+ * Find current internship for a student with basic details.
+ * Terminal internships are historical and should not drive the active guidance UI.
  */
 export async function findStudentInternshipWithGuidance(studentId) {
     return prisma.internship.findFirst({
-        where: { studentId, status: { in: ["ONGOING", "COMPLETED", "FAILED"] } },
+        where: { studentId, status: "ONGOING" },
         select: {
             id: true,
             actualStartDate: true,

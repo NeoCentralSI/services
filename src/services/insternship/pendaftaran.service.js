@@ -1,6 +1,7 @@
 
 import * as registrationRepository from "../../repositories/insternship/pendaftaran.repository.js";
 import * as notificationRepository from "../../repositories/notification.repository.js";
+import * as replacementRepository from "../../repositories/insternship/replacement-request.repository.js";
 const holidayRepository = registrationRepository;
 const kadepRepository = registrationRepository;
 
@@ -1247,10 +1248,11 @@ export async function verifyCompanyResponse(proposalId, status, notes, acceptedM
  * @returns {Promise<Object>}
  */
 export async function getPendingLetters(academicYearId) {
-    const [appLetters, assignLetters, supervisorLetters] = await Promise.all([
+    const [appLetters, assignLetters, supervisorLetters, pendingReplacements] = await Promise.all([
         kadepRepository.findPendingApplicationLetters(academicYearId),
         kadepRepository.findPendingAssignmentLetters(academicYearId),
-        kadepRepository.findPendingSupervisorLetters()
+        kadepRepository.findPendingSupervisorLetters(),
+        replacementRepository.findPendingRequests()
     ]);
 
     const formatAppLetter = (p) => ({
@@ -1323,14 +1325,17 @@ export async function getPendingLetters(academicYearId) {
         lecturerNip: l.supervisor?.user?.identityNumber,
         academicYearName: l.internships?.[0]?.proposal?.academicYear
             ? `${l.internships[0].proposal.academicYear.year} ${l.internships[0].proposal.academicYear.semester.charAt(0).toUpperCase() + l.internships[0].proposal.academicYear.semester.slice(1)}`
-            : '-',
-        memberCount: l.internships.length,
+            : l.replacementRequests?.[0]?.internship?.proposal?.academicYear
+                ? `${l.replacementRequests[0].internship.proposal.academicYear.year} ${l.replacementRequests[0].internship.proposal.academicYear.semester.charAt(0).toUpperCase() + l.replacementRequests[0].internship.proposal.academicYear.semester.slice(1)}`
+                : '-',
+        memberCount: l.internships?.length || l.replacementRequests?.length || 0,
         period: {
             start: l.startDate,
             end: l.endDate
         },
         createdAt: l.createdAt,
         signedById: l.signedById,
+        letterStatus: l.status,
         document: l.document ? {
             id: l.document.id,
             fileName: l.document.fileName,
@@ -1341,7 +1346,16 @@ export async function getPendingLetters(academicYearId) {
     return {
         applicationLetters: appLetters.map(formatAppLetter),
         assignmentLetters: assignLetters.map(formatAssignLetter),
-        supervisorLetters: supervisorLetters.map(formatSupervisorLetter)
+        supervisorLetters: supervisorLetters.map(formatSupervisorLetter),
+        pendingReplacements: pendingReplacements.map(req => ({
+            id: req.id,
+            studentName: req.internship?.student?.user?.fullName,
+            studentNim: req.internship?.student?.user?.identityNumber,
+            oldSupervisorName: req.oldSupervisor?.user?.fullName,
+            newSupervisorName: req.newSupervisor?.user?.fullName,
+            reason: req.reason,
+            requestedAt: req.requestedAt
+        }))
     };
 }
 

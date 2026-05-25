@@ -2,9 +2,76 @@ import prisma from "../../config/prisma.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
 
+const FAILING_FINAL_GRADES = new Set(["D", "E"]);
+
+function isFailingFinalGrade(finalGrade) {
+    return FAILING_FINAL_GRADES.has(String(finalGrade || "").trim().toUpperCase());
+}
+
+function hasCompletionRequirements(internship) {
+    const isLecturerAssessmentDone = internship.lecturerAssessmentStatus === 'COMPLETED';
+    const isFieldAssessmentDone = internship.fieldAssessmentStatus === 'COMPLETED';
+    const isSeminarDone = internship.seminars.length > 0;
+    const isLogbookApproved = internship.logbookDocumentStatus === 'APPROVED';
+    const isReceiptApproved = internship.companyReceiptStatus === 'APPROVED';
+    const isFinalReportApproved = internship.reportStatus === 'APPROVED';
+
+    return isLecturerAssessmentDone &&
+        isFieldAssessmentDone &&
+        isSeminarDone &&
+        isLogbookApproved &&
+        isReceiptApproved &&
+        isFinalReportApproved;
+}
+
+async function notifyInternshipFailed(internship, failReason) {
+    try {
+        const title = "Status Kerja Praktik: GAGAL";
+        const isGradeFailure = failReason === "LOW_FINAL_GRADE";
+        const message = isGradeFailure
+            ? `Status KP Anda diubah menjadi GAGAL karena nilai akhir ${internship.finalGrade || "-"} belum memenuhi batas kelulusan. Anda dapat melakukan pendaftaran KP kembali.`
+            : `Status KP Anda diubah menjadi GAGAL karena ${failReason === 'Reporting deadline exceeded (1 month)' ? 'batas waktu pelaporan (1 bulan) telah terlampaui' : 'batas waktu seminar (2 bulan) telah terlampaui'}. Silakan hubungi Sekretaris Departemen.`;
+
+        await createNotificationsForUsers([internship.studentId], { title, message });
+        await sendFcmToUsers([internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_status_failed',
+                internshipId: internship.id,
+                reason: failReason
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi kegagalan KP:", err);
+    }
+}
+
+async function notifyInternshipCompleted(internship) {
+    try {
+        const title = "Selamat! Kerja Praktik Selesai";
+        const message = "Kerja Praktik Anda telah dinyatakan SELESAI (COMPLETED). Seluruh nilai dan dokumen telah diverifikasi.";
+
+        await createNotificationsForUsers([internship.studentId], { title, message });
+        await sendFcmToUsers([internship.studentId], {
+            title,
+            body: message,
+            data: {
+                type: 'internship_completed',
+                internshipId: internship.id
+            },
+            dataOnly: true
+        });
+    } catch (err) {
+        console.error("Gagal mengirim notifikasi penyelesaian KP:", err);
+    }
+}
+
 /**
- * Update internship statuses based on deadlines.
- * Runs as a background job to enforce reporting and seminar deadlines.
+ * Update internship statuses based on deadlines and final completion results.
+ * Runs as a background job to enforce reporting/seminar deadlines and catch
+ * completed assessments whose final grade should make the internship fail.
  */
 export async function updateAllInternshipDeadlineStatuses() {
     const now = new Date();
@@ -24,6 +91,8 @@ export async function updateAllInternshipDeadlineStatuses() {
     });
 
     let failedCount = 0;
+    let completedCount = 0;
+    let gradeFailedCount = 0;
 
     for (const internship of internships) {
         const endDate = new Date(internship.actualEndDate);
@@ -57,36 +126,46 @@ export async function updateAllInternshipDeadlineStatuses() {
                 data: { status: 'FAILED' }
             });
 
-            // Notify Student
-            try {
-                const title = "Status Kerja Praktik: GAGAL";
-                const message = `Status KP Anda diubah menjadi GAGAL karena ${failReason === 'Reporting deadline exceeded (1 month)' ? 'batas waktu pelaporan (1 bulan) telah terlampaui' : 'batas waktu seminar (2 bulan) telah terlampaui'}. Silakan hubungi Sekretaris Departemen.`;
-                
-                await createNotificationsForUsers([internship.studentId], { title, message });
-                await sendFcmToUsers([internship.studentId], {
-                    title,
-                    body: message,
-                    data: {
-                        type: 'internship_status_failed',
-                        internshipId: internship.id,
-                        reason: failReason
-                    },
-                    dataOnly: true
-                });
-            } catch (err) {
-                console.error("Gagal mengirim notifikasi kegagalan KP:", err);
-            }
+            await notifyInternshipFailed(internship, failReason);
 
             failedCount++;
             console.log(`[internship-status] Internship ${internship.id} marked as FAILED. Reason: ${failReason}`);
+            continue;
+        }
+
+        if (hasCompletionRequirements(internship)) {
+            if (isFailingFinalGrade(internship.finalGrade)) {
+                await prisma.internship.update({
+                    where: { id: internship.id },
+                    data: { status: 'FAILED' }
+                });
+                await notifyInternshipFailed(internship, "LOW_FINAL_GRADE");
+                failedCount++;
+                gradeFailedCount++;
+                console.log(`[internship-status] Internship ${internship.id} marked as FAILED. Reason: final grade ${internship.finalGrade}`);
+                continue;
+            }
+
+            await prisma.internship.update({
+                where: { id: internship.id },
+                data: { status: 'COMPLETED' }
+            });
+            await notifyInternshipCompleted(internship);
+            completedCount++;
+            console.log(`[internship-status] Internship ${internship.id} marked as COMPLETED.`);
         }
     }
 
-    return { processed: internships.length, failed: failedCount };
+    return {
+        processed: internships.length,
+        failed: failedCount,
+        gradeFailed: gradeFailedCount,
+        completed: completedCount
+    };
 }
 
 /**
- * Synchronize and update internship status to COMPLETED if all requirements are met.
+ * Synchronize and update internship status to COMPLETED or FAILED if all requirements are met.
  * Requirements:
  * 1. Lecturer Assessment Status: COMPLETED
  * 2. Field Assessment Status: COMPLETED
@@ -112,49 +191,23 @@ export async function syncInternshipCompletionStatus(internshipId) {
 
     if (!internship || internship.status !== 'ONGOING') return;
 
-    const isLecturerAssessmentDone = internship.lecturerAssessmentStatus === 'COMPLETED';
-    const isFieldAssessmentDone = internship.fieldAssessmentStatus === 'COMPLETED';
-    const isSeminarDone = internship.seminars.length > 0;
-
-    // Documents check
-    const isLogbookApproved = internship.logbookDocumentStatus === 'APPROVED';
-    const isReceiptApproved = internship.companyReceiptStatus === 'APPROVED';
-    const isFinalReportApproved = internship.reportStatus === 'APPROVED';
-
-    const allRequirementsMet = 
-        isLecturerAssessmentDone && 
-        isFieldAssessmentDone && 
-        isSeminarDone && 
-        isLogbookApproved && 
-        isReceiptApproved && 
-        isFinalReportApproved;
+    const allRequirementsMet = hasCompletionRequirements(internship);
 
     if (allRequirementsMet) {
+        const targetStatus = isFailingFinalGrade(internship.finalGrade) ? 'FAILED' : 'COMPLETED';
+
         await prisma.internship.update({
             where: { id: internshipId },
             data: { 
-                status: 'COMPLETED',
+                status: targetStatus,
             }
         });
-        console.log(`[internship-status] Internship ${internshipId} marked as COMPLETED.`);
+        console.log(`[internship-status] Internship ${internshipId} marked as ${targetStatus}.`);
 
-        // Notify Student
-        try {
-            const title = "Selamat! Kerja Praktik Selesai";
-            const message = "Kerja Praktik Anda telah dinyatakan SELESAI (COMPLETED). Seluruh nilai dan dokumen telah diverifikasi.";
-            
-            await createNotificationsForUsers([internship.studentId], { title, message });
-            await sendFcmToUsers([internship.studentId], {
-                title,
-                body: message,
-                data: {
-                    type: 'internship_completed',
-                    internshipId: internship.id
-                },
-                dataOnly: true
-            });
-        } catch (err) {
-            console.error("Gagal mengirim notifikasi penyelesaian KP:", err);
+        if (targetStatus === 'FAILED') {
+            await notifyInternshipFailed(internship, "LOW_FINAL_GRADE");
+        } else {
+            await notifyInternshipCompleted(internship);
         }
     }
 }
