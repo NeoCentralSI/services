@@ -30,11 +30,12 @@ export async function getMonitoringDashboard(req, res, next) {
  */
 export async function getThesesList(req, res, next) {
   try {
-    const { status, lecturerId, academicYear, search, page = 1, pageSize = 20 } = req.query;
+    const { status, lecturerId, topicId, academicYear, search, page = 1, pageSize = 20 } = req.query;
 
     const filters = {
       status,
       lecturerId,
+      topicId,
       academicYear,
       search,
       page: parseInt(page, 10),

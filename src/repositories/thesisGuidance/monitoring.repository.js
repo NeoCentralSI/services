@@ -21,13 +21,14 @@ async function buildAcademicYearFilter(academicYearId) {
  * @param {Object} filters - Filter options
  * @param {string} filters.status - Filter by thesis status name
  * @param {string} filters.lecturerId - Filter by supervisor
+ * @param {string} filters.topicId - Filter by thesis topic
  * @param {string} filters.academicYear - Filter by academic year
  * @param {string} filters.search - Search by student name, NIM, or title
  * @param {number} filters.page - Page number
  * @param {number} filters.pageSize - Page size
  */
 export async function getThesesOverview(filters = {}) {
-  const { status, lecturerId, academicYear, search, page = 1, pageSize = 20 } = filters;
+  const { status, lecturerId, topicId, academicYear, search, page = 1, pageSize = 20 } = filters;
 
   const where = { isProposal: false };
 
@@ -46,6 +47,11 @@ export async function getThesesOverview(filters = {}) {
         },
       },
     };
+  }
+
+  // Filter by thesis topic
+  if (topicId) {
+    where.thesisTopicId = topicId;
   }
 
   // Filter by academic year
@@ -86,6 +92,12 @@ export async function getThesesOverview(filters = {}) {
           },
         },
         thesisStatus: true,
+        thesisTopic: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         academicYear: true,
         thesisSupervisors: {
           include: {

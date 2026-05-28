@@ -179,18 +179,57 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toHaveProperty("data");
       expect(result).toHaveProperty("pagination");
     });
+
+    it("passes topic filter and includes topic in thesis rows", async () => {
+      mockRepo.getThesesOverview.mockResolvedValue({
+        theses: [{
+          id: "t1",
+          title: "Thesis 1",
+          thesisMilestones: [],
+          thesisSupervisors: [],
+          student: { id: "s1", user: { id: "u1", fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
+          thesisTopic: { id: "topic-1", name: "Machine Learning" },
+          thesisStatus: { name: "Bimbingan" },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 10,
+      });
+      mockRepo.getAllAcademicYears.mockResolvedValue([]);
+
+      const result = await getThesesList({
+        topicId: "topic-1",
+        page: 1,
+        pageSize: 10,
+      });
+
+      expect(mockRepo.getThesesOverview).toHaveBeenCalledWith(
+        expect.objectContaining({ topicId: "topic-1" })
+      );
+      expect(result.data[0].topic).toEqual({
+        id: "topic-1",
+        name: "Machine Learning",
+      });
+    });
   });
 
   // ─── Filter Options ───────────────────────────────────────
   describe("getFilterOptions", () => {
     it("returns statuses, supervisors, and academic years", async () => {
       mockRepo.getThesesOverview.mockResolvedValue({ data: [] });
+      mockRepo.getStatusDistribution.mockResolvedValue([{ name: "Bimbingan", count: 1 }]);
       mockRepo.getAllSupervisors.mockResolvedValue([{ id: "l1", name: "Dr. Andi" }]);
       mockRepo.getAllAcademicYears.mockResolvedValue([{ id: "ay1", name: "2024/2025" }]);
+      mockRepo.getTopicDistribution.mockResolvedValue([{ id: "topic-1", name: "Machine Learning", count: 2 }]);
 
       const result = await getFilterOptions();
 
       expect(result).toHaveProperty("supervisors");
+      expect(result.topics).toEqual([
+        { value: "topic-1", label: "Machine Learning", count: 2 },
+      ]);
       expect(result).toHaveProperty("academicYears");
     });
   });

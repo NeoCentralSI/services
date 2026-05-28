@@ -106,10 +106,14 @@ describe("IT-04: Guidance Request & Approval Flow", () => {
     expect(completeResult.guidance.sessionSummary).toBe("Finished well");
     console.log("[IT-04] ✅ Guidance marked as completed by student");
 
-    // Verify final state in DB
-    const dbGuidance = await prisma.thesisGuidance.findUnique({ where: { id: createdGuidanceId } });
+    // 4. Verify Persisted State in Database
+    const dbGuidance = await prisma.thesisGuidance.findUnique({
+      where: { id: createdGuidanceId },
+    });
+    expect(dbGuidance).not.toBeNull();
     expect(dbGuidance.status).toBe("completed");
     expect(dbGuidance.sessionSummary).toBe("Finished well");
     expect(dbGuidance.actionItems).toBe("Review code");
+    console.log("[IT-04] ✅ Database verification passed");
   });
 });

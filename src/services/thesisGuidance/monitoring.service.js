@@ -229,6 +229,12 @@ export async function getThesesList(filters) {
         email: t.student?.user?.email,
       },
       status: t.thesisStatus?.name,
+      topic: t.thesisTopic
+        ? {
+            id: t.thesisTopic.id,
+            name: t.thesisTopic.name,
+          }
+        : null,
       academicYear: t.academicYear?.name,
       startSemester: startSemester,
       progress: {
@@ -301,10 +307,11 @@ export async function getThesesList(filters) {
  * Get filter options for monitoring page
  */
 export async function getFilterOptions() {
-  const [statusDistribution, supervisors, academicYears] = await Promise.all([
+  const [statusDistribution, supervisors, academicYears, topicDistribution] = await Promise.all([
     monitoringRepository.getStatusDistribution(),
     monitoringRepository.getAllSupervisors(),
     monitoringRepository.getAllAcademicYears(),
+    monitoringRepository.getTopicDistribution(),
   ]);
 
   return {
@@ -318,6 +325,11 @@ export async function getFilterOptions() {
     supervisors: supervisors.map((s) => ({
       value: s.id,
       label: s.name,
+    })),
+    topics: topicDistribution.map((t) => ({
+      value: t.id,
+      label: t.name,
+      count: t.count,
     })),
     academicYears: academicYears.map((ay) => ({
       value: ay.id,
