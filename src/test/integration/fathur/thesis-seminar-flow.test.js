@@ -141,8 +141,8 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
       where: { id: seminarId },
       data: { 
         date: new Date(),
-        startTime: new Date(Date.now() - 3600000), // 1 hour ago
-        endTime: new Date(Date.now() + 3600000)    // 1 hour later
+        startTime: new Date("1970-01-01T00:00:00.000Z"),
+        endTime: new Date("1970-01-01T23:59:00.000Z")
       }
     });
 
