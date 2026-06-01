@@ -115,14 +115,14 @@ model StudentCplScore {
   oldCplScore              Int?           @map("old_cpl_score")
   source                   CplScoreSource @default(SIA)
   status                   CplScoreStatus @default(calculated)
-  recommendationDocumentId String?        @map("recommendation_document_id") @db.VarChar(255)
-  settlementDocumentId     String?        @map("settlement_document_id") @db.VarChar(255)
   recommendationDocumentPath String?      @map("recommendation_document_path") @db.VarChar(255)
   recommendationDocumentName String?      @map("recommendation_document_name") @db.VarChar(255)
-  recommendationDocumentHash String?      @map("recommendation_document_hash") @db.VarChar(255)
+  recommendationDocumentMimeType String?  @map("recommendation_document_mime_type") @db.VarChar(255)
+  recommendationDocumentSize     Int?     @map("recommendation_document_size")
   settlementDocumentPath     String?      @map("settlement_document_path") @db.VarChar(255)
   settlementDocumentName     String?      @map("settlement_document_name") @db.VarChar(255)
-  settlementDocumentHash     String?      @map("settlement_document_hash") @db.VarChar(255)
+  settlementDocumentMimeType String?      @map("settlement_document_mime_type") @db.VarChar(255)
+  settlementDocumentSize     Int?         @map("settlement_document_size")
   validatedAt               DateTime?      @map("validated_at")
   finalizedAt              DateTime?      @map("finalized_at")
   updatedAt                DateTime       @updatedAt @map("updated_at")
@@ -131,15 +131,11 @@ model StudentCplScore {
   student                Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
   inputUser              User?     @relation("CplScoreInputBy", fields: [inputBy], references: [id])
   validator              User?     @relation("CplScoreValidatedBy", fields: [validatedBy], references: [id])
-  recommendationDocument Document? @relation("CplRecommendationDocument", fields: [recommendationDocumentId], references: [id])
-  settlementDocument     Document? @relation("CplSettlementDocument", fields: [settlementDocumentId], references: [id])
 
   @@id([studentId, cplId])
   @@index([cplId], map: "student_cpl_scores_cpl_id_fkey")
   @@index([inputBy], map: "student_cpl_scores_input_by_fkey")
   @@index([validatedBy], map: "student_cpl_scores_validated_by_fkey")
-  @@index([recommendationDocumentId], map: "student_cpl_scores_recommendation_document_id_fkey")
-  @@index([settlementDocumentId], map: "student_cpl_scores_settlement_document_id_fkey")
   @@map("student_cpl_scores")
 }
 
@@ -804,7 +800,6 @@ model ThesisSeminarRequirementDocument {
   verifiedBy                 String?              @map("verified_by") @db.VarChar(255)
   filePath                   String               @map("file_path") @db.VarChar(255)
   fileName                   String               @map("file_name") @db.VarChar(255)
-  fileHash                   String               @map("file_hash") @db.VarChar(255)
   mimeType                   String               @map("mime_type") @db.VarChar(255)
   fileSize                   Int                  @map("file_size")
   submittedAt                DateTime             @map("submitted_at")
@@ -995,7 +990,6 @@ model ThesisDefenceRequirementDocument {
   verifiedBy                 String?              @map("verified_by") @db.VarChar(255)
   filePath                   String               @map("file_path") @db.VarChar(255)
   fileName                   String               @map("file_name") @db.VarChar(255)
-  fileHash                   String               @map("file_hash") @db.VarChar(255)
   mimeType                   String               @map("mime_type") @db.VarChar(255)
   fileSize                   Int                  @map("file_size")
   submittedAt                DateTime             @map("submitted_at")
@@ -1115,7 +1109,10 @@ model Yudisium {
   decreeUploadedBy      String?        @map("decree_uploaded_by")
   decreeUploadedAt      DateTime?      @map("decree_uploaded_at")
   roomId                String?        @map("room_id")
-  documentId            String?        @map("document_id")
+  decreeFilePath        String?        @map("decree_file_path") @db.VarChar(255)
+  decreeFileName        String?        @map("decree_file_name") @db.VarChar(255)
+  decreeMimeType        String?        @map("decree_mime_type") @db.VarChar(255)
+  decreeFileSize        Int?           @map("decree_file_size")
   exitSurveyFormId      String?        @map("exit_survey_form_id")
   registrationOpenDate  DateTime?      @map("registration_open_date")
   registrationCloseDate DateTime?      @map("registration_close_date")
@@ -1127,7 +1124,6 @@ model Yudisium {
 
   decreeUploader             User?                       @relation("YudisiumDecreeUploader", fields: [decreeUploadedBy], references: [id])
   room                       Room?                       @relation(fields: [roomId], references: [id])
-  document                   Document?                   @relation(fields: [documentId], references: [id])
   exitSurveyForm             ExitSurveyForm?             @relation(fields: [exitSurveyFormId], references: [id])
   participants               YudisiumParticipant[]
   studentExitSurveyResponses StudentExitSurveyResponse[]
@@ -1135,7 +1131,6 @@ model Yudisium {
 
   @@index([decreeUploadedBy], map: "yudisiums_decree_uploaded_by_fkey")
   @@index([roomId], map: "yudisiums_room_id_fkey")
-  @@index([documentId], map: "yudisiums_document_id_fkey")
   @@index([exitSurveyFormId], map: "yudisiums_exit_survey_form_id_fkey")
   @@map("yudisiums")
 }
@@ -1203,8 +1198,11 @@ model YudisiumParticipantRequirement {
   yudisiumParticipantId     String               @map("yudisium_participant_id") @db.VarChar(255)
   yudisiumRequirementItemId String               @map("yudisium_requirement_item_id") @db.VarChar(255)
   yudisiumId                String               @map("yudisium_id") @db.VarChar(255)
-  documentId                String               @map("document_id") @db.VarChar(255)
   verifiedBy                String?              @map("verified_by") @db.VarChar(255)
+  filePath                  String               @map("file_path") @db.VarChar(255)
+  fileName                  String               @map("file_name") @db.VarChar(255)
+  mimeType                  String               @map("mime_type") @db.VarChar(255)
+  fileSize                  Int                  @map("file_size")
   submittedAt           DateTime             @map("submitted_at")
   status                DocumentSubmitStatus @default(submitted)
   notes                 String?              @db.Text
@@ -1214,12 +1212,10 @@ model YudisiumParticipantRequirement {
 
   participant YudisiumParticipant     @relation(fields: [yudisiumParticipantId, yudisiumId], references: [id, yudisiumId], onDelete: Cascade)
   requirement YudisiumRequirementItem @relation(fields: [yudisiumRequirementItemId, yudisiumId], references: [id, yudisiumId])
-  document    Document                @relation(fields: [documentId], references: [id])
   verifier    User?                   @relation("YudisiumReqVerifiedBy", fields: [verifiedBy], references: [id])
 
   @@id([yudisiumParticipantId, yudisiumRequirementItemId, yudisiumId])
   @@index([yudisiumRequirementItemId, yudisiumId], map: "yudisium_participant_requirements_yudisium_requirement_id_fkey")
-  @@index([documentId], map: "yudisium_participant_requirements_document_id_fkey")
   @@index([verifiedBy], map: "yudisium_participant_requirements_verified_by_fkey")
   @@map("yudisium_participant_requirements")
 }
@@ -1312,10 +1308,6 @@ model Document {
   thesisFinalDocument                 Thesis[]                         @relation("FinalThesisDocument")
   thesisGuidances                     ThesisGuidance[]
   thesisProposal                      ThesisProposal[]
-  yudisiums                           Yudisium[]
-  yudisiumCplRecommendationScores StudentCplScore[]                @relation("CplRecommendationDocument")
-  yudisiumCplSettlementScores     StudentCplScore[]                @relation("CplSettlementDocument")
-  yudisiumParticipantRequirements YudisiumParticipantRequirement[]
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")
