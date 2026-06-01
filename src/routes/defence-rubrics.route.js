@@ -11,6 +11,7 @@ import {
     getWeightSummary,
     reorderCriteria,
     reorderRubrics,
+    updateDefenceMinimumScore,
 } from "../controllers/defence-rubric.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import {
@@ -20,6 +21,7 @@ import {
     updateRubricSchema,
     reorderCriteriaSchema,
     reorderRubricsSchema,
+    updateMinimumScoreSchema,
 } from "../validators/master-data/defence-rubric.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
@@ -29,6 +31,9 @@ const router = express.Router();
 // Middleware
 router.use(authGuard);
 router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN]));
+
+// Update minimum score
+router.patch("/academic-years/:id/minimum-score", validate(updateMinimumScoreSchema), updateDefenceMinimumScore);
 
 // CPMK listing with rubrics (per role)
 router.get("/cpmks", getCpmksWithRubrics);

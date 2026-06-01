@@ -40,7 +40,21 @@ export const update = async (req, res, next) => {
 export const remove = async (req, res, next) => {
     try {
         await thesisCpmkService.deleteThesisCpmk(req.params.id);
-        res.status(200).json({ success: true, message: "Thesis CPMK berhasil dihapus" });
+        res.status(200).json({ success: true, message: "CPMK Tugas Akhir berhasil dihapus" });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const copyTemplate = async (req, res, next) => {
+    try {
+        const { sourceAcademicYearId, targetAcademicYearId } = req.body;
+        const result = await thesisCpmkService.copyTemplate(sourceAcademicYearId, targetAcademicYearId);
+        res.status(200).json({
+            success: true,
+            message: "Berhasil menyalin template CPMK Tugas Akhir",
+            data: result,
+        });
     } catch (error) {
         next(error);
     }

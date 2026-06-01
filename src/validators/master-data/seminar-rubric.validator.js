@@ -74,3 +74,11 @@ export const reorderRubricsSchema = z.object({
         .array(z.string().uuid("ID tidak valid"))
         .min(1, "Minimal 1 item"),
 });
+
+export const updateMinimumScoreSchema = z.object({
+    minimumScore: z
+        .number({ required_error: "Skor minimum wajib diisi" })
+        .int("Skor harus berupa bilangan bulat")
+        .min(0, "Skor minimum 0")
+        .max(100, "Skor maksimum 100"),
+});

@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
   mockPrisma: {
-    cpmk: {
+    thesisCpmk: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
     },
-    assessmentCriteria: {
+    thesisDefenceExaminerAssessmentCriteria: { aggregate: vi.fn(),
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       findMany: vi.fn(),
@@ -14,7 +14,7 @@ const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
       update: vi.fn(),
       aggregate: vi.fn(),
     },
-    assessmentRubric: {
+    thesisDefenceExaminerAssessmentRubric: {
       findFirst: vi.fn(),
       findMany: vi.fn(),
       findUnique: vi.fn(),
@@ -32,12 +32,12 @@ const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
     $transaction: vi.fn(),
   },
   mockTx: {
-    assessmentRubric: {
+    thesisDefenceExaminerAssessmentRubric: {
       findFirst: vi.fn(),
       create: vi.fn(),
       deleteMany: vi.fn(),
     },
-    assessmentCriteria: {
+    thesisDefenceExaminerAssessmentCriteria: {
       delete: vi.fn(),
     },
   },
@@ -75,9 +75,9 @@ describe("Rubric Defence Service", () => {
   });
 
   it("getCpmksWithRubrics returns configured defence tree for selected role with lock flags", async () => {
-    mockPrisma.cpmk.findMany.mockResolvedValue([
+    mockPrisma.thesisCpmk.findMany.mockResolvedValue([
       {
-        id: "cpmk-1",
+        id: "thesisCpmk-1",
         code: "CPMK-01",
         description: "A",
         assessmentCriterias: [
@@ -104,22 +104,22 @@ describe("Rubric Defence Service", () => {
   });
 
   it("createCriteria enforces role validity and maps appliesTo='defence' for valid role", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({
-      id: "cpmk-1",
+    mockPrisma.thesisCpmk.findUnique.mockResolvedValue({
+      id: "thesisCpmk-1",
       type: "thesis",
       academicYearId: "ay-1",
     });
-    mockPrisma.assessmentCriteria.findFirst.mockResolvedValue({ displayOrder: 0 });
-    mockPrisma.assessmentCriteria.create.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findFirst.mockResolvedValue({ displayOrder: 0 });
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.create.mockResolvedValue({
       id: "cr-new",
-      cpmkId: "cpmk-1",
+      thesisCpmkId: "thesisCpmk-1",
       appliesTo: "defence",
       role: "examiner",
       maxScore: 20,
       displayOrder: 1,
       name: "Baru",
     });
-    mockPrisma.assessmentCriteria.aggregate
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.aggregate
       .mockResolvedValueOnce({ _sum: { maxScore: 30 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 20 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 50 } });
@@ -127,13 +127,13 @@ describe("Rubric Defence Service", () => {
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
 
     const result = await createCriteria({
-      cpmkId: "cpmk-1",
+      thesisCpmkId: "thesisCpmk-1",
       role: "examiner",
       name: "Baru",
       maxScore: 20,
     });
 
-    expect(mockPrisma.assessmentCriteria.create).toHaveBeenCalledWith({
+    expect(mockPrisma.thesisDefenceExaminerAssessmentCriteria.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         appliesTo: "defence",
         role: "examiner",
@@ -143,34 +143,34 @@ describe("Rubric Defence Service", () => {
   });
 
   it("createCriteria rejects (400) for invalid defence role values", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({
-      id: "cpmk-1",
+    mockPrisma.thesisCpmk.findUnique.mockResolvedValue({
+      id: "thesisCpmk-1",
       type: "thesis",
       academicYearId: "ay-1",
     });
 
     await expect(
-      createCriteria({ cpmkId: "cpmk-1", role: "default", maxScore: 10 })
+      createCriteria({ thesisCpmkId: "thesisCpmk-1", role: "default", maxScore: 10 })
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("updateCriteria allows name update regardless of downstream detail locks", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "examiner",
       maxScore: 40,
       assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.assessmentCriteria.update.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.update.mockResolvedValue({
       id: "cr-1",
       name: "Updated",
       maxScore: 40,
     });
-    mockPrisma.assessmentCriteria.aggregate
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.aggregate
       .mockResolvedValueOnce({ _sum: { maxScore: 10 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 5 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 15 } });
@@ -180,21 +180,21 @@ describe("Rubric Defence Service", () => {
   });
 
   it("updateCriteria maxScore succeeds when downstream detail counts are zero", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "examiner",
       maxScore: 40,
       assessmentRubrics: [{ maxScore: 10 }],
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentCriteria.update.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.update.mockResolvedValue({
       id: "cr-1",
       maxScore: 50,
     });
-    mockPrisma.assessmentCriteria.aggregate
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.aggregate
       .mockResolvedValueOnce({ _sum: { maxScore: 10 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 15 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 25 } });
@@ -204,13 +204,13 @@ describe("Rubric Defence Service", () => {
   });
 
   it("updateCriteria maxScore rejects (400) when downstream assessment details are found", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "examiner",
       maxScore: 40,
       assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
@@ -219,35 +219,35 @@ describe("Rubric Defence Service", () => {
   });
 
   it("reorderCriteria mutates only displayOrder and can reject cross-role boundary errors from repository", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1", academicYearId: "ay-1" });
+    mockPrisma.thesisCpmk.findUnique.mockResolvedValue({ id: "thesisCpmk-1", academicYearId: "ay-1" });
     const crossRoleError = Object.assign(new Error("Cross-role reorder forbidden"), { statusCode: 400 });
-    mockPrisma.assessmentCriteria.update
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.update
       .mockResolvedValueOnce({})
       .mockRejectedValueOnce(crossRoleError);
 
     await expect(
-      reorderCriteria({ cpmkId: "cpmk-1", orderedIds: ["examiner-cr", "supervisor-cr"] })
+      reorderCriteria({ thesisCpmkId: "thesisCpmk-1", orderedIds: ["examiner-cr", "supervisor-cr"] })
     ).rejects.toMatchObject({ statusCode: 400 });
 
-    expect(mockPrisma.assessmentCriteria.update).toHaveBeenCalledWith({
+    expect(mockPrisma.thesisDefenceExaminerAssessmentCriteria.update).toHaveBeenCalledWith({
       where: { id: "examiner-cr" },
       data: { displayOrder: 1 },
     });
   });
 
   it("deleteCriteria succeeds and returns totals when downstream details are zero", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "supervisor",
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
       assessmentRubrics: [],
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-    mockTx.assessmentRubric.deleteMany.mockResolvedValue({ count: 1 });
-    mockTx.assessmentCriteria.delete.mockResolvedValue({ id: "cr-1" });
-    mockPrisma.assessmentCriteria.aggregate
+    mockTx.thesisDefenceExaminerAssessmentRubric.deleteMany.mockResolvedValue({ count: 1 });
+    mockTx.thesisDefenceExaminerAssessmentCriteria.delete.mockResolvedValue({ id: "cr-1" });
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.aggregate
       .mockResolvedValueOnce({ _sum: { maxScore: 35 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 30 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 65 } });
@@ -261,11 +261,11 @@ describe("Rubric Defence Service", () => {
   });
 
   it("deleteCriteria rejects (400) when downstream assessment details are found", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "examiner",
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
       assessmentRubrics: [],
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
@@ -275,19 +275,19 @@ describe("Rubric Defence Service", () => {
   });
 
   it("createRubric succeeds with displayOrder assignment when parent criteria is unlocked", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "examiner",
       maxScore: 10,
       assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentRubric.findMany.mockResolvedValue([]);
-    mockTx.assessmentRubric.findFirst.mockResolvedValue({ displayOrder: 1 });
-    mockTx.assessmentRubric.create.mockResolvedValue({ id: "rb-1", displayOrder: 2 });
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.findMany.mockResolvedValue([]);
+    mockTx.thesisDefenceExaminerAssessmentRubric.findFirst.mockResolvedValue({ displayOrder: 1 });
+    mockTx.thesisDefenceExaminerAssessmentRubric.create.mockResolvedValue({ id: "rb-1", displayOrder: 2 });
 
     const result = await createRubric("cr-1", {
       description: "R",
@@ -298,13 +298,13 @@ describe("Rubric Defence Service", () => {
   });
 
   it("createRubric rejects (400) when parent criteria is locked by downstream assessment details", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "examiner",
       maxScore: 10,
       assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
@@ -315,12 +315,12 @@ describe("Rubric Defence Service", () => {
   });
 
   it("updateRubric succeeds when parent criteria has no downstream detail records", async () => {
-    mockPrisma.assessmentRubric.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.findUnique.mockResolvedValue({
       id: "rb-1",
-      assessmentCriteriaId: "cr-1",
+      thesisDefenceExaminerAssessmentCriteriaId: "cr-1",
       minScore: 0,
       maxScore: 5,
-      assessmentCriteria: {
+      thesisDefenceExaminerAssessmentCriteria: {
         id: "cr-1",
         appliesTo: "defence",
         role: "examiner",
@@ -329,8 +329,8 @@ describe("Rubric Defence Service", () => {
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentRubric.findMany.mockResolvedValue([]);
-    mockPrisma.assessmentRubric.update.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.findMany.mockResolvedValue([]);
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.update.mockResolvedValue({
       id: "rb-1",
       minScore: 1,
       maxScore: 7,
@@ -346,12 +346,12 @@ describe("Rubric Defence Service", () => {
   });
 
   it("updateRubric rejects (400) when parent criteria has downstream detail records", async () => {
-    mockPrisma.assessmentRubric.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.findUnique.mockResolvedValue({
       id: "rb-1",
       assessmentCriteriaId: "cr-1",
       minScore: 0,
       maxScore: 5,
-      assessmentCriteria: {
+      thesisDefenceExaminerAssessmentCriteria: {
         id: "cr-1",
         appliesTo: "defence",
         role: "examiner",
@@ -367,27 +367,27 @@ describe("Rubric Defence Service", () => {
   });
 
   it("reorderRubrics mutates only displayOrder and rejects invalid parent context", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       appliesTo: "defence",
       role: "examiner",
       assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
     });
-    mockPrisma.assessmentRubric.update.mockResolvedValue({});
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.update.mockResolvedValue({});
 
     await reorderRubrics({ criteriaId: "cr-1", orderedIds: ["rb-2", "rb-1"] });
-    expect(mockPrisma.assessmentRubric.update).toHaveBeenNthCalledWith(1, {
+    expect(mockPrisma.thesisDefenceExaminerAssessmentRubric.update).toHaveBeenNthCalledWith(1, {
       where: { id: "rb-2" },
       data: { displayOrder: 1 },
     });
 
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-x",
       appliesTo: "seminar",
       role: "default",
       assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
+      thesisCpmk: { academicYearId: "ay-1" },
     });
 
     await expect(
@@ -396,10 +396,10 @@ describe("Rubric Defence Service", () => {
   });
 
   it("deleteRubric succeeds when parent criteria is unlocked and rejects when locked", async () => {
-    mockPrisma.assessmentRubric.findUnique.mockResolvedValue({
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.findUnique.mockResolvedValue({
       id: "rb-1",
       assessmentCriteriaId: "cr-1",
-      assessmentCriteria: {
+      thesisDefenceExaminerAssessmentCriteria: {
         id: "cr-1",
         appliesTo: "defence",
         role: "examiner",
@@ -408,7 +408,7 @@ describe("Rubric Defence Service", () => {
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentRubric.delete.mockResolvedValue({ id: "rb-1" });
+    mockPrisma.thesisDefenceExaminerAssessmentRubric.delete.mockResolvedValue({ id: "rb-1" });
     await deleteRubric("rb-1");
 
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
@@ -417,7 +417,7 @@ describe("Rubric Defence Service", () => {
   });
 
   it("calculateDefenceTotals returns examiner/supervisor/combined totals and combined equals sum of role totals", async () => {
-    mockPrisma.assessmentCriteria.aggregate
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.aggregate
       .mockResolvedValueOnce({ _sum: { maxScore: 30 } }) // examiner
       .mockResolvedValueOnce({ _sum: { maxScore: 45 } }) // supervisor
       .mockResolvedValueOnce({ _sum: { maxScore: 75 } }); // combined
@@ -432,15 +432,15 @@ describe("Rubric Defence Service", () => {
   });
 
   it("getWeightSummary merges defence summary with totals and returns consistent combinedTotal", async () => {
-    mockPrisma.cpmk.findMany.mockResolvedValue([
+    mockPrisma.thesisCpmk.findMany.mockResolvedValue([
       {
-        id: "cpmk-1",
+        id: "thesisCpmk-1",
         code: "CPMK-01",
         description: "Desc",
         assessmentCriterias: [{ id: "cr-1", name: "A", maxScore: 30, assessmentRubrics: [{ id: "r1" }] }],
       },
     ]);
-    mockPrisma.assessmentCriteria.aggregate
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.aggregate
       .mockResolvedValueOnce({ _sum: { maxScore: 30 } }) // examiner
       .mockResolvedValueOnce({ _sum: { maxScore: 20 } }) // supervisor
       .mockResolvedValueOnce({ _sum: { maxScore: 50 } }); // combined
@@ -456,8 +456,8 @@ describe("Rubric Defence Service", () => {
   });
 
   it("removeDefenceCpmkConfig succeeds when no downstream assessment details exist", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1", type: "thesis" });
-    mockPrisma.assessmentCriteria.findMany.mockResolvedValue([
+    mockPrisma.thesisCpmk.findUnique.mockResolvedValue({ id: "thesisCpmk-1", type: "thesis" });
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findMany.mockResolvedValue([
       { id: "cr-1" },
       { id: "cr-2" },
     ]);
@@ -466,19 +466,19 @@ describe("Rubric Defence Service", () => {
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.$transaction.mockResolvedValue([{ count: 2 }, { count: 2 }]);
 
-    await removeDefenceCpmkConfig("cpmk-1", "supervisor");
+    await removeDefenceCpmkConfig("thesisCpmk-1", "supervisor");
     // Since it's inside a transaction using prisma directly in the repository, we just ensure it doesn't throw.
   });
 
   it("removeDefenceCpmkConfig rejects (400) when downstream assessment details exist", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1", type: "thesis" });
-    mockPrisma.assessmentCriteria.findMany.mockResolvedValue([
+    mockPrisma.thesisCpmk.findUnique.mockResolvedValue({ id: "thesisCpmk-1", type: "thesis" });
+    mockPrisma.thesisDefenceExaminerAssessmentCriteria.findMany.mockResolvedValue([
       { id: "cr-1" },
     ]);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(1);
 
-    await expect(removeDefenceCpmkConfig("cpmk-1", "supervisor")).rejects.toMatchObject({ statusCode: 400 });
+    await expect(removeDefenceCpmkConfig("thesisCpmk-1", "supervisor")).rejects.toMatchObject({ statusCode: 400 });
   });
 });

@@ -1,45 +1,79 @@
 import prisma from "../config/prisma.js";
 
+const getCriteriaModel = (role) => {
+    return role === "examiner" 
+        ? prisma.thesisDefenceExaminerAssessmentCriteria 
+        : prisma.thesisDefenceSupervisorAssessmentCriteria;
+};
+
+const getRubricModel = (role) => {
+    return role === "examiner" 
+        ? prisma.thesisDefenceExaminerAssessmentRubric 
+        : prisma.thesisDefenceSupervisorAssessmentRubric;
+};
+
+const getCriteriaField = (role) => {
+    return role === "examiner"
+        ? "thesisDefenceExaminerAssessmentCriterias"
+        : "thesisDefenceSupervisorAssessmentCriterias";
+};
+
+const getRubricField = (role) => {
+    return "assessmentRubrics";
+};
+
+const getDetailModel = (role) => {
+    return role === "examiner"
+        ? prisma.thesisDefenceExaminerAssessmentDetail
+        : prisma.thesisDefenceSupervisorAssessmentDetail;
+};
+
+const getDetailCriteriaIdField = (role) => {
+    return "assessmentCriteriaId";
+};
+
+// ────────────────────────────────────────────
+// Academic Year Query
+// ────────────────────────────────────────────
+
+export const updateDefenceMinimumScore = async (academicYearId, minimumScore) => {
+    return await prisma.academicYear.update({
+        where: { id: academicYearId },
+        data: { thesisDefenceMinimumScore: minimumScore },
+    });
+};
+
 // ────────────────────────────────────────────
 // CPMK Queries
 // ────────────────────────────────────────────
 
-export const findCpmkById = async (id) => {
-    return await prisma.cpmk.findUnique({
+export const findThesisCpmkById = async (id) => {
+    return await prisma.thesisCpmk.findUnique({
         where: { id },
         select: {
             id: true,
             code: true,
             description: true,
-            type: true,
             academicYearId: true,
         },
     });
 };
 
-/**
- * Returns active thesis CPMKs that are already configured for defence + given role,
- * including criteria and rubrics.
- */
 export const findConfiguredDefenceCpmks = async (role, academicYearId = null) => {
-    const where = {
-        type: "thesis",
-    };
-
+    const where = {};
     if (academicYearId) {
         where.academicYearId = academicYearId;
     }
 
-    return await prisma.cpmk.findMany({
+    const criteriaField = getCriteriaField(role);
+    const rubricField = getRubricField(role);
+
+    return await prisma.thesisCpmk.findMany({
         where,
         include: {
-            assessmentCriterias: {
-                where: {
-                    appliesTo: "defence",
-                    role,
-                },
+            [criteriaField]: {
                 include: {
-                    assessmentRubrics: {
+                    [rubricField]: {
                         orderBy: { displayOrder: "asc" },
                     },
                 },
@@ -51,85 +85,82 @@ export const findConfiguredDefenceCpmks = async (role, academicYearId = null) =>
 };
 
 // ────────────────────────────────────────────
-// Criteria Queries (defence + role)
+// Criteria Queries
 // ────────────────────────────────────────────
 
-export const getNextCriteriaDisplayOrder = async (cpmkId, role) => {
-    const last = await prisma.assessmentCriteria.findFirst({
-        where: {
-            cpmkId,
-            appliesTo: "defence",
-            role,
-        },
+export const getNextCriteriaDisplayOrder = async (thesisCpmkId, role) => {
+    const model = getCriteriaModel(role);
+    const last = await model.findFirst({
+        where: { thesisCpmkId },
         orderBy: { displayOrder: "desc" },
         select: { displayOrder: true },
     });
     return (last?.displayOrder ?? 0) + 1;
 };
 
-export const createCriteria = async (data) => {
-    return await prisma.assessmentCriteria.create({ data });
+export const createCriteria = async (role, data) => {
+    const model = getCriteriaModel(role);
+    return await model.create({ data });
 };
 
-export const findCriteriaById = async (id) => {
-    return await prisma.assessmentCriteria.findUnique({
+export const findCriteriaById = async (role, id) => {
+    const model = getCriteriaModel(role);
+    const rubricField = getRubricField(role);
+    return await model.findUnique({
         where: { id },
         include: {
-            cpmk: {
+            thesisCpmk: {
                 select: {
                     id: true,
                     code: true,
                     description: true,
-                    type: true,
                     academicYearId: true,
                 },
             },
-            assessmentRubrics: {
+            [rubricField]: {
                 orderBy: { displayOrder: "asc" },
             },
         },
     });
 };
 
-export const updateCriteria = async (id, data) => {
-    return await prisma.assessmentCriteria.update({
+export const updateCriteria = async (role, id, data) => {
+    const model = getCriteriaModel(role);
+    return await model.update({
         where: { id },
         data,
     });
 };
 
-export const removeCriteria = async (id) => {
-    return await prisma.assessmentCriteria.delete({ where: { id } });
-};
+export const removeCriteriaWithRubrics = async (role, criteriaId) => {
+    const criteriaModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
+    const rubricModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentRubric" : "thesisDefenceSupervisorAssessmentRubric";
+    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
 
-export const removeCriteriaWithRubrics = async (criteriaId) => {
     return await prisma.$transaction(async (tx) => {
-        await tx.assessmentRubric.deleteMany({
-            where: { assessmentCriteriaId: criteriaId },
+        await tx[rubricModelName].deleteMany({
+            where: { [foreignKey]: criteriaId },
         });
-        return await tx.assessmentCriteria.delete({ where: { id: criteriaId } });
+        return await tx[criteriaModelName].delete({ where: { id: criteriaId } });
     });
 };
 
-export const findDefenceCriteriaByCpmk = async (cpmkId, role) => {
-    return await prisma.assessmentCriteria.findMany({
-        where: {
-            cpmkId,
-            appliesTo: "defence",
-            role,
-        },
+export const findDefenceCriteriaByCpmk = async (role, thesisCpmkId) => {
+    const model = getCriteriaModel(role);
+    return await model.findMany({
+        where: { thesisCpmkId },
         select: { id: true },
     });
 };
 
-export const removeDefenceConfigByCpmk = async (cpmkId, role) => {
+export const removeDefenceConfigByCpmk = async (role, thesisCpmkId) => {
+    const criteriaModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
+    const rubricModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentRubric" : "thesisDefenceSupervisorAssessmentRubric";
+    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
+
     return await prisma.$transaction(async (tx) => {
-        const criteriaRows = await tx.assessmentCriteria.findMany({
-            where: {
-                cpmkId,
-                appliesTo: "defence",
-                role,
-            },
+        const criteriaRows = await tx[criteriaModelName].findMany({
+            where: { thesisCpmkId },
             select: { id: true },
         });
 
@@ -139,11 +170,11 @@ export const removeDefenceConfigByCpmk = async (cpmkId, role) => {
             return { deletedCriteria: 0, deletedRubrics: 0 };
         }
 
-        const deletedRubrics = await tx.assessmentRubric.deleteMany({
-            where: { assessmentCriteriaId: { in: criteriaIds } },
+        const deletedRubrics = await tx[rubricModelName].deleteMany({
+            where: { [foreignKey]: { in: criteriaIds } },
         });
 
-        const deletedCriteria = await tx.assessmentCriteria.deleteMany({
+        const deletedCriteria = await tx[criteriaModelName].deleteMany({
             where: { id: { in: criteriaIds } },
         });
 
@@ -154,58 +185,74 @@ export const removeDefenceConfigByCpmk = async (cpmkId, role) => {
     });
 };
 
-export const criteriaHasAssessmentData = async (id) => {
-    const [defence, supervisor] = await Promise.all([
-        prisma.thesisDefenceExaminerAssessmentDetail.count({
-            where: { assessmentCriteriaId: id },
-        }),
-        prisma.thesisDefenceSupervisorAssessmentDetail.count({
-            where: { assessmentCriteriaId: id },
-        }),
-    ]);
-    return defence + supervisor > 0;
+export const criteriaHasAssessmentData = async (role, id) => {
+    const detailModel = getDetailModel(role);
+    const fk = getDetailCriteriaIdField(role);
+    const count = await detailModel.count({
+        where: { [fk]: id },
+    });
+    return count > 0;
+};
+
+export const hasAnyAssessmentDataForAcademicYear = async (academicYearId) => {
+    const examinerCount = await prisma.thesisDefenceExaminerAssessmentDetail.count({
+        where: {
+            criteria: {
+                thesisCpmk: {
+                    academicYearId: academicYearId
+                }
+            }
+        }
+    });
+
+    const supervisorCount = await prisma.thesisDefenceSupervisorAssessmentDetail.count({
+        where: {
+            criteria: {
+                thesisCpmk: {
+                    academicYearId: academicYearId
+                }
+            }
+        }
+    });
+
+    return examinerCount > 0 || supervisorCount > 0;
 };
 
 // ────────────────────────────────────────────
 // Assessment Rubric Items
 // ────────────────────────────────────────────
 
-export const findRubricById = async (id) => {
-    return await prisma.assessmentRubric.findUnique({
+export const findRubricById = async (role, id) => {
+    const model = getRubricModel(role);
+    const criteriaField = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
+    
+    return await model.findUnique({
         where: { id },
         include: {
-            assessmentCriteria: {
-                select: {
-                    id: true,
-                    name: true,
-                    maxScore: true,
-                    cpmkId: true,
-                    appliesTo: true,
-                    role: true,
-                    cpmk: {
-                        select: {
-                            academicYearId: true,
-                        },
-                    },
-                },
+            [criteriaField]: {
+                select: { id: true, name: true, maxScore: true, thesisCpmkId: true },
             },
         },
     });
 };
 
-export const createRubricTx = async ({ criteriaId, data }) => {
+export const createRubricTx = async (role, { criteriaId, data }) => {
+    const criteriaModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
+    const rubricModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentRubric" : "thesisDefenceSupervisorAssessmentRubric";
+    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
+
     return await prisma.$transaction(async (tx) => {
-        const last = await tx.assessmentRubric.findFirst({
-            where: { assessmentCriteriaId: criteriaId },
+        const last = await tx[rubricModelName].findFirst({
+            where: { [foreignKey]: criteriaId },
             orderBy: { displayOrder: "desc" },
             select: { displayOrder: true },
         });
 
         const displayOrder = (last?.displayOrder ?? 0) + 1;
 
-        return await tx.assessmentRubric.create({
+        return await tx[rubricModelName].create({
             data: {
-                assessmentCriteriaId: criteriaId,
+                [foreignKey]: criteriaId,
                 description: data.description,
                 minScore: data.minScore,
                 maxScore: data.maxScore,
@@ -215,21 +262,26 @@ export const createRubricTx = async ({ criteriaId, data }) => {
     });
 };
 
-export const updateRubric = async (id, data) => {
-    return await prisma.assessmentRubric.update({ where: { id }, data });
+export const updateRubric = async (role, id, data) => {
+    const model = getRubricModel(role);
+    return await model.update({ where: { id }, data });
 };
 
-export const removeRubric = async (id) => {
-    return await prisma.assessmentRubric.delete({ where: { id } });
+export const removeRubric = async (role, id) => {
+    const model = getRubricModel(role);
+    return await model.delete({ where: { id } });
 };
 
-export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) => {
-    const where = { assessmentCriteriaId: criteriaId };
+export const findRubricsByCriteria = async (role, criteriaId, excludeRubricId = null) => {
+    const model = getRubricModel(role);
+    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
+    
+    const where = { [foreignKey]: criteriaId };
     if (excludeRubricId) {
         where.id = { not: excludeRubricId };
     }
 
-    return await prisma.assessmentRubric.findMany({
+    return await model.findMany({
         where,
         select: {
             id: true,
@@ -241,50 +293,29 @@ export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) 
 };
 
 // ────────────────────────────────────────────
-// Score Cap & Toggle
+// Summary
 // ────────────────────────────────────────────
 
-/**
- * Get total maxScore of all defence criteria across BOTH roles.
- * The 100-point cap is shared between examiner and supervisor.
- */
-export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null, academicYearId = null) => {
+export const getActiveCriteriaTotalScore = async (role, excludeCriteriaId = null, academicYearId = null) => {
+    const model = getCriteriaModel(role);
     const where = {
-        appliesTo: "defence",
-        role: { in: ["examiner", "supervisor"] },
-        cpmk: academicYearId ? { academicYearId } : undefined,
+        thesisCpmk: academicYearId ? { academicYearId } : undefined,
     };
     if (excludeCriteriaId) {
         where.id = { not: excludeCriteriaId };
     }
-    const result = await prisma.assessmentCriteria.aggregate({
+    const result = await model.aggregate({
         where,
         _sum: { maxScore: true },
     });
     return result._sum.maxScore || 0;
 };
 
-export const getActiveCriteriaTotalScoreByRole = async (role, academicYearId = null) => {
-    const result = await prisma.assessmentCriteria.aggregate({
-        where: {
-            appliesTo: "defence",
-            role,
-            ...(academicYearId ? { cpmk: { academicYearId } } : {}),
-        },
-        _sum: { maxScore: true },
-    });
-
-    return result._sum.maxScore || 0;
-};
-
-// ────────────────────────────────────────────
-// Reorder
-// ────────────────────────────────────────────
-
-export const reorderCriteria = async (cpmkId, orderedIds) => {
+export const reorderCriteria = async (role, thesisCpmkId, orderedIds) => {
+    const modelName = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
     return await prisma.$transaction(
         orderedIds.map((id, index) =>
-            prisma.assessmentCriteria.update({
+            prisma[modelName].update({
                 where: { id },
                 data: { displayOrder: index + 1 },
             })
@@ -292,43 +323,38 @@ export const reorderCriteria = async (cpmkId, orderedIds) => {
     );
 };
 
-export const reorderRubrics = async (criteriaId, orderedIds) => {
+export const reorderRubrics = async (role, criteriaId, orderedIds) => {
+    const modelName = role === "examiner" ? "thesisDefenceExaminerAssessmentRubric" : "thesisDefenceSupervisorAssessmentRubric";
     return await prisma.$transaction(
         orderedIds.map((id, index) =>
-            prisma.assessmentRubric.update({
+            prisma[modelName].update({
                 where: { id },
                 data: { displayOrder: index + 1 },
             })
         )
     );
 };
-
-// ────────────────────────────────────────────
-// Summary
-// ────────────────────────────────────────────
 
 export const getDefenceWeightSummary = async (role, academicYearId = null) => {
+    const criteriaField = getCriteriaField(role);
+    const rubricField = getRubricField(role);
+
     const cpmkWhere = {
-        type: "thesis",
         ...(academicYearId ? { academicYearId } : {}),
     };
 
-    const cpmks = await prisma.cpmk.findMany({
+    const cpmks = await prisma.thesisCpmk.findMany({
         where: cpmkWhere,
         select: {
             id: true,
             code: true,
             description: true,
-            assessmentCriterias: {
-                where: {
-                    appliesTo: "defence",
-                    role,
-                },
+            [criteriaField]: {
                 select: {
                     id: true,
                     name: true,
                     maxScore: true,
-                    assessmentRubrics: { select: { id: true } },
+                    [rubricField]: { select: { id: true } },
                 },
                 orderBy: { displayOrder: "asc" },
             },
@@ -338,15 +364,16 @@ export const getDefenceWeightSummary = async (role, academicYearId = null) => {
 
     let totalCriteriaScore = 0;
     const details = cpmks.map((c) => {
-        const criteriaScore = c.assessmentCriterias.reduce(
-            (sum, criteria) => sum + (criteria.maxScore || 0),
+        const criterias = c[criteriaField];
+        const criteriaScore = criterias.reduce(
+            (sum, cr) => sum + (cr.maxScore || 0),
             0,
         );
 
         totalCriteriaScore += criteriaScore;
 
-        const rubricCount = c.assessmentCriterias.reduce(
-            (sum, cr) => sum + cr.assessmentRubrics.length,
+        const rubricCount = criterias.reduce(
+            (sum, cr) => sum + cr[rubricField].length,
             0,
         );
 
@@ -354,15 +381,24 @@ export const getDefenceWeightSummary = async (role, academicYearId = null) => {
             cpmkId: c.id,
             cpmkCode: c.code,
             cpmkDescription: c.description,
-            criteriaCount: c.assessmentCriterias.length,
+            criteriaCount: criterias.length,
             criteriaScoreSum: criteriaScore,
             rubricCount,
         };
     });
 
+    let activeAy = null;
+    if (academicYearId) {
+        activeAy = await prisma.academicYear.findUnique({
+            where: { id: academicYearId },
+            select: { thesisDefenceMinimumScore: true },
+        });
+    }
+
     return {
         totalScore: totalCriteriaScore,
         isComplete: totalCriteriaScore > 0,
+        minimumScore: activeAy?.thesisDefenceMinimumScore || 0,
         details,
     };
 };

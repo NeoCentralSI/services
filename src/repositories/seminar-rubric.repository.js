@@ -1,43 +1,46 @@
 import prisma from "../config/prisma.js";
 
 // ────────────────────────────────────────────
+// Academic Year Query
+// ────────────────────────────────────────────
+
+export const updateSeminarMinimumScore = async (academicYearId, minimumScore) => {
+    return await prisma.academicYear.update({
+        where: { id: academicYearId },
+        data: { thesisSeminarMinimumScore: minimumScore },
+    });
+};
+
+// ────────────────────────────────────────────
 // CPMK Queries
 // ────────────────────────────────────────────
 
-export const findCpmkById = async (id) => {
-    return await prisma.cpmk.findUnique({
+export const findThesisCpmkById = async (id) => {
+    return await prisma.thesisCpmk.findUnique({
         where: { id },
         select: {
             id: true,
             code: true,
             description: true,
-            type: true,
             academicYearId: true,
         },
     });
 };
 
 /**
- * Returns active thesis CPMKs that are already configured for seminar/default,
+ * Returns active thesis CPMKs that are already configured for seminar,
  * including criteria and rubrics.
  */
 export const findConfiguredSeminarCpmks = async (academicYearId = null) => {
-    const where = {
-        type: "thesis",
-    };
-
+    const where = {};
     if (academicYearId) {
         where.academicYearId = academicYearId;
     }
 
-    return await prisma.cpmk.findMany({
+    return await prisma.thesisCpmk.findMany({
         where,
         include: {
-            assessmentCriterias: {
-                where: {
-                    appliesTo: "seminar",
-                    role: "default",
-                },
+            thesisSeminarAssessmentCriterias: {
                 include: {
                     assessmentRubrics: {
                         orderBy: { displayOrder: "asc" },
@@ -51,16 +54,12 @@ export const findConfiguredSeminarCpmks = async (academicYearId = null) => {
 };
 
 // ────────────────────────────────────────────
-// Criteria Queries (seminar + default role)
+// Criteria Queries
 // ────────────────────────────────────────────
 
-export const getNextCriteriaDisplayOrder = async (cpmkId) => {
-    const last = await prisma.assessmentCriteria.findFirst({
-        where: {
-            cpmkId,
-            appliesTo: "seminar",
-            role: "default",
-        },
+export const getNextCriteriaDisplayOrder = async (thesisCpmkId) => {
+    const last = await prisma.thesisSeminarAssessmentCriteria.findFirst({
+        where: { thesisCpmkId },
         orderBy: { displayOrder: "desc" },
         select: { displayOrder: true },
     });
@@ -68,23 +67,22 @@ export const getNextCriteriaDisplayOrder = async (cpmkId) => {
 };
 
 export const createCriteria = async (data) => {
-    return await prisma.assessmentCriteria.create({ data });
+    return await prisma.thesisSeminarAssessmentCriteria.create({ data });
 };
 
 export const findCriteriaById = async (id) => {
-    return await prisma.assessmentCriteria.findUnique({
+    return await prisma.thesisSeminarAssessmentCriteria.findUnique({
         where: { id },
         include: {
-            cpmk: {
+            thesisCpmk: {
                 select: {
                     id: true,
                     code: true,
                     description: true,
-                    type: true,
                     academicYearId: true,
                 },
             },
-            assessmentRubrics: {
+            thesisSeminarAssessmentRubrics: {
                 orderBy: { displayOrder: "asc" },
             },
         },
@@ -92,44 +90,36 @@ export const findCriteriaById = async (id) => {
 };
 
 export const updateCriteria = async (id, data) => {
-    return await prisma.assessmentCriteria.update({
+    return await prisma.thesisSeminarAssessmentCriteria.update({
         where: { id },
         data,
     });
 };
 
 export const removeCriteria = async (id) => {
-    return await prisma.assessmentCriteria.delete({ where: { id } });
+    return await prisma.thesisSeminarAssessmentCriteria.delete({ where: { id } });
 };
 
 export const removeCriteriaWithRubrics = async (criteriaId) => {
     return await prisma.$transaction(async (tx) => {
-        await tx.assessmentRubric.deleteMany({
-            where: { assessmentCriteriaId: criteriaId },
+        await tx.thesisSeminarAssessmentRubric.deleteMany({
+            where: { thesisSeminarAssessmentCriteriaId: criteriaId },
         });
-        return await tx.assessmentCriteria.delete({ where: { id: criteriaId } });
+        return await tx.thesisSeminarAssessmentCriteria.delete({ where: { id: criteriaId } });
     });
 };
 
-export const findSeminarDefaultCriteriaByCpmk = async (cpmkId) => {
-    return await prisma.assessmentCriteria.findMany({
-        where: {
-            cpmkId,
-            appliesTo: "seminar",
-            role: "default",
-        },
+export const findSeminarCriteriaByCpmk = async (thesisCpmkId) => {
+    return await prisma.thesisSeminarAssessmentCriteria.findMany({
+        where: { thesisCpmkId },
         select: { id: true },
     });
 };
 
-export const removeSeminarConfigByCpmk = async (cpmkId) => {
+export const removeSeminarConfigByCpmk = async (thesisCpmkId) => {
     return await prisma.$transaction(async (tx) => {
-        const criteriaRows = await tx.assessmentCriteria.findMany({
-            where: {
-                cpmkId,
-                appliesTo: "seminar",
-                role: "default",
-            },
+        const criteriaRows = await tx.thesisSeminarAssessmentCriteria.findMany({
+            where: { thesisCpmkId },
             select: { id: true },
         });
 
@@ -139,11 +129,11 @@ export const removeSeminarConfigByCpmk = async (cpmkId) => {
             return { deletedCriteria: 0, deletedRubrics: 0 };
         }
 
-        const deletedRubrics = await tx.assessmentRubric.deleteMany({
-            where: { assessmentCriteriaId: { in: criteriaIds } },
+        const deletedRubrics = await tx.thesisSeminarAssessmentRubric.deleteMany({
+            where: { thesisSeminarAssessmentCriteriaId: { in: criteriaIds } },
         });
 
-        const deletedCriteria = await tx.assessmentCriteria.deleteMany({
+        const deletedCriteria = await tx.thesisSeminarAssessmentCriteria.deleteMany({
             where: { id: { in: criteriaIds } },
         });
 
@@ -155,21 +145,23 @@ export const removeSeminarConfigByCpmk = async (cpmkId) => {
 };
 
 export const criteriaHasAssessmentData = async (id) => {
-    const [seminar, defence, supervisor, researchMethod] = await Promise.all([
-        prisma.thesisSeminarExaminerAssessmentDetail.count({
-            where: { assessmentCriteriaId: id },
-        }),
-        prisma.thesisDefenceExaminerAssessmentDetail.count({
-            where: { assessmentCriteriaId: id },
-        }),
-        prisma.thesisDefenceSupervisorAssessmentDetail.count({
-            where: { assessmentCriteriaId: id },
-        }),
-        prisma.researchMethodScoreDetail.count({
-            where: { assessmentCriteriaId: id },
-        }),
-    ]);
-    return seminar + defence + supervisor + researchMethod > 0;
+    const seminarCount = await prisma.thesisSeminarExaminerAssessmentDetail.count({
+        where: { assessmentCriteriaId: id },
+    });
+    return seminarCount > 0;
+};
+
+export const hasAnyAssessmentDataForAcademicYear = async (academicYearId) => {
+    const count = await prisma.thesisSeminarExaminerAssessmentDetail.count({
+        where: {
+            criteria: {
+                thesisCpmk: {
+                    academicYearId: academicYearId
+                }
+            }
+        }
+    });
+    return count > 0;
 };
 
 // ────────────────────────────────────────────
@@ -177,33 +169,33 @@ export const criteriaHasAssessmentData = async (id) => {
 // ────────────────────────────────────────────
 
 export const findRubricById = async (id) => {
-    return await prisma.assessmentRubric.findUnique({
+    return await prisma.thesisSeminarAssessmentRubric.findUnique({
         where: { id },
         include: {
-            assessmentCriteria: {
-                select: { id: true, name: true, maxScore: true, cpmkId: true },
+            thesisSeminarAssessmentCriteria: {
+                select: { id: true, name: true, maxScore: true, thesisCpmkId: true },
             },
         },
     });
 };
 
 export const createRubric = async (data) => {
-    return await prisma.assessmentRubric.create({ data });
+    return await prisma.thesisSeminarAssessmentRubric.create({ data });
 };
 
 export const createRubricTx = async ({ criteriaId, data }) => {
     return await prisma.$transaction(async (tx) => {
-        const last = await tx.assessmentRubric.findFirst({
-            where: { assessmentCriteriaId: criteriaId },
+        const last = await tx.thesisSeminarAssessmentRubric.findFirst({
+            where: { thesisSeminarAssessmentCriteriaId: criteriaId },
             orderBy: { displayOrder: "desc" },
             select: { displayOrder: true },
         });
 
         const displayOrder = (last?.displayOrder ?? 0) + 1;
 
-        return await tx.assessmentRubric.create({
+        return await tx.thesisSeminarAssessmentRubric.create({
             data: {
-                assessmentCriteriaId: criteriaId,
+                thesisSeminarAssessmentCriteriaId: criteriaId,
                 description: data.description,
                 minScore: data.minScore,
                 maxScore: data.maxScore,
@@ -214,16 +206,16 @@ export const createRubricTx = async ({ criteriaId, data }) => {
 };
 
 export const updateRubric = async (id, data) => {
-    return await prisma.assessmentRubric.update({ where: { id }, data });
+    return await prisma.thesisSeminarAssessmentRubric.update({ where: { id }, data });
 };
 
 export const removeRubric = async (id) => {
-    return await prisma.assessmentRubric.delete({ where: { id } });
+    return await prisma.thesisSeminarAssessmentRubric.delete({ where: { id } });
 };
 
 export const getNextRubricDisplayOrder = async (criteriaId) => {
-    const last = await prisma.assessmentRubric.findFirst({
-        where: { assessmentCriteriaId: criteriaId },
+    const last = await prisma.thesisSeminarAssessmentRubric.findFirst({
+        where: { thesisSeminarAssessmentCriteriaId: criteriaId },
         orderBy: { displayOrder: "desc" },
         select: { displayOrder: true },
     });
@@ -231,18 +223,18 @@ export const getNextRubricDisplayOrder = async (criteriaId) => {
 };
 
 export const countRubricsForCriteria = async (criteriaId) => {
-    return await prisma.assessmentRubric.count({
-        where: { assessmentCriteriaId: criteriaId },
+    return await prisma.thesisSeminarAssessmentRubric.count({
+        where: { thesisSeminarAssessmentCriteriaId: criteriaId },
     });
 };
 
 export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) => {
-    const where = { assessmentCriteriaId: criteriaId };
+    const where = { thesisSeminarAssessmentCriteriaId: criteriaId };
     if (excludeRubricId) {
         where.id = { not: excludeRubricId };
     }
 
-    return await prisma.assessmentRubric.findMany({
+    return await prisma.thesisSeminarAssessmentRubric.findMany({
         where,
         select: {
             id: true,
@@ -258,19 +250,17 @@ export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) 
 // ────────────────────────────────────────────
 
 /**
- * Get total maxScore of all seminar/default criteria.
+ * Get total maxScore of all seminar criteria.
  * Optionally exclude a specific criteria (for update validation).
  */
 export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null, academicYearId = null) => {
     const where = {
-        appliesTo: "seminar",
-        role: "default",
-        cpmk: academicYearId ? { academicYearId } : undefined,
+        thesisCpmk: academicYearId ? { academicYearId } : undefined,
     };
     if (excludeCriteriaId) {
         where.id = { not: excludeCriteriaId };
     }
-    const result = await prisma.assessmentCriteria.aggregate({
+    const result = await prisma.thesisSeminarAssessmentCriteria.aggregate({
         where,
         _sum: { maxScore: true },
     });
@@ -280,10 +270,10 @@ export const getActiveCriteriaTotalScore = async (excludeCriteriaId = null, acad
 /**
  * Reorder criteria by setting displayOrder based on orderedIds index.
  */
-export const reorderCriteria = async (cpmkId, orderedIds) => {
+export const reorderCriteria = async (thesisCpmkId, orderedIds) => {
     return await prisma.$transaction(
         orderedIds.map((id, index) =>
-            prisma.assessmentCriteria.update({
+            prisma.thesisSeminarAssessmentCriteria.update({
                 where: { id },
                 data: { displayOrder: index + 1 },
             })
@@ -297,7 +287,7 @@ export const reorderCriteria = async (cpmkId, orderedIds) => {
 export const reorderRubrics = async (criteriaId, orderedIds) => {
     return await prisma.$transaction(
         orderedIds.map((id, index) =>
-            prisma.assessmentRubric.update({
+            prisma.thesisSeminarAssessmentRubric.update({
                 where: { id },
                 data: { displayOrder: index + 1 },
             })
@@ -307,21 +297,16 @@ export const reorderRubrics = async (criteriaId, orderedIds) => {
 
 export const getSeminarWeightSummary = async (academicYearId = null) => {
     const cpmkWhere = {
-        type: "thesis",
         ...(academicYearId ? { academicYearId } : {}),
     };
 
-    const cpmks = await prisma.cpmk.findMany({
+    const cpmks = await prisma.thesisCpmk.findMany({
         where: cpmkWhere,
         select: {
             id: true,
             code: true,
             description: true,
-            assessmentCriterias: {
-                where: {
-                    appliesTo: "seminar",
-                    role: "default",
-                },
+            thesisSeminarAssessmentCriterias: {
                 select: {
                     id: true,
                     name: true,
@@ -336,14 +321,14 @@ export const getSeminarWeightSummary = async (academicYearId = null) => {
 
     let totalCriteriaScore = 0;
     const details = cpmks.map((c) => {
-        const criteriaScore = c.assessmentCriterias.reduce(
+        const criteriaScore = c.thesisSeminarAssessmentCriterias.reduce(
             (sum, criteria) => sum + (criteria.maxScore || 0),
             0,
         );
 
         totalCriteriaScore += criteriaScore;
 
-        const rubricCount = c.assessmentCriterias.reduce(
+        const rubricCount = c.thesisSeminarAssessmentCriterias.reduce(
             (sum, cr) => sum + cr.assessmentRubrics.length,
             0,
         );
@@ -352,15 +337,24 @@ export const getSeminarWeightSummary = async (academicYearId = null) => {
             cpmkId: c.id,
             cpmkCode: c.code,
             cpmkDescription: c.description,
-            criteriaCount: c.assessmentCriterias.length,
+            criteriaCount: c.thesisSeminarAssessmentCriterias.length,
             criteriaScoreSum: criteriaScore,
             rubricCount,
         };
     });
 
+    let activeAy = null;
+    if (academicYearId) {
+        activeAy = await prisma.academicYear.findUnique({
+            where: { id: academicYearId },
+            select: { thesisSeminarMinimumScore: true },
+        });
+    }
+
     return {
         totalScore: totalCriteriaScore,
         isComplete: totalCriteriaScore > 0,
+        minimumScore: activeAy?.thesisSeminarMinimumScore || 0,
         details,
     };
 };

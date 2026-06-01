@@ -237,7 +237,7 @@ const DEFENCE_SUPERVISOR_CRITERIA = [
 ];
 
 async function main() {
-    console.log("🌱 Starting Thesis Rubrics seeding...");
+    console.log("🌱 Starting Thesis Rubrics seeding with NEW TABLES...");
 
     let activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
     if (!activeYear) {
@@ -249,31 +249,52 @@ async function main() {
                 startDate: new Date("2025-08-01"),
                 endDate: new Date("2026-01-31"),
                 isActive: true,
+                thesisSeminarMinimumScore: 65,
+                thesisDefenceMinimumScore: 65,
             }
         });
         console.log(`✅ Created Academic Year: ${activeYear.semester} ${activeYear.year}`);
     } else {
         console.log(`📅 Found Active Academic Year: ${activeYear.semester} ${activeYear.year}`);
+        
+        // Ensure the active year has a minimum score
+        if (activeYear.thesisSeminarMinimumScore === null || activeYear.thesisDefenceMinimumScore === null) {
+            await prisma.academicYear.update({
+                where: { id: activeYear.id },
+                data: {
+                    thesisSeminarMinimumScore: 65,
+                    thesisDefenceMinimumScore: 65,
+                }
+            });
+            console.log(`✅ Initialized Minimum Scores for Active Academic Year`);
+        }
     }
 
-    // 1. Seed CPMKs
-    const cpmkMap = new Map();
-    for (const data of CPMKS) {
-        let cpmk = await prisma.cpmk.findFirst({
-            where: { code: data.code, academicYearId: activeYear.id },
-        });
+    // Clear existing data specific to this script (optional, but safe for dev)
+    console.log("\n🧹 Cleaning up old thesis assessment data...");
+    await prisma.thesisSeminarAssessmentRubric.deleteMany({});
+    await prisma.thesisSeminarAssessmentCriteria.deleteMany({});
+    await prisma.thesisDefenceExaminerAssessmentRubric.deleteMany({});
+    await prisma.thesisDefenceExaminerAssessmentCriteria.deleteMany({});
+    await prisma.thesisDefenceSupervisorAssessmentRubric.deleteMany({});
+    await prisma.thesisDefenceSupervisorAssessmentCriteria.deleteMany({});
+    await prisma.thesisCpmk.deleteMany({
+        where: { academicYearId: activeYear.id }
+    });
 
-        if (!cpmk) {
-            cpmk = await prisma.cpmk.create({
-                data: {
-                    ...data,
-                    academicYearId: activeYear.id,
-                },
-            });
-            console.log(`✨ Created CPMK: ${data.code}`);
-        } else {
-            console.log(`⏭️  CPMK exists: ${data.code}`);
-        }
+    // 1. Seed Thesis CPMKs
+    const cpmkMap = new Map();
+    let displayOrderCpmk = 0;
+    for (const data of CPMKS) {
+        const cpmk = await prisma.thesisCpmk.create({
+            data: {
+                code: data.code,
+                description: data.description,
+                
+                academicYearId: activeYear.id,
+            },
+        });
+        console.log(`✨ Created Thesis CPMK: ${data.code}`);
         cpmkMap.set(data.code, cpmk);
     }
 
@@ -281,45 +302,28 @@ async function main() {
     console.log("\n📋 Seeding Seminar Examiner Criteria...");
     for (const [index, criteriaData] of SEMINAR_EXAMINER_CRITERIA.entries()) {
         const cpmk = cpmkMap.get(criteriaData.cpmkCode);
-        let criteria = await prisma.assessmentCriteria.findFirst({
-            where: {
-                cpmkId: cpmk.id,
+        
+        const criteria = await prisma.thesisSeminarAssessmentCriteria.create({
+            data: {
+                thesisCpmkId: cpmk.id,
                 name: criteriaData.name,
-                appliesTo: "seminar",
-                role: "default",
+                maxScore: criteriaData.maxScore,
+                displayOrder: index,
             },
         });
-
-        if (!criteria) {
-            criteria = await prisma.assessmentCriteria.create({
-                data: {
-                    cpmkId: cpmk.id,
-                    name: criteriaData.name,
-                    appliesTo: "seminar",
-                    role: "default",
-                    maxScore: criteriaData.maxScore,
-                    displayOrder: index,
-                },
-            });
-            console.log(`  ✅ Created Seminar Criteria: ${criteriaData.name}`);
-        }
+        console.log(`  ✅ Created Seminar Criteria: ${criteriaData.name}`);
 
         // Seed Rubrics
         for (const [rIndex, rData] of criteriaData.rubrics.entries()) {
-            const existingRubric = await prisma.assessmentRubric.findFirst({
-                where: { assessmentCriteriaId: criteria.id, description: rData.desc },
+            await prisma.thesisSeminarAssessmentRubric.create({
+                data: {
+                    assessmentCriteriaId: criteria.id,
+                    minScore: rData.min,
+                    maxScore: rData.max,
+                    description: rData.desc,
+                    displayOrder: rIndex,
+                },
             });
-            if (!existingRubric) {
-                await prisma.assessmentRubric.create({
-                    data: {
-                        assessmentCriteriaId: criteria.id,
-                        minScore: rData.min,
-                        maxScore: rData.max,
-                        description: rData.desc,
-                        displayOrder: rIndex,
-                    },
-                });
-            }
         }
     }
 
@@ -327,45 +331,28 @@ async function main() {
     console.log("\n📋 Seeding Defence Examiner Criteria...");
     for (const [index, criteriaData] of DEFENCE_EXAMINER_CRITERIA.entries()) {
         const cpmk = cpmkMap.get(criteriaData.cpmkCode);
-        let criteria = await prisma.assessmentCriteria.findFirst({
-            where: {
-                cpmkId: cpmk.id,
+        
+        const criteria = await prisma.thesisDefenceExaminerAssessmentCriteria.create({
+            data: {
+                thesisCpmkId: cpmk.id,
                 name: criteriaData.name,
-                appliesTo: "defence",
-                role: "examiner",
+                maxScore: criteriaData.maxScore,
+                displayOrder: index,
             },
         });
-
-        if (!criteria) {
-            criteria = await prisma.assessmentCriteria.create({
-                data: {
-                    cpmkId: cpmk.id,
-                    name: criteriaData.name,
-                    appliesTo: "defence",
-                    role: "examiner",
-                    maxScore: criteriaData.maxScore,
-                    displayOrder: index,
-                },
-            });
-            console.log(`  ✅ Created Defence Examiner Criteria: ${criteriaData.name}`);
-        }
+        console.log(`  ✅ Created Defence Examiner Criteria: ${criteriaData.name}`);
 
         // Seed Rubrics
         for (const [rIndex, rData] of criteriaData.rubrics.entries()) {
-            const existingRubric = await prisma.assessmentRubric.findFirst({
-                where: { assessmentCriteriaId: criteria.id, description: rData.desc },
+            await prisma.thesisDefenceExaminerAssessmentRubric.create({
+                data: {
+                    assessmentCriteriaId: criteria.id,
+                    minScore: rData.min,
+                    maxScore: rData.max,
+                    description: rData.desc,
+                    displayOrder: rIndex,
+                },
             });
-            if (!existingRubric) {
-                await prisma.assessmentRubric.create({
-                    data: {
-                        assessmentCriteriaId: criteria.id,
-                        minScore: rData.min,
-                        maxScore: rData.max,
-                        description: rData.desc,
-                        displayOrder: rIndex,
-                    },
-                });
-            }
         }
     }
 
@@ -373,49 +360,32 @@ async function main() {
     console.log("\n📋 Seeding Defence Supervisor Criteria...");
     for (const [index, criteriaData] of DEFENCE_SUPERVISOR_CRITERIA.entries()) {
         const cpmk = cpmkMap.get(criteriaData.cpmkCode);
-        let criteria = await prisma.assessmentCriteria.findFirst({
-            where: {
-                cpmkId: cpmk.id,
+        
+        const criteria = await prisma.thesisDefenceSupervisorAssessmentCriteria.create({
+            data: {
+                thesisCpmkId: cpmk.id,
                 name: criteriaData.name,
-                appliesTo: "defence",
-                role: "supervisor",
+                maxScore: criteriaData.maxScore,
+                displayOrder: index,
             },
         });
-
-        if (!criteria) {
-            criteria = await prisma.assessmentCriteria.create({
-                data: {
-                    cpmkId: cpmk.id,
-                    name: criteriaData.name,
-                    appliesTo: "defence",
-                    role: "supervisor",
-                    maxScore: criteriaData.maxScore,
-                    displayOrder: index,
-                },
-            });
-            console.log(`  ✅ Created Defence Supervisor Criteria: ${criteriaData.name}`);
-        }
+        console.log(`  ✅ Created Defence Supervisor Criteria: ${criteriaData.name}`);
 
         // Seed Rubrics
         for (const [rIndex, rData] of criteriaData.rubrics.entries()) {
-            const existingRubric = await prisma.assessmentRubric.findFirst({
-                where: { assessmentCriteriaId: criteria.id, description: rData.desc },
+            await prisma.thesisDefenceSupervisorAssessmentRubric.create({
+                data: {
+                    assessmentCriteriaId: criteria.id,
+                    minScore: rData.min,
+                    maxScore: rData.max,
+                    description: rData.desc,
+                    displayOrder: rIndex,
+                },
             });
-            if (!existingRubric) {
-                await prisma.assessmentRubric.create({
-                    data: {
-                        assessmentCriteriaId: criteria.id,
-                        minScore: rData.min,
-                        maxScore: rData.max,
-                        description: rData.desc,
-                        displayOrder: rIndex,
-                    },
-                });
-            }
         }
     }
 
-    console.log("\n🏁 Thesis Rubrics seeding finished.");
+    console.log("\n🏁 NEW Thesis Rubrics seeding finished.");
 }
 
 main()

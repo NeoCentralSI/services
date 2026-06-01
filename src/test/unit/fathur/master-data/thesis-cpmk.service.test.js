@@ -10,12 +10,16 @@ const { mockPrisma } = vi.hoisted(() => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
-    thesisSeminarAssessmentCriteria: {
-      count: vi.fn(),
-    },
-    thesisDefenceExaminerAssessmentCriteria: {
-      count: vi.fn(),
-    },
+    thesisSeminarAssessmentCriteria: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    thesisDefenceExaminerAssessmentCriteria: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    thesisDefenceSupervisorAssessmentCriteria: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    thesisSeminarExaminerAssessmentDetail: { count: vi.fn() },
+    thesisDefenceExaminerAssessmentDetail: { count: vi.fn() },
+    thesisDefenceSupervisorAssessmentDetail: { count: vi.fn() },
+    thesisSeminarAssessmentRubric: { deleteMany: vi.fn() },
+    thesisDefenceExaminerAssessmentRubric: { deleteMany: vi.fn() },
+    thesisDefenceSupervisorAssessmentRubric: { deleteMany: vi.fn() },
+    $transaction: vi.fn((callback) => callback(mockPrisma)),
   },
 }));
 
@@ -44,6 +48,9 @@ describe("Thesis CPMK Service", () => {
           academicYearId: "ay-1",
           code: "CPMK-01",
           description: "Desc 1",
+          thesisSeminarAssessmentCriterias: [{ _count: { examinerAssessmentDetails: 0 } }],
+          thesisDefenceExaminerAssessmentCriterias: [{ _count: { examinerAssessmentDetails: 0 } }],
+          thesisDefenceSupervisorAssessmentCriterias: [{ _count: { supervisorAssessmentDetails: 0 } }],
         },
       ];
       mockPrisma.thesisCpmk.findMany.mockResolvedValue(mockData);
@@ -61,16 +68,28 @@ describe("Thesis CPMK Service", () => {
               isActive: true,
             },
           },
-          _count: {
-            select: {
-              thesisSeminarAssessmentCriterias: true,
-              thesisDefenceExaminerAssessmentCriterias: true,
-            },
+          thesisSeminarAssessmentCriterias: {
+              include: { _count: { select: { examinerAssessmentDetails: true } } }
           },
+          thesisDefenceExaminerAssessmentCriterias: {
+              include: { _count: { select: { examinerAssessmentDetails: true } } }
+          },
+          thesisDefenceSupervisorAssessmentCriterias: {
+              include: { _count: { select: { supervisorAssessmentDetails: true } } }
+          }
         },
         orderBy: { code: "asc" },
       });
-      expect(result).toEqual(mockData);
+      expect(result).toEqual([{
+          id: "1",
+          academicYearId: "ay-1",
+          code: "CPMK-01",
+          description: "Desc 1",
+          hasAssessmentDetails: false,
+          thesisSeminarAssessmentCriterias: undefined,
+          thesisDefenceExaminerAssessmentCriterias: undefined,
+          thesisDefenceSupervisorAssessmentCriterias: undefined,
+      }]);
     });
   });
 
@@ -99,7 +118,7 @@ describe("Thesis CPMK Service", () => {
 
     it("should throw error if not found", async () => {
       mockPrisma.thesisCpmk.findUnique.mockResolvedValue(null);
-      await expect(getThesisCpmkById("not-found")).rejects.toThrow("Thesis CPMK tidak ditemukan");
+      await expect(getThesisCpmkById("not-found")).rejects.toThrow("CPMK Tugas Akhir tidak ditemukan");
     });
   });
 
@@ -177,29 +196,36 @@ describe("Thesis CPMK Service", () => {
   describe("deleteThesisCpmk", () => {
     it("should delete successfully if no related data", async () => {
       mockPrisma.thesisCpmk.findUnique.mockResolvedValue({ id: "1" });
-      mockPrisma.thesisSeminarAssessmentCriteria.count.mockResolvedValue(0);
-      mockPrisma.thesisDefenceExaminerAssessmentCriteria.count.mockResolvedValue(0);
+      mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
+      mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
+      mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
+
+      mockPrisma.thesisSeminarAssessmentCriteria.findMany.mockResolvedValue([]);
+      mockPrisma.thesisDefenceExaminerAssessmentCriteria.findMany.mockResolvedValue([]);
+      mockPrisma.thesisDefenceSupervisorAssessmentCriteria.findMany.mockResolvedValue([]);
 
       await deleteThesisCpmk("1");
 
       expect(mockPrisma.thesisCpmk.delete).toHaveBeenCalledWith({ where: { id: "1" } });
     });
 
-    it("should throw error if has seminar criteria", async () => {
+    it("should throw error if has seminar assessment details", async () => {
       mockPrisma.thesisCpmk.findUnique.mockResolvedValue({ id: "1" });
-      mockPrisma.thesisSeminarAssessmentCriteria.count.mockResolvedValue(1);
-      mockPrisma.thesisDefenceExaminerAssessmentCriteria.count.mockResolvedValue(0);
+      mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
+      mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
+      mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
 
-      await expect(deleteThesisCpmk("1")).rejects.toThrow("CPMK tidak dapat dihapus karena sudah memiliki kriteria penilaian");
+      await expect(deleteThesisCpmk("1")).rejects.toThrow("CPMK tidak dapat dihapus karena sudah digunakan dalam penilaian (sudah ada nilai yang masuk)");
       expect(mockPrisma.thesisCpmk.delete).not.toHaveBeenCalled();
     });
 
-    it("should throw error if has defence criteria", async () => {
+    it("should throw error if has defence examiner assessment details", async () => {
       mockPrisma.thesisCpmk.findUnique.mockResolvedValue({ id: "1" });
-      mockPrisma.thesisSeminarAssessmentCriteria.count.mockResolvedValue(0);
-      mockPrisma.thesisDefenceExaminerAssessmentCriteria.count.mockResolvedValue(1);
+      mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
+      mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
+      mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
 
-      await expect(deleteThesisCpmk("1")).rejects.toThrow("CPMK tidak dapat dihapus karena sudah memiliki kriteria penilaian");
+      await expect(deleteThesisCpmk("1")).rejects.toThrow("CPMK tidak dapat dihapus karena sudah digunakan dalam penilaian (sudah ada nilai yang masuk)");
       expect(mockPrisma.thesisCpmk.delete).not.toHaveBeenCalled();
     });
   });

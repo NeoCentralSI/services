@@ -5,6 +5,7 @@ import {
     create,
     update,
     remove,
+    copyTemplate,
 } from "../controllers/thesis-cpmk.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createThesisCpmkSchema, updateThesisCpmkSchema } from "../validators/master-data/thesis-cpmk.validator.js";
@@ -19,6 +20,7 @@ router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN])
 
 // Routes
 router.get("/", getAll);
+router.post("/copy-template", copyTemplate);
 router.get("/:id", getById);
 router.post("/", validate(createThesisCpmkSchema), create);
 router.patch("/:id", validate(updateThesisCpmkSchema), update);

@@ -7,7 +7,7 @@ export const getAllThesisCpmks = async (filters) => {
 export const getThesisCpmkById = async (id) => {
     const cpmk = await thesisCpmkRepository.findById(id);
     if (!cpmk) {
-        const error = new Error("Thesis CPMK tidak ditemukan");
+        const error = new Error("CPMK Tugas Akhir tidak ditemukan");
         error.statusCode = 404;
         throw error;
     }
@@ -45,10 +45,26 @@ export const deleteThesisCpmk = async (id) => {
 
     const hasRelations = await thesisCpmkRepository.hasRelatedData(id);
     if (hasRelations) {
-        const error = new Error("CPMK tidak dapat dihapus karena sudah memiliki kriteria penilaian");
+        const error = new Error("CPMK tidak dapat dihapus karena sudah digunakan dalam penilaian (sudah ada nilai yang masuk)");
         error.statusCode = 400;
         throw error;
     }
 
     return await thesisCpmkRepository.remove(id);
+};
+
+export const copyTemplate = async (sourceAcademicYearId, targetAcademicYearId) => {
+    if (!sourceAcademicYearId || !targetAcademicYearId) {
+        const error = new Error("Tahun ajaran sumber dan tujuan harus diisi");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (sourceAcademicYearId === targetAcademicYearId) {
+        const error = new Error("Tahun ajaran sumber dan tujuan tidak boleh sama");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return await thesisCpmkRepository.copyTemplate(sourceAcademicYearId, targetAcademicYearId);
 };
