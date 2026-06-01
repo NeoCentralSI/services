@@ -98,6 +98,8 @@ describe("SIA Sync Job Service", () => {
           kknCompleted: true,
           researchMethodCompleted: true,
           currentSemester: 7,
+          gpa: null,
+          graduationPredicate: null,
         },
       });
       expect(summary).toMatchObject({ fetched: 1, dbUpdated: 1 });

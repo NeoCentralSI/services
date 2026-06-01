@@ -71,6 +71,7 @@ const NOW = new Date("2026-04-20T09:00:00.000Z");
 
 const CPL_ACTIVE_1 = {
   id: "cpl-1",
+  curriculumId: "curriculum-1",
   code: "CPL-01",
   description: "Berpikir kritis",
   minimalScore: 70,
@@ -81,6 +82,7 @@ const CPL_ACTIVE_1 = {
 
 const CPL_ACTIVE_2 = {
   id: "cpl-2",
+  curriculumId: "curriculum-1",
   code: "CPL-02",
   description: "Komunikasi efektif",
   minimalScore: 75,
@@ -91,6 +93,7 @@ const CPL_ACTIVE_2 = {
 
 const CPL_INACTIVE = {
   id: "cpl-3",
+  curriculumId: "curriculum-1",
   code: "CPL-03",
   description: "Kepemimpinan",
   minimalScore: 80,
@@ -184,7 +187,10 @@ describe("CPL Service", () => {
 
       expect(mockPrisma.cpl.findUnique).toHaveBeenCalledWith({
         where: { id: CPL_ACTIVE_1.id },
-        include: { _count: { select: { studentCplScores: true } } },
+        include: { 
+          _count: { select: { studentCplScores: true } },
+          curriculum: { select: { id: true, name: true, startYear: true, endYear: true } }
+        },
       });
       expect(result).toMatchObject({
         id: CPL_ACTIVE_1.id,
@@ -209,6 +215,7 @@ describe("CPL Service", () => {
       });
 
       const result = await createCpl({
+        curriculumId: "curriculum-1",
         code: "CPL-10",
         description: "Etika profesi",
         minimalScore: 78,
@@ -216,6 +223,7 @@ describe("CPL Service", () => {
 
       expect(mockPrisma.cpl.create).toHaveBeenCalledWith({
         data: {
+          curriculumId: "curriculum-1",
           code: "CPL-10",
           description: "Etika profesi",
           minimalScore: 78,
@@ -244,6 +252,7 @@ describe("CPL Service", () => {
       });
 
       const result = await createCpl({
+        curriculumId: "curriculum-1",
         code: "CPL-OLD",
         description: "CPL lama",
         minimalScore: 60,
@@ -252,6 +261,7 @@ describe("CPL Service", () => {
 
       expect(mockPrisma.cpl.create).toHaveBeenCalledWith({
         data: {
+          curriculumId: "curriculum-1",
           code: "CPL-OLD",
           description: "CPL lama",
           minimalScore: 60,
@@ -274,6 +284,7 @@ describe("CPL Service", () => {
 
       await expect(
         createCpl({
+          curriculumId: "curriculum-1",
           code: "CPL-10",
           description: "Duplicate",
           minimalScore: 60,
@@ -297,6 +308,7 @@ describe("CPL Service", () => {
       });
 
       const result = await createCpl({
+        curriculumId: "curriculum-1",
         code: "CPL-01",
         description: "Versi lama",
         minimalScore: 55,
@@ -306,6 +318,7 @@ describe("CPL Service", () => {
       expect(mockPrisma.cpl.findFirst).not.toHaveBeenCalled();
       expect(mockPrisma.cpl.create).toHaveBeenCalledWith({
         data: {
+          curriculumId: "curriculum-1",
           code: "CPL-01",
           description: "Versi lama",
           minimalScore: 55,

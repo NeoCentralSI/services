@@ -19,6 +19,7 @@ class ValidationError extends Error {
 
 const toCplResponse = (item) => ({
     id: item.id,
+    curriculumId: item.curriculumId,
     code: item.code,
     description: item.description,
     minimalScore: item.minimalScore,
@@ -28,6 +29,12 @@ const toCplResponse = (item) => ({
             ? item.hasRelatedScores
             : item._count?.studentCplScores > 0,
     studentCplScoreCount: item._count?.studentCplScores ?? 0,
+    curriculum: item.curriculum ? {
+        id: item.curriculum.id,
+        name: item.curriculum.name,
+        startYear: item.curriculum.startYear,
+        endYear: item.curriculum.endYear,
+    } : null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
 });
@@ -65,6 +72,8 @@ const toCplStudentScoreResponse = (item) => ({
               description: item.cpl.description,
               minimalScore: item.cpl.minimalScore,
               isActive: item.cpl.isActive,
+              curriculumId: item.cpl.curriculumId,
+              curriculumName: item.cpl.curriculum?.name,
           }
         : null,
     student: item.student
@@ -113,16 +122,17 @@ export const getCplById = async (id) => {
 
 export const createCpl = async (data) => {
     const newIsActive = data.isActive !== false;
-    if (newIsActive && data.code) {
-        const existing = await repository.findActiveByCode(data.code);
+    if (newIsActive && data.code && data.curriculumId) {
+        const existing = await repository.findActiveByCodeAndCurriculum(data.code, data.curriculumId);
         if (existing) {
             throw new ValidationError(
-                `Tidak dapat membuat CPL. Versi aktif dengan kode "${data.code}" sudah ada`
+                `Tidak dapat membuat CPL. Versi aktif dengan kode "${data.code}" sudah ada di kurikulum ini`
             );
         }
     }
 
     const created = await repository.create({
+        curriculumId: data.curriculumId,
         code: data.code,
         description: data.description,
         minimalScore: data.minimalScore,
@@ -148,16 +158,21 @@ export const updateCpl = async (id, data) => {
 
     const updateData = {};
 
-    if (data.code !== undefined) {
-        if (existing.isActive) {
-            const activeDuplicate = await repository.findActiveByCode(data.code, id);
+    if (data.curriculumId !== undefined) updateData.curriculumId = data.curriculumId;
+
+    if (data.code !== undefined || data.curriculumId !== undefined) {
+        const codeToCheck = data.code !== undefined ? data.code : existing.code;
+        const curriculumIdToCheck = data.curriculumId !== undefined ? data.curriculumId : existing.curriculumId;
+        
+        if (existing.isActive && codeToCheck && curriculumIdToCheck) {
+            const activeDuplicate = await repository.findActiveByCodeAndCurriculum(codeToCheck, curriculumIdToCheck, id);
             if (activeDuplicate) {
                 throw new ValidationError(
-                    `Tidak dapat mengubah kode. Versi aktif dengan kode "${data.code}" sudah ada`
+                    `Tidak dapat mengubah. Versi aktif dengan kode "${codeToCheck}" sudah ada di kurikulum ini`
                 );
             }
         }
-        updateData.code = data.code;
+        if (data.code !== undefined) updateData.code = data.code;
     }
 
     if (data.description !== undefined) updateData.description = data.description;
@@ -183,11 +198,11 @@ export const toggleCpl = async (id) => {
 
     const nextIsActive = !existing.isActive;
 
-    if (nextIsActive && existing.code) {
-        const activeDuplicate = await repository.findActiveByCode(existing.code, id);
+    if (nextIsActive && existing.code && existing.curriculumId) {
+        const activeDuplicate = await repository.findActiveByCodeAndCurriculum(existing.code, existing.curriculumId, id);
         if (activeDuplicate) {
             throw new ValidationError(
-                `Tidak dapat mengaktifkan ulang CPL. Versi aktif dengan kode "${existing.code}" sudah ada`
+                `Tidak dapat mengaktifkan ulang CPL. Versi aktif dengan kode "${existing.code}" sudah ada di kurikulum ini`
             );
         }
     }

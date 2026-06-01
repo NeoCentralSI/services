@@ -2,6 +2,12 @@ import { PrismaClient } from '../src/generated/prisma/index.js';
 
 const prisma = new PrismaClient();
 
+const curriculumData = {
+  name: 'Kurikulum OBE',
+  startYear: 2021,
+  endYear: 2026,
+};
+
 const cplData = [
   {
     code: 'CPL-01',
@@ -54,24 +60,50 @@ const cplData = [
 ];
 
 async function main() {
-  console.log('🌱 Starting CPL seeding...');
+  console.log('🌱 Starting CPL & Curriculum seeding...');
+
+  // Upsert curriculum
+  let curriculum = await prisma.curriculum.findFirst({
+    where: { name: curriculumData.name }
+  });
+
+  if (curriculum) {
+    curriculum = await prisma.curriculum.update({
+      where: { id: curriculum.id },
+      data: curriculumData,
+    });
+    console.log(`✅ Updated Curriculum: ${curriculum.name}`);
+  } else {
+    curriculum = await prisma.curriculum.create({
+      data: curriculumData,
+    });
+    console.log(`✨ Created Curriculum: ${curriculum.name}`);
+  }
 
   for (const data of cplData) {
     const existing = await prisma.cpl.findFirst({
-      where: { code: data.code }
+      where: { 
+        code: data.code,
+        curriculumId: curriculum.id 
+      }
     });
+
+    const payload = {
+        ...data,
+        curriculumId: curriculum.id
+    };
 
     if (existing) {
       await prisma.cpl.update({
         where: { id: existing.id },
-        data,
+        data: payload,
       });
-      console.log(`✅ Updated: ${data.code}`);
+      console.log(`✅ Updated CPL: ${data.code}`);
     } else {
       await prisma.cpl.create({
-        data,
+        data: payload,
       });
-      console.log(`✨ Created: ${data.code}`);
+      console.log(`✨ Created CPL: ${data.code}`);
     }
   }
 

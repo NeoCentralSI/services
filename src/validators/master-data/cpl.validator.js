@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const createCplSchema = z.object({
+    curriculumId: z
+        .string({ required_error: "ID Kurikulum wajib diisi" })
+        .uuid("ID Kurikulum tidak valid"),
     code: z
         .string({ required_error: "Kode CPL wajib diisi" })
         .min(1, "Kode CPL tidak boleh kosong")
@@ -18,6 +21,10 @@ export const createCplSchema = z.object({
 });
 
 export const updateCplSchema = z.object({
+    curriculumId: z
+        .string()
+        .uuid("ID Kurikulum tidak valid")
+        .optional(),
     code: z
         .string()
         .min(1, "Kode CPL tidak boleh kosong")
