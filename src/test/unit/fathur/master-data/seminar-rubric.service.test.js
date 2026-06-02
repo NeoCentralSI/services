@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
   mockPrisma: {
+    academicYear: {
+      findUnique: vi.fn(),
+    },
     thesisCpmk: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
@@ -37,6 +40,8 @@ const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
       deleteMany: vi.fn(),
     },
     thesisSeminarAssessmentCriteria: {
+      findMany: vi.fn(),
+      deleteMany: vi.fn(),
       delete: vi.fn(),
     },
   },
@@ -78,12 +83,10 @@ describe("Rubric Seminar Service", () => {
         id: "thesisCpmk-1",
         code: "CPMK-01",
         description: "A",
-        assessmentCriterias: [
+        thesisSeminarAssessmentCriterias: [
           {
             id: "cr-1",
             name: "K1",
-            appliesTo: "seminar",
-            role: "default",
             maxScore: 40,
             displayOrder: 1,
             assessmentRubrics: [{ id: "rb-1", displayOrder: 1 }],
@@ -92,8 +95,6 @@ describe("Rubric Seminar Service", () => {
       },
     ]);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-
     const result = await getCpmksWithRubrics({ academicYearId: "ay-1" });
     expect(result[0].assessmentCriterias[0]).toMatchObject({
       id: "cr-1",
@@ -111,74 +112,57 @@ describe("Rubric Seminar Service", () => {
     mockPrisma.thesisSeminarAssessmentCriteria.create.mockResolvedValue({
       id: "cr-new",
       thesisCpmkId: "thesisCpmk-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       maxScore: 30,
       name: "Baru",
       displayOrder: 3,
     });
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-
-    const result = mockPrisma.thesisSeminarAssessmentCriteria.aggregate.mockResolvedValue({ _sum: { maxScore: 0 } });
-    await createCriteria({ thesisCpmkId: "thesisCpmk-1", name: "Baru", maxScore: 30 });
+    mockPrisma.thesisSeminarAssessmentCriteria.aggregate.mockResolvedValue({ _sum: { maxScore: 0 } });
+    const result = await createCriteria({ thesisCpmkId: "thesisCpmk-1", name: "Baru", maxScore: 30 });
     expect(mockPrisma.thesisSeminarAssessmentCriteria.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         thesisCpmkId: "thesisCpmk-1",
-        appliesTo: "seminar",
-        role: "default",
+        name: "Baru",
+        maxScore: 30,
         displayOrder: 3,
       }),
     });
     expect(result).toMatchObject({ id: "cr-new" });
   });
 
-  it("updateCriteria allows name changes even when downstream assessment details exist", async () => {
+  it("updateCriteria rejects (400) when downstream assessment details exist", async () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       thesisCpmkId: "thesisCpmk-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       maxScore: 40,
-      assessmentRubrics: [],
+      assessmentRubrics: [{ maxScore: 20 }],
       thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisSeminarAssessmentCriteria.update.mockResolvedValue({
-      id: "cr-1",
-      name: "Updated Name",
-      maxScore: 40,
-    });
 
-    const result = mockPrisma.thesisSeminarAssessmentCriteria.aggregate.mockResolvedValue({ _sum: { maxScore: 0 } });
-    await updateCriteria("cr-1", { name: "Updated Name" });
-    expect(mockPrisma.thesisSeminarAssessmentCriteria.update).toHaveBeenCalledWith({
-      where: { id: "cr-1" },
-      data: { name: "Updated Name" },
-    });
-    expect(result).toMatchObject({ id: "cr-1" });
+    await expect(updateCriteria("cr-1", { name: "Updated Name" })).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("updateCriteria maxScore succeeds when downstream assessment details are zero", async () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       thesisCpmkId: "thesisCpmk-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       maxScore: 40,
       assessmentRubrics: [{ maxScore: 20 }],
       thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisSeminarAssessmentCriteria.update.mockResolvedValue({
+    mockPrisma.thesisSeminarAssessmentRubric.findMany.mockResolvedValue([]);
+      mockPrisma.thesisSeminarAssessmentCriteria.update.mockResolvedValue({
       id: "cr-1",
       maxScore: 45,
     });
 
-    const result = mockPrisma.thesisSeminarAssessmentCriteria.aggregate.mockResolvedValue({ _sum: { maxScore: 0 } });
-    await updateCriteria("cr-1", { maxScore: 45 });
+    mockPrisma.thesisSeminarAssessmentCriteria.aggregate.mockResolvedValue({ _sum: { maxScore: 0 } });
+    const result = await updateCriteria("cr-1", { maxScore: 45 });
     expect(result).toMatchObject({ id: "cr-1", maxScore: 45 });
   });
 
@@ -186,22 +170,20 @@ describe("Rubric Seminar Service", () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
       thesisCpmkId: "thesisCpmk-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       maxScore: 40,
       assessmentRubrics: [],
       thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-
     await expect(updateCriteria("cr-1", { maxScore: 50 })).rejects.toMatchObject({ statusCode: 400 });
     expect(mockPrisma.thesisSeminarAssessmentCriteria.update).not.toHaveBeenCalled();
   });
 
   it("reorderCriteria mutates only displayOrder fields in sequence", async () => {
     mockPrisma.thesisCpmk.findUnique.mockResolvedValue({ id: "thesisCpmk-1" });
-    mockPrisma.thesisSeminarAssessmentCriteria.update.mockResolvedValue({});
+    mockPrisma.thesisSeminarAssessmentRubric.findMany.mockResolvedValue([]);
+      mockPrisma.thesisSeminarAssessmentCriteria.update.mockResolvedValue({});
 
     await reorderCriteria({ thesisCpmkId: "thesisCpmk-1", orderedIds: ["cr-2", "cr-1"] });
 
@@ -228,12 +210,10 @@ describe("Rubric Seminar Service", () => {
   it("deleteCriteria succeeds and cascades when downstream assessment details are zero", async () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       thesisCpmk: { academicYearId: "ay-1" },
       assessmentRubrics: [],
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockTx.thesisSeminarAssessmentRubric.deleteMany.mockResolvedValue({ count: 2 });
     mockTx.thesisSeminarAssessmentCriteria.delete.mockResolvedValue({ id: "cr-1" });
@@ -250,27 +230,22 @@ describe("Rubric Seminar Service", () => {
   it("deleteCriteria rejects (400) when downstream assessment details are found", async () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       thesisCpmk: { academicYearId: "ay-1" },
       assessmentRubrics: [],
     });
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-
     await expect(deleteCriteria("cr-1")).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("createRubric succeeds with next displayOrder when parent criteria is unlocked", async () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       maxScore: 10,
       assessmentRubrics: [],
       thesisCpmk: { academicYearId: "ay-1" },
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarAssessmentRubric.findMany.mockResolvedValue([]);
     mockTx.thesisSeminarAssessmentRubric.findFirst.mockResolvedValue({ displayOrder: 1 });
@@ -288,15 +263,12 @@ describe("Rubric Seminar Service", () => {
   it("createRubric rejects (400) when parent criteria has downstream assessment details", async () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       maxScore: 10,
       assessmentRubrics: [],
       thesisCpmk: { academicYearId: "ay-1" },
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-
     await expect(
       createRubric("cr-1", { description: "Locked", minScore: 0, maxScore: 5 })
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -310,12 +282,10 @@ describe("Rubric Seminar Service", () => {
       maxScore: 5,
       thesisSeminarAssessmentCriteria: {
         id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
+        
         maxScore: 10,
       },
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarAssessmentRubric.findMany.mockResolvedValue([]);
     mockPrisma.thesisSeminarAssessmentRubric.update.mockResolvedValue({
@@ -341,14 +311,11 @@ describe("Rubric Seminar Service", () => {
       maxScore: 5,
       thesisSeminarAssessmentCriteria: {
         id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
+        
         maxScore: 10,
       },
     });
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-
     await expect(updateRubric("rb-1", { description: "Blocked" })).rejects.toMatchObject({
       statusCode: 400,
     });
@@ -357,8 +324,7 @@ describe("Rubric Seminar Service", () => {
   it("reorderRubrics mutates only displayOrder values", async () => {
     mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
       id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
+      
       assessmentRubrics: [],
       thesisCpmk: { academicYearId: "ay-1" },
     });
@@ -376,19 +342,7 @@ describe("Rubric Seminar Service", () => {
     });
   });
 
-  it("reorderRubrics rejects (400) when criteria parent context is invalid", async () => {
-    mockPrisma.thesisSeminarAssessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-x",
-      appliesTo: "defence",
-      role: "examiner",
-      assessmentRubrics: [],
-      thesisCpmk: { academicYearId: "ay-1" },
-    });
 
-    await expect(
-      reorderRubrics({ criteriaId: "cr-x", orderedIds: ["rb-1", "rb-2"] })
-    ).rejects.toMatchObject({ statusCode: 400 });
-  });
 
   it("deleteRubric succeeds when parent criteria has no downstream assessment details", async () => {
     mockPrisma.thesisSeminarAssessmentRubric.findUnique.mockResolvedValue({
@@ -396,12 +350,10 @@ describe("Rubric Seminar Service", () => {
       assessmentCriteriaId: "cr-1",
       thesisSeminarAssessmentCriteria: {
         id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
+        
         maxScore: 10,
       },
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarAssessmentRubric.delete.mockResolvedValue({ id: "rb-1" });
 
@@ -415,24 +367,22 @@ describe("Rubric Seminar Service", () => {
       assessmentCriteriaId: "cr-1",
       thesisSeminarAssessmentCriteria: {
         id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
+        
         maxScore: 10,
       },
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-
     await expect(deleteRubric("rb-1")).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("getWeightSummary returns totalScore and details computed for seminar context", async () => {
+    mockPrisma.academicYear.findUnique.mockResolvedValue({ thesisSeminarMinimumScore: 60 });
     mockPrisma.thesisCpmk.findMany.mockResolvedValue([
       {
         id: "thesisCpmk-1",
         code: "CPMK-01",
         description: "Desc",
-        assessmentCriterias: [
+        thesisSeminarAssessmentCriterias: [
           { id: "cr-1", name: "A", maxScore: 30, assessmentRubrics: [{ id: "r1" }] },
           { id: "cr-2", name: "B", maxScore: 20, assessmentRubrics: [] },
         ],
@@ -441,7 +391,7 @@ describe("Rubric Seminar Service", () => {
         id: "thesisCpmk-2",
         code: "CPMK-02",
         description: "Desc",
-        assessmentCriterias: [{ id: "cr-3", name: "C", maxScore: 10, assessmentRubrics: [] }],
+        thesisSeminarAssessmentCriterias: [{ id: "cr-3", name: "C", maxScore: 10, assessmentRubrics: [] }],
       },
     ]);
 
@@ -457,9 +407,11 @@ describe("Rubric Seminar Service", () => {
       { id: "cr-2" },
     ]);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.$transaction.mockResolvedValue([{ count: 2 }, { count: 2 }]);
+    
 
+    mockTx.thesisSeminarAssessmentCriteria.findMany.mockResolvedValue([{id:"cr-1"}]);
+    mockTx.thesisSeminarAssessmentRubric.deleteMany.mockResolvedValue({count: 1});
+    mockTx.thesisSeminarAssessmentCriteria.deleteMany.mockResolvedValue({count: 1});
     await removeSeminarCpmkConfig("thesisCpmk-1");
     // Since it's inside a transaction using prisma directly in the repository, we just ensure it doesn't throw.
   });
@@ -470,8 +422,6 @@ describe("Rubric Seminar Service", () => {
       { id: "cr-1" },
     ]);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-
     await expect(removeSeminarCpmkConfig("thesisCpmk-1")).rejects.toMatchObject({ statusCode: 400 });
   });
 });

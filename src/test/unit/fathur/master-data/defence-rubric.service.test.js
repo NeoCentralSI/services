@@ -31,7 +31,7 @@ const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
     },
     $transaction: vi.fn(),
   },
-  mockTx: {
+  mockTx: { thesisDefenceExaminerAssessmentCriteria: { findMany: vi.fn(), deleteMany: vi.fn(), delete: vi.fn() }, thesisDefenceSupervisorAssessmentCriteria: { findMany: vi.fn(), deleteMany: vi.fn(), delete: vi.fn() }, thesisDefenceExaminerAssessmentRubric: { deleteMany: vi.fn() }, thesisDefenceSupervisorAssessmentRubric: { deleteMany: vi.fn() },
     thesisDefenceExaminerAssessmentRubric: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -94,8 +94,6 @@ describe("Rubric Defence Service", () => {
       },
     ]);
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-
     const result = await getCpmksWithRubrics("examiner", { academicYearId: "ay-1" });
     expect(result[0].assessmentCriterias[0]).toMatchObject({
       role: "examiner",
@@ -124,8 +122,6 @@ describe("Rubric Defence Service", () => {
       .mockResolvedValueOnce({ _sum: { maxScore: 20 } })
       .mockResolvedValueOnce({ _sum: { maxScore: 50 } });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-
     const result = await createCriteria({
       thesisCpmkId: "thesisCpmk-1",
       role: "examiner",
@@ -163,8 +159,7 @@ describe("Rubric Defence Service", () => {
       assessmentRubrics: [],
       thesisCpmk: { academicYearId: "ay-1" },
     });
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(1);
+    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
     mockPrisma.thesisDefenceExaminerAssessmentCriteria.update.mockResolvedValue({
       id: "cr-1",
       name: "Updated",
@@ -189,7 +184,6 @@ describe("Rubric Defence Service", () => {
       thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceExaminerAssessmentCriteria.update.mockResolvedValue({
       id: "cr-1",
       maxScore: 50,
@@ -213,8 +207,6 @@ describe("Rubric Defence Service", () => {
       thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-
     await expect(updateCriteria("cr-1", { maxScore: 60 })).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -244,7 +236,6 @@ describe("Rubric Defence Service", () => {
       assessmentRubrics: [],
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     mockTx.thesisDefenceExaminerAssessmentRubric.deleteMany.mockResolvedValue({ count: 1 });
     mockTx.thesisDefenceExaminerAssessmentCriteria.delete.mockResolvedValue({ id: "cr-1" });
     mockPrisma.thesisDefenceExaminerAssessmentCriteria.aggregate
@@ -268,9 +259,7 @@ describe("Rubric Defence Service", () => {
       thesisCpmk: { academicYearId: "ay-1" },
       assessmentRubrics: [],
     });
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(1);
-
+    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
     await expect(deleteCriteria("cr-1")).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -284,7 +273,6 @@ describe("Rubric Defence Service", () => {
       thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceExaminerAssessmentRubric.findMany.mockResolvedValue([]);
     mockTx.thesisDefenceExaminerAssessmentRubric.findFirst.mockResolvedValue({ displayOrder: 1 });
     mockTx.thesisDefenceExaminerAssessmentRubric.create.mockResolvedValue({ id: "rb-1", displayOrder: 2 });
@@ -307,8 +295,6 @@ describe("Rubric Defence Service", () => {
       thesisCpmk: { academicYearId: "ay-1" },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
-
     await expect(
       createRubric("cr-1", { description: "Blocked", minScore: 0, maxScore: 5 })
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -328,7 +314,6 @@ describe("Rubric Defence Service", () => {
       },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceExaminerAssessmentRubric.findMany.mockResolvedValue([]);
     mockPrisma.thesisDefenceExaminerAssessmentRubric.update.mockResolvedValue({
       id: "rb-1",
@@ -358,9 +343,7 @@ describe("Rubric Defence Service", () => {
         maxScore: 10,
       },
     });
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(1);
-
+    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
     await expect(updateRubric("rb-1", { description: "Blocked" })).rejects.toMatchObject({
       statusCode: 400,
     });
@@ -407,12 +390,10 @@ describe("Rubric Defence Service", () => {
       },
     });
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.thesisDefenceExaminerAssessmentRubric.delete.mockResolvedValue({ id: "rb-1" });
     await deleteRubric("rb-1");
 
     mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     await expect(deleteRubric("rb-1")).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -462,8 +443,6 @@ describe("Rubric Defence Service", () => {
       { id: "cr-2" },
     ]);
     mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
     mockPrisma.$transaction.mockResolvedValue([{ count: 2 }, { count: 2 }]);
 
     await removeDefenceCpmkConfig("thesisCpmk-1", "supervisor");
@@ -475,10 +454,7 @@ describe("Rubric Defence Service", () => {
     mockPrisma.thesisDefenceExaminerAssessmentCriteria.findMany.mockResolvedValue([
       { id: "cr-1" },
     ]);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(1);
-
+    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
     await expect(removeDefenceCpmkConfig("thesisCpmk-1", "supervisor")).rejects.toMatchObject({ statusCode: 400 });
   });
 });
