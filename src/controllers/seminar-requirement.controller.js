@@ -43,3 +43,17 @@ export const reorder = async (req, res, next) => {
         res.json({ success: true, message: "Urutan berhasil diperbarui" });
     } catch (err) { next(err); }
 };
+
+export const copyTemplate = async (req, res, next) => {
+    try {
+        const { sourceAcademicYearId, targetAcademicYearId } = req.validated || req.body;
+        const result = await service.copyTemplate(sourceAcademicYearId, targetAcademicYearId);
+        res.status(200).json({
+            success: true,
+            message: "Berhasil menyalin template persyaratan",
+            data: result,
+        });
+    } catch (error) {
+        next(error);
+    }
+};

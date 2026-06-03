@@ -1,5 +1,13 @@
 import * as repository from "../repositories/defence-requirement.repository.js";
 
+class ValidationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "ValidationError";
+        this.statusCode = 400;
+    }
+}
+
 class NotFoundError extends Error {
     constructor(message) {
         super(message);
@@ -38,6 +46,7 @@ export const update = async (id, data) => {
 export const remove = async (id) => {
     const existing = await repository.findById(id);
     if (!existing) throw new NotFoundError("Data tidak ditemukan");
+    if (existing.hasRelatedData) throw new ValidationError("Persyaratan tidak dapat dihapus karena sudah memiliki dokumen yang diunggah");
     return await repository.remove(id);
 };
 
@@ -45,4 +54,16 @@ export const reorder = async (orderedIds) => {
     for (let i = 0; i < orderedIds.length; i++) {
         await repository.update(orderedIds[i], { displayOrder: i + 1 });
     }
+};
+
+export const copyTemplate = async (sourceAcademicYearId, targetAcademicYearId) => {
+    if (!sourceAcademicYearId || !targetAcademicYearId) {
+        throw new ValidationError("Tahun ajaran sumber dan tujuan harus diisi");
+    }
+
+    if (sourceAcademicYearId === targetAcademicYearId) {
+        throw new ValidationError("Tahun ajaran sumber dan tujuan tidak boleh sama");
+    }
+
+    return await repository.copyTemplate(sourceAcademicYearId, targetAcademicYearId);
 };

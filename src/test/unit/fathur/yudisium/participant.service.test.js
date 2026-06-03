@@ -1075,7 +1075,7 @@ describe("Unit Test: Yudisium Participant Service", () => {
     it("rejects finalization before registration is closed", async () => {
       prisma.yudisium.findUnique.mockResolvedValue({
         ...closedYudisium,
-        registrationCloseDate: new Date("2026-06-01T00:00:00.000Z"),
+        registrationCloseDate: new Date("2028-06-01T00:00:00.000Z"),
       });
 
       await expect(service.finalizeParticipants("y1", "koor-1")).rejects.toThrow(

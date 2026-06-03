@@ -8,7 +8,9 @@ const { mockPrisma } = vi.hoisted(() => ({
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+      count: vi.fn(),
     },
+    $transaction: vi.fn((cb) => cb(mockPrisma)),
   },
 }));
 
@@ -45,23 +47,27 @@ describe("Defence Requirement Service", () => {
 
   describe("getAll", () => {
     it("should return all requirements sorted by displayOrder", async () => {
-      mockPrisma.thesisDefenceRequirement.findMany.mockResolvedValue([mockReq1, mockReq2]);
+      mockPrisma.thesisDefenceRequirement.findMany.mockResolvedValue([
+        { ...mockReq1, _count: { requirementDocuments: 0 } },
+        { ...mockReq2, _count: { requirementDocuments: 0 } }
+      ]);
       
       const res = await service.getAll({ academicYearId: "ay-1" });
       expect(res).toHaveLength(2);
       expect(mockPrisma.thesisDefenceRequirement.findMany).toHaveBeenCalledWith({
         where: { academicYearId: "ay-1" },
         orderBy: { displayOrder: "asc" },
+        include: { _count: { select: { requirementDocuments: true } } },
       });
     });
   });
 
   describe("getById", () => {
     it("should return a requirement if found", async () => {
-      mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue(mockReq1);
+      mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue({ ...mockReq1, _count: { requirementDocuments: 0 } });
       
       const res = await service.getById("req-1");
-      expect(res).toEqual(mockReq1);
+      expect(res).toEqual({ ...mockReq1, hasRelatedData: false });
     });
 
     it("should throw NotFoundError if not found", async () => {
@@ -72,7 +78,7 @@ describe("Defence Requirement Service", () => {
 
   describe("create", () => {
     it("should generate code and displayOrder if not provided", async () => {
-      mockPrisma.thesisDefenceRequirement.findMany.mockResolvedValue([mockReq1]);
+      mockPrisma.thesisDefenceRequirement.findMany.mockResolvedValue([{ ...mockReq1, _count: { requirementDocuments: 0 } }]);
       mockPrisma.thesisDefenceRequirement.create.mockResolvedValue({
         id: "req-new",
         name: "New Req",
@@ -101,7 +107,7 @@ describe("Defence Requirement Service", () => {
 
   describe("update", () => {
     it("should update and return data", async () => {
-      mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue(mockReq1);
+      mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue({ ...mockReq1, _count: { requirementDocuments: 0 } });
       mockPrisma.thesisDefenceRequirement.update.mockResolvedValue({ ...mockReq1, name: "Updated" });
 
       const res = await service.update("req-1", { name: "Updated" });
@@ -119,8 +125,8 @@ describe("Defence Requirement Service", () => {
   });
 
   describe("remove", () => {
-    it("should remove the requirement if it exists", async () => {
-      mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue(mockReq1);
+    it("should remove the requirement if it exists and has no related data", async () => {
+      mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue({ ...mockReq1, _count: { requirementDocuments: 0 } });
       mockPrisma.thesisDefenceRequirement.delete.mockResolvedValue(mockReq1);
 
       await service.remove("req-1");
@@ -130,6 +136,11 @@ describe("Defence Requirement Service", () => {
     it("should throw NotFoundError if item does not exist", async () => {
       mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue(null);
       await expect(service.remove("req-1")).rejects.toThrow("Data tidak ditemukan");
+    });
+
+    it("should throw ValidationError if item has related data", async () => {
+      mockPrisma.thesisDefenceRequirement.findUnique.mockResolvedValue({ ...mockReq1, _count: { requirementDocuments: 1 } });
+      await expect(service.remove("req-1")).rejects.toThrow("Persyaratan tidak dapat dihapus karena sudah memiliki dokumen yang diunggah");
     });
   });
 
@@ -148,6 +159,17 @@ describe("Defence Requirement Service", () => {
         where: { id: "req-1" },
         data: { displayOrder: 2 },
       });
+    });
+  });
+
+  describe("copyTemplate", () => {
+    it("should throw ValidationError if source or target academic year is missing", async () => {
+      await expect(service.copyTemplate(null, "ay-2")).rejects.toThrow("Tahun ajaran sumber dan tujuan harus diisi");
+      await expect(service.copyTemplate("ay-1", null)).rejects.toThrow("Tahun ajaran sumber dan tujuan harus diisi");
+    });
+
+    it("should throw ValidationError if source and target academic year are the same", async () => {
+      await expect(service.copyTemplate("ay-1", "ay-1")).rejects.toThrow("Tahun ajaran sumber dan tujuan tidak boleh sama");
     });
   });
 });

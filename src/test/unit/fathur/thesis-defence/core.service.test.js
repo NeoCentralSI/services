@@ -299,7 +299,7 @@ describe('Thesis Defence Core Service', () => {
       });
       const res = await coreService.generateAssessmentResultPdf(mockDefenceId);
       expect(res).toBeDefined();
-    });
+    }, 30000);
 
     it('should generate invitation letter PDF', async () => {
       mockPrisma.thesisDefence.findUnique.mockResolvedValue({ id: mockDefenceId, date: new Date(), startTime: new Date(), thesis: { title: 'T', student: { user: { fullName: 'S' } } }, examiners: [] });

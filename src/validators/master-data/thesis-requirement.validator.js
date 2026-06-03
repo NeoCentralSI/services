@@ -15,3 +15,8 @@ export const updateRequirementSchema = createRequirementSchema.partial().omit({ 
 export const reorderRequirementsSchema = z.object({
   orderedIds: z.array(z.string().uuid("ID persyaratan tidak valid")),
 });
+
+export const copyTemplateSchema = z.object({
+  sourceAcademicYearId: z.string().uuid("ID Tahun Ajaran Sumber tidak valid"),
+  targetAcademicYearId: z.string().uuid("ID Tahun Ajaran Tujuan tidak valid"),
+});

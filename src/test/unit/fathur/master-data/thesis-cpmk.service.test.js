@@ -229,4 +229,15 @@ describe("Thesis CPMK Service", () => {
       expect(mockPrisma.thesisCpmk.delete).not.toHaveBeenCalled();
     });
   });
+
+  describe("copyTemplate", () => {
+    it("should reject if source or target is missing", async () => {
+      const { copyTemplate } = await import("../../../../services/thesis-cpmk.service.js");
+      await expect(copyTemplate(null, "t1")).rejects.toThrow("Tahun ajaran sumber dan tujuan harus diisi");
+    });
+    it("should reject if source and target are the same", async () => {
+      const { copyTemplate } = await import("../../../../services/thesis-cpmk.service.js");
+      await expect(copyTemplate("ay1", "ay1")).rejects.toThrow("Tahun ajaran sumber dan tujuan tidak boleh sama");
+    });
+  });
 });
