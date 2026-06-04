@@ -24,7 +24,6 @@ import { toTitleCaseName } from "../../utils/global.util.js";
 import { ROLES } from "../../constants/roles.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { checkQuotaAvailability } from "../quota.service.js";
-import { syncQuotaCount } from "../../utils/quotaSync.js";
 
 const PROMOTE_THRESHOLD = 10;
 
@@ -278,13 +277,6 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 
 	// 4. Create ThesisSupervisors
 	await createThesisSupervisors(thesisId, lecturerId);
-	const thesis = await prisma.thesis.findUnique({
-		where: { id: thesisId },
-		select: { academicYearId: true },
-	});
-	if (thesis?.academicYearId) {
-		await syncQuotaCount(prisma, lecturerId, thesis.academicYearId);
-	}
 
 	// 5. Mark request as processed
 	await markSupervisor2RequestProcessed(requestId);
@@ -422,7 +414,11 @@ export async function checkAndPromoteSupervisor(lecturerId) {
 export async function checkPromotionForThesisSupervisors(thesisId) {
 	// Get all Pembimbing 2 on this thesis
 	const participants = await prisma.thesisParticipant.findMany({
-		where: { thesisId, status: "active", role: { name: ROLES.PEMBIMBING_2 } },
+		where: {
+			thesisId,
+			status: "active",
+			role: { is: { name: ROLES.PEMBIMBING_2 } },
+		},
 		select: { lecturerId: true },
 	});
 

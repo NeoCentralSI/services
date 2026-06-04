@@ -27,13 +27,16 @@ import { deleteCalendarEvent } from "../outlook-calendar.service.js";
 import { ROLES, isSupervisorRole, ROLE_CATEGORY, isPembimbing1, isPembimbing2, supervisorRoleDisplayName } from "../../constants/roles.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
-import { withSupervisorRoleAliases } from "../../utils/supervisorIntegrity.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 const writeFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
 const unlink = promisify(fs.unlink);
+
+function participantRoleName(participant) {
+  return participant?.supervisorRole ?? participant?.role?.name ?? null;
+}
 
 async function ensureThesisAcademicYear(thesis) {
   if (thesis.academicYearId) return thesis;
@@ -309,8 +312,8 @@ export async function requestGuidanceService(userId, guidanceDate, studentNotes,
   const milestoneNames = validMilestones.map((m) => m.title);
 
   const supervisors = await getSupervisorsForThesis(thesis.id);
-  const sup1 = supervisors.find((p) => isPembimbing1(p.supervisorRole));
-  const sup2 = supervisors.find((p) => isPembimbing2(p.supervisorRole));
+  const sup1 = supervisors.find((p) => isPembimbing1(participantRoleName(p)));
+  const sup2 = supervisors.find((p) => isPembimbing2(participantRoleName(p)));
   let selectedSupervisorId = supervisorId || null;
   if (selectedSupervisorId) {
     const allowed = supervisors.some((s) => s.lecturerId === selectedSupervisorId);
@@ -824,7 +827,7 @@ export async function listSupervisorsService(userId) {
     id: p.lecturerId,
     name: p.lecturer?.user?.fullName || null,
     email: p.lecturer?.user?.email || null,
-    role: supervisorRoleDisplayName(p.supervisorRole),
+    role: supervisorRoleDisplayName(participantRoleName(p)),
   }));
 
   // Sort by role: Pembimbing 1 first
@@ -1234,9 +1237,8 @@ export async function getMyThesisDetailService(userId) {
       academicYear: true,
       document: true,
       thesisSupervisors: {
-        where: { status: "active" },
         include: {
-          role: true,
+          role: { select: { name: true } },
           lecturer: {
             include: {
               user: {
@@ -1263,7 +1265,6 @@ export async function getMyThesisDetailService(userId) {
     err.statusCode = 404;
     throw err;
   }
-  fullThesis.thesisSupervisors = withSupervisorRoleAliases(fullThesis.thesisSupervisors ?? []);
 
   // Calculate milestone progress
   const milestones = await prisma.thesisMilestone.findMany({
@@ -1290,7 +1291,7 @@ export async function getMyThesisDetailService(userId) {
       name: p.lecturer?.user?.fullName || null,
       email: p.lecturer?.user?.email || null,
       identityNumber: p.lecturer?.user?.identityNumber || null,
-      role: supervisorRoleDisplayName(p.supervisorRole),
+      role: supervisorRoleDisplayName(participantRoleName(p)),
     }));
 
   // ThesisSupervisors only contains pembimbing roles; examiners handled elsewhere
@@ -1345,8 +1346,8 @@ export async function getMyThesisDetailService(userId) {
       },
       // Seminar approval status
       seminarApproval: (() => {
-        const sup1 = fullThesis.thesisSupervisors?.find((p) => isPembimbing1(p.supervisorRole));
-        const sup2 = fullThesis.thesisSupervisors?.find((p) => isPembimbing2(p.supervisorRole));
+        const sup1 = fullThesis.thesisSupervisors?.find((p) => isPembimbing1(participantRoleName(p)));
+        const sup2 = fullThesis.thesisSupervisors?.find((p) => isPembimbing2(participantRoleName(p)));
         const s1 = sup1?.seminarReady || false;
         const s2 = sup2?.seminarReady || false;
         return {

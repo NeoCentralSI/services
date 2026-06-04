@@ -222,6 +222,46 @@ export async function rejectGuidanceById(guidanceId, { feedback } = {}) {
 	});
 }
 
+/**
+ * Dosen reschedule guidance session.
+ *
+ * Canon §5.5 + HANDOFF P1-10: status pindah ke 'rescheduled' (state baru
+ * di GuidanceStatus enum) supaya UI mahasiswa lihat indikator perubahan
+ * jadwal eksplisit. Dosen WAJIB pass newRequestedDate; opsional reason
+ * + duration. Hanya boleh dari status 'requested' atau 'accepted' (sebelum
+ * sesi selesai).
+ */
+export async function rescheduleGuidanceByLecturer(
+	guidanceId,
+	{ newRequestedDate, reason, duration } = {},
+) {
+	const data = {
+		status: "rescheduled",
+		requestedDate: new Date(newRequestedDate),
+		// approvedDate ikut digeser supaya kalender lecturer/student selaras
+		approvedDate: new Date(newRequestedDate),
+		supervisorFeedback: reason ?? "Jadwal dipindahkan oleh dosen pembimbing",
+	};
+	if (duration !== undefined) data.duration = duration;
+
+	return prisma.thesisGuidance.update({
+		where: { id: guidanceId },
+		data,
+		include: {
+			thesis: {
+				include: {
+					student: {
+						include: { user: true },
+					},
+				},
+			},
+			supervisor: {
+				include: { user: true },
+			},
+		},
+	});
+}
+
 export async function getLecturerTheses(lecturerId) {
 	const parts = await prisma.thesisParticipant.findMany({
 		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
@@ -564,7 +604,19 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 
 	const where = {
 		supervisorId: lecturerId,
-		status: { in: ["accepted", "summary_pending", "completed", "cancelled", "rejected"] },
+		// Canon §5.5 + HANDOFF P1-10: tampilkan juga sesi 'rescheduled' (sudah
+		// dijadwalkan ulang) dan 'summary_rejected' (mahasiswa harus revisi).
+		status: {
+			in: [
+				"accepted",
+				"rescheduled",
+				"summary_pending",
+				"summary_rejected",
+				"completed",
+				"cancelled",
+				"rejected",
+			],
+		},
 	};
 
 	const [total, rows] = await prisma.$transaction([

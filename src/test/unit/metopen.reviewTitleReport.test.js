@@ -16,6 +16,9 @@ vi.mock("../../config/prisma.js", () => ({
     student: {
       findUnique: vi.fn(),
     },
+    researchMethodScore: {
+      findUnique: vi.fn(),
+    },
     thesisAdvisorRequest: {
       findMany: vi.fn(),
       update: vi.fn(),
@@ -129,6 +132,8 @@ describe("BR-18 reviewTitleReport — re-validates takingThesisCourse on accept"
   it("proceeds to transaction when takingThesisCourse is true", async () => {
     prisma.thesis.findUnique.mockResolvedValue(baseThesis);
     prisma.student.findUnique.mockResolvedValue({ takingThesisCourse: true });
+    // F-5.1: accept memerlukan skor TA-03 sudah final (co-sign P2 bila ada).
+    prisma.researchMethodScore.findUnique.mockResolvedValue({ isFinalized: true, attendanceAutoZeroedAt: null });
     prisma.$transaction.mockImplementation(async (cb) => {
       const tx = {
         thesis: { update: vi.fn() },
@@ -142,6 +147,34 @@ describe("BR-18 reviewTitleReport — re-validates takingThesisCourse on accept"
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ thesisId: "thesis-1", proposalStatus: "accepted" });
+  });
+
+  // F-5.1: accept TA-04 wajib re-assert kelengkapan penilaian (isFinalized) di server,
+  // bukan hanya mengandalkan checklist UI / gate enqueue (menutup bypass konsensus P2).
+  it("rejects accept when TA-03 score is not finalized (co-sign P2 pending)", async () => {
+    prisma.thesis.findUnique.mockResolvedValue(baseThesis);
+    prisma.student.findUnique.mockResolvedValue({ takingThesisCourse: true });
+    prisma.researchMethodScore.findUnique.mockResolvedValue({ isFinalized: false });
+
+    await expect(
+      reviewTitleReport("thesis-1", "accept", "ok", "kadep-1"),
+    ).rejects.toThrow(/belum final/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  // §5.7.3 (BR-28): mahasiswa auto-zero presensi <75% gagal Metopel → tidak boleh disahkan TA-04.
+  it("rejects accept when student is auto-zeroed by Metopel attendance <75%", async () => {
+    prisma.thesis.findUnique.mockResolvedValue(baseThesis);
+    prisma.student.findUnique.mockResolvedValue({ takingThesisCourse: true });
+    prisma.researchMethodScore.findUnique.mockResolvedValue({
+      isFinalized: true,
+      attendanceAutoZeroedAt: new Date(),
+    });
+
+    await expect(
+      reviewTitleReport("thesis-1", "accept", "ok", "kadep-1"),
+    ).rejects.toThrow(/presensi Metopel/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("rejects when proposalStatus is not 'submitted'", async () => {

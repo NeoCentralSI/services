@@ -172,6 +172,21 @@ export async function submitFinalProposal(userId) {
     };
   }
 
+  // F-4.3: lock integritas — bila penilaian TA-03 sudah dimulai/terkunci untuk
+  // proposal final aktif, jangan biarkan mahasiswa menukar versi yang sedang
+  // (atau sudah) dinilai. Idempotent re-submit versi yang sama tetap lolos di atas.
+  const scoreProgress = await proposalRepo.findResearchMethodScoreProgress(thesis.id);
+  if (
+    scoreProgress &&
+    (scoreProgress.isFinalized ||
+      scoreProgress.supervisorScore != null ||
+      scoreProgress.lecturerScore != null)
+  ) {
+    throw new BadRequestError(
+      "Penilaian TA-03 sudah dimulai untuk proposal final saat ini. Versi final tidak dapat diganti sampai siklus penilaian selesai/di-reset (canon §5.6 + §5.7.2).",
+    );
+  }
+
   const submittedVersion = await proposalRepo.submitFinalProposalVersion(
     thesis.id,
     latestVersion.id,

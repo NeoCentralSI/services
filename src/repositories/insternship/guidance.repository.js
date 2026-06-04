@@ -247,8 +247,7 @@ export async function findSupervisedInternships(supervisorId) {
                     roomId: true,
                     room: {
                         select: {
-                            name: true,
-                            location: true
+                            name: true
                         }
                     }
                 },

@@ -12,7 +12,9 @@ export async function getSupervisorBusySlots(supervisorId, start, end) {
     where: {
       supervisorId,
       requestedDate: { gte: start, lte: end },
-      status: { in: ["requested", "accepted"] },
+      // Sesi dijadwalkan ulang ('rescheduled') tetap memblokir slot karena
+      // requestedDate masih merepresentasikan jadwal aktif setelah pindah.
+      status: { in: ["requested", "accepted", "rescheduled"] },
     },
     select: {
       id: true,
@@ -65,6 +67,9 @@ export async function getMyThesisDetail(userId) {
     title: thesis.title,
     status: thesis.thesisStatus?.name ?? null,
     rating: thesis.rating ?? null,
+    /** Pra-TA-04 vs Tugas Akhir penuh — dipakai UI logbook (fase proposal vs thesis). */
+    isProposal: thesis.isProposal ?? true,
+    proposalStatus: thesis.proposalStatus ?? null,
     startDate: thesis.startDate,
     deadlineDate: thesis.deadlineDate,
     createdAt: thesis.createdAt,
@@ -181,11 +186,18 @@ export async function cancelGuidanceByLecturer(guidanceId, reason) {
   });
 }
 
+/**
+ * Reject session summary by lecturer.
+ * Canon §5.5 + HANDOFF P1-10: status pindah ke 'summary_rejected' (state
+ * eksplisit untuk indicate "mahasiswa harus revisi ringkasan"). Sebelum
+ * Migration F enum extension, kode lama set ke 'accepted' yang ambigu —
+ * UI tidak bisa membedakan "sesi normal" vs "summary perlu revisi".
+ */
 export async function rejectSessionSummary(guidanceId, reason) {
   return prisma.thesisGuidance.update({
     where: { id: guidanceId },
     data: {
-      status: "accepted",
+      status: "summary_rejected",
       supervisorFeedback: reason || "Ringkasan perlu diperbaiki",
     },
   });

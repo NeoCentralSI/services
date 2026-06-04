@@ -135,6 +135,18 @@ describe("advisorRequest.service — getRecommendations", () => {
 describe("advisorRequest.service — getMyAccessState", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    metopenEligibility.resolveMetopenEligibilityState.mockResolvedValue({
+      studentId: "student-1",
+      eligibleMetopen: true,
+      hasExternalStatus: true,
+      canAccess: true,
+      canSubmit: true,
+      readOnly: false,
+      thesisId: null,
+      thesisPhase: null,
+      source: "sia",
+      updatedAt: "2026-04-23T10:00:00.000Z",
+    });
   });
 
   it("allows direct TA-01 access even when thesis draft has not been created yet", async () => {
@@ -178,6 +190,54 @@ describe("advisorRequest.service — getMyAccessState", () => {
     expect(result.canSubmitRequest).toBe(false);
     expect(result.hasBlockingRequest).toBe(true);
     expect(result.reason).toContain("sedang diproses");
+  });
+
+  it("uses active thesis participants as official supervisors before proposal acceptance", async () => {
+    repo.findStudentAdvisorAccessContext.mockResolvedValue({
+      id: "student-1",
+      thesis: [
+        {
+          id: "thesis-1",
+          title: "Rancang Bangun SIMPTA",
+          proposalStatus: null,
+          thesisStatus: null,
+          thesisSupervisors: [
+            {
+              id: "participant-1",
+              lecturerId: "lecturer-1",
+              status: "active",
+              role: { id: "role-1", name: "Pembimbing 1" },
+              lecturer: {
+                id: "lecturer-1",
+                user: {
+                  id: "lecturer-user-1",
+                  fullName: "Dr. Pembimbing",
+                  email: "dosen@example.com",
+                  avatarUrl: null,
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    repo.findBlockingByStudent.mockResolvedValue({ id: "req-1", status: "assigned" });
+    repo.findLatestByStudent.mockResolvedValue({ id: "req-1", status: "assigned" });
+
+    const result = await getMyAccessState("user-1");
+
+    expect(result.hasOfficialSupervisor).toBe(true);
+    expect(result.hasBlockingRequest).toBe(true);
+    expect(result.canOpenLogbook).toBe(true);
+    expect(result.canBrowseCatalog).toBe(false);
+    expect(result.nextStep).toBe("open_logbook");
+    expect(result.supervisors).toEqual([
+      expect.objectContaining({
+        lecturerId: "lecturer-1",
+        name: "Dr. Pembimbing",
+        role: "Pembimbing 1",
+      }),
+    ]);
   });
 });
 
@@ -307,7 +367,10 @@ describe("advisorRequest.service — dual justification Path C", () => {
     repo.findBlockingByStudent.mockResolvedValue(null);
     repo.findLatestByStudent.mockResolvedValue(null);
     repo.findActiveAcademicYear.mockResolvedValue({ id: "ay-1" });
-    repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1" });
+    repo.findTopicByIdWithClient.mockResolvedValue({
+      id: "topic-1",
+      scienceGroupId: "kbk-1",
+    });
     repo.findLecturerForValidationWithClient.mockResolvedValue({
       id: "lecturer-1",
       acceptingRequests: true,

@@ -15,6 +15,8 @@ const { mockTopicRepo } = vi.hoisted(() => ({
     remove: vi.fn(),
     hasRelatedData: vi.fn(),
     bulkDelete: vi.fn(),
+    findScienceGroupById: vi.fn(),
+    findLecturerScienceGroupById: vi.fn(),
   },
 }));
 
@@ -31,7 +33,16 @@ import {
 
 // ── Test Data ──────────────────────────────────────────────────
 const ADMIN_USER = { id: "admin-1", fullName: "Admin" };
-const TOPIC = { id: "topic-1", name: "Machine Learning", createdAt: new Date(), updatedAt: new Date(), _count: { thesis: 5, milestoneTemplates: 3 } };
+const SCIENCE_GROUP = { id: "kbk-1", name: "Rekayasa Perangkat Lunak" };
+const TOPIC = {
+  id: "topic-1",
+  name: "Machine Learning",
+  scienceGroupId: SCIENCE_GROUP.id,
+  scienceGroup: SCIENCE_GROUP,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  _count: { thesis: 5, milestoneTemplates: 3 },
+};
 
 // ══════════════════════════════════════════════════════════════
 describe("Module 12: Kelola Topik Tugas Akhir", () => {
@@ -73,18 +84,43 @@ describe("Module 12: Kelola Topik Tugas Akhir", () => {
   describe("createTopic", () => {
     it("creates topic with valid name", async () => {
       mockTopicRepo.findByName.mockResolvedValue(null);
-      mockTopicRepo.create.mockResolvedValue({ id: "topic-new", name: "Deep Learning" });
+      mockTopicRepo.findScienceGroupById.mockResolvedValue(SCIENCE_GROUP);
+      mockTopicRepo.create.mockResolvedValue({
+        id: "topic-new",
+        name: "Deep Learning",
+        scienceGroupId: SCIENCE_GROUP.id,
+        scienceGroup: SCIENCE_GROUP,
+      });
 
-      const result = await createTopic(ADMIN_USER, { name: "Deep Learning" });
+      const result = await createTopic(ADMIN_USER, {
+        name: "Deep Learning",
+        scienceGroupId: SCIENCE_GROUP.id,
+      });
 
       expect(result).toHaveProperty("name", "Deep Learning");
+      expect(result).toHaveProperty("scienceGroupId", SCIENCE_GROUP.id);
     });
 
     it("rejects (409) if topic name already exists", async () => {
       mockTopicRepo.findByName.mockResolvedValue(TOPIC);
 
-      await expect(createTopic(ADMIN_USER, { name: "Machine Learning" })).rejects.toMatchObject({
+      await expect(createTopic(ADMIN_USER, {
+        name: "Machine Learning",
+        scienceGroupId: SCIENCE_GROUP.id,
+      })).rejects.toMatchObject({
         statusCode: 409,
+      });
+    });
+
+    it("rejects (400) if science group does not exist", async () => {
+      mockTopicRepo.findByName.mockResolvedValue(null);
+      mockTopicRepo.findScienceGroupById.mockResolvedValue(null);
+
+      await expect(createTopic(ADMIN_USER, {
+        name: "Deep Learning",
+        scienceGroupId: "missing-kbk",
+      })).rejects.toMatchObject({
+        statusCode: 400,
       });
     });
   });

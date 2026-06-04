@@ -1,6 +1,5 @@
 import prisma from "../../config/prisma.js";
 import { ROLES } from "../../constants/roles.js";
-import { createSupervisorAssignments } from "../../utils/supervisorIntegrity.js";
 
 /**
  * Get available lecturers for Pembimbing 2 (excludes current supervisors)
@@ -8,7 +7,7 @@ import { createSupervisorAssignments } from "../../utils/supervisorIntegrity.js"
 export async function findAvailableSupervisor2Lecturers(thesisId) {
 	// Get current thesis participants (supervisors already assigned)
 	const currentParticipants = await prisma.thesisParticipant.findMany({
-		where: { thesisId, status: "active" },
+		where: { thesisId },
 		select: { lecturerId: true },
 	});
 	const excludeIds = currentParticipants.map((p) => p.lecturerId);
@@ -26,8 +25,8 @@ export async function findAvailableSupervisor2Lecturers(thesisId) {
 			user: {
 				userHasRoles: {
 					some: {
+						roleId: pembimbing2Role.id,
 						status: "active",
-						role: { name: ROLES.PEMBIMBING_2 },
 					},
 				},
 			},
@@ -55,7 +54,11 @@ export async function findAvailableSupervisor2Lecturers(thesisId) {
  */
 export async function hasPembimbing2(thesisId) {
 	const existing = await prisma.thesisParticipant.findFirst({
-		where: { thesisId, status: "active", role: { name: ROLES.PEMBIMBING_2 } },
+		where: {
+			thesisId,
+			status: "active",
+			role: { is: { name: ROLES.PEMBIMBING_2 } },
+		},
 	});
 	return !!existing;
 }
@@ -117,13 +120,24 @@ export async function markSupervisor2RequestProcessed(requestId) {
  * Create ThesisSupervisors record for Pembimbing 2
  */
 export async function createThesisSupervisors(thesisId, lecturerId) {
-	const result = await createSupervisorAssignments(
-		prisma,
-		thesisId,
-		[{ lecturerId, supervisorRole: "pembimbing_2" }],
-		{ requireP1: false },
-	);
-	return result.created[0] ?? null;
+	const pembimbing2Role = await prisma.userRole.findFirst({
+		where: { name: ROLES.PEMBIMBING_2 },
+		select: { id: true },
+	});
+	if (!pembimbing2Role) {
+		const err = new Error("Role Pembimbing 2 tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+
+	return prisma.thesisParticipant.create({
+		data: {
+			thesisId,
+			lecturerId,
+			roleId: pembimbing2Role.id,
+			status: "active",
+		},
+	});
 }
 
 /**
@@ -154,7 +168,7 @@ export async function countCompletedAsSupervisor2(lecturerId) {
 		where: {
 			lecturerId,
 			status: "active",
-			role: { name: ROLES.PEMBIMBING_2 },
+			role: { is: { name: ROLES.PEMBIMBING_2 } },
 			thesis: {
 				thesisStatusId: selesaiStatus.id,
 			},

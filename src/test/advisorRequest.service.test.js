@@ -278,7 +278,7 @@ describe("advisorRequest.service", () => {
       repo.createWithClient.mockResolvedValue({ id: "request-1", status: "pending", routeType: "normal" });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
       repo.findLecturerForValidationWithClient.mockResolvedValue({ id: "lecturer-1", acceptingRequests: true });
 
       await service.submitRequest("student-1", {
@@ -314,7 +314,7 @@ describe("advisorRequest.service", () => {
       });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
       repo.findLecturerForValidationWithClient.mockResolvedValue({ id: "lecturer-1", acceptingRequests: true });
       vi.mocked(getLecturerQuotaSnapshot).mockResolvedValue({
         lecturerId: "lecturer-1",
@@ -349,18 +349,20 @@ describe("advisorRequest.service", () => {
     });
 
     it("should allow TA-02 submission without selecting a target lecturer", async () => {
+      // Canon §5.2 + HANDOFF P0-04: TA-02 wajib pakai routeType='dept' (Path A),
+      // BUKAN 'escalated' (Path C — semantik berbeda).
       repo.findStudentAdvisorAccessContext.mockResolvedValue(createStudentContext());
       repo.findBlockingByStudent.mockResolvedValue(null);
       repo.findActiveByStudent.mockResolvedValue(null);
       repo.createWithClient.mockResolvedValue({
         id: "request-ta02-1",
         status: "pending_kadep",
-        routeType: "escalated",
+        routeType: "dept",
         lecturerId: null,
       });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
 
       await service.submitRequest("student-1", {
         lecturerId: null,
@@ -381,7 +383,7 @@ describe("advisorRequest.service", () => {
           studentId: "student-1",
           lecturerId: null,
           status: "pending_kadep",
-          routeType: "escalated",
+          routeType: "dept",
         }),
       );
     });
@@ -393,7 +395,7 @@ describe("advisorRequest.service", () => {
       repo.createWithClient.mockResolvedValue({ id: "request-2", status: "pending", routeType: "normal" });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
       repo.findLecturerForValidationWithClient.mockResolvedValue({ id: "lecturer-1", acceptingRequests: true });
       vi.mocked(getLecturerQuotaSnapshot).mockResolvedValue({
         lecturerId: "lecturer-1",
@@ -467,7 +469,7 @@ describe("advisorRequest.service", () => {
           upsert: vi.fn().mockResolvedValue({ id: "quota-1" }),
         },
         thesisAdvisorRequest: {
-          update: vi.fn().mockResolvedValue({ id: "request-1", status: "assigned" }),
+          update: vi.fn().mockResolvedValue({ id: "request-1", status: "active_official" }),
         },
       };
       repo.executeAssignmentTransaction.mockImplementation(async (callback) => callback(tx));
@@ -496,10 +498,12 @@ describe("advisorRequest.service", () => {
         "academic-year-1",
         { client: tx },
       );
+      // Canon §5.2 + HANDOFF P0-03: status target = ACTIVE_OFFICIAL (canonical),
+      // BUKAN 'assigned' (legacy yang sudah di-deprecated di Migration B).
       expect(tx.thesisAdvisorRequest.update).toHaveBeenCalledWith({
         where: { id: "request-1" },
         data: expect.objectContaining({
-          status: "assigned",
+          status: "active_official",
           reviewedBy: "kadep-1",
         }),
       });

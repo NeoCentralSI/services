@@ -476,6 +476,297 @@ async function seedTestStudentFariz(activeYear) {
 }
 
 // ────────────────────────────────────────────────────────────
+// RESEARCH METHOD ASSESSMENT (TA-03A + TA-03B)
+//
+// Sumber rubrik resmi:
+//   guide/TA-03 A_PENILAIAN PROPOSAL TUGAS AKHIR OLEH PEMBIMBING_FIX.pdf
+//   guide/TA-03 B_PENILAIAN PROPOSAL TUGAS AKHIR OLEH PENGAMPU MATA KULIAH METODE PENELITIAN_FIX.pdf
+//
+// Catatan kontrak:
+// - 4 AssessmentCriteria (Presentasi 20, Konten 40, Struktur 25, Respon 15)
+// - 3 kriteria scalar (Presentasi, Struktur, Respon) memiliki 5 rubric level deskriptif
+// - Konten 40 (CPMK-02 supervisor) SENGAJA tanpa rubric DB karena UI Pembimbing
+//   memakai sub-breakdown 4 × 10 (Pendahuluan, Kajian, Metodologi, Kelayakan).
+//   Submit ke backend tetap 1 score scalar 0-40 dengan rubricId=null (kompatibel
+//   dengan validasi `validateResearchMethodScores` saat `assessmentRubrics.length === 0`).
+// ────────────────────────────────────────────────────────────
+
+const RM_CPMKS = [
+  { code: 'CPMK-01', description: 'Presentasi proposal' },
+  { code: 'CPMK-02', description: 'Penulisan sistematis proposal' },
+  { code: 'CPMK-03', description: 'Kemampuan merespon masukan/kritikan' },
+];
+
+const RM_CRITERIA = [
+  {
+    name: 'Presentasi',
+    cpmkCode: 'CPMK-01',
+    role: 'supervisor',
+    appliesTo: 'proposal',
+    maxScore: 20,
+    displayOrder: 1,
+  },
+  {
+    name: 'Proposal (konten)',
+    cpmkCode: 'CPMK-02',
+    role: 'supervisor',
+    appliesTo: 'proposal',
+    maxScore: 40,
+    displayOrder: 2,
+  },
+  {
+    name: 'Proposal (struktur)',
+    cpmkCode: 'CPMK-02',
+    role: 'default',
+    appliesTo: 'metopen',
+    maxScore: 25,
+    displayOrder: 1,
+  },
+  {
+    name: 'Kemampuan merespon',
+    cpmkCode: 'CPMK-03',
+    role: 'supervisor',
+    appliesTo: 'proposal',
+    maxScore: 15,
+    displayOrder: 3,
+  },
+];
+
+const RM_RUBRIC_LEVELS = {
+  // TA-03A · CPMK-01 Presentasi (0-20)
+  'Presentasi': [
+    {
+      minScore: 0,
+      maxScore: 4,
+      description:
+        'Sangat kurang — Menyampaikan secara tidak lengkap, alur tidak jelas, tidak menggunakan bahasa akademik, dan tidak memahami isi proposal.',
+    },
+    {
+      minScore: 5,
+      maxScore: 8,
+      description:
+        'Kurang — Menyampaikan dengan banyak kekurangan, alur tidak runtut, bahasa kurang akademik, dan pemahaman rendah.',
+    },
+    {
+      minScore: 9,
+      maxScore: 12,
+      description:
+        'Cukup — Menyampaikan komponen utama secara cukup jelas, struktur cukup logis, penggunaan istilah umum, pemahaman cukup.',
+    },
+    {
+      minScore: 13,
+      maxScore: 16,
+      description:
+        'Baik — Menyampaikan semua isi dengan baik, struktur presentasi logis, bahasa formal, dan menunjukkan penguasaan.',
+    },
+    {
+      minScore: 17,
+      maxScore: 20,
+      description:
+        'Sangat baik — Menyampaikan seluruh isi proposal secara lengkap, runtut, akademik, menggunakan istilah teknis yang tepat, dan menunjukkan pemahaman mendalam.',
+    },
+  ],
+  // TA-03B · CPMK-02 Penulisan sistematis (0-25)
+  'Proposal (struktur)': [
+    {
+      minScore: 0,
+      maxScore: 5,
+      description:
+        'Sangat kurang — Proposal tidak mengandung sebagian besar aspek penting. Abstrak dan referensi tidak sistematis. Pendahuluan tidak memuat latar belakang. Tinjauan pustaka tidak relevan. Metode tidak mendukung tujuan. Referensi tidak kredibel. Bahasa tidak sesuai SPOK.',
+    },
+    {
+      minScore: 6,
+      maxScore: 10,
+      description:
+        'Kurang — Penulisan kurang sistematis. Latar belakang kurang jelas. Tinjauan pustaka dan metode tidak relevan. Referensi sebagian besar tidak kredibel. Bahasa kurang konsisten dan tidak tepat.',
+    },
+    {
+      minScore: 11,
+      maxScore: 15,
+      description:
+        'Cukup — Penulisan cukup sistematis. Latar belakang dan kajian pustaka cukup sesuai. Metode cukup mendukung tujuan. Referensi cukup kredibel. Bahasa cukup formal dan dapat dipahami.',
+    },
+    {
+      minScore: 16,
+      maxScore: 20,
+      description:
+        'Baik — Penulisan sesuai pedoman. Isi lengkap dan saling terkait. Metode mendukung tujuan. Referensi kredibel. Bahasa sesuai SPOK dan konsisten.',
+    },
+    {
+      minScore: 21,
+      maxScore: 25,
+      description:
+        'Sangat baik — Penulisan sangat sistematis dan konsisten. Semua aspek lengkap, logis, dan mendalam. Referensi sangat relevan dan kredibel. Bahasa akademik sangat baik dan konsisten.',
+    },
+  ],
+  // TA-03A · CPMK-03 Kemampuan merespon (0-15)
+  'Kemampuan merespon': [
+    {
+      minScore: 0,
+      maxScore: 3,
+      description:
+        'Sangat kurang — Tidak menindaklanjuti saran, tidak aktif berkomunikasi, dan tidak melakukan revisi.',
+    },
+    {
+      minScore: 4,
+      maxScore: 6,
+      description:
+        'Kurang — Menindaklanjuti sebagian saran, komunikasi pasif, revisi kurang tepat.',
+    },
+    {
+      minScore: 7,
+      maxScore: 9,
+      description:
+        'Cukup — Menindaklanjuti sebagian besar saran, komunikasi cukup terbuka, revisi cukup sesuai.',
+    },
+    {
+      minScore: 10,
+      maxScore: 12,
+      description:
+        'Baik — Menindaklanjuti hampir seluruh saran, komunikasi baik, revisi sesuai dan lengkap.',
+    },
+    {
+      minScore: 13,
+      maxScore: 15,
+      description:
+        'Sangat baik — Menindaklanjuti semua saran secara tepat, komunikasi aktif dan reflektif, serta revisi sangat komprehensif.',
+    },
+  ],
+};
+
+async function ensureCpmkResearchMethod(code, description) {
+  const existing = await prisma.cpmk.findFirst({
+    where: { code, type: 'research_method' },
+  });
+  if (existing) {
+    if (existing.description !== description) {
+      return prisma.cpmk.update({
+        where: { id: existing.id },
+        data: { description },
+      });
+    }
+    return existing;
+  }
+  return prisma.cpmk.create({
+    data: { code, description, type: 'research_method' },
+  });
+}
+
+async function ensureAssessmentCriterion({
+  name,
+  cpmkId,
+  role,
+  appliesTo,
+  maxScore,
+  displayOrder,
+}) {
+  const existing = await prisma.assessmentCriteria.findFirst({
+    where: { name, cpmkId, role, appliesTo },
+  });
+  if (existing) {
+    return prisma.assessmentCriteria.update({
+      where: { id: existing.id },
+      data: {
+        maxScore,
+        displayOrder,
+        isActive: true,
+        isDeleted: false,
+      },
+    });
+  }
+  return prisma.assessmentCriteria.create({
+    data: {
+      name,
+      cpmkId,
+      role,
+      appliesTo,
+      maxScore,
+      displayOrder,
+      isActive: true,
+      isDeleted: false,
+    },
+  });
+}
+
+async function ensureRubricLevels(criteriaId, levels) {
+  for (const [idx, level] of levels.entries()) {
+    // Identitas semantik rubric: (criteriaId, minScore, maxScore).
+    const existing = await prisma.assessmentRubric.findFirst({
+      where: {
+        assessmentCriteriaId: criteriaId,
+        minScore: level.minScore,
+        maxScore: level.maxScore,
+      },
+    });
+    if (existing) {
+      await prisma.assessmentRubric.update({
+        where: { id: existing.id },
+        data: {
+          description: level.description,
+          displayOrder: idx,
+          isDeleted: false,
+        },
+      });
+    } else {
+      await prisma.assessmentRubric.create({
+        data: {
+          assessmentCriteriaId: criteriaId,
+          minScore: level.minScore,
+          maxScore: level.maxScore,
+          description: level.description,
+          displayOrder: idx,
+          isDeleted: false,
+        },
+      });
+    }
+  }
+}
+
+async function seedResearchMethodAssessment() {
+  // 1. CPMK research_method
+  const cpmkByCode = {};
+  for (const c of RM_CPMKS) {
+    const cpmk = await ensureCpmkResearchMethod(c.code, c.description);
+    cpmkByCode[c.code] = cpmk;
+  }
+
+  // 2. AssessmentCriteria (4 bucket SIA)
+  const criteriaByName = {};
+  for (const c of RM_CRITERIA) {
+    const cpmk = cpmkByCode[c.cpmkCode];
+    if (!cpmk) {
+      console.warn(`  ! CPMK ${c.cpmkCode} tidak ditemukan, skip kriteria ${c.name}`);
+      continue;
+    }
+    const criterion = await ensureAssessmentCriterion({
+      name: c.name,
+      cpmkId: cpmk.id,
+      role: c.role,
+      appliesTo: c.appliesTo,
+      maxScore: c.maxScore,
+      displayOrder: c.displayOrder,
+    });
+    criteriaByName[c.name] = criterion;
+  }
+
+  // 3. AssessmentRubric levels — 3 kriteria scalar saja.
+  let rubricCount = 0;
+  for (const [name, levels] of Object.entries(RM_RUBRIC_LEVELS)) {
+    const criterion = criteriaByName[name];
+    if (!criterion) {
+      console.warn(`  ! Kriteria ${name} tidak ada, skip rubric levels`);
+      continue;
+    }
+    await ensureRubricLevels(criterion.id, levels);
+    rubricCount += levels.length;
+  }
+
+  console.log(
+    `  ResearchMethodAssessment: ${RM_CPMKS.length} CPMK, ${RM_CRITERIA.length} kriteria, ${rubricCount} rubric levels (Konten 40 tanpa rubric — pakai sub-breakdown UI).`,
+  );
+}
+
+// ────────────────────────────────────────────────────────────
 // MAIN
 // ────────────────────────────────────────────────────────────
 
@@ -490,6 +781,7 @@ async function main() {
   await seedScienceGroups();
   await seedTopics();
   await seedMilestoneTemplates();
+  await seedResearchMethodAssessment();
 
   console.log('\n--- Test Lecturers ---');
   await seedTestLecturers(activeYear);

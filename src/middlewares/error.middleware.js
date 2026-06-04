@@ -72,6 +72,21 @@ export default function errorHandler(err, req, res, next) {
   // Log error di console (bisa ganti pakai logger util)
   if (process.env.NODE_ENV !== "test") {
     console.error("❌ Error:", mappedErr.message);
+    console.error("   Path:", req.method, req.originalUrl);
+    // Log RAW Prisma error code + meta sebelum mapping menutupi detail asli.
+    // Berguna untuk diagnose P2021 (table missing), P2022 (column missing),
+    // P2003 (FK violation), P2002 (unique violation), dll.
+    if (err?.code && err.code !== mappedErr.code) {
+      console.error("   Raw Prisma code:", err.code);
+    } else if (err?.code) {
+      console.error("   Prisma code:", err.code);
+    }
+    if (err?.meta) {
+      console.error("   Prisma meta:", JSON.stringify(err.meta));
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error("   Prisma full message:", err.message?.split("\n").slice(0, 6).join(" | "));
+    }
     if (mappedErr.stack) console.error(mappedErr.stack);
     // Log detail validasi agar mudah ditrace saat 400
     if (statusCode === 400 && mappedErr.details) {

@@ -7,6 +7,7 @@ export function findAll() {
   return prisma.thesisTopic.findMany({
     orderBy: { name: "asc" },
     include: {
+      scienceGroup: { select: { id: true, name: true } },
       _count: {
         select: {
           thesis: true,
@@ -24,6 +25,7 @@ export function findById(id) {
   return prisma.thesisTopic.findUnique({
     where: { id },
     include: {
+      scienceGroup: { select: { id: true, name: true } },
       _count: {
         select: {
           thesis: true,
@@ -98,6 +100,24 @@ export function bulkDelete(ids) {
   return prisma.thesisTopic.deleteMany({
     where: {
       id: { in: ids },
+    },
+  });
+}
+
+export function findScienceGroupById(id) {
+  return prisma.scienceGroup.findUnique({
+    where: { id },
+    select: { id: true, name: true },
+  });
+}
+
+export function findLecturerScienceGroupById(id) {
+  return prisma.lecturer.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
     },
   });
 }

@@ -70,13 +70,12 @@ export const ENV = {
   // Daily thesis reminder cron controls (for active thesis students)
   DAILY_THESIS_REMINDER_CRON: process.env.DAILY_THESIS_REMINDER_CRON || "0 9 * * *", // 09:00 every day
   DAILY_THESIS_REMINDER_TZ: process.env.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
-  // Advisor request withdraw reminder cron controls
-  ADVISOR_WITHDRAW_REMINDER_CRON: process.env.ADVISOR_WITHDRAW_REMINDER_CRON || "0 * * * *", // hourly
-  ADVISOR_WITHDRAW_REMINDER_TZ: process.env.ADVISOR_WITHDRAW_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
 
   // ===============================
-  // 🎓 Academic thresholds
+  // 🎓 ACADEMIC THRESHOLDS
   // ===============================
+  SEMINAR_MIN_BIMBINGAN: toNum(process.env.SEMINAR_MIN_BIMBINGAN, 8),
+  SEMINAR_MIN_KEHADIRAN: toNum(process.env.SEMINAR_MIN_KEHADIRAN, 8),
   METOPEL_PASSING_SCORE: toNum(process.env.METOPEL_PASSING_SCORE, 60),
 
   // ===============================

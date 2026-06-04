@@ -1546,6 +1546,22 @@ async function tryEnqueueThesisForKadepProposalReview(thesisId) {
   if (!rmScore || rmScore.supervisorScore == null || rmScore.lecturerScore == null) {
     return { updated: false, block: "missing_scores" };
   }
+  // BR-20 / FR-SCR-07 (F-4.4): antrean KaDep hanya dibuka setelah siklus
+  // penilaian FINAL — P1 submit + P2 co-sign (bila ada P2) + TA-03B.
+  // `isFinalized` adalah flag kanonis "siklus selesai" (di-set oleh
+  // isScoreReadyToFinalize / publishFinalScore; auto-zero juga isFinalized=true).
+  // Tanpa gate ini, thesis ber-P2 yang belum co-sign bisa masuk antrean KaDep
+  // secara prematur dan disahkan tanpa konsensus P2.
+  if (!rmScore.isFinalized) {
+    return { updated: false, block: "scores_not_finalized" };
+  }
+  // §5.7.3 (BR-28): thesis yang di-auto-zero karena presensi Metopel <75% GAGAL
+  // prasyarat Metopel dan WAJIB mengulang kelas — BUKAN lanjut ke TA-04. Karena
+  // auto-zero menulis `isFinalized=true`, gate isFinalized di atas lolos, jadi
+  // blokir eksplisit di sini agar mahasiswa gagal-Metopel tidak ter-enqueue.
+  if (rmScore.attendanceAutoZeroedAt != null) {
+    return { updated: false, block: "metopel_auto_zeroed" };
+  }
 
   const student = await prisma.student.findUnique({
     where: { id: thesis.studentId },
@@ -1586,6 +1602,16 @@ function badRequestForKadepEnqueueBlock(block) {
   if (block === "missing_scores") {
     return new BadRequestError(
       "Antre KaDep dibuka setelah nilai TA-03A dan TA-03B tersedia."
+    );
+  }
+  if (block === "scores_not_finalized") {
+    return new BadRequestError(
+      "Antre KaDep dibuka setelah penilaian TA-03A (termasuk co-sign Pembimbing 2 bila ada) dan TA-03B difinalisasi."
+    );
+  }
+  if (block === "metopel_auto_zeroed") {
+    return new BadRequestError(
+      "Mahasiswa tidak memenuhi prasyarat presensi Metopel (≥75%) sehingga nilai TA-03 otomatis 0. TA-04 tidak dapat diproses; mahasiswa wajib mengulang kelas Metopel (canon §5.7.3)."
     );
   }
   if (block === "ta_course_not_confirmed") {
@@ -1650,6 +1676,28 @@ export async function reviewTitleReport(thesisId, action, notes, reviewedBy) {
     if (student?.takingThesisCourse !== true) {
       throw new BadRequestError(
         "TA-04 hanya dapat diproses setelah data SIA mengonfirmasi mahasiswa sedang mengambil mata kuliah Tugas Akhir.",
+      );
+    }
+
+    // BR-20 / FR-SCR-07 (F-5.1): re-assert kelengkapan penilaian di server,
+    // bukan hanya mengandalkan gate enqueue + checklist UI (client-side).
+    // `isFinalized=true` menjamin P1 submit + P2 co-sign (bila ada) + TA-03B
+    // selesai — menutup celah bypass konsensus P2 via panggilan API langsung.
+    const reviewScore = await prisma.researchMethodScore.findUnique({
+      where: { thesisId },
+      select: { isFinalized: true, attendanceAutoZeroedAt: true },
+    });
+    if (!reviewScore?.isFinalized) {
+      throw new BadRequestError(
+        "Penilaian TA-03A/TA-03B belum final (termasuk co-sign Pembimbing 2 bila ada). TA-04 belum dapat disahkan.",
+      );
+    }
+    // §5.7.3 (BR-28): auto-zero presensi <75% = gagal Metopel → wajib mengulang,
+    // bukan disahkan TA-04. Blokir di accept-time juga (menutup data lama yang
+    // mungkin sudah ter-enqueue sebelum gate ini ada).
+    if (reviewScore.attendanceAutoZeroedAt != null) {
+      throw new BadRequestError(
+        "Mahasiswa tidak memenuhi prasyarat presensi Metopel (≥75%); nilai TA-03 auto-zero. TA-04 tidak dapat disahkan — mahasiswa wajib mengulang kelas Metopel (canon §5.7.3).",
       );
     }
 

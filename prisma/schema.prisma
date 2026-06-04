@@ -46,6 +46,7 @@ model User {
   guidanceEvaluationsApproved      ThesisGuidanceEvaluation[]       @relation("GuidanceEvalKadepApprover")
   proposalTitleReviews             Thesis[]                         @relation("ThesisProposalReviewedBy")
   researchMethodScoresFinalized    ResearchMethodScore[]            @relation("ResearchMethodScoreFinalizer")
+  metopenAttendanceImportsUploaded MetopenAttendanceImport[]        @relation("MetopenAttendanceImportUploader")
   proposalVersionsSubmittedAsFinal ThesisProposalVersion[]          @relation("ThesisProposalVersionSubmittedBy")
 
   internshipSupLetterSigned InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
@@ -109,6 +110,8 @@ model Student {
   thesisSeminarAudiences          ThesisSeminarAudience[]
   advisorRequests                 ThesisAdvisorRequest[]
   advisorRequestDraft             ThesisAdvisorRequestDraft?
+  thesisStudentInformalLogs       ThesisStudentInformalLog[]
+  metopenAttendanceRecords        MetopenAttendanceRecord[]       @relation("MetopenAttendanceRecordStudent")
 
   @@index([sksCompleted], map: "idx_students_skscompleted")
   @@map("students")
@@ -159,6 +162,7 @@ model Lecturer {
   milestoneAssessmentDetails         ThesisMilestoneAssessmentDetail[]
   advisorRequestsReceived            ThesisAdvisorRequest[]            @relation("AdvisorRequestTarget")
   advisorRequestsRedirected          ThesisAdvisorRequest[]            @relation("AdvisorRequestRedirect")
+  advisorRequestsForwarded           ThesisAdvisorRequest[]            @relation("AdvisorRequestForwarder")
   availabilities                     LecturerAvailability[]
   seminarExaminers                   ThesisSeminarExaminer[]           @relation("SeminarExaminerLecturer")
   defenceExaminers                   ThesisDefenceExaminer[]           @relation("DefenceExaminerLecturer")
@@ -223,6 +227,7 @@ model AcademicYear {
   lecturerQuotas                     LecturerSupervisionQuota[]
   advisorRequests                    ThesisAdvisorRequest[]
   yudisiums                          Yudisium[]
+  metopenAttendanceImports           MetopenAttendanceImport[]
 
   @@map("academic_years")
 }
@@ -230,6 +235,8 @@ model AcademicYear {
 model Room {
   id                 String              @id @default(uuid())
   name               String
+  location           String?             @db.VarChar(255)
+  capacity           Int?
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   internshipSeminars InternshipSeminar[]
@@ -388,30 +395,53 @@ model ExitSurveyOption {
   @@map("exit_survey_options")
 }
 
+/// Thesis = shared container antara SIMPTA (proposal phase, isProposal=true)
+/// dan Modul Tugas Akhir penuh (isProposal=false, post-TA-04).
+/// Lihat HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-06 untuk field ownership matrix.
 model Thesis {
-  id                         String                      @id @default(uuid())
-  // true while still in proposal phase; false after TA-04 is accepted by KaDep.
-  isProposal                 Boolean                     @default(true) @map("is_proposal")
-  rating                     ThesisRating                @default(ONGOING)
-  studentId                  String                      @map("student_id")
-  thesisTopicId              String?                     @map("thesis_topic_id")
-  thesisStatusId             String?                     @map("thesis_status_id")
-  academicYearId             String?                     @map("academic_year_id")
-  documentId                 String?                     @map("document_id")
-  title                      String?                     @db.Text
-  startDate                  DateTime?                   @map("start_date")
-  deadlineDate               DateTime?                   @map("deadline_date")
-  finalThesisDocumentId      String?                     @map("final_thesis_document_id")
-  defenceRequestedAt         DateTime?                   @map("defence_requested_at")
-  // Proposal fields (merged from ThesisProposal). proposalDocumentId is legacy;
-  // active final proposal source is finalProposalVersion.documentId.
-  proposalDocumentId         String?                     @map("proposal_document_id")
-  finalProposalVersionId     String?                     @map("final_proposal_version_id") @db.VarChar(255)
-  proposalStatus             ProposalStatus?             @map("proposal_status")
-  titleApprovalDocumentId    String?                     @map("title_approval_document_id")
-  proposalReviewNotes        String?                     @map("proposal_review_notes") @db.Text
-  proposalReviewedAt         DateTime?                   @map("proposal_reviewed_at")
-  proposalReviewedByUserId   String?                     @map("proposal_reviewed_by_user_id") @db.VarChar(255)
+  // === IDENTITAS & PHASE FLAG ===
+  id             String    @id @default(uuid())
+  /// Flag transisi ownership: true = SIMPTA scope; false = Modul TA scope post-TA-04.
+  isProposal     Boolean   @default(true) @map("is_proposal")
+  studentId      String    @map("student_id")
+  thesisTopicId  String?   @map("thesis_topic_id")
+  thesisStatusId String?   @map("thesis_status_id")
+  /// NOTE: canon §5.7.4 + §5.13 expect non-null setelah TA-04. Pertimbangkan
+  /// migrate ke NOT NULL di iterasi berikutnya.
+  academicYearId String?   @map("academic_year_id")
+  title          String?   @db.Text
+  startDate      DateTime? @map("start_date")
+
+  // === SIMPTA SCOPE: Proposal Versioning & Submission (canon §5.6) ===
+  /// Source of truth proposal final aktif. Pointer ke ThesisProposalVersion
+  /// yang ditetapkan via aksi "Submit Final" eksplisit oleh mahasiswa.
+  finalProposalVersionId String?         @map("final_proposal_version_id") @db.VarChar(255)
+  proposalStatus         ProposalStatus? @map("proposal_status")
+
+  // === SIMPTA SCOPE: TA-04 KaDep Decision Audit (canon §5.8, §5.13) ===
+  titleApprovalDocumentId  String?   @map("title_approval_document_id")
+  proposalReviewNotes      String?   @map("proposal_review_notes") @db.Text
+  proposalReviewedAt       DateTime? @map("proposal_reviewed_at")
+  proposalReviewedByUserId String?   @map("proposal_reviewed_by_user_id") @db.VarChar(255)
+
+  // === MODUL TA SCOPE (post-TA-04, isProposal=false — BUKAN SIMPTA scope) ===
+  /// out-of-SIMPTA-scope: Modul TA penuh. Rating monitoring (ONGOING/SLOW/AT_RISK/FAILED).
+  rating                ThesisRating @default(ONGOING)
+  /// out-of-SIMPTA-scope: Modul TA penuh — deadline absolut thesis.
+  deadlineDate          DateTime?    @map("deadline_date")
+  /// out-of-SIMPTA-scope: Modul TA penuh — final thesis document setelah Sidang.
+  finalThesisDocumentId String?      @map("final_thesis_document_id")
+  /// out-of-SIMPTA-scope: Modul TA penuh — defence registration timestamp.
+  defenceRequestedAt    DateTime?    @map("defence_requested_at")
+
+  // === LEGACY (deprecated per PRD §5.2) ===
+  /// @deprecated Use `finalProposalVersionId` instead. Sumber: canon §5.6 + PRD §5.2.
+  /// Akan di-drop pada migration berikutnya setelah audit memastikan tidak ada read sisa.
+  /// Sumber: HANDOFF §5 P0-06.
+  proposalDocumentId String? @map("proposal_document_id")
+  /// @deprecated Semantic legacy unclear. Audit sebelum drop. Sumber: PRD §5.2.
+  documentId         String? @map("document_id")
+
   createdAt                  DateTime                    @default(now()) @map("created_at")
   updatedAt                  DateTime                    @updatedAt @map("updated_at")
   // Relations
@@ -437,8 +467,7 @@ model Thesis {
   researchMethodScores       ResearchMethodScore[]
   advisorRequests            ThesisAdvisorRequest[]
   proposalVersions           ThesisProposalVersion[]
-  thesisProposal             ThesisProposal?             @relation(fields: [thesisProposalId], references: [id])
-  thesisProposalId           String?
+  studentInformalLogs        ThesisStudentInformalLog[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
   @@index([documentId], map: "thesis_document_id_fkey")
@@ -451,6 +480,27 @@ model Thesis {
   @@index([thesisStatusId], map: "thesis_thesis_status_id_fkey")
   @@index([thesisTopicId], map: "thesis_thesis_topic_id_fkey")
   @@map("thesis")
+}
+
+/// Catatan bimbingan informal (mahasiswa saja, pra-MK Tugas Akhir / fase Metopen).
+/// Tidak menggantikan thesis_guidances (alur sesi formal).
+model ThesisStudentInformalLog {
+  id         String   @id @default(uuid())
+  thesisId   String   @map("thesis_id")
+  studentId  String   @map("student_id")
+  content    String   @db.Text
+  documentId String?  @map("document_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  thesis   Thesis    @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  student  Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  document Document? @relation("ThesisInformalLogDocument", fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([thesisId], map: "thesis_student_informal_logs_thesis_id_fkey")
+  @@index([studentId], map: "thesis_student_informal_logs_student_id_fkey")
+  @@index([documentId], map: "thesis_student_informal_logs_document_id_fkey")
+  @@map("thesis_student_informal_logs")
 }
 
 /// @deprecated TA-05 frozen — do not extend.
@@ -510,15 +560,21 @@ model ThesisChangeRequestApproval {
   @@map("thesis_change_request_approvals")
 }
 
-// Supervisor assignments are stored as thesis participants.
-// Relation field names keep the legacy "thesisSupervisors" alias for API compatibility.
+/// Supervisor assignments stored sebagai thesis participants.
+/// Relation field names keep legacy "thesisSupervisors" alias untuk API compat.
+/// SIMPTA scope: rows dengan thesis.isProposal=true (P1 master + P2 co-sign untuk TA-03A).
+/// Modul TA scope: rows dengan thesis.isProposal=false + seminar/defence readiness flags.
 model ThesisParticipant {
   id                                 String                     @id @default(uuid())
   thesisId                           String                     @map("thesis_id")
   lecturerId                         String                     @map("lecturer_id")
   roleId                             String                     @map("role_id")
   status                             SupervisorStatus           @default(active)
+  /// out-of-SIMPTA-scope: Modul TA penuh — readiness flag untuk Seminar Hasil.
+  /// SIMPTA service layer TIDAK boleh menulis ke field ini. Sumber: HANDOFF §5 P1-08.
   seminarReady                       Boolean                    @default(false) @map("seminar_ready")
+  /// out-of-SIMPTA-scope: Modul TA penuh — readiness flag untuk Sidang.
+  /// SIMPTA service layer TIDAK boleh menulis ke field ini. Sumber: HANDOFF §5 P1-08.
   defenceReady                       Boolean                    @default(false) @map("defence_ready")
   createdAt                          DateTime                   @default(now()) @map("created_at")
   updatedAt                          DateTime                   @updatedAt @map("updated_at")
@@ -1269,6 +1325,8 @@ model Document {
   advisorRequestsAttachment           ThesisAdvisorRequest[]           @relation("AdvisorRequestAttachment")
   advisorRequestDraftAttachments      ThesisAdvisorRequestDraft[]      @relation("AdvisorRequestDraftAttachment")
   thesisChangeRequestSupportingDocs   ThesisChangeRequest[]            @relation("ChangeRequestSupportingDocument")
+  thesisStudentInformalLogAttachments ThesisStudentInformalLog[]       @relation("ThesisInformalLogDocument")
+  metopenAttendanceImports            MetopenAttendanceImport[]        @relation("MetopenAttendanceImportDocument")
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")
@@ -1321,7 +1379,6 @@ model ThesisProposal {
   status               ProposalStatus        @default(submitted)
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")
-  thesis               Thesis[]
   document             Document?             @relation(fields: [documentId], references: [id], map: "thesis_proposal_doc_fk")
   student              Student               @relation(fields: [studentId], references: [id], map: "thesis_proposal_student_fk")
   thesisProposalGrades ThesisProposalGrade[]
@@ -1821,6 +1878,10 @@ model ThesisAdvisorRequestDraft {
   proposedSolution     String?               @map("proposed_solution") @db.Text
   researchObject       String?               @map("research_object") @db.VarChar(255)
   researchPermitStatus ResearchPermitStatus? @map("research_permit_status")
+  /// @deprecated Use `studentJustification` instead. Sumber: canon §5.2.1 v2.1.
+  /// Akan di-drop pada migration berikutnya (Tahap 2) setelah audit memastikan
+  /// tidak ada read sisa di service/UI. Backfill di Migration C sudah copy
+  /// data ke studentJustification. Sumber: HANDOFF §5 P0-05.
   justificationText    String?               @map("justification_text") @db.Text
   studentJustification String?               @map("student_justification") @db.Text
   attachmentId         String?               @map("attachment_id") @db.VarChar(255)
@@ -1853,6 +1914,10 @@ model ThesisAdvisorRequest {
   proposedSolution        String?                    @map("proposed_solution") @db.Text
   researchObject          String?                    @map("research_object") @db.VarChar(255)
   researchPermitStatus    ResearchPermitStatus?      @map("research_permit_status")
+  /// @deprecated Use `studentJustification` instead. Sumber: canon §5.2.1 v2.1.
+  /// Akan di-drop pada migration berikutnya (Tahap 2) setelah audit memastikan
+  /// tidak ada read sisa di service/UI. Backfill di Migration C sudah copy
+  /// data ke studentJustification. Sumber: HANDOFF §5 P0-05.
   justificationText       String?                    @map("justification_text") @db.Text
   studentJustification    String?                    @map("student_justification") @db.Text
   requestType             AdvisorRequestType         @default(ta_01) @map("request_type")
@@ -1869,17 +1934,28 @@ model ThesisAdvisorRequest {
   redirectedTo            String?                    @map("redirected_to") @db.VarChar(255)
   kadepNotes              String?                    @map("kadep_notes") @db.Text
   attachmentId            String?                    @map("attachment_id") @db.VarChar(255) // TA-01 or Draft Proposal
+  // BR-26 Path C dual-justification audit (canon §5.2.1).
+  // forwardedToKadepAt + forwardedByLecturerId menandai kapan/oleh siapa dosen
+  // forward overquota request ke KaDep. Wajib di-set bersamaan dengan
+  // lecturerOverquotaReason di service `advisorRequest.forwardOverquotaToKadep`.
+  forwardedToKadepAt      DateTime?                  @map("forwarded_to_kadep_at")
+  forwardedByLecturerId   String?                    @map("forwarded_by_lecturer_id") @db.VarChar(255)
+  // BR-06 + canon §7.3: flag eksplisit untuk computed "Overquota Sah".
+  // Di-set true saat KaDep override Path C escalated → status=booking_approved.
+  // Hindari computed gabungan routeType+status yang fragile.
+  acceptedOverNormal      Boolean                    @default(false) @map("accepted_over_normal")
   createdAt               DateTime                   @default(now()) @map("created_at")
   updatedAt               DateTime                   @updatedAt @map("updated_at")
 
-  student        Student      @relation(fields: [studentId], references: [id])
-  lecturer       Lecturer?    @relation("AdvisorRequestTarget", fields: [lecturerId], references: [id])
-  topic          ThesisTopic? @relation(fields: [topicId], references: [id])
-  thesis         Thesis?      @relation(fields: [thesisId], references: [id])
-  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
-  reviewer       User?        @relation("AdvisorRequestReviewer", fields: [reviewedBy], references: [id])
-  redirectTarget Lecturer?    @relation("AdvisorRequestRedirect", fields: [redirectedTo], references: [id])
-  attachment     Document?    @relation("AdvisorRequestAttachment", fields: [attachmentId], references: [id])
+  student             Student      @relation(fields: [studentId], references: [id])
+  lecturer            Lecturer?    @relation("AdvisorRequestTarget", fields: [lecturerId], references: [id])
+  topic               ThesisTopic? @relation(fields: [topicId], references: [id])
+  thesis              Thesis?      @relation(fields: [thesisId], references: [id])
+  academicYear        AcademicYear @relation(fields: [academicYearId], references: [id])
+  reviewer            User?        @relation("AdvisorRequestReviewer", fields: [reviewedBy], references: [id])
+  redirectTarget      Lecturer?    @relation("AdvisorRequestRedirect", fields: [redirectedTo], references: [id])
+  forwardedByLecturer Lecturer?    @relation("AdvisorRequestForwarder", fields: [forwardedByLecturerId], references: [id])
+  attachment          Document?    @relation("AdvisorRequestAttachment", fields: [attachmentId], references: [id])
 
   @@index([studentId])
   @@index([studentId, status])
@@ -1889,6 +1965,7 @@ model ThesisAdvisorRequest {
   @@index([status])
   @@index([reviewedBy])
   @@index([redirectedTo])
+  @@index([forwardedByLecturerId])
   @@index([attachmentId])
   @@map("thesis_advisor_request")
 }
@@ -1922,39 +1999,44 @@ model ThesisProposalVersion {
 
 // ==================== Research Method Scores ====================
 model ResearchMethodScore {
-  id                   String    @id @default(uuid()) @db.VarChar(255)
-  thesisId             String    @unique @map("thesis_id") @db.VarChar(255)
-  supervisorId         String?   @map("supervisor_id") @db.VarChar(255)
-  supervisorScore      Int?      @map("supervisor_score")
-  lecturerId           String?   @map("lecturer_id") @db.VarChar(255)
-  lecturerScore        Int?      @map("lecturer_score")
-  finalScore           Int?      @map("final_score")
-  isFinalized          Boolean   @default(false) @map("is_finalized")
-  finalizedBy          String?   @map("finalized_by") @db.VarChar(255)
-  finalizedAt          DateTime? @map("finalized_at")
-  calculatedAt         DateTime? @map("calculated_at")
+  id                       String    @id @default(uuid()) @db.VarChar(255)
+  thesisId                 String    @unique @map("thesis_id") @db.VarChar(255)
+  supervisorId             String?   @map("supervisor_id") @db.VarChar(255)
+  supervisorScore          Int?      @map("supervisor_score")
+  lecturerId               String?   @map("lecturer_id") @db.VarChar(255)
+  lecturerScore            Int?      @map("lecturer_score")
+  finalScore               Int?      @map("final_score")
+  isFinalized              Boolean   @default(false) @map("is_finalized")
+  finalizedBy              String?   @map("finalized_by") @db.VarChar(255)
+  finalizedAt              DateTime? @map("finalized_at")
+  calculatedAt             DateTime? @map("calculated_at")
+  attendanceRecordId       String?   @map("attendance_record_id") @db.VarChar(255)
+  attendanceAutoZeroedAt   DateTime? @map("attendance_auto_zeroed_at")
+  attendanceAutoZeroReason String?   @map("attendance_auto_zero_reason") @db.Text
   // BR-20 (canon §5.7.1): TA-03A konsensus P1 master + P2 co-sign.
   // P1 mengisi rubrik utuh (supervisorScore + supervisorId di atas);
   // P2 melakukan co-sign sebagai persetujuan tanpa modifikasi nilai.
   // Field opsional — bila thesis hanya punya 1 pembimbing (P1 saja),
   // co-sign di-skip dan field-field ini tetap null.
-  coSignedByLecturerId String?   @map("co_signed_by_lecturer_id") @db.VarChar(255)
-  coSignedAt           DateTime? @map("co_signed_at")
-  coSignNote           String?   @map("co_sign_note") @db.Text
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  coSignedByLecturerId     String?   @map("co_signed_by_lecturer_id") @db.VarChar(255)
+  coSignedAt               DateTime? @map("co_signed_at")
+  coSignNote               String?   @map("co_sign_note") @db.Text
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   thesis                     Thesis                      @relation(fields: [thesisId], references: [id], onDelete: Cascade)
   supervisor                 Lecturer?                   @relation("ResearchMethodScoreSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
   lecturerAssessor           Lecturer?                   @relation("ResearchMethodScoreLecturer", fields: [lecturerId], references: [id], onDelete: SetNull)
   coSigner                   Lecturer?                   @relation("ResearchMethodScoreCoSigner", fields: [coSignedByLecturerId], references: [id], onDelete: SetNull)
   finalizer                  User?                       @relation("ResearchMethodScoreFinalizer", fields: [finalizedBy], references: [id], onDelete: SetNull)
+  attendanceRecord           MetopenAttendanceRecord?    @relation("ResearchMethodAttendanceRecord", fields: [attendanceRecordId], references: [id], onDelete: SetNull)
   researchMethodScoreDetails ResearchMethodScoreDetail[]
 
   @@index([supervisorId])
   @@index([lecturerId])
   @@index([coSignedByLecturerId])
   @@index([finalizedBy])
+  @@index([attendanceRecordId])
   @@map("research_method_scores")
 }
 
@@ -1974,6 +2056,67 @@ model ResearchMethodScoreDetail {
   @@index([assessmentCriteriaId], map: "research_method_score_details_criteria_id_fkey")
   @@index([assessmentRubricId], map: "research_method_score_details_rubric_id_fkey")
   @@map("research_method_score_details")
+}
+
+model MetopenAttendanceImport {
+  id                    String   @id @default(uuid()) @db.VarChar(255)
+  academicYearId        String?  @map("academic_year_id") @db.VarChar(255)
+  documentId            String?  @map("document_id")
+  uploadedByUserId      String   @map("uploaded_by_user_id")
+  classCode             String?  @map("class_code") @db.VarChar(100)
+  courseName            String?  @map("course_name") @db.VarChar(255)
+  semesterLabel         String?  @map("semester_label") @db.VarChar(100)
+  filterLabel           String?  @map("filter_label") @db.VarChar(100)
+  lecturerNames         Json?    @map("lecturer_names")
+  thresholdPercent      Float    @default(0.75) @map("threshold_percent")
+  totalRows             Int      @default(0) @map("total_rows")
+  matchedRows           Int      @default(0) @map("matched_rows")
+  eligibleRows          Int      @default(0) @map("eligible_rows")
+  ineligibleRows        Int      @default(0) @map("ineligible_rows")
+  autoZeroedCount       Int      @default(0) @map("auto_zeroed_count")
+  skippedFinalizedCount Int      @default(0) @map("skipped_finalized_count")
+  uploadedAt            DateTime @default(now()) @map("uploaded_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  academicYear AcademicYear?             @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  document     Document?                 @relation("MetopenAttendanceImportDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  uploadedBy   User                      @relation("MetopenAttendanceImportUploader", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  records      MetopenAttendanceRecord[]
+
+  @@index([academicYearId])
+  @@index([documentId])
+  @@index([uploadedByUserId])
+  @@index([uploadedAt])
+  @@map("metopen_attendance_imports")
+}
+
+model MetopenAttendanceRecord {
+  id                   String   @id @default(uuid()) @db.VarChar(255)
+  importId             String   @map("import_id") @db.VarChar(255)
+  studentId            String?  @map("student_id")
+  identityNumber       String   @map("identity_number") @db.VarChar(50)
+  studentName          String?  @map("student_name") @db.VarChar(255)
+  presentCount         Int      @default(0) @map("present_count")
+  absentCount          Int      @default(0) @map("absent_count")
+  sickCount            Int      @default(0) @map("sick_count")
+  permitCount          Int      @default(0) @map("permit_count")
+  totalMeetings        Int      @default(0) @map("total_meetings")
+  attendancePercentage Float    @map("attendance_percentage")
+  isEligible           Boolean  @map("is_eligible")
+  rawRow               Json?    @map("raw_row")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  import               MetopenAttendanceImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  student              Student?                @relation("MetopenAttendanceRecordStudent", fields: [studentId], references: [id], onDelete: SetNull)
+  researchMethodScores ResearchMethodScore[]   @relation("ResearchMethodAttendanceRecord")
+
+  @@unique([importId, identityNumber])
+  @@index([identityNumber])
+  @@index([studentId])
+  @@index([isEligible])
+  @@map("metopen_attendance_records")
 }
 
 enum IdentityType {
@@ -2018,14 +2161,18 @@ enum ProposalStatus {
   rejected
 }
 
+/// Status lifecycle sesi logbook proposal (SIMPTA phase='proposal') atau
+/// logbook thesis (modul TA phase='thesis'). Canon §5.5 + HANDOFF §5 P1-10.
 enum GuidanceStatus {
-  requested
-  accepted
-  rejected
-  summary_pending
-  completed
-  cancelled
-  deleted
+  requested // Mahasiswa request sesi
+  accepted // Dosen accept, sesi terjadwal
+  rescheduled // Dosen reschedule sesi (canon §5.5 — new at HANDOFF P1-10)
+  rejected // Dosen reject sesi
+  summary_pending // Mahasiswa submit summary, menunggu approve dosen
+  summary_rejected // Dosen reject summary, mahasiswa revisi (new at HANDOFF P1-10)
+  completed // Dosen approve summary
+  cancelled // Pihak salah satu cancel
+  deleted // Soft delete
 }
 
 enum GuidancePhase {
@@ -2132,6 +2279,22 @@ enum AssessmentRole {
   supervisor
 }
 
+/// Cakupan form penilaian yang memakai AssessmentCriteria.
+/// Sumber: canon §5.7 + §5.7.4 + HANDOFF §5 P1-09.
+///
+/// SIMPTA scope (rows yang relevan untuk Penilaian Proposal):
+/// - `proposal` = TA-03A (Penilaian Proposal oleh Pembimbing, maks 75 poin).
+///                CPMK-01 Presentasi (20) + CPMK-02 Konten (40) + CPMK-03 Respons (15).
+/// - `metopen`  = TA-03B (Penilaian Proposal oleh Koordinator Matkul Metopen, maks 25 poin).
+///                CPMK-02 Proposal struktur (25, role=default).
+///
+/// Out-of-SIMPTA scope (modul TA penuh):
+/// - `seminar`  = Penilaian Seminar Hasil (TA-08 / modul TA penuh, BUKAN SIMPTA).
+/// - `defence`  = Penilaian Sidang (modul TA penuh, BUKAN SIMPTA).
+///
+/// Service `assessment.service.js` yang menulis TA-03A wajib pakai
+/// `appliesTo='proposal'`; TA-03B pakai `appliesTo='metopen'`. Filter
+/// `appliesTo IN ('proposal', 'metopen')` saat fetch criteria SIMPTA.
 enum AssessmentAppliesTo {
   seminar
   defence
@@ -2139,7 +2302,18 @@ enum AssessmentAppliesTo {
   metopen
 }
 
+/// Status enum lifecycle pengajuan pembimbing. Canon §5.2 + skill system-design.
+/// === ACTIVE STATES (canon-aligned) ===
+/// pending, under_review, pending_kadep, booking_approved, active_official,
+/// revision_requested, rejected_by_dosen, rejected_by_kadep, redirected,
+/// withdrawn, canceled.
+/// === LEGACY (deprecated, read-only untuk backward compat) ===
+/// approved, rejected, override_approved, assigned, closed, escalated.
+/// Service layer baru WAJIB pakai canonical states; legacy hanya untuk read
+/// historical rows. Backfill di migration B sudah konversi rows aktif ke
+/// canonical state. Sumber: HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-03.
 enum ThesisAdvisorRequestStatus {
+  // === ACTIVE STATES (canon-aligned) ===
   pending
   under_review
   pending_kadep
@@ -2148,20 +2322,31 @@ enum ThesisAdvisorRequestStatus {
   revision_requested
   rejected_by_dosen
   rejected_by_kadep
-  canceled
-  closed
-  escalated
-  approved
-  rejected
-  override_approved
   redirected
   withdrawn
+  canceled
+  // === LEGACY (deprecated — JANGAN ditulis service baru) ===
+  /// @deprecated Use `booking_approved` instead. Sumber: canon §5.2 + handoff §5 P0-03.
+  closed
+  /// @deprecated Use `pending_kadep` + `routeType=escalated` instead.
+  escalated
+  /// @deprecated Use `booking_approved` instead.
+  approved
+  /// @deprecated Use `rejected_by_dosen` atau `rejected_by_kadep` instead.
+  rejected
+  /// @deprecated Use `booking_approved` + `acceptedOverNormal=true` instead.
+  override_approved
+  /// @deprecated Use `active_official` instead.
   assigned
 }
 
+/// 3-path routing canon §5.2 + BPMN Diagram 2 Gateway_TargetOverload.
+/// Path A=dept (TA-02), Path B=normal (TA-01 kuota hijau/kuning),
+/// Path C=escalated (TA-01 kuota merah + mahasiswa kokoh).
 enum AdvisorRequestRoute {
-  normal
-  escalated
+  normal // Path B: TA-01 normal (kuota dosen hijau/kuning)
+  escalated // Path C: TA-01 escalated (kuota dosen merah, mahasiswa kokoh)
+  dept // Path A: TA-02 (jalur departemen, mahasiswa belum punya calon)
 }
 
 enum AdvisorRequestType {
@@ -2355,6 +2540,12 @@ model LecturerSupervisionQuota {
   academicYearId String   @map("academic_year_id")
   quotaMax       Int      @default(10) @map("quota_max")
   quotaSoftLimit Int      @default(8) @map("quota_soft_limit")
+  /// @deprecated Field snapshot legacy. Source of truth aktual untuk 6 angka
+  /// kuota (Beban Aktif, Booking, Pending KaDep, Overquota Sah, Sisa Normal)
+  /// adalah computed-query di `services/src/repositories/quota.repository.js`.
+  /// Boleh dipakai untuk fast lookup tapi WAJIB di-validate ulang dengan query
+  /// computed sebelum decision making (mis. validasi kuota saat dosen accept
+  /// atau saat KaDep override Path C). Lihat canon §7.3 + BR-06 + HANDOFF §5 P1-07.
   currentCount   Int      @default(0) @map("current_count")
   notes          String?  @db.Text
   createdAt      DateTime @default(now()) @map("created_at")

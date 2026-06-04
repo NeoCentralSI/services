@@ -1,5 +1,4 @@
 import prisma from "../../config/prisma.js";
-import { withSupervisorRoleAliases } from "../../utils/supervisorIntegrity.js";
 
 export function getStudentByUserId(userId) {
   // Schema baru: Student.id adalah foreign key ke User.id
@@ -44,13 +43,13 @@ export async function getThesisHistory(studentId) {
 
 export async function getSupervisorsForThesis(thesisId) {
   const supervisors = await prisma.thesisParticipant.findMany({
-    where: { thesisId, status: "active" },
+    where: { thesisId },
     include: {
+      role: { select: { name: true } },
       lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
-      role: true,
     },
   });
-  return withSupervisorRoleAliases(supervisors);
+  return supervisors;
 }
 
 export function listGuidancesForThesis(thesisId, status) {

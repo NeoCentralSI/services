@@ -532,6 +532,45 @@ paths:
                           type: integer
                           nullable: true
 
+  /assessment/metopen/scores/export:
+    get:
+      tags: [Assessment]
+      summary: Download nilai TA-03A + TA-03B kelas Metopel dalam format Template SIA (xlsx)
+      description: |
+        Hanya Koordinator Matkul Metopen. Menghasilkan workbook xlsx mengikuti
+        layout template SIA (4 kolom skor: Presentasi 20, Proposal konten 40,
+        Proposal struktur 25, Kemampuan merespon 15). Sumber data:
+        `MetopenAttendanceImport` (default: terbaru) untuk daftar peserta, lalu
+        bucketed dari `ResearchMethodScoreDetail` per mahasiswa via mapping
+        CPMK code + role.
+
+        BR-28 (canon v2.2 §5.7.x): Mahasiswa dengan presensi <75% yang sudah
+        di-auto-zero tetap ditulis sebagai 0 di semua kolom skor, dengan note
+        di kolom Keterangan; mahasiswa yang belum dinilai dikosongkan.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: attendanceImportId
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: |
+            Override import presensi sumber export. Tanpa parameter ini service
+            memakai import terbaru (lihat `GET /assessment/metopen/attendance/latest`).
+      responses:
+        '200':
+          description: Workbook xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Bukan Koordinator Matkul Metopen
+        '404':
+          description: Belum ada import presensi yang dapat diekspor
+
   /assessment/metopen/{thesisId}/score:
     get:
       tags: [Assessment]

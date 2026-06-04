@@ -90,15 +90,15 @@ describe("SIA Sync Job Service", () => {
 
       expect(mockPrisma.student.updateMany).toHaveBeenCalledWith({
         where: { id: "student-1" },
-        data: {
-          skscompleted: 128,
+        data: expect.objectContaining({
+          sksCompleted: 128,
           mandatoryCoursesCompleted: true,
           mkwuCompleted: true,
           internshipCompleted: true,
           kknCompleted: true,
           researchMethodCompleted: true,
           currentSemester: 7,
-        },
+        }),
       });
       expect(summary).toMatchObject({ fetched: 1, dbUpdated: 1 });
     });

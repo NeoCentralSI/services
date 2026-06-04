@@ -16,6 +16,7 @@ vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
   findLatestProposalVersion: vi.fn(),
   countActiveSupervisors: vi.fn(),
   submitFinalProposalVersion: vi.fn(),
+  findResearchMethodScoreProgress: vi.fn(),
 }));
 
 let studentRepo;
@@ -111,6 +112,7 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
     studentRepo.getActiveThesisForStudent.mockResolvedValue(baseThesis);
     proposalRepo.findLatestProposalVersion.mockResolvedValue(latestVersion);
     proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+    proposalRepo.findResearchMethodScoreProgress.mockResolvedValue(null);
     proposalRepo.submitFinalProposalVersion.mockResolvedValue({
       ...latestVersion,
       submittedAsFinalAt: new Date(),
@@ -126,5 +128,23 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
     expect(result.alreadySubmitted).toBe(false);
     expect(result.finalProposalVersion).toBeTruthy();
     expect(result.finalProposalVersion.id).toBe("version-2");
+  });
+
+  // F-4.3: lock integritas — versi final tidak boleh ditukar saat penilaian TA-03 berjalan.
+  it("rejects swap versi final saat penilaian TA-03 sudah dimulai", async () => {
+    studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
+    studentRepo.getActiveThesisForStudent.mockResolvedValue(baseThesis);
+    proposalRepo.findLatestProposalVersion.mockResolvedValue(latestVersion);
+    proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+    proposalRepo.findResearchMethodScoreProgress.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: null,
+      isFinalized: false,
+    });
+
+    await expect(submitFinalProposal(studentId)).rejects.toThrow(
+      /Penilaian TA-03 sudah dimulai/i,
+    );
+    expect(proposalRepo.submitFinalProposalVersion).not.toHaveBeenCalled();
   });
 });

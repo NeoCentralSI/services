@@ -29,11 +29,22 @@ import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 const OFFICIAL_SUPERVISOR_ROLES = new Set([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]);
 const PENDING_REVIEW_STATUSES = new Set(ADVISOR_REQUEST_PENDING_REVIEW_STATUSES);
 const PENDING_KADEP_STATUSES = new Set(ADVISOR_REQUEST_PENDING_KADEP_STATUSES);
+// Legacy waiting-assignment statuses (pre-canon v2.2 backfill). Setelah Migration B
+// rows historis ini sudah dimigrasi ke BOOKING_APPROVED + ACTIVE_OFFICIAL, jadi
+// service baru harusnya tidak melihat status berikut di happy path. Hanya
+// dipertahankan untuk read backward-compat.
 const WAITING_ASSIGNMENT_STATUSES = new Set([
   ADVISOR_REQUEST_STATUS.APPROVED,
   ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED,
   ADVISOR_REQUEST_STATUS.REDIRECTED,
 ]);
+// 3-path routing canon §5.2 + BPMN Gateway_TargetOverload:
+// - normal     : Path B (TA-01 dosen kuota hijau/kuning)
+// - escalated  : Path C (TA-01 dosen kuota merah + mahasiswa kokoh)
+// - dept       : Path A (TA-02 jalur departemen tanpa target dosen)
+const ROUTE_TYPE_NORMAL = "normal";
+const ROUTE_TYPE_ESCALATED = "escalated";
+const ROUTE_TYPE_DEPT = "dept";
 const BLOCKING_REQUEST_STATUSES = new Set(ADVISOR_REQUEST_BLOCKING_STATUSES);
 const BOOKING_STATUSES = new Set(ADVISOR_REQUEST_BOOKING_STATUSES);
 const SERIALIZABLE_TX = { isolationLevel: "Serializable" };
@@ -50,6 +61,7 @@ const SUBMISSION_REQUIRED_FIELDS = [
   ["researchObject", "Objek penelitian wajib diisi."],
   ["researchPermitStatus", "Status izin penelitian wajib dipilih."],
 ];
+const ACTIVE_SUPERVISOR_STATUS = "active";
 
 function deriveRequestType(lecturerId) {
   return lecturerId ? "ta_01" : "ta_02";
@@ -181,10 +193,7 @@ function ensureSubmissionFields(payload) {
 }
 
 function isOfficialSupervisorContext(thesis) {
-  return (
-    thesis?.proposalStatus === "accepted" &&
-    !CLOSED_THESIS_STATUSES.includes(thesis?.thesisStatus?.name)
-  );
+  return Boolean(thesis) && !CLOSED_THESIS_STATUSES.includes(thesis?.thesisStatus?.name);
 }
 
 function formatCompactSupervisorNames(supervisors = []) {
@@ -208,7 +217,11 @@ function mapSupervisors(thesis) {
   if (!thesis?.thesisSupervisors?.length || !isOfficialSupervisorContext(thesis)) return [];
 
   return thesis.thesisSupervisors
-    .filter((supervisor) => OFFICIAL_SUPERVISOR_ROLES.has(supervisor.role?.name))
+    .filter(
+      (supervisor) =>
+        supervisor.status === ACTIVE_SUPERVISOR_STATUS &&
+        OFFICIAL_SUPERVISOR_ROLES.has(supervisor.role?.name)
+    )
     .map((supervisor) => ({
       id: supervisor.id,
       lecturerId: supervisor.lecturerId,
@@ -503,9 +516,30 @@ async function approveBookingInTransaction(tx, request, actorUserId, actorRole, 
   const redirectTargetId = approvalMetadata.redirectedTo ?? request.redirectedTo ?? null;
   const assignment = await ensureOperationalSupervisorAssignment(tx, request, assignedLecturerId);
   const oldStatus = request.status;
+  // Preserve routeType menurut canon §5.2 + handoff P0-04:
+  //  - dept (Path A TA-02) → tetap dept setelah KaDep approve
+  //  - escalated (Path C TA-01 overquota) → tetap escalated
+  //  - lainnya → normal (Path B TA-01 dosen langsung)
+  // Jangan downcast escalated → normal karena kehilangan jejak Path C.
+  const preservedRouteType =
+    request.routeType === ROUTE_TYPE_DEPT
+      ? ROUTE_TYPE_DEPT
+      : request.routeType === ROUTE_TYPE_ESCALATED
+        ? ROUTE_TYPE_ESCALATED
+        : ROUTE_TYPE_NORMAL;
+  // BR-06 + handoff P0-02: flag eksplisit "Overquota Sah" — di-set saat
+  // KaDep accept Path C escalated (lecturerOverquotaReason ada → indicate
+  // dosen sebelumnya sudah forward overquota). Path B normal & Path A dept
+  // tidak masuk overquota sah.
+  const isPathCApproval =
+    preservedRouteType === ROUTE_TYPE_ESCALATED &&
+    Boolean(request.lecturerOverquotaReason ?? null);
+  const acceptedOverNormal = isPathCApproval || Boolean(request.acceptedOverNormal);
+
   const updated = await repo.updateStatusWithClient(tx, request.id, {
     status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
-    routeType: request.routeType === "escalated" ? "escalated" : "normal",
+    routeType: preservedRouteType,
+    acceptedOverNormal,
     thesisId: assignment.thesisId,
     lecturerRespondedAt: approvalMetadata.lecturerRespondedAt ?? request.lecturerRespondedAt ?? null,
     reviewedBy: approvalMetadata.reviewedBy ?? request.reviewedBy ?? null,
@@ -538,6 +572,8 @@ async function approveBookingInTransaction(tx, request, actorUserId, actorRole, 
       quotaCurrentCount: currentCount,
       originalLecturerId: request.lecturerId !== assignedLecturerId ? request.lecturerId : null,
       redirectedTo: redirectTargetId,
+      routeType: preservedRouteType,
+      acceptedOverNormal,
     },
   });
 
@@ -546,12 +582,18 @@ async function approveBookingInTransaction(tx, request, actorUserId, actorRole, 
 
 async function escalateBookingToKadepInTransaction(tx, request, lecturerUserId, lecturerOverquotaReason) {
   const oldStatus = request.status;
+  const forwardedAt = new Date();
+  // BR-26 + handoff P0-01: forwardedToKadepAt + forwardedByLecturerId audit
+  // trail wajib di-set bersamaan dengan lecturerOverquotaReason supaya KaDep
+  // bisa lihat "Disampaikan {dosen} pada {forwardedAt}" di Tab Validasi Kuota.
   const updated = await repo.updateStatusWithClient(tx, request.id, {
     status: ADVISOR_REQUEST_STATUS.PENDING_KADEP,
-    routeType: "escalated",
-    lecturerRespondedAt: new Date(),
+    routeType: ROUTE_TYPE_ESCALATED,
+    lecturerRespondedAt: forwardedAt,
     lecturerApprovalNote: lecturerOverquotaReason,
     lecturerOverquotaReason,
+    forwardedToKadepAt: forwardedAt,
+    forwardedByLecturerId: lecturerUserId,
   });
 
   await writeAdvisorAuditLog(tx, {
@@ -565,6 +607,10 @@ async function escalateBookingToKadepInTransaction(tx, request, lecturerUserId, 
     oldStatus,
     newStatus: ADVISOR_REQUEST_STATUS.PENDING_KADEP,
     reason: lecturerOverquotaReason,
+    extraMetadata: {
+      forwardedToKadepAt: forwardedAt.toISOString(),
+      forwardedByLecturerId: lecturerUserId,
+    },
   });
 
   return updated;
@@ -646,6 +692,11 @@ export async function submitRequest(userId, data) {
     if (!topic) {
       throw new NotFoundError("Topik tidak ditemukan");
     }
+    if (!topic.scienceGroupId) {
+      throw new BadRequestError(
+        "Topik penelitian belum terhubung ke KBK. Minta Sekdep/Admin memperbarui master topik sebelum mengajukan TA-01/TA-02.",
+      );
+    }
 
     let lecturer = null;
     let quotaSnapshot = null;
@@ -668,7 +719,6 @@ export async function submitRequest(userId, data) {
 
     const isTa02DepartmentRoute = !cleanLecturerId;
     const isRedQuotaRoute = Boolean(cleanLecturerId) && requiresDepartmentRoute(quotaSnapshot);
-    const usesDepartmentReview = isTa02DepartmentRoute || isRedQuotaRoute;
 
     if (
       isRedQuotaRoute &&
@@ -684,7 +734,14 @@ export async function submitRequest(userId, data) {
     const initialStatus = isTa02DepartmentRoute
       ? ADVISOR_REQUEST_STATUS.PENDING_KADEP
       : ADVISOR_REQUEST_STATUS.PENDING;
-    const initialRouteType = usesDepartmentReview ? "escalated" : "normal";
+    // Canon §5.2 + handoff P0-04: TA-02 = Path A (dept), TA-01 escalated = Path C,
+    // TA-01 normal = Path B. TA-02 TIDAK boleh memakai routeType='escalated' karena
+    // semantik berbeda (departemen sourcing vs overquota override).
+    const initialRouteType = isTa02DepartmentRoute
+      ? ROUTE_TYPE_DEPT
+      : isRedQuotaRoute
+        ? ROUTE_TYPE_ESCALATED
+        : ROUTE_TYPE_NORMAL;
 
     const request = await repo.createWithClient(tx, {
       studentId,
@@ -725,11 +782,11 @@ export async function submitRequest(userId, data) {
         routeType: initialRouteType,
         requestType,
         trafficLight: quotaSnapshot?.trafficLight ?? null,
-        submissionMode: cleanLecturerId
-          ? initialRouteType === "escalated"
+        submissionMode: !cleanLecturerId
+          ? "department_open"
+          : initialRouteType === ROUTE_TYPE_ESCALATED
             ? "quota_red_lecturer_review"
-            : "lecturer_selected"
-          : "department_open",
+            : "lecturer_selected",
       },
     });
 
@@ -797,6 +854,11 @@ export async function saveMyDraft(userId, data) {
     const topic = await repo.findTopicById(topicId);
     if (!topic) {
       throw new NotFoundError("Topik tidak ditemukan");
+    }
+    if (!topic.scienceGroupId) {
+      throw new BadRequestError(
+        "Topik penelitian belum terhubung ke KBK. Minta Sekdep/Admin memperbarui master topik sebelum mengajukan TA-01/TA-02.",
+      );
     }
   }
 
@@ -1385,22 +1447,39 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
 }
 
 /**
- * KaDep assigns advisor â€” creates ThesisSupervisors record
+ * KaDep assigns advisor — creates ThesisSupervisors record.
+ *
+ * NOTE (canon v2.2 + handoff §6.2): jalur happy path SIMPTA tidak lagi memakai
+ * fungsi ini secara independen. `decideByKadep` action='approve'/'override'/
+ * 'redirect' sudah langsung menjalankan `approveBookingInTransaction` yang
+ * meng-create supervisor assignment + mengubah status ke BOOKING_APPROVED
+ * dalam satu transaksi. Fungsi ini dipertahankan untuk:
+ *   - backward compat helper external (legacy admin tools)
+ *   - kemungkinan re-assign manual saat data lama tertinggal status legacy
+ * Status yang valid sebagai input: canonical BOOKING_APPROVED + legacy
+ * (APPROVED/OVERRIDE_APPROVED/REDIRECTED) yang historis belum ditetapkan.
+ * Setelah assignment, status diset ke ACTIVE_OFFICIAL (canon §5.2),
+ * BUKAN 'assigned' (legacy).
  */
 export async function assignAdvisor(requestId, kadepUserId) {
   const request = await repo.findById(requestId);
   if (!request) throw new NotFoundError("Pengajuan tidak ditemukan");
 
-  const validStatuses = ["approved", "override_approved", "redirected"];
+  const validStatuses = [
+    ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
+    ADVISOR_REQUEST_STATUS.APPROVED,
+    ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED,
+    ADVISOR_REQUEST_STATUS.REDIRECTED,
+  ];
   if (!validStatuses.includes(request.status)) {
     throw new BadRequestError(
-      `Pengajuan harus berstatus approved/override_approved/redirected, status saat ini: ${request.status}`
+      `Pengajuan harus berstatus booking_approved/approved/override_approved/redirected, status saat ini: ${request.status}`,
     );
   }
 
-  // Determine which lecturer gets assigned
+  // Tentukan dosen tujuan: redirected_to bila ada, fallback ke lecturer_id.
   const assignedLecturerId =
-    request.status === "redirected" && request.redirectedTo
+    request.status === ADVISOR_REQUEST_STATUS.REDIRECTED && request.redirectedTo
       ? request.redirectedTo
       : request.lecturerId;
 
@@ -1466,7 +1545,7 @@ export async function assignAdvisor(requestId, kadepUserId) {
     await tx.thesisAdvisorRequest.update({
       where: { id: requestId },
       data: {
-        status: "assigned",
+        status: ADVISOR_REQUEST_STATUS.ACTIVE_OFFICIAL,
         reviewedBy: kadepUserId,
         reviewedAt: new Date(),
       },
