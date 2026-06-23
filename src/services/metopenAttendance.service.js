@@ -343,6 +343,90 @@ export async function assertAttendanceEligibleForManualReview(thesisId, actorUse
   return { allowed: true, eligibility, scoreRecord: null };
 }
 
+async function findScoreableThesesForAttendanceRecords(records) {
+  const studentIds = [...new Set(records.map((record) => record.studentId).filter(Boolean))];
+  if (studentIds.length === 0) return [];
+  return repo.findScoreableThesesByStudentIds(studentIds, CLOSED_THESIS_STATUSES);
+}
+
+/**
+ * F-4.2 — Dry-run preview presensi sebelum commit. Auto-zero presensi <75%
+ * bersifat PERMANEN (canon §5.7.3, BR-28) dan menghapus rubrik TA-03A/B, jadi
+ * Koordinator wajib diberi pratinjau daftar mahasiswa yang AKAN di-auto-zero
+ * sebelum benar-benar memproses file. Fungsi ini TIDAK menulis apa pun ke DB.
+ */
+export async function previewMetopenAttendance(file) {
+  if (!file?.buffer) {
+    throw new BadRequestError("File presensi wajib diunggah");
+  }
+
+  const parsed = parseMetopenAttendanceWorkbook(file.buffer);
+  const identityNumbers = parsed.records.map((record) => record.identityNumber);
+  const students = await repo.findStudentsByIdentityNumbers(identityNumbers);
+  const studentByIdentity = new Map(students.map((student) => [student.user.identityNumber, student]));
+
+  const records = parsed.records.map((record) => {
+    const student = studentByIdentity.get(record.identityNumber);
+    return {
+      ...record,
+      studentId: student?.id ?? null,
+      studentName: record.studentName ?? student?.user?.fullName ?? null,
+    };
+  });
+
+  const matchedRows = records.filter((record) => record.studentId != null).length;
+  const eligibleRows = records.filter((record) => record.isEligible).length;
+  const ineligibleRows = records.length - eligibleRows;
+
+  // Hitung dampak nyata auto-zero: hanya mahasiswa <75% yang punya thesis
+  // scoreable (belum ditutup). Yang skornya sudah final akan di-skip (BR-21).
+  const ineligibleMatched = records.filter((record) => !record.isEligible && record.studentId != null);
+  const theses = await findScoreableThesesForAttendanceRecords(ineligibleMatched);
+  const thesisByStudentId = new Map(theses.map((thesis) => [thesis.studentId, thesis]));
+
+  const willAutoZero = [];
+  const willSkipFinalized = [];
+  for (const record of ineligibleMatched) {
+    const thesis = thesisByStudentId.get(record.studentId);
+    if (!thesis) continue; // tidak ada thesis scoreable → tidak ada yang di-zero
+    const score = thesis.researchMethodScores?.[0];
+    const target = {
+      identityNumber: record.identityNumber,
+      studentName: record.studentName,
+      attendancePercentage: record.attendancePercentage,
+      thesisTitle: thesis.title ?? null,
+    };
+    if (score?.isFinalized) {
+      willSkipFinalized.push(target);
+    } else {
+      willAutoZero.push(target);
+    }
+  }
+
+  return {
+    metadata: parsed.metadata,
+    thresholdPercent: METOPEN_ATTENDANCE_THRESHOLD,
+    totals: {
+      totalRows: records.length,
+      matchedRows,
+      unmatchedRows: records.length - matchedRows,
+      eligibleRows,
+      ineligibleRows,
+      willAutoZeroCount: willAutoZero.length,
+      willSkipFinalizedCount: willSkipFinalized.length,
+    },
+    willAutoZero,
+    willSkipFinalized,
+    unmatchedRows: records
+      .filter((record) => record.studentId == null)
+      .map((record) => ({
+        identityNumber: record.identityNumber,
+        studentName: record.studentName,
+        attendancePercentage: record.attendancePercentage,
+      })),
+  };
+}
+
 export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
   if (!file?.buffer) {
     throw new BadRequestError("File presensi wajib diunggah");
@@ -410,10 +494,7 @@ export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
   });
 
   const ineligibleRecords = await repo.findIneligibleRecordsForImport(importId);
-  const theses = await repo.findScoreableThesesByStudentIds(
-    [...new Set(ineligibleRecords.map((record) => record.studentId).filter(Boolean))],
-    CLOSED_THESIS_STATUSES,
-  );
+  const theses = await findScoreableThesesForAttendanceRecords(ineligibleRecords);
   const ineligibleByStudentId = new Map(ineligibleRecords.map((record) => [record.studentId, record]));
 
   const autoZeroedTheses = [];
@@ -441,6 +522,21 @@ export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
       attendancePercentage: attendanceRecord.attendancePercentage,
     });
   }
+
+  const eligibleRecords = await repo.findEligibleRecordsForImport(importId);
+  const eligibleTheses = await findScoreableThesesForAttendanceRecords(eligibleRecords);
+  const eligibleByStudentId = new Map(eligibleRecords.map((record) => [record.studentId, record]));
+  const autoZeroClearItems = eligibleTheses.flatMap((thesis) => {
+    const score = thesis.researchMethodScores?.[0];
+    const attendanceRecord = eligibleByStudentId.get(thesis.studentId);
+    if (!attendanceRecord || !score?.attendanceAutoZeroedAt) return [];
+
+    return [{
+      thesisId: thesis.id,
+      attendanceRecordId: attendanceRecord.id,
+    }];
+  });
+  await repo.clearAttendanceAutoZeroForTheses(autoZeroClearItems);
 
   const updatedImport = await repo.updateAttendanceImportCounts(importId, {
     autoZeroedCount: autoZeroedTheses.length,

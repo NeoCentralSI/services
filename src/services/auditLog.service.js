@@ -36,6 +36,9 @@ export const ENTITY_TYPES = {
   THESIS_CHANGE_REQUEST: "THESIS_CHANGE_REQUEST",
   THESIS_GUIDANCE: "THESIS_GUIDANCE",
   THESIS_MILESTONE: "THESIS_MILESTONE",
+  // Request Pembimbing 2 (modul TA) — record internal berbasis Notification,
+  // dibedakan dari ThesisAdvisorRequest (TA-01/TA-02) agar audit trail akurat.
+  SUPERVISOR2_REQUEST: "SUPERVISOR2_REQUEST",
 };
 
 export async function logAudit({

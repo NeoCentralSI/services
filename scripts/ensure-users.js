@@ -28,7 +28,10 @@ const usersData = [
     fullName: 'Afriyanti Dwi Kartika, M.T',
     identityType: 'NIP',
     identityNumber: '198904212019032024',
-    roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+    // Sekdep merangkap Koordinator Matkul Metopen di lingkungan dev/UAT
+    // (02_AkunLogin.md). KOORDINATOR_METOPEN wajib agar /kelola/metopen/* (TA-03B,
+    // monitoring, upload presensi) bisa diakses sekdep_si.
+    roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM, ROLES.KOORDINATOR_METOPEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
     isLecturer: true,
   },
   {
@@ -310,10 +313,17 @@ async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
   const allUsers = await prisma.user.findMany({
     select: { id: true, email: true, identityNumber: true },
   });
+  // Jangan hapus akun data UAT: dummy (@dummy.ac.id) & edge-case (NIM 2399xxxxxx)
+  // di-seed oleh seed-metopen-monitoring.mjs. Tanpa guard ini, menjalankan
+  // ensure-users SETELAH monitoring akan menghapus 19 mahasiswa edge + 4 dosen dummy.
+  const isUatFixture = (u) =>
+    (u.email && u.email.toLowerCase().endsWith('@dummy.ac.id')) ||
+    (u.identityNumber && u.identityNumber.startsWith('2399'));
   const toDelete = allUsers.filter(
     (u) =>
       !allowedIdentityNumbers.has(u.identityNumber) &&
-      !(u.email && allowedEmails.has(u.email.toLowerCase()))
+      !(u.email && allowedEmails.has(u.email.toLowerCase())) &&
+      !isUatFixture(u)
   );
   if (toDelete.length === 0) {
     console.log('  Tidak ada user redundan.');
@@ -329,18 +339,13 @@ async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
       const hasStudent = await prisma.student.findUnique({ where: { id } });
 
       if (hasLecturer) {
-        await prisma.thesisSupervisors.deleteMany({ where: { lecturerId: id } });
+        await prisma.thesisParticipant.deleteMany({ where: { lecturerId: id } });
         await prisma.thesisSeminarExaminer.deleteMany({ where: { lecturerId: id } });
         await prisma.thesisDefenceExaminer.deleteMany({ where: { lecturerId: id } });
         await prisma.thesisAdvisorRequest.deleteMany({ where: { lecturerId: id } });
         await prisma.thesisAdvisorRequest.updateMany({ where: { redirectedTo: id }, data: { redirectedTo: null } });
         await prisma.thesisTopic.updateMany({ where: { lecturerId: id }, data: { lecturerId: null } });
         await prisma.thesisGuidance.updateMany({ where: { supervisorId: id }, data: { supervisorId: null } });
-        const metopenClasses = await prisma.metopenClass.findMany({ where: { lecturerId: id }, select: { id: true } });
-        for (const mc of metopenClasses) {
-          await prisma.metopenClassStudent.deleteMany({ where: { classId: mc.id } });
-        }
-        await prisma.metopenClass.deleteMany({ where: { lecturerId: id } });
         await prisma.lecturerSupervisionQuota.deleteMany({ where: { lecturerId: id } });
         await prisma.lecturerAvailability.deleteMany({ where: { lecturerId: id } });
         await prisma.thesisChangeRequestApproval.deleteMany({ where: { lecturerId: id } });
@@ -351,15 +356,17 @@ async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
       if (hasStudent) {
         const theses = await prisma.thesis.findMany({ where: { studentId: id }, select: { id: true } });
         for (const t of theses) {
-          await prisma.thesisSupervisors.deleteMany({ where: { thesisId: t.id } });
+          await prisma.researchMethodScoreDetail.deleteMany({ where: { researchMethodScore: { thesisId: t.id } } });
+          await prisma.researchMethodScore.deleteMany({ where: { thesisId: t.id } });
+          await prisma.thesisParticipant.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisMilestone.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisGuidance.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisSeminar.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisDefence.deleteMany({ where: { thesisId: t.id } });
-          await prisma.metopenClassStudent.deleteMany({ where: { studentId: id } });
         }
-        await prisma.thesis.deleteMany({ where: { studentId: id } });
+        await prisma.thesisAdvisorRequestDraft.deleteMany({ where: { studentId: id } });
         await prisma.thesisAdvisorRequest.deleteMany({ where: { studentId: id } });
+        await prisma.thesis.deleteMany({ where: { studentId: id } });
         await prisma.student.delete({ where: { id } });
       }
 
@@ -381,6 +388,32 @@ async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
     } catch (err) {
       console.error(`    Gagal hapus ${u.email}:`, err.message);
     }
+  }
+}
+
+/**
+ * BR-19: Koordinator Matkul Metopen single-role. Base seed (prisma/seed.js) bisa
+ * memberikan role ini ke dosen lain (mis. Husnil/Dr. Doe). Untuk UAT, sekdep_si
+ * harus menjadi SATU-SATUNYA pemegang. Hapus assignment aktif Koordinator dari
+ * user selain sekdep_si (lintas semua row role bernama sama, termasuk legacy).
+ */
+async function reconcileKoordinatorMetopen() {
+  const sekdep = await prisma.user.findFirst({ where: { email: 'sekdep_si@fti.unand.ac.id' } });
+  if (!sekdep) {
+    console.log('  [SKIP] sekdep_si tidak ditemukan, lewati rekonsiliasi Koordinator Metopen');
+    return;
+  }
+  const koordRoles = await prisma.userRole.findMany({ where: { name: ROLES.KOORDINATOR_METOPEN }, select: { id: true } });
+  const roleIds = koordRoles.map((r) => r.id);
+  if (roleIds.length === 0) return;
+
+  const removed = await prisma.userHasRole.deleteMany({
+    where: { roleId: { in: roleIds }, userId: { not: sekdep.id } },
+  });
+  if (removed.count > 0) {
+    console.log(`  Koordinator Metopen: ${removed.count} assignment non-sekdep dihapus (BR-19 single-role)`);
+  } else {
+    console.log('  Koordinator Metopen: sudah tunggal (sekdep_si)');
   }
 }
 
@@ -443,6 +476,9 @@ async function main() {
 
   console.log('\n--- Upsert user dari usersData ---');
   await ensureAllowedUsers(passwordHash);
+
+  console.log('\n--- Rekonsiliasi Koordinator Matkul Metopen (BR-19 single-role) ---');
+  await reconcileKoordinatorMetopen();
 
   console.log('\n--- Pastikan kuota bimbingan ada untuk semua pembimbing ---');
   await ensureSupervisionQuotas();

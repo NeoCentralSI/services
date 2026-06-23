@@ -169,6 +169,25 @@ export function findIneligibleRecordsForImport(importId, client = prisma) {
   });
 }
 
+export function findEligibleRecordsForImport(importId, client = prisma) {
+  return client.metopenAttendanceRecord.findMany({
+    where: {
+      importId,
+      isEligible: true,
+      studentId: { not: null },
+    },
+    select: {
+      id: true,
+      studentId: true,
+      identityNumber: true,
+      studentName: true,
+      attendancePercentage: true,
+      presentCount: true,
+      totalMeetings: true,
+    },
+  });
+}
+
 export function findScoreableThesesByStudentIds(studentIds, closedStatusNames, client = prisma) {
   if (!studentIds.length) return [];
 
@@ -195,6 +214,56 @@ export function findScoreableThesesByStudentIds(studentIds, closedStatusNames, c
         },
       },
     },
+  });
+}
+
+export function clearAttendanceAutoZeroForTheses(items, client = prisma) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  return client.$transaction(async (tx) => {
+    const cleared = [];
+
+    for (const item of items) {
+      const existing = await tx.researchMethodScore.findUnique({
+        where: { thesisId: item.thesisId },
+        select: {
+          id: true,
+          thesisId: true,
+          attendanceAutoZeroedAt: true,
+        },
+      });
+
+      if (!existing?.attendanceAutoZeroedAt) continue;
+
+      await tx.researchMethodScoreDetail.deleteMany({
+        where: { researchMethodScoreId: existing.id },
+      });
+
+      const scoreRecord = await tx.researchMethodScore.update({
+        where: { thesisId: item.thesisId },
+        data: {
+          supervisorId: null,
+          supervisorScore: null,
+          lecturerId: null,
+          lecturerScore: null,
+          finalScore: null,
+          isFinalized: false,
+          finalizedBy: null,
+          finalizedAt: null,
+          calculatedAt: null,
+          coSignedByLecturerId: null,
+          coSignedAt: null,
+          coSignNote: null,
+          attendanceRecordId: item.attendanceRecordId,
+          attendanceAutoZeroedAt: null,
+          attendanceAutoZeroReason: null,
+        },
+      });
+
+      cleared.push(scoreRecord);
+    }
+
+    return cleared;
   });
 }
 

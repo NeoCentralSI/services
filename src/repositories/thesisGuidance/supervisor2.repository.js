@@ -64,14 +64,40 @@ export async function hasPembimbing2(thesisId) {
 }
 
 /**
- * Check if there's already a pending request for Pembimbing 2
+ * Check if a thesis already has an active Pembimbing 1 assigned.
+ * (Berbeda dari hasPembimbing1Role yang mengecek role akun dosen.)
+ */
+export async function hasPembimbing1(thesisId) {
+	const existing = await prisma.thesisParticipant.findFirst({
+		where: {
+			thesisId,
+			status: "active",
+			role: { is: { name: ROLES.PEMBIMBING_1 } },
+		},
+	});
+	return !!existing;
+}
+
+/**
+ * Internal state-tracking titles untuk alur Pembimbing 2 (dua tahap):
+ * - REQUEST_SUPERVISOR_2        → menunggu kesediaan dosen target
+ * - REQUEST_SUPERVISOR_2_KADEP  → dosen bersedia, menunggu persetujuan KaDep
+ * Keduanya disembunyikan dari feed notifikasi user (lihat notification.repository.js).
+ */
+export const SUPERVISOR2_STAGE_TITLES = {
+	LECTURER: "REQUEST_SUPERVISOR_2",
+	KADEP: "REQUEST_SUPERVISOR_2_KADEP",
+};
+
+/**
+ * Check if there's already a pending request for Pembimbing 2 (tahap mana pun).
  */
 export async function findPendingSupervisor2Request(thesisId) {
 	return prisma.notification.findFirst({
 		where: {
-			title: "REQUEST_SUPERVISOR_2",
+			title: { in: [SUPERVISOR2_STAGE_TITLES.LECTURER, SUPERVISOR2_STAGE_TITLES.KADEP] },
 			isRead: false,
-			message: { contains: thesisId },
+			message: { startsWith: `${thesisId}|` },
 		},
 		orderBy: { createdAt: "desc" },
 	});
@@ -85,8 +111,26 @@ export async function createSupervisor2Request({ lecturerId, thesisId, studentId
 	return prisma.notification.create({
 		data: {
 			userId: lecturerId,
-			title: "REQUEST_SUPERVISOR_2",
+			title: SUPERVISOR2_STAGE_TITLES.LECTURER,
 			message: `${thesisId}|${studentId}`,
+			isRead: false,
+		},
+	});
+}
+
+/**
+ * Create tahap-2 record (menunggu KaDep). Message: "thesisId|studentId|lecturerId".
+ * Optional `client` untuk dipakai dalam prisma.$transaction.
+ */
+export async function createSupervisor2KadepRequest(
+	{ kadepUserId, thesisId, studentId, lecturerId },
+	client = prisma,
+) {
+	return client.notification.create({
+		data: {
+			userId: kadepUserId,
+			title: SUPERVISOR2_STAGE_TITLES.KADEP,
+			message: `${thesisId}|${studentId}|${lecturerId}`,
 			isRead: false,
 		},
 	});
@@ -100,27 +144,73 @@ export async function findSupervisor2RequestById(requestId, lecturerId) {
 		where: {
 			id: requestId,
 			userId: lecturerId,
-			title: "REQUEST_SUPERVISOR_2",
+			title: SUPERVISOR2_STAGE_TITLES.LECTURER,
 			isRead: false,
 		},
 	});
 }
 
 /**
- * Mark a Pembimbing 2 request notification as read (processed)
+ * Find a pending tahap-KaDep request by ID (scoped ke akun KaDep pemanggil).
  */
-export async function markSupervisor2RequestProcessed(requestId) {
-	return prisma.notification.update({
+export async function findSupervisor2KadepRequestById(requestId, kadepUserId) {
+	return prisma.notification.findFirst({
+		where: {
+			id: requestId,
+			userId: kadepUserId,
+			title: SUPERVISOR2_STAGE_TITLES.KADEP,
+			isRead: false,
+		},
+	});
+}
+
+/**
+ * Get all pending tahap-KaDep requests for a KaDep user.
+ */
+export async function findPendingSupervisor2KadepRequests(kadepUserId) {
+	return prisma.notification.findMany({
+		where: {
+			userId: kadepUserId,
+			title: SUPERVISOR2_STAGE_TITLES.KADEP,
+			isRead: false,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+}
+
+/**
+ * Tutup SEMUA record request P2 (kedua tahap) untuk satu thesis — dipakai saat
+ * keputusan final (approve/reject KaDep) atau pembatalan mahasiswa, supaya tidak
+ * ada record tahap lain yang tersisa menggantung.
+ */
+export async function markSupervisor2RequestsProcessedForThesis(thesisId, client = prisma) {
+	return client.notification.updateMany({
+		where: {
+			title: { in: [SUPERVISOR2_STAGE_TITLES.LECTURER, SUPERVISOR2_STAGE_TITLES.KADEP] },
+			isRead: false,
+			message: { startsWith: `${thesisId}|` },
+		},
+		data: { isRead: true },
+	});
+}
+
+/**
+ * Mark a Pembimbing 2 request notification as read (processed).
+ * Optional `client` lets caller run this inside a prisma.$transaction.
+ */
+export async function markSupervisor2RequestProcessed(requestId, client = prisma) {
+	return client.notification.update({
 		where: { id: requestId },
 		data: { isRead: true },
 	});
 }
 
 /**
- * Create ThesisSupervisors record for Pembimbing 2
+ * Create ThesisSupervisors record for Pembimbing 2.
+ * Optional `client` lets caller run this inside a prisma.$transaction.
  */
-export async function createThesisSupervisors(thesisId, lecturerId) {
-	const pembimbing2Role = await prisma.userRole.findFirst({
+export async function createThesisSupervisors(thesisId, lecturerId, client = prisma) {
+	const pembimbing2Role = await client.userRole.findFirst({
 		where: { name: ROLES.PEMBIMBING_2 },
 		select: { id: true },
 	});
@@ -130,7 +220,7 @@ export async function createThesisSupervisors(thesisId, lecturerId) {
 		throw err;
 	}
 
-	return prisma.thesisParticipant.create({
+	return client.thesisParticipant.create({
 		data: {
 			thesisId,
 			lecturerId,
@@ -147,78 +237,14 @@ export async function findPendingSupervisor2RequestsForLecturer(lecturerId) {
 	return prisma.notification.findMany({
 		where: {
 			userId: lecturerId,
-			title: "REQUEST_SUPERVISOR_2",
+			title: SUPERVISOR2_STAGE_TITLES.LECTURER,
 			isRead: false,
 		},
 		orderBy: { createdAt: "desc" },
 	});
 }
 
-/**
- * Count completed theses as Pembimbing 2 (thesis status = "Selesai")
- */
-export async function countCompletedAsSupervisor2(lecturerId) {
-	const selesaiStatus = await prisma.thesisStatus.findFirst({
-		where: { name: "Selesai" },
-		select: { id: true },
-	});
-	if (!selesaiStatus) return 0;
-
-	const count = await prisma.thesisParticipant.count({
-		where: {
-			lecturerId,
-			status: "active",
-			role: { is: { name: ROLES.PEMBIMBING_2 } },
-			thesis: {
-				thesisStatusId: selesaiStatus.id,
-			},
-		},
-	});
-	return count;
-}
-
-/**
- * Check if lecturer already has Pembimbing 1 role
- */
-export async function hasPembimbing1Role(lecturerId) {
-	const pembimbing1Role = await prisma.userRole.findFirst({
-		where: { name: ROLES.PEMBIMBING_1 },
-		select: { id: true },
-	});
-	if (!pembimbing1Role) return false;
-
-	const existing = await prisma.userHasRole.findFirst({
-		where: {
-			userId: lecturerId,
-			roleId: pembimbing1Role.id,
-		},
-	});
-	return !!existing;
-}
-
-/**
- * Add Pembimbing 1 role to a lecturer
- */
-export async function addPembimbing1Role(lecturerId) {
-	const pembimbing1Role = await prisma.userRole.findFirst({
-		where: { name: ROLES.PEMBIMBING_1 },
-		select: { id: true },
-	});
-	if (!pembimbing1Role) return null;
-
-	// Upsert to prevent duplicate
-	return prisma.userHasRole.upsert({
-		where: {
-			userId_roleId: {
-				userId: lecturerId,
-				roleId: pembimbing1Role.id,
-			},
-		},
-		create: {
-			userId: lecturerId,
-			roleId: pembimbing1Role.id,
-			status: "active",
-		},
-		update: {},
-	});
-}
+// Auto-promotion P2→P1 DIHAPUS (audit pass 2 F2-4, keputusan OQ-2.1 2026-06-10):
+// kebijakan role akademik adalah wewenang departemen (KaDep/Admin), bukan
+// hitungan otomatis sistem. Helper countCompletedAsSupervisor2 /
+// hasPembimbing1Role / addPembimbing1Role sengaja tidak disediakan lagi.

@@ -8,9 +8,11 @@ import * as metopenMonitoringController from "../controllers/metopenMonitoring.c
 import {
   getCriteriaByFormCode,
   getSupervisorScoringQueue,
+  getSupervisorScoringHistory,
   submitSupervisorScore,
   coSignSupervisorScoreAndSync,
   getMetopenScoringQueue,
+  getMetopenScoringHistory,
   submitMetopenScore,
   publishFinalScore,
   getScoresByThesisForSupervisor,
@@ -67,6 +69,23 @@ router.get(
   async (req, res, next) => {
     try {
       const data = await getSupervisorScoringQueue(req.user.sub);
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /assessment/supervisor/history
+ * Read-only history for TA-03A items that already have score progress/final data.
+ */
+router.get(
+  "/supervisor/history",
+  requireAnyRole(SUPERVISOR_ROLES),
+  async (req, res, next) => {
+    try {
+      const data = await getSupervisorScoringHistory(req.user.sub);
       res.json({ success: true, data });
     } catch (err) {
       next(err);
@@ -181,6 +200,23 @@ router.get(
 );
 
 /**
+ * GET /assessment/metopen/history
+ * Read-only history for TA-03B items already scored / auto-zeroed.
+ */
+router.get(
+  "/metopen/history",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  async (req, res, next) => {
+    try {
+      const data = await getMetopenScoringHistory(req.user.sub);
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
  * GET /assessment/metopen/attendance/latest
  * Latest Metopel attendance XLSX import summary.
  */
@@ -188,6 +224,19 @@ router.get(
   "/metopen/attendance/latest",
   requireAnyRole(KOORDINATOR_METOPEN_ROLES),
   metopenAttendanceController.getLatestAttendanceImport,
+);
+
+/**
+ * POST /assessment/metopen/attendance/preview
+ * F-4.2: dry-run pratinjau dampak auto-zero (<75% PERMANEN) sebelum commit.
+ * Tidak menulis DB; hanya parse + hitung daftar yang akan di-auto-zero.
+ * Multipart field: file
+ */
+router.post(
+  "/metopen/attendance/preview",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  uploadExcelFile,
+  metopenAttendanceController.previewAttendance,
 );
 
 /**

@@ -1,6 +1,6 @@
 import express from "express";
 import { authGuard, requireAnyRole, requireRole } from "../middlewares/auth.middleware.js";
-import { ROLES, LECTURER_ROLES, DEPARTMENT_ROLES } from "../constants/roles.js";
+import { ROLES, LECTURER_ROLES } from "../constants/roles.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import {
   approveComponentsSchema,
@@ -388,30 +388,28 @@ router.post("/student/guidance/generate-log", requireAnyRole([ROLES.MAHASISWA]),
 
 router.get("/student/available-supervisors-2", requireAnyRole([ROLES.MAHASISWA]), async (req, res, next) => {
   try {
-    const thesis = await studentRepo.getActiveThesisForStudent(req.user.sub);
-    if (!thesis) return res.json({ success: true, data: [] });
-    const lecturers = await lecturerRepo.findEligibleTransferLecturers(thesis.id);
-    res.json({ success: true, data: lecturers.map((l) => ({ id: l.id, fullName: l.user?.fullName ?? null, email: l.user?.email ?? null, identityNumber: l.user?.identityNumber ?? null, scienceGroup: l.scienceGroup?.name ?? null })) });
+    const data = await supervisor2Service.getAvailableSupervisor2Service(req.user.sub);
+    res.json({ success: true, data });
   } catch (err) { next(err); }
 });
 
 router.post("/student/request-supervisor-2", requireAnyRole([ROLES.MAHASISWA]), async (req, res, next) => {
   try {
-    const data = await supervisor2Service.requestSupervisor2(req.user.sub, req.body);
+    const data = await supervisor2Service.requestSupervisor2Service(req.user.sub, req.body);
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });
 
 router.get("/student/pending-supervisor-2-request", requireAnyRole([ROLES.MAHASISWA]), async (req, res, next) => {
   try {
-    const data = await supervisor2Service.getPendingRequest(req.user.sub);
+    const data = await supervisor2Service.getPendingSupervisor2RequestService(req.user.sub);
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });
 
 router.delete("/student/cancel-supervisor-2-request", requireAnyRole([ROLES.MAHASISWA]), async (req, res, next) => {
   try {
-    const data = await supervisor2Service.cancelRequest(req.user.sub);
+    const data = await supervisor2Service.cancelSupervisor2RequestService(req.user.sub);
     res.json({ success: true, ...data });
   } catch (err) { next(err); }
 });
@@ -422,7 +420,8 @@ router.delete("/student/cancel-supervisor-2-request", requireAnyRole([ROLES.MAHA
 
 router.get("/lecturer/my-students", requireAnyRole(LECTURER_ROLES), async (req, res, next) => {
   try {
-    const result = await getMyStudentsService(req.user.sub);
+    const scope = req.query.scope === "archive" ? "archive" : "active";
+    const result = await getMyStudentsService(req.user.sub, undefined, { scope });
     res.json({ success: true, data: result.students });
   } catch (err) { next(err); }
 });
@@ -568,22 +567,46 @@ router.get("/lecturer/guidance-history/:studentId", requireAnyRole(LECTURER_ROLE
 
 router.get("/lecturer/supervisor2-requests", requireAnyRole(LECTURER_ROLES), async (req, res, next) => {
   try {
-    const data = await supervisor2Service.getRequestsForLecturer(req.user.sub);
+    const data = await supervisor2Service.getSupervisor2RequestsService(req.user.sub);
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });
 
 router.post("/lecturer/supervisor2-requests/:id/approve", requireAnyRole(LECTURER_ROLES), async (req, res, next) => {
   try {
-    const data = await supervisor2Service.approveRequest(req.user.sub, req.params.id);
-    res.json({ success: true, data, message: "Permintaan Pembimbing 2 disetujui." });
+    const data = await supervisor2Service.approveSupervisor2RequestService(req.user.sub, req.params.id);
+    res.json({ success: true, data, message: "Kesediaan dicatat — permintaan diteruskan ke Ketua Departemen untuk persetujuan akhir." });
   } catch (err) { next(err); }
 });
 
 router.post("/lecturer/supervisor2-requests/:id/reject", requireAnyRole(LECTURER_ROLES), async (req, res, next) => {
   try {
-    const data = await supervisor2Service.rejectRequest(req.user.sub, req.params.id, req.body.reason);
+    const data = await supervisor2Service.rejectSupervisor2RequestService(req.user.sub, req.params.id, { reason: req.body.reason });
     res.json({ success: true, data, message: "Permintaan Pembimbing 2 ditolak." });
+  } catch (err) { next(err); }
+});
+
+// ── Persetujuan akhir Pembimbing 2 oleh KaDep (audit pass 2 F2-5 / OQ-2.2) ──
+// Selaras Panduan TA: perubahan komposisi pembimbing disetujui Ketua Departemen.
+
+router.get("/kadep/supervisor2-requests", requireRole(ROLES.KETUA_DEPARTEMEN), async (req, res, next) => {
+  try {
+    const data = await supervisor2Service.getSupervisor2KadepQueueService(req.user.sub);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+router.post("/kadep/supervisor2-requests/:id/approve", requireRole(ROLES.KETUA_DEPARTEMEN), async (req, res, next) => {
+  try {
+    const data = await supervisor2Service.decideSupervisor2ByKadepService(req.user.sub, req.params.id, { approve: true });
+    res.json({ success: true, data, message: "Pembimbing 2 disetujui. Perbarui Formulir TA-04 batch periode jika sudah pernah difinalisasi." });
+  } catch (err) { next(err); }
+});
+
+router.post("/kadep/supervisor2-requests/:id/reject", requireRole(ROLES.KETUA_DEPARTEMEN), async (req, res, next) => {
+  try {
+    const data = await supervisor2Service.decideSupervisor2ByKadepService(req.user.sub, req.params.id, { approve: false, reason: req.body.reason });
+    res.json({ success: true, data, message: "Permintaan Pembimbing 2 tidak disetujui." });
   } catch (err) { next(err); }
 });
 
@@ -651,7 +674,8 @@ router.get("/lecturer/students/:thesisId/proposal/versions", requireAnyRole(LECT
 // ============================================
 
 // Monitoring & persetujuan transfer Kadep (selaras dengan routes/thesisGuidance/monitoring.route.js)
-router.get("/monitoring/dashboard", requireAnyRole(DEPARTMENT_ROLES), monitoringController.getMonitoringDashboard);
+// Monitoring TA: HANYA KaDep + Sekdep (audit pass 2 F2-7 / OQ-2.4 — GKM dicabut).
+router.get("/monitoring/dashboard", requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), monitoringController.getMonitoringDashboard);
 router.get("/monitoring/transfers/pending", requireRole(ROLES.KETUA_DEPARTEMEN), monitoringController.getKadepPendingTransfers);
 router.get("/monitoring/transfers/all", requireRole(ROLES.KETUA_DEPARTEMEN), monitoringController.getKadepAllTransfers);
 router.patch("/monitoring/transfers/:notificationId/approve", requireRole(ROLES.KETUA_DEPARTEMEN), monitoringController.kadepApproveTransfer);

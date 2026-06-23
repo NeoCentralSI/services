@@ -188,8 +188,15 @@ describe("BR-18 reviewTitleReport — re-validates takingThesisCourse on accept"
   it("rejects unsupported actions", async () => {
     prisma.thesis.findUnique.mockResolvedValue(baseThesis);
     await expect(
+      reviewTitleReport("thesis-1", "foobar", null, "kadep-1"),
+    ).rejects.toThrow(/Aksi tidak valid/i);
+  });
+
+  it("requires revision notes when rejecting a title", async () => {
+    prisma.thesis.findUnique.mockResolvedValue(baseThesis);
+    await expect(
       reviewTitleReport("thesis-1", "reject", null, "kadep-1"),
-    ).rejects.toThrow(/Proposal final tidak ditolak pada scope aktif/i);
+    ).rejects.toThrow(/Catatan revisi wajib diisi/i);
   });
 
   it("rejects when thesis not found", async () => {

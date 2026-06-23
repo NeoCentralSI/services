@@ -30,7 +30,9 @@ vi.mock("../metopen.service.js", () => ({
 const prisma = (await import("../../config/prisma.js")).default;
 const {
   getSupervisorScoringQueue,
+  getSupervisorScoringHistory,
   getMetopenScoringQueue,
+  getMetopenScoringHistory,
   submitSupervisorScore,
   submitMetopenScore,
   coSignSupervisorScore,
@@ -282,6 +284,80 @@ describe("assessment.service — TA-03B active flow", () => {
     ]);
   });
 
+  it("lists TA-03A history for scored/finalized proposals after they leave active queue", async () => {
+    const finalizedAt = new Date("2026-05-15T08:00:00.000Z");
+    const coSignedAt = new Date("2026-05-14T08:00:00.000Z");
+    prisma.thesisParticipant.findMany.mockResolvedValue([
+      {
+        role: { name: "Pembimbing 1" },
+        thesis: {
+          id: "thesis-history",
+          title: "Riwayat Proposal",
+          finalProposalVersionId: "proposal-version-final",
+          student: {
+            user: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
+          },
+          researchMethodScores: [
+            {
+              id: "score-history",
+              supervisorScore: 70,
+              lecturerScore: 20,
+              finalScore: 90,
+              isFinalized: true,
+              finalizedAt,
+              coSignedAt,
+              coSignedByLecturerId: "supervisor-2",
+              coSignNote: "Setuju",
+              attendanceAutoZeroedAt: null,
+              attendanceAutoZeroReason: null,
+            },
+          ],
+          thesisSupervisors: [
+            {
+              role: { name: "Pembimbing 2" },
+              lecturer: { user: { id: "supervisor-2", fullName: "Dr. Partner" } },
+            },
+          ],
+        },
+      },
+      {
+        role: { name: "Pembimbing 1" },
+        thesis: {
+          id: "thesis-unscored",
+          title: "Belum Dinilai",
+          finalProposalVersionId: "proposal-version-2",
+          student: {
+            user: { id: "student-2", fullName: "Belum Dinilai", identityNumber: "2211523002" },
+          },
+          researchMethodScores: [],
+          thesisSupervisors: [],
+        },
+      },
+    ]);
+
+    const result = await getSupervisorScoringHistory("supervisor-1");
+
+    expect(result).toEqual([
+      {
+        thesisId: "thesis-history",
+        thesisTitle: "Riwayat Proposal",
+        student: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
+        actorRole: "P1",
+        actionStatus: "finalized",
+        partnerName: "Dr. Partner",
+        supervisorScore: 70,
+        lecturerScore: 20,
+        finalScore: 90,
+        isFinalized: true,
+        finalizedAt,
+        coSignedAt,
+        coSignNote: "Setuju",
+        attendanceAutoZeroedAt: null,
+        attendanceAutoZeroReason: null,
+      },
+    ]);
+  });
+
   it("lists TA-03B queue from active theses without depending on MetopenClass enrollment", async () => {
     prisma.thesis.findMany.mockResolvedValue([
       {
@@ -345,6 +421,105 @@ describe("assessment.service — TA-03B active flow", () => {
         supervisorName: "Dr. Pembimbing",
         supervisorScore: 68,
         lecturerScore: null,
+      },
+    ]);
+  });
+
+  it("lists TA-03B history for scored and auto-zeroed proposals", async () => {
+    const finalizedAt = new Date("2026-05-15T08:00:00.000Z");
+    prisma.thesis.findMany.mockResolvedValue([
+      {
+        id: "thesis-scored",
+        title: "Proposal Dinilai",
+        student: {
+          user: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
+        },
+        researchMethodScores: [
+          {
+            id: "score-1",
+            supervisorScore: 70,
+            lecturerScore: 20,
+            finalScore: 90,
+            isFinalized: true,
+            finalizedAt,
+            coSignedAt: null,
+            attendanceAutoZeroedAt: null,
+            attendanceAutoZeroReason: null,
+          },
+        ],
+        thesisSupervisors: [
+          { lecturer: { user: { fullName: "Dr. Pembimbing" } } },
+        ],
+      },
+      {
+        id: "thesis-auto-zero",
+        title: "Proposal Auto Zero",
+        student: {
+          user: { id: "student-2", fullName: "Auto Zero", identityNumber: "2211523002" },
+        },
+        researchMethodScores: [
+          {
+            id: "score-2",
+            supervisorScore: 0,
+            lecturerScore: 0,
+            finalScore: 0,
+            isFinalized: true,
+            finalizedAt,
+            coSignedAt: null,
+            attendanceAutoZeroedAt: finalizedAt,
+            attendanceAutoZeroReason: "Presensi Metopel kurang dari 75%",
+          },
+        ],
+        thesisSupervisors: [],
+      },
+    ]);
+
+    const result = await getMetopenScoringHistory("lecturer-1");
+
+    expect(prisma.thesis.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          finalProposalVersionId: { not: null },
+          student: { status: "active" },
+          researchMethodScores: {
+            some: {
+              OR: [
+                { lecturerId: "lecturer-1", lecturerScore: { not: null } },
+                { attendanceAutoZeroedAt: { not: null } },
+              ],
+            },
+          },
+        }),
+      }),
+    );
+    expect(result).toEqual([
+      {
+        thesisId: "thesis-scored",
+        thesisTitle: "Proposal Dinilai",
+        student: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
+        supervisorName: "Dr. Pembimbing",
+        supervisorScore: 70,
+        lecturerScore: 20,
+        finalScore: 90,
+        isFinalized: true,
+        finalizedAt,
+        coSignedAt: null,
+        attendanceAutoZeroedAt: null,
+        attendanceAutoZeroReason: null,
+      },
+      {
+        thesisId: "thesis-auto-zero",
+        thesisTitle: "Proposal Auto Zero",
+        student: { id: "student-2", fullName: "Auto Zero", identityNumber: "2211523002" },
+        supervisorName: null,
+        supervisorScore: 0,
+        lecturerScore: 0,
+        finalScore: 0,
+        isFinalized: true,
+        finalizedAt,
+        coSignedAt: null,
+        attendanceAutoZeroedAt: finalizedAt,
+        attendanceAutoZeroReason: "Presensi Metopel kurang dari 75%",
       },
     ]);
   });
@@ -747,19 +922,26 @@ describe("assessment.service — TA-03B active flow", () => {
     );
   });
 
-  it("blocks supervisor score detail for inactive students", async () => {
+  it("allows supervisor to READ score detail even when student inactive / thesis closed (Opsi C arsip read-only, OQ-2.3)", async () => {
+    const scoreRecord = {
+      id: "score-1",
+      thesisId: "thesis-1",
+      supervisorScore: 70,
+      lecturerScore: 20,
+      researchMethodScoreDetails: [],
+    };
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
       finalProposalVersionId: "proposal-version-1",
-      student: { status: "dropout" },
-      thesisStatus: { name: "Bimbingan" },
       thesisSupervisors: [{ id: "participant-1" }],
     });
+    prisma.researchMethodScore.findUnique.mockResolvedValue(scoreRecord);
 
-    await expect(
-      getScoresByThesisForSupervisor("thesis-1", "lecturer-1"),
-    ).rejects.toThrow("TA-03A aktif");
-    expect(prisma.researchMethodScore.findUnique).not.toHaveBeenCalled();
+    // Jalur BACA tidak lagi menolak student non-aktif / thesis selesai —
+    // keanggotaan pembimbing aktif tetap jadi gerbang; immutability tulis
+    // (BR-21) ditegakkan terpisah di jalur submit/co-sign/publish.
+    const result = await getScoresByThesisForSupervisor("thesis-1", "lecturer-1");
+    expect(result).toBe(scoreRecord);
   });
 
   it("blocks metopen score detail after another lecturer submitted TA-03B", async () => {
@@ -948,6 +1130,35 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
     expect(prisma.researchMethodScore.update).not.toHaveBeenCalled();
   });
 
+  it("rejects TA-03A re-submit even before finalization to prevent silent overwrite", async () => {
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      finalProposalVersionId: "proposal-version-1",
+      student: { status: "active" },
+      thesisStatus: { name: "Bimbingan" },
+      thesisSupervisors: [
+        { lecturerId: "supervisor-1", status: "active", role: { name: "Pembimbing 1" } },
+      ],
+    });
+    prisma.researchMethodScore.findUnique.mockResolvedValue({
+      id: "score-1",
+      isFinalized: false,
+      supervisorScore: 65,
+      lecturerScore: null,
+    });
+
+    await expect(
+      submitSupervisorScore("thesis-1", "supervisor-1", {
+        scores: [
+          { criteriaId: "crit-1", score: 10 },
+          { criteriaId: "crit-2", score: 10 },
+        ],
+      }),
+    ).rejects.toThrow(/TA-03A sudah disubmit/i);
+    expect(prisma.researchMethodScore.update).not.toHaveBeenCalled();
+    expect(prisma.researchMethodScoreDetail.upsert).not.toHaveBeenCalled();
+  });
+
   it("rejects TA-03B re-submit with 403 when score already finalized", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
@@ -972,6 +1183,33 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       }),
     ).rejects.toThrow(/final dan tidak dapat direvisi/i);
     expect(prisma.researchMethodScore.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects TA-03B re-submit by the same Koordinator before finalization", async () => {
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      finalProposalVersionId: "proposal-version-1",
+      student: { status: "active" },
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.researchMethodScore.findUnique.mockResolvedValue({
+      id: "score-1",
+      isFinalized: false,
+      supervisorScore: null,
+      lecturerId: "lecturer-1",
+      lecturerScore: 20,
+    });
+
+    await expect(
+      submitMetopenScore("thesis-1", "lecturer-1", {
+        scores: [
+          { criteriaId: "crit-1", score: 10 },
+          { criteriaId: "crit-2", score: 10 },
+        ],
+      }),
+    ).rejects.toThrow(/TA-03B sudah disubmit/i);
+    expect(prisma.researchMethodScore.update).not.toHaveBeenCalled();
+    expect(prisma.researchMethodScoreDetail.upsert).not.toHaveBeenCalled();
   });
 
   it("rejects co-sign with 403 when score already finalized", async () => {

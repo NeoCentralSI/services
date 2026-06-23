@@ -133,50 +133,69 @@ async function findOrCreateDosenMetopen() {
   return { id: lecturer.id, name: lecturer.user.fullName };
 }
 
-async function ensureMetopenClassAndEnroll(academicYear, enrollableStudentIds) {
+async function ensureMetopenClassAndEnroll(_academicYear, _enrollableStudentIds) {
+  // Model MetopenClass/MetopenClassStudent sudah dihapus dari schema (digantikan
+  // MetopenAttendanceImport/Record + ThesisParticipant). Dulu fungsi ini meng-enroll
+  // mahasiswa ke kelas; kini cukup memastikan ada Koordinator Matkul Metopen aktif
+  // supaya halaman /kelola/metopen/* (ta03b, monitoring) bisa diakses saat UAT.
   const dosenMetopen = await findOrCreateDosenMetopen();
+  console.log(`\n── Koordinator Metopen ──`);
   if (!dosenMetopen) {
-    console.log('  [WARN] Tidak ada dosen tersedia untuk MetopenClass, skip enrollment');
+    console.log('  [WARN] Tidak ada dosen tersedia untuk role Koordinator Metopen');
+    return;
+  }
+  console.log(`  Koordinator Metopen aktif: ${dosenMetopen.name}`);
+  console.log('  (MetopenClass obsolete — roster kini via attendance import + thesis)');
+}
+
+/**
+ * dimas (ACC-05) = "Mahasiswa eligible" untuk UAT.
+ * Canon §5.1 / BR-25: eligibility Metopen = snapshot SIA (`eligibleMetopen`),
+ * BUKAN gate SKS. Dimas disiapkan sebagai akun Metopen-only: eligible Metopen,
+ * belum mengambil MK Tugas Akhir, dan bersih dari request/thesis lama supaya
+ * UAT-07/08/09 (ajukan TA-01/TA-02/escalated) bisa fresh. john (ACC-06)
+ * sengaja dibiarkan tidak eligible sebagai negative case (UAT-05).
+ */
+async function ensureDimasEligibleAndClean() {
+  const dimas = await prisma.user.findFirst({
+    where: { identityNumber: '2311523026', identityType: 'NIM' },
+    include: { student: true },
+  });
+  if (!dimas) {
+    console.log('  [SKIP] dimas (2311523026) tidak ditemukan — jalankan ensure-users dulu');
     return;
   }
 
-  console.log(`\n── MetopenClass & Enrollment ──`);
-  console.log(`  Koordinator Metopen: ${dosenMetopen.name}`);
+  // Bersihkan thesis + dependents + advisor request agar exclusive-lock submit lepas.
+  const theses = await prisma.thesis.findMany({ where: { studentId: dimas.id }, select: { id: true } });
+  for (const t of theses) {
+    await prisma.researchMethodScoreDetail.deleteMany({ where: { researchMethodScore: { thesisId: t.id } } });
+    await prisma.researchMethodScore.deleteMany({ where: { thesisId: t.id } });
+    await prisma.thesisParticipant.deleteMany({ where: { thesisId: t.id } });
+    await prisma.thesisGuidance.deleteMany({ where: { thesisId: t.id } });
+    await prisma.thesisMilestone.deleteMany({ where: { thesisId: t.id } });
+  }
+  await prisma.thesisAdvisorRequest.deleteMany({ where: { studentId: dimas.id } });
+  await prisma.thesisAdvisorRequestDraft.deleteMany({ where: { studentId: dimas.id } });
+  await prisma.thesis.deleteMany({ where: { studentId: dimas.id } });
 
-  // Upsert class
-  let cls = await prisma.metopenClass.findFirst({
-    where: { lecturerId: dosenMetopen.id, academicYearId: academicYear.id },
+  await prisma.student.update({
+    where: { id: dimas.id },
+    data: {
+      eligibleMetopen: true,
+      metopenEligibilitySource: 'sia',
+      metopenEligibilityUpdatedAt: new Date(),
+      takingThesisCourse: false,
+      thesisCourseEnrollmentSource: 'sia',
+      thesisCourseEnrollmentUpdatedAt: new Date(),
+      status: 'active',
+      mandatoryCoursesCompleted: true,
+      mkwuCompleted: true,
+      internshipCompleted: true,
+      kknCompleted: true,
+    },
   });
-
-  if (!cls) {
-    cls = await prisma.metopenClass.create({
-      data: {
-        name: `Metopen ${academicYear.year} ${academicYear.semester === 'genap' ? 'Genap' : 'Ganjil'}`,
-        academicYearId: academicYear.id,
-        lecturerId: dosenMetopen.id,
-        description: 'Kelas Metodologi Penelitian (auto-seeded)',
-        isActive: true,
-      },
-    });
-    console.log(`  MetopenClass created: ${cls.name}`);
-  } else {
-    console.log(`  MetopenClass exists: ${cls.name}`);
-  }
-
-  // Enroll students
-  let enrolled = 0;
-  for (const studentId of enrollableStudentIds) {
-    const existing = await prisma.metopenClassStudent.findUnique({
-      where: { studentId_academicYearId: { studentId, academicYearId: academicYear.id } },
-    });
-    if (!existing) {
-      await prisma.metopenClassStudent.create({
-        data: { studentId, classId: cls.id, academicYearId: academicYear.id },
-      });
-      enrolled++;
-    }
-  }
-  console.log(`  Enrolled: ${enrolled} baru, ${enrollableStudentIds.length - enrolled} sudah ada`);
+  console.log('  dimas (2311523026) → eligibleMetopen=true, takingThesisCourse=false (SIA) + CLEAN untuk UAT-04/06/07/08/09');
 }
 
 async function main() {
@@ -184,16 +203,23 @@ async function main() {
   console.log('  Seed Mahasiswa Eligible Metopen & TA (Mock SIA)');
   console.log('='.repeat(60));
 
-  const metopelStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Metopel' } });
-  const bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Bimbingan' } });
+  // Status TA-01..04 idealnya datang dari base seed (prisma/seed.js). Untuk membuat
+  // pipeline UAT tahan-reset, buat status kanonis bila belum ada (mirror pola
+  // seed-metopen-monitoring.mjs yang membuat "Bimbingan" sendiri).
+  let metopelStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Metopel' } });
+  if (!metopelStatus) {
+    metopelStatus = await prisma.thesisStatus.create({ data: { name: 'Metopel' } });
+    console.log('  [fix] ThesisStatus "Metopel" dibuat (tidak ada dari base seed).');
+  }
+  let bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Bimbingan' } });
+  if (!bimbinganStatus) {
+    bimbinganStatus = await prisma.thesisStatus.create({ data: { name: 'Bimbingan' } });
+    console.log('  [fix] ThesisStatus "Bimbingan" dibuat (tidak ada dari base seed).');
+  }
   const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
 
-  if (!metopelStatus || !bimbinganStatus) {
-    console.error('ThesisStatus "Metopel" atau "Bimbingan" tidak ditemukan. Jalankan prisma db seed dulu.');
-    process.exit(1);
-  }
   if (!academicYear) {
-    console.error('Tidak ada AcademicYear aktif. Jalankan prisma db seed dulu.');
+    console.error('Tidak ada AcademicYear aktif. Jalankan "npx prisma db seed" atau "node prisma/seed-metopen-monitoring.mjs" dulu.');
     process.exit(1);
   }
 
@@ -279,13 +305,17 @@ async function main() {
   // ── MetopenClass & Enrollment ──
   await ensureMetopenClassAndEnroll(academicYear, enrollableStudentIds);
 
+  // ── Grup 3: dimas (eligible, fresh) + john (negative) ──
+  console.log('\n── Grup 3: dimas eligible+clean / john negative ──');
+  await ensureDimasEligibleAndClean();
+
   console.log('\n' + '-'.repeat(60));
   console.log('Selesai.');
   console.log(`  Students updated/created : ${stats.studentUpdated}`);
   console.log(`  Thesis Metopen (proposal): ${stats.metopen}`);
   console.log(`  Thesis TA (bimbingan)    : ${stats.ta}`);
   console.log(`  Skipped (user not found) : ${stats.skipped}`);
-  console.log('\nGrup 3 (dimas, john) tidak disentuh — negative test case.');
+  console.log('\njohn (2411522001) tidak disentuh — negative test case (UAT-05).');
 }
 
 main()

@@ -2159,6 +2159,7 @@ enum ProposalStatus {
   submitted
   accepted
   rejected
+  revision_in_progress
 }
 
 /// Status lifecycle sesi logbook proposal (SIMPTA phase='proposal') atau

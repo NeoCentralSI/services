@@ -4,9 +4,9 @@
  * Mounted at: /quota
  *
  * Endpoints:
- *   GET    /quota/browse                  — Browse lecturers (any authenticated)
- *   GET    /quota/browse/:lecturerId      — Lecturer detail (any authenticated)
- *   GET    /quota/check/:lecturerId       — Check quota availability (any authenticated)
+ *   GET    /quota/browse                  — Browse lecturers (non-mahasiswa: dosen/management/Admin — canon §7.3, F-1.4)
+ *   GET    /quota/browse/:lecturerId      — Lecturer detail (non-mahasiswa)
+ *   GET    /quota/check/:lecturerId       — Check quota availability (non-mahasiswa)
  *   GET    /quota/science-groups          — List science groups
  *   GET    /quota/topics                  — List thesis topics
  *

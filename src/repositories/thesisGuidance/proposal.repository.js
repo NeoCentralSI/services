@@ -154,7 +154,16 @@ export function updateThesisProposalDocumentId(thesisId, proposalDocumentId) {
 
 export function findThesisSupervisor(thesisId, userId) {
   return prisma.thesisParticipant.findFirst({
-    where: { thesisId, lecturer: { userId } },
+    where: {
+      thesisId,
+      lecturerId: userId,
+      status: "active",
+      role: {
+        name: {
+          in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
+        },
+      },
+    },
   });
 }
 

@@ -91,6 +91,11 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
       thesisPhase: null,
       source: null,
       updatedAt: null,
+      takingThesisCourse: null,
+      hasThesisCourseStatus: false,
+      canAccessTugasAkhir: false,
+      thesisCourseEnrollmentSource: null,
+      thesisCourseEnrollmentUpdatedAt: null,
     };
   }
 
@@ -98,6 +103,8 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
   const readOnly = thesis?.proposalStatus === "accepted";
   const eligibleMetopen =
     typeof student.eligibleMetopen === "boolean" ? student.eligibleMetopen : null;
+  const takingThesisCourse =
+    typeof student.takingThesisCourse === "boolean" ? student.takingThesisCourse : null;
 
   return {
     studentId: student.id,
@@ -110,6 +117,11 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
     thesisPhase: thesis?.thesisStatus?.name ?? null,
     source: student.metopenEligibilitySource ?? null,
     updatedAt: student.metopenEligibilityUpdatedAt ?? null,
+    takingThesisCourse,
+    hasThesisCourseStatus: takingThesisCourse !== null,
+    canAccessTugasAkhir: takingThesisCourse === true,
+    thesisCourseEnrollmentSource: student.thesisCourseEnrollmentSource ?? null,
+    thesisCourseEnrollmentUpdatedAt: student.thesisCourseEnrollmentUpdatedAt ?? null,
   };
 }
 
@@ -133,4 +145,40 @@ export async function setStudentMetopenEligibility(
       metopenEligibilityUpdatedAt: true,
     },
   });
+}
+
+export async function setStudentThesisCourseEnrollment(
+  studentId,
+  { takingThesisCourse, source, updatedAt = new Date() },
+  { client = prisma } = {},
+) {
+  const hasEnrollmentValue = typeof takingThesisCourse === "boolean";
+  const updatedStudent = await client.student.update({
+    where: { id: studentId },
+    data: {
+      takingThesisCourse: hasEnrollmentValue ? takingThesisCourse : null,
+      thesisCourseEnrollmentSource: hasEnrollmentValue ? source : null,
+      thesisCourseEnrollmentUpdatedAt: hasEnrollmentValue ? updatedAt : null,
+    },
+    select: {
+      id: true,
+      takingThesisCourse: true,
+      thesisCourseEnrollmentSource: true,
+      thesisCourseEnrollmentUpdatedAt: true,
+    },
+  });
+
+  if (updatedStudent.takingThesisCourse === true) {
+    try {
+      const { syncKadepProposalQueueForStudent } = await import("./metopen.service.js");
+      await syncKadepProposalQueueForStudent(studentId);
+    } catch (error) {
+      console.warn(
+        `[metopenEligibility] Failed to sync KaDep proposal queue for student ${studentId}:`,
+        error?.message ?? error,
+      );
+    }
+  }
+
+  return updatedStudent;
 }

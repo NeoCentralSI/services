@@ -25,6 +25,7 @@ import {
   ADVISOR_REQUEST_STATUS,
 } from "../constants/advisorRequestStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
+import { createNotificationsForUsers } from "./notification.service.js";
 
 const OFFICIAL_SUPERVISOR_ROLES = new Set([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]);
 const PENDING_REVIEW_STATUSES = new Set(ADVISOR_REQUEST_PENDING_REVIEW_STATUSES);
@@ -1565,62 +1566,16 @@ export async function assignAdvisor(requestId, kadepUserId) {
 }
 
 /**
- * Generate TA-04 individual PDF (legacy helper). Resmi: gunakan pengesahan KaDep
- * (`reviewTitleReport` accept â†’ `generateTitleApprovalLetter`) atau batch setelah
- * `proposalStatus === accepted` (Panduan Langkah 6).
+ * Legacy helper. Formulir TA-04 resmi tidak diterbitkan per mahasiswa; gunakan
+ * `finalizeBatchTA04` untuk menerbitkan satu dokumen batch periode.
  */
 export async function generateTA04Letter(thesisId, lecturerId, request) {
-  const [thesis, lecturer, student] = await repo.findTA04LetterData(
-    thesisId,
-    lecturerId,
-    request.studentId,
+  void thesisId;
+  void lecturerId;
+  void request;
+  throw new BadRequestError(
+    "Formulir TA-04 resmi hanya diterbitkan melalui finalisasi batch periode.",
   );
-
-  if (!thesis || !lecturer || !student) return;
-
-  const kadep = await repo.findActiveKaDep();
-  const fs = await import("fs/promises");
-  const path = await import("path");
-  const now = new Date();
-
-  const semesterLabel = thesis.academicYear
-    ? `${thesis.academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${thesis.academicYear.year ?? ""}`
-    : "-";
-
-  const pdfBuffer = await generateTA04Pdf({
-    semester: semesterLabel,
-    entries: [
-      {
-        studentName: student.user?.fullName ?? "-",
-        nim: student.user?.identityNumber ?? "-",
-        title: thesis.title || "Belum ditentukan",
-        supervisorName: lecturer.user?.fullName ?? "-",
-      },
-    ],
-    dateGenerated: now.toLocaleDateString("id-ID", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    }),
-    kadepName: kadep?.fullName ?? "(...............................)",
-    kadepNip: kadep?.identityNumber ?? "(...............................)",
-  });
-
-  const outputDir = path.join(process.cwd(), "uploads", "documents", "ta04");
-  await fs.mkdir(outputDir, { recursive: true });
-  const fileName = `TA04_${student.user?.identityNumber}_${Date.now()}.pdf`;
-  const filePath = path.join(outputDir, fileName);
-  await fs.writeFile(filePath, pdfBuffer);
-
-  const doc = await repo.createDocument({
-    fileName,
-    filePath: `uploads/documents/ta04/${fileName}`,
-    fileSize: pdfBuffer.length,
-    mimeType: "application/pdf",
-    documentTypeId: null,
-  });
-
-  await repo.updateThesisDocument(thesisId, doc.id);
 }
 
 /**
@@ -1654,8 +1609,9 @@ export async function getRequestDetail(requestId, callerUserId) {
 }
 
 /**
- * Generate batch TA-04 PDF preview for an entire academic year.
- * This is the semester document that should be finalized at the end of the semester.
+ * Generate Formulir TA-04 preview for an entire academic year.
+ * This is the official batch document for students taking the thesis course
+ * in that semester.
  */
 export async function generateBatchTA04(academicYearId) {
   const academicYear = await repo.findAcademicYearById(academicYearId);
@@ -1665,7 +1621,7 @@ export async function generateBatchTA04(academicYearId) {
 
   if (theses.length === 0) {
     throw new BadRequestError(
-      "Tidak ada mahasiswa dengan pengesahan judul (status proposal diterima KaDep) untuk tahun akademik ini. Batch TA-04 resmi mengikuti Panduan Langkah 6."
+      "Tidak ada mahasiswa dengan pengesahan judul (status proposal diterima KaDep) untuk tahun akademik ini. Formulir TA-04 batch resmi mengikuti Panduan Langkah 6."
     );
   }
 
@@ -1702,7 +1658,7 @@ export async function generateBatchTA04(academicYearId) {
 }
 
 /**
- * Finalize the semester TA-04 batch as the official archived document.
+ * Finalize the semester TA-04 form as the official archived document.
  * This persists the PDF and links the same document to all theses in that semester.
  */
 export async function finalizeBatchTA04(academicYearId) {
@@ -1712,7 +1668,7 @@ export async function finalizeBatchTA04(academicYearId) {
   const theses = await repo.findThesesWithSupervisors(academicYearId);
   if (theses.length === 0) {
     throw new BadRequestError(
-      "Tidak ada mahasiswa dengan pengesahan judul (status proposal diterima KaDep) untuk tahun akademik ini. Batch TA-04 resmi mengikuti Panduan Langkah 6."
+      "Tidak ada mahasiswa dengan pengesahan judul (status proposal diterima KaDep) untuk tahun akademik ini. Formulir TA-04 batch resmi mengikuti Panduan Langkah 6."
     );
   }
 
@@ -1758,6 +1714,25 @@ export async function finalizeBatchTA04(academicYearId) {
     theses.map((thesis) => thesis.id),
     document.id,
   );
+
+  // Notifikasi ke mahasiswa affected bahwa Formulir TA-04 batch resmi telah
+  // diterbitkan dan tersedia di arsip Metode Penelitian.
+  try {
+    const acceptedTheses = await prisma.thesis.findMany({
+      where: { academicYearId, proposalStatus: "accepted" },
+      select: { studentId: true },
+    });
+    const studentIds = acceptedTheses.map((t) => t.studentId).filter(Boolean);
+    if (studentIds.length > 0) {
+      const semesterPretty = `${academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${academicYear.year ?? ""}`.trim();
+      await createNotificationsForUsers(studentIds, {
+        title: "Formulir TA-04 Diterbitkan",
+        message: `Formulir TA-04 periode ${semesterPretty} telah difinalisasi KaDep. Anda dapat mengunduh dokumen resmi dari menu Metode Penelitian (Arsip).`,
+      });
+    }
+  } catch (notifErr) {
+    console.error("[finalizeBatchTA04] gagal mengirim notifikasi ke mahasiswa:", notifErr?.message || notifErr);
+  }
 
   return {
     documentId: document.id,

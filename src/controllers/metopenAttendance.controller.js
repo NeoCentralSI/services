@@ -2,7 +2,21 @@ import {
   getAttendanceEligibilityForThesis,
   getLatestMetopenAttendanceImport,
   uploadMetopenAttendance,
+  previewMetopenAttendance,
 } from "../services/metopenAttendance.service.js";
+
+/**
+ * POST /assessment/metopen/attendance/preview
+ * F-4.2: pratinjau dampak auto-zero (PERMANEN) sebelum commit. Tidak menulis DB.
+ */
+export async function previewAttendance(req, res, next) {
+  try {
+    const data = await previewMetopenAttendance(req.file);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function uploadAttendance(req, res, next) {
   try {

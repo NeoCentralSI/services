@@ -91,7 +91,9 @@ async function seedAcademicYear() {
     create: {
       id: 'tahun-2025-genap',
       semester: 'genap',
-      year: 2025,
+      // Schema: AcademicYear.year adalah String. Samakan dengan konvensi seed lain
+      // (seed-metopen-monitoring.mjs memakai "2025/2026") agar tidak ada year ganda.
+      year: '2025/2026',
       startDate: new Date('2026-01-13'),
       endDate: new Date('2026-06-30'),
       isActive: true,
@@ -208,7 +210,6 @@ async function seedMilestoneTemplates() {
         orderIndex: t.orderIndex,
         defaultDueDays: t.defaultDueDays,
         weightPercentage: t.weightPercentage,
-        isGateToAdvisorSearch: t.isGateToAdvisorSearch || false,
         requiresAdvisor: t.requiresAdvisor || false,
         isActive: true,
       },

@@ -13,7 +13,6 @@ export default defineConfig({
       "src/test/unit/student.guidance.service.test.js",
       "src/test/unit/nabil/thesisChangeRequest.service.test.js",
       "src/test/unit/nabil/milestone.service.test.js",
-      "src/test/unit/nabil/supervisor2.service.test.js",
       "src/test/unit/nabil/student.guidance.service.test.js",
     ],
     testTimeout: 10000,

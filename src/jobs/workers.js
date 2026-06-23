@@ -17,10 +17,10 @@ async function processPdfJob(job) {
       "[Worker] Legacy job 'ta04' diabaikan. Gunakan review pengesahan judul atau finalisasi batch TA-04 resmi.",
     );
   } else if (name === "title-approval") {
-    const { generateTitleApprovalLetter } = await import("../services/metopen.service.js");
-    if (typeof generateTitleApprovalLetter === "function") {
-      await generateTitleApprovalLetter(data.thesisId);
-    }
+    void data;
+    console.warn(
+      "[Worker] Legacy job 'title-approval' diabaikan. Formulir TA-04 resmi diterbitkan melalui finalisasi batch periode.",
+    );
   } else {
     console.warn("[Worker] Unknown PDF job name:", name);
   }

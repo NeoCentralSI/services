@@ -14,6 +14,7 @@ vi.mock("../../repositories/thesisGuidance/student.guidance.repository.js", () =
 
 vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
   findLatestProposalVersion: vi.fn(),
+  getProposalSubmissionStatus: vi.fn(),
   countActiveSupervisors: vi.fn(),
   submitFinalProposalVersion: vi.fn(),
   findResearchMethodScoreProgress: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
 let studentRepo;
 let proposalRepo;
 let submitFinalProposal;
+let getProposalSubmissionStatus;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -32,7 +34,7 @@ beforeEach(async () => {
   proposalRepo = await import(
     "../../repositories/thesisGuidance/proposal.repository.js"
   );
-  ({ submitFinalProposal } = await import(
+  ({ submitFinalProposal, getProposalSubmissionStatus } = await import(
     "../../services/thesisGuidance/proposal.service.js"
   ));
 });
@@ -146,5 +148,28 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
       /Penilaian TA-03 sudah dimulai/i,
     );
     expect(proposalRepo.submitFinalProposalVersion).not.toHaveBeenCalled();
+  });
+
+  it("menampilkan alasan lock final saat penilaian TA-03 sudah selesai", async () => {
+    studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
+    studentRepo.getActiveThesisForStudent.mockResolvedValue(baseThesis);
+    proposalRepo.findLatestProposalVersion.mockResolvedValue(latestVersion);
+    proposalRepo.getProposalSubmissionStatus.mockResolvedValue({
+      proposalStatus: null,
+      finalProposalVersion: null,
+    });
+    proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+    proposalRepo.findResearchMethodScoreProgress.mockResolvedValue({
+      supervisorScore: 70,
+      lecturerScore: 20,
+      finalScore: 90,
+      isFinalized: true,
+    });
+
+    const result = await getProposalSubmissionStatus(studentId);
+
+    expect(result.uploadLocked).toBe(true);
+    expect(result.uploadLockedReason).toMatch(/TA-03 sudah final/i);
+    expect(result.uploadLockedReason).not.toMatch(/sedang berlangsung/i);
   });
 });

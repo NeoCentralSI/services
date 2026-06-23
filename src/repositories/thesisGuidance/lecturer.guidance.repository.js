@@ -8,16 +8,21 @@ export async function getLecturerByUserId(userId) {
 }
 
 // List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
-export async function findMyStudents(lecturerId, roles) {
+export async function findMyStudents(lecturerId, roles, { scope = "active" } = {}) {
+	const CLOSED_STATUS_NAMES = ["Gagal", "Failed", "failed", "Selesai"];
+	// scope 'archive' => hanya thesis yang sudah selesai/ditutup (arsip pembimbing);
+	// scope 'active' (default) => kebalikannya (tetap berjalan + tanpa status).
+	const archiveFilter = { thesisStatus: { name: { in: CLOSED_STATUS_NAMES } } };
+	const activeFilter = {
+		OR: [
+			{ thesisStatus: null },
+			{ thesisStatus: { name: { notIn: CLOSED_STATUS_NAMES } } },
+		],
+	};
 	const where = {
 		lecturerId,
 		status: { not: "terminated" },
-		thesis: {
-			OR: [
-				{ thesisStatus: null },
-				{ thesisStatus: { name: { notIn: ["Gagal", "Failed", "failed", "Selesai"] } } },
-			],
-		}
+		thesis: scope === "archive" ? archiveFilter : activeFilter,
 	};
 	if (Array.isArray(roles) && roles.length) {
 		// Filter by role.name from UserRole
@@ -429,34 +434,12 @@ export async function getThesisStatusMap() {
 }
 
 // Update thesis status by id
+// Catatan audit pass 2 (F2-4, OQ-2.1 2026-06-10): trigger auto-promote P2→P1
+// saat status "Selesai" DIHAPUS — promosi role akademik adalah keputusan
+// manual departemen, bukan side effect sistem (juga memperbaiki layer
+// violation repository→service).
 export async function updateThesisStatusById(thesisId, thesisStatusId) {
-	const result = await prisma.thesis.update({ where: { id: thesisId }, data: { thesisStatusId } });
-
-	// Check if the new status is "Selesai" and trigger auto-promote
-	try {
-		const status = await prisma.thesisStatus.findUnique({
-			where: { id: thesisStatusId },
-			select: { name: true },
-		});
-		if (status?.name === "Selesai") {
-			// Dynamically import to avoid circular dependency
-			const { checkPromotionForThesisSupervisors } = await import(
-				"../../services/thesisGuidance/supervisor2.service.js"
-			);
-			const promotionResults = await checkPromotionForThesisSupervisors(thesisId);
-			const promoted = promotionResults.filter((r) => r.promoted);
-			if (promoted.length > 0) {
-				console.log(
-					`[Auto-Promote] ${promoted.length} lecturer(s) promoted to Pembimbing 1 after thesis ${thesisId} completed`
-				);
-			}
-		}
-	} catch (err) {
-		// Don't fail the status update if promotion check fails
-		console.error("[Auto-Promote] Error checking promotion:", err);
-	}
-
-	return result;
+	return prisma.thesis.update({ where: { id: thesisId }, data: { thesisStatusId } });
 }
 
 export async function findThesisDetailForLecturer(thesisId, lecturerId) {

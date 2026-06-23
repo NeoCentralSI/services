@@ -58,7 +58,7 @@ router.post(
   controller.assignAdvisor,
 );
 
-// ── Batch TA-04 export ─────────────────────────────────
+// ── Formulir TA-04 batch per periode ───────────────────
 router.get(
   "/batch-ta04/:academicYearId",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]),

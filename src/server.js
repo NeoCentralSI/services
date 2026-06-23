@@ -14,6 +14,7 @@ async function startServer() {
         scheduleSiaSync,
         scheduleGuidanceReminder,
         scheduleDailyThesisReminder,
+        scheduleAdvisorWithdrawReminder,
       } = await import("./queues/maintenance.queue.js");
       // Schedule daily maintenance jobs
       await scheduleDailyThesisStatus();
@@ -23,6 +24,8 @@ async function startServer() {
       await scheduleGuidanceReminder();
       // Schedule daily thesis reminder for active thesis students (09:00 WIB)
       await scheduleDailyThesisReminder();
+      // Schedule advisor withdraw unlock reminder (FR-WDR-06, 72h anti-sandera)
+      await scheduleAdvisorWithdrawReminder();
     } else {
       console.log("⏭️ SKIP_REDIS=true, skipping maintenance queue scheduler");
     }

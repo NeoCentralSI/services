@@ -111,7 +111,7 @@ async function ensureStudent({
   email,
   eligibleMetopen = true,
   enrollmentYear = 2023,
-  takingThesisCourse = true,
+  takingThesisCourse = false,
   status = "active",
 }) {
   const user = await prisma.user.upsert({

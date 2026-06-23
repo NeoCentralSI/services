@@ -283,6 +283,102 @@ paths:
         '200':
           description: Title report reviewed
 
+  /metopen/me/archive:
+    get:
+      tags: [Metopen]
+      summary: BR-23 — Student archive detail (read-only) pasca TA-04 (4 categories)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Student archive detail returned
+
+  /metopen/me/archive/title-approval-document:
+    get:
+      tags: [Metopen]
+      summary: FR-ARC-05 — Download student's Formulir TA-04 PDF (authenticated stream)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Formulir TA-04 PDF stream
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Formulir TA-04 batch not finalized yet or file missing
+
+  /metopen/kadep/title-reports/missing-document:
+    get:
+      tags: [Metopen]
+      summary: Legacy — List accepted TA-04 theses not linked to official batch form
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List returned
+
+  /metopen/kadep/title-reports/history:
+    get:
+      tags: [Metopen]
+      summary: KaDep TA-04 decision history (accepted/rejected) across periods
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: TA-04 decision history returned
+
+  /metopen/kadep/thesis/{thesisId}/title-report/regenerate:
+    post:
+      tags: [Metopen]
+      summary: Legacy — Per-thesis document generation is no longer official
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Request rejected; use batch finalization
+
+  /metopen/kadep/thesis/{thesisId}/title-report/document:
+    get:
+      tags: [Metopen]
+      summary: KaDep downloads Formulir TA-04 PDF for a thesis linked to a batch
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Formulir TA-04 PDF stream
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Document not available
+
   /assessment/criteria/{formCode}:
     get:
       tags: [Assessment]
