@@ -1,0 +1,3078 @@
+{
+  "generatedAt": "2026-06-26T13:16:49.873Z",
+  "filters": {
+    "excludedNameOrEmailContains": [
+      "test",
+      "sample",
+      "dummy"
+    ]
+  },
+  "counts": {
+    "users": 88,
+    "students": 70,
+    "lecturers": 17,
+    "roles": 8,
+    "userHasRoles": 120
+  },
+  "users": [
+    {
+      "id": "8d2bc1be-f347-4a24-a456-8b3b10b757fa",
+      "fullName": "Akram Makruf Aidil",
+      "identityNumber": "2211522035",
+      "identityType": "NIM",
+      "email": "akram2211522035@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "504eead3-5263-44eb-a6fe-b45007ea2651",
+      "fullName": "Anastasya Estu Wahyudi",
+      "identityNumber": "2211522034",
+      "identityType": "NIM",
+      "email": "anastasya2211522034@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "ebcf0f35-07c5-41f9-bf18-0369ed7c4b30",
+      "fullName": "Angeli Putri Ramadhani",
+      "identityNumber": "2211522019",
+      "identityType": "NIM",
+      "email": "angeli2211522019@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "cf5a553c-3495-4ae3-a56c-26704c6f37c5",
+      "fullName": "Annisa Gita Subhi",
+      "identityNumber": "2111522011",
+      "identityType": "NIM",
+      "email": "annisa211522011@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "e68037d9-877a-405c-b681-b6cc59db9474",
+      "fullName": "Annisa Nurul Hakim",
+      "identityNumber": "2211521007",
+      "identityType": "NIM",
+      "email": "annisa2211521007@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "5e92006f-f54a-4e21-8e5b-a3055d6912dd",
+      "fullName": "Aqima Adalahita",
+      "identityNumber": "2211522027",
+      "identityType": "NIM",
+      "email": "aqima2211522027@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "1bd25dfb-ddb5-4bb9-b7b2-6de5092a3c02",
+      "fullName": "Ari Raihan Dafa",
+      "identityNumber": "2211522029",
+      "identityType": "NIM",
+      "email": "ari2211522029@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "890e693b-0b97-4117-94b4-7fe200436155",
+      "fullName": "Athaya Clara Diva",
+      "identityNumber": "2211523009",
+      "identityType": "NIM",
+      "email": "athaya2211523009@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "1660602e-d9f5-489b-bef4-e63b3ab13057",
+      "fullName": "Azhra Meisa Khairani",
+      "identityNumber": "2211523010",
+      "identityType": "NIM",
+      "email": "azhra2211523010@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "0ab58db3-8fe1-4e1d-88de-ae46cab46ea5",
+      "fullName": "Azizah Novi Delfianti",
+      "identityNumber": "2211522022",
+      "identityType": "NIM",
+      "email": "azizah2211522022@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "2569207a-88e2-4779-9e2a-de65986eb07e",
+      "fullName": "Benni Putra Chaniago",
+      "identityNumber": "2211522013",
+      "identityType": "NIM",
+      "email": "benni2211522013@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "6f8a975c-c729-4947-8b58-72affccf942d",
+      "fullName": "Cindy Arwinda Putri",
+      "identityNumber": "2211523007",
+      "identityType": "NIM",
+      "email": "cindy2211523007@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "2db67ab2-7906-4bce-a597-d14d655c4b6c",
+      "fullName": "Daffa Agustian Saadi",
+      "identityNumber": "2211523022",
+      "identityType": "NIM",
+      "email": "daffa_2211523022@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.150Z",
+      "updatedAt": "2026-03-18T17:08:45.931Z"
+    },
+    {
+      "id": "d28375a7-0ba6-41cb-8fa4-272bc93f43e4",
+      "fullName": "Dhiya Gustita Aqila",
+      "identityNumber": "2211521010",
+      "identityType": "NIM",
+      "email": "dhiya2211521010@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "bf5895ee-730a-415b-abb5-451eedadc641",
+      "fullName": "Dio Apri Dandi",
+      "identityNumber": "2111523020",
+      "identityType": "NIM",
+      "email": "dio2111523020@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "d341fd40-c1ff-4b5b-9605-9fd12b870f25",
+      "fullName": "Fadli Hidayat",
+      "identityNumber": "2211522010",
+      "identityType": "NIM",
+      "email": "fadli2211522010@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "792696fc-c44f-4574-a3c1-8cfdd2d8c024",
+      "fullName": "Fajrin Putra Pratama",
+      "identityNumber": "2211523004",
+      "identityType": "NIM",
+      "email": "fajrin2211523004@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "bdb63181-ce71-46a0-8ed8-4326ed247a87",
+      "fullName": "Frizqya Dela Pratiwi",
+      "identityNumber": "2211522003",
+      "identityType": "NIM",
+      "email": "frizqya2211522003@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "d1070c30-8b4e-46b0-b2d4-4ca824c48cea",
+      "fullName": "Ghifari Rizki Ramadhan",
+      "identityNumber": "2211522011",
+      "identityType": "NIM",
+      "email": "ghifari2211522011@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "0b2eb43b-230c-4f14-848b-bdb2fd4e7e78",
+      "fullName": "Ghina Anfasha Nurhadi",
+      "identityNumber": "2211521017",
+      "identityType": "NIM",
+      "email": "ghina2211521017@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "422c0901-fadb-4be0-ba5c-e093b896c073",
+      "fullName": "Heni Yunida",
+      "identityNumber": "2211523008",
+      "identityType": "NIM",
+      "email": "heni2211523008@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "32f22e29-263e-4d14-a920-e32121913fc8",
+      "fullName": "Ilham Nofaldi",
+      "identityNumber": "2211522028",
+      "identityType": "NIM",
+      "email": "ilham_2211522028@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "72865edd-90f6-4fc7-869e-33e1fa59b6e3",
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.161Z",
+      "updatedAt": "2026-05-11T14:51:54.808Z"
+    },
+    {
+      "id": "66253ab8-d385-4d6f-8476-15599ffa18ce",
+      "fullName": "Intan Salma Denaidy",
+      "identityNumber": "2211523005",
+      "identityType": "NIM",
+      "email": "intan2211523005@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "99656d32-1a4f-4cb6-856a-51b9255034fd",
+      "fullName": "Isra Rahma Dina",
+      "identityNumber": "2211522030",
+      "identityType": "NIM",
+      "email": "isra2211522030@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "8036950c-1399-4ebe-b0a8-3d0f0367ea9d",
+      "fullName": "Izza Try Malinda",
+      "identityNumber": "2211521014",
+      "identityType": "NIM",
+      "email": "izza2211521014@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "82ccdeaf-e6a7-482e-91f8-13b1261b38ec",
+      "fullName": "Jahro Suroyo Taurin",
+      "identityNumber": "2011522013",
+      "identityType": "NIM",
+      "email": "jahro2011522013@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "3d85db60-0bdf-4023-b3b7-865dd505c6f4",
+      "fullName": "Khalied Nauly Maturino",
+      "identityNumber": "2211523030",
+      "identityType": "NIM",
+      "email": "khalied_2211523030@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.109Z",
+      "updatedAt": "2026-05-18T04:04:22.836Z"
+    },
+    {
+      "id": "58a36c69-bb16-4fec-b915-08dac3f97adb",
+      "fullName": "Laura Iffa Razitta",
+      "identityNumber": "2211523020",
+      "identityType": "NIM",
+      "email": "laura2211523020@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "325e27af-3202-4aea-b1f1-9e7adaaa30d2",
+      "fullName": "Meutia Dewi Putri Kartika",
+      "identityNumber": "2211523024",
+      "identityType": "NIM",
+      "email": "meutia2211523024@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "981913af-9d36-4016-812c-90f7e3b4f3dd",
+      "fullName": "Meydiva Intayeza",
+      "identityNumber": "2211521013",
+      "identityType": "NIM",
+      "email": "meydiva2211521013@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "b59ff2c4-5441-46dd-918e-a407fa377dae",
+      "fullName": "Mhd. Ulil Abshar",
+      "identityNumber": "2211521003",
+      "identityType": "NIM",
+      "email": "mhd2211521003@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "b6cc29f2-847e-408c-8979-6fe8500602b0",
+      "fullName": "Miftahul Janah",
+      "identityNumber": "2211522024",
+      "identityType": "NIM",
+      "email": "miftahul2211522024@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "4c497cd5-c5d1-493f-9d33-1b00e3ab3908",
+      "fullName": "Miftahul Khaira",
+      "identityNumber": "2211521009",
+      "identityType": "NIM",
+      "email": "miftahul2211521009@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "59b727aa-3bc3-41a4-8c3d-0874017afd35",
+      "fullName": "Muhammad Dani Noar",
+      "identityNumber": "2211522037",
+      "identityType": "NIM",
+      "email": "muhammad2211522037@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "f7dcc626-a0ea-443f-87a1-9168fe6e64c3",
+      "fullName": "Muhammad Faiz Al-Dzikro",
+      "identityNumber": "2211523028",
+      "identityType": "NIM",
+      "email": "muhammad2211523028@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "bed96b13-aab1-48eb-8f99-3f4d0787910d",
+      "fullName": "Muhammad Farhan",
+      "identityNumber": "2211523021",
+      "identityType": "NIM",
+      "email": "muhammad2211523021@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "c0373ea4-77d2-4d29-8e85-f74ab56f2341",
+      "fullName": "Muhammad Fariz",
+      "identityNumber": "2211523034",
+      "identityType": "NIM",
+      "email": "fariz_2211523034@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "3b9487ac-e1ab-4e37-a70f-248729082338",
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.080Z",
+      "updatedAt": "2026-06-25T08:57:46.054Z"
+    },
+    {
+      "id": "4a749ea6-f2b9-4580-b8ea-83421a77813b",
+      "fullName": "Muhammad Ikhlas",
+      "identityNumber": "2111523007",
+      "identityType": "NIM",
+      "email": "muhammad2111523007@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "7db6ec7d-860e-4b0f-9ff4-55c97514fc18",
+      "fullName": "Muhammad Nouval Habibie",
+      "identityNumber": "2211521020",
+      "identityType": "NIM",
+      "email": "muhammad_2211521020@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.135Z",
+      "updatedAt": "2026-05-18T05:49:56.181Z"
+    },
+    {
+      "id": "23edb67f-b99f-43eb-b73a-245dccecd3b1",
+      "fullName": "Muhammad Raihan Alghifari",
+      "identityNumber": "2211522031",
+      "identityType": "NIM",
+      "email": "muhammad2211522031@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "edcd4b6c-34c9-4c92-8063-5fd6f5685b5c",
+      "fullName": "Muhammad Zaki Andafi",
+      "identityNumber": "2211523031",
+      "identityType": "NIM",
+      "email": "muhammad2211523031@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "8f73376f-c43e-4c06-bbb0-c66f541cf567",
+      "fullName": "Mustafa Fathur Rahman",
+      "identityNumber": "2211522036",
+      "identityType": "NIM",
+      "email": "mustafa_2211522036@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.121Z",
+      "updatedAt": "2026-05-18T03:19:13.322Z"
+    },
+    {
+      "id": "84aab6d8-5618-4df9-a035-f0fd33dd2d5f",
+      "fullName": "Nabil Rizki Navisa",
+      "identityNumber": "2211522018",
+      "identityType": "NIM",
+      "email": "nabil_2211522018@fti.unand.ac.id",
+      "password": "$2b$10$z.U40Hy/EcJKYc1O1C7r7.tliylmg5Iki8YLndezuuNGpfz0vfNi2",
+      "phoneNumber": "081275584870",
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "839358ce-d37c-4f11-b9e9-9bcd00e606fb",
+      "avatarUrl": "/avatars/84aab6d8-5618-4df9-a035-f0fd33dd2d5f-2f026482.jpg",
+      "createdAt": "2026-02-11T07:33:35.096Z",
+      "updatedAt": "2026-06-26T04:08:05.931Z"
+    },
+    {
+      "id": "c627fe8d-561c-4405-992e-008df72a06f0",
+      "fullName": "Nabila R. Dzakira",
+      "identityNumber": "2211523036",
+      "identityType": "NIM",
+      "email": "nabila2211523036@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "69214602-094a-4f53-8bb1-30a4834bafad",
+      "fullName": "Nadia Deari Hanifah",
+      "identityNumber": "2211521004",
+      "identityType": "NIM",
+      "email": "nadia2211521004@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-11T06:02:34.202Z"
+    },
+    {
+      "id": "1b01ae01-97bc-4b10-a3bb-f859eaab9b2d",
+      "fullName": "Najla Humaira Desni",
+      "identityNumber": "2211521002",
+      "identityType": "NIM",
+      "email": "najla2211521002@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "5d56add9-9753-4676-8458-a12b667caebd",
+      "fullName": "Najla Nadiva",
+      "identityNumber": "2211521006",
+      "identityType": "NIM",
+      "email": "najla2211521006@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "7af63a51-5157-4ec9-8cfa-c2d7e37dfae8",
+      "fullName": "Najwa Nur Faizah",
+      "identityNumber": "2211523018",
+      "identityType": "NIM",
+      "email": "najwa2211523018@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "2ef50267-b77d-44a1-949d-f259be6859c0",
+      "fullName": "Naufal Adli Dhiaurrahman",
+      "identityNumber": "2211521008",
+      "identityType": "NIM",
+      "email": "naufal2211521008@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "a20abb53-26ec-441b-8717-ae0eb77bd0cd",
+      "fullName": "Niken Khalilah Hamuti",
+      "identityNumber": "2211523019",
+      "identityType": "NIM",
+      "email": "niken2211523019@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "bbc7c1c0-5213-421c-aefe-ec37d9b30c6e",
+      "fullName": "Nurul Afani",
+      "identityNumber": "2211521015",
+      "identityType": "NIM",
+      "email": "nurul2211521015@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "1ebece42-8a95-4e96-af13-04eeec6e3d45",
+      "fullName": "Oktaviani Andrianti",
+      "identityNumber": "2211522015",
+      "identityType": "NIM",
+      "email": "oktaviani2211522015@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "32345d53-80f7-47b4-b15f-d0bd8c8fdb6a",
+      "fullName": "Radiatul Mutmainnah",
+      "identityNumber": "2211522005",
+      "identityType": "NIM",
+      "email": "radiatul2211522005@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "b6b03e44-cf2d-4947-b6aa-44bbf9c796bc",
+      "fullName": "Rahma Aurelia Zami",
+      "identityNumber": "2211521001",
+      "identityType": "NIM",
+      "email": "rahma2211521001@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "0c1eb173-f18f-40a1-93ce-b3a4bc0a3db6",
+      "fullName": "Ramadhani Safitri",
+      "identityNumber": "2211522009",
+      "identityType": "NIM",
+      "email": "ramadhani2211522009@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "a17917af-2150-40b7-98d9-01ceec4404e4",
+      "fullName": "Rania Shofi Malika",
+      "identityNumber": "2211523014",
+      "identityType": "NIM",
+      "email": "rania2211523014@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-11T05:58:21.991Z"
+    },
+    {
+      "id": "88c75ba2-5039-4c74-ad71-09683bca82d6",
+      "fullName": "Regina Nathamiya Pramija",
+      "identityNumber": "2211523003",
+      "identityType": "NIM",
+      "email": "regina2211523003@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "56e41ebf-acf2-4df9-a99a-b71e42c6ea3e",
+      "fullName": "Rizka Kurnia Illahi",
+      "identityNumber": "2211521012",
+      "identityType": "NIM",
+      "email": "rizka2211521012@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "97772276-9ef1-43fb-8d31-e47ce49f7739",
+      "fullName": "Ruchil Amelinda",
+      "identityNumber": "2211522006",
+      "identityType": "NIM",
+      "email": "ruchil2211522006@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "221ff32c-57d5-4b96-983c-a2eeff01ee70",
+      "fullName": "Sistri Mahira",
+      "identityNumber": "2211523006",
+      "identityType": "NIM",
+      "email": "sistri2211523006@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "50f6c369-891a-4cee-92eb-de08dee0597c",
+      "fullName": "Syauqi Nabiih Marwa",
+      "identityNumber": "2211523012",
+      "identityType": "NIM",
+      "email": "syauqi_2211523012@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.177Z",
+      "updatedAt": "2026-03-06T18:00:56.553Z"
+    },
+    {
+      "id": "62b202aa-6925-4bc6-b05a-6bc1a14d2d73",
+      "fullName": "Talitha Zulfa Amirah",
+      "identityNumber": "2211522023",
+      "identityType": "NIM",
+      "email": "talitha2211522023@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "a024b531-078e-4a4a-89d1-d680d1a49035",
+      "fullName": "Tegar Ananda",
+      "identityNumber": "2211523011",
+      "identityType": "NIM",
+      "email": "tegar2211523011@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "8f98e4dc-b022-4eea-86dd-d19e4892f34f",
+      "fullName": "Triana Zahara Nurhaliza",
+      "identityNumber": "2211522008",
+      "identityType": "NIM",
+      "email": "triana2211522008@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "dc7c2c11-5708-4942-ae41-e570a89180a8",
+      "fullName": "Umar Abdullah Azzam",
+      "identityNumber": "2211521019",
+      "identityType": "NIM",
+      "email": "umar2211521019@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "68361d34-444d-4acd-843b-6b2d027409d9",
+      "fullName": "Vatya Arsha Mahmudi",
+      "identityNumber": "2211523017",
+      "identityType": "NIM",
+      "email": "vatya2211523017@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "fa9020a0-aee2-4309-b436-fee0a565d81d",
+      "fullName": "Vioni Wijaya Putri",
+      "identityNumber": "2211522016",
+      "identityType": "NIM",
+      "email": "vioni2211522016@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "9827baa7-15f6-45a5-8ff3-0060549d24ea",
+      "fullName": "Wulandari Yulianis",
+      "identityNumber": "2211523001",
+      "identityType": "NIM",
+      "email": "wulandari2211523001@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "bf891fff-1e3c-4d34-b5b9-8bc1edefa371",
+      "fullName": "Zelfitrio Rodeski",
+      "identityNumber": "2211522017",
+      "identityType": "NIM",
+      "email": "zelfitrio2211522017@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "7897ac76-5963-48e2-af5e-35eb0821cdfd",
+      "fullName": "Zhafira Syarafina",
+      "identityNumber": "2211523016",
+      "identityType": "NIM",
+      "email": "zhafira2211523016@fti.unand.ac.id",
+      "password": null,
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T08:19:02.044Z",
+      "updatedAt": "2026-03-06T08:19:02.044Z"
+    },
+    {
+      "id": "17c80f38-b564-4ff1-af86-7b35881a47ea",
+      "fullName": "Adi Arga Arifnur, M.Kom",
+      "identityNumber": "199208202019031005",
+      "identityType": "NIP",
+      "email": "adi@fti.unand.ac.id",
+      "password": "$2b$10$8fnS2vZq5W6dGFj4DYF4muYvcD6iW5cuYBWA6Ghlx3UhOwLzUCq5K",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:51:15.450Z",
+      "updatedAt": "2026-03-06T03:51:15.450Z"
+    },
+    {
+      "id": "ca2fc409-159c-4c7c-8efa-4e000e29992f",
+      "fullName": "Afriyanti Dwi Kartika, M.T",
+      "identityNumber": "198904212019032024",
+      "identityType": "NIP",
+      "email": "sekdep_si@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "0db07c61-03b9-4ccc-840d-4674749f53ef",
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:34.969Z",
+      "updatedAt": "2026-06-18T08:55:31.245Z"
+    },
+    {
+      "id": "7796fb85-7311-4059-b1ae-2e54cff35736",
+      "fullName": "Aina Hubby Aziira, M.Eng",
+      "identityNumber": "199504302022032013",
+      "identityType": "NIP",
+      "email": "penguji_si@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "162411b7-88da-41f2-ae20-33c31dcfecd2",
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.023Z",
+      "updatedAt": "2026-03-14T08:53:10.946Z"
+    },
+    {
+      "id": "4723f10d-068d-417e-96a9-defd9fecfb55",
+      "fullName": "Dwi Welly Sukma Nirad, M.T.",
+      "identityNumber": "199108122019032018",
+      "identityType": "NIP",
+      "email": "welly@fti.unand.ac.id",
+      "password": "$2b$10$6tp3i/Nv1KcmDVmBDQ5ekO47wTwOU5BqQejFy3vOohsA88NZ1p07W",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:52:06.613Z",
+      "updatedAt": "2026-03-06T03:52:06.613Z"
+    },
+    {
+      "id": "a8b5dbd9-7413-44e3-9d9f-f91a07792c9b",
+      "fullName": "Fajril Akbar, M.Sc",
+      "identityNumber": "198001102008121002",
+      "identityType": "NIP",
+      "email": "ijab@fti.unand.ac.id",
+      "password": "$2b$10$PQP.tyGqtsI8jFudAzAy8eQTI4kXGe5gLA.9j56RZ85pgQam7jnB6",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:48:35.924Z",
+      "updatedAt": "2026-03-06T03:48:42.068Z"
+    },
+    {
+      "id": "b981a875-1162-4c13-9300-c63be4c8d23e",
+      "fullName": "Febby Apri Wenando, M.Eng",
+      "identityNumber": "199104172022031007",
+      "identityType": "NIP",
+      "email": "febby@fti.unand.ac.id",
+      "password": "$2b$10$jaYVt.D5VbK5X7.BmngjKON09KZmq7WNgnnyqOhM9aWGItmGyqGlq",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:57:25.132Z",
+      "updatedAt": "2026-03-06T03:57:25.132Z"
+    },
+    {
+      "id": "464f4332-90ed-43bc-9f68-4a24bb06ede5",
+      "fullName": "Hafizah Hanim, M.Kom",
+      "identityNumber": "199309292019032022",
+      "identityType": "NIP",
+      "email": "hanim@fti.unand.ac.id",
+      "password": "$2b$10$0sOSezNfMRqDUS68CFtcdOtIt4zQmv4.O/4/Ru0FmhXIupqQ9.Nq2",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:53:08.254Z",
+      "updatedAt": "2026-03-06T03:53:08.254Z"
+    },
+    {
+      "id": "b567a411-7fc9-4760-b173-be5acaea818e",
+      "fullName": "Hafzatin Nurlatifa, M.Eng.",
+      "identityNumber": "199601222024062002",
+      "identityType": "NIP",
+      "email": "hafzatin@fti.unand.ac.id",
+      "password": "$2b$10$XD9h5VKOKn3s5bgWq4N8AulG80w3GAfzxQyCF/wxggYLxdlODzWcu",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:59:10.588Z",
+      "updatedAt": "2026-03-06T03:59:10.588Z"
+    },
+    {
+      "id": "7bcb4de8-52d5-44d6-ac5c-d3b78392ebfa",
+      "fullName": "Haris Suryamen, M.Sc.",
+      "identityNumber": "197503232012121001",
+      "identityType": "NIP",
+      "email": "haris.suryamen@fti.unand.ac.id",
+      "password": "$2b$10$cx2TeXHkj.nRw.UxqVIwkuLamOWV907GpheT9EsC130sbiItYEplC",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:49:29.983Z",
+      "updatedAt": "2026-03-06T03:49:29.983Z"
+    },
+    {
+      "id": "92586490-2ca5-4fc0-b010-eca9acbb1935",
+      "fullName": "Hasdi Putra, M.T.",
+      "identityNumber": "198307272008121003",
+      "identityType": "NIP",
+      "email": "hasdi@lecturer.unand.ac.id",
+      "password": "$2b$10$gpjIMFBO8IeD0pUuGAC5zOKBmy1KptEt4nlixI9HbdRDOsMKcppcC",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-02-24T05:40:47.713Z",
+      "updatedAt": "2026-03-06T18:03:16.536Z"
+    },
+    {
+      "id": "9db1f601-f194-4ff2-966d-087fabe41aa4",
+      "fullName": "Husnil Kamil, MT",
+      "identityNumber": "198201182008121002",
+      "identityType": "NIP",
+      "email": "pembimbing_si@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "34164548-e015-4891-a4a4-6cc3efc30174",
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:34.999Z",
+      "updatedAt": "2026-06-16T08:36:01.130Z"
+    },
+    {
+      "id": "2f0868ed-1063-4b6a-b4cb-d02fff032590",
+      "fullName": "Jefril Rahmadoni, M. Kom",
+      "identityNumber": "198904152019031009",
+      "identityType": "NIP",
+      "email": "jefril@fti.unand.ac.id",
+      "password": "$2b$10$agto/YClo9Wt3qC9FR/sauWMkW9i7ocjf45ElTgN4eVx0CLAQJyge",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:50:17.947Z",
+      "updatedAt": "2026-03-06T03:50:17.947Z"
+    },
+    {
+      "id": "946b079d-c3a2-448b-9aa4-40904de642f0",
+      "fullName": "Nisa Dwi Angresti, M.Kom",
+      "identityNumber": "199206042024062001",
+      "identityType": "NIP",
+      "email": "nisa@fti.unand.ac.id",
+      "password": "$2b$10$3Dcg2PhhFAZpQ2WQsXe9OuXCLgT9FyVhlEsBi0kFWoPLoQpfWSjr.",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:59:47.922Z",
+      "updatedAt": "2026-03-06T03:59:47.922Z"
+    },
+    {
+      "id": "55517066-9d0f-4037-9994-ab583d696009",
+      "fullName": "Prof. Ir. Surya Afnarius, MSc, PhD",
+      "identityNumber": "196404091995121001",
+      "identityType": "NIP",
+      "email": "surya@fti.unand.ac.id",
+      "password": "$2b$10$x78ZaUa/X7/GTXK3D4TAQOgIY5uyff4OKEzJJoIP4EiWWc.TAeN7S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:47:20.324Z",
+      "updatedAt": "2026-03-06T03:47:28.202Z"
+    },
+    {
+      "id": "9c45a58b-47f8-45ad-bd79-a02515ba1ec7",
+      "fullName": "Rahmatika Pratama Santi, M.T.",
+      "identityNumber": "199308152022032017",
+      "identityType": "NIP",
+      "email": "rahmatika@fti.unand.ac.id",
+      "password": "$2b$10$rznUsjBuIwnSFZEt0oU1.eWNhOAkuaVDYAoh3kmn5dXfHDY1Die7m",
+      "phoneNumber": null,
+      "isVerified": 0,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-03-06T03:55:50.669Z",
+      "updatedAt": "2026-03-06T03:55:50.669Z"
+    },
+    {
+      "id": "328f8e59-5494-46dd-977e-abaef410530c",
+      "fullName": "Ricky Akbar M.Kom",
+      "identityNumber": "198410062012121001",
+      "identityType": "NIP",
+      "email": "kadep_si@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "8f23fc82-f2b7-4280-bb06-9780b132231a",
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:34.931Z",
+      "updatedAt": "2026-06-18T08:39:05.848Z"
+    },
+    {
+      "id": "5ece0887-16ce-4721-87fd-90cd6c1056b1",
+      "fullName": "Ullya Mega Wahyuni, M.Kom",
+      "identityNumber": "199011032019032008",
+      "identityType": "NIP",
+      "email": "gkm_si@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": null,
+      "oauthId": null,
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.046Z",
+      "updatedAt": "2026-02-11T07:33:35.046Z"
+    },
+    {
+      "id": "60cc0c05-0b5b-4d16-83d1-3f2ce74a1b36",
+      "fullName": "Nindy Malisha, SE",
+      "identityNumber": "220199206201501201",
+      "identityType": "OTHER",
+      "email": "admin_si@fti.unand.ac.id",
+      "password": "$2b$10$q9h93.M9RFe0K9YhVUGBVuWecmgSvljRigW8v1cMlbZGM4CBEo05S",
+      "phoneNumber": null,
+      "isVerified": 1,
+      "oauthProvider": "microsoft",
+      "oauthId": "6c1eb68f-3fd9-442b-9929-84c8aefd1474",
+      "avatarUrl": null,
+      "createdAt": "2026-02-11T07:33:35.070Z",
+      "updatedAt": "2026-06-25T08:53:54.346Z"
+    }
+  ],
+  "students": [
+    {
+      "id": "8d2bc1be-f347-4a24-a456-8b3b10b757fa",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "504eead3-5263-44eb-a6fe-b45007ea2651",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "ebcf0f35-07c5-41f9-bf18-0369ed7c4b30",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "cf5a553c-3495-4ae3-a56c-26704c6f37c5",
+      "status": "active",
+      "enrollmentYear": 2021,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "e68037d9-877a-405c-b681-b6cc59db9474",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "5e92006f-f54a-4e21-8e5b-a3055d6912dd",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "1bd25dfb-ddb5-4bb9-b7b2-6de5092a3c02",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "890e693b-0b97-4117-94b4-7fe200436155",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "1660602e-d9f5-489b-bef4-e63b3ab13057",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "0ab58db3-8fe1-4e1d-88de-ae46cab46ea5",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "2569207a-88e2-4779-9e2a-de65986eb07e",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "6f8a975c-c729-4947-8b58-72affccf942d",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "2db67ab2-7906-4bce-a597-d14d655c4b6c",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.157Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "d28375a7-0ba6-41cb-8fa4-272bc93f43e4",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "bf5895ee-730a-415b-abb5-451eedadc641",
+      "status": "active",
+      "enrollmentYear": 2021,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "d341fd40-c1ff-4b5b-9605-9fd12b870f25",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "792696fc-c44f-4574-a3c1-8cfdd2d8c024",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "bdb63181-ce71-46a0-8ed8-4326ed247a87",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "d1070c30-8b4e-46b0-b2d4-4ca824c48cea",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "0b2eb43b-230c-4f14-848b-bdb2fd4e7e78",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "422c0901-fadb-4be0-ba5c-e093b896c073",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "32f22e29-263e-4d14-a920-e32121913fc8",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.172Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "66253ab8-d385-4d6f-8476-15599ffa18ce",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "99656d32-1a4f-4cb6-856a-51b9255034fd",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "8036950c-1399-4ebe-b0a8-3d0f0367ea9d",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "82ccdeaf-e6a7-482e-91f8-13b1261b38ec",
+      "status": "active",
+      "enrollmentYear": 2020,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "3d85db60-0bdf-4023-b3b7-865dd505c6f4",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.117Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "58a36c69-bb16-4fec-b915-08dac3f97adb",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "325e27af-3202-4aea-b1f1-9e7adaaa30d2",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "981913af-9d36-4016-812c-90f7e3b4f3dd",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "b59ff2c4-5441-46dd-918e-a407fa377dae",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "b6cc29f2-847e-408c-8979-6fe8500602b0",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "4c497cd5-c5d1-493f-9d33-1b00e3ab3908",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "59b727aa-3bc3-41a4-8c3d-0874017afd35",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "f7dcc626-a0ea-443f-87a1-9168fe6e64c3",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "bed96b13-aab1-48eb-8f99-3f4d0787910d",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "c0373ea4-77d2-4d29-8e85-f74ab56f2341",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.090Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "4a749ea6-f2b9-4580-b8ea-83421a77813b",
+      "status": "active",
+      "enrollmentYear": 2021,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "7db6ec7d-860e-4b0f-9ff4-55c97514fc18",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.145Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "23edb67f-b99f-43eb-b73a-245dccecd3b1",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "edcd4b6c-34c9-4c92-8063-5fd6f5685b5c",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "8f73376f-c43e-4c06-bbb0-c66f541cf567",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.131Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "84aab6d8-5618-4df9-a035-f0fd33dd2d5f",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.104Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "c627fe8d-561c-4405-992e-008df72a06f0",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "69214602-094a-4f53-8bb1-30a4834bafad",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "1b01ae01-97bc-4b10-a3bb-f859eaab9b2d",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "5d56add9-9753-4676-8458-a12b667caebd",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "7af63a51-5157-4ec9-8cfa-c2d7e37dfae8",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "2ef50267-b77d-44a1-949d-f259be6859c0",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "a20abb53-26ec-441b-8717-ae0eb77bd0cd",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "bbc7c1c0-5213-421c-aefe-ec37d9b30c6e",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "1ebece42-8a95-4e96-af13-04eeec6e3d45",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "32345d53-80f7-47b4-b15f-d0bd8c8fdb6a",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "b6b03e44-cf2d-4947-b6aa-44bbf9c796bc",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "0c1eb173-f18f-40a1-93ce-b3a4bc0a3db6",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "a17917af-2150-40b7-98d9-01ceec4404e4",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "88c75ba2-5039-4c74-ad71-09683bca82d6",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "56e41ebf-acf2-4df9-a99a-b71e42c6ea3e",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "97772276-9ef1-43fb-8d31-e47ce49f7739",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "221ff32c-57d5-4b96-983c-a2eeff01ee70",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "50f6c369-891a-4cee-92eb-de08dee0597c",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 120,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-02-11T07:33:35.186Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "62b202aa-6925-4bc6-b05a-6bc1a14d2d73",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "a024b531-078e-4a4a-89d1-d680d1a49035",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "8f98e4dc-b022-4eea-86dd-d19e4892f34f",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "dc7c2c11-5708-4942-ae41-e570a89180a8",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "68361d34-444d-4acd-843b-6b2d027409d9",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "fa9020a0-aee2-4309-b436-fee0a565d81d",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "9827baa7-15f6-45a5-8ff3-0060549d24ea",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "bf891fff-1e3c-4d34-b5b9-8bc1edefa371",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    },
+    {
+      "id": "7897ac76-5963-48e2-af5e-35eb0821cdfd",
+      "status": "active",
+      "enrollmentYear": 2022,
+      "skscompleted": 140,
+      "mandatoryCoursesCompleted": 1,
+      "mkwuCompleted": 1,
+      "internshipCompleted": 1,
+      "kknCompleted": 1,
+      "researchMethodCompleted": 0,
+      "currentSemester": 7,
+      "createdAt": "2026-03-06T08:19:02.092Z",
+      "updatedAt": "2026-06-26T12:47:45.369Z"
+    }
+  ],
+  "lecturers": [
+    {
+      "id": "17c80f38-b564-4ff1-af86-7b35881a47ea",
+      "scienceGroupId": "07b0ae9a-1f8e-4f45-a324-a46a75409f51",
+      "data": null,
+      "createdAt": "2026-03-06T03:51:15.466Z",
+      "updatedAt": "2026-03-06T04:03:59.379Z"
+    },
+    {
+      "id": "ca2fc409-159c-4c7c-8efa-4e000e29992f",
+      "scienceGroupId": "1815ed5a-72a7-4e2a-9e7e-405c1a6afc61",
+      "data": null,
+      "createdAt": "2026-02-11T07:33:34.994Z",
+      "updatedAt": "2026-02-24T13:53:37.710Z"
+    },
+    {
+      "id": "7796fb85-7311-4059-b1ae-2e54cff35736",
+      "scienceGroupId": "5f0f056e-a9f5-49ad-ad4b-47ee63743755",
+      "data": null,
+      "createdAt": "2026-02-11T07:33:35.041Z",
+      "updatedAt": "2026-02-24T13:53:28.247Z"
+    },
+    {
+      "id": "4723f10d-068d-417e-96a9-defd9fecfb55",
+      "scienceGroupId": "1815ed5a-72a7-4e2a-9e7e-405c1a6afc61",
+      "data": null,
+      "createdAt": "2026-03-06T03:52:06.622Z",
+      "updatedAt": "2026-03-06T04:03:52.850Z"
+    },
+    {
+      "id": "a8b5dbd9-7413-44e3-9d9f-f91a07792c9b",
+      "scienceGroupId": "07b0ae9a-1f8e-4f45-a324-a46a75409f51",
+      "data": null,
+      "createdAt": "2026-03-06T03:48:35.933Z",
+      "updatedAt": "2026-03-06T04:04:27.856Z"
+    },
+    {
+      "id": "b981a875-1162-4c13-9300-c63be4c8d23e",
+      "scienceGroupId": "5f0f056e-a9f5-49ad-ad4b-47ee63743755",
+      "data": null,
+      "createdAt": "2026-03-06T03:57:25.179Z",
+      "updatedAt": "2026-03-06T04:03:31.491Z"
+    },
+    {
+      "id": "464f4332-90ed-43bc-9f68-4a24bb06ede5",
+      "scienceGroupId": "30c9185e-be38-434c-bf5c-b35a7b0ed51d",
+      "data": null,
+      "createdAt": "2026-03-06T03:53:08.294Z",
+      "updatedAt": "2026-03-06T04:03:48.209Z"
+    },
+    {
+      "id": "b567a411-7fc9-4760-b173-be5acaea818e",
+      "scienceGroupId": "1815ed5a-72a7-4e2a-9e7e-405c1a6afc61",
+      "data": null,
+      "createdAt": "2026-03-06T03:59:10.595Z",
+      "updatedAt": "2026-03-06T04:03:25.895Z"
+    },
+    {
+      "id": "7bcb4de8-52d5-44d6-ac5c-d3b78392ebfa",
+      "scienceGroupId": "30c9185e-be38-434c-bf5c-b35a7b0ed51d",
+      "data": null,
+      "createdAt": "2026-03-06T03:49:29.992Z",
+      "updatedAt": "2026-03-06T04:04:14.620Z"
+    },
+    {
+      "id": "92586490-2ca5-4fc0-b010-eca9acbb1935",
+      "scienceGroupId": "07b0ae9a-1f8e-4f45-a324-a46a75409f51",
+      "data": null,
+      "createdAt": "2026-02-24T05:40:47.972Z",
+      "updatedAt": "2026-02-24T13:53:13.712Z"
+    },
+    {
+      "id": "9db1f601-f194-4ff2-966d-087fabe41aa4",
+      "scienceGroupId": "1815ed5a-72a7-4e2a-9e7e-405c1a6afc61",
+      "data": null,
+      "createdAt": "2026-02-11T07:33:35.017Z",
+      "updatedAt": "2026-02-24T13:53:33.419Z"
+    },
+    {
+      "id": "2f0868ed-1063-4b6a-b4cb-d02fff032590",
+      "scienceGroupId": "30c9185e-be38-434c-bf5c-b35a7b0ed51d",
+      "data": null,
+      "createdAt": "2026-03-06T03:50:17.955Z",
+      "updatedAt": "2026-03-06T04:04:05.538Z"
+    },
+    {
+      "id": "946b079d-c3a2-448b-9aa4-40904de642f0",
+      "scienceGroupId": "1815ed5a-72a7-4e2a-9e7e-405c1a6afc61",
+      "data": null,
+      "createdAt": "2026-03-06T03:59:47.929Z",
+      "updatedAt": "2026-03-06T04:02:58.392Z"
+    },
+    {
+      "id": "55517066-9d0f-4037-9994-ab583d696009",
+      "scienceGroupId": "5f0f056e-a9f5-49ad-ad4b-47ee63743755",
+      "data": null,
+      "createdAt": "2026-03-06T03:47:20.342Z",
+      "updatedAt": "2026-03-06T04:04:40.900Z"
+    },
+    {
+      "id": "9c45a58b-47f8-45ad-bd79-a02515ba1ec7",
+      "scienceGroupId": "5f0f056e-a9f5-49ad-ad4b-47ee63743755",
+      "data": null,
+      "createdAt": "2026-03-06T03:55:50.681Z",
+      "updatedAt": "2026-03-06T04:03:39.010Z"
+    },
+    {
+      "id": "328f8e59-5494-46dd-977e-abaef410530c",
+      "scienceGroupId": "30c9185e-be38-434c-bf5c-b35a7b0ed51d",
+      "data": null,
+      "createdAt": "2026-02-11T07:33:34.963Z",
+      "updatedAt": "2026-02-24T13:53:43.340Z"
+    },
+    {
+      "id": "5ece0887-16ce-4721-87fd-90cd6c1056b1",
+      "scienceGroupId": "30c9185e-be38-434c-bf5c-b35a7b0ed51d",
+      "data": null,
+      "createdAt": "2026-02-11T07:33:35.066Z",
+      "updatedAt": "2026-02-24T13:53:23.812Z"
+    }
+  ],
+  "roles": [
+    {
+      "id": "3a1ebec1-be17-45e4-903b-bcf21c7b37c1",
+      "name": "Admin"
+    },
+    {
+      "id": "6d89fae2-7a4c-4a2c-880c-f0ba5e82af31",
+      "name": "GKM"
+    },
+    {
+      "id": "71b5722f-41be-4063-ab9d-187437e2fb9b",
+      "name": "Ketua Departemen"
+    },
+    {
+      "id": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "name": "Mahasiswa"
+    },
+    {
+      "id": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "name": "Pembimbing 1"
+    },
+    {
+      "id": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "name": "Pembimbing 2"
+    },
+    {
+      "id": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "name": "Penguji"
+    },
+    {
+      "id": "09094723-ddfb-47f4-88e0-2ee8baf5311d",
+      "name": "Sekretaris Departemen"
+    }
+  ],
+  "userHasRoles": [
+    {
+      "userId": "0ab58db3-8fe1-4e1d-88de-ae46cab46ea5",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "0b2eb43b-230c-4f14-848b-bdb2fd4e7e78",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "0c1eb173-f18f-40a1-93ce-b3a4bc0a3db6",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "1660602e-d9f5-489b-bef4-e63b3ab13057",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "17c80f38-b564-4ff1-af86-7b35881a47ea",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "17c80f38-b564-4ff1-af86-7b35881a47ea",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "1b01ae01-97bc-4b10-a3bb-f859eaab9b2d",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "1bd25dfb-ddb5-4bb9-b7b2-6de5092a3c02",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "1ebece42-8a95-4e96-af13-04eeec6e3d45",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "221ff32c-57d5-4b96-983c-a2eeff01ee70",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "23edb67f-b99f-43eb-b73a-245dccecd3b1",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "2569207a-88e2-4779-9e2a-de65986eb07e",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "2db67ab2-7906-4bce-a597-d14d655c4b6c",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "2ef50267-b77d-44a1-949d-f259be6859c0",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "2f0868ed-1063-4b6a-b4cb-d02fff032590",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "2f0868ed-1063-4b6a-b4cb-d02fff032590",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "2f0868ed-1063-4b6a-b4cb-d02fff032590",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "32345d53-80f7-47b4-b15f-d0bd8c8fdb6a",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "325e27af-3202-4aea-b1f1-9e7adaaa30d2",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "328f8e59-5494-46dd-977e-abaef410530c",
+      "roleId": "71b5722f-41be-4063-ab9d-187437e2fb9b",
+      "status": "active"
+    },
+    {
+      "userId": "328f8e59-5494-46dd-977e-abaef410530c",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "328f8e59-5494-46dd-977e-abaef410530c",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "328f8e59-5494-46dd-977e-abaef410530c",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "32f22e29-263e-4d14-a920-e32121913fc8",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "3d85db60-0bdf-4023-b3b7-865dd505c6f4",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "422c0901-fadb-4be0-ba5c-e093b896c073",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "464f4332-90ed-43bc-9f68-4a24bb06ede5",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "464f4332-90ed-43bc-9f68-4a24bb06ede5",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "4723f10d-068d-417e-96a9-defd9fecfb55",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "4723f10d-068d-417e-96a9-defd9fecfb55",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "4723f10d-068d-417e-96a9-defd9fecfb55",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "4a749ea6-f2b9-4580-b8ea-83421a77813b",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "4c497cd5-c5d1-493f-9d33-1b00e3ab3908",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "504eead3-5263-44eb-a6fe-b45007ea2651",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "50f6c369-891a-4cee-92eb-de08dee0597c",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "55517066-9d0f-4037-9994-ab583d696009",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "55517066-9d0f-4037-9994-ab583d696009",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "55517066-9d0f-4037-9994-ab583d696009",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "56e41ebf-acf2-4df9-a99a-b71e42c6ea3e",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "58a36c69-bb16-4fec-b915-08dac3f97adb",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "59b727aa-3bc3-41a4-8c3d-0874017afd35",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "5d56add9-9753-4676-8458-a12b667caebd",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "5e92006f-f54a-4e21-8e5b-a3055d6912dd",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "5ece0887-16ce-4721-87fd-90cd6c1056b1",
+      "roleId": "6d89fae2-7a4c-4a2c-880c-f0ba5e82af31",
+      "status": "active"
+    },
+    {
+      "userId": "5ece0887-16ce-4721-87fd-90cd6c1056b1",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "5ece0887-16ce-4721-87fd-90cd6c1056b1",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "60cc0c05-0b5b-4d16-83d1-3f2ce74a1b36",
+      "roleId": "3a1ebec1-be17-45e4-903b-bcf21c7b37c1",
+      "status": "active"
+    },
+    {
+      "userId": "62b202aa-6925-4bc6-b05a-6bc1a14d2d73",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "66253ab8-d385-4d6f-8476-15599ffa18ce",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "68361d34-444d-4acd-843b-6b2d027409d9",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "69214602-094a-4f53-8bb1-30a4834bafad",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "6f8a975c-c729-4947-8b58-72affccf942d",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "7796fb85-7311-4059-b1ae-2e54cff35736",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "7796fb85-7311-4059-b1ae-2e54cff35736",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "7796fb85-7311-4059-b1ae-2e54cff35736",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "7897ac76-5963-48e2-af5e-35eb0821cdfd",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "792696fc-c44f-4574-a3c1-8cfdd2d8c024",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "7af63a51-5157-4ec9-8cfa-c2d7e37dfae8",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "7bcb4de8-52d5-44d6-ac5c-d3b78392ebfa",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "7bcb4de8-52d5-44d6-ac5c-d3b78392ebfa",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "7bcb4de8-52d5-44d6-ac5c-d3b78392ebfa",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "7db6ec7d-860e-4b0f-9ff4-55c97514fc18",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "8036950c-1399-4ebe-b0a8-3d0f0367ea9d",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "82ccdeaf-e6a7-482e-91f8-13b1261b38ec",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "84aab6d8-5618-4df9-a035-f0fd33dd2d5f",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "88c75ba2-5039-4c74-ad71-09683bca82d6",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "890e693b-0b97-4117-94b4-7fe200436155",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "8d2bc1be-f347-4a24-a456-8b3b10b757fa",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "8f73376f-c43e-4c06-bbb0-c66f541cf567",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "8f98e4dc-b022-4eea-86dd-d19e4892f34f",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "92586490-2ca5-4fc0-b010-eca9acbb1935",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "92586490-2ca5-4fc0-b010-eca9acbb1935",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "92586490-2ca5-4fc0-b010-eca9acbb1935",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "946b079d-c3a2-448b-9aa4-40904de642f0",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "946b079d-c3a2-448b-9aa4-40904de642f0",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "97772276-9ef1-43fb-8d31-e47ce49f7739",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "981913af-9d36-4016-812c-90f7e3b4f3dd",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "9827baa7-15f6-45a5-8ff3-0060549d24ea",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "99656d32-1a4f-4cb6-856a-51b9255034fd",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "9c45a58b-47f8-45ad-bd79-a02515ba1ec7",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "9c45a58b-47f8-45ad-bd79-a02515ba1ec7",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "9c45a58b-47f8-45ad-bd79-a02515ba1ec7",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "9db1f601-f194-4ff2-966d-087fabe41aa4",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "9db1f601-f194-4ff2-966d-087fabe41aa4",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "9db1f601-f194-4ff2-966d-087fabe41aa4",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "a024b531-078e-4a4a-89d1-d680d1a49035",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "a17917af-2150-40b7-98d9-01ceec4404e4",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "a20abb53-26ec-441b-8717-ae0eb77bd0cd",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "a8b5dbd9-7413-44e3-9d9f-f91a07792c9b",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "a8b5dbd9-7413-44e3-9d9f-f91a07792c9b",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "a8b5dbd9-7413-44e3-9d9f-f91a07792c9b",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "b567a411-7fc9-4760-b173-be5acaea818e",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "b567a411-7fc9-4760-b173-be5acaea818e",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "b59ff2c4-5441-46dd-918e-a407fa377dae",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "b6b03e44-cf2d-4947-b6aa-44bbf9c796bc",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "b6cc29f2-847e-408c-8979-6fe8500602b0",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "b981a875-1162-4c13-9300-c63be4c8d23e",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "b981a875-1162-4c13-9300-c63be4c8d23e",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "b981a875-1162-4c13-9300-c63be4c8d23e",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "bbc7c1c0-5213-421c-aefe-ec37d9b30c6e",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "bdb63181-ce71-46a0-8ed8-4326ed247a87",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "bed96b13-aab1-48eb-8f99-3f4d0787910d",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "bf5895ee-730a-415b-abb5-451eedadc641",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "bf891fff-1e3c-4d34-b5b9-8bc1edefa371",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "c0373ea4-77d2-4d29-8e85-f74ab56f2341",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "c627fe8d-561c-4405-992e-008df72a06f0",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "ca2fc409-159c-4c7c-8efa-4e000e29992f",
+      "roleId": "09094723-ddfb-47f4-88e0-2ee8baf5311d",
+      "status": "active"
+    },
+    {
+      "userId": "ca2fc409-159c-4c7c-8efa-4e000e29992f",
+      "roleId": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+      "status": "active"
+    },
+    {
+      "userId": "ca2fc409-159c-4c7c-8efa-4e000e29992f",
+      "roleId": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+      "status": "active"
+    },
+    {
+      "userId": "ca2fc409-159c-4c7c-8efa-4e000e29992f",
+      "roleId": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+      "status": "active"
+    },
+    {
+      "userId": "cf5a553c-3495-4ae3-a56c-26704c6f37c5",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "d1070c30-8b4e-46b0-b2d4-4ca824c48cea",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "d28375a7-0ba6-41cb-8fa4-272bc93f43e4",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "d341fd40-c1ff-4b5b-9605-9fd12b870f25",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "dc7c2c11-5708-4942-ae41-e570a89180a8",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "e68037d9-877a-405c-b681-b6cc59db9474",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "ebcf0f35-07c5-41f9-bf18-0369ed7c4b30",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "edcd4b6c-34c9-4c92-8063-5fd6f5685b5c",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "f7dcc626-a0ea-443f-87a1-9168fe6e64c3",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    },
+    {
+      "userId": "fa9020a0-aee2-4309-b436-fee0a565d81d",
+      "roleId": "31017520-673c-45fd-a52e-8b4a89a06c62",
+      "status": "active"
+    }
+  ]
+}
