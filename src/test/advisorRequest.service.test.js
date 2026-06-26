@@ -5,7 +5,7 @@ vi.mock("../config/prisma.js", () => ({
     student: {
       findUnique: vi.fn(),
     },
-    thesisParticipant: {
+    thesisSupervisors: {
       count: vi.fn(),
     },
   },
@@ -460,7 +460,7 @@ describe("advisorRequest.service", () => {
         supervisionQuotaDefault: {
           findUnique: vi.fn().mockResolvedValue(null),
         },
-        thesisParticipant: {
+        thesisSupervisors: {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockResolvedValue([]),
           create: vi.fn().mockResolvedValue({ id: "supervisor-row-1" }),
@@ -485,7 +485,7 @@ describe("advisorRequest.service", () => {
           academicYearId: "academic-year-1",
         }),
       });
-      expect(tx.thesisParticipant.create).toHaveBeenCalledWith({
+      expect(tx.thesisSupervisors.create).toHaveBeenCalledWith({
         data: {
           thesisId: "thesis-1",
           lecturerId: "lecturer-1",
@@ -546,7 +546,7 @@ describe("advisorRequest.service", () => {
           create: vi.fn(),
           update: vi.fn().mockResolvedValue({ id: "thesis-1" }),
         },
-        thesisParticipant: {
+        thesisSupervisors: {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockResolvedValue([
             {
@@ -572,7 +572,7 @@ describe("advisorRequest.service", () => {
         "Mahasiswa ini sudah memiliki Pembimbing 1"
       );
 
-      expect(tx.thesisParticipant.create).not.toHaveBeenCalled();
+      expect(tx.thesisSupervisors.create).not.toHaveBeenCalled();
       expect(syncLecturerQuotaCurrentCount).not.toHaveBeenCalled();
       expect(tx.thesisAdvisorRequest.update).not.toHaveBeenCalled();
     });

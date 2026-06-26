@@ -144,7 +144,7 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
     try {
       // 1. Restore the supervisor record back to original lecturer
       if (thesisSupervisorRecordId && originalLecturerId) {
-        await prisma.thesisParticipant
+        await prisma.thesisSupervisors
           .update({
             where: { id: thesisSupervisorRecordId },
             data: { lecturerId: originalLecturerId },
@@ -249,7 +249,7 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
     console.log("\n[STEP 4] Verifying database state after swap...");
 
     // 4a. Supervisor record should now point to target lecturer
-    const swappedSupervisor = await prisma.thesisParticipant.findUnique({
+    const swappedSupervisor = await prisma.thesisSupervisors.findUnique({
       where: { id: thesisSupervisorRecordId },
       include: {
         lecturer: { include: { user: { select: { fullName: true } } } },

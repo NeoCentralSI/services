@@ -10,7 +10,7 @@ const { mockHasPembimbing2, mockCreateThesisSupervisors, mockMarkProcessed, mock
   mockPrisma: {
     thesis: { findUnique: vi.fn(), update: vi.fn() },
     lecturer: { findUnique: vi.fn() },
-    thesisParticipant: { findFirst: vi.fn() },
+    thesisSupervisors: { findFirst: vi.fn() },
     notification: { updateMany: vi.fn() },
     researchMethodScore: { findFirst: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(async (fn) => fn(mockPrisma)),

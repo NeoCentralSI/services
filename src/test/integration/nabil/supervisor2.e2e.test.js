@@ -4,7 +4,7 @@
  * Menguji alur bisnis lengkap terhadap database nyata (sama pola IT-03/IT-04):
  *   A. Katalog dosen P2 + visibilitas kuota mahasiswa (tanpa booking/pending KaDep)
  *   B. Siklus permintaan: ajukan → pending → batalkan
- *   C. Siklus persetujuan: ajukan → setujui → ThesisParticipant P2 → bersihkan
+ *   C. Siklus persetujuan: ajukan → setujui → ThesisSupervisors P2 → bersihkan
  *   D. Pembimbing 2 membaca nilai TA-03A/TA-03B (getScoresByThesisForSupervisor)
  *   E. Daftar mahasiswa arsip (scope=archive) untuk thesis Selesai
  *
@@ -138,7 +138,7 @@ async function pickTargetP2Lecturer(thesisId, excludeLecturerIds = []) {
   });
   if (!pembimbing2Role) return null;
 
-  const participants = await prisma.thesisParticipant.findMany({
+  const participants = await prisma.thesisSupervisors.findMany({
     where: { thesisId },
     select: { lecturerId: true },
   });
@@ -172,7 +172,7 @@ async function findScoreReadFixture() {
   });
   if (!row) return null;
 
-  const p2 = await prisma.thesisParticipant.findFirst({
+  const p2 = await prisma.thesisSupervisors.findFirst({
     where: {
       thesisId: row.thesisId,
       status: "active",
@@ -205,7 +205,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
 
   afterAll(async () => {
     if (createdParticipantId) {
-      await prisma.thesisParticipant
+      await prisma.thesisSupervisors
         .delete({ where: { id: createdParticipantId } })
         .catch(() => {});
     }
@@ -350,7 +350,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
     expect(approved.success).toBe(true);
     expect(approved.forwardedToKadep).toBe(true);
 
-    let p2Row = await prisma.thesisParticipant.findFirst({
+    let p2Row = await prisma.thesisSupervisors.findFirst({
       where: {
         thesisId: fixture.thesisId,
         lecturerId: targetP2LecturerId,
@@ -373,7 +373,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
     });
     expect(decided.approved).toBe(true);
 
-    p2Row = await prisma.thesisParticipant.findFirst({
+    p2Row = await prisma.thesisSupervisors.findFirst({
       where: {
         thesisId: fixture.thesisId,
         lecturerId: targetP2LecturerId,
@@ -387,7 +387,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
     const stillPending = await getPendingSupervisor2RequestService(fixture.studentUserId);
     expect(stillPending).toBeNull();
 
-    console.log("[IT-P2/C] ✅ Dua tahap (dosen + KaDep) membuat ThesisParticipant P2:", p2Row.id);
+    console.log("[IT-P2/C] ✅ Dua tahap (dosen + KaDep) membuat ThesisSupervisors P2:", p2Row.id);
   });
 
   it("D1 — guard: P2 tidak bisa baca skor jika proposal final belum ada", async () => {
@@ -481,7 +481,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
       return;
     }
 
-    const p2OnFinished = await prisma.thesisParticipant.findFirst({
+    const p2OnFinished = await prisma.thesisSupervisors.findFirst({
       where: {
         status: "active",
         role: { name: ROLES.PEMBIMBING_2 },
@@ -512,7 +512,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
     });
     if (!selesaiStatus) return;
 
-    const row = await prisma.thesisParticipant.findFirst({
+    const row = await prisma.thesisSupervisors.findFirst({
       where: {
         status: "active",
         role: { name: ROLES.PEMBIMBING_2 },

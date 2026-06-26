@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = {
   assessmentCriteria: { findMany: vi.fn() },
-  // BR-20 v2.0: thesisParticipant.findFirst dipakai oleh
+  // BR-20 v2.0: thesisSupervisors.findFirst dipakai oleh
   // `thesisHasActivePembimbing2` untuk menentukan apakah co-sign P2
   // diperlukan sebelum auto-finalize.
-  thesisParticipant: { findMany: vi.fn(), findFirst: vi.fn() },
+  thesisSupervisors: { findMany: vi.fn(), findFirst: vi.fn() },
   thesisSupervisors: { findMany: vi.fn() },
   thesis: { findMany: vi.fn(), findUnique: vi.fn() },
   researchMethodScore: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
@@ -96,7 +96,7 @@ describe("assessment.service — TA-03B active flow", () => {
     ]);
     // Default: thesis tidak punya P2 → tidak butuh co-sign.
     // Test yang butuh P2 wajib override mock ini ke return value object.
-    prisma.thesisParticipant.findFirst.mockResolvedValue(null);
+    prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -105,7 +105,7 @@ describe("assessment.service — TA-03B active flow", () => {
     // BR-20 (canon §5.7.1): antrean TA-03A meliputi BAIK P1 (master pengisi)
     // MAUPUN P2 (co-sign konsensus). Filter wajib: thesis aktif, finalProposal
     // ada, status thesis terbuka, dan score belum isFinalized.
-    prisma.thesisParticipant.findMany.mockResolvedValue([
+    prisma.thesisSupervisors.findMany.mockResolvedValue([
       // P1 perlu input rubrik → MUNCUL dengan status p1_pending
       {
         role: { name: "Pembimbing 1" },
@@ -287,7 +287,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("lists TA-03A history for scored/finalized proposals after they leave active queue", async () => {
     const finalizedAt = new Date("2026-05-15T08:00:00.000Z");
     const coSignedAt = new Date("2026-05-14T08:00:00.000Z");
-    prisma.thesisParticipant.findMany.mockResolvedValue([
+    prisma.thesisSupervisors.findMany.mockResolvedValue([
       {
         role: { name: "Pembimbing 1" },
         thesis: {
@@ -977,7 +977,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
-    prisma.thesisParticipant.findFirst.mockResolvedValue(null);
+    prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -994,7 +994,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       ],
     });
     // P2 ada → hasP2 = true → wajib cosign sebelum finalize
-    prisma.thesisParticipant.findFirst.mockResolvedValueOnce({ id: "p2-participant" });
+    prisma.thesisSupervisors.findFirst.mockResolvedValueOnce({ id: "p2-participant" });
     prisma.researchMethodScore.findUnique.mockResolvedValue({
       id: "score-1",
       lecturerId: "lecturer-1",
@@ -1097,7 +1097,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
-    prisma.thesisParticipant.findFirst.mockResolvedValue(null);
+    prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -1246,7 +1246,7 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
-    prisma.thesisParticipant.findFirst.mockResolvedValue(null);
+    prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -1388,7 +1388,7 @@ describe("assessment.service — supervisor context", () => {
   });
 
   it("classifies actor as P1 when active Pembimbing 1 found", async () => {
-    prisma.thesisParticipant.findFirst
+    prisma.thesisSupervisors.findFirst
       .mockResolvedValueOnce({ role: { name: "Pembimbing 1" } })
       .mockResolvedValueOnce({ id: "p2-active" });
 
@@ -1398,7 +1398,7 @@ describe("assessment.service — supervisor context", () => {
   });
 
   it("classifies actor as P2 when active Pembimbing 2 found", async () => {
-    prisma.thesisParticipant.findFirst
+    prisma.thesisSupervisors.findFirst
       .mockResolvedValueOnce({ role: { name: "Pembimbing 2" } })
       .mockResolvedValueOnce({ id: "p2-active" });
 
@@ -1408,7 +1408,7 @@ describe("assessment.service — supervisor context", () => {
   });
 
   it("classifies actor as null (read-only) when not an active supervisor", async () => {
-    prisma.thesisParticipant.findFirst
+    prisma.thesisSupervisors.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
 

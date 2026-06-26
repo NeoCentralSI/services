@@ -996,7 +996,7 @@ paths:
           description: Lecturer quota updated
   /thesis-supervisors/co-advisor:
     post:
-      tags: [ThesisParticipants]
+      tags: [ThesisSupervisors]
       summary: KaDep/Admin assigns Pembimbing 2 (co-advisor)
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -1021,7 +1021,7 @@ paths:
 
   /thesis-supervisors/evaluations:
     post:
-      tags: [ThesisParticipants]
+      tags: [ThesisSupervisors]
       summary: Dosen submit evaluasi bimbingan (TA-17)
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -1051,7 +1051,7 @@ paths:
 
   /thesis-supervisors/evaluations/pending:
     get:
-      tags: [ThesisParticipants]
+      tags: [ThesisSupervisors]
       summary: KaDep list evaluasi tertunda
       security: [{ bearerAuth: [] }]
       responses:
@@ -1060,7 +1060,7 @@ paths:
 
   /thesis-supervisors/evaluations/{id}/review:
     post:
-      tags: [ThesisParticipants]
+      tags: [ThesisSupervisors]
       summary: KaDep approve/reject evaluasi TA-17
       security: [{ bearerAuth: [] }]
       parameters:
@@ -1089,7 +1089,7 @@ paths:
 
   /thesis-supervisors/evaluations/thesis/{thesisId}:
     get:
-      tags: [ThesisParticipants]
+      tags: [ThesisSupervisors]
       summary: Dosen list evaluasi untuk thesis
       security: [{ bearerAuth: [] }]
       parameters:

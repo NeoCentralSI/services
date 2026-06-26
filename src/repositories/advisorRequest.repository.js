@@ -1060,7 +1060,7 @@ export const findSupervisorAssignmentByLecturerAndThesis = async (
   thesisId,
   lecturerId,
 ) => {
-  return client.thesisParticipant.findFirst({
+  return client.thesisSupervisors.findFirst({
     where: {
       thesisId,
       lecturerId,
@@ -1086,7 +1086,7 @@ export const terminateSupervisorAssignmentByLecturerAndThesis = async (
   thesisId,
   lecturerId,
 ) => {
-  return client.thesisParticipant.updateMany({
+  return client.thesisSupervisors.updateMany({
     where: {
       thesisId,
       lecturerId,
@@ -1225,7 +1225,7 @@ export const findAcademicYearById = async (id) => {
  * Find all assigned supervisors for an academic year (batch TA-04).
  */
 export const findSupervisorsByAcademicYear = async (academicYearId) => {
-  return prisma.thesisParticipant.findMany({
+  return prisma.thesisSupervisors.findMany({
     where: {
       thesis: { academicYearId },
     },

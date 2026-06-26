@@ -1,5 +1,6 @@
 import redisClient from "../config/redis.js";
 import { getFcmMessaging } from "../config/fcm.js";
+import { ENV } from "../config/env.js";
 import { randomUUID } from "node:crypto";
 
 const KEY_PREFIX = "fcm:tokens:"; // per-user set of tokens
@@ -38,12 +39,14 @@ async function ensureRedisAvailable() {
   if (ENV.SKIP_REDIS) return false;
   if (redisClient.isOpen) return true;
 
-function getStoredToken(raw) {
-  if (!raw?.startsWith?.("{")) return raw;
   try {
-    return JSON.parse(raw).token || raw;
-  } catch {
-    return raw;
+    await redisClient.connect();
+    return true;
+  } catch (error) {
+    if (ENV.NODE_ENV !== "test") {
+      console.warn("[FCM] Redis unavailable; skipping push token operation:", error.message);
+    }
+    return false;
   }
 }
 

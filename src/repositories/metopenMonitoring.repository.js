@@ -5,7 +5,7 @@
  *  - List mahasiswa eligible Metopen (sumber: snapshot SIA `eligible_metopen=true`)
  *  - Latest attendance import + records (sumber operasional dari xlsx upload)
  *  - Latest advisor request per mahasiswa
- *  - ThesisParticipant aktif (P1 + P2) per thesis
+ *  - ThesisSupervisors aktif (P1 + P2) per thesis
  *  - ResearchMethodScore + detail (4 bucket: TA-03A presentasi/konten/respons +
  *    TA-03B struktur) per mahasiswa
  *
@@ -149,7 +149,7 @@ export function findAdvisorRequestsByStudentIds(studentIds, client = prisma) {
  */
 export function findActiveSupervisorsByStudentIds(studentIds, client = prisma) {
   if (!Array.isArray(studentIds) || studentIds.length === 0) return [];
-  return client.thesisParticipant.findMany({
+  return client.thesisSupervisors.findMany({
     where: {
       status: "active",
       thesis: { studentId: { in: studentIds } },

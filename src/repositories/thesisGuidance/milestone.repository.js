@@ -419,7 +419,7 @@ export function getThesisSeminarReadiness(thesisId) {
  */
 export async function approveSeminarReadiness(thesisId, lecturerId) {
   // Find the supervisor record for this lecturer on this thesis
-  const supervisor = await prisma.thesisParticipant.findFirst({
+  const supervisor = await prisma.thesisSupervisors.findFirst({
     where: { thesisId, lecturerId },
   });
 
@@ -428,7 +428,7 @@ export async function approveSeminarReadiness(thesisId, lecturerId) {
   }
 
   // Update seminarReady to true
-  await prisma.thesisParticipant.update({
+  await prisma.thesisSupervisors.update({
     where: { id: supervisor.id },
     data: { seminarReady: true },
   });
@@ -461,7 +461,7 @@ export async function approveSeminarReadiness(thesisId, lecturerId) {
  */
 export async function revokeSeminarReadiness(thesisId, lecturerId) {
   // Find the supervisor record
-  const supervisor = await prisma.thesisParticipant.findFirst({
+  const supervisor = await prisma.thesisSupervisors.findFirst({
     where: { thesisId, lecturerId },
   });
 
@@ -470,7 +470,7 @@ export async function revokeSeminarReadiness(thesisId, lecturerId) {
   }
 
   // Update seminarReady to false
-  await prisma.thesisParticipant.update({
+  await prisma.thesisSupervisors.update({
     where: { id: supervisor.id },
     data: { seminarReady: false },
   });
@@ -614,7 +614,7 @@ export function getThesisDefenceReadiness(thesisId) {
  * @param {string} notes - optional notes
  */
 export async function approveDefenceReadiness(thesisId, lecturerId) {
-  return prisma.thesisParticipant.updateMany({
+  return prisma.thesisSupervisors.updateMany({
     where: { thesisId, lecturerId },
     data: { defenceReady: true },
   }).then(() =>
@@ -639,7 +639,7 @@ export async function approveDefenceReadiness(thesisId, lecturerId) {
  * Revoke defence readiness approval by supervisor
  */
 export async function revokeDefenceReadiness(thesisId, lecturerId) {
-  return prisma.thesisParticipant.updateMany({
+  return prisma.thesisSupervisors.updateMany({
     where: { thesisId, lecturerId },
     data: { defenceReady: false },
   }).then(() =>

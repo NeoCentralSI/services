@@ -138,7 +138,7 @@ async function collectAffectedQuotaPairs(tx, studentId) {
         academicYearId: true,
       },
     }),
-    tx.thesisParticipant.findMany({
+    tx.thesisSupervisors.findMany({
       where: { thesis: { studentId } },
       select: {
         lecturerId: true,
@@ -173,7 +173,7 @@ async function deleteStudentSimptaProgress(tx, studentId) {
   });
   const thesisIds = thesisRows.map((row) => row.id);
   const participantRows = thesisIds.length
-    ? await tx.thesisParticipant.findMany({
+    ? await tx.thesisSupervisors.findMany({
       where: { thesisId: { in: thesisIds } },
       select: { id: true },
     })
@@ -275,7 +275,7 @@ async function deleteStudentSimptaProgress(tx, studentId) {
   ).count;
 
   if (thesisIds.length > 0) {
-    await tx.thesisParticipant.deleteMany({ where: { thesisId: { in: thesisIds } } });
+    await tx.thesisSupervisors.deleteMany({ where: { thesisId: { in: thesisIds } } });
     await tx.thesis.deleteMany({ where: { id: { in: thesisIds } } });
   }
 

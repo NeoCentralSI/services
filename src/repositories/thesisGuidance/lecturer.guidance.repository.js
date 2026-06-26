@@ -28,7 +28,7 @@ export async function findMyStudents(lecturerId, roles, { scope = "active" } = {
 		// Filter by role.name from UserRole
 		where.role = { name: { in: roles } };
 	}
-	const participants = await prisma.thesisParticipant.findMany({
+	const participants = await prisma.thesisSupervisors.findMany({
 		where,
 		include: {
 			role: { select: { id: true, name: true } },
@@ -268,7 +268,7 @@ export async function rescheduleGuidanceByLecturer(
 }
 
 export async function getLecturerTheses(lecturerId) {
-	const parts = await prisma.thesisParticipant.findMany({
+	const parts = await prisma.thesisSupervisors.findMany({
 		where: { lecturerId, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
 		select: { thesisId: true },
 	});
@@ -404,7 +404,7 @@ export async function listGuidanceHistory(studentId, lecturerId) {
 // Count number of unique students where this lecturer served as SUPERVISOR_2 and the student has completed Yudisium
 export async function countGraduatedAsSupervisor2(lecturerId) {
 	// Get studentIds supervised as SUPERVISOR_2
-	const parts = await prisma.thesisParticipant.findMany({
+	const parts = await prisma.thesisSupervisors.findMany({
 		where: { lecturerId, role: { name: ROLES.PEMBIMBING_2 } },
 		select: { thesis: { select: { studentId: true } } },
 	});
@@ -444,7 +444,7 @@ export async function updateThesisStatusById(thesisId, thesisStatusId) {
 
 export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 	// Check if lecturer participates in this thesis
-	const participant = await prisma.thesisParticipant.findFirst({
+	const participant = await prisma.thesisSupervisors.findFirst({
 		where: {
 			thesisId,
 			lecturerId,
@@ -675,7 +675,7 @@ export async function findEligibleTransferLecturers(excludeLecturerId) {
  * Find ThesisSupervisors records for given thesisIds belonging to a specific lecturer
  */
 export async function findSupervisorRecords(thesisIds, lecturerId) {
-	return prisma.thesisParticipant.findMany({
+	return prisma.thesisSupervisors.findMany({
 		where: {
 			thesisId: { in: thesisIds },
 			lecturerId,
@@ -701,7 +701,7 @@ export async function findSupervisorRecords(thesisIds, lecturerId) {
  * Transfer a ThesisSupervisors record to a new lecturer
  */
 export async function transferSupervisor(thesisSupervisorId, newLecturerId) {
-	return prisma.thesisParticipant.update({
+	return prisma.thesisSupervisors.update({
 		where: { id: thesisSupervisorId },
 		data: { lecturerId: newLecturerId },
 	});
@@ -711,7 +711,7 @@ export async function transferSupervisor(thesisSupervisorId, newLecturerId) {
  * Change the roleId on a ThesisSupervisors record (e.g. P2→P1 promotion)
  */
 export async function updateSupervisorRole(thesisSupervisorId, newRoleId) {
-	return prisma.thesisParticipant.update({
+	return prisma.thesisSupervisors.update({
 		where: { id: thesisSupervisorId },
 		data: { roleId: newRoleId },
 	});

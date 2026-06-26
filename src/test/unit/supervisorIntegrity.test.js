@@ -15,7 +15,7 @@ function makeClient(overrides = {}) {
     userRole: {
       findMany: vi.fn().mockResolvedValue(roles),
     },
-    thesisParticipant: {
+    thesisSupervisors: {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn(async ({ data }) => ({ id: `new-${data.lecturerId}`, ...data, status: "active" })),
@@ -52,7 +52,7 @@ describe("supervisorIntegrity", () => {
   });
 
   it("rejects create when the thesis already has an active participant for that role", async () => {
-    client.thesisParticipant.findMany.mockResolvedValue([
+    client.thesisSupervisors.findMany.mockResolvedValue([
       {
         id: "existing-p1",
         lecturerId: "lecturer-old",
@@ -70,12 +70,12 @@ describe("supervisorIntegrity", () => {
   });
 
   it("replace terminates removed active participants and reactivates explicit targets", async () => {
-    client.thesisParticipant.findMany.mockResolvedValue([
+    client.thesisSupervisors.findMany.mockResolvedValue([
       { id: "old-p1", lecturerId: "lecturer-old", roleId: "role-p1" },
       { id: "keep-p2", lecturerId: "lecturer-b", roleId: "role-p2" },
     ]);
-    client.thesisParticipant.findFirst.mockResolvedValue({ id: "terminated-p1" });
-    client.thesisParticipant.update.mockResolvedValue({
+    client.thesisSupervisors.findFirst.mockResolvedValue({ id: "terminated-p1" });
+    client.thesisSupervisors.update.mockResolvedValue({
       id: "terminated-p1",
       thesisId: "thesis-1",
       lecturerId: "lecturer-a",
@@ -88,11 +88,11 @@ describe("supervisorIntegrity", () => {
       { lecturerId: "lecturer-b", supervisorRole: "pembimbing_2" },
     ]);
 
-    expect(client.thesisParticipant.updateMany).toHaveBeenCalledWith({
+    expect(client.thesisSupervisors.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["old-p1"] } },
       data: { status: "terminated" },
     });
-    expect(client.thesisParticipant.update).toHaveBeenCalledWith(
+    expect(client.thesisSupervisors.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "terminated-p1" },
         data: expect.objectContaining({ roleId: "role-p1", status: "active" }),

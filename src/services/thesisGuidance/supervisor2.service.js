@@ -374,7 +374,7 @@ export async function getSupervisor2RequestsService(lecturerId) {
  * Keputusan audit pass 2 (F2-5, OQ-2.2 2026-06-10): penambahan Pembimbing 2
  * pasca TA-04 wajib persetujuan KaDep (selaras Panduan TA: perubahan pembimbing
  * disetujui Ketua Departemen). Kesediaan dosen TIDAK langsung membuat
- * `thesis_participants` — partisipan baru dibuat saat KaDep approve.
+ * `thesis_supervisors` — partisipan baru dibuat saat KaDep approve.
  */
 export async function approveSupervisor2RequestService(lecturerId, requestId) {
 	// 1. Find the request
@@ -553,7 +553,7 @@ export async function getSupervisor2KadepQueueService(kadepUserId) {
 
 /**
  * Keputusan KaDep atas permintaan Pembimbing 2.
- * Approve → buat `thesis_participants` P2. Jika TA-04 sudah pernah
+ * Approve → buat `thesis_supervisors` P2. Jika TA-04 sudah pernah
  * difinalisasi, Formulir TA-04 batch periode perlu diperbarui.
  * Reject  → tutup permintaan + notifikasi mahasiswa & dosen.
  */
@@ -658,7 +658,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	}
 
 	// Notifikasi P1 bahwa co-sign diperlukan sebelum thesis bisa lanjut ke TA-04.
-	const p1Participant = await prisma.thesisParticipant.findFirst({
+	const p1Participant = await prisma.thesisSupervisors.findFirst({
 		where: {
 			thesisId,
 			status: "active",

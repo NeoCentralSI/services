@@ -883,7 +883,7 @@ export async function findThesisById(id) {
  * Find supervisors for a given thesis.
  */
 export async function findSupervisorsByThesisId(thesisId) {
-  return prisma.thesisParticipant.findMany({
+  return prisma.thesisSupervisors.findMany({
     where: { thesisId },
     select: {
       id: true,

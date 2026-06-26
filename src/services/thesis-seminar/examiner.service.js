@@ -657,7 +657,7 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
 
   // If failed, reset seminarReady so student can re-register
   if (targetStatus === "failed" && seminar.thesisId) {
-    await prisma.thesisParticipant.updateMany({ where: { thesisId: seminar.thesisId }, data: { seminarReady: false } });
+    await prisma.thesisSupervisors.updateMany({ where: { thesisId: seminar.thesisId }, data: { seminarReady: false } });
   }
 
   // Trigger revision auto-generation if passed with revision

@@ -1115,7 +1115,7 @@ export async function getIncomingTransferRequestsService(userId) {
 			// Enrich student details from thesis supervisor records
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.thesisParticipant.findMany({
+				? await prisma.thesisSupervisors.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1354,7 +1354,7 @@ export async function getKadepPendingTransfersService(userId) {
 			// Get student details
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.thesisParticipant.findMany({
+				? await prisma.thesisSupervisors.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1428,7 +1428,7 @@ export async function getKadepAllTransfersService(userId, { page = 1, pageSize =
 
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.thesisParticipant.findMany({
+				? await prisma.thesisSupervisors.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1535,7 +1535,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
 	const results = await prisma.$transaction(async (tx) => {
 		const txResults = [];
 		for (const ref of refs) {
-			const sourceRecord = await tx.thesisParticipant.findFirst({
+			const sourceRecord = await tx.thesisSupervisors.findFirst({
 				where: { id: ref.sId, thesisId: ref.tId, status: "active" },
 				include: {
 					role: { select: { id: true, name: true } },
@@ -1547,7 +1547,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
 				throw new Error(`Active supervisor record not found for thesis ${ref.tId}`);
 			}
 
-			const targetActiveRecords = await tx.thesisParticipant.findMany({
+			const targetActiveRecords = await tx.thesisSupervisors.findMany({
 				where: {
 					thesisId: ref.tId,
 					lecturerId: targetLecturerId,
@@ -1558,19 +1558,19 @@ export async function kadepApproveTransferService(userId, notificationId) {
 			});
 
 			if (targetActiveRecords.length > 0) {
-				await tx.thesisParticipant.updateMany({
+				await tx.thesisSupervisors.updateMany({
 					where: { id: { in: targetActiveRecords.map((record) => record.id) } },
 					data: { status: "terminated" },
 				});
 			}
 
 			// Transfer the supervisor record to the target lecturer.
-			await tx.thesisParticipant.update({
+			await tx.thesisSupervisors.update({
 				where: { id: ref.sId },
 				data: { lecturerId: targetLecturerId },
 			});
 
-			const allSupRecords = await tx.thesisParticipant.findMany({
+			const allSupRecords = await tx.thesisSupervisors.findMany({
 				where: { thesisId: ref.tId, status: "active" },
 				include: { role: { select: { id: true, name: true } } },
 			});

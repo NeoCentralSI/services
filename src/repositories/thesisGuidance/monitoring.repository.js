@@ -642,7 +642,7 @@ export async function getAllAcademicYears() {
 /** * Get all supervisors for filter dropdown
  */
 export async function getAllSupervisors() {
-  const participants = await prisma.thesisParticipant.findMany({
+  const participants = await prisma.thesisSupervisors.findMany({
     distinct: ["lecturerId"],
     include: {
       lecturer: {

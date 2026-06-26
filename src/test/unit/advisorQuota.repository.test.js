@@ -7,10 +7,10 @@ import {
 } from "../../repositories/advisorQuota.repository.js";
 
 describe("advisorQuota.repository", () => {
-  it("queries active supervisor assignments from thesisParticipant", async () => {
+  it("queries active supervisor assignments from thesisSupervisors", async () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const client = {
-      thesisParticipant: {
+      thesisSupervisors: {
         findMany,
       },
     };

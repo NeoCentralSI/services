@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ROLES } from "../../constants/roles.js";
 
 const prisma = vi.hoisted(() => ({
-  thesisParticipant: {
+  thesisSupervisors: {
     findFirst: vi.fn(),
   },
 }));
@@ -20,11 +20,11 @@ describe("thesisGuidance proposal.repository", () => {
   });
 
   it("finds proposal access by active thesis participant lecturer id", async () => {
-    prisma.thesisParticipant.findFirst.mockResolvedValue({ id: "participant-1" });
+    prisma.thesisSupervisors.findFirst.mockResolvedValue({ id: "participant-1" });
 
     await repo.findThesisSupervisor("thesis-1", "lecturer-user-1");
 
-    expect(prisma.thesisParticipant.findFirst).toHaveBeenCalledWith({
+    expect(prisma.thesisSupervisors.findFirst).toHaveBeenCalledWith({
       where: {
         thesisId: "thesis-1",
         lecturerId: "lecturer-user-1",

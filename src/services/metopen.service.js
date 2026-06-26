@@ -856,7 +856,7 @@ export async function getProgressWithAccess(thesisId, userId) {
     return getProgress(thesisId);
   }
 
-  const isSupervisor = await prisma.thesisParticipant.findFirst({
+  const isSupervisor = await prisma.thesisSupervisors.findFirst({
     where: { thesisId, lecturerId: userId },
     select: { id: true },
   });
@@ -907,7 +907,7 @@ export async function getProposalVersionHistory(thesisId, userId) {
   // Access check: dosen pembimbing (supervisor of this thesis)
   let isSupervisor = false;
   if (!isOwner) {
-    const supervisorRecord = await prisma.thesisParticipant.findFirst({
+    const supervisorRecord = await prisma.thesisSupervisors.findFirst({
       where: { thesisId, lecturerId: userId },
     });
     isSupervisor = !!supervisorRecord;
@@ -1589,7 +1589,7 @@ export async function syncProposalQueueAndSummarizeForStudent(userId) {
 /**
  * Evaluate whether a thesis satisfies the 5 canonical prerequisites for
  * KaDep TA-04 review (canon §5.8, §5.10, §5.7.1):
- *   1. Pembimbing resmi (P1) aktif di thesis_participants
+ *   1. Pembimbing resmi (P1) aktif di thesis_supervisors
  *   2. Proposal final disubmit (finalProposalVersionId non-null)
  *   3. TA-03A: P1 submit + P2 co-sign bila ada P2 (isFinalized gate)
  *   4. TA-03B: Koordinator submit (lecturerScore non-null)
@@ -1650,7 +1650,7 @@ async function evaluateKadepProposalQueueReadiness(thesisId) {
   // For "submitted" → if any prerequisite fails, caller (tryEnqueue) dequeues.
   // For null → if any prerequisite fails, caller reports block (no-op).
 
-  const activeSupervisors = await prisma.thesisParticipant.findMany({
+  const activeSupervisors = await prisma.thesisSupervisors.findMany({
     where: {
       thesisId: thesis.id,
       status: "active",
@@ -1888,7 +1888,7 @@ export async function submitTitleReport(userId) {
  * formal fase Tugas Akhir aktif (canon §5.5).
  */
 async function getActiveSupervisorUserIds(thesisId) {
-  const participants = await prisma.thesisParticipant.findMany({
+  const participants = await prisma.thesisSupervisors.findMany({
     where: {
       thesisId,
       status: "active",
@@ -2090,7 +2090,7 @@ export async function reviewTitleReport(thesisId, action, notes, reviewedBy) {
     }
     // Syarat 1: Pembimbing resmi (P1) aktif. Sekaligus deteksi P2 untuk
     // re-assert co-sign (konsisten dengan getPendingTitleReports).
-    const activeSupervisors = await prisma.thesisParticipant.findMany({
+    const activeSupervisors = await prisma.thesisSupervisors.findMany({
       where: {
         thesisId,
         status: "active",
@@ -2328,7 +2328,7 @@ export async function approveRevisionAfterKadepReject(thesisId, lecturerUserId, 
     );
   }
 
-  const isSupervisor = await prisma.thesisParticipant.count({
+  const isSupervisor = await prisma.thesisSupervisors.count({
     where: {
       thesisId,
       status: "active",

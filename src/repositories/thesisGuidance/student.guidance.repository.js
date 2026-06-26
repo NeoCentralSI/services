@@ -42,7 +42,7 @@ export async function getThesisHistory(studentId) {
 }
 
 export async function getSupervisorsForThesis(thesisId) {
-  const supervisors = await prisma.thesisParticipant.findMany({
+  const supervisors = await prisma.thesisSupervisors.findMany({
     where: { thesisId },
     include: {
       role: { select: { name: true } },

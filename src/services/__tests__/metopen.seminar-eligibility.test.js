@@ -9,7 +9,7 @@ vi.mock("../../config/prisma.js", () => ({
     student: { findUnique: vi.fn() },
     researchMethodScore: { findFirst: vi.fn() },
     thesis: { findUnique: vi.fn(), update: vi.fn() },
-    thesisParticipant: { count: vi.fn(), findMany: vi.fn() },
+    thesisSupervisors: { count: vi.fn(), findMany: vi.fn() },
     thesisMilestone: { findMany: vi.fn() },
   },
 }));
@@ -43,8 +43,8 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     };
     repo.findStudentThesis.mockResolvedValue(thesis);
     prisma.thesis.findUnique.mockResolvedValue(thesis);
-    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.thesisSupervisors.count.mockResolvedValue(1);
     prisma.thesisMilestone.findMany.mockResolvedValue([]);
     prisma.thesis.update.mockResolvedValue(thesis);
   }
@@ -230,7 +230,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       proposalStatus: null,
       finalProposalVersionId: "proposal-version-1",
     });
-    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.thesisMilestone.findMany.mockResolvedValue([
       { id: "legacy-task-1", status: "in_progress", title: "Task publish kelas lama" },
     ]);
@@ -273,7 +273,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       proposalStatus: null,
       finalProposalVersionId: null,
     });
-    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,
@@ -306,7 +306,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       id: "student-1",
       takingThesisCourse: false,
     });
-    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,
@@ -340,7 +340,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     });
     prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: true });
     // P2 aktif tapi co-signedAt null → ta03aReady=false → dequeue.
-    prisma.thesisParticipant.findMany.mockResolvedValue([
+    prisma.thesisSupervisors.findMany.mockResolvedValue([
       { role: { name: "Pembimbing 1" } },
       { role: { name: "Pembimbing 2" } },
     ]);
@@ -386,7 +386,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       finalProposalVersionId: "proposal-version-1",
     });
     prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: false });
-    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,
@@ -429,7 +429,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       finalProposalVersionId: "proposal-version-1",
     });
     prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: true });
-    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,

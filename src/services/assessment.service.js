@@ -157,11 +157,11 @@ function isClosedThesisStatus(statusName) {
 
 /**
  * BR-20 (canon §5.7.1): Detect whether a thesis has Pembimbing 2 in the
- * active thesis_participants. When P2 exists, TA-03A finalization requires
+ * active thesis_supervisors. When P2 exists, TA-03A finalization requires
  * P2 co-sign (audit trail). When only P1 exists, co-sign is skipped.
  */
 async function thesisHasActivePembimbing2(client, thesisId) {
-  const p2 = await client.thesisParticipant.findFirst({
+  const p2 = await client.thesisSupervisors.findFirst({
     where: {
       thesisId,
       status: "active",
@@ -288,7 +288,7 @@ export async function getCriteriaByFormCode(formCode) {
  * Item dengan `score.isFinalized = true` keluar dari antrean (siklus selesai).
  */
 export async function getSupervisorScoringQueue(supervisorUserId) {
-  const supervisedTheses = await prisma.thesisParticipant.findMany({
+  const supervisedTheses = await prisma.thesisSupervisors.findMany({
     where: {
       lecturerId: supervisorUserId,
       status: "active",
@@ -325,10 +325,8 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
               attendanceAutoZeroReason: true,
             },
           },
-          // Schema note: relasi `thesis_participants` di Prisma di-alias jadi
-          // `thesisSupervisors` (lihat schema.prisma §"Relation field names
-          // keep legacy thesisSupervisors alias untuk API compat"). Field
-          // generik `thesisParticipants` TIDAK ada di model Thesis.
+          // Schema note: tabel DB `thesis_supervisors` diekspos sebagai
+          // relasi `thesisSupervisors` pada model Thesis.
           thesisSupervisors: {
             where: {
               status: "active",
@@ -370,7 +368,7 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
       // Lookup partner pembimbing supaya FE bisa menampilkan
       // "Co-pembimbing: Bu A" dsb. tanpa query terpisah. Field relasi di
       // Prisma di-alias `thesisSupervisors` (legacy name) meski tabel di DB
-      // bernama `thesis_participants`.
+      // bernama `thesis_supervisors`.
       const partnerRoleName = isP1 ? ROLES.PEMBIMBING_2 : ROLES.PEMBIMBING_1;
       const partner = (thesis.thesisSupervisors ?? [])
         .find((p) => p.role?.name === partnerRoleName);
@@ -399,7 +397,7 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
  * masuk agar pembimbing punya surface read-only setelah submit/finalisasi.
  */
 export async function getSupervisorScoringHistory(supervisorUserId) {
-  const supervisedTheses = await prisma.thesisParticipant.findMany({
+  const supervisedTheses = await prisma.thesisSupervisors.findMany({
     where: {
       lecturerId: supervisorUserId,
       status: "active",
@@ -1240,7 +1238,7 @@ async function getScoreRecordWithDetails(thesisId) {
  * Output: { role: "P1" | "P2" | null, hasP2: boolean }
  */
 async function classifySupervisorRole(thesisId, lecturerUserId) {
-  const ts = await prisma.thesisParticipant.findFirst({
+  const ts = await prisma.thesisSupervisors.findFirst({
     where: {
       thesisId,
       lecturerId: lecturerUserId,
@@ -1249,7 +1247,7 @@ async function classifySupervisorRole(thesisId, lecturerUserId) {
     },
     select: { role: { select: { name: true } } },
   });
-  const hasP2Active = await prisma.thesisParticipant.findFirst({
+  const hasP2Active = await prisma.thesisSupervisors.findFirst({
     where: {
       thesisId,
       status: "active",

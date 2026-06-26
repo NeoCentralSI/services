@@ -6,7 +6,7 @@ import { ROLES } from "../../constants/roles.js";
  */
 export async function findAvailableSupervisor2Lecturers(thesisId) {
 	// Get current thesis participants (supervisors already assigned)
-	const currentParticipants = await prisma.thesisParticipant.findMany({
+	const currentParticipants = await prisma.thesisSupervisors.findMany({
 		where: { thesisId },
 		select: { lecturerId: true },
 	});
@@ -53,7 +53,7 @@ export async function findAvailableSupervisor2Lecturers(thesisId) {
  * Check if student already has Pembimbing 2
  */
 export async function hasPembimbing2(thesisId) {
-	const existing = await prisma.thesisParticipant.findFirst({
+	const existing = await prisma.thesisSupervisors.findFirst({
 		where: {
 			thesisId,
 			status: "active",
@@ -68,7 +68,7 @@ export async function hasPembimbing2(thesisId) {
  * (Berbeda dari hasPembimbing1Role yang mengecek role akun dosen.)
  */
 export async function hasPembimbing1(thesisId) {
-	const existing = await prisma.thesisParticipant.findFirst({
+	const existing = await prisma.thesisSupervisors.findFirst({
 		where: {
 			thesisId,
 			status: "active",
@@ -220,7 +220,7 @@ export async function createThesisSupervisors(thesisId, lecturerId, client = pri
 		throw err;
 	}
 
-	return client.thesisParticipant.create({
+	return client.thesisSupervisors.create({
 		data: {
 			thesisId,
 			lecturerId,

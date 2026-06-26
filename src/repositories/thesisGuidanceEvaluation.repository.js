@@ -5,7 +5,7 @@ import { syncQuotaCount } from "../utils/quotaSync.js";
  * Find the supervisor record linking a lecturer to a thesis.
  */
 export const findThesisSupervisor = async (thesisId, lecturerId, roleNames) => {
-  return prisma.thesisParticipant.findFirst({
+  return prisma.thesisSupervisors.findFirst({
     where: {
       thesisId,
       lecturerId,
@@ -102,7 +102,7 @@ export const approveEvaluation = async (evaluationId, userId, kadepNotes) => {
     });
 
     if (evaluation.recommendation === "terminate_supervision") {
-      await tx.thesisParticipant.update({
+      await tx.thesisSupervisors.update({
         where: { id: evaluation.thesisSupervisorId },
         data: { status: "terminated" },
       });
@@ -171,7 +171,7 @@ export const findEvaluationsForThesis = async (thesisSupervisorId) => {
  * Find supervisor record (id only) for a thesis+lecturer pair.
  */
 export const findSupervisorId = async (thesisId, lecturerId) => {
-  return prisma.thesisParticipant.findFirst({
+  return prisma.thesisSupervisors.findFirst({
     where: { thesisId, lecturerId },
     select: { id: true },
   });

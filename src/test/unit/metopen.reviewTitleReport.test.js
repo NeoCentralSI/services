@@ -19,7 +19,7 @@ vi.mock("../../config/prisma.js", () => ({
     researchMethodScore: {
       findUnique: vi.fn(),
     },
-    thesisParticipant: {
+    thesisSupervisors: {
       findMany: vi.fn(),
     },
     thesisStatus: {
@@ -131,7 +131,7 @@ function mockAllPrerequisitesMet(overrides = {}) {
       academicYearId: "ay-1",
     });
   });
-  prisma.thesisParticipant.findMany.mockImplementation(() => {
+  prisma.thesisSupervisors.findMany.mockImplementation(() => {
     // getActiveSupervisorUserIds juga memanggil findMany — return default P1.
     return Promise.resolve(overrides.supervisors ?? [{ role: { name: "Pembimbing 1" } }]);
   });

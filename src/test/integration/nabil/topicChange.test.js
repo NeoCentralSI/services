@@ -308,10 +308,10 @@ describe("IT-02: Topic Change Full Flow", () => {
     console.log(`[STEP 4b] ✅ Deadline set: ${newThesis.deadlineDate.toISOString()}`);
 
     // 4c. Supervisors should be moved from old to new thesis
-    const oldThesisSupervisors = await prisma.thesisParticipant.findMany({
+    const oldThesisSupervisors = await prisma.thesisSupervisors.findMany({
       where: { thesisId: testThesis.id },
     });
-    const newThesisSupervisors = await prisma.thesisParticipant.findMany({
+    const newThesisSupervisors = await prisma.thesisSupervisors.findMany({
       where: { thesisId: newThesisId },
       include: { role: { select: { name: true } } },
     });

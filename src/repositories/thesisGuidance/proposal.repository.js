@@ -153,7 +153,7 @@ export function updateThesisProposalDocumentId(thesisId, proposalDocumentId) {
 }
 
 export function findThesisSupervisor(thesisId, userId) {
-  return prisma.thesisParticipant.findFirst({
+  return prisma.thesisSupervisors.findFirst({
     where: {
       thesisId,
       lecturerId: userId,
@@ -191,7 +191,7 @@ export function findThesisById(thesisId) {
 }
 
 export function countActiveSupervisors(thesisId) {
-  return prisma.thesisParticipant.count({
+  return prisma.thesisSupervisors.count({
     where: {
       thesisId,
       status: "active",

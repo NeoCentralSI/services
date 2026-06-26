@@ -167,7 +167,7 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
 
 export async function findTrackedSupervisorAssignments(client, academicYearId, lecturerIds = null) {
   const db = getQuotaRepositoryClient(client);
-  return db.thesisParticipant.findMany({
+  return db.thesisSupervisors.findMany({
     where: {
       status: "active",
       lecturerId: lecturerIds?.length ? { in: lecturerIds } : undefined,

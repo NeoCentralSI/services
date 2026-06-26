@@ -1722,3 +1722,173 @@ export async function adminUpdateStudent(id, data) {
 		data: updateData
 	});
 }
+
+const thesisInclude = {
+	student: { include: { user: true } },
+	thesisStatus: true,
+	academicYear: true,
+	thesisSupervisors: {
+		include: {
+			lecturer: { include: { user: true } },
+			role: true,
+		},
+	},
+};
+
+function toDateOrNull(value) {
+	if (!value) return null;
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = "", status = "" } = {}) {
+	const skip = (Number(page) - 1) * Number(pageSize);
+	const take = Number(pageSize);
+	const where = {};
+
+	if (search) {
+		where.OR = [
+			{ title: { contains: search } },
+			{ student: { user: { fullName: { contains: search } } } },
+			{ student: { user: { identityNumber: { contains: search } } } },
+		];
+	}
+	if (status) {
+		where.thesisStatus = { name: { contains: status } };
+	}
+
+	const [items, total] = await Promise.all([
+		prisma.thesis.findMany({
+			where,
+			skip,
+			take,
+			orderBy: { updatedAt: "desc" },
+			include: thesisInclude,
+		}),
+		prisma.thesis.count({ where }),
+	]);
+
+	return { data: items, total, page: Number(page), pageSize: take };
+}
+
+export async function getThesisById(id) {
+	const thesis = await prisma.thesis.findUnique({
+		where: { id },
+		include: thesisInclude,
+	});
+	if (!thesis) {
+		const err = new Error("Thesis not found");
+		err.statusCode = 404;
+		throw err;
+	}
+	return thesis;
+}
+
+export async function createThesisManually(payload = {}) {
+	const {
+		studentId,
+		title,
+		thesisStatusId,
+		academicYearId,
+		thesisTopicId,
+		startDate,
+		deadlineDate,
+		isProposal,
+		rating,
+		supervisors = [],
+	} = payload;
+
+	if (!studentId) {
+		const err = new Error("Student id is required");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	return prisma.$transaction(async (tx) => {
+		const thesis = await tx.thesis.create({
+			data: {
+				studentId,
+				title: title || null,
+				thesisStatusId: thesisStatusId || null,
+				academicYearId: academicYearId || null,
+				thesisTopicId: thesisTopicId || null,
+				startDate: toDateOrNull(startDate),
+				deadlineDate: toDateOrNull(deadlineDate),
+				isProposal: isProposal === undefined ? true : Boolean(isProposal),
+				...(rating ? { rating } : {}),
+			},
+		});
+
+		for (const item of supervisors || []) {
+			const lecturerId = item.lecturerId || item.id;
+			const roleId = item.roleId;
+			if (!lecturerId || !roleId) continue;
+			await tx.thesisSupervisors.create({
+				data: { thesisId: thesis.id, lecturerId, roleId },
+			});
+		}
+
+		return tx.thesis.findUnique({ where: { id: thesis.id }, include: thesisInclude });
+	});
+}
+
+export async function updateThesisManually(id, payload = {}) {
+	const {
+		title,
+		thesisStatusId,
+		academicYearId,
+		thesisTopicId,
+		startDate,
+		deadlineDate,
+		isProposal,
+		rating,
+	} = payload;
+	const data = {};
+	if (title !== undefined) data.title = title || null;
+	if (thesisStatusId !== undefined) data.thesisStatusId = thesisStatusId || null;
+	if (academicYearId !== undefined) data.academicYearId = academicYearId || null;
+	if (thesisTopicId !== undefined) data.thesisTopicId = thesisTopicId || null;
+	if (startDate !== undefined) data.startDate = toDateOrNull(startDate);
+	if (deadlineDate !== undefined) data.deadlineDate = toDateOrNull(deadlineDate);
+	if (isProposal !== undefined) data.isProposal = Boolean(isProposal);
+	if (rating !== undefined) data.rating = rating;
+
+	return prisma.thesis.update({
+		where: { id },
+		data,
+		include: thesisInclude,
+	});
+}
+
+export async function deleteThesis(id, reason = null, actorUserId = null) {
+	await prisma.thesis.delete({ where: { id } });
+	return { id, deleted: true, reason, actorUserId };
+}
+
+export async function getAvailableStudents() {
+	return prisma.student.findMany({
+		where: {
+			thesis: { none: { rating: "ONGOING" } },
+		},
+		include: { user: true },
+		orderBy: { user: { fullName: "asc" } },
+	});
+}
+
+export async function getAllLecturersForDropdown() {
+	return prisma.lecturer.findMany({
+		include: { user: true, scienceGroup: true },
+		orderBy: { user: { fullName: "asc" } },
+	});
+}
+
+export async function getSupervisorRoles() {
+	return prisma.userRole.findMany({
+		where: { name: { in: SUPERVISOR_ROLES } },
+		orderBy: { name: "asc" },
+	});
+}
+
+export async function getThesisStatuses() {
+	return prisma.thesisStatus.findMany({ orderBy: { name: "asc" } });
+}
