@@ -705,10 +705,14 @@ export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {})
   // BR-28 (canon v2.2 §5.7.x): Re-cek presensi Metopel ≥75% saat co-sign P2.
   // Bila presensi mahasiswa berubah (mis. import attendance baru) antara submit
   // P1 dan co-sign P2, co-sign harus mengikuti state attendance terbaru: jika
-  // <75%, auto-zero direterapkan dan co-sign dibatalkan tanpa error.
+  // <75%, auto-zero direterapkan dan co-sign dibatalkan.
   const attendanceGate = await assertAttendanceEligibleForManualReview(thesisId, coSignerUserId);
   if (!attendanceGate.allowed) {
-    return attendanceGate.scoreRecord;
+    return {
+      ...attendanceGate.scoreRecord,
+      _autoZeroed: true,
+      _autoZeroReason: "Presensi Metopel mahasiswa <75%. Nilai otomatis di-nol-kan (BR-28). Co-sign tidak dapat dilanjutkan.",
+    };
   }
 
   return prisma.$transaction(async (tx) => {

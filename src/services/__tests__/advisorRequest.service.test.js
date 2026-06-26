@@ -21,6 +21,15 @@ vi.mock("../../repositories/advisorRequest.repository.js", () => ({
   createAuditLogWithClient: vi.fn(),
   findByIdWithClient: vi.fn(),
   updateStatusWithClient: vi.fn(),
+  findAcademicYearById: vi.fn(),
+  findThesesWithSupervisors: vi.fn(),
+  findActiveKaDep: vi.fn(),
+  updateThesisDocuments: vi.fn(),
+}));
+
+vi.mock("../../repositories/ta04Batch.repository.js", () => ({
+  findCurrentTa04BatchByAcademicYear: vi.fn(),
+  createTa04BatchWithDocument: vi.fn(),
 }));
 
 vi.mock("../metopenEligibility.service.js", () => ({
@@ -34,15 +43,41 @@ vi.mock("../advisorQuota.service.js", () => ({
   syncLecturerQuotaCurrentCount: vi.fn(),
 }));
 
+vi.mock("../notification.service.js", () => ({
+  createNotificationsForUsers: vi.fn(),
+}));
+
+vi.mock("../push.service.js", () => ({
+  sendFcmToUsers: vi.fn(),
+}));
+
+vi.mock("../../utils/ta04.pdf.js", () => ({
+  generateTA04Pdf: vi.fn().mockResolvedValue(Buffer.from("PDF")),
+}));
+
+vi.mock("fs/promises", () => ({
+  default: {
+    mkdir: vi.fn(),
+    writeFile: vi.fn(),
+  },
+  mkdir: vi.fn(),
+  writeFile: vi.fn(),
+}));
+
 const repo = await import("../../repositories/advisorRequest.repository.js");
+const ta04BatchRepo = await import("../../repositories/ta04Batch.repository.js");
 const metopenEligibility = await import("../metopenEligibility.service.js");
 const advisorQuota = await import("../advisorQuota.service.js");
+const notificationService = await import("../notification.service.js");
+const pushService = await import("../push.service.js");
 const {
   getLecturerCatalog,
   getRecommendations,
   getMyAccessState,
   getMyDraft,
+  finalizeBatchTA04,
   respondByLecturer,
+  decideByKadep,
   submitRequest,
 } = await import("../advisorRequest.service.js");
 
@@ -128,6 +163,143 @@ describe("advisorRequest.service — getRecommendations", () => {
       "kbk-ta02",
       "ay-1",
       null,
+    );
+  });
+});
+
+describe("advisorRequest.service — finalizeBatchTA04", () => {
+  const academicYear = {
+    id: "ay-1",
+    year: "2025/2026",
+    semester: "genap",
+  };
+
+  const theses = [
+    {
+      id: "thesis-1",
+      title: "Judul A",
+      student: {
+        user: {
+          id: "student-1",
+          fullName: "Mahasiswa A",
+          identityNumber: "2200000001",
+        },
+      },
+      thesisSupervisors: [
+        {
+          status: "active",
+          role: { name: "Pembimbing 1" },
+          lecturer: { user: { fullName: "Dr. P1" } },
+        },
+      ],
+    },
+    {
+      id: "thesis-2",
+      title: "Judul B",
+      student: {
+        user: {
+          id: "student-2",
+          fullName: "Mahasiswa B",
+          identityNumber: "2200000002",
+        },
+      },
+      thesisSupervisors: [
+        {
+          status: "active",
+          role: { name: "Pembimbing 1" },
+          lecturer: { user: { fullName: "Dr. P1" } },
+        },
+        {
+          status: "active",
+          role: { name: "Pembimbing 2" },
+          lecturer: { user: { fullName: "Dr. P2" } },
+        },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    repo.findAcademicYearById.mockResolvedValue(academicYear);
+    repo.findThesesWithSupervisors.mockResolvedValue(theses);
+    repo.findActiveKaDep.mockResolvedValue({
+      fullName: "Ketua Departemen",
+      identityNumber: "198000000000000001",
+    });
+    repo.updateThesisDocuments.mockResolvedValue({ count: 2 });
+  });
+
+  it("reuses current batch only when cohort hash and membership match exactly", async () => {
+    ta04BatchRepo.findCurrentTa04BatchByAcademicYear.mockResolvedValue(null);
+    ta04BatchRepo.createTa04BatchWithDocument.mockResolvedValue({
+      document: {
+        id: "doc-1",
+        fileName: "TA04_BATCH_2025-2026_Genap_test.pdf",
+        filePath: "uploads/documents/ta04/TA04_BATCH_2025-2026_Genap_test.pdf",
+      },
+      batch: {
+        id: "batch-1",
+      },
+    });
+
+    const first = await finalizeBatchTA04("ay-1", "kadep-1");
+    expect(first.alreadyFinalized).toBe(false);
+    expect(first.cohortHash).toMatch(/^[a-f0-9]{64}$/);
+
+    ta04BatchRepo.createTa04BatchWithDocument.mockClear();
+    ta04BatchRepo.findCurrentTa04BatchByAcademicYear.mockResolvedValue({
+      id: "batch-1",
+      cohortHash: first.cohortHash,
+      document: {
+        id: "doc-1",
+        fileName: "TA04_BATCH_2025-2026_Genap_test.pdf",
+        filePath: "uploads/documents/ta04/TA04_BATCH_2025-2026_Genap_test.pdf",
+      },
+      members: [{ thesisId: "thesis-1" }, { thesisId: "thesis-2" }],
+    });
+
+    const second = await finalizeBatchTA04("ay-1", "kadep-1");
+
+    expect(second.alreadyFinalized).toBe(true);
+    expect(second.documentId).toBe("doc-1");
+    expect(repo.updateThesisDocuments).toHaveBeenLastCalledWith(["thesis-1", "thesis-2"], "doc-1");
+    expect(ta04BatchRepo.createTa04BatchWithDocument).not.toHaveBeenCalled();
+  });
+
+  it("does not treat partial current batch membership as already finalized", async () => {
+    ta04BatchRepo.findCurrentTa04BatchByAcademicYear.mockResolvedValue({
+      id: "batch-old",
+      cohortHash: "a".repeat(64),
+      document: {
+        id: "doc-old",
+        fileName: "TA04_BATCH_2025-2026_Genap_old.pdf",
+        filePath: "uploads/documents/ta04/TA04_BATCH_2025-2026_Genap_old.pdf",
+      },
+      members: [{ thesisId: "thesis-1" }],
+    });
+    ta04BatchRepo.createTa04BatchWithDocument.mockResolvedValue({
+      document: {
+        id: "doc-new",
+        fileName: "TA04_BATCH_2025-2026_Genap_new.pdf",
+        filePath: "uploads/documents/ta04/TA04_BATCH_2025-2026_Genap_new.pdf",
+      },
+      batch: { id: "batch-new" },
+    });
+
+    const result = await finalizeBatchTA04("ay-1", "kadep-1");
+
+    expect(result.alreadyFinalized).toBe(false);
+    expect(result.documentId).toBe("doc-new");
+    expect(ta04BatchRepo.createTa04BatchWithDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        academicYearId: "ay-1",
+        thesisIds: ["thesis-1", "thesis-2"],
+        generatedByUserId: "kadep-1",
+        members: [
+          expect.objectContaining({ thesisId: "thesis-1", studentNim: "2200000001" }),
+          expect.objectContaining({ thesisId: "thesis-2", supervisorNames: "Dr. P1, Dr. P2" }),
+        ],
+      }),
     );
   });
 });
@@ -468,6 +640,84 @@ describe("advisorRequest.service — dual justification Path C", () => {
         lecturerApprovalNote: "Dua mahasiswa aktif sudah siap sidang bulan ini.",
         lecturerOverquotaReason: "Dua mahasiswa aktif sudah siap sidang bulan ini.",
       }),
+    );
+  });
+});
+
+describe("advisorRequest.service — reject notifications (canon v2.5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    repo.executeTransaction.mockImplementation(async (cb) => cb({}));
+    repo.lockAdvisorRequestRow.mockResolvedValue();
+    repo.upsertDraftByStudentWithClient.mockResolvedValue({});
+    repo.createAuditLogWithClient.mockResolvedValue({});
+    repo.updateStatusWithClient.mockImplementation(async (_tx, _id, data) => ({
+      id: "req-1",
+      ...data,
+    }));
+  });
+
+  it("lecturer reject sends notification + FCM to student (canon v2.5 §5.8 / BPMN Task_UpdateRejectedRequest)", async () => {
+    const request = {
+      id: "req-1",
+      lecturerId: "lecturer-1",
+      status: "pending",
+      studentId: "student-1",
+      student: { user: { id: "user-student-1", fullName: "Mhs A" } },
+      thesis: { id: "thesis-1" },
+    };
+    repo.findById.mockResolvedValue(request);
+    repo.findByIdWithClient.mockResolvedValue(request);
+
+    await respondByLecturer("req-1", "lecturer-1", {
+      action: "reject",
+      rejectionReason: "Topik kurang sesuai KBK saya.",
+    });
+
+    expect(repo.updateStatusWithClient).toHaveBeenCalledWith(
+      expect.anything(),
+      "req-1",
+      expect.objectContaining({ status: "rejected_by_dosen" }),
+    );
+    expect(notificationService.createNotificationsForUsers).toHaveBeenCalledWith(
+      ["user-student-1"],
+      expect.objectContaining({ type: "advisor_request_rejected_by_dosen" }),
+    );
+    expect(pushService.sendFcmToUsers).toHaveBeenCalledWith(
+      ["user-student-1"],
+      expect.objectContaining({ title: "Pengajuan Pembimbing Ditolak Dosen" }),
+    );
+  });
+
+  it("KaDep reject sends notification + FCM to student (canon v2.5 §5.8 / BPMN Task_UpdateRejectedRequest)", async () => {
+    const request = {
+      id: "req-1",
+      lecturerId: "lecturer-1",
+      status: "pending_kadep",
+      studentId: "student-1",
+      student: { user: { id: "user-student-1", fullName: "Mhs A" } },
+      thesis: { id: "thesis-1" },
+    };
+    repo.findById.mockResolvedValue(request);
+    repo.findByIdWithClient.mockResolvedValue(request);
+
+    await decideByKadep("req-1", "kadep-1", {
+      action: "reject",
+      notes: "Kuota dosen target sudah penuh dan tidak ada proyeksi lulus yang kuat.",
+    });
+
+    expect(repo.updateStatusWithClient).toHaveBeenCalledWith(
+      expect.anything(),
+      "req-1",
+      expect.objectContaining({ status: "rejected_by_kadep" }),
+    );
+    expect(notificationService.createNotificationsForUsers).toHaveBeenCalledWith(
+      ["user-student-1"],
+      expect.objectContaining({ type: "advisor_request_rejected_by_kadep" }),
+    );
+    expect(pushService.sendFcmToUsers).toHaveBeenCalledWith(
+      ["user-student-1"],
+      expect.objectContaining({ title: "Pengajuan Pembimbing Ditolak KaDep" }),
     );
   });
 });

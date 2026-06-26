@@ -48,6 +48,7 @@ model User {
   researchMethodScoresFinalized    ResearchMethodScore[]            @relation("ResearchMethodScoreFinalizer")
   metopenAttendanceImportsUploaded MetopenAttendanceImport[]        @relation("MetopenAttendanceImportUploader")
   proposalVersionsSubmittedAsFinal ThesisProposalVersion[]          @relation("ThesisProposalVersionSubmittedBy")
+  ta04BatchesGenerated             Ta04Batch[]                      @relation("Ta04BatchGeneratedBy")
 
   internshipSupLetterSigned InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
 
@@ -228,6 +229,7 @@ model AcademicYear {
   advisorRequests                    ThesisAdvisorRequest[]
   yudisiums                          Yudisium[]
   metopenAttendanceImports           MetopenAttendanceImport[]
+  ta04Batches                        Ta04Batch[]
 
   @@map("academic_years")
 }
@@ -468,6 +470,7 @@ model Thesis {
   advisorRequests            ThesisAdvisorRequest[]
   proposalVersions           ThesisProposalVersion[]
   studentInformalLogs        ThesisStudentInformalLog[]
+  ta04BatchMembers           Ta04BatchMember[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
   @@index([documentId], map: "thesis_document_id_fkey")
@@ -480,6 +483,57 @@ model Thesis {
   @@index([thesisStatusId], map: "thesis_thesis_status_id_fkey")
   @@index([thesisTopicId], map: "thesis_thesis_topic_id_fkey")
   @@map("thesis")
+}
+
+/// Formulir TA-04 resmi per periode. Source of truth dokumen batch current
+/// disimpan di sini, bukan disimpulkan dari pointer per-thesis yang bisa stale.
+model Ta04Batch {
+  id                String    @id @default(uuid())
+  academicYearId    String    @map("academic_year_id")
+  documentId        String    @map("document_id")
+  version           Int       @default(1)
+  /// String status sengaja dipakai untuk menghindari enum DB baru.
+  /// Nilai aktif: current, superseded.
+  status            String    @default("current") @db.VarChar(32)
+  cohortHash        String    @map("cohort_hash") @db.VarChar(64)
+  generatedByUserId String?   @map("generated_by_user_id")
+  generatedAt       DateTime  @default(now()) @map("generated_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  academicYear AcademicYear      @relation(fields: [academicYearId], references: [id])
+  document     Document          @relation("Ta04BatchDocument", fields: [documentId], references: [id])
+  generatedBy  User?             @relation("Ta04BatchGeneratedBy", fields: [generatedByUserId], references: [id], onDelete: SetNull)
+  members      Ta04BatchMember[]
+
+  @@unique([academicYearId, version])
+  @@index([academicYearId, status])
+  @@index([documentId])
+  @@index([generatedByUserId])
+  @@index([cohortHash])
+  @@map("ta04_batches")
+}
+
+/// Snapshot anggota yang masuk ke Formulir TA-04 pada saat batch dibuat.
+/// Snapshot menjaga isi PDF tetap audit-able walaupun nama/judul/pembimbing
+/// berubah setelahnya.
+model Ta04BatchMember {
+  id              String   @id @default(uuid())
+  batchId         String   @map("batch_id")
+  thesisId        String   @map("thesis_id")
+  studentName     String   @map("student_name")
+  studentNim      String   @map("student_nim") @db.VarChar(50)
+  title           String   @db.Text
+  supervisorNames String   @map("supervisor_names") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  batch  Ta04Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  thesis Thesis    @relation(fields: [thesisId], references: [id])
+
+  @@unique([batchId, thesisId])
+  @@index([thesisId])
+  @@map("ta04_batch_members")
 }
 
 /// Catatan bimbingan informal (mahasiswa saja, pra-MK Tugas Akhir / fase Metopen).
@@ -1327,6 +1381,7 @@ model Document {
   thesisChangeRequestSupportingDocs   ThesisChangeRequest[]            @relation("ChangeRequestSupportingDocument")
   thesisStudentInformalLogAttachments ThesisStudentInformalLog[]       @relation("ThesisInformalLogDocument")
   metopenAttendanceImports            MetopenAttendanceImport[]        @relation("MetopenAttendanceImportDocument")
+  ta04Batches                         Ta04Batch[]                      @relation("Ta04BatchDocument")
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")

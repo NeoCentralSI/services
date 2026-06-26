@@ -11,6 +11,7 @@ import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
+import { runTa04BatchReminderJob } from "../jobs/ta04-batch-reminder.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -283,6 +284,26 @@ export async function scheduleInternshipLogbookReminder() {
   console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
 }
 
+/**
+ * Schedule TA-04 batch finalize reminder job (canon v2.4 F-5.2 + §5.13).
+ * Default: daily at 08:00 WIB. Nudge KaDep agar memfinalisasi Formulir TA-04
+ * batch periode ketika ada thesis accepted tanpa dokumen batch resmi.
+ */
+export async function scheduleTa04BatchReminder() {
+  const pattern = ENV.TA04_BATCH_REMINDER_CRON || "0 8 * * *";
+  const tz = ENV.TA04_BATCH_REMINDER_TZ || "Asia/Jakarta";
+  await maintenanceQueue.add(
+    "ta04-batch-reminder",
+    {},
+    {
+      repeat: { pattern, tz },
+      removeOnComplete: 50,
+      removeOnFail: 100,
+    }
+  );
+  console.log(`📋 Scheduled repeatable ta04-batch-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
 // Worker to process maintenance jobs
 export const maintenanceWorker = new Worker(
   MAINTENANCE_QUEUE,
@@ -317,6 +338,9 @@ export const maintenanceWorker = new Worker(
         break;
       case "internship-logbook-reminder":
         await runInternshipLogbookReminderJob();
+        break;
+      case "ta04-batch-reminder":
+        await runTa04BatchReminderJob();
         break;
       default:
         // no-op

@@ -1286,6 +1286,8 @@ export const findThesesWithSupervisors = async (academicYearId) => {
         some: {
           supervisorScore: { not: null },
           lecturerScore: { not: null },
+          isFinalized: true,
+          attendanceAutoZeroedAt: null,
         },
       },
       thesisSupervisors: {
@@ -1301,11 +1303,16 @@ export const findThesesWithSupervisors = async (academicYearId) => {
       titleApprovalDocumentId: true,
       student: {
         select: {
-          user: { select: { fullName: true, identityNumber: true } },
+          user: { select: { id: true, fullName: true, identityNumber: true } },
         },
       },
       thesisSupervisors: {
+        where: {
+          status: "active",
+          role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+        },
         select: {
+          status: true,
           lecturer: {
             select: {
               user: { select: { fullName: true } },

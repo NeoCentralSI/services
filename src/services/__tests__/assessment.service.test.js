@@ -1296,7 +1296,9 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
 
     const result = await coSignSupervisorScore("thesis-1", "supervisor-2", { note: "review" });
 
-    expect(result).toEqual(zeroedRecord);
+    expect(result).toMatchObject(zeroedRecord);
+    expect(result._autoZeroed).toBe(true);
+    expect(result._autoZeroReason).toBeDefined();
     expect(prisma.researchMethodScore.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ coSignedByLecturerId: "supervisor-2" }) }),
     );

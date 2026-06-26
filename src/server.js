@@ -15,6 +15,7 @@ async function startServer() {
         scheduleGuidanceReminder,
         scheduleDailyThesisReminder,
         scheduleAdvisorWithdrawReminder,
+        scheduleTa04BatchReminder,
       } = await import("./queues/maintenance.queue.js");
       // Schedule daily maintenance jobs
       await scheduleDailyThesisStatus();
@@ -26,6 +27,8 @@ async function startServer() {
       await scheduleDailyThesisReminder();
       // Schedule advisor withdraw unlock reminder (FR-WDR-06, 72h anti-sandera)
       await scheduleAdvisorWithdrawReminder();
+      // Schedule TA-04 batch finalize reminder (canon v2.4 F-5.2 + §5.13)
+      await scheduleTa04BatchReminder();
     } else {
       console.log("⏭️ SKIP_REDIS=true, skipping maintenance queue scheduler");
     }

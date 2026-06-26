@@ -72,22 +72,14 @@ async function ensurePembimbing1Exists(thesisId) {
 }
 
 /**
- * Guard fase/status (audit pass 2 F2-2): penambahan Pembimbing 2 hanya untuk
- * thesis fase Tugas Akhir (post-TA-04, `isProposal=false`) yang masih berjalan.
- * Fase proposal memakai jalur TA-01/TA-02 + pengesahan TA-04 (canon §5.2, §5.8);
- * thesis yang sudah selesai/ditutup tidak menerima perubahan pembimbing.
+ * Guard status: penambahan Pembimbing 2 boleh dilakukan di fase mana pun
+ * (proposal maupun pasca TA-04), selama thesis masih aktif/terbuka.
+ * P2 dibutuhkan sejak awal agar bisa co-sign TA-03A (BR-20, canon §5.7.1).
  */
 function ensureThesisOpenForSupervisor2(thesis) {
 	if (!thesis) {
 		const err = new Error("Thesis tidak ditemukan");
 		err.statusCode = 404;
-		throw err;
-	}
-	if (thesis.isProposal === true) {
-		const err = new Error(
-			"Pengajuan Pembimbing 2 hanya tersedia setelah TA-04 disahkan (fase Tugas Akhir). Pada fase proposal, penetapan pembimbing mengikuti jalur TA-01/TA-02.",
-		);
-		err.statusCode = 400;
 		throw err;
 	}
 	const statusName = thesis.thesisStatus?.name ?? null;
@@ -626,8 +618,23 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	await ensureLecturerQuotaAvailable(lecturerId, thesis.academicYearId);
 
 	// Atomik: buat participant P2 + tutup seluruh record request thesis ini.
+	// Jika score TA-03A sudah pernah di-finalize tanpa P2 (P1-only), reset
+	// isFinalized agar P2 bisa co-sign — tanpa reset ini P2 deadlock (403 immutable).
 	await prisma.$transaction(async (tx) => {
 		await createThesisSupervisors(thesisId, lecturerId, tx);
+
+		const existingScore = await tx.researchMethodScore.findFirst({
+			where: { thesisId },
+			orderBy: { createdAt: "desc" },
+			select: { id: true, isFinalized: true, coSignedAt: true, supervisorScore: true },
+		});
+		if (existingScore?.isFinalized && !existingScore.coSignedAt && existingScore.supervisorScore != null) {
+			await tx.researchMethodScore.update({
+				where: { id: existingScore.id },
+				data: { isFinalized: false, finalizedBy: null, finalizedAt: null },
+			});
+		}
+
 		if (thesis.proposalStatus === "accepted") {
 			await tx.thesis.update({
 				where: { id: thesisId },
@@ -636,6 +643,45 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		}
 		await markSupervisor2RequestsProcessedForThesis(thesisId, tx);
 	});
+
+	// Dequeue thesis dari antrean KaDep TA-04 jika sudah masuk (P2 belum co-sign).
+	// BUKAN fire-and-forget — kegagalan di-log tapi tidak membatalkan approval P2
+	// (participant sudah terbuat di transaction di atas, konsistensi dijamin oleh
+	// evaluateKadepProposalQueueReadiness yang akan memblokir di GET berikutnya).
+	let dequeued = false;
+	try {
+		const { syncKadepProposalQueueByThesisId } = await import("../metopen.service.js");
+		const syncResult = await syncKadepProposalQueueByThesisId(thesisId);
+		dequeued = syncResult?.dequeued === true;
+	} catch (syncErr) {
+		console.warn("[supervisor2] syncKadepProposalQueueByThesisId failed:", syncErr?.message || syncErr);
+	}
+
+	// Notifikasi P1 bahwa co-sign diperlukan sebelum thesis bisa lanjut ke TA-04.
+	const p1Participant = await prisma.thesisParticipant.findFirst({
+		where: {
+			thesisId,
+			status: "active",
+			role: { is: { name: ROLES.PEMBIMBING_1 } },
+		},
+		select: { lecturerId: true },
+	});
+	if (dequeued) {
+		const notifyTargets = [];
+		if (p1Participant?.lecturerId) notifyTargets.push(p1Participant.lecturerId);
+		notifyTargets.push(lecturerId);
+
+		await createNotificationsForUsers(notifyTargets, {
+			title: "Co-sign Pembimbing 2 Diperlukan",
+			message: `${lecturerName} telah ditambahkan sebagai Pembimbing 2. Antrean TA-04 ditunda hingga co-sign TA-03A diberikan oleh Pembimbing 2.`,
+		});
+		await sendFcmToUsers(notifyTargets, {
+			title: "Co-sign Pembimbing 2 Diperlukan",
+			body: `Antrean TA-04 ditunda — co-sign TA-03A dari Pembimbing 2 diperlukan.`,
+			data: { type: "supervisor2_cosign_needed", thesisId },
+			dataOnly: true,
+		});
+	}
 
 	// Notifikasi mahasiswa + dosen
 	await createNotificationsForUsers([studentId], {
@@ -656,6 +702,19 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		data: { type: "supervisor2_kadep_approved", thesisId },
 		dataOnly: true,
 	});
+
+	// Celah #1: Jika thesis sudah accepted, notifikasi KaDep bahwa dokumen TA-04
+	// perlu di-regenerate karena P2 baru harus tertera.
+	if (thesis.proposalStatus === "accepted") {
+		const kadepUsers = await findUsersByActiveRole(ROLES.KETUA_DEPARTEMEN);
+		const kadepIds = (kadepUsers || []).map((u) => u.id).filter((id) => id !== kadepUserId);
+		if (kadepIds.length > 0) {
+			await createNotificationsForUsers(kadepIds, {
+				title: "Dokumen TA-04 Perlu Regenerasi",
+				message: `Pembimbing 2 (${lecturerName}) ditambahkan pada thesis yang sudah disahkan. Formulir TA-04 perlu di-generate ulang agar P2 tercantum.`,
+			});
+		}
+	}
 
 	await logAudit({
 		actorUserId: kadepUserId,

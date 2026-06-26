@@ -54,6 +54,8 @@ describe("advisorRequest.repository", () => {
             some: {
               supervisorScore: { not: null },
               lecturerScore: { not: null },
+              isFinalized: true,
+              attendanceAutoZeroedAt: null,
             },
           },
           thesisSupervisors: {

@@ -1,4 +1,6 @@
 import * as repo from "../repositories/advisorRequest.repository.js";
+import crypto from "crypto";
+import * as ta04BatchRepo from "../repositories/ta04Batch.repository.js";
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError, ForbiddenError } from "../utils/errors.js";
 import { ROLES } from "../constants/roles.js";
@@ -26,6 +28,7 @@ import {
 } from "../constants/advisorRequestStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { createNotificationsForUsers } from "./notification.service.js";
+import { sendFcmToUsers } from "./push.service.js";
 
 const OFFICIAL_SUPERVISOR_ROLES = new Set([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]);
 const PENDING_REVIEW_STATUSES = new Set(ADVISOR_REQUEST_PENDING_REVIEW_STATUSES);
@@ -199,6 +202,11 @@ function isOfficialSupervisorContext(thesis) {
 
 function formatCompactSupervisorNames(supervisors = []) {
   const names = supervisors
+    .filter(
+      (supervisor) =>
+        (supervisor.status == null || supervisor.status === ACTIVE_SUPERVISOR_STATUS) &&
+        OFFICIAL_SUPERVISOR_ROLES.has(supervisor.role?.name)
+    )
     .slice()
     .sort((a, b) => {
       const order = (roleName) => {
@@ -1019,6 +1027,43 @@ export async function getDosenInboxHistory(userId) {
 }
 
 /**
+ * Fire-and-forget: notifikasi mahasiswa bahwa pengajuan pembimbing ditolak
+ * (oleh dosen atau KaDep). Membawa alasan/catatan supaya mahasiswa tahu
+ * arahan selanjutnya. Selaras BPMN `Task_UpdateRejectedRequest` "mengirim
+ * notifikasi" (canon v2.5 §5.8 + label BPMN).
+ */
+async function notifyAdvisorRequestRejected(request, { actor, reason }) {
+  const studentUserId = request?.student?.user?.id;
+  if (!studentUserId) return;
+  const isKadep = actor === "kadep";
+  const title = isKadep
+    ? "Pengajuan Pembimbing Ditolak KaDep"
+    : "Pengajuan Pembimbing Ditolak Dosen";
+  const message = reason?.trim()
+    ? isKadep
+      ? `Ketua Departemen menolak pengajuan pembimbing Anda. Catatan: ${reason.trim()}`
+      : `Dosen pembimbing menolak pengajuan Anda. Alasan: ${reason.trim()}`
+    : isKadep
+      ? "Ketua Departemen menolak pengajuan pembimbing Anda. Silakan ajukan ke dosen lain atau gunakan jalur TA-02."
+      : "Dosen pembimbing menolak pengajuan Anda. Silakan pilih dosen lain atau gunakan jalur TA-02.";
+  const type = isKadep ? "advisor_request_rejected_by_kadep" : "advisor_request_rejected_by_dosen";
+  const data = {
+    type,
+    requestId: request?.id ?? null,
+    route: "/metopel",
+  };
+  try {
+    await createNotificationsForUsers([studentUserId], { title, message, type, data });
+    await sendFcmToUsers([studentUserId], { title, body: message, data, dataOnly: true });
+  } catch (err) {
+    console.error(
+      `[notifyAdvisorRequestRejected] notifikasi ${actor} reject gagal:`,
+      err?.message || err,
+    );
+  }
+}
+
+/**
  * Lecturer responds to a request (accept/reject)
  */
 export async function respondByLecturer(
@@ -1096,7 +1141,7 @@ export async function respondByLecturer(
     if (!cleanReason || cleanReason.length < 5) {
       throw new BadRequestError("Alasan penolakan wajib diisi (minimal 5 karakter)");
     }
-    return repo.executeTransaction(async (tx) => {
+    const updated = await repo.executeTransaction(async (tx) => {
       await repo.lockAdvisorRequestRow(tx, requestId);
       const lockedRequest = await repo.findByIdWithClient(tx, requestId);
       if (!lockedRequest) throw new NotFoundError("Pengajuan tidak ditemukan");
@@ -1105,7 +1150,7 @@ export async function respondByLecturer(
         throw new BadRequestError("Status pengajuan sudah berubah. Muat ulang halaman lalu coba lagi.");
       }
 
-      const updated = await repo.updateStatusWithClient(tx, requestId, {
+      const updatedRow = await repo.updateStatusWithClient(tx, requestId, {
         status: ADVISOR_REQUEST_STATUS.REJECTED_BY_DOSEN,
         rejectionReason: cleanReason,
         lecturerRespondedAt: new Date(),
@@ -1129,8 +1174,10 @@ export async function respondByLecturer(
         reason: cleanReason,
       });
 
-      return updated;
+      return updatedRow;
     }, SERIALIZABLE_TX);
+    await notifyAdvisorRequestRejected(request, { actor: "lecturer", reason: cleanReason });
+    return updated;
   } else {
     throw new BadRequestError("Action harus 'accept' atau 'reject'");
   }
@@ -1365,7 +1412,7 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
       return updated;
     }, SERIALIZABLE_TX);
   } else if (action === "reject") {
-    return repo.executeTransaction(async (tx) => {
+    const updated = await repo.executeTransaction(async (tx) => {
       await repo.lockAdvisorRequestRow(tx, requestId);
       const lockedRequest = await repo.findByIdWithClient(tx, requestId);
       if (!lockedRequest) throw new NotFoundError("Pengajuan tidak ditemukan");
@@ -1373,7 +1420,7 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
         throw new BadRequestError("Status pengajuan sudah berubah. Muat ulang halaman lalu coba lagi.");
       }
 
-      const updated = await repo.updateStatusWithClient(tx, requestId, {
+      const updatedRow = await repo.updateStatusWithClient(tx, requestId, {
         status: ADVISOR_REQUEST_STATUS.REJECTED_BY_KADEP,
         reviewedBy: kadepUserId,
         reviewedAt: now,
@@ -1398,8 +1445,10 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
         reason: cleanNotes,
       });
 
-      return updated;
+      return updatedRow;
     }, SERIALIZABLE_TX);
+    await notifyAdvisorRequestRejected(request, { actor: "kadep", reason: cleanNotes });
+    return updated;
   } else if (action === "redirect") {
     if (!cleanTargetLecturerId) {
       throw new BadRequestError("Pilih dosen tujuan untuk pengalihan");
@@ -1608,6 +1657,50 @@ export async function getRequestDetail(requestId, callerUserId) {
   return request;
 }
 
+function buildTa04Cohort(theses = []) {
+  const entries = theses.map((t) => {
+    const supervisorNames = formatCompactSupervisorNames(t.thesisSupervisors);
+
+    return {
+      thesisId: t.id,
+      studentName: t.student?.user?.fullName ?? "-",
+      studentNim: t.student?.user?.identityNumber ?? "-",
+      title: t.title ?? "Judul belum ditentukan",
+      supervisorNames: supervisorNames || "-",
+    };
+  });
+
+  const hashPayload = entries
+    .map((entry) => ({
+      thesisId: entry.thesisId,
+      studentName: entry.studentName,
+      studentNim: entry.studentNim,
+      title: entry.title,
+      supervisorNames: entry.supervisorNames,
+    }))
+    .sort((a, b) => a.thesisId.localeCompare(b.thesisId));
+
+  return {
+    entries,
+    cohortHash: crypto.createHash("sha256").update(JSON.stringify(hashPayload)).digest("hex"),
+  };
+}
+
+function isBatchCurrentForCohort(batch, cohortHash, thesisIds = []) {
+  if (!batch?.document?.filePath?.includes("uploads/documents/ta04/TA04_BATCH_")) {
+    return false;
+  }
+  if (batch.cohortHash !== cohortHash) return false;
+
+  const expectedIds = new Set(thesisIds);
+  const memberIds = new Set((batch.members ?? []).map((member) => member.thesisId));
+  if (expectedIds.size !== memberIds.size) return false;
+  for (const thesisId of expectedIds) {
+    if (!memberIds.has(thesisId)) return false;
+  }
+  return true;
+}
+
 /**
  * Generate Formulir TA-04 preview for an entire academic year.
  * This is the official batch document for students taking the thesis course
@@ -1629,21 +1722,18 @@ export async function generateBatchTA04(academicYearId) {
 
   const semesterLabel = `${academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${academicYear.year ?? ""}`;
 
-  const entries = theses.map((t) => {
-    const supervisorNames = formatCompactSupervisorNames(t.thesisSupervisors);
-
-    return {
-      studentName: t.student?.user?.fullName ?? "-",
-      nim: t.student?.user?.identityNumber ?? "-",
-      title: t.title ?? "Judul belum ditentukan",
-      supervisorName: supervisorNames || "-",
-    };
-  });
+  const { entries: cohortEntries } = buildTa04Cohort(theses);
+  const pdfEntries = cohortEntries.map((entry) => ({
+    studentName: entry.studentName,
+    nim: entry.studentNim,
+    title: entry.title,
+    supervisorName: entry.supervisorNames,
+  }));
 
   const now = new Date();
   const pdfBuffer = await generateTA04Pdf({
     semester: semesterLabel,
-    entries,
+    entries: pdfEntries,
     dateGenerated: now.toLocaleDateString("id-ID", {
       day: "numeric",
       month: "long",
@@ -1661,7 +1751,7 @@ export async function generateBatchTA04(academicYearId) {
  * Finalize the semester TA-04 form as the official archived document.
  * This persists the PDF and links the same document to all theses in that semester.
  */
-export async function finalizeBatchTA04(academicYearId) {
+export async function finalizeBatchTA04(academicYearId, generatedByUserId = null) {
   const academicYear = await repo.findAcademicYearById(academicYearId);
   if (!academicYear) throw new NotFoundError("Tahun akademik tidak ditemukan");
 
@@ -1672,21 +1762,23 @@ export async function finalizeBatchTA04(academicYearId) {
     );
   }
 
-  const existingDocIds = [...new Set(theses.map((thesis) => thesis.titleApprovalDocumentId).filter(Boolean))];
-  if (existingDocIds.length === 1) {
-    const existingDocument = await repo.findDocumentById(existingDocIds[0]);
-    if (existingDocument?.filePath?.includes("uploads/documents/ta04/TA04_BATCH_")) {
-      const semesterName = academicYear.semester === "genap" ? "Genap" : "Ganjil";
-      return {
-        documentId: existingDocument.id,
-        fileName: existingDocument.fileName,
-        storedFileName: existingDocument.fileName,
-        filePath: existingDocument.filePath,
-        thesisCount: theses.length,
-        academicYear: `${academicYear.year ?? "-"} ${semesterName}`,
-        alreadyFinalized: true,
-      };
-    }
+  const { entries: cohortEntries, cohortHash } = buildTa04Cohort(theses);
+  const thesisIds = cohortEntries.map((entry) => entry.thesisId);
+  const currentBatch = await ta04BatchRepo.findCurrentTa04BatchByAcademicYear(academicYearId);
+  if (isBatchCurrentForCohort(currentBatch, cohortHash, thesisIds)) {
+    const semesterName = academicYear.semester === "genap" ? "Genap" : "Ganjil";
+    await repo.updateThesisDocuments(thesisIds, currentBatch.document.id);
+    return {
+      batchId: currentBatch.id,
+      documentId: currentBatch.document.id,
+      fileName: currentBatch.document.fileName,
+      storedFileName: currentBatch.document.fileName,
+      filePath: currentBatch.document.filePath,
+      thesisCount: theses.length,
+      academicYear: `${academicYear.year ?? "-"} ${semesterName}`,
+      cohortHash,
+      alreadyFinalized: true,
+    };
   }
 
   const { pdfBuffer, fileName } = await generateBatchTA04(academicYearId);
@@ -1702,27 +1794,25 @@ export async function finalizeBatchTA04(academicYearId) {
   const filePath = path.join(outputDir, persistedFileName);
   await fs.writeFile(filePath, pdfBuffer);
 
-  const document = await repo.createDocument({
-    fileName: persistedFileName,
-    filePath: `uploads/documents/ta04/${persistedFileName}`,
-    fileSize: pdfBuffer.length,
-    mimeType: "application/pdf",
-    documentTypeId: null,
+  const { document, batch } = await ta04BatchRepo.createTa04BatchWithDocument({
+    academicYearId,
+    documentData: {
+      fileName: persistedFileName,
+      filePath: `uploads/documents/ta04/${persistedFileName}`,
+      fileSize: pdfBuffer.length,
+      mimeType: "application/pdf",
+      documentTypeId: null,
+    },
+    thesisIds,
+    cohortHash,
+    members: cohortEntries,
+    generatedByUserId,
   });
-
-  await repo.updateThesisDocuments(
-    theses.map((thesis) => thesis.id),
-    document.id,
-  );
 
   // Notifikasi ke mahasiswa affected bahwa Formulir TA-04 batch resmi telah
   // diterbitkan dan tersedia di arsip Metode Penelitian.
   try {
-    const acceptedTheses = await prisma.thesis.findMany({
-      where: { academicYearId, proposalStatus: "accepted" },
-      select: { studentId: true },
-    });
-    const studentIds = acceptedTheses.map((t) => t.studentId).filter(Boolean);
+    const studentIds = theses.map((t) => t.student?.user?.id).filter(Boolean);
     if (studentIds.length > 0) {
       const semesterPretty = `${academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${academicYear.year ?? ""}`.trim();
       await createNotificationsForUsers(studentIds, {
@@ -1735,12 +1825,14 @@ export async function finalizeBatchTA04(academicYearId) {
   }
 
   return {
+    batchId: batch.id,
     documentId: document.id,
     fileName,
     storedFileName: persistedFileName,
     filePath: document.filePath,
     thesisCount: theses.length,
     academicYear: `${academicYear.year ?? "-"} ${semesterName}`,
+    cohortHash,
     alreadyFinalized: false,
   };
 }
