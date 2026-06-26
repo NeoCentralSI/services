@@ -1,5 +1,6 @@
 import * as monitoringRepository from "../../repositories/thesisGuidance/monitoring.repository.js";
 import { sendFcmToUsers } from "../push.service.js";
+import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import { supervisorRoleDisplayName, isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
@@ -47,28 +48,19 @@ function normalizeReportOptions(input) {
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [
-    statusDistribution,
-    ratingDistribution,
-    progressStats,
-    atRiskStudents,
-    slowStudents,
-    readyForSeminar,
-    topicDistribution,
-    batchDistribution,
-    progressDistribution,
-    guidanceTrend,
-  ] = await Promise.all([
+  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, supervisorLoads, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
     monitoringRepository.getRatingDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
     monitoringRepository.getAtRiskStudents(5, academicYear),
     optionalRepositoryCall("getSlowStudents", 5, academicYear),
     monitoringRepository.getStudentsReadyForSeminar(academicYear),
-    optionalRepositoryCall("getTopicDistribution", academicYear),
-    optionalRepositoryCall("getBatchDistribution", academicYear),
-    optionalRepositoryCall("getProgressDistribution", academicYear),
-    optionalRepositoryCall("getGuidanceTrend", academicYear),
+    monitoringRepository.getSlowStudents(5, academicYear),
+    getSupervisorWorkloads(academicYear),
+    monitoringRepository.getTopicDistribution(academicYear),
+    monitoringRepository.getBatchDistribution(academicYear),
+    monitoringRepository.getProgressDistribution(academicYear),
+    monitoringRepository.getGuidanceTrend(academicYear),
   ]);
 
   return {
@@ -86,6 +78,7 @@ export async function getMonitoringDashboard(academicYear) {
     guidanceTrend,
     atRiskStudents,
     slowStudents,
+    supervisorLoads,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({
       thesisId: t.id,
       title: t.title,
@@ -100,6 +93,62 @@ export async function getMonitoringDashboard(academicYear) {
       })),
     })),
   };
+}
+
+/**
+ * Get lecturer supervision workload, grouped by lecturer.
+ */
+export async function getSupervisorWorkloads(academicYear) {
+  const rows = await monitoringRepository.getSupervisorWorkloadRows(academicYear);
+  const lecturerMap = new Map();
+
+  rows.forEach((row) => {
+    const lecturerId = row.lecturerId;
+    if (!lecturerId || !row.lecturer?.user) return;
+
+    if (!lecturerMap.has(lecturerId)) {
+      lecturerMap.set(lecturerId, {
+        lecturerId,
+        lecturerName: row.lecturer.user.fullName,
+        lecturerNip: row.lecturer.user.identityNumber,
+        lecturerEmail: row.lecturer.user.email,
+        studentsByThesis: new Map(),
+      });
+    }
+
+    const lecturer = lecturerMap.get(lecturerId);
+    const thesisId = row.thesis?.id;
+    if (!thesisId || lecturer.studentsByThesis.has(thesisId)) return;
+
+    lecturer.studentsByThesis.set(thesisId, {
+      thesisId,
+      thesisTitle: row.thesis?.title,
+      role: row.role?.name,
+      name: row.thesis?.student?.user?.fullName,
+      nim: row.thesis?.student?.user?.identityNumber,
+      email: row.thesis?.student?.user?.email,
+    });
+  });
+
+  return Array.from(lecturerMap.values())
+    .map((lecturer) => {
+      const students = Array.from(lecturer.studentsByThesis.values())
+        .filter((student) => student.name || student.nim)
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+      return {
+        lecturerId: lecturer.lecturerId,
+        lecturerName: lecturer.lecturerName,
+        lecturerNip: lecturer.lecturerNip,
+        lecturerEmail: lecturer.lecturerEmail,
+        studentCount: students.length,
+        students,
+      };
+    })
+    .sort((a, b) => {
+      if (b.studentCount !== a.studentCount) return b.studentCount - a.studentCount;
+      return (a.lecturerName || "").localeCompare(b.lecturerName || "");
+    });
 }
 
 /**
@@ -137,6 +186,12 @@ export async function getThesesList(filters) {
         email: t.student?.user?.email,
       },
       status: t.thesisStatus?.name,
+      topic: t.thesisTopic
+        ? {
+            id: t.thesisTopic.id,
+            name: t.thesisTopic.name,
+          }
+        : null,
       academicYear: t.academicYear?.name,
       progress: {
         completed: completedMilestones,
@@ -181,10 +236,11 @@ export async function getThesesList(filters) {
  * Get filter options for monitoring page
  */
 export async function getFilterOptions() {
-  const [statusDistribution, supervisors, academicYears] = await Promise.all([
+  const [statusDistribution, supervisors, academicYears, topicDistribution] = await Promise.all([
     monitoringRepository.getStatusDistribution(),
     monitoringRepository.getAllSupervisors(),
     monitoringRepository.getAllAcademicYears(),
+    monitoringRepository.getTopicDistribution(),
   ]);
 
   return {
@@ -198,6 +254,11 @@ export async function getFilterOptions() {
     supervisors: supervisors.map((s) => ({
       value: s.id,
       label: s.name,
+    })),
+    topics: topicDistribution.map((t) => ({
+      value: t.id,
+      label: t.name,
+      count: t.count,
     })),
     academicYears: academicYears.map((ay) => ({
       value: ay.id,
@@ -408,12 +469,34 @@ export async function getThesisDetail(thesisId) {
  * Send warning notification to student about thesis progress (for department roles: Kadep, Sekdep, GKM)
  */
 export async function sendWarningNotificationService(userId, thesisId, warningType) {
-  // Get user info for sender name
-  const sender = await prisma.user.findUnique({
+  // Get user info and roles for authorization
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { fullName: true }
+    include: { userHasRoles: { include: { role: true } } }
   });
-  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
+
+  // Authorization: only Ketua Departemen or supervisors may send warnings
+  const isKadep = (user.userHasRoles || []).some(
+    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+  );
+
+  // Check if user is supervisor for this thesis (Lecturer.id is user id)
+  const supRecord = await prisma.thesisSupervisors.findFirst({
+    where: { thesisId: thesisId, lecturerId: userId }
+  });
+  const isSupervisor = Boolean(supRecord);
+
+  if (!isKadep && !isSupervisor) {
+    const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang dapat mengirim peringatan tugas akhir");
+    err.statusCode = 403;
+    throw err;
+  }
 
   // Get thesis with student info
   const thesis = await prisma.thesis.findUnique({
@@ -498,11 +581,33 @@ export async function sendBatchWarningNotificationService(userId, thesisIds = []
     throw err;
   }
 
-  const sender = await prisma.user.findUnique({
+  // Get user info and roles for authorization
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { fullName: true },
+    include: { userHasRoles: { include: { role: true } } }
   });
-  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
+
+  const isKadep = (user.userHasRoles || []).some(
+    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+  );
+
+  // If not kadep, ensure the user supervises ALL theses in the list
+  if (!isKadep) {
+    const supervisedCount = await prisma.thesisSupervisors.count({
+      where: { thesisId: { in: thesisIds }, lecturerId: userId }
+    });
+    if (supervisedCount !== thesisIds.length) {
+      const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang mengawasi tesis tersebut yang dapat mengirim peringatan massal");
+      err.statusCode = 403;
+      throw err;
+    }
+  }
 
   const theses = await prisma.thesis.findMany({
     where: { id: { in: thesisIds } },

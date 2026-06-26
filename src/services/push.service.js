@@ -1,54 +1,78 @@
 import redisClient from "../config/redis.js";
 import { getFcmMessaging } from "../config/fcm.js";
-import { ENV } from "../config/env.js";
+import { randomUUID } from "node:crypto";
 
 const KEY_PREFIX = "fcm:tokens:"; // per-user set of tokens
 const REVERSE_KEY_PREFIX = "fcm:token-owner:"; // reverse index: token → userId
 
-async function ensureRedisAvailable() {
-  if (ENV.SKIP_REDIS) return false;
-  if (redisClient.isOpen) return true;
+function maskToken(token) {
+  if (!token) return "";
+  return token.length > 16 ? `${token.slice(0, 8)}...${token.slice(-8)}` : token;
+}
 
+function getStoredToken(raw) {
+  if (!raw?.startsWith?.("{")) return raw;
   try {
-    await redisClient.connect();
-    return true;
-  } catch (error) {
-    if (ENV.NODE_ENV !== "test") {
-      console.warn("[FCM] Redis unavailable; skipping push token operation:", error.message);
-    }
-    return false;
+    return JSON.parse(raw).token || raw;
+  } catch {
+    return raw;
   }
 }
 
-export async function registerFcmToken(userId, token, platform = "unknown") {
-  if (!userId || !token) return { registered: 0 };
-  if (!(await ensureRedisAvailable())) return { registered: 0, skipped: "redis-unavailable" };
-  const res = await redisClient.sAdd(KEY_PREFIX + userId, token);
-  return { registered: res };
-
-  // ── Dedup: ensure a device token belongs to only ONE user ──
-  const previousOwner = await redisClient.get(REVERSE_KEY_PREFIX + token);
-  if (previousOwner && previousOwner !== String(userId)) {
-    // Remove the token from the old user's set
-    await redisClient.sRem(KEY_PREFIX + previousOwner, token);
-    console.log(`[FCM] Token migrated from user ${previousOwner} → ${userId}`);
-  }
-
-  // We store the token in a Redis Hash so we can store metadata like `platform`
-  // But to keep backwards compatibility with sMembers, we can store a JSON string
-  const tokenData = JSON.stringify({ token, platform });
-
-  // Clean up any old tokens that don't have JSON format to prevent duplicates
+async function removeUserToken(userId, token) {
   const existingTokens = await redisClient.sMembers(KEY_PREFIX + userId);
-  for (const t of existingTokens) {
-    if (t === token || (t.startsWith('{') && JSON.parse(t).token === token)) {
-      await redisClient.sRem(KEY_PREFIX + userId, t);
+  let removedCount = 0;
+  for (const raw of existingTokens) {
+    if (getStoredToken(raw) === token) {
+      removedCount += await redisClient.sRem(KEY_PREFIX + userId, raw);
     }
   }
+  if (removedCount > 0) {
+    await redisClient.del(REVERSE_KEY_PREFIX + token);
+  }
+  console.log(`[FCM] Removed invalid token user=${userId} token=${maskToken(token)} removed=${removedCount}`);
+  return removedCount;
+}
 
-  await redisClient.sAdd(KEY_PREFIX + userId, tokenData);
-  await redisClient.set(REVERSE_KEY_PREFIX + token, String(userId));
-  return { registered: 1 };
+export async function registerFcmToken(userId, token, platform = "web") {
+  if (!userId || !token) return { registered: 0 };
+  try {
+    if (!redisClient.isOpen) await redisClient.connect();
+  } catch (err) {
+    console.error("[FCM] Redis connection failed while registering token:", err.message);
+    const error = new Error("Gagal menyimpan token notifikasi: Redis tidak terhubung");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  // ── Dedup: ensure a device token belongs to only ONE user ──
+  try {
+    const previousOwner = await redisClient.get(REVERSE_KEY_PREFIX + token);
+    if (previousOwner && previousOwner !== String(userId)) {
+      await removeUserToken(previousOwner, token);
+      console.log(`[FCM] Token migrated from user ${previousOwner} → ${userId}`);
+    }
+
+    // We store token metadata as JSON while keeping backwards compatibility with raw tokens.
+    const tokenData = JSON.stringify({ token, platform });
+
+    // Clean up any old tokens that don't have JSON format to prevent duplicates
+    const existingTokens = await redisClient.sMembers(KEY_PREFIX + userId);
+    for (const t of existingTokens) {
+      if (getStoredToken(t) === token) {
+        await redisClient.sRem(KEY_PREFIX + userId, t);
+      }
+    }
+
+    await redisClient.sAdd(KEY_PREFIX + userId, tokenData);
+    await redisClient.set(REVERSE_KEY_PREFIX + token, String(userId));
+    return { registered: 1 };
+  } catch (err) {
+    console.error("[FCM] Failed to register token:", err.message);
+    const error = new Error("Gagal menyimpan token notifikasi");
+    error.statusCode = 500;
+    throw error;
+  }
 }
 
 export async function unregisterFcmToken(userId, token) {
@@ -58,7 +82,7 @@ export async function unregisterFcmToken(userId, token) {
   const existingTokens = await redisClient.sMembers(KEY_PREFIX + userId);
   let removedCount = 0;
   for (const t of existingTokens) {
-    if (t === token || (t.startsWith('{') && JSON.parse(t).token === token)) {
+    if (getStoredToken(t) === token) {
       removedCount += await redisClient.sRem(KEY_PREFIX + userId, t);
     }
   }
@@ -85,19 +109,20 @@ export async function getUserFcmTokens(userId, targetPlatform = null) {
           validTokens.push(data.token);
         }
       } else {
-        // Legacy raw token - assume web if not specified otherwise
-        if (!targetPlatform || targetPlatform === "web") {
+        // Legacy raw tokens do not carry platform metadata. Only use them for
+        // unfiltered sends; platform-filtered sends should use registered JSON tokens.
+        if (!targetPlatform) {
           validTokens.push(raw);
         }
       }
     } catch (e) {
-      if (!targetPlatform || targetPlatform === "web") validTokens.push(raw);
+      if (!targetPlatform) validTokens.push(raw);
     }
   }
   return validTokens;
 }
 
-export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly, targetPlatform } = {}) {
+export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly, targetPlatform = null } = {}) {
   const messaging = getFcmMessaging();
   if (!messaging) return { success: false, reason: "fcm-not-configured" };
   const uniqueTokens = new Set();
@@ -111,19 +136,78 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
     return { success: true, sent: 0 };
   }
 
-  console.log(`[FCM] Preparing to send to ${tokens.length} token(s), users=${userIds.join(",")}, targetPlatform=${targetPlatform}, dataOnly=${Boolean(dataOnly)}`);
-  // For web, to ensure foreground onMessage fires, it's safer to send data-only payloads.
+  console.log(`[FCM] Preparing to send to ${tokens.length} token(s), users=${userIds.join(",")}, targetPlatform=${targetPlatform || "all"}, dataOnly=${Boolean(dataOnly)}`);
+  // Always include title/body in data so all clients (web/mobile foreground/background)
+  // can render a local notification consistently.
   const payloadData = Object.fromEntries(
-    Object.entries({ ...(data || {}), ...(dataOnly ? { title, body } : {}) })
+    Object.entries({ notificationId: randomUUID(), ...(data || {}), title, body })
       .filter(([_, v]) => v !== undefined && v !== null)
       .map(([k, v]) => [k, String(v)])
   );
+  const hasNotification = Boolean(title || body);
+  const baseNotification = hasNotification
+    ? { title: title || undefined, body: body || undefined }
+    : undefined;
+  // dataOnly events are kept as data-first, but we still attach notification
+  // payload for reliable tray delivery when app/browser is backgrounded.
   const message = dataOnly
-    ? { data: payloadData, tokens }
-    : {
-      notification: title || body ? { title: title || undefined, body: body || undefined } : undefined,
+    ? {
+      notification: baseNotification,
       data: payloadData,
       tokens,
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "neocentral_guidance",
+        },
+      },
+      apns: {
+        headers: { "apns-priority": "10" },
+        payload: {
+          aps: {
+            "content-available": 1,
+            sound: "default",
+          },
+        },
+      },
+      webpush: {
+        headers: { Urgency: "high" },
+        notification: hasNotification
+          ? {
+            title: title || undefined,
+            body: body || undefined,
+            icon: "/vite.svg",
+            badge: "/vite.svg",
+          }
+          : undefined,
+        fcmOptions: { link: "/notifikasi" },
+      },
+    }
+    : {
+      notification: baseNotification,
+      data: payloadData,
+      tokens,
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "neocentral_guidance",
+        },
+      },
+      apns: {
+        headers: { "apns-priority": "10" },
+      },
+      webpush: {
+        headers: { Urgency: "high" },
+        notification: hasNotification
+          ? {
+            title: title || undefined,
+            body: body || undefined,
+            icon: "/vite.svg",
+            badge: "/vite.svg",
+          }
+          : undefined,
+        fcmOptions: { link: "/notifikasi" },
+      },
     };
   const resp = await messaging.sendEachForMulticast(message);
   console.log(`[FCM] Sent multicast: success=${resp.successCount}, failed=${resp.failureCount}`);
@@ -134,7 +218,11 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
       const code = r.error?.code || "";
       const errorMsg = r.error?.message || "unknown error";
       console.error(`[FCM] Failed to send to token ${idx}: ${code} - ${errorMsg}`);
-      if (code.includes("registration-token-not-registered") || code.includes("invalid-argument")) {
+      if (
+        code.includes("registration-token-not-registered") ||
+        code.includes("invalid-argument") ||
+        code.includes("third-party-auth-error")
+      ) {
         invalidTokens.push(tokens[idx]);
       }
     }
@@ -142,7 +230,9 @@ export async function sendFcmToUsers(userIds = [], { title, body, data, dataOnly
   if (invalidTokens.length) {
     if (!(await ensureRedisAvailable())) return { success: true, sent: resp.successCount, failed: resp.failureCount };
     for (const uid of userIds) {
-      await redisClient.sRem(KEY_PREFIX + uid, invalidTokens);
+      for (const token of invalidTokens) {
+        await removeUserToken(uid, token);
+      }
     }
   }
   return { success: true, sent: resp.successCount, failed: resp.failureCount };

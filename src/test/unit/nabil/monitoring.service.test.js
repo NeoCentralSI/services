@@ -23,11 +23,13 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
     getBatchDistribution: vi.fn(),
     getProgressDistribution: vi.fn(),
     getGuidanceTrend: vi.fn(),
+    getSupervisorWorkloadRows: vi.fn(),
   },
   mockPrisma: {
     thesis: { findUnique: vi.fn(), findFirst: vi.fn() },
     thesisStatus: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
+    thesisSupervisors: { findFirst: vi.fn(), count: vi.fn() },
   },
   mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
@@ -83,6 +85,30 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       mockRepo.getBatchDistribution.mockResolvedValue([{ id: "2022", name: "Angkatan 2022", count: 15 }]);
       mockRepo.getProgressDistribution.mockResolvedValue([{ label: "0-25%", count: 5 }]);
       mockRepo.getGuidanceTrend.mockResolvedValue([{ month: "2025-01", count: 12 }]);
+      mockRepo.getSupervisorWorkloadRows.mockResolvedValue([
+        {
+          lecturerId: "l1",
+          lecturer: {
+            user: {
+              fullName: "Dr. Andi",
+              identityNumber: "19800101",
+              email: "andi@test.com",
+            },
+          },
+          role: { name: "Pembimbing 1" },
+          thesis: {
+            id: "t1",
+            title: "AI Research",
+            student: {
+              user: {
+                fullName: "Budi",
+                identityNumber: "123",
+                email: "budi@test.com",
+              },
+            },
+          },
+        },
+      ]);
 
       const result = await getMonitoringDashboard(ACADEMIC_YEAR);
 
@@ -93,12 +119,33 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toHaveProperty("batchDistribution");
       expect(result).toHaveProperty("progressDistribution");
       expect(result).toHaveProperty("guidanceTrend");
+      expect(result).toHaveProperty("supervisorLoads");
       expect(result).toHaveProperty("atRiskStudents");
       expect(result).toHaveProperty("slowStudents");
       expect(result).toHaveProperty("readyForSeminar");
+      expect(result.supervisorLoads).toEqual([
+        {
+          lecturerId: "l1",
+          lecturerName: "Dr. Andi",
+          lecturerNip: "19800101",
+          lecturerEmail: "andi@test.com",
+          studentCount: 1,
+          students: [
+            {
+              thesisId: "t1",
+              thesisTitle: "AI Research",
+              role: "Pembimbing 1",
+              name: "Budi",
+              nim: "123",
+              email: "budi@test.com",
+            },
+          ],
+        },
+      ]);
       expect(mockRepo.getProgressStatistics).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getBatchDistribution).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getGuidanceTrend).toHaveBeenCalledWith(ACADEMIC_YEAR);
+      expect(mockRepo.getSupervisorWorkloadRows).toHaveBeenCalledWith(ACADEMIC_YEAR);
     });
   });
 
@@ -132,18 +179,57 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toHaveProperty("data");
       expect(result).toHaveProperty("pagination");
     });
+
+    it("passes topic filter and includes topic in thesis rows", async () => {
+      mockRepo.getThesesOverview.mockResolvedValue({
+        theses: [{
+          id: "t1",
+          title: "Thesis 1",
+          thesisMilestones: [],
+          thesisSupervisors: [],
+          student: { id: "s1", user: { id: "u1", fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
+          thesisTopic: { id: "topic-1", name: "Machine Learning" },
+          thesisStatus: { name: "Bimbingan" },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 10,
+      });
+      mockRepo.getAllAcademicYears.mockResolvedValue([]);
+
+      const result = await getThesesList({
+        topicId: "topic-1",
+        page: 1,
+        pageSize: 10,
+      });
+
+      expect(mockRepo.getThesesOverview).toHaveBeenCalledWith(
+        expect.objectContaining({ topicId: "topic-1" })
+      );
+      expect(result.data[0].topic).toEqual({
+        id: "topic-1",
+        name: "Machine Learning",
+      });
+    });
   });
 
   // ─── Filter Options ───────────────────────────────────────
   describe("getFilterOptions", () => {
     it("returns statuses, supervisors, and academic years", async () => {
       mockRepo.getThesesOverview.mockResolvedValue({ data: [] });
+      mockRepo.getStatusDistribution.mockResolvedValue([{ name: "Bimbingan", count: 1 }]);
       mockRepo.getAllSupervisors.mockResolvedValue([{ id: "l1", name: "Dr. Andi" }]);
       mockRepo.getAllAcademicYears.mockResolvedValue([{ id: "ay1", name: "2024/2025" }]);
+      mockRepo.getTopicDistribution.mockResolvedValue([{ id: "topic-1", name: "Machine Learning", count: 2 }]);
 
       const result = await getFilterOptions();
 
       expect(result).toHaveProperty("supervisors");
+      expect(result.topics).toEqual([
+        { value: "topic-1", label: "Machine Learning", count: 2 },
+      ]);
       expect(result).toHaveProperty("academicYears");
     });
   });
@@ -240,7 +326,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
   // ─── Warning Notification ─────────────────────────────────
   describe("sendWarningNotificationService", () => {
     it("sends FCM + in-app notification for SLOW warning", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findUnique.mockResolvedValue({
         id: "thesis-1",
         title: "AI Research",
@@ -254,7 +340,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     });
 
     it("sends notification for AT_RISK warning type", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findUnique.mockResolvedValue({
         id: "thesis-1",
         title: "AI Research",
@@ -267,7 +353,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     });
 
     it("throws 404 if thesis not found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
@@ -321,7 +407,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
   // ─── Batch Warning Notification ─────────────────────
   describe("sendBatchWarningNotificationService", () => {
     it("sends batch SLOW warnings to multiple students", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([
         {
           id: "thesis-1", daysSinceActivity: 65,
@@ -347,7 +433,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     });
 
     it("throws error if no theses are found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin" });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([]);
 
       await expect(

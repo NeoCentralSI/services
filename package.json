@@ -4,6 +4,7 @@
   "description": "",
   "main": "src/server.js",
   "type": "module",
+  "packageManager": "pnpm@10.23.0",
   "scripts": {
     "test": "vitest run",
     "prisma:generate": "prisma generate",
@@ -30,6 +31,17 @@
   },
   "prisma": {
     "seed": "node prisma/seed.js"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "bcrypt",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma",
+      "protobufjs"
+    ]
   },
   "keywords": [],
   "author": "",

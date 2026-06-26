@@ -13,6 +13,7 @@ import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 import prisma from "../../../config/prisma.js";
 import { requestGuidanceService, markSessionCompleteService } from "../../../services/thesisGuidance/student.guidance.service.js";
 import { approveGuidanceService } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
+import { runCleanupIfEnabled } from "./cleanup.js";
 
 // Mock FCM and Calendar to avoid real network calls during integration test
 vi.mock("../../../services/push.service.js", () => ({
@@ -56,15 +57,12 @@ describe("IT-04: Guidance Request & Approval Flow", () => {
   });
 
   afterAll(async () => {
-    if (SKIP_CLEANUP) {
-      console.warn("[IT-04] SKIP_CLEANUP=true, skipping cleanup");
-      await prisma.$disconnect();
-      return;
-    }
-    // Cleanup generated guidance data
-    if (createdGuidanceId) {
-      await prisma.thesisGuidance.delete({ where: { id: createdGuidanceId } }).catch(() => {});
-    }
+    await runCleanupIfEnabled("IT-04", async () => {
+      // Cleanup generated guidance data
+      if (createdGuidanceId) {
+        await prisma.thesisGuidance.delete({ where: { id: createdGuidanceId } }).catch(() => {});
+      }
+    });
     await prisma.$disconnect();
   });
 
@@ -109,10 +107,14 @@ describe("IT-04: Guidance Request & Approval Flow", () => {
     expect(completeResult.guidance.sessionSummary).toBe("Finished well");
     console.log("[IT-04] ✅ Guidance marked as completed by student");
 
-    // Verify final state in DB
-    const dbGuidance = await prisma.thesisGuidance.findUnique({ where: { id: createdGuidanceId } });
+    // 4. Verify Persisted State in Database
+    const dbGuidance = await prisma.thesisGuidance.findUnique({
+      where: { id: createdGuidanceId },
+    });
+    expect(dbGuidance).not.toBeNull();
     expect(dbGuidance.status).toBe("completed");
     expect(dbGuidance.sessionSummary).toBe("Finished well");
     expect(dbGuidance.actionItems).toBe("Review code");
+    console.log("[IT-04] ✅ Database verification passed");
   });
 });

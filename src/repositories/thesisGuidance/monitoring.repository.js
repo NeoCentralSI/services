@@ -6,13 +6,14 @@ import { withSupervisorRoleAliases } from "../../utils/supervisorIntegrity.js";
  * @param {Object} filters - Filter options
  * @param {string} filters.status - Filter by thesis status name
  * @param {string} filters.lecturerId - Filter by supervisor
+ * @param {string} filters.topicId - Filter by thesis topic
  * @param {string} filters.academicYear - Filter by academic year
  * @param {string} filters.search - Search by student name, NIM, or title
  * @param {number} filters.page - Page number
  * @param {number} filters.pageSize - Page size
  */
 export async function getThesesOverview(filters = {}) {
-  const { status, lecturerId, academicYear, search, page = 1, pageSize = 20 } = filters;
+  const { status, lecturerId, topicId, academicYear, search, page = 1, pageSize = 20 } = filters;
 
   const where = {};
 
@@ -28,6 +29,11 @@ export async function getThesesOverview(filters = {}) {
         lecturerId,
       },
     };
+  }
+
+  // Filter by thesis topic
+  if (topicId) {
+    where.thesisTopicId = topicId;
   }
 
   // Filter by academic year
@@ -65,6 +71,12 @@ export async function getThesesOverview(filters = {}) {
           },
         },
         thesisStatus: true,
+        thesisTopic: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         academicYear: true,
         thesisSupervisors: {
           where: { status: "active" },
@@ -447,6 +459,65 @@ export async function getStudentsReadyForSeminar(academicYear) {
     ...thesis,
     thesisSupervisors: withSupervisorRoleAliases(thesis.thesisSupervisors ?? []),
   }));
+}
+
+/**
+ * Get thesis supervisor assignment rows for lecturer workload summary
+ */
+export async function getSupervisorWorkloadRows(academicYear) {
+  const thesisWhere = {
+    isProposal: false,
+    thesisStatus: {
+      name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
+    },
+  };
+
+  if (academicYear) {
+    Object.assign(thesisWhere, await buildAcademicYearFilter(academicYear));
+  }
+
+  return prisma.thesisSupervisors.findMany({
+    where: {
+      role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
+      thesis: thesisWhere,
+    },
+    include: {
+      lecturer: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              identityNumber: true,
+              email: true,
+            },
+          },
+        },
+      },
+      role: true,
+      thesis: {
+        select: {
+          id: true,
+          title: true,
+          student: {
+            include: {
+              user: {
+                select: {
+                  fullName: true,
+                  identityNumber: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { lecturer: { user: { fullName: "asc" } } },
+      { thesis: { student: { user: { fullName: "asc" } } } },
+    ],
+  });
 }
 
 /** * Get all academic years for filter options

@@ -5,6 +5,7 @@ import {
   kadepApproveTransferService,
   kadepRejectTransferService,
 } from "../../services/thesisGuidance/lecturer.guidance.service.js";
+import { parseAcademicYearQuery } from "../../validators/monitoring.validator.js";
 
 /**
  * Get monitoring dashboard for management
@@ -12,7 +13,7 @@ import {
  */
 export async function getMonitoringDashboard(req, res, next) {
   try {
-    const { academicYear } = req.query;
+    const { academicYear } = parseAcademicYearQuery(req.query);
     const data = await monitoringService.getMonitoringDashboard(academicYear);
     res.json({
       success: true,
@@ -29,11 +30,12 @@ export async function getMonitoringDashboard(req, res, next) {
  */
 export async function getThesesList(req, res, next) {
   try {
-    const { status, lecturerId, academicYear, search, page = 1, pageSize = 20 } = req.query;
+    const { status, lecturerId, topicId, academicYear, search, page = 1, pageSize = 20 } = req.query;
 
     const filters = {
       status,
       lecturerId,
+      topicId,
       academicYear,
       search,
       page: parseInt(page, 10),
@@ -108,6 +110,23 @@ export async function getStudentsReadyForSeminar(req, res, next) {
   try {
     const { academicYear } = req.query;
     const data = await monitoringService.getStudentsReadyForSeminarFull(academicYear);
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Get lecturer supervision workload list
+ * @route GET /api/thesis-guidance/monitoring/supervisor-loads
+ */
+export async function getSupervisorWorkloads(req, res, next) {
+  try {
+    const { academicYear } = parseAcademicYearQuery(req.query);
+    const data = await monitoringService.getSupervisorWorkloads(academicYear);
     res.json({
       success: true,
       data,
