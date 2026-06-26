@@ -52,6 +52,9 @@ model User {
 
   internshipSupLetterSigned InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
 
+  replacementRequestsMade     SupervisorReplacementRequest[] @relation("ReplacementRequestedBy")
+  replacementRequestsApproved SupervisorReplacementRequest[] @relation("ReplacementApprovedBy")
+
   @@map("users")
 }
 
@@ -143,37 +146,22 @@ model StudentCplScore {
 }
 
 model Lecturer {
-  id                                 String                            @id @map("user_id")
-  scienceGroupId                     String?                           @map("science_group_id")
-  data                               Json?
-  acceptingRequests                  Boolean                           @default(true) @map("accepting_requests")
-  createdAt                          DateTime                          @default(now()) @map("created_at")
-  updatedAt                          DateTime                          @updatedAt @map("updated_at")
-  internshipAppLettersSigned         InternshipProposal[]              @relation("InternshipAppLetterSigner")
-  internshipAssignLettersSigned      InternshipProposal[]              @relation("InternshipAssignLetterSigner")
-  internshipsSupervisored            Internship[]                      @relation("InternshipSupervisor")
-  internshipGuidanceSessions         InternshipGuidanceSession[]       @relation("InternshipGuidanceLecturer")
-  scienceGroup                       ScienceGroup?                     @relation(fields: [scienceGroupId], references: [id])
-  user                               User                              @relation(fields: [id], references: [id], onDelete: Cascade)
-  thesisChangeRequestApprovals       ThesisChangeRequestApproval[]
-  thesisChangeRequestsReviewed       ThesisChangeRequest[]
-  thesisGuidances                    ThesisGuidance[]
-  thesisSupervisors                  ThesisParticipant[]
-  supervisionQuotas                  LecturerSupervisionQuota[]
-  milestoneAssessmentDetails         ThesisMilestoneAssessmentDetail[]
-  advisorRequestsReceived            ThesisAdvisorRequest[]            @relation("AdvisorRequestTarget")
-  advisorRequestsRedirected          ThesisAdvisorRequest[]            @relation("AdvisorRequestRedirect")
-  advisorRequestsForwarded           ThesisAdvisorRequest[]            @relation("AdvisorRequestForwarder")
-  availabilities                     LecturerAvailability[]
-  seminarExaminers                   ThesisSeminarExaminer[]           @relation("SeminarExaminerLecturer")
-  defenceExaminers                   ThesisDefenceExaminer[]           @relation("DefenceExaminerLecturer")
-  offeredTopics                      ThesisTopic[]                     @relation("TopicOfferedByLecturer")
-  changeRequestsAsNewSupervisor      ThesisChangeRequest[]             @relation("ChangeRequestNewSupervisor")
-  changeRequestsAsReplacedSupervisor ThesisChangeRequest[]             @relation("ChangeRequestReplacedSupervisor")
-  researchMethodScoresAsSupervisor   ResearchMethodScore[]             @relation("ResearchMethodScoreSupervisor")
-  researchMethodScoresAsLecturer     ResearchMethodScore[]             @relation("ResearchMethodScoreLecturer")
-  researchMethodScoresAsCoSigner     ResearchMethodScore[]             @relation("ResearchMethodScoreCoSigner")
-  advisorRequestDrafts               ThesisAdvisorRequestDraft[]
+  id                            String                         @id @map("user_id")
+  scienceGroupId                String?                        @map("science_group_id")
+  data                          Json?
+  createdAt                     DateTime                       @default(now()) @map("created_at")
+  updatedAt                     DateTime                       @updatedAt @map("updated_at")
+  internshipAppLettersSigned    InternshipProposal[]           @relation("InternshipAppLetterSigner")
+  internshipAssignLettersSigned InternshipProposal[]           @relation("InternshipAssignLetterSigner")
+  internshipsSupervisored       Internship[]                   @relation("InternshipSupervisor")
+  replacementRequestsAsOld      SupervisorReplacementRequest[] @relation("ReplacementOldSupervisor")
+  replacementRequestsAsNew      SupervisorReplacementRequest[] @relation("ReplacementNewSupervisor")
+  scienceGroup                  ScienceGroup?                  @relation(fields: [scienceGroupId], references: [id])
+  user                          User                           @relation(fields: [id], references: [id], onDelete: Cascade)
+  thesisChangeRequestApprovals  ThesisChangeRequestApproval[]
+  thesisChangeRequestsReviewed  ThesisChangeRequest[]
+  thesisGuidances               ThesisGuidance[]
+  thesisSupervisors             ThesisSupervisors[]
 
   internshipSupervisorLetters InternshipSupervisorLetter[]
 
@@ -272,7 +260,6 @@ model Cpmk {
   code           String   @db.VarChar(255)
   description    String   @db.VarChar(255)
   type           CpmkType
-  displayOrder   Int      @default(0) @map("display_order")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -1361,7 +1348,6 @@ model Document {
   internshipCompanyReportDocs         Internship[]                     @relation("InternshipCompanyReportDoc")
   internshipSeminarBeritaAcara        InternshipSeminar[]              @relation("InternshipSeminarBeritaAcara")
   internshipLogbookDoc                Internship[]                     @relation("InternshipLogbookDoc")
-  internshipReportFinalDocs           Internship[]                     @relation("InternshipReportFinalDoc")
   thesis                              Thesis[]
   thesisFinalDocument                 Thesis[]                         @relation("FinalThesisDocument")
   thesisProposalDocument              Thesis[]                         @relation("ProposalDocument")
@@ -1566,7 +1552,12 @@ model InternshipSupervisorLetter {
   signedBy     User?     @relation("InternshipSupLetterSigner", fields: [signedById], references: [id])
   signedAsRole UserRole? @relation("InternshipSupLetterRole", fields: [signedAsRoleId], references: [id])
 
-  internships Internship[]
+  status           SupervisorLetterStatus @default(ACTIVE)
+  supersededAt     DateTime?              @map("superseded_at")
+  supersededReason String?                @map("superseded_reason") @db.Text
+
+  internships         Internship[]
+  replacementRequests SupervisorReplacementRequest[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1583,6 +1574,8 @@ model Internship {
   supervisorId         String?                @map("supervisor_id")
   fieldSupervisorName  String?                @map("field_supervisor_name")
   fieldSupervisorEmail String?                @map("field_supervisor_email")
+  fieldSupervisorPhone String?                @map("field_supervisor_phone")
+  fieldSupervisorNip   String?                @map("field_supervisor_nip")
   unitSection          String?                @map("unit_section")
   actualStartDate      DateTime?              @map("actual_start_date") @db.Date
   actualEndDate        DateTime?              @map("actual_end_date") @db.Date
@@ -1599,7 +1592,7 @@ model Internship {
   supLetterId String?                     @map("sup_letter_id")
   supLetter   InternshipSupervisorLetter? @relation(fields: [supLetterId], references: [id], onDelete: SetNull)
 
-  // Report fields (merged from InternshipReport)
+  // Report fields 
   reportTitle              String?                 @map("report_title")
   reportDocumentId         String?                 @map("report_document_id")
   reportStatus             InternshipReportStatus? @map("report_status")
@@ -1607,15 +1600,17 @@ model Internship {
   reportUploadedAt         DateTime?               @map("report_uploaded_at")
   reportFeedbackDocumentId String?                 @map("report_feedback_document_id")
 
-  reportDocument         Document?                   @relation("InternshipReportDocument", fields: [reportDocumentId], references: [id])
-  reportFeedbackDocument Document?                   @relation("InternshipReportFeedbackDocument", fields: [reportFeedbackDocumentId], references: [id])
+  reportDocument         Document?                      @relation("InternshipReportDocument", fields: [reportDocumentId], references: [id])
+  reportFeedbackDocument Document?                      @relation("InternshipReportFeedbackDocument", fields: [reportFeedbackDocumentId], references: [id])
   logbooks               InternshipLogbook[]
   guidanceSessions       InternshipGuidanceSession[]
   seminars               InternshipSeminar[]
+  replacementRequests    SupervisorReplacementRequest[]
 
   // Assessment fields (merged from InternshipAssessment)
   lecturerAssessmentStatus    InternshipAssessmentStatus? @map("lecturer_assessment_status")
   fieldAssessmentStatus       InternshipAssessmentStatus? @map("field_assessment_status")
+  fieldAssessmentNotes        String?                     @map("field_assessment_notes") @db.Text
   fieldAssessmentDocId        String?                     @map("field_assessment_doc_id")
   completionCertificateDocId  String?                     @map("completion_certificate_doc_id")
   completionCertificateStatus InternshipReportStatus?     @map("completion_certificate_status")
@@ -1633,19 +1628,11 @@ model Internship {
   companyReportStatus InternshipReportStatus? @map("company_report_status")
   companyReportNotes  String?                 @map("company_report_notes") @db.Text
 
-  // Final Fix Report (post-seminar, with approval/signature page)
-  reportFinalTitle      String?                 @map("report_final_title")
-  reportFinalDocId      String?                 @map("report_final_doc_id")
-  reportFinalStatus     InternshipReportStatus? @map("report_final_status")
-  reportFinalNotes      String?                 @map("report_final_notes") @db.Text
-  reportFinalUploadedAt DateTime?               @map("report_final_uploaded_at")
-
   fieldAssessmentDoc       Document? @relation("InternshipFieldAssessmentDoc", fields: [fieldAssessmentDocId], references: [id])
   completionCertificateDoc Document? @relation("InternshipCompletionCertificateDoc", fields: [completionCertificateDocId], references: [id])
   companyReceiptDoc        Document? @relation("InternshipCompanyReceiptDoc", fields: [companyReceiptDocId], references: [id])
   companyReportDoc         Document? @relation("InternshipCompanyReportDoc", fields: [companyReportDocId], references: [id])
   logbookDocument          Document? @relation("InternshipLogbookDoc", fields: [logbookDocumentId], references: [id])
-  reportFinalDoc           Document? @relation("InternshipReportFinalDoc", fields: [reportFinalDocId], references: [id])
 
   lecturerScores InternshipLecturerScore[]
   fieldScores    InternshipFieldScore[]
@@ -1671,7 +1658,6 @@ model Internship {
   @@index([companyReceiptDocId], map: "internships_company_receipt_doc_id_fkey")
   @@index([reportDocumentId], map: "internships_report_document_id_fkey")
   @@index([reportFeedbackDocumentId], map: "internships_report_feedback_document_id_fkey")
-  @@index([reportFinalDocId], map: "internships_report_final_doc_id_fkey")
   @@map("internships")
 }
 
@@ -2517,6 +2503,7 @@ enum InternshipSeminarStatus {
   APPROVED
   REJECTED
   COMPLETED
+  FAILED
 }
 
 enum InternshipSeminarAudienceStatus {
@@ -2575,61 +2562,42 @@ enum ExitSurveyQuestionType {
   textarea
 }
 
-// ==================== Supervision Quota ====================
-
-model SupervisionQuotaDefault {
-  id             String   @id @default(uuid())
-  academicYearId String   @unique @map("academic_year_id")
-  quotaMax       Int      @default(10) @map("quota_max")
-  quotaSoftLimit Int      @default(8) @map("quota_soft_limit")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
-
-  @@map("supervision_quota_defaults")
+enum SupervisorLetterStatus {
+  ACTIVE
+  SUPERSEDED
 }
 
-model LecturerSupervisionQuota {
-  id             String   @id @default(uuid())
-  lecturerId     String   @map("lecturer_id")
-  academicYearId String   @map("academic_year_id")
-  quotaMax       Int      @default(10) @map("quota_max")
-  quotaSoftLimit Int      @default(8) @map("quota_soft_limit")
-  /// @deprecated Field snapshot legacy. Source of truth aktual untuk 6 angka
-  /// kuota (Beban Aktif, Booking, Pending KaDep, Overquota Sah, Sisa Normal)
-  /// adalah computed-query di `services/src/repositories/quota.repository.js`.
-  /// Boleh dipakai untuk fast lookup tapi WAJIB di-validate ulang dengan query
-  /// computed sebelum decision making (mis. validasi kuota saat dosen accept
-  /// atau saat KaDep override Path C). Lihat canon §7.3 + BR-06 + HANDOFF §5 P1-07.
-  currentCount   Int      @default(0) @map("current_count")
-  notes          String?  @db.Text
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  lecturer     Lecturer     @relation(fields: [lecturerId], references: [id])
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
-
-  @@unique([lecturerId, academicYearId])
-  @@index([academicYearId])
-  @@map("lecturer_supervision_quotas")
+enum ReplacementRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
-// ==================== Audit Log ====================
+model SupervisorReplacementRequest {
+  id              String                   @id @default(uuid())
+  letterId        String                   @map("letter_id")
+  internshipId    String                   @map("internship_id")
+  oldSupervisorId String                   @map("old_supervisor_id")
+  newSupervisorId String                   @map("new_supervisor_id")
+  reason          String                   @db.Text
+  status          ReplacementRequestStatus @default(PENDING)
+  requestedById   String                   @map("requested_by_id")
+  approvedById    String?                  @map("approved_by_id")
+  requestedAt     DateTime                 @default(now()) @map("requested_at")
+  resolvedAt      DateTime?                @map("resolved_at")
+  rejectionNotes  String?                  @map("rejection_notes") @db.Text
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
 
-model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String?  @map("user_id")
-  action    String   @db.VarChar(50)
-  entity    String   @db.VarChar(100)
-  entityId  String?  @map("entity_id")
-  changes   Json?
-  ipAddress String?  @map("ip_address") @db.VarChar(45)
-  userAgent String?  @map("user_agent") @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
+  letter        InternshipSupervisorLetter @relation(fields: [letterId], references: [id])
+  internship    Internship                 @relation(fields: [internshipId], references: [id])
+  oldSupervisor Lecturer                   @relation("ReplacementOldSupervisor", fields: [oldSupervisorId], references: [id])
+  newSupervisor Lecturer                   @relation("ReplacementNewSupervisor", fields: [newSupervisorId], references: [id])
+  requestedBy   User                       @relation("ReplacementRequestedBy", fields: [requestedById], references: [id])
+  approvedBy    User?                      @relation("ReplacementApprovedBy", fields: [approvedById], references: [id])
 
-  @@index([userId])
-  @@index([entity, entityId])
-  @@index([createdAt])
-  @@map("audit_logs")
+  @@index([letterId])
+  @@index([internshipId])
+  @@index([status])
+  @@map("supervisor_replacement_requests")
 }

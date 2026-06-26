@@ -37,13 +37,13 @@ export async function generateLogbookPdfFromTemplate(opts) {
 
     let pages = pdfDoc.getPages();
     let page = pages[pages.length - 1];
-    
+
     // Find starting Y position
     // If we have a header, we start below the existing content
     let curY = H - MT;
     if (headerPdfBuffer) {
         // Further reduced gap from 180 to 155 for a tighter look
-        curY = H - 155; 
+        curY = H - 155;
     }
 
     // Helper: add text
@@ -89,7 +89,7 @@ export async function generateLogbookPdfFromTemplate(opts) {
     function drawCell(x, y, w, h, text, isHeader = false, align = "left") {
         const f = isHeader ? fontBold : font;
         const sz = 9;
-        
+
         // Handle multi-line text and calculate required height
         const maxW = w - 12; // increased padding
         const words = String(text || "").split(" ");
@@ -163,7 +163,7 @@ export async function generateLogbookPdfFromTemplate(opts) {
             }
         }
         const estH = (lineCount * 14) + 10;
-        
+
         if (ensureSpace(estH)) {
             // Redraw header on new page
             cx = ML;
@@ -178,7 +178,7 @@ export async function generateLogbookPdfFromTemplate(opts) {
         const actualH = drawCell(ML + colWidths[0] + colWidths[1], curY, colWidths[2], 20, desc);
         drawCell(ML, curY, colWidths[0], actualH, String(i + 1), false, "center");
         drawCell(ML + colWidths[0], curY, colWidths[1], actualH, dateStr, false, "center");
-        
+
         curY -= actualH;
     }
 
@@ -201,10 +201,10 @@ export async function generateLogbookPdfFromTemplate(opts) {
             const base64Data = signatureBase64.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
             const sigBytes = Buffer.from(base64Data, "base64");
             const sigImage = signatureBase64.includes("image/png") ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
-            
+
             const sigW = 100;
             const sigH = (sigImage.height / sigImage.width) * sigW;
-            
+
             page.drawImage(sigImage, {
                 x: rightX,
                 y: curY - sigH,
@@ -222,7 +222,7 @@ export async function generateLogbookPdfFromTemplate(opts) {
 
     const nameText = fieldSupervisorName || "( ........................................ )";
     drawText(nameText, rightX, curY, 10, fontBold);
-    
+
     // Underline name
     const nameW = fontBold.widthOfTextAtSize(nameText, 10);
     page.drawLine({
