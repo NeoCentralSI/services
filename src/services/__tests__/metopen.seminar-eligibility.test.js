@@ -9,7 +9,7 @@ vi.mock("../../config/prisma.js", () => ({
     student: { findUnique: vi.fn() },
     researchMethodScore: { findFirst: vi.fn() },
     thesis: { findUnique: vi.fn(), update: vi.fn() },
-    thesisParticipant: { count: vi.fn() },
+    thesisParticipant: { count: vi.fn(), findMany: vi.fn() },
     thesisMilestone: { findMany: vi.fn() },
   },
 }));
@@ -43,6 +43,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     };
     repo.findStudentThesis.mockResolvedValue(thesis);
     prisma.thesis.findUnique.mockResolvedValue(thesis);
+    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.thesisParticipant.count.mockResolvedValue(1);
     prisma.thesisMilestone.findMany.mockResolvedValue([]);
     prisma.thesis.update.mockResolvedValue(thesis);
@@ -55,6 +56,9 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
   }
 
@@ -226,7 +230,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       proposalStatus: null,
       finalProposalVersionId: "proposal-version-1",
     });
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.thesisMilestone.findMany.mockResolvedValue([
       { id: "legacy-task-1", status: "in_progress", title: "Task publish kelas lama" },
     ]);
@@ -235,6 +239,9 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
 
     const result = await submitTitleReport("user-1");
@@ -266,12 +273,15 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       proposalStatus: null,
       finalProposalVersionId: null,
     });
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
 
     await expect(submitTitleReport("user-1")).rejects.toThrow("submit proposal final");
@@ -296,14 +306,144 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       id: "student-1",
       takingThesisCourse: false,
     });
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
 
     await expect(submitTitleReport("user-1")).rejects.toThrow("mata kuliah Tugas Akhir");
+  });
+
+  // F-4.4 follow-up: submitted thesis yang syaratnya terdegradasi → dequeue otomatis
+  // saat submitTitleReport dipanggil (reset proposalStatus=null + throw block reason).
+  it("auto-dequeues submitted thesis when a prerequisite has degraded (P2 added without co-sign)", async () => {
+    repo.findStudentThesis.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+    });
+    prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: true });
+    // P2 aktif tapi co-signedAt null → ta03aReady=false → dequeue.
+    prisma.thesisParticipant.findMany.mockResolvedValue([
+      { role: { name: "Pembimbing 1" } },
+      { role: { name: "Pembimbing 2" } },
+    ]);
+    prisma.researchMethodScore.findFirst.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: 20,
+      finalScore: 80,
+      isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
+    });
+
+    await expect(submitTitleReport("user-1")).rejects.toThrow(/co-sign|final/i);
+
+    // Dequeue: proposalStatus di-reset ke null.
+    expect(prisma.thesis.update).toHaveBeenCalledWith({
+      where: { id: "thesis-1" },
+      data: {
+        proposalStatus: null,
+        proposalReviewNotes: null,
+        proposalReviewedAt: null,
+        proposalReviewedByUserId: null,
+      },
+    });
+  });
+
+  // F-4.4 follow-up: submitted thesis yang SIA flip takingThesisCourse=false → dequeue.
+  it("auto-dequeues submitted thesis when SIA flips takingThesisCourse to false", async () => {
+    repo.findStudentThesis.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+    });
+    prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: false });
+    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.researchMethodScore.findFirst.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: 20,
+      finalScore: 80,
+      isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
+    });
+
+    await expect(submitTitleReport("user-1")).rejects.toThrow("mata kuliah Tugas Akhir");
+
+    expect(prisma.thesis.update).toHaveBeenCalledWith({
+      where: { id: "thesis-1" },
+      data: {
+        proposalStatus: null,
+        proposalReviewNotes: null,
+        proposalReviewedAt: null,
+        proposalReviewedByUserId: null,
+      },
+    });
+  });
+
+  // Idempotent: submitted thesis yang semua syarat masih terpenuhi → tetap "submitted",
+  // tidak ada prisma.thesis.update (no-op).
+  it("keeps submitted thesis queued when all prerequisites still hold (idempotent no-op)", async () => {
+    repo.findStudentThesis.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+    });
+    prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: true });
+    prisma.thesisParticipant.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.researchMethodScore.findFirst.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: 20,
+      finalScore: 80,
+      isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
+    });
+
+    const result = await submitTitleReport("user-1");
+
+    expect(result.proposalStatus).toBe("submitted");
+    // No enqueue update (already submitted) and no dequeue update.
+    expect(prisma.thesis.update).not.toHaveBeenCalled();
   });
 });

@@ -26,7 +26,7 @@ const defenceListInclude = {
       },
     },
   },
-  room: { select: { id: true, name: true, location: true } },
+  room: { select: { id: true, name: true } },
   examiners: { orderBy: { order: "asc" } },
   documents: {
     include: {

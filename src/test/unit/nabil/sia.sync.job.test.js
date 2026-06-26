@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockPrisma, mockSiaClient, mockSiaStore } = vi.hoisted(() => ({
+const { mockPrisma, mockSiaClient, mockSiaStore, mockMetopenService } = vi.hoisted(() => ({
   mockPrisma: {
     user: {
       findMany: vi.fn(),
@@ -30,11 +30,15 @@ const { mockPrisma, mockSiaClient, mockSiaStore } = vi.hoisted(() => ({
     saveSyncStatus: vi.fn(),
     cleanupObsoleteStudents: vi.fn(),
   },
+  mockMetopenService: {
+    syncKadepProposalQueueForStudent: vi.fn(),
+  },
 }));
 
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../services/sia.client.js", () => mockSiaClient);
 vi.mock("../../../services/sia.store.js", () => mockSiaStore);
+vi.mock("../../../services/metopen.service.js", () => mockMetopenService);
 
 import { runSiaSync } from "../../../services/sia.sync.job.js";
 
@@ -55,6 +59,9 @@ describe("SIA Sync Job Service", () => {
     mockSiaStore.saveStudents.mockResolvedValue({ updated: 0, skipped: 0 });
     mockSiaStore.saveSyncStatus.mockResolvedValue(undefined);
     mockSiaStore.cleanupObsoleteStudents.mockResolvedValue({ cleaned: 0 });
+    mockMetopenService.syncKadepProposalQueueForStudent.mockResolvedValue({
+      synced: false,
+    });
 
     mockPrisma.user.findMany.mockResolvedValue([]);
     mockPrisma.student.findMany.mockResolvedValue([]);
@@ -90,17 +97,39 @@ describe("SIA Sync Job Service", () => {
 
       expect(mockPrisma.student.updateMany).toHaveBeenCalledWith({
         where: { id: "student-1" },
-        data: {
-          skscompleted: 128,
+        data: expect.objectContaining({
+          sksCompleted: 128,
           mandatoryCoursesCompleted: true,
           mkwuCompleted: true,
           internshipCompleted: true,
           kknCompleted: true,
           researchMethodCompleted: true,
           currentSemester: 7,
-        },
+        }),
       });
       expect(summary).toMatchObject({ fetched: 1, dbUpdated: 1 });
+    });
+
+    it("syncs the KaDep TA-04 queue after SIA confirms the thesis course", async () => {
+      mockSiaClient.fetchStudentsFull.mockResolvedValue([
+        {
+          nim: "2211521002",
+          name: "Dimas",
+          sksCompleted: 128,
+          ...STUDENT_BASE,
+          takingThesisCourse: true,
+          cplScores: [],
+        },
+      ]);
+      mockPrisma.user.findMany.mockResolvedValueOnce([
+        { id: "student-dimas", identityNumber: "2211521002" },
+      ]);
+
+      await runSiaSync();
+
+      expect(mockMetopenService.syncKadepProposalQueueForStudent).toHaveBeenCalledWith(
+        "student-dimas",
+      );
     });
 
     it("gracefully skips unmatched NIM and does not throw", async () => {

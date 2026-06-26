@@ -1,14 +1,3 @@
-/**
- * @deprecated TA-05 (pergantian judul/pembimbing) **frozen, do not extend**.
- *
- * Canonical: KONTEKS_KANONIS_SIMPTA.md §5.11 — flow digital TA-05 dibekukan
- * untuk seluruh siklus rilis aktif. Schema, service, dan tests dipertahankan
- * sebatas kompatibilitas dan regresi safety; tidak boleh dikembangkan atau
- * dijadikan jalur operasional baru.
- *
- * Bila ada kebutuhan menggunakan fitur ini, tambahkan keputusan kanonis baru
- * di `KONTEKS_KANONIS_SIMPTA.md` terlebih dahulu, baru hapus marker ini.
- */
 import * as thesisChangeRequestRepository from '../repositories/thesisChangeRequest.repository.js';
 import prisma from '../config/prisma.js';
 

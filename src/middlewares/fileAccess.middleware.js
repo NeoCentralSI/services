@@ -46,8 +46,8 @@ export const checkThesisFileAccess = async (req, res, next) => {
             }
         } else if (role && role.startsWith("DOSEN_")) {
             // Check if lecturer is supervisor or examiner
-            const isSupervisor = await prisma.thesisSupervisors.findFirst({
-                where: { thesisId, lecturer: { userId } }
+            const isSupervisor = await prisma.thesisParticipant.findFirst({
+                where: { thesisId, lecturerId: userId }
             });
             const isExaminer = await prisma.thesisSeminarExaminer.findFirst({
                 where: { seminar: { thesisId }, lecturer: { userId } }

@@ -25,7 +25,7 @@ const TA04_COORDS = {
     semesterTailBox: { x0: 321.8, y0: 214.8, x1: 542.6, y1: 231.2 },
     continuationMasks: [
       { x0: 72.0, y0: 157.0, x1: 541.0, y1: 286.5 }, // title + intro
-      { x0: 72.0, y0: 620.0, x1: 543.0, y1: 680.0 }, // B. Ketentuan + bullets 1-2
+      { x0: 72.0, y0: 620.0, x1: 543.0, y1: 820.0 }, // B. Ketentuan + footer content
     ],
     columns: {
       no: { x0: 72.5, y0: 358.8, x1: 103.2, y1: 590.6, align: "center" },
@@ -46,7 +46,7 @@ const TA04_COORDS = {
   },
   page2: {
     dateBox: { x0: 432.0, y0: 248.5, x1: 543.2, y1: 264.8 },
-    nameBox: { x0: 399.5, y0: 344.8, x1: 541.0, y1: 361.5 },
+    nameBox: { x0: 360.0, y0: 344.8, x1: 541.0, y1: 361.5 },
     nipBox: { x0: 393.0, y0: 366.0, x1: 541.0, y1: 382.5 },
   },
 };
@@ -177,6 +177,7 @@ function drawTextInBox(page, text, box, font, options = {}) {
     minSize = 8,
     maxLines = null,
     lineHeightMultiplier = 1.05,
+    verticalAlign = "top",
   } = options;
 
   if (mask) {
@@ -194,7 +195,11 @@ function drawTextInBox(page, text, box, font, options = {}) {
     maxLines,
   });
 
+  const totalTextHeight = lines.length * lineHeight;
   let cursorTop = box.y0 + textPaddingY;
+  if (verticalAlign === "middle") {
+    cursorTop = box.y0 + textPaddingY + Math.max(0, (innerHeight - totalTextHeight) / 2);
+  }
   for (const line of lines) {
     const lineWidth = font.widthOfTextAtSize(line, fontSize);
     let x = box.x0 + textPaddingX;
@@ -236,7 +241,7 @@ function applyContinuationMasks(page) {
   }
 }
 
-function drawRowNumber(page, rowIndex, globalRowNumber, font, isContinuation) {
+function drawRowNumber(page, rowIndex, globalRowNumber, font) {
   const row = TA04_COORDS.page1.rows[rowIndex];
   const noColumn = TA04_COORDS.page1.columns.no;
   const box = getRowCellBox(noColumn, row, 4);
@@ -254,6 +259,7 @@ function drawRowNumber(page, rowIndex, globalRowNumber, font, isContinuation) {
     minSize: 10,
     maxLines: 1,
     lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
   });
 }
 
@@ -265,37 +271,44 @@ function drawEntryCells(page, rowIndex, entry, font) {
     align: "left",
     textPaddingX: 5,
     textPaddingY: 4,
-    maxSize: 11,
+    maxSize: 10,
     minSize: 8,
     maxLines: 3,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
   });
 
   drawTextInBox(page, entry.nim, getRowCellBox(nim, row), font, {
     align: "center",
     textPaddingX: 2,
     textPaddingY: 5,
-    maxSize: 11,
+    maxSize: 10,
     minSize: 9,
     maxLines: 1,
     lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
   });
 
   drawTextInBox(page, entry.title, getRowCellBox(title, row), font, {
     align: "left",
-    textPaddingX: 5,
-    textPaddingY: 4,
-    maxSize: 11,
-    minSize: 6.5,
+    textPaddingX: 4,
+    textPaddingY: 3,
+    maxSize: 8.8,
+    minSize: 6.8,
     maxLines: 4,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
   });
 
   drawTextInBox(page, entry.supervisorName, getRowCellBox(supervisor, row), font, {
     align: "left",
     textPaddingX: 4,
-    textPaddingY: 4,
-    maxSize: 10.5,
-    minSize: 6,
+    textPaddingY: 3,
+    maxSize: 8.8,
+    minSize: 6.8,
     maxLines: 4,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
   });
 }
 
@@ -317,9 +330,8 @@ function overlayPageOne(page, entries, startIndex, semester, font, isContinuatio
 
   for (let rowIndex = 0; rowIndex < ROWS_PER_TABLE_PAGE; rowIndex += 1) {
     const globalRowNumber = startIndex + rowIndex + 1;
-    drawRowNumber(page, rowIndex, globalRowNumber, font, isContinuation);
-
     const entry = entries[rowIndex];
+    drawRowNumber(page, rowIndex, entry ? globalRowNumber : "", font);
     if (!entry) continue;
     drawEntryCells(page, rowIndex, entry, font);
   }
@@ -341,8 +353,8 @@ function overlayPageTwo(page, dateGenerated, kadepName, kadepNip, regularFont, b
     align: "left",
     textPaddingX: 2,
     textPaddingY: 2,
-    maxSize: 12,
-    minSize: 9,
+    maxSize: 11,
+    minSize: 8,
     maxLines: 1,
     lineHeightMultiplier: 1.0,
     maskPadding: { left: 1, right: 2, top: 1, bottom: 1 },

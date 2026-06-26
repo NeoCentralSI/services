@@ -185,7 +185,7 @@ export async function getBatchTA04(req, res, next) {
 export async function finalizeBatchTA04(req, res, next) {
   try {
     const { academicYearId } = req.params;
-    const data = await service.finalizeBatchTA04(academicYearId);
+    const data = await service.finalizeBatchTA04(academicYearId, req.user.sub);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);

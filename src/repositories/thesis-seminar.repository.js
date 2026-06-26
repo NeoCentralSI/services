@@ -35,7 +35,7 @@ const seminarListInclude = {
     },
   },
   room: {
-    select: { id: true, name: true, location: true },
+    select: { id: true, name: true },
   },
   examiners: {
     orderBy: { order: "asc" },
@@ -836,7 +836,7 @@ export async function findThesisById(id) {
  * Find supervisors for a given thesis.
  */
 export async function findSupervisorsByThesisId(thesisId) {
-  return prisma.thesisSupervisors.findMany({
+  return prisma.thesisParticipant.findMany({
     where: { thesisId },
     select: {
       id: true,

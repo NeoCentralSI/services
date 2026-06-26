@@ -154,7 +154,16 @@ export function updateThesisProposalDocumentId(thesisId, proposalDocumentId) {
 
 export function findThesisSupervisor(thesisId, userId) {
   return prisma.thesisParticipant.findFirst({
-    where: { thesisId, lecturer: { userId } },
+    where: {
+      thesisId,
+      lecturerId: userId,
+      status: "active",
+      role: {
+        name: {
+          in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
+        },
+      },
+    },
   });
 }
 
@@ -192,6 +201,18 @@ export function countActiveSupervisors(thesisId) {
         },
       },
     },
+  });
+}
+
+/**
+ * Progres penilaian TA-03 untuk thesis (audit F-4.3). Dipakai untuk mengunci
+ * re-submit proposal final saat versi sedang/sudah dinilai — menjaga integritas
+ * "yang dinilai adalah proposal final yang stabil" (canon §5.6 + §5.7.2).
+ */
+export function findResearchMethodScoreProgress(thesisId) {
+  return prisma.researchMethodScore.findUnique({
+    where: { thesisId },
+    select: { supervisorScore: true, lecturerScore: true, isFinalized: true },
   });
 }
 

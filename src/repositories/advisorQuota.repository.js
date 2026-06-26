@@ -97,10 +97,17 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
       thesisId: true,
       status: true,
       routeType: true,
+      // BR-06 (canon §7.3): flag eksplisit untuk Overquota Sah snapshot.
+      acceptedOverNormal: true,
+      // BR-26 audit Path C (canon §5.2.1).
+      forwardedToKadepAt: true,
+      forwardedByLecturerId: true,
+      lecturerOverquotaReason: true,
       proposedTitle: true,
       lecturerApprovalNote: true,
       rejectionReason: true,
       justificationText: true,
+      studentJustification: true,
       kadepNotes: true,
       createdAt: true,
       updatedAt: true,
@@ -120,6 +127,17 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
         },
       },
       lecturer: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              fullName: true,
+              identityNumber: true,
+            },
+          },
+        },
+      },
+      forwardedByLecturer: {
         select: {
           id: true,
           user: {

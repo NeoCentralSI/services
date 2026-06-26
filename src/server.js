@@ -15,32 +15,20 @@ async function startServer() {
         scheduleGuidanceReminder,
         scheduleDailyThesisReminder,
         scheduleAdvisorWithdrawReminder,
-        scheduleAcademicYearSync,
-        scheduleYudisiumFinalize,
-        scheduleDailyInternshipStatus,
-        scheduleInternshipSeminarReminder,
-        scheduleInternshipLogbookReminder,
+        scheduleTa04BatchReminder,
       } = await import("./queues/maintenance.queue.js");
       // Schedule daily maintenance jobs
       await scheduleDailyThesisStatus();
-      // Schedule academic year sync job to ensure the active semester falls back correctly
-      await scheduleAcademicYearSync();
       // Schedule SIA sync job (if enabled)
       await scheduleSiaSync();
       // Schedule daily guidance reminder
       await scheduleGuidanceReminder();
       // Schedule daily thesis reminder for active thesis students (09:00 WIB)
       await scheduleDailyThesisReminder();
-      // Schedule advisor request withdraw unlock reminder (hourly)
+      // Schedule advisor withdraw unlock reminder (FR-WDR-06, 72h anti-sandera)
       await scheduleAdvisorWithdrawReminder();
-      // Schedule yudisium auto-finalize (00:15 WIB daily)
-      await scheduleYudisiumFinalize();
-      // Schedule internship status enforcement (00:00 WIB daily)
-      await scheduleDailyInternshipStatus();
-      // Schedule internship seminar reminder (every minute)
-      await scheduleInternshipSeminarReminder();
-      // Schedule internship logbook reminder (16:00 and 17:00 WIB daily)
-      await scheduleInternshipLogbookReminder();
+      // Schedule TA-04 batch finalize reminder (canon v2.4 F-5.2 + §5.13)
+      await scheduleTa04BatchReminder();
     } else {
       console.log("⏭️ SKIP_REDIS=true, skipping maintenance queue scheduler");
     }

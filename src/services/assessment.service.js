@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError, ForbiddenError } from "../utils/errors.
 import { ROLES } from "../constants/roles.js";
 import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import { syncKadepProposalQueueByThesisId } from "./metopen.service.js";
+import { assertAttendanceEligibleForManualReview } from "./metopenAttendance.service.js";
 
 const RESEARCH_METHOD_APPLIES_TO = ["proposal", "metopen"];
 const FORM_CONFIG = {
@@ -210,6 +211,22 @@ function buildScoreCompletionFields(scoreRecord, actorUserId, now, { hasP2 } = {
   };
 }
 
+function resolveSupervisorActionStatus(score, isP1) {
+  if (score?.attendanceAutoZeroedAt != null) {
+    return "auto_zeroed";
+  }
+  if (score?.isFinalized) {
+    return "finalized";
+  }
+  if (isP1) {
+    if (score?.supervisorScore == null) return "p1_pending";
+    return "p1_waiting_cosign";
+  }
+  if (score?.supervisorScore == null) return "p2_waiting_p1";
+  if (score?.coSignedAt == null) return "p2_pending_cosign";
+  return "p1_waiting_cosign";
+}
+
 // ============================================
 // Criteria Retrieval
 // ============================================
@@ -248,12 +265,27 @@ export async function getCriteriaByFormCode(formCode) {
 // ============================================
 
 /**
- * Get theses queued for TA-03A scoring by the authenticated supervisor.
- * Returns theses where:
- * - Lecturer is Pembimbing 1
- * - Student and thesis are still active in the current proposal scope
- * - Final proposal has been submitted
- * - ResearchMethodScore does not have supervisorScore yet
+ * BR-20 (canon §5.7.1): Antrean penilaian TA-03A untuk dosen pembimbing —
+ * mencakup BAIK Pembimbing 1 (master pengisi rubrik) MAUPUN Pembimbing 2
+ * (co-sign konsensus). Konsekuensi BR-20: TA-03A adalah konsensus mufakat
+ * 1 blok tanda tangan, sehingga kedua pembimbing membutuhkan surface
+ * antrean yang setara — P1 untuk submit rubrik, P2 untuk co-sign.
+ *
+ * Returns thesis dimana:
+ * - Lecturer adalah Pembimbing 1 (`actorRole = "P1"`) atau Pembimbing 2 (`actorRole = "P2"`)
+ * - Mahasiswa dan thesis aktif di scope proposal SIMPTA
+ * - Final proposal sudah disubmit
+ * - Belum `isFinalized` (auto-finalize akan keluar dari antrean)
+ *
+ * `actionStatus` per item:
+ *   - "p1_pending"        → P1 perlu submit rubrik (P1 surface)
+ *   - "p2_pending_cosign" → P1 sudah submit, P2 perlu co-sign (P2 surface)
+ *   - "p1_waiting_cosign" → P1 sudah submit, menunggu P2 co-sign (P1 surface, read-only)
+ *   - "p2_waiting_p1"     → P2 menunggu P1 submit dulu (P2 surface, read-only)
+ *   - "auto_zeroed"       → presensi <75% (BR-28), nilai auto-zero, tidak bisa input manual
+ *   - "finalized"         → TA-03A + TA-03B final, masuk riwayat read-only
+ *
+ * Item dengan `score.isFinalized = true` keluar dari antrean (siklus selesai).
  */
 export async function getSupervisorScoringQueue(supervisorUserId) {
   const supervisedTheses = await prisma.thesisParticipant.findMany({
@@ -261,10 +293,11 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
       lecturerId: supervisorUserId,
       status: "active",
       role: {
-        name: ROLES.PEMBIMBING_1,
+        name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] },
       },
     },
     include: {
+      role: { select: { name: true } },
       thesis: {
         select: {
           id: true,
@@ -286,6 +319,28 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
               lecturerScore: true,
               finalScore: true,
               isFinalized: true,
+              coSignedAt: true,
+              coSignedByLecturerId: true,
+              attendanceAutoZeroedAt: true,
+              attendanceAutoZeroReason: true,
+            },
+          },
+          // Schema note: relasi `thesis_participants` di Prisma di-alias jadi
+          // `thesisSupervisors` (lihat schema.prisma §"Relation field names
+          // keep legacy thesisSupervisors alias untuk API compat"). Field
+          // generik `thesisParticipants` TIDAK ada di model Thesis.
+          thesisSupervisors: {
+            where: {
+              status: "active",
+              role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+            },
+            include: {
+              role: { select: { name: true } },
+              lecturer: {
+                select: {
+                  user: { select: { id: true, fullName: true } },
+                },
+              },
             },
           },
         },
@@ -295,20 +350,150 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
 
   return supervisedTheses
     .filter((ts) => {
-      const score = ts.thesis?.researchMethodScores?.[0];
+      const thesis = ts.thesis;
+      if (!thesis) return false;
+      const score = thesis.researchMethodScores?.[0];
+      // Thesis siklus penilaian sudah selesai → keluarkan dari antrean
+      if (score?.isFinalized) return false;
       return (
-        ts.thesis?.student?.status === "active"
-        && !isClosedThesisStatus(ts.thesis?.thesisStatus?.name)
-        && !!ts.thesis?.finalProposalVersionId
-        && score?.supervisorScore == null
+        thesis.student?.status === "active"
+        && !isClosedThesisStatus(thesis.thesisStatus?.name)
+        && !!thesis.finalProposalVersionId
       );
     })
-    .map((ts) => ({
-      thesisId: ts.thesis?.id,
-      thesisTitle: ts.thesis?.title ?? null,
-      student: ts.thesis?.student?.user ?? null,
-      supervisorScore: ts.thesis?.researchMethodScores?.[0]?.supervisorScore ?? null,
-    }));
+    .map((ts) => {
+      const thesis = ts.thesis;
+      const score = thesis.researchMethodScores?.[0] ?? null;
+      const isP1 = ts.role?.name === ROLES.PEMBIMBING_1;
+      const actorRole = isP1 ? "P1" : "P2";
+
+      // Lookup partner pembimbing supaya FE bisa menampilkan
+      // "Co-pembimbing: Bu A" dsb. tanpa query terpisah. Field relasi di
+      // Prisma di-alias `thesisSupervisors` (legacy name) meski tabel di DB
+      // bernama `thesis_participants`.
+      const partnerRoleName = isP1 ? ROLES.PEMBIMBING_2 : ROLES.PEMBIMBING_1;
+      const partner = (thesis.thesisSupervisors ?? [])
+        .find((p) => p.role?.name === partnerRoleName);
+      const partnerName = partner?.lecturer?.user?.fullName ?? null;
+
+      return {
+        thesisId: thesis.id,
+        thesisTitle: thesis.title ?? null,
+        student: thesis.student?.user ?? null,
+        actorRole,
+        actionStatus: resolveSupervisorActionStatus(score, isP1),
+        partnerName,
+        supervisorScore: score?.supervisorScore ?? null,
+        lecturerScore: score?.lecturerScore ?? null,
+        finalScore: score?.finalScore ?? null,
+        coSignedAt: score?.coSignedAt ?? null,
+        attendanceAutoZeroedAt: score?.attendanceAutoZeroedAt ?? null,
+        attendanceAutoZeroReason: score?.attendanceAutoZeroReason ?? null,
+      };
+    });
+}
+
+/**
+ * Riwayat penilaian TA-03A untuk pembimbing. Queue aktif hanya berisi siklus
+ * yang belum selesai; endpoint ini tetap mengembalikan skor yang sudah pernah
+ * masuk agar pembimbing punya surface read-only setelah submit/finalisasi.
+ */
+export async function getSupervisorScoringHistory(supervisorUserId) {
+  const supervisedTheses = await prisma.thesisParticipant.findMany({
+    where: {
+      lecturerId: supervisorUserId,
+      status: "active",
+      role: {
+        name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] },
+      },
+    },
+    include: {
+      role: { select: { name: true } },
+      thesis: {
+        select: {
+          id: true,
+          title: true,
+          finalProposalVersionId: true,
+          student: {
+            select: {
+              user: { select: { id: true, fullName: true, identityNumber: true } },
+            },
+          },
+          researchMethodScores: {
+            select: {
+              id: true,
+              supervisorScore: true,
+              lecturerScore: true,
+              finalScore: true,
+              isFinalized: true,
+              finalizedAt: true,
+              coSignedAt: true,
+              coSignedByLecturerId: true,
+              coSignNote: true,
+              attendanceAutoZeroedAt: true,
+              attendanceAutoZeroReason: true,
+            },
+          },
+          thesisSupervisors: {
+            where: {
+              status: "active",
+              role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+            },
+            include: {
+              role: { select: { name: true } },
+              lecturer: {
+                select: {
+                  user: { select: { id: true, fullName: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return supervisedTheses
+    .filter((ts) => {
+      const thesis = ts.thesis;
+      if (!thesis?.finalProposalVersionId) return false;
+      const score = thesis.researchMethodScores?.[0];
+      if (!score) return false;
+      return (
+        score.supervisorScore != null ||
+        score.lecturerScore != null ||
+        score.isFinalized === true ||
+        score.attendanceAutoZeroedAt != null
+      );
+    })
+    .map((ts) => {
+      const thesis = ts.thesis;
+      const score = thesis.researchMethodScores?.[0] ?? null;
+      const isP1 = ts.role?.name === ROLES.PEMBIMBING_1;
+      const actorRole = isP1 ? "P1" : "P2";
+      const partnerRoleName = isP1 ? ROLES.PEMBIMBING_2 : ROLES.PEMBIMBING_1;
+      const partner = (thesis.thesisSupervisors ?? [])
+        .find((p) => p.role?.name === partnerRoleName);
+
+      return {
+        thesisId: thesis.id,
+        thesisTitle: thesis.title ?? null,
+        student: thesis.student?.user ?? null,
+        actorRole,
+        actionStatus: resolveSupervisorActionStatus(score, isP1),
+        partnerName: partner?.lecturer?.user?.fullName ?? null,
+        supervisorScore: score?.supervisorScore ?? null,
+        lecturerScore: score?.lecturerScore ?? null,
+        finalScore: score?.finalScore ?? null,
+        isFinalized: score?.isFinalized ?? false,
+        finalizedAt: score?.finalizedAt ?? null,
+        coSignedAt: score?.coSignedAt ?? null,
+        coSignNote: score?.coSignNote ?? null,
+        attendanceAutoZeroedAt: score?.attendanceAutoZeroedAt ?? null,
+        attendanceAutoZeroReason: score?.attendanceAutoZeroReason ?? null,
+      };
+    });
 }
 
 /**
@@ -365,6 +550,11 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
     throw new ForbiddenError("Hanya Pembimbing 1 yang dapat menginput nilai TA-03A untuk thesis ini");
   }
 
+  const attendanceGate = await assertAttendanceEligibleForManualReview(thesisId, supervisorUserId);
+  if (!attendanceGate.allowed) {
+    return attendanceGate.scoreRecord;
+  }
+
   const { totalScore, normalizedScores } = await validateResearchMethodScores("TA-03A", scores);
 
   const scoreRecord = await prisma.$transaction(async (tx) => {
@@ -376,6 +566,12 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
       throw new ForbiddenError(
         "Penilaian sudah final dan tidak dapat direvisi (canon §5.7.2). " +
           "Revisi proposal hanya berlaku di fase bimbingan informal pra-submit-final.",
+      );
+    }
+    if (existing?.supervisorScore != null) {
+      throw new ForbiddenError(
+        "Penilaian TA-03A sudah disubmit dan tidak dapat ditimpa diam-diam. " +
+          "Koreksi nilai harus melalui prosedur koreksi/admin yang memiliki audit trail.",
       );
     }
 
@@ -474,40 +670,52 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
 export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {}) {
   const note = typeof data?.note === "string" ? data.note.trim() : null;
 
-  return prisma.$transaction(async (tx) => {
-    const thesis = await tx.thesis.findUnique({
-      where: { id: thesisId },
-      select: {
-        id: true,
-        student: { select: { status: true } },
-        thesisStatus: { select: { name: true } },
-        thesisSupervisors: {
-          where: {
-            lecturerId: coSignerUserId,
-            status: "active",
-            role: { name: ROLES.PEMBIMBING_2 },
-          },
-          select: { id: true },
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      student: { select: { status: true } },
+      thesisStatus: { select: { name: true } },
+      thesisSupervisors: {
+        where: {
+          lecturerId: coSignerUserId,
+          status: "active",
+          role: { name: ROLES.PEMBIMBING_2 },
         },
+        select: { id: true },
       },
-    });
+    },
+  });
 
-    if (!thesis) throw new NotFoundError("Thesis tidak ditemukan");
-    if (thesis.thesisSupervisors.length === 0) {
-      throw new ForbiddenError(
-        "Hanya Pembimbing 2 yang aktif pada thesis ini yang berhak melakukan co-sign TA-03A",
-      );
-    }
+  if (!thesis) throw new NotFoundError("Thesis tidak ditemukan");
+  if (thesis.thesisSupervisors.length === 0) {
+    throw new ForbiddenError(
+      "Hanya Pembimbing 2 yang aktif pada thesis ini yang berhak melakukan co-sign TA-03A",
+    );
+  }
+  if (thesis.student?.status !== "active") {
+    throw new ForbiddenError(
+      "Mahasiswa tidak aktif. Co-sign TA-03A hanya boleh untuk mahasiswa aktif.",
+    );
+  }
+  if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
+    throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03A aktif");
+  }
 
-    if (thesis.student?.status !== "active") {
-      throw new ForbiddenError(
-        "Mahasiswa tidak aktif. Co-sign TA-03A hanya boleh untuk mahasiswa aktif.",
-      );
-    }
-    if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
-      throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03A aktif");
-    }
+  // BR-28 (canon v2.2 §5.7.x): Re-cek presensi Metopel ≥75% saat co-sign P2.
+  // Bila presensi mahasiswa berubah (mis. import attendance baru) antara submit
+  // P1 dan co-sign P2, co-sign harus mengikuti state attendance terbaru: jika
+  // <75%, auto-zero direterapkan dan co-sign dibatalkan.
+  const attendanceGate = await assertAttendanceEligibleForManualReview(thesisId, coSignerUserId);
+  if (!attendanceGate.allowed) {
+    return {
+      ...attendanceGate.scoreRecord,
+      _autoZeroed: true,
+      _autoZeroReason: "Presensi Metopel mahasiswa <75%. Nilai otomatis di-nol-kan (BR-28). Co-sign tidak dapat dilanjutkan.",
+    };
+  }
 
+  return prisma.$transaction(async (tx) => {
     const existing = await tx.researchMethodScore.findUnique({
       where: { thesisId },
       select: {
@@ -665,6 +873,82 @@ export async function getMetopenScoringQueue(lecturerUserId) {
 }
 
 /**
+ * Riwayat penilaian TA-03B untuk Koordinator Metopen. Queue aktif sengaja
+ * tidak menampilkan proposal yang sudah punya `lecturerScore`; endpoint ini
+ * menjadi daftar read-only untuk proposal yang sudah dinilai / auto-zero.
+ */
+export async function getMetopenScoringHistory(lecturerUserId) {
+  const theses = await prisma.thesis.findMany({
+    where: {
+      finalProposalVersionId: { not: null },
+      student: { status: "active" },
+      researchMethodScores: {
+        some: {
+          OR: [
+            { lecturerId: lecturerUserId, lecturerScore: { not: null } },
+            { attendanceAutoZeroedAt: { not: null } },
+          ],
+        },
+      },
+    },
+    select: {
+      id: true,
+      title: true,
+      student: {
+        select: {
+          user: { select: { id: true, fullName: true, identityNumber: true } },
+        },
+      },
+      researchMethodScores: {
+        select: {
+          id: true,
+          supervisorScore: true,
+          lecturerScore: true,
+          finalScore: true,
+          isFinalized: true,
+          finalizedAt: true,
+          coSignedAt: true,
+          attendanceAutoZeroedAt: true,
+          attendanceAutoZeroReason: true,
+        },
+      },
+      thesisSupervisors: {
+        where: {
+          status: "active",
+          role: { name: ROLES.PEMBIMBING_1 },
+        },
+        select: {
+          lecturer: {
+            select: {
+              user: { select: { fullName: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return theses.map((thesis) => {
+    const score = thesis.researchMethodScores?.[0] ?? null;
+    return {
+      thesisId: thesis.id,
+      thesisTitle: thesis.title ?? null,
+      student: thesis.student?.user ?? null,
+      supervisorName: thesis.thesisSupervisors?.[0]?.lecturer?.user?.fullName ?? null,
+      supervisorScore: score?.supervisorScore ?? null,
+      lecturerScore: score?.lecturerScore ?? null,
+      finalScore: score?.finalScore ?? null,
+      isFinalized: score?.isFinalized ?? false,
+      finalizedAt: score?.finalizedAt ?? null,
+      coSignedAt: score?.coSignedAt ?? null,
+      attendanceAutoZeroedAt: score?.attendanceAutoZeroedAt ?? null,
+      attendanceAutoZeroReason: score?.attendanceAutoZeroReason ?? null,
+    };
+  });
+}
+
+/**
  * Submit TA-03B scores (Koordinator Matkul Metopen, max 25 total).
  * TA-03B is parallel to TA-03A. Final score is computed only after both scores exist.
  * @param {string} thesisId
@@ -707,6 +991,11 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
     );
   }
 
+  const attendanceGate = await assertAttendanceEligibleForManualReview(thesisId, lecturerUserId);
+  if (!attendanceGate.allowed) {
+    return attendanceGate.scoreRecord;
+  }
+
   const { totalScore, normalizedScores } = await validateResearchMethodScores("TA-03B", scores);
 
   const scoreRecord = await prisma.$transaction(async (tx) => {
@@ -732,6 +1021,12 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
     }
     if (existingScore?.lecturerScore != null && existingScore.lecturerId !== lecturerUserId) {
       throw new ForbiddenError("Nilai TA-03B hanya dapat diperbarui oleh Koordinator Metopen yang menginput nilai");
+    }
+    if (existingScore?.lecturerScore != null) {
+      throw new ForbiddenError(
+        "Penilaian TA-03B sudah disubmit dan tidak dapat ditimpa diam-diam. " +
+          "Koreksi nilai harus melalui prosedur koreksi/admin yang memiliki audit trail.",
+      );
     }
 
     const hasP2 = await thesisHasActivePembimbing2(tx, thesisId);
@@ -818,6 +1113,34 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
  * sebelum publish. Bila P2 tidak ada, langsung publish.
  */
 export async function publishFinalScore(thesisId, actorUserId) {
+  const preGate = await prisma.researchMethodScore.findUnique({
+    where: { thesisId },
+    select: {
+      id: true,
+      lecturerId: true,
+      supervisorScore: true,
+      lecturerScore: true,
+      isFinalized: true,
+    },
+  });
+  if (!preGate) throw new NotFoundError("Data penilaian tidak ditemukan");
+  if (preGate.lecturerId !== actorUserId) {
+    throw new ForbiddenError(
+      "Nilai akhir TA-03 hanya dapat dipublikasikan oleh Koordinator Metopen yang menginput TA-03B",
+    );
+  }
+
+  // BR-28 (canon v2.2 §5.7.x): Re-cek presensi sebelum publish final.
+  // Mencegah publish nilai pada mahasiswa yang seharusnya auto-zero karena
+  // import attendance terbaru. Auto-zero akan dijalankan repository bila
+  // skor belum finalized.
+  if (!preGate.isFinalized) {
+    const attendanceGate = await assertAttendanceEligibleForManualReview(thesisId, actorUserId);
+    if (!attendanceGate.allowed) {
+      return attendanceGate.scoreRecord;
+    }
+  }
+
   return prisma.$transaction(async (tx) => {
     const scoreRecord = await tx.researchMethodScore.findUnique({ where: { thesisId } });
     if (!scoreRecord) throw new NotFoundError("Data penilaian tidak ditemukan");
@@ -880,6 +1203,30 @@ async function getScoreRecordWithDetails(thesisId) {
           user: { select: { id: true, fullName: true } },
         },
       },
+      attendanceRecord: {
+        select: {
+          id: true,
+          identityNumber: true,
+          studentName: true,
+          presentCount: true,
+          absentCount: true,
+          sickCount: true,
+          permitCount: true,
+          totalMeetings: true,
+          attendancePercentage: true,
+          isEligible: true,
+          import: {
+            select: {
+              id: true,
+              classCode: true,
+              courseName: true,
+              semesterLabel: true,
+              thresholdPercent: true,
+              uploadedAt: true,
+            },
+          },
+        },
+      },
     },
   });
   return record;
@@ -929,12 +1276,6 @@ export async function getScoresByThesisForSupervisor(thesisId, supervisorUserId)
     select: {
       id: true,
       finalProposalVersionId: true,
-      student: {
-        select: { status: true },
-      },
-      thesisStatus: {
-        select: { name: true },
-      },
       thesisSupervisors: {
         where: {
           lecturerId: supervisorUserId,
@@ -955,13 +1296,10 @@ export async function getScoresByThesisForSupervisor(thesisId, supervisorUserId)
     throw new ForbiddenError("Anda bukan pembimbing aktif untuk thesis ini");
   }
 
-  if (thesis.student?.status !== "active") {
-    throw new ForbiddenError("Mahasiswa ini tidak berada pada antrean penilaian TA-03A aktif");
-  }
-
-  if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
-    throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03A aktif");
-  }
+  // Opsi C (read-only arsip): pembimbing tetap boleh MEMBACA nilai TA-03A/TA-03B
+  // walau mahasiswa non-aktif atau thesis sudah selesai/ditutup. Keamanan dijaga
+  // oleh cek keanggotaan pembimbing di atas. Immutability tulis (BR-21) tetap
+  // ditegakkan terpisah di jalur submit/co-sign/publish, bukan di jalur baca ini.
 
   if (!thesis.finalProposalVersionId) {
     throw new ForbiddenError("Proposal final belum tersedia untuk penilaian TA-03A");
@@ -995,6 +1333,7 @@ export async function getScoresByThesisForMetopenLecturer(thesisId, lecturerUser
         select: {
           lecturerId: true,
           lecturerScore: true,
+          attendanceAutoZeroedAt: true,
         },
       },
     },
@@ -1011,7 +1350,8 @@ export async function getScoresByThesisForMetopenLecturer(thesisId, lecturerUser
   }
 
   const score = thesis.researchMethodScores?.[0] ?? null;
-  if (score?.lecturerScore != null && score.lecturerId !== lecturerUserId) {
+  const isAutoZero = score?.attendanceAutoZeroedAt != null;
+  if (score?.lecturerScore != null && !isAutoZero && score.lecturerId !== lecturerUserId) {
     throw new ForbiddenError("Nilai TA-03B hanya dapat dilihat oleh Koordinator Metopen yang menginput nilai");
   }
 

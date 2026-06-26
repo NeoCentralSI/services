@@ -5,6 +5,25 @@ import {
   deriveMetopenEligibilityFromSiaStudent,
   deriveThesisCourseEnrollmentFromSiaStudent,
 } from "./metopenEligibility.service.js";
+import { syncKadepProposalQueueForStudent } from "./metopen.service.js";
+
+async function syncKadepQueuesForThesisCourseStudents(studentIds) {
+  const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
+  if (uniqueStudentIds.length === 0) return;
+
+  const results = await Promise.allSettled(
+    uniqueStudentIds.map((studentId) => syncKadepProposalQueueForStudent(studentId)),
+  );
+
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.warn(
+        `Failed to sync KaDep proposal queue for student ${uniqueStudentIds[index]}:`,
+        result.reason?.message ?? result.reason,
+      );
+    }
+  });
+}
 
 /**
  * Main SIA sync job - fetches student data and updates cache + database
@@ -172,6 +191,12 @@ async function updateStudentAcademicBatch(stamped) {
     const results = await prisma.$transaction(updatePromises);
     const totalUpdated = results.reduce((sum, r) => sum + r.count, 0);
 
+    await syncKadepQueuesForThesisCourseStudents(
+      updates
+        .filter((u) => u.takingThesisCourse === true)
+        .map((u) => nimToUserId.get(u.nim)),
+    );
+
     return { updated: totalUpdated };
   } catch (err) {
     console.error("❌ Failed to batch update student academic fields:", err.message);
@@ -222,6 +247,9 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
           thesisCourseEnrollmentUpdatedAt: takingThesisCourse === null ? null : updatedAt,
         },
       });
+      if (takingThesisCourse === true) {
+        await syncKadepQueuesForThesisCourseStudents([user.id]);
+      }
       updated++;
     } catch (err) {
       console.warn(`⚠️  Failed to update student academic fields for NIM ${nim}:`, err.message);

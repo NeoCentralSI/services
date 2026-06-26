@@ -4,9 +4,9 @@
  * Mounted at: /quota
  *
  * Endpoints:
- *   GET    /quota/browse                  — Browse lecturers (any authenticated)
- *   GET    /quota/browse/:lecturerId      — Lecturer detail (any authenticated)
- *   GET    /quota/check/:lecturerId       — Check quota availability (any authenticated)
+ *   GET    /quota/browse                  — Browse lecturers (non-mahasiswa: dosen/management/Admin — canon §7.3, F-1.4)
+ *   GET    /quota/browse/:lecturerId      — Lecturer detail (non-mahasiswa)
+ *   GET    /quota/check/:lecturerId       — Check quota availability (non-mahasiswa)
  *   GET    /quota/science-groups          — List science groups
  *   GET    /quota/topics                  — List thesis topics
  *
@@ -33,11 +33,14 @@ const router = Router();
 // All routes require authentication
 router.use(authGuard, loadUserRoles);
 
-// ── Browse (any authenticated user) ─────────────────────────────────
+// ── Browse — angka kuota sensitif (Booking/Pending KaDep/Overquota) hanya untuk
+//    role non-mahasiswa (canon §7.3 / audit F-1.4). Mahasiswa memakai jalur bersih
+//    GET /advisor-requests/catalog yang sudah menyembunyikan field sensitif.
+const quotaBrowseRoles = [...LECTURER_ROLES, ROLES.ADMIN];
 
-router.get('/browse', controller.browseLecturers);
-router.get('/browse/:lecturerId', controller.getLecturerDetail);
-router.get('/check/:lecturerId', controller.checkQuota);
+router.get('/browse', requireRoles(...quotaBrowseRoles), controller.browseLecturers);
+router.get('/browse/:lecturerId', requireRoles(...quotaBrowseRoles), controller.getLecturerDetail);
+router.get('/check/:lecturerId', requireRoles(...quotaBrowseRoles), controller.checkQuota);
 
 // ── Reference data ──────────────────────────────────────────────────
 

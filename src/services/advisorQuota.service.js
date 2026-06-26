@@ -58,6 +58,13 @@ function createEmptySnapshot(lecturer) {
   const quotaMax = quota?.quotaMax ?? DEFAULT_QUOTA_MAX;
   const quotaSoftLimit = quota?.quotaSoftLimit ?? DEFAULT_QUOTA_SOFT_LIMIT;
 
+  // 6 angka kuota canon §7.3 (handoff P0-02 + BR-06):
+  // 1. Beban Aktif    → activeCount
+  // 2. Booking        → bookingCount
+  // 3. Sisa Normal    → normalAvailable
+  // 4. Pending KaDep  → pendingKadepCount
+  // 5. Overquota Sah  → overquotaSahCount (pakai acceptedOverNormal=true flag)
+  // 6. Quota Max      → quotaMax
   return {
     lecturerId: lecturer?.id ?? null,
     fullName: lecturer?.user?.fullName ?? "-",
@@ -73,6 +80,7 @@ function createEmptySnapshot(lecturer) {
     activeCount: 0,
     bookingCount: 0,
     pendingKadepCount: 0,
+    overquotaSahCount: 0,
     normalAvailable: quotaMax,
     overquotaAmount: 0,
     isNearLimit: false,
@@ -112,6 +120,10 @@ function finalizeSnapshot(snapshot, includeEntries) {
 
 function mapRequestEntry(request, bucket) {
   const effectiveLecturerId = getEffectiveRequestLecturerId(request);
+  // Resolve justifikasi canon-aligned: prefer studentJustification (canon
+  // §5.2.1 v2.1), fallback ke justificationText legacy (handoff P0-05).
+  const resolvedStudentJustification =
+    request.studentJustification ?? request.justificationText ?? null;
 
   return {
     id: request.id,
@@ -131,9 +143,19 @@ function mapRequestEntry(request, bucket) {
     roleName: ROLES.PEMBIMBING_1,
     requestStatus: request.status,
     routeType: request.routeType ?? null,
+    // BR-26 Path C audit (handoff P0-01).
+    forwardedToKadepAt: request.forwardedToKadepAt ?? null,
+    forwardedByLecturerId: request.forwardedByLecturerId ?? null,
+    forwardedByLecturerName: request.forwardedByLecturer?.user?.fullName ?? null,
+    // BR-06 Overquota Sah flag (handoff P0-02).
+    acceptedOverNormal: Boolean(request.acceptedOverNormal),
     lecturerApprovalNote: request.lecturerApprovalNote ?? null,
+    lecturerOverquotaReason: request.lecturerOverquotaReason ?? null,
     rejectionReason: request.rejectionReason ?? null,
-    justificationText: request.justificationText ?? null,
+    // Selalu expose dua field justifikasi (legacy + canon-aligned) untuk
+    // backward compat consumer frontend yang belum migrate naming.
+    justificationText: resolvedStudentJustification,
+    studentJustification: resolvedStudentJustification,
     kadepNotes: request.kadepNotes ?? null,
     createdAt: request.createdAt ?? null,
     updatedAt: request.updatedAt ?? null,
@@ -209,11 +231,15 @@ function pushEntry(snapshot, bucket, entry) {
   if (bucket === "active") {
     snapshot.activeCount += 1;
     snapshot.activeOfficialEntries.push(entry);
+    // Overquota Sah valid baik di status BOOKING_APPROVED (pra-TA-04) maupun
+    // ACTIVE_OFFICIAL (post-TA-04) — flag acceptedOverNormal=true tetap relevan.
+    if (entry.acceptedOverNormal) snapshot.overquotaSahCount += 1;
     return;
   }
   if (bucket === "booking") {
     snapshot.bookingCount += 1;
     snapshot.bookingEntries.push(entry);
+    if (entry.acceptedOverNormal) snapshot.overquotaSahCount += 1;
     return;
   }
   if (bucket === "pendingKadep") {

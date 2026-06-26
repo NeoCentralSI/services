@@ -141,34 +141,15 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
   });
 
   afterAll(async () => {
-    await runCleanupIfEnabled("IT-03", async () => {
-      try {
-        // 1. Restore the supervisor record back to original lecturer
-        if (thesisSupervisorRecordId && originalLecturerId) {
-          await prisma.thesisSupervisors
-            .update({
-              where: { id: thesisSupervisorRecordId },
-              data: { lecturerId: originalLecturerId },
-            })
-            .catch(() => {});
-        }
-
-        // 2. Clean up notification records created during the test
-        const cutoff = new Date(Date.now() - 120000); // within last 2 minutes
-        await prisma.notification.deleteMany({
-          where: {
-            createdAt: { gte: cutoff },
-            OR: [
-              { title: { contains: "Transfer" } },
-              { title: { contains: "Dosen Pembimbing Berubah" } },
-              { title: { contains: "Permintaan Transfer" } },
-            ],
-          },
-        });
-
-        console.log("[IT-03 cleanup] Restored original state.");
-      } catch (err) {
-        console.error("[IT-03 cleanup] Error:", err.message);
+    try {
+      // 1. Restore the supervisor record back to original lecturer
+      if (thesisSupervisorRecordId && originalLecturerId) {
+        await prisma.thesisParticipant
+          .update({
+            where: { id: thesisSupervisorRecordId },
+            data: { lecturerId: originalLecturerId },
+          })
+          .catch(() => {});
       }
     });
     await prisma.$disconnect();
@@ -268,7 +249,7 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
     console.log("\n[STEP 4] Verifying database state after swap...");
 
     // 4a. Supervisor record should now point to target lecturer
-    const swappedSupervisor = await prisma.thesisSupervisors.findUnique({
+    const swappedSupervisor = await prisma.thesisParticipant.findUnique({
       where: { id: thesisSupervisorRecordId },
       include: {
         lecturer: { include: { user: { select: { fullName: true } } } },

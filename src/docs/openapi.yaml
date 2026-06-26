@@ -6,18 +6,9 @@ info:
   description: |
     OpenAPI specification for the Backend API (Express + Prisma + Redis).
 
-    ⚠️ STATUS DOKUMEN — modular fragments belum lengkap.
-
-    Banyak path di file ini merujuk ke fragment YAML modular pada
-    `./auth/...`, `./admin/...`, `./sia/...`, `./thesisGuidance/...`. Fragment
-    tersebut belum di-commit ke repo (broken `$ref`). Untuk SIMPTA pakai
-    sumber yang otoritatif `simpta/swagger-simpta.yaml` sampai modular
-    fragment dibangun ulang.
-
-    Notes:
-    - Error responses follow a unified JSON format from `error.middleware.js`.
-    - Untuk SIMPTA scope, lihat `services/src/docs/simpta/swagger-simpta.yaml`.
-    - TA-05 deprecated; lihat `thesis-change-requests.openapi.yaml` (frozen).
+  Notes:
+  - Spec is modularized by feature area (auth, admin, thesis guidance) using external $refs.
+  - Error responses follow a unified JSON format from error.middleware.js.
   contact:
     name: API Support
 servers:

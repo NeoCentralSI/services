@@ -283,6 +283,102 @@ paths:
         '200':
           description: Title report reviewed
 
+  /metopen/me/archive:
+    get:
+      tags: [Metopen]
+      summary: BR-23 — Student archive detail (read-only) pasca TA-04 (4 categories)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Student archive detail returned
+
+  /metopen/me/archive/title-approval-document:
+    get:
+      tags: [Metopen]
+      summary: FR-ARC-05 — Download student's Formulir TA-04 PDF (authenticated stream)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Formulir TA-04 PDF stream
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Formulir TA-04 batch not finalized yet or file missing
+
+  /metopen/kadep/title-reports/missing-document:
+    get:
+      tags: [Metopen]
+      summary: Legacy — List accepted TA-04 theses not linked to official batch form
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List returned
+
+  /metopen/kadep/title-reports/history:
+    get:
+      tags: [Metopen]
+      summary: KaDep TA-04 decision history (accepted/rejected) across periods
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: TA-04 decision history returned
+
+  /metopen/kadep/thesis/{thesisId}/title-report/regenerate:
+    post:
+      tags: [Metopen]
+      summary: Legacy — Per-thesis document generation is no longer official
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Request rejected; use batch finalization
+
+  /metopen/kadep/thesis/{thesisId}/title-report/document:
+    get:
+      tags: [Metopen]
+      summary: KaDep downloads Formulir TA-04 PDF for a thesis linked to a batch
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Formulir TA-04 PDF stream
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Document not available
+
   /assessment/criteria/{formCode}:
     get:
       tags: [Assessment]
@@ -531,6 +627,45 @@ paths:
                         lecturerScore:
                           type: integer
                           nullable: true
+
+  /assessment/metopen/scores/export:
+    get:
+      tags: [Assessment]
+      summary: Download nilai TA-03A + TA-03B kelas Metopel dalam format Template SIA (xlsx)
+      description: |
+        Hanya Koordinator Matkul Metopen. Menghasilkan workbook xlsx mengikuti
+        layout template SIA (4 kolom skor: Presentasi 20, Proposal konten 40,
+        Proposal struktur 25, Kemampuan merespon 15). Sumber data:
+        `MetopenAttendanceImport` (default: terbaru) untuk daftar peserta, lalu
+        bucketed dari `ResearchMethodScoreDetail` per mahasiswa via mapping
+        CPMK code + role.
+
+        BR-28 (canon v2.2 §5.7.x): Mahasiswa dengan presensi <75% yang sudah
+        di-auto-zero tetap ditulis sebagai 0 di semua kolom skor, dengan note
+        di kolom Keterangan; mahasiswa yang belum dinilai dikosongkan.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: attendanceImportId
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: |
+            Override import presensi sumber export. Tanpa parameter ini service
+            memakai import terbaru (lihat `GET /assessment/metopen/attendance/latest`).
+      responses:
+        '200':
+          description: Workbook xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Bukan Koordinator Matkul Metopen
+        '404':
+          description: Belum ada import presensi yang dapat diekspor
 
   /assessment/metopen/{thesisId}/score:
     get:

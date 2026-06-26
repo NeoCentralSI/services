@@ -113,14 +113,15 @@ async function resolveMilestoneTitles(guidance) {
 	return (guidance.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
 }
 
-export async function getMyStudentsService(userId, roles) {
+export async function getMyStudentsService(userId, roles, { scope = "active" } = {}) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	// Default to supervisor roles only
 	const defaultRoles = SUPERVISOR_ROLES;
 	const rawStudents = await findMyStudents(
 		lecturer.id,
-		Array.isArray(roles) && roles.length ? roles : defaultRoles
+		Array.isArray(roles) && roles.length ? roles : defaultRoles,
+		{ scope }
 	);
 
 	// Transform data to flat structure for frontend

@@ -9,6 +9,7 @@ export const createTopicSchema = z.object({
     .min(1, "Nama topik wajib diisi")
     .max(255, "Nama topik maksimal 255 karakter")
     .trim(),
+  scienceGroupId: z.string().min(1, "KBK topik wajib dipilih"),
 });
 
 /**
@@ -21,6 +22,7 @@ export const updateTopicSchema = z.object({
     .max(255, "Nama topik maksimal 255 karakter")
     .trim()
     .optional(),
+  scienceGroupId: z.string().min(1, "KBK topik wajib dipilih").optional(),
 });
 
 /**

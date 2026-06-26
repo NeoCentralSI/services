@@ -23,9 +23,7 @@ const ROLES = {
   PENGUJI: "Penguji",
   MAHASISWA: "Mahasiswa",
   GKM: "GKM",
-  KOORDINATOR_METOPEN: "Koordinator Matkul Metopen",
-  KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
-  TIM_PENGELOLA_CPL: "Tim Pengelola CPL",
+  DOSEN_METOPEN: "Dosen Metodologi Penelitian",
 };
 
 const DEFAULT_PASSWORD = "password123";
@@ -126,21 +124,21 @@ async function seedAcademicYears() {
   const academicYears = [
     {
       semester: "ganjil",
-      year: "2024",
+      year: 2024,
       startDate: new Date("2024-08-01"),
       endDate: new Date("2025-01-31"),
       isActive: false,
     },
     {
       semester: "genap",
-      year: "2024",
+      year: 2024,
       startDate: new Date("2025-02-01"),
       endDate: new Date("2025-07-31"),
       isActive: false,
     },
     {
       semester: "ganjil",
-      year: "2025",
+      year: 2025,
       startDate: new Date("2025-08-01"),
       endDate: new Date("2026-01-31"),
       isActive: true, // Current active academic year (Start August 2025)
@@ -218,7 +216,7 @@ async function seedUsers(roleMap) {
       fullName: "Aina Hubby Aziira, M.Eng",
       identityType: "NIP",
       identityNumber: "199504302022032013",
-      roles: [ROLES.PENGUJI, ROLES.GKM, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
+      roles: [ROLES.PENGUJI, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
@@ -236,22 +234,6 @@ async function seedUsers(roleMap) {
       identityNumber: "220199206201501201",
       roles: [ROLES.ADMIN],
       isLecturer: false,
-    },
-    {
-      email: "yudisium_si@fti.unand.ac.id",
-      fullName: "Koordinator Yudisium",
-      identityType: "NIP",
-      identityNumber: "199203152020121003",
-      roles: [ROLES.KOORDINATOR_YUDISIUM, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
-      isLecturer: true,
-    },
-    {
-      email: "cpl_si@fti.unand.ac.id",
-      fullName: "Tim Pengelola CPL",
-      identityType: "NIP",
-      identityNumber: "199107282019031005",
-      roles: [ROLES.TIM_PENGELOLA_CPL, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
-      isLecturer: true,
     },
     {
       email: "fariz_2211523034@fti.unand.ac.id",

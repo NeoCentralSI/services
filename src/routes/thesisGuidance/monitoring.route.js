@@ -1,6 +1,6 @@
 import express from "express";
 import { authGuard, requireAnyRole, requireRole } from "../../middlewares/auth.middleware.js";
-import { DEPARTMENT_ROLES, ROLES } from "../../constants/roles.js";
+import { ROLES } from "../../constants/roles.js";
 import {
   getMonitoringDashboard,
   getThesesList,
@@ -19,9 +19,10 @@ import {
 const router = express.Router();
 
 // Base path: /thesis-guidance/monitoring
-// Only Kadep, Sekdep, GKM can access
+// Akses Monitoring TA: HANYA KaDep + Sekdep (keputusan audit pass 2 F2-7 /
+// OQ-2.4 2026-06-10 — GKM dicabut agar konsisten sidebar/route/backend).
 
-router.use(authGuard, requireAnyRole(DEPARTMENT_ROLES));
+router.use(authGuard, requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]));
 
 // Dashboard summary
 router.get("/dashboard", getMonitoringDashboard);

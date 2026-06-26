@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import * as repo from "../repositories/metopen.repository.js";
+import * as ta04BatchRepo from "../repositories/ta04Batch.repository.js";
 import prisma from "../config/prisma.js";
 import {
   NotFoundError,
@@ -9,7 +10,7 @@ import {
 } from "../utils/errors.js";
 import { ROLES } from "../constants/roles.js";
 import { ENV } from "../config/env.js";
-import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { THESIS_STATUS, CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
 import { generateTA04Pdf } from "../utils/ta04.pdf.js";
 import {
@@ -20,6 +21,8 @@ import {
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { syncLecturerQuotaCurrentCount } from "./advisorQuota.service.js";
 import { resolveMetopenEligibilityState } from "./metopenEligibility.service.js";
+import { createNotificationsForUsers } from "./notification.service.js";
+import { sendFcmToUsers } from "./push.service.js";
 
 // ============================================
 // Phase Guard Helper
@@ -1201,6 +1204,11 @@ export async function checkEligibility(userId) {
     thesisPhase: eligibility.thesisPhase,
     source: eligibility.source ?? "db",
     updatedAt: eligibility.updatedAt,
+    takingThesisCourse: eligibility.takingThesisCourse,
+    hasThesisCourseStatus: eligibility.hasThesisCourseStatus,
+    canAccessTugasAkhir: eligibility.canAccessTugasAkhir,
+    thesisCourseSource: eligibility.thesisCourseEnrollmentSource,
+    thesisCourseUpdatedAt: eligibility.thesisCourseEnrollmentUpdatedAt,
   };
 }
 
@@ -1341,7 +1349,28 @@ export async function getStudentProposalApprovalStatus(userId) {
     },
   });
 
-  return { thesis: row };
+  const queueReadiness = await evaluateKadepProposalQueueReadiness(thesis.id);
+  const currentBatch = row?.proposalStatus === "accepted"
+    ? await ta04BatchRepo.findCurrentTa04BatchForThesis(thesis.id)
+    : null;
+  const officialDocument = currentBatch?.document && isOfficialTitleApprovalDocument(currentBatch.document)
+    ? currentBatch.document
+    : null;
+
+  return {
+    thesis: row
+      ? {
+          ...row,
+          titleApprovalDocumentId: officialDocument?.id ?? null,
+          titleApprovalDocument: officialDocument,
+          queueReadiness: {
+            ready: queueReadiness.ready,
+            block: queueReadiness.block ?? null,
+            proposalStatus: queueReadiness.proposalStatus ?? row.proposalStatus ?? null,
+          },
+        }
+      : null,
+  };
 }
 
 /**
@@ -1352,7 +1381,7 @@ export async function getStudentProposalApprovalStatus(userId) {
  *   1. Substansi pengajuan awal TA-01/TA-02 (latar belakang, tujuan, dst).
  *   2. Detail rubrik TA-03A per CPMK + descriptor + catatan P1 + co-sign P2.
  *   3. Detail rubrik TA-03B per kriteria + descriptor + catatan Koordinator.
- *   4. Dokumen SK Penugasan Pembimbing TA-04 PDF (tombol unduh).
+ *   4. Formulir TA-04 PDF (tombol unduh setelah batch periode difinalisasi).
  *
  * Endpoint ini READ-ONLY. Tidak mengizinkan modifikasi apa pun.
  */
@@ -1411,7 +1440,7 @@ export async function getStudentArchiveDetail(userId) {
     },
   });
 
-  // (4) Dokumen SK TA-04 PDF
+  // (4) Formulir TA-04 PDF
   const titleApproval = await prisma.thesis.findUnique({
     where: { id: thesis.id },
     select: {
@@ -1424,24 +1453,18 @@ export async function getStudentArchiveDetail(userId) {
       },
     },
   });
+  const currentBatch = await ta04BatchRepo.findCurrentTa04BatchForThesis(thesis.id);
+  const officialDocument = currentBatch?.document && isOfficialTitleApprovalDocument(currentBatch.document)
+    ? currentBatch.document
+    : null;
 
-  // Bagi detail rubrik berdasarkan role kriteria (supervisor → TA-03A, default → TA-03B)
-  const supervisorDetails = (score?.researchMethodScoreDetails ?? []).filter(
-    (d) => d.criteria?.cpmk?.type === "research_method",
+  // Bagi detail rubrik berdasarkan diskriminator kanonis `criteria.role`
+  // (supervisor → TA-03A, default → TA-03B) — selaras export §5.7.4 dan
+  // SupervisorScoreCard. Audit pass 2 F2-6: heuristik nama kriteria dihapus
+  // karena rapuh terhadap rename kriteria oleh Sekdep di Kelola Master TA.
+  const ta03aDetails = (score?.researchMethodScoreDetails ?? []).filter(
+    (d) => d.criteria?.role === "supervisor",
   );
-  const ta03aDetails = supervisorDetails.filter((d) => {
-    const criteriaName = d.criteria?.name ?? "";
-    return criteriaName.toLowerCase().includes("presentasi")
-      || criteriaName.toLowerCase().includes("penulisan")
-      || criteriaName.toLowerCase().includes("respons")
-      || criteriaName.toLowerCase().includes("kelayakan")
-      || criteriaName.toLowerCase().includes("metodologi")
-      || criteriaName.toLowerCase().includes("kajian")
-      || criteriaName.toLowerCase().includes("pendahuluan");
-  });
-  // Untuk pembagian fallback bila kriteria tidak ter-tag berdasarkan nama,
-  // gunakan total skor sebagai indikasi: yang berkontribusi ke supervisorScore vs lecturerScore.
-  // Default: semua tampilkan apa adanya, biarkan UI yang menampilkan section.
 
   return {
     thesisId: thesis.id,
@@ -1468,10 +1491,85 @@ export async function getStudentArchiveDetail(userId) {
     titleApproval: {
       reviewNotes: titleApproval?.proposalReviewNotes ?? null,
       reviewedAt: titleApproval?.proposalReviewedAt ?? null,
-      document: titleApproval?.titleApprovalDocument ?? null,
+      document: officialDocument,
+      documentKind: officialDocument
+        ? "batch"
+        : null,
     },
     readOnly: true,
   };
+}
+
+/**
+ * Formulir TA-04 resmi selalu berbentuk batch per periode sesuai panduan.
+ * Dokumen lain yang mungkin tersisa dari data lama tidak dilayani sebagai
+ * output resmi dan harus diganti lewat finalisasi batch.
+ */
+function resolveTitleApprovalDocumentKind(fileName) {
+  if (!fileName) return null;
+  if (String(fileName).startsWith("TA04_BATCH_")) return "batch";
+  return "legacy";
+}
+
+function isOfficialTitleApprovalDocument(documentRow) {
+  return resolveTitleApprovalDocumentKind(documentRow?.fileName) === "batch";
+}
+
+function getTa04BatchEligibilitySnapshot(thesis) {
+  if (thesis.proposalStatus !== "accepted") {
+    return { eligible: false, block: null };
+  }
+  if (!thesis.finalProposalVersionId) {
+    return { eligible: false, block: "proposal_final_not_submitted" };
+  }
+  if (thesis.student?.takingThesisCourse !== true) {
+    return { eligible: false, block: "ta_course_not_confirmed" };
+  }
+
+  const supervisors = thesis.thesisSupervisors ?? [];
+  const hasP1 = supervisors.some(
+    (supervisor) =>
+      supervisor.status === "active" &&
+      supervisor.role?.name === ROLES.PEMBIMBING_1,
+  );
+  if (!hasP1) {
+    return { eligible: false, block: "no_active_pembimbing_1" };
+  }
+
+  const score = thesis.researchMethodScores?.[0] ?? null;
+  if (!score || score.supervisorScore == null || score.lecturerScore == null) {
+    return { eligible: false, block: "missing_scores" };
+  }
+  if (!score.isFinalized) {
+    return { eligible: false, block: "scores_not_finalized" };
+  }
+  if (score.attendanceAutoZeroedAt != null) {
+    return { eligible: false, block: "metopel_auto_zeroed" };
+  }
+
+  return { eligible: true, block: null };
+}
+
+function buildCurrentBatchByThesisId(batches = []) {
+  const map = new Map();
+  for (const batch of batches) {
+    for (const member of batch.members ?? []) {
+      if (!map.has(member.thesisId)) {
+        map.set(member.thesisId, batch);
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Read-only riwayat penilaian TA-03 untuk mahasiswa sejak skor tersedia.
+ * Berbeda dari arsip pasca TA-04, endpoint ini boleh dipakai sebelum KaDep
+ * mengesahkan TA-04 agar mahasiswa tidak kehilangan transparansi setelah
+ * TA-03 final tetapi sebelum SK terbit.
+ */
+export async function getStudentAssessmentHistory(userId) {
+  return getStudentArchiveDetail(userId);
 }
 
 /**
@@ -1489,12 +1587,36 @@ export async function syncProposalQueueAndSummarizeForStudent(userId) {
 // ============================================
 
 /**
- * If submit proposal final, TA-03A, TA-03B, and SIA confirmation "sedang ambil
- * mata kuliah TA" are satisfied, set proposalStatus to "submitted" for KaDep
- * (Langkah 6) without requiring a separate student button.
- * @returns {{ updated: boolean, proposalStatus?: string, block?: string }}
+ * Evaluate whether a thesis satisfies the 5 canonical prerequisites for
+ * KaDep TA-04 review (canon §5.8, §5.10, §5.7.1):
+ *   1. Pembimbing resmi (P1) aktif di thesis_participants
+ *   2. Proposal final disubmit (finalProposalVersionId non-null)
+ *   3. TA-03A: P1 submit + P2 co-sign bila ada P2 (isFinalized gate)
+ *   4. TA-03B: Koordinator submit (lecturerScore non-null)
+ *   5. SIA mengonfirmasi students.taking_thesis_course = true
+ *
+ * Re-validates the 5 prerequisites regardless of current proposalStatus —
+ * including thesis already in queue ("submitted"). This closes the post-enqueue
+ * degradation gap (audit F-4.4 follow-up): if a "submitted" thesis later loses
+ * a prerequisite (e.g. P2 added without co-sign, SIA flips takingThesisCourse,
+ * auto-zero applied), the gate reports `ready: false` and `tryEnqueueThesisForKadepProposalReview`
+ * performs an automatic dequeue.
+ *
+ * @returns {{
+ *   ready: boolean,
+ *   proposalStatus?: string,
+ *   currentProposalStatus?: string|null,
+ *   block?: string,
+ * }}
+ * - `proposalStatus`: status refleksi readiness untuk UI (matched to current
+ *   status, or "ready" when null+ready). Callers that only need ready/block
+ *   (e.g. getStudentProposalApprovalStatus) can ignore currentProposalStatus.
+ * - `currentProposalStatus`: status asli thesis di DB ("submitted"|"accepted"
+ *   |"rejected"|"revision_in_progress"|null). Dipakai oleh
+ *   `tryEnqueueThesisForKadepProposalReview` untuk bedakan enqueue baru vs
+ *   dequeue pasca-degradasi.
  */
-async function tryEnqueueThesisForKadepProposalReview(thesisId) {
+async function evaluateKadepProposalQueueReadiness(thesisId) {
   const thesis = await prisma.thesis.findUnique({
     where: { id: thesisId },
     select: {
@@ -1505,38 +1627,54 @@ async function tryEnqueueThesisForKadepProposalReview(thesisId) {
       finalProposalVersionId: true,
     },
   });
-  if (!thesis) return { updated: false, block: "no_thesis" };
+  if (!thesis) return { ready: false, block: "no_thesis" };
 
-  if (thesis.proposalStatus === "submitted") {
-    return { updated: false, proposalStatus: "submitted" };
+  const currentProposalStatus = thesis.proposalStatus ?? null;
+
+  // Terminal state: accepted — never re-evaluate, never dequeue.
+  if (currentProposalStatus === "accepted") {
+    return { ready: true, proposalStatus: "accepted", currentProposalStatus };
   }
-  if (thesis.proposalStatus === "accepted") {
-    return { updated: false, proposalStatus: "accepted" };
+  // User-driven non-queueable states — not eligible for enqueue, but not
+  // auto-dequeued either (revision/reject flow is owned by reviewer action).
+  if (currentProposalStatus === "rejected" || currentProposalStatus === "revision_in_progress") {
+    return {
+      ready: false,
+      proposalStatus: currentProposalStatus,
+      currentProposalStatus,
+      block: "pending_revision",
+    };
   }
 
-  const supervisors = await prisma.thesisParticipant.count({
+  // Re-validate the 5 canonical prerequisites for both "submitted" and null.
+  // For "submitted" → if any prerequisite fails, caller (tryEnqueue) dequeues.
+  // For null → if any prerequisite fails, caller reports block (no-op).
+
+  const activeSupervisors = await prisma.thesisParticipant.findMany({
     where: {
       thesisId: thesis.id,
       status: "active",
-      role: {
-        is: {
-          name: {
-            in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
-          },
-        },
-      },
+      role: { is: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
     },
+    select: { role: { select: { name: true } } },
   });
-  if (supervisors === 0) {
-    return { updated: false, block: "no_supervisor" };
+  const hasP1Active = activeSupervisors.some((s) => s.role?.name === ROLES.PEMBIMBING_1);
+  const hasP2Active = activeSupervisors.some((s) => s.role?.name === ROLES.PEMBIMBING_2);
+  if (activeSupervisors.length === 0 || !hasP1Active) {
+    return { ready: false, proposalStatus: currentProposalStatus, currentProposalStatus, block: "no_supervisor" };
   }
 
   if (!thesis.title || !String(thesis.title).trim()) {
-    return { updated: false, block: "no_title" };
+    return { ready: false, proposalStatus: currentProposalStatus, currentProposalStatus, block: "no_title" };
   }
 
   if (!thesis.finalProposalVersionId) {
-    return { updated: false, block: "proposal_final_not_submitted" };
+    return {
+      ready: false,
+      proposalStatus: currentProposalStatus,
+      currentProposalStatus,
+      block: "proposal_final_not_submitted",
+    };
   }
 
   const rmScore = await prisma.researchMethodScore.findFirst({
@@ -1544,7 +1682,59 @@ async function tryEnqueueThesisForKadepProposalReview(thesisId) {
     orderBy: { createdAt: "desc" },
   });
   if (!rmScore || rmScore.supervisorScore == null || rmScore.lecturerScore == null) {
-    return { updated: false, block: "missing_scores" };
+    return { ready: false, proposalStatus: currentProposalStatus, currentProposalStatus, block: "missing_scores" };
+  }
+  // BR-20 / FR-SCR-07 (F-4.4): antrean KaDep hanya dibuka setelah siklus
+  // penilaian FINAL — P1 submit + P2 co-sign (bila ada P2) + TA-03B.
+  // `isFinalized` adalah flag kanonis "siklus selesai" (di-set oleh
+  // isScoreReadyToFinalize / publishFinalScore; auto-zero juga isFinalized=true).
+  // Tanpa gate ini, thesis ber-P2 yang belum co-sign bisa masuk antrean KaDep
+  // secara prematur dan disahkan tanpa konsensus P2.
+  //
+  // Celah #2 recovery: Jika P2 terminated sebelum co-sign, score stuck
+  // isFinalized=false. Dalam kasus ini (P2 tidak aktif + kedua score ada +
+  // belum co-sign), auto-finalize agar thesis tidak deadlock permanen.
+  if (!rmScore.isFinalized) {
+    const canAutoRecover = !hasP2Active
+      && rmScore.supervisorScore != null
+      && rmScore.lecturerScore != null
+      && rmScore.coSignedAt == null;
+    if (canAutoRecover) {
+      await prisma.researchMethodScore.update({
+        where: { id: rmScore.id },
+        data: { isFinalized: true, finalizedAt: new Date(), finalizedBy: null },
+      });
+    } else {
+      return {
+        ready: false,
+        proposalStatus: currentProposalStatus,
+        currentProposalStatus,
+        block: "scores_not_finalized",
+      };
+    }
+  }
+  // Konsistensi co-sign P2 (selaras getPendingTitleReports + reviewTitleReport):
+  // `isFinalized` bisa stale true jika P2 ditambahkan setelah finalize P1-only.
+  // Re-assert co-sign eksplisit untuk thesis ber-P2 agar dequeue konsisten.
+  if (hasP2Active && (rmScore.coSignedAt == null || rmScore.coSignedByLecturerId == null)) {
+    return {
+      ready: false,
+      proposalStatus: currentProposalStatus,
+      currentProposalStatus,
+      block: "scores_not_finalized",
+    };
+  }
+  // §5.7.3 (BR-28): thesis yang di-auto-zero karena presensi Metopel <75% GAGAL
+  // prasyarat Metopel dan WAJIB mengulang kelas — BUKAN lanjut ke TA-04. Karena
+  // auto-zero menulis `isFinalized=true`, gate isFinalized di atas lolos, jadi
+  // blokir eksplisit di sini agar mahasiswa gagal-Metopel tidak ter-enqueue.
+  if (rmScore.attendanceAutoZeroedAt != null) {
+    return {
+      ready: false,
+      proposalStatus: currentProposalStatus,
+      currentProposalStatus,
+      block: "metopel_auto_zeroed",
+    };
   }
 
   const student = await prisma.student.findUnique({
@@ -1552,20 +1742,81 @@ async function tryEnqueueThesisForKadepProposalReview(thesisId) {
     select: { takingThesisCourse: true },
   });
   if (student?.takingThesisCourse !== true) {
-    return { updated: false, block: "ta_course_not_confirmed" };
+    return {
+      ready: false,
+      proposalStatus: currentProposalStatus,
+      currentProposalStatus,
+      block: "ta_course_not_confirmed",
+    };
   }
 
-  await prisma.thesis.update({
-    where: { id: thesis.id },
-    data: {
-      proposalStatus: "submitted",
-      proposalReviewNotes: null,
-      proposalReviewedAt: null,
-      proposalReviewedByUserId: null,
-    },
-  });
+  // All 5 prerequisites satisfied.
+  // `proposalStatus` field reflects readiness: "submitted" if already queued
+  // (caller treats as no-op enqueue), or "ready" if null (caller enqueues).
+  return {
+    ready: true,
+    proposalStatus: currentProposalStatus === "submitted" ? "submitted" : "ready",
+    currentProposalStatus,
+  };
+}
 
-  return { updated: true, proposalStatus: "submitted" };
+async function tryEnqueueThesisForKadepProposalReview(thesisId) {
+  const readiness = await evaluateKadepProposalQueueReadiness(thesisId);
+
+  // Terminal: accepted — no-op.
+  if (readiness.proposalStatus === "accepted") {
+    return { updated: false, proposalStatus: "accepted", queued: false };
+  }
+  // User-driven non-queueable (rejected / revision_in_progress) — no-op.
+  if (readiness.proposalStatus === "rejected" || readiness.proposalStatus === "revision_in_progress") {
+    return { updated: false, proposalStatus: readiness.proposalStatus, block: readiness.block };
+  }
+
+  const currentStatus = readiness.currentProposalStatus;
+
+  if (readiness.ready) {
+    // All 5 prerequisites satisfied.
+    if (currentStatus === "submitted") {
+      // Already queued and still valid — no-op (idempotent).
+      return { updated: false, proposalStatus: "submitted", queued: true };
+    }
+    // Enqueue baru (status null → submitted).
+    await prisma.thesis.update({
+      where: { id: thesisId },
+      data: {
+        proposalStatus: "submitted",
+        proposalReviewNotes: null,
+        proposalReviewedAt: null,
+        proposalReviewedByUserId: null,
+      },
+    });
+    return { updated: true, proposalStatus: "submitted", queued: true };
+  }
+
+  // !ready: prerequisite(s) fail.
+  if (currentStatus === "submitted") {
+    // Post-enqueue degradation (audit F-4.4 follow-up): a previously-enqueued
+    // thesis lost a prerequisite (e.g. P2 added without co-sign, SIA flipped
+    // takingThesisCourse, auto-zero applied). Auto-dequeue to keep KaDep queue
+    // consistent with the 5 canonical prerequisites (canon §5.8).
+    await prisma.thesis.update({
+      where: { id: thesisId },
+      data: {
+        proposalStatus: null,
+        proposalReviewNotes: null,
+        proposalReviewedAt: null,
+        proposalReviewedByUserId: null,
+      },
+    });
+    return {
+      updated: false,
+      proposalStatus: null,
+      dequeued: true,
+      block: readiness.block,
+    };
+  }
+  // Not queued yet, not ready — no-op.
+  return { updated: false, proposalStatus: null, block: readiness.block };
 }
 
 function badRequestForKadepEnqueueBlock(block) {
@@ -1588,6 +1839,16 @@ function badRequestForKadepEnqueueBlock(block) {
       "Antre KaDep dibuka setelah nilai TA-03A dan TA-03B tersedia."
     );
   }
+  if (block === "scores_not_finalized") {
+    return new BadRequestError(
+      "Antre KaDep dibuka setelah penilaian TA-03A (termasuk co-sign Pembimbing 2 bila ada) dan TA-03B difinalisasi."
+    );
+  }
+  if (block === "metopel_auto_zeroed") {
+    return new BadRequestError(
+      "Mahasiswa tidak memenuhi prasyarat presensi Metopel (≥75%) sehingga nilai TA-03 otomatis 0. TA-04 tidak dapat diproses; mahasiswa wajib mengulang kelas Metopel (canon §5.7.3)."
+    );
+  }
   if (block === "ta_course_not_confirmed") {
     return new BadRequestError(
       "TA-04 hanya dapat diproses setelah data SIA mengonfirmasi mahasiswa sedang mengambil mata kuliah Tugas Akhir."
@@ -1599,36 +1860,209 @@ function badRequestForKadepEnqueueBlock(block) {
 /**
  * Legacy / idempotent hook: same as sistem otomatis. Panduan tidak mewajibkan aksi
  * mahasiswa terpisah; endpoint tetap ada agar klien lama tidak rusak.
+ *
+ * Side effect: if the thesis was previously "submitted" but a prerequisite has
+ * since degraded (e.g. P2 added without co-sign), this call auto-dequeues it
+ * (resets proposalStatus to null) and throws with the block reason — so the
+ * student UI refresh shows the correct "Belum Masuk Antrean" state instead of
+ * a stale "Menunggu Review KaDep".
  */
 export async function submitTitleReport(userId) {
   const thesis = await repo.findStudentThesis(userId);
   if (!thesis) throw new NotFoundError("Tugas Akhir tidak ditemukan");
 
-  if (thesis.proposalStatus === "submitted") {
-    return { thesisId: thesis.id, title: thesis.title, proposalStatus: "submitted" };
-  }
   if (thesis.proposalStatus === "accepted") {
     throw new BadRequestError("Judul TA sudah disetujui");
   }
 
   const result = await tryEnqueueThesisForKadepProposalReview(thesis.id);
-  if (result.updated) {
+  if (result.queued) {
     return { thesisId: thesis.id, title: thesis.title, proposalStatus: "submitted" };
   }
   throw badRequestForKadepEnqueueBlock(result.block);
 }
 
 /**
+ * Helper: kumpulkan userId pembimbing aktif (P1/P2) untuk sebuah thesis.
+ * Dipakai untuk notifikasi pasca TA-04 accept agar pembimbing tahu bimbingan
+ * formal fase Tugas Akhir aktif (canon §5.5).
+ */
+async function getActiveSupervisorUserIds(thesisId) {
+  const participants = await prisma.thesisParticipant.findMany({
+    where: {
+      thesisId,
+      status: "active",
+      role: { is: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
+    },
+    select: { lecturer: { select: { userId: true } } },
+  });
+  return participants
+    .map((p) => p.lecturer?.userId)
+    .filter(Boolean);
+}
+
+/**
+ * Helper: fetch userId mahasiswa pemilik thesis.
+ */
+async function getStudentUserIdForThesis(thesisId) {
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: { studentId: true },
+  });
+  return thesis?.studentId ?? null;
+}
+
+/**
+ * Helper: fetch data ringkas thesis untuk konteks notifikasi pasca-accept.
+ */
+async function getThesisNotificationContext(thesisId) {
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      studentId: true,
+      academicYear: { select: { year: true, semester: true } },
+    },
+  });
+  return thesis;
+}
+
+/**
+ * Fire-and-forget: notifikasi mahasiswa + pembimbing bahwa TA-04 disahkan.
+ * Failure di-swallow (hanya log) supaya tidak membatalkan accept yang sudah commit.
+ *
+ * Canon §5.10: KaDep adalah aktor final → mahasiswa & pembimbing harus tahu
+ * transisi ke fase Tugas Akhir penuh.
+ * Canon §5.5: bimbingan formal (phase=thesis) aktif sejak MK Tugas Akhir
+ * tercatat + TA-04 disahkan → pembimbing perlu tahu untuk membuka logbook formal.
+ * Canon §5.13 + F-5.2: Formulir TA-04 tersedia setelah KaDep memfinalisasi
+ * batch periode → mahasiswa diberi tahu ekspektasi tersebut.
+ */
+async function notifyTa04Accepted(thesis) {
+  if (!thesis) return;
+  const studentUserId = thesis.studentId;
+  const supervisorUserIds = await getActiveSupervisorUserIds(thesis.id);
+
+  const semesterPretty = thesis.academicYear
+    ? `${thesis.academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${thesis.academicYear.year ?? ""}`.trim()
+    : "periode ini";
+
+  // Notifikasi mahasiswa.
+  if (studentUserId) {
+    const studentTitle = "Judul Tugas Akhir Disahkan KaDep";
+    const studentMessage = `Pengesahan TA-04 telah dilakukan Ketua Departemen. Bimbingan formal fase Tugas Akhir kini aktif. Formulir TA-04 resmi akan tersedia di arsip Metode Penelitian setelah KaDep memfinalisasi batch periode ${semesterPretty}.`;
+    const studentData = {
+      type: "ta04_accepted",
+      thesisId: thesis.id,
+      route: "/metopel",
+    };
+    try {
+      await createNotificationsForUsers([studentUserId], {
+        title: studentTitle,
+        message: studentMessage,
+        type: "ta04_accepted",
+        data: studentData,
+      });
+      await sendFcmToUsers([studentUserId], {
+        title: studentTitle,
+        body: studentMessage,
+        data: studentData,
+        dataOnly: true,
+      });
+    } catch (err) {
+      console.error("[reviewTitleReport] notifikasi mahasiswa gagal:", err?.message || err);
+    }
+  }
+
+  // Notifikasi pembimbing P1/P2.
+  if (supervisorUserIds.length > 0) {
+    const supervisorTitle = "Mahasiswa Bimbingan Disahkan TA-04";
+    const supervisorMessage = `Judul Tugas Akhir mahasiswa bimbingan Anda telah disahkan KaDep. Bimbingan formal fase Tugas Akhir (logbook phase=thesis) kini aktif.`;
+    const supervisorData = {
+      type: "ta04_accepted_supervisor",
+      thesisId: thesis.id,
+    };
+    try {
+      await createNotificationsForUsers(supervisorUserIds, {
+        title: supervisorTitle,
+        message: supervisorMessage,
+        type: "ta04_accepted_supervisor",
+        data: supervisorData,
+      });
+      await sendFcmToUsers(supervisorUserIds, {
+        title: supervisorTitle,
+        body: supervisorMessage,
+        data: supervisorData,
+        dataOnly: true,
+      });
+    } catch (err) {
+      console.error("[reviewTitleReport] notifikasi pembimbing gagal:", err?.message || err);
+    }
+  }
+}
+
+/**
+ * Fire-and-forget: notifikasi mahasiswa bahwa TA-04 ditolak KaDep.
+ * Membawa catatan KaDep supaya mahasiswa tahu arahan revisi.
+ */
+async function notifyTa04Rejected(thesisId, notes) {
+  const studentUserId = await getStudentUserIdForThesis(thesisId);
+  if (!studentUserId) return;
+
+  const title = "Judul Tugas Akhir Ditolak KaDep";
+  const message = notes?.trim()
+    ? `Ketua Departemen menolak pengesahan judul. Catatan: ${notes.trim()}`
+    : "Ketua Departemen menolak pengesahan judul. Silakan hubungi pembimbing untuk arahan revisi.";
+  const data = {
+    type: "ta04_rejected",
+    thesisId,
+    route: "/metopel",
+  };
+  try {
+    await createNotificationsForUsers([studentUserId], {
+      title,
+      message,
+      type: "ta04_rejected",
+      data,
+    });
+    await sendFcmToUsers([studentUserId], {
+      title,
+      body: message,
+      data,
+      dataOnly: true,
+    });
+  } catch (err) {
+    console.error("[reviewTitleReport] notifikasi reject gagal:", err?.message || err);
+  }
+}
+
+/**
  * KaDep approves or rejects the reported title.
  *
  * Canonical rule (KONTEKS_KANONIS_SIMPTA.md §5.8): TA-04 only proceeds when
- * SIA confirms the student is currently enrolled in the Tugas Akhir course
- * (`students.taking_thesis_course = true`). The enqueue gate already enforces
- * this, but we re-validate here at accept-time to close the race window where
- * SIA changes between enqueue and KaDep approval.
+ * all 5 prerequisites are satisfied at accept-time:
+ *   1. Pembimbing resmi (P1) aktif
+ *   2. Proposal final disubmit (`finalProposalVersionId`)
+ *   3. TA-03A final (P1 submit + P2 co-sign bila ada) — `isFinalized`
+ *   4. TA-03B final (Koordinator submit) — `isFinalized`
+ *   5. SIA `taking_thesis_course = true`
+ * The enqueue gate + getPendingTitleReports filter already enforce these, but
+ * accept-time re-validation closes the race window where state changes between
+ * enqueue and KaDep approval (audit F-5.1 + F-4.4 follow-up).
  */
 export async function reviewTitleReport(thesisId, action, notes, reviewedBy) {
-  const thesis = await prisma.thesis.findUnique({ where: { id: thesisId } });
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      studentId: true,
+      title: true,
+      proposalStatus: true,
+      finalProposalVersionId: true,
+      academicYearId: true,
+    },
+  });
   if (!thesis) throw new NotFoundError("Tugas Akhir tidak ditemukan");
 
   if (thesis.proposalStatus !== "submitted") {
@@ -1643,6 +2077,36 @@ export async function reviewTitleReport(thesisId, action, notes, reviewedBy) {
   };
 
   if (action === "accept") {
+    // Canon §5.8 — re-assert all 5 canonical prerequisites at accept-time.
+    // The enqueue gate + getPendingTitleReports filter already enforce these,
+    // but accept-time re-validation closes the race window where state changes
+    // between enqueue and KaDep decision (audit F-5.1 + F-4.4 follow-up).
+
+    // Syarat 2: Proposal final disubmit.
+    if (!thesis.finalProposalVersionId) {
+      throw new BadRequestError(
+        "Proposal final belum disubmit. TA-04 belum dapat disahkan (canon §5.8).",
+      );
+    }
+    // Syarat 1: Pembimbing resmi (P1) aktif. Sekaligus deteksi P2 untuk
+    // re-assert co-sign (konsisten dengan getPendingTitleReports).
+    const activeSupervisors = await prisma.thesisParticipant.findMany({
+      where: {
+        thesisId,
+        status: "active",
+        role: { is: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } } },
+      },
+      select: { role: { select: { name: true } } },
+    });
+    const hasP1Active = activeSupervisors.some((s) => s.role?.name === ROLES.PEMBIMBING_1);
+    const hasP2Active = activeSupervisors.some((s) => s.role?.name === ROLES.PEMBIMBING_2);
+    if (activeSupervisors.length === 0 || !hasP1Active) {
+      throw new BadRequestError(
+        "Tidak ada pembimbing resmi aktif (P1) pada thesis ini. TA-04 belum dapat disahkan (canon §5.8).",
+      );
+    }
+
+    // Syarat 5: SIA mengonfirmasi ambil MK Tugas Akhir.
     const student = await prisma.student.findUnique({
       where: { id: thesis.studentId },
       select: { takingThesisCourse: true },
@@ -1653,12 +2117,71 @@ export async function reviewTitleReport(thesisId, action, notes, reviewedBy) {
       );
     }
 
+    // BR-20 / FR-SCR-07 (F-5.1): re-assert kelengkapan penilaian di server,
+    // bukan hanya mengandalkan gate enqueue + checklist UI (client-side).
+    // Syarat 3 + 4: TA-03A (P1 + P2 co-sign bila ada) + TA-03B final.
+    const reviewScore = await prisma.researchMethodScore.findUnique({
+      where: { thesisId },
+      select: {
+        isFinalized: true,
+        attendanceAutoZeroedAt: true,
+        supervisorScore: true,
+        lecturerScore: true,
+        coSignedAt: true,
+        coSignedByLecturerId: true,
+      },
+    });
+    if (!reviewScore?.isFinalized) {
+      throw new BadRequestError(
+        "Penilaian TA-03A/TA-03B belum final (termasuk co-sign Pembimbing 2 bila ada). TA-04 belum dapat disahkan.",
+      );
+    }
+    // Konsistensi co-sign P2 (selaras getPendingTitleReports): isFinalized bisa
+    // stale true jika P2 ditambah setelah finalize P1-only. Re-assert co-sign
+    // eksplisit untuk thesis ber-P2 agar KaDep tidak sahkan tanpa konsensus P2.
+    if (
+      hasP2Active &&
+      (reviewScore.coSignedAt == null || reviewScore.coSignedByLecturerId == null)
+    ) {
+      throw new BadRequestError(
+        "Pembimbing 2 belum co-sign penilaian TA-03A. TA-04 belum dapat disahkan tanpa konsensus P2 (canon §5.7.1).",
+      );
+    }
+    if (reviewScore.supervisorScore == null || reviewScore.lecturerScore == null) {
+      throw new BadRequestError(
+        "Nilai TA-03A atau TA-03B belum lengkap. TA-04 belum dapat disahkan (canon §5.7).",
+      );
+    }
+    // §5.7.3 (BR-28): auto-zero presensi <75% = gagal Metopel → wajib mengulang,
+    // bukan disahkan TA-04. Blokir di accept-time juga (menutup data lama yang
+    // mungkin sudah ter-enqueue sebelum gate ini ada).
+    if (reviewScore.attendanceAutoZeroedAt != null) {
+      throw new BadRequestError(
+        "Mahasiswa tidak memenuhi prasyarat presensi Metopel (≥75%); nilai TA-03 auto-zero. TA-04 tidak dapat disahkan — mahasiswa wajib mengulang kelas Metopel (canon §5.7.3).",
+      );
+    }
+
+    // Canon §5.5 + §5.10: pasca-accept thesis masuk fase Tugas Akhir penuh.
+    // Set thesisStatus = "Bimbingan" supaya monitoring modul TA & eligibility
+    // service (`resolveMetopenEligibilityState.thesisPhase`) refleksi fase aktif.
+    // Tanpa ini, `thesisPhase` null walau `isProposal=false` → UX gap.
+    const bimbinganStatus = await prisma.thesisStatus.findFirst({
+      where: { name: THESIS_STATUS.BIMBINGAN },
+      select: { id: true, name: true },
+    });
+    if (!bimbinganStatus) {
+      throw new BadRequestError(
+        "Status thesis 'Bimbingan' belum dikonfigurasi di database. Jalankan seed: npx prisma db seed",
+      );
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.thesis.update({
         where: { id: thesisId },
         data: {
           proposalStatus: "accepted",
           isProposal: false,
+          thesisStatusId: bimbinganStatus.id,
           ...reviewAudit,
         },
       });
@@ -1721,20 +2244,115 @@ export async function reviewTitleReport(thesisId, action, notes, reviewedBy) {
       }
     }, { isolationLevel: "Serializable" });
 
-    generateTitleApprovalLetter(thesisId).catch((err) => {
-      console.error("[reviewTitleReport] generateTitleApprovalLetter failed:", err);
-    });
+    // Fire-and-forget: notifikasi mahasiswa + pembimbing pasca-accept (canon §5.10 + §5.5).
+    // Di-swallow error supaya accept yang sudah commit tidak terganggu.
+    try {
+      const notifCtx = await getThesisNotificationContext(thesisId);
+      await notifyTa04Accepted(notifCtx);
+    } catch (err) {
+      console.error("[reviewTitleReport] notifyTa04Accepted gagal:", err?.message || err);
+    }
 
     return { thesisId, proposalStatus: "accepted" };
   }
 
   if (action === "reject") {
+    if (!notes?.trim()) {
+      throw new BadRequestError(
+        "Catatan revisi wajib diisi saat menolak judul.",
+      );
+    }
+
+    await prisma.thesis.update({
+      where: { id: thesisId },
+      data: {
+        proposalStatus: "rejected",
+        ...reviewAudit,
+      },
+    });
+
+    // Fire-and-forget: notifikasi mahasiswa bahwa TA-04 ditolak + catatan KaDep.
+    try {
+      await notifyTa04Rejected(thesisId, notes);
+    } catch (err) {
+      console.error("[reviewTitleReport] notifyTa04Rejected gagal:", err?.message || err);
+    }
+
+    return { thesisId, proposalStatus: "rejected" };
+  }
+
+  throw new BadRequestError("Aksi tidak valid. Gunakan 'accept' atau 'reject'.");
+}
+
+/**
+ * Mahasiswa menandai bahwa proposal telah direvisi sesuai catatan KaDep.
+ * Transition: rejected → revision_in_progress (menunggu telaah pembimbing).
+ */
+export async function submitRevisionAfterKadepReject(thesisId, userId) {
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: { id: true, studentId: true, proposalStatus: true, student: { select: { userId: true } } },
+  });
+  if (!thesis) throw new NotFoundError("Tugas Akhir tidak ditemukan");
+  if (thesis.student?.userId !== userId) {
+    throw new ForbiddenError("Hanya mahasiswa pemilik thesis yang dapat mengirim revisi");
+  }
+  if (thesis.proposalStatus !== "rejected") {
     throw new BadRequestError(
-      "Proposal final tidak ditolak pada scope aktif. Revisi wajib diselesaikan melalui logbook/progress sebelum submit final.",
+      "Revisi pasca-KaDep hanya dapat diajukan pada proposal berstatus 'rejected'.",
     );
   }
 
-  throw new BadRequestError("Aksi tidak valid. Gunakan 'accept'.");
+  await prisma.thesis.update({
+    where: { id: thesisId },
+    data: { proposalStatus: "revision_in_progress" },
+  });
+
+  return { thesisId, proposalStatus: "revision_in_progress" };
+}
+
+/**
+ * Pembimbing menelaah revisi proposal pasca-reject KaDep (BPMN Task_ReviewRevisionAfterKadep).
+ * Jika approve → reset proposalStatus ke null sehingga tryEnqueueThesisForKadepProposalReview
+ * dapat me-re-queue thesis ke antrean KaDep.
+ */
+export async function approveRevisionAfterKadepReject(thesisId, lecturerUserId, notes) {
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: { id: true, proposalStatus: true, studentId: true },
+  });
+  if (!thesis) throw new NotFoundError("Tugas Akhir tidak ditemukan");
+  if (thesis.proposalStatus !== "revision_in_progress") {
+    throw new BadRequestError(
+      "Telaah revisi hanya dapat dilakukan pada proposal berstatus 'revision_in_progress'.",
+    );
+  }
+
+  const isSupervisor = await prisma.thesisParticipant.count({
+    where: {
+      thesisId,
+      status: "active",
+      lecturer: { userId: lecturerUserId },
+      role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+    },
+  });
+  if (isSupervisor === 0) {
+    throw new ForbiddenError("Hanya pembimbing aktif yang dapat menelaah revisi pasca-KaDep");
+  }
+
+  await prisma.thesis.update({
+    where: { id: thesisId },
+    data: {
+      proposalStatus: null,
+      proposalReviewNotes: notes?.trim() || null,
+      proposalReviewedAt: null,
+      proposalReviewedByUserId: null,
+    },
+  });
+
+  const result = await syncKadepProposalQueueByThesisId(thesisId);
+
+  return { thesisId, reQueued: result.synced, proposalStatus: result.synced ? "submitted" : null };
 }
 
 /**
@@ -1748,6 +2366,13 @@ export async function reviewTitleReport(thesisId, action, notes, reviewedBy) {
  *   3. TA-03A diisi P1 master + (jika P2 ada) P2 co-sign
  *   4. TA-03B diisi Koordinator Metopen
  *   5. SIA mengonfirmasi mahasiswa ambil MK Tugas Akhir (`students.taking_thesis_course`)
+ *
+ * Server-side re-validation (audit F-4.4 follow-up): thesis dengan
+ * `proposalStatus="submitted"` yang salah satu 5 syarat terdegradasi TIDAK
+ * ditampilkan ke KaDep. Sebagai best-effort cleanup, thesis seperti itu
+ * di-dequeue secara async (fire-and-forget) sehingga query berikutnya konsisten.
+ * Dequeue authoritative tetap berada di `tryEnqueueThesisForKadepProposalReview`
+ * yang dipicu oleh SIA sync, assessment update, P2 approval, dan submitTitleReport.
  */
 export async function getPendingTitleReports({ academicYearId } = {}) {
   const theses = await prisma.thesis.findMany({
@@ -1780,13 +2405,15 @@ export async function getPendingTitleReports({ academicYearId } = {}) {
           coSignedByLecturerId: true,
           isFinalized: true,
           finalScore: true,
+          attendanceAutoZeroedAt: true,
         },
       },
     },
     orderBy: { updatedAt: "asc" },
   });
 
-  return theses.map((t) => {
+  const eligibleRows = [];
+  for (const t of theses) {
     const score = t.researchMethodScores?.[0] ?? null;
     const hasP2Active = (t.thesisSupervisors ?? []).some(
       (s) => s.role?.name === ROLES.PEMBIMBING_2,
@@ -1802,8 +2429,28 @@ export async function getPendingTitleReports({ academicYearId } = {}) {
     const proposalFinalReady = Boolean(t.finalProposalVersionId);
     const supervisorReady = hasP1Active; // minimum P1 sebagai pembimbing resmi
     const takingThesisReady = t.student?.takingThesisCourse === true;
+    // BR-28 + BR-21: auto-zero (presensi <75%) = gagal Metopel, tidak boleh TA-04.
+    const notAutoZeroed = score?.attendanceAutoZeroedAt == null;
+    // BR-20: isFinalized menjamin konsensus P2 + TA-03B complete.
+    const finalized = score?.isFinalized === true;
 
-    return {
+    const allMet =
+      supervisorReady &&
+      proposalFinalReady &&
+      ta03aReady &&
+      ta03bReady &&
+      takingThesisReady &&
+      notAutoZeroed &&
+      finalized;
+
+    if (!allMet) {
+      // Best-effort dequeue: reset proposalStatus di background. Errors di-swallow
+      // karena ini hanya cleanup; authoritative dequeue ada di sync triggers.
+      tryEnqueueThesisForKadepProposalReview(t.id).catch(() => {});
+      continue;
+    }
+
+    eligibleRows.push({
       thesisId: t.id,
       title: t.title,
       studentName: t.student?.user?.fullName ?? "-",
@@ -1822,8 +2469,109 @@ export async function getPendingTitleReports({ academicYearId } = {}) {
         takingThesisCourse: takingThesisReady,
       },
       finalScore: score?.finalScore ?? null,
-      isFinalized: score?.isFinalized ?? false,
+      isFinalized: finalized,
       hasP2: hasP2Active,
+    });
+  }
+
+  return eligibleRows;
+}
+
+/**
+ * Riwayat pengesahan TA-04 (thesis dengan proposalStatus accepted/rejected)
+ * untuk dashboard KaDep. Mendukung filter academicYearId agar KaDep dapat
+ * melihat keputusan antar-periode. Mencatat audit lengkap: tanggal keputusan,
+ * KaDep yang memutuskan, catatan, ketersediaan dokumen SK.
+ *
+ * Canon §5.8 + BR-24: KaDep adalah approver tunggal; melihat riwayat keputusan
+ * sendiri adalah bagian akuntabilitas workflow pengesahan, BUKAN surface arsip
+ * §5.13 (yang mahasiswa-only).
+ */
+export async function getKadepTitleReportHistory({ academicYearId } = {}) {
+  const theses = await prisma.thesis.findMany({
+    where: {
+      proposalStatus: { in: ["accepted", "rejected"] },
+      ...(academicYearId ? { academicYearId } : {}),
+    },
+    include: {
+      academicYear: { select: { id: true, year: true, semester: true } },
+      finalProposalVersion: { select: { id: true } },
+      student: {
+        select: {
+          takingThesisCourse: true,
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
+      thesisSupervisors: {
+        where: { status: "active" },
+        include: {
+          lecturer: { include: { user: { select: { fullName: true } } } },
+          role: { select: { name: true } },
+        },
+      },
+      researchMethodScores: {
+        select: {
+          supervisorScore: true,
+          lecturerScore: true,
+          isFinalized: true,
+          attendanceAutoZeroedAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+      titleApprovalDocument: { select: { id: true, fileName: true } },
+      proposalReviewedBy: { select: { fullName: true } },
+    },
+    orderBy: { proposalReviewedAt: "desc" },
+  });
+
+  const academicYearIds = theses.map((t) => t.academicYear?.id).filter(Boolean);
+  const currentBatches = await ta04BatchRepo.findCurrentTa04BatchesByAcademicYears(academicYearIds);
+  const currentBatchByThesisId = buildCurrentBatchByThesisId(currentBatches);
+
+  return theses.map((t) => {
+    const currentBatch = currentBatchByThesisId.get(t.id) ?? null;
+    const pointerDocumentKind = resolveTitleApprovalDocumentKind(t.titleApprovalDocument?.fileName);
+    const documentKind = currentBatch
+      ? "batch"
+      : pointerDocumentKind === "batch"
+        ? "stale_batch"
+        : pointerDocumentKind;
+    const batchEligibility = getTa04BatchEligibilitySnapshot(t);
+
+    return {
+      thesisId: t.id,
+      title: t.title,
+      studentName: t.student?.user?.fullName ?? "-",
+      studentNim: t.student?.user?.identityNumber ?? "-",
+      supervisors:
+        t.thesisSupervisors
+          ?.filter((s) => s.role?.name === ROLES.PEMBIMBING_1 || s.role?.name === ROLES.PEMBIMBING_2)
+          .map((s) => s.lecturer?.user?.fullName)
+          .filter(Boolean)
+          .join(", ") || "-",
+      proposalStatus: t.proposalStatus,
+      reviewedAt: t.proposalReviewedAt,
+      reviewedByName: t.proposalReviewedBy?.fullName ?? null,
+      reviewNotes: t.proposalReviewNotes,
+      academicYear: t.academicYear,
+      titleApprovalDocument: currentBatch
+        ? currentBatch.document
+        : documentKind
+          ? t.titleApprovalDocument
+          : null,
+      documentKind,
+      ta04BatchEligible: batchEligibility.eligible,
+      ta04BatchBlock: batchEligibility.block,
+      ta04Batch: currentBatch
+        ? {
+            id: currentBatch.id,
+            documentId: currentBatch.documentId,
+            version: currentBatch.version,
+            cohortHash: currentBatch.cohortHash,
+            memberCount: currentBatch.members?.length ?? 0,
+          }
+        : null,
     };
   });
 }
@@ -1834,105 +2582,180 @@ function checkGateOpen(tasks) {
 }
 
 /**
- * Generate Surat Persetujuan Judul TA (background, non-blocking).
- * Exported for BullMQ worker.
+ * Legacy compatibility export.
+ * Formulir TA-04 resmi tidak lagi dibuat per thesis. Dokumen resmi hanya
+ * diterbitkan melalui finalisasi batch periode di advisorRequest.service.js.
  */
 export async function generateTitleApprovalLetter(thesisId) {
-  const thesis = await prisma.thesis.findUnique({
-    where: { id: thesisId },
-    include: {
-      student: { include: { user: { select: { fullName: true, identityNumber: true } } } },
+  void thesisId;
+  return null;
+}
+
+/**
+ * Legacy compatibility export. Tidak menghasilkan dokumen per mahasiswa.
+ */
+export async function generateTitleApprovalLetterWithRetry(thesisId, { attempts = 3 } = {}) {
+  void thesisId;
+  void attempts;
+  return { ok: true, document: null };
+}
+
+/**
+ * Daftar thesis yang sudah disahkan tetapi belum terhubung ke Formulir TA-04
+ * batch resmi. Dokumen lama non-batch diperlakukan belum resmi.
+ */
+export async function getAcceptedThesesMissingApprovalDocument({ academicYearId } = {}) {
+  const theses = await prisma.thesis.findMany({
+    where: {
+      proposalStatus: "accepted",
+      ...(academicYearId ? { academicYearId } : {}),
+    },
+    select: {
+      id: true,
+      title: true,
+      proposalStatus: true,
+      finalProposalVersionId: true,
+      proposalReviewedAt: true,
+      academicYear: { select: { id: true, year: true, semester: true } },
+      student: {
+        select: {
+          takingThesisCourse: true,
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
       thesisSupervisors: {
-        include: {
-          lecturer: { include: { user: { select: { fullName: true, identityNumber: true } } } },
+        where: { status: "active" },
+        select: {
+          status: true,
           role: { select: { name: true } },
         },
       },
-      academicYear: { select: { year: true, semester: true } },
+      researchMethodScores: {
+        select: {
+          supervisorScore: true,
+          lecturerScore: true,
+          isFinalized: true,
+          attendanceAutoZeroedAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+      titleApprovalDocument: { select: { id: true, fileName: true, filePath: true } },
     },
+    orderBy: { proposalReviewedAt: "desc" },
   });
 
-  if (!thesis) return;
+  const academicYearIds = theses.map((t) => t.academicYear?.id).filter(Boolean);
+  const currentBatches = await ta04BatchRepo.findCurrentTa04BatchesByAcademicYears(academicYearIds);
+  const currentBatchByThesisId = buildCurrentBatchByThesisId(currentBatches);
 
-  const fsm = await import("fs/promises");
-  const pathm = await import("path");
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  const academicYearLabel = thesis.academicYear
-    ? `${thesis.academicYear.year ?? "-"} ${thesis.academicYear.semester === "genap" ? "Genap" : "Ganjil"}`
-    : "-";
-  const letterNumber = `SPJTA/${now.getFullYear()}/${thesisId.substring(0, 8).toUpperCase()}`;
+  return theses
+    .filter((t) => getTa04BatchEligibilitySnapshot(t).eligible)
+    .filter((t) => !currentBatchByThesisId.has(t.id))
+    .map((t) => ({
+      thesisId: t.id,
+      title: t.title ?? null,
+      studentName: t.student?.user?.fullName ?? "-",
+      studentNim: t.student?.user?.identityNumber ?? "-",
+      approvedAt: t.proposalReviewedAt,
+      academicYear: t.academicYear,
+    }));
+}
 
-  const thesisSupervisors = thesis.thesisSupervisors ?? [];
-  const supervisorNames = [...new Set(thesisSupervisors
-    .slice()
-    .sort((a, b) => {
-      const order = (roleName) => {
-        if (roleName === ROLES.PEMBIMBING_1) return 0;
-        if (roleName === ROLES.PEMBIMBING_2) return 1;
-        return 99;
-      };
-      return order(a.role?.name) - order(b.role?.name);
-    })
-    .map((s) => s.lecturer?.user?.fullName ?? "-")
-    .filter(Boolean))]
-    .join(", ");
-
-  // Find active KaDep for pengesahan
-  const kadepRole = await prisma.userRole?.findFirst?.({
-    where: { name: ROLES.KETUA_DEPARTEMEN },
+/**
+ * Regenerasi dokumen per mahasiswa tidak lagi menjadi jalur resmi. Formulir TA-04
+ * harus diterbitkan lewat finalisasi batch periode agar satu dokumen resmi
+ * memuat seluruh mahasiswa pada semester tersebut.
+ */
+export async function regenerateTitleApprovalLetter(thesisId) {
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
     select: { id: true },
   });
-  let kadep = null;
-  if (kadepRole) {
-    const assignment = await prisma.userHasRole?.findFirst?.({
-      where: { roleId: kadepRole.id, status: "active" },
-      include: { user: { select: { fullName: true, identityNumber: true } } },
-    });
-    kadep = assignment?.user ?? null;
+  if (!thesis) throw new NotFoundError("Tugas Akhir tidak ditemukan");
+  throw new BadRequestError(
+    "Formulir TA-04 hanya diterbitkan melalui finalisasi batch periode. Gunakan aksi finalisasi/perbarui batch pada riwayat TA-04.",
+  );
+}
+
+/**
+ * FR-ARC-05: Mahasiswa mengunduh Formulir TA-04 PDF miliknya.
+ * Verifikasi kepemilikan via `findStudentThesis` (hanya pemilik thesis yang boleh).
+ * Mengembalikan { absolutePath, fileName } untuk di-stream controller.
+ *
+ * Catatan canon §5.13 / OQ-2.3 v2.4: surface arsip 4-kategori = mahasiswa-only.
+ * Endpoint ini adalah jalur download terautentikasi untuk kategori ke-4 (Formulir TA-04),
+ * bukan surface "arsip dosen" baru — tetap mahasiswa-only via RBAC route.
+ */
+export async function getTitleApprovalDocumentForStudent(userId) {
+  const thesis = await ta04BatchRepo.findAcceptedThesisForStudentTitleApproval(userId);
+  if (!thesis) {
+    throw new NotFoundError("Tugas Akhir tidak ditemukan");
   }
 
-  const semesterLabel = thesis.academicYear
-    ? `${thesis.academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${thesis.academicYear.year ?? ""}`
-    : "-";
+  const batch = await ta04BatchRepo.findCurrentTa04BatchForThesis(thesis.id);
+  if (!batch?.document || !isOfficialTitleApprovalDocument(batch.document)) {
+    throw new NotFoundError(
+      "Formulir TA-04 resmi belum tersedia untuk periode ini. KaDep perlu memfinalisasi batch periode terlebih dahulu.",
+    );
+  }
 
-  const pdfBuffer = await generateTA04Pdf({
-    semester: semesterLabel,
-    entries: [{
-      studentName: thesis.student?.user?.fullName ?? "-",
-      nim: thesis.student?.user?.identityNumber ?? "-",
-      title: thesis.title || "Belum ditentukan",
-      supervisorName: supervisorNames || "-",
-    }],
-    dateGenerated: dateStr,
-    kadepName: kadep?.fullName ?? "(...............................)",
-    kadepNip: kadep?.identityNumber ?? "(...............................)",
-  });
+  return resolveTitleApprovalDocumentPath(batch.document);
+}
 
-  const outputDir = pathm.join(process.cwd(), "uploads", "documents", "title-approval");
-  await fsm.mkdir(outputDir, { recursive: true });
-  const fileName = `SPJTA_${thesis.student?.user?.identityNumber}_${Date.now()}.pdf`;
-  const filePath = pathm.join(outputDir, fileName);
-  await fsm.writeFile(filePath, pdfBuffer);
-
-  const document = await prisma.document.create({
-    data: {
-      fileName,
-      filePath: `uploads/documents/title-approval/${fileName}`,
-      fileSize: pdfBuffer.length,
-      mimeType: "application/pdf",
-      documentTypeId: null,
+/**
+ * KaDep mengunduh Formulir TA-04 PDF untuk thesis yang sudah terhubung ke batch.
+ * KaDep adalah approver tunggal (BR-24) sekaligus penandatangan SK — mengunduh
+ * dokumen kerja pengesahan adalah bagian workflow KaDep, BUKAN surface arsip
+ * dosen baru (OQ-2.3 v2.4 tetap dijaga: arsip surface §5.13 = mahasiswa-only).
+ */
+export async function getTitleApprovalDocumentForKadep(thesisId) {
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      proposalStatus: true,
     },
   });
+  if (!thesis) throw new NotFoundError("Tugas Akhir tidak ditemukan");
+  if (thesis.proposalStatus !== "accepted") {
+    throw new NotFoundError("Formulir TA-04 hanya tersedia untuk thesis yang sudah disahkan.");
+  }
 
-  await prisma.thesis.update({
-    where: { id: thesisId },
-    data: { titleApprovalDocumentId: document.id },
-  });
+  const batch = await ta04BatchRepo.findCurrentTa04BatchForThesis(thesisId);
+  if (!batch?.document || !isOfficialTitleApprovalDocument(batch.document)) {
+    throw new NotFoundError(
+      "Formulir TA-04 belum tersedia untuk thesis ini. Finalisasi batch periode terlebih dahulu.",
+    );
+  }
+
+  return resolveTitleApprovalDocumentPath(batch.document);
+}
+
+/**
+ * Helper: resolve document.filePath (relative, mis.
+ * "uploads/documents/ta04/TA04_BATCH_...pdf") ke absolute path yang aman
+ * untuk di-stream. Anti path-traversal: resolved path wajib berada di bawah
+ * <cwd>/uploads. Verifikasi file eksis di disk.
+ */
+function resolveTitleApprovalDocumentPath(documentRow) {
+  const relativePath = String(documentRow.filePath || "").trim();
+  if (!relativePath) {
+    throw new NotFoundError("Path Formulir TA-04 tidak valid");
+  }
+
+  const uploadsRoot = path.resolve(process.cwd(), "uploads");
+  const absolutePath = path.resolve(process.cwd(), relativePath);
+  if (!absolutePath.startsWith(uploadsRoot + path.sep)) {
+    throw new NotFoundError("Akses Formulir TA-04 ditolak (path di luar folder uploads)");
+  }
+  if (!fs.existsSync(absolutePath)) {
+    throw new NotFoundError("File Formulir TA-04 tidak ditemukan di disk");
+  }
+
+  return {
+    absolutePath,
+    fileName: documentRow.fileName || path.basename(absolutePath),
+  };
 }
 
 /**

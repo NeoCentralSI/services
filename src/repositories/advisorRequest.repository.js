@@ -69,6 +69,7 @@ export const findStudentAdvisorAccessContext = async (userId) => {
             select: {
               id: true,
               lecturerId: true,
+              status: true,
               role: {
                 select: { id: true, name: true },
               },
@@ -750,11 +751,27 @@ export const findActiveAcademicYear = async () => {
  * Find a thesis topic by ID.
  */
 export const findTopicById = async (id) => {
-  return prisma.thesisTopic.findUnique({ where: { id } });
+  return prisma.thesisTopic.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+  });
 };
 
 export const findTopicByIdWithClient = async (client, id) => {
-  return client.thesisTopic.findUnique({ where: { id } });
+  return client.thesisTopic.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+  });
 };
 
 /**
@@ -1269,6 +1286,8 @@ export const findThesesWithSupervisors = async (academicYearId) => {
         some: {
           supervisorScore: { not: null },
           lecturerScore: { not: null },
+          isFinalized: true,
+          attendanceAutoZeroedAt: null,
         },
       },
       thesisSupervisors: {
@@ -1284,11 +1303,16 @@ export const findThesesWithSupervisors = async (academicYearId) => {
       titleApprovalDocumentId: true,
       student: {
         select: {
-          user: { select: { fullName: true, identityNumber: true } },
+          user: { select: { id: true, fullName: true, identityNumber: true } },
         },
       },
       thesisSupervisors: {
+        where: {
+          status: "active",
+          role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+        },
         select: {
+          status: true,
           lecturer: {
             select: {
               user: { select: { fullName: true } },
@@ -1304,13 +1328,17 @@ export const findThesesWithSupervisors = async (academicYearId) => {
 };
 
 /**
- * Find rejected requests by a specific dosen (for KaDep monitoring)
+ * Find rejected-by-dosen requests untuk monitoring KaDep.
+ *
+ * Canon v2.2 + handoff P0-03: pasca Migration B status legacy "rejected"
+ * sudah dimigrasi ke "rejected_by_dosen". Query tetap include legacy untuk
+ * backward compat read pada rows historis yang belum tersentuh backfill.
  */
 export const findRejectedByLecturer = async (lecturerId) => {
   return prisma.thesisAdvisorRequest.findMany({
     where: {
       lecturerId,
-      status: "rejected",
+      status: { in: [ADVISOR_REQUEST_STATUS.REJECTED_BY_DOSEN, ADVISOR_REQUEST_STATUS.REJECTED] },
     },
     include: {
       student: {

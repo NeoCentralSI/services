@@ -788,7 +788,7 @@ export async function generateAssessmentResultPdf(defenceId) {
   const defenceDay = getIndoDay(defence.date);
   const defenceDateFormatted = formatIndoDate(defence.date);
   const defenceTime = `${formatTime(defence.startTime)} - ${formatTime(defence.endTime)}`;
-  const defencePlace = defence.room ? (defence.room.name + (defence.room.location ? `, ${defence.room.location}` : '')) : (defence.meetingLink || 'Daring');
+  const defencePlace = defence.room ? defence.room.name : (defence.meetingLink || 'Daring');
 
   // Supervisors and Examiners for Identity section
   const supervisors = (defence.thesis?.thesisSupervisors || [])

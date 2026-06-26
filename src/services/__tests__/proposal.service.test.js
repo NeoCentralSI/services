@@ -24,6 +24,7 @@ vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
   findLatestProposalVersion: vi.fn(),
   countActiveSupervisors: vi.fn(),
   submitFinalProposalVersion: vi.fn(),
+  findResearchMethodScoreProgress: vi.fn(),
 }));
 
 const studentRepo = await import("../../repositories/thesisGuidance/student.guidance.repository.js");

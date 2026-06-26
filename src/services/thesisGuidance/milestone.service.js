@@ -24,6 +24,10 @@ function forbidden(message = "Forbidden") {
   return createError(message, 403);
 }
 
+function participantRoleName(participant) {
+  return participant?.supervisorRole ?? participant?.role?.name ?? null;
+}
+
 // ============================================
 // Helper Functions
 // ============================================
@@ -40,6 +44,7 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
       },
       thesisSupervisors: {
         include: {
+          role: { select: { name: true } },
           lecturer: { select: { id: true, user: { select: { id: true, fullName: true } } } },
         },
       },
@@ -775,8 +780,8 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
   const progress = await milestoneRepo.getThesisProgress(thesisId);
 
   // Derive per-supervisor approval from thesisSupervisors
-  const sup1 = thesis.thesisSupervisors.find((p) => isPembimbing1(p.supervisorRole));
-  const sup2 = thesis.thesisSupervisors.find((p) => isPembimbing2(p.supervisorRole));
+  const sup1 = thesis.thesisSupervisors.find((p) => isPembimbing1(participantRoleName(p)));
+  const sup2 = thesis.thesisSupervisors.find((p) => isPembimbing2(participantRoleName(p)));
   const approvedBySupervisor1 = sup1?.seminarReady || false;
   const approvedBySupervisor2 = sup2?.seminarReady || false;
   // If only 1 supervisor exists, only their approval is needed
@@ -786,7 +791,7 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
     id: p.lecturerId,
     name: p.lecturer?.user?.fullName,
     email: p.lecturer?.user?.email,
-    role: supervisorRoleDisplayName(p.supervisorRole),
+    role: supervisorRoleDisplayName(participantRoleName(p)),
     hasApproved: p.seminarReady || false,
   }));
 
@@ -794,7 +799,7 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
   const currentUserParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId
   );
-  const currentUserRole = currentUserParticipant ? supervisorRoleDisplayName(currentUserParticipant.supervisorRole) : null;
+  const currentUserRole = currentUserParticipant ? supervisorRoleDisplayName(participantRoleName(currentUserParticipant)) : null;
   const currentUserHasApproved = currentUserParticipant?.seminarReady || false;
 
   return {
@@ -844,8 +849,8 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
 
-  const supervisorRole = supervisorRoleDisplayName(supervisorParticipant.supervisorRole);
-  const isSupervisor1 = isPembimbing1(supervisorParticipant.supervisorRole);
+  const supervisorRole = supervisorRoleDisplayName(participantRoleName(supervisorParticipant));
+  const isSupervisor1 = isPembimbing1(participantRoleName(supervisorParticipant));
   const lecturerId = supervisorParticipant.lecturerId;
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
@@ -911,8 +916,8 @@ export async function approveSeminarReadiness(thesisId, userId, notes = null) {
   }
 
   // Derive per-role approval from updated supervisors
-  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(s.supervisorRole));
-  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(s.supervisorRole));
+  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(participantRoleName(s)));
+  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(participantRoleName(s)));
 
   // Audit log: seminar readiness approved
   await logAudit({
@@ -955,8 +960,8 @@ export async function revokeSeminarReadiness(thesisId, userId, notes = null) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
 
-  const supervisorRole = supervisorRoleDisplayName(supervisorParticipant.supervisorRole);
-  const isSupervisor1 = isPembimbing1(supervisorParticipant.supervisorRole);
+  const supervisorRole = supervisorRoleDisplayName(participantRoleName(supervisorParticipant));
+  const isSupervisor1 = isPembimbing1(participantRoleName(supervisorParticipant));
   const lecturerId = supervisorParticipant.lecturerId;
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
@@ -989,8 +994,8 @@ export async function revokeSeminarReadiness(thesisId, userId, notes = null) {
   }
 
   // Derive per-role approval from updated supervisors
-  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(s.supervisorRole));
-  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(s.supervisorRole));
+  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(participantRoleName(s)));
+  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(participantRoleName(s)));
 
   // Audit log: seminar readiness revoked
   await logAudit({
@@ -1030,7 +1035,7 @@ export async function getStudentsReadyForSeminar() {
     },
     supervisors: t.thesisSupervisors.map((p) => ({
       name: p.lecturer?.user?.fullName,
-      role: supervisorRoleDisplayName(p.supervisorRole),
+      role: supervisorRoleDisplayName(participantRoleName(p)),
       seminarReady: p.seminarReady || false,
     })),
   }));
@@ -1040,27 +1045,15 @@ export async function getStudentsReadyForSeminar() {
 // Defence Readiness Approval Services
 // ============================================
 
+// Valid thesis statuses for defence request
+const DEFENCE_ELIGIBLE_STATUSES = ["revisi seminar", "selesai seminar"];
+
 /**
- * Check if student has completed the seminar through ThesisSeminar table
+ * Check if thesis status is eligible for defence request
  */
-function isSeminarCompleted(thesisSeminars = []) {
-  if (!thesisSeminars || thesisSeminars.length === 0) return false;
-  
-  // Get latest seminar attempt
-  const latestSeminar = thesisSeminars[0];
-  if (!latestSeminar) return false;
-
-  const { status, revisionFinalizedAt } = latestSeminar;
-
-  if (status === "passed") {
-    return true;
-  }
-  
-  if (status === "passed_with_revision" && revisionFinalizedAt) {
-    return true;
-  }
-  
-  return false;
+function isDefenceEligibleStatus(statusName) {
+  if (!statusName) return false;
+  return DEFENCE_ELIGIBLE_STATUSES.includes(statusName.toLowerCase());
 }
 
 /**
@@ -1074,7 +1067,8 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
     throw notFound("Thesis tidak ditemukan");
   }
 
-  const isEligibleStatus = isSeminarCompleted(thesis.thesisSeminars);
+  const statusName = thesis.thesisStatus?.name?.toLowerCase() || "";
+  const isEligibleStatus = isDefenceEligibleStatus(statusName);
   const hasFinalDocument = !!thesis.finalThesisDocumentId;
   const hasRequestedDefence = !!thesis.defenceRequestedAt;
 
@@ -1083,7 +1077,7 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
     id: p.lecturerId,
     name: p.lecturer?.user?.fullName,
     email: p.lecturer?.user?.email,
-    role: supervisorRoleDisplayName(p.supervisorRole),
+    role: supervisorRoleDisplayName(participantRoleName(p)),
     hasApproved: p.defenceReady,
   }));
 
@@ -1091,11 +1085,11 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
   const currentUserParticipant = thesis.thesisSupervisors.find(
     (p) => p.lecturer?.user?.id === userId
   );
-  const currentUserRole = currentUserParticipant ? supervisorRoleDisplayName(currentUserParticipant.supervisorRole) : null;
+  const currentUserRole = currentUserParticipant ? supervisorRoleDisplayName(participantRoleName(currentUserParticipant)) : null;
   const currentUserHasApproved = currentUserParticipant?.defenceReady || false;
 
-  const sup1Defence = thesis.thesisSupervisors.find((p) => isPembimbing1(p.supervisorRole));
-  const sup2Defence = thesis.thesisSupervisors.find((p) => isPembimbing2(p.supervisorRole));
+  const sup1Defence = thesis.thesisSupervisors.find((p) => isPembimbing1(participantRoleName(p)));
+  const sup2Defence = thesis.thesisSupervisors.find((p) => isPembimbing2(participantRoleName(p)));
   const approvedBySupervisor1 = sup1Defence?.defenceReady || false;
   const approvedBySupervisor2 = sup2Defence?.defenceReady || false;
   // If only 1 supervisor exists, only their approval is needed
@@ -1150,12 +1144,13 @@ export async function approveDefenceReadiness(thesisId, userId, notes = null) {
     throw forbidden("Hanya dosen pembimbing yang dapat memberikan approval");
   }
 
-  // Check thesis status eligibility directly from seminars
+  // Check thesis status eligibility
   const thesisWithStatus = await milestoneRepo.getThesisDefenceReadiness(thesisId);
-  if (!isSeminarCompleted(thesisWithStatus?.thesisSeminars)) {
+  const statusName = thesisWithStatus?.thesisStatus?.name?.toLowerCase() || "";
+  if (!isDefenceEligibleStatus(statusName)) {
     throw createError(
-      `Mahasiswa belum memenuhi syarat untuk sidang. ` +
-      `Seminar hasil belum dinyatakan lulus atau revisi belum diselesaikan.`
+      `Status thesis "${thesisWithStatus?.thesisStatus?.name || "Unknown"}" tidak memenuhi syarat untuk sidang. ` +
+      `Status harus "Revisi Seminar" atau "Selesai Seminar".`
     );
   }
 
@@ -1178,8 +1173,8 @@ export async function approveDefenceReadiness(thesisId, userId, notes = null) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
 
-  const supervisorRole = supervisorRoleDisplayName(supervisorParticipant.supervisorRole);
-  const isSupervisor1 = isPembimbing1(supervisorParticipant.supervisorRole);
+  const supervisorRole = supervisorRoleDisplayName(participantRoleName(supervisorParticipant));
+  const isSupervisor1 = isPembimbing1(participantRoleName(supervisorParticipant));
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
   const updated = await milestoneRepo.approveDefenceReadiness(thesisId, supervisorParticipant.lecturerId);
@@ -1247,8 +1242,8 @@ export async function approveDefenceReadiness(thesisId, userId, notes = null) {
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(s.supervisorRole))?.defenceReady || false,
-      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(s.supervisorRole))?.defenceReady || false,
+      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(participantRoleName(s)))?.defenceReady || false,
+      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(participantRoleName(s)))?.defenceReady || false,
       isFullyApproved,
     },
   };
@@ -1273,8 +1268,8 @@ export async function revokeDefenceReadiness(thesisId, userId, notes = null) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
 
-  const supervisorRole = supervisorRoleDisplayName(supervisorParticipant.supervisorRole);
-  const isSupervisor1 = isPembimbing1(supervisorParticipant.supervisorRole);
+  const supervisorRole = supervisorRoleDisplayName(participantRoleName(supervisorParticipant));
+  const isSupervisor1 = isPembimbing1(participantRoleName(supervisorParticipant));
   const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
 
   const updated = await milestoneRepo.revokeDefenceReadiness(thesisId, supervisorParticipant.lecturerId);
@@ -1320,8 +1315,8 @@ export async function revokeDefenceReadiness(thesisId, userId, notes = null) {
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(s.supervisorRole))?.defenceReady || false,
-      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(s.supervisorRole))?.defenceReady || false,
+      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(participantRoleName(s)))?.defenceReady || false,
+      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(participantRoleName(s)))?.defenceReady || false,
       isFullyApproved: false,
     },
   };
@@ -1343,7 +1338,7 @@ export async function getStudentsReadyForDefence() {
     },
     supervisors: t.thesisSupervisors.map((p) => ({
       name: p.lecturer?.user?.fullName,
-      role: supervisorRoleDisplayName(p.supervisorRole),
+      role: supervisorRoleDisplayName(participantRoleName(p)),
     })),
     finalDocument: t.finalThesisDocument ? {
       fileName: t.finalThesisDocument.fileName,
@@ -1366,14 +1361,9 @@ export async function requestDefence(thesisId, userId, documentId) {
       },
       thesisStatus: { select: { id: true, name: true } },
       thesisSupervisors: {
-        where: { status: "active" },
         include: {
           lecturer: { select: { id: true, user: { select: { id: true, fullName: true } } } },
         },
-      },
-      thesisSeminars: {
-        select: { id: true, status: true, revisionFinalizedAt: true },
-        orderBy: { createdAt: "desc" },
       },
     },
   });
@@ -1387,11 +1377,12 @@ export async function requestDefence(thesisId, userId, documentId) {
     throw forbidden("Anda tidak memiliki akses ke thesis ini");
   }
 
-  // Check thesis eligibility via seminar completion
-  if (!isSeminarCompleted(thesis.thesisSeminars)) {
+  // Check thesis status eligibility
+  const statusName = thesis.thesisStatus?.name?.toLowerCase() || "";
+  if (!isDefenceEligibleStatus(statusName)) {
     throw createError(
-      `Mahasiswa belum memenuhi syarat untuk sidang. ` +
-      `Seminar hasil belum dinyatakan lulus atau revisi belum diselesaikan.`
+      `Status thesis "${thesis.thesisStatus?.name || "Unknown"}" tidak memenuhi syarat untuk sidang. ` +
+      `Status harus "Revisi Seminar" atau "Selesai Seminar".`
     );
   }
 

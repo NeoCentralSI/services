@@ -25,14 +25,8 @@ import {
 	isPembimbing1,
 	isPembimbing2,
 } from "../constants/roles.js";
-import { formatAcademicYearLabel, getActiveAcademicYear } from "../helpers/academicYear.helper.js";
+import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
-import {
-	createSupervisorAssignments,
-	replaceSupervisorAssignments,
-	supervisorRoleAlias,
-} from "../utils/supervisorIntegrity.js";
 import {
 	getOrCreateRole,
 	findUserByEmailOrIdentity,
@@ -41,7 +35,6 @@ import {
 	createStudentForUser,
 	findLecturerByUserId,
 	createLecturerForUser,
-	findRoomsPaginated,
 } from "../repositories/adminfeatures.repository.js";
 // Switch admin service to use only adminfeatures.repository for admin operations
 import {
@@ -51,9 +44,10 @@ import {
 	getUserRolesWithIds,
 	upsertUserRole,
 	findStudentByUserId,
+	deleteUserRolesByIds,
+	findRoomsPaginated,
 	updateStudentByUserId,
 	updateLecturerByUserId,
-	deleteUserRolesByIds,
 } from "../repositories/adminfeatures.repository.js";
 
 function clean(v) {
@@ -69,57 +63,74 @@ function deriveEnrollmentYearFromNIM(nim) {
 	return null;
 }
 
+const ACTIVE_THESIS_STATUS_NOT_IN = ["Selesai", "Dibatalkan", "Gagal", "selesai", "dibatalkan", "gagal"];
+
+function studentSksCompleted(student) {
+	return student?.sksCompleted ?? student?.skscompleted ?? 0;
+}
+
+function academicYearContextFrom(activeAcademicYear) {
+	if (!activeAcademicYear) return null;
+	const semester = activeAcademicYear.semester ?? null;
+	const semesterLabel = semester === "ganjil" ? "Ganjil" : semester === "genap" ? "Genap" : semester;
+	const label = [activeAcademicYear.year, semesterLabel].filter(Boolean).join(" ");
+	return {
+		id: activeAcademicYear.id,
+		year: activeAcademicYear.year,
+		semester,
+		label,
+		isActive: activeAcademicYear.isActive ?? true,
+	};
+}
+
+function buildMetopenEligibilitySnapshot(student, thesis = null) {
+	const eligibleMetopen = student?.eligibleMetopen ?? null;
+	const hasExternalStatus = eligibleMetopen !== null && eligibleMetopen !== undefined;
+	const thesisStatus = thesis?.thesisStatus?.name ?? thesis?.status ?? null;
+	return {
+		eligibleMetopen,
+		hasExternalStatus,
+		canAccess: eligibleMetopen === true,
+		canSubmit: eligibleMetopen === true && !thesis?.id,
+		thesisId: thesis?.id ?? null,
+		thesisTitle: thesis?.title ?? null,
+		thesisStatus,
+	};
+}
+
+function participantRoleName(participant) {
+	return participant?.supervisorRole ?? participant?.role?.name ?? null;
+}
+
+function normalizeSupervisorRoleName(supervisor) {
+	return supervisor?.supervisorRole ?? supervisor?.role?.name ?? ROLES.PEMBIMBING_1;
+}
+
+async function buildSupervisorCreateRows(supervisors = []) {
+	if (!Array.isArray(supervisors) || supervisors.length === 0) return [];
+	const roleNames = [...new Set(supervisors.map(normalizeSupervisorRoleName))];
+	const roles = await prisma.userRole.findMany({
+		where: { name: { in: roleNames } },
+		select: { id: true, name: true },
+	});
+	const roleIdByName = new Map(roles.map((role) => [role.name, role.id]));
+	const missingRole = roleNames.find((name) => !roleIdByName.has(name));
+	if (missingRole) {
+		const err = new Error(`Role ${missingRole} tidak ditemukan`);
+		err.statusCode = 400;
+		throw err;
+	}
+	return supervisors.map((sup) => ({
+		lecturerId: sup.lecturerId,
+		roleId: roleIdByName.get(normalizeSupervisorRoleName(sup)),
+		status: "active",
+	}));
+}
+
 function canonicalRoleName(roleName) {
 	const n = normalize(roleName);
 	const canonical = Object.values(ROLES).find((r) => normalize(r) === n);
 	return canonical || String(roleName || "").trim();
-}
-
-function cleanAcademicYearValue(year) {
-	if (year === undefined) return undefined;
-	if (year === null) return null;
-	const value = String(year).trim();
-	return value || null;
-}
-
-function academicYearView(academicYear, activeAcademicYearId = null) {
-	if (!academicYear) return null;
-	return {
-		id: academicYear.id,
-		year: academicYear.year,
-		semester: academicYear.semester,
-		label: formatAcademicYearLabel(academicYear),
-		isActive: Boolean(
-			academicYear.isActive ||
-				(activeAcademicYearId && academicYear.id === activeAcademicYearId)
-		),
-	};
-}
-
-function buildMetopenEligibilityView(student, latestThesis = null) {
-	const eligibleMetopen =
-		typeof student?.eligibleMetopen === "boolean" ? student.eligibleMetopen : null;
-	const readOnly = latestThesis?.proposalStatus === "accepted";
-	return {
-		eligibleMetopen,
-		hasExternalStatus: eligibleMetopen !== null,
-		source: student?.metopenEligibilitySource ?? null,
-		updatedAt: student?.metopenEligibilityUpdatedAt ?? null,
-		readOnly,
-		canAccess: eligibleMetopen === true || readOnly,
-		canSubmit: eligibleMetopen === true && !readOnly,
-		thesisId: latestThesis?.id ?? null,
-		thesisTitle: latestThesis?.title ?? null,
-		thesisStatus: latestThesis?.thesisStatus?.name ?? null,
-	};
-}
-
-function participantSupervisorRole(participant) {
-	return participant?.supervisorRole ?? supervisorRoleAlias(participant);
-}
-
-function participantSupervisorRoleDisplay(participant) {
-	return supervisorRoleDisplayName(participantSupervisorRole(participant));
 }
 
 export async function adminUpdateUser(id, payload = {}) {
@@ -269,80 +280,6 @@ export async function adminUpdateUser(id, payload = {}) {
 	return result;
 }
 
-export async function adminUpdateStudent(userId, payload = {}) {
-	if (!userId) {
-		const err = new Error("User id is required");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const existing = await findStudentByUserId(userId);
-	if (!existing) {
-		const err = new Error("Mahasiswa tidak ditemukan");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	const data = {};
-	const numericFields = {
-		sksCompleted: payload.sksCompleted ?? payload.skscompleted,
-		enrollmentYear: payload.enrollmentYear,
-		currentSemester: payload.currentSemester,
-	};
-
-	for (const [field, value] of Object.entries(numericFields)) {
-		if (value === undefined) continue;
-		const parsed = value === null || value === "" ? null : Number(value);
-		if (parsed !== null && (!Number.isInteger(parsed) || parsed < 0)) {
-			const err = new Error(`${field} harus berupa angka non-negatif`);
-			err.statusCode = 400;
-			throw err;
-		}
-		data[field] = parsed;
-	}
-
-	for (const field of ["mandatoryCoursesCompleted", "mkwuCompleted", "internshipCompleted", "kknCompleted"]) {
-		if (payload[field] !== undefined) data[field] = Boolean(payload[field]);
-	}
-
-	if (payload.status !== undefined) data.status = payload.status;
-
-	if (Object.keys(data).length === 0) {
-		return existing;
-	}
-
-	return updateStudentByUserId(userId, data);
-}
-
-export async function adminUpdateLecturer(userId, payload = {}) {
-	if (!userId) {
-		const err = new Error("User id is required");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const existing = await findLecturerByUserId(userId);
-	if (!existing) {
-		const err = new Error("Dosen tidak ditemukan");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	const data = {};
-	if (payload.scienceGroupId !== undefined) {
-		data.scienceGroupId = payload.scienceGroupId || null;
-	}
-	if (payload.acceptingRequests !== undefined) {
-		data.acceptingRequests = Boolean(payload.acceptingRequests);
-	}
-
-	if (Object.keys(data).length === 0) {
-		return existing;
-	}
-
-	return updateLecturerByUserId(userId, data);
-}
-
 // Admin - Create user and assign roles, plus invite email
 export async function adminCreateUser({ fullName, email, roles = [], identityNumber, identityType }) {
 	// Validate
@@ -393,6 +330,9 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 	// Roles: admin can set any roles EXCEPT 'Admin' for this endpoint
 	const rawRoles = Array.isArray(roles) ? roles.filter((r) => r !== ROLES.ADMIN) : [];
 	const uniqueRoles = [...new Set(rawRoles)];
+	console.log("[adminCreateUser] email:", String(email).toLowerCase(), "identityType:", identityType, "identityNumber:", identityNumber);
+	console.log("[adminCreateUser] incoming roles:", roles);
+	console.log("[adminCreateUser] unique roles:", uniqueRoles);
 	for (const rn of uniqueRoles) {
 		const role = await getOrCreateRole(rn);
 		await addRolesToUser(user.id, [role.id]); // idempotent via skipDuplicates
@@ -410,10 +350,13 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 	// If identityType is NIP OR lecturer-related role is assigned, ensure Lecturer record exists
 	const hasLecturerRole = uniqueRoles.some((r) => isLecturerRole(r));
 	const isLecturerIdentity = String(identityType || "").toUpperCase() === "NIP";
+	console.log("[adminCreateUser] lecturer-role detected:", hasLecturerRole, "; identityType=NIP:", isLecturerIdentity);
 	if (hasLecturerRole || isLecturerIdentity) {
 		const existingLect = await findLecturerByUserId(user.id);
 		if (!existingLect) {
-			await createLecturerForUser({ userId: user.id });
+			console.log("[adminCreateUser] creating Lecturer for user", user.id);
+			const createdLect = await createLecturerForUser({ userId: user.id });
+			console.log("[adminCreateUser] Lecturer created id:", createdLect?.id);
 		}
 	}
 
@@ -429,7 +372,7 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		const html = accountInviteTemplate({ appName: ENV.APP_NAME, fullName: user.fullName, email: user.email, temporaryPassword: plainPassword, verifyUrl });
 		await sendMail({ to: user.email, subject: `${ENV.APP_NAME || "App"} - Account Invitation`, html });
 	} catch (e) {
-		console.error("??��???????? Failed to send verification email:", e?.message || e);
+		console.error("✉️ Failed to send verification email:", e?.message || e);
 	}
 
 	return { id: user.id, email: user.email, roles: uniqueRoles };
@@ -568,7 +511,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 		return {
 			id: u.id,
 			enrollmentYear: e.enrollmentYear ?? null,
-			skscompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
+			sksCompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
 		};
 	});
 	await prisma.student.createMany({ data: studentData, skipDuplicates: true });
@@ -583,7 +526,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 
 // Create Academic Year (Admin)
 export async function createAcademicYear({ semester = "ganjil", year, startDate, endDate }) {
-	const normalizedYear = cleanAcademicYearValue(year);
+	const normalizedYear = year == null ? null : String(year).trim() || null;
 
 	// Optional: basic date check
 	if (startDate && endDate) {
@@ -618,7 +561,7 @@ export async function createAcademicYear({ semester = "ganjil", year, startDate,
 }
 
 export async function updateAcademicYear(id, { semester, year, startDate, endDate } = {}) {
-	const normalizedYear = cleanAcademicYearValue(year);
+	const normalizedYear = year == null ? undefined : String(year).trim() || null;
 
 	if (!id) {
 		const err = new Error("Academic year id is required");
@@ -664,10 +607,8 @@ export async function updateAcademicYear(id, { semester, year, startDate, endDat
 	}
 
 	// When both semester & year provided, prevent duplicates
-	const duplicateSemester = semester || existing.semester;
-	const duplicateYear = normalizedYear !== undefined ? normalizedYear : existing.year;
-	if (duplicateSemester && duplicateYear) {
-		const dup = await prisma.academicYear.findFirst({ where: { semester: duplicateSemester, year: duplicateYear, NOT: { id } } });
+	if (semester && normalizedYear) {
+		const dup = await prisma.academicYear.findFirst({ where: { semester, year: normalizedYear, NOT: { id } } });
 		if (dup) {
 			const err = new Error("Another academic year with the same semester and year already exists");
 			err.statusCode = 409;
@@ -818,105 +759,66 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 }
 
 // Get all Students with detailed information
-export async function getStudents({
-	page = 1,
-	pageSize = 10,
-	search = "",
-	programFilter = "",
-	statusFilter = "",
-	enrollmentYearFilter = "",
-	academicYearFilter = "",
-	sortBy = "createdAt",
-	sortOrder = "desc",
-} = {}) {
+export async function getStudents({ page = 1, pageSize = 10, search = "", programFilter = "" } = {}) {
 	const skip = (page - 1) * pageSize;
 	const take = pageSize;
-	const terminalStatuses = ["Selesai", "Dibatalkan", "Gagal", "selesai", "dibatalkan", "gagal"];
 
-	const [activeAcademicYear, selectedAcademicYear] = await Promise.all([
-		getActiveAcademicYear(),
-		academicYearFilter
-			? prisma.academicYear.findUnique({ where: { id: academicYearFilter } })
-			: Promise.resolve(null),
-	]);
-	const effectiveAcademicYear = selectedAcademicYear || activeAcademicYear;
-	const academicYearId = effectiveAcademicYear?.id ?? null;
-	const activeThesisWhere = {
-		thesisStatus: {
-			name: {
-				notIn: terminalStatuses,
+	const studentCondition = programFilter === "metopen"
+		? {
+			student: {
+				is: {
+					AND: [
+						{ eligibleMetopen: true },
+						{
+							thesis: {
+								none: {
+									thesisStatus: {
+										name: { notIn: ACTIVE_THESIS_STATUS_NOT_IN },
+									},
+								},
+							},
+						},
+					],
+				},
 			},
-		},
-		...(academicYearId ? { academicYearId } : {}),
+		}
+		: { student: { isNot: null } };
+	const where = {
+		AND: [
+			studentCondition,
+			...(search
+				? [{
+				OR: [
+					{ fullName: { contains: search, mode: "insensitive" } },
+					{ email: { contains: search, mode: "insensitive" } },
+					{ identityNumber: { contains: search, mode: "insensitive" } },
+				],
+			}]
+				: []),
+		],
 	};
 
-	const studentAnd = [];
-	if (statusFilter) studentAnd.push({ status: statusFilter });
-	if (enrollmentYearFilter) {
-		const enrollmentYear = Number.parseInt(String(enrollmentYearFilter), 10);
-		if (Number.isInteger(enrollmentYear)) studentAnd.push({ enrollmentYear });
-	}
-
-	const notMetopenEligible = {
-		OR: [{ eligibleMetopen: false }, { eligibleMetopen: null }],
-	};
-	const hasActiveThesis = { thesis: { some: activeThesisWhere } };
-	const hasNoActiveThesis = { thesis: { none: activeThesisWhere } };
-	if (programFilter === "metopen") {
-		studentAnd.push({ eligibleMetopen: true }, hasNoActiveThesis);
-	} else if (programFilter === "ta") {
-		studentAnd.push(notMetopenEligible, hasActiveThesis);
-	} else if (programFilter === "both") {
-		studentAnd.push({ eligibleMetopen: true }, hasActiveThesis);
-	} else if (programFilter === "none") {
-		studentAnd.push(notMetopenEligible, hasNoActiveThesis);
-	}
-
-	const whereAnd = [
-		studentAnd.length > 0
-			? { student: { is: { AND: studentAnd } } }
-			: { student: { isNot: null } },
-	];
-	if (search) {
-		whereAnd.push({
-			OR: [
-				{ fullName: { contains: search, mode: "insensitive" } },
-				{ email: { contains: search, mode: "insensitive" } },
-				{ identityNumber: { contains: search, mode: "insensitive" } },
-			],
-		});
-	}
-	const where = { AND: whereAnd };
-
-	const direction = sortOrder === "asc" ? "asc" : "desc";
-	const orderBy =
-		sortBy === "enrollmentYear"
-			? { student: { enrollmentYear: direction } }
-			: sortBy === "sksCompleted"
-				? { student: { sksCompleted: direction } }
-				: ["fullName", "identityNumber", "createdAt"].includes(sortBy)
-					? { [sortBy]: direction }
-					: { createdAt: "desc" };
-
-	const [students, total] = await Promise.all([
+	const [activeAcademicYear, students, total] = await Promise.all([
+		Promise.resolve(getActiveAcademicYear()).catch(() => null),
 		prisma.user.findMany({
 			where,
 			skip,
 			take,
-			orderBy,
+			orderBy: { createdAt: "desc" },
 			include: {
 				student: {
 					include: {
 						thesis: {
-							where: activeThesisWhere,
-							orderBy: { createdAt: "desc" },
+							where: {
+								thesisStatus: {
+									name: {
+										notIn: ACTIVE_THESIS_STATUS_NOT_IN,
+									},
+								},
+							},
 							include: {
-								academicYear: true,
-								thesisStatus: true,
 								thesisSupervisors: {
-									where: { status: "active" },
 									include: {
-										role: true,
 										lecturer: {
 											include: {
 												user: {
@@ -941,56 +843,41 @@ export async function getStudents({
 		}),
 		prisma.user.count({ where }),
 	]);
-
-	const academicYearContext = academicYearView(effectiveAcademicYear, activeAcademicYear?.id ?? null);
+	const academicYearContext = academicYearContextFrom(activeAcademicYear);
 
 	// Transform data
-	const transformedStudents = students.map((user) => {
-		const latestThesis = user.student?.thesis?.[0] ?? null;
-		const metopenEligibility = buildMetopenEligibilityView(user.student, latestThesis);
-		return {
-			id: user.id,
-			fullName: user.fullName,
-			email: user.email,
-			identityNumber: user.identityNumber,
-			identityType: user.identityType,
-			isVerified: user.isVerified,
-			createdAt: user.createdAt,
-			student: user.student
-				? {
-					id: user.student.id,
-					enrollmentYear: user.student.enrollmentYear,
-					sksCompleted: user.student.sksCompleted,
-					currentSemester: user.student.currentSemester,
-					status: user.student.status || null,
-					mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
-					mkwuCompleted: user.student.mkwuCompleted,
-					internshipCompleted: user.student.internshipCompleted,
-					kknCompleted: user.student.kknCompleted,
-					metopenEligibility,
-					visibleAcademicYear: academicYearContext,
-					isInMetopen: metopenEligibility.canAccess,
-					hasActiveThesis: user.student.thesis.length > 0,
-					activeTheses: user.student.thesis.map((thesis) => ({
-						id: thesis.id,
-						title: thesis.title,
-						status: thesis.thesisStatus?.name ?? null,
-						academicYear: academicYearView(thesis.academicYear, activeAcademicYear?.id ?? null),
-						supervisors: thesis.thesisSupervisors
-							.map((tp) => ({
-								role: participantSupervisorRoleDisplay(tp),
-								fullName: tp.lecturer.user.fullName,
-							})),
-					})),
-				}
-				: null,
-			roles: user.userHasRoles.map((ur) => ({
-				id: ur.role.id,
-				name: ur.role.name,
-				status: ur.status,
-			})),
-		};
-	});
+	const transformedStudents = students.map((user) => ({
+		id: user.id,
+		fullName: user.fullName,
+		email: user.email,
+		identityNumber: user.identityNumber,
+		identityType: user.identityType,
+		isVerified: user.isVerified,
+		createdAt: user.createdAt,
+		student: user.student
+			? {
+				id: user.student.id,
+				enrollmentYear: user.student.enrollmentYear,
+				sksCompleted: studentSksCompleted(user.student),
+				status: user.student.status || null,
+				visibleAcademicYear: academicYearContext,
+				metopenEligibility: buildMetopenEligibilitySnapshot(user.student, user.student.thesis?.[0] ?? null),
+				activeTheses: (user.student.thesis || []).map((thesis) => ({
+					title: thesis.title,
+					supervisors: (thesis.thesisSupervisors || [])
+						.map((tp) => ({
+							role: supervisorRoleDisplayName(tp.supervisorRole ?? tp.role?.name),
+							fullName: tp.lecturer.user.fullName,
+						})),
+				})),
+			}
+			: null,
+		roles: (user.userHasRoles || []).map((ur) => ({
+			id: ur.role.id,
+			name: ur.role.name,
+			status: ur.status,
+		})),
+	}));
 
 	return {
 		students: transformedStudents,
@@ -1102,9 +989,7 @@ export async function getStudentDetail(userId) {
 							thesisStatus: true,
 							thesisTopic: true,
 							thesisSupervisors: {
-								where: { status: "active" },
 								include: {
-									role: true,
 									lecturer: {
 										include: {
 											user: {
@@ -1170,7 +1055,7 @@ export async function getStudentDetail(userId) {
 		const supervisors = thesis.thesisSupervisors
 			.map((tp) => ({
 				id: tp.lecturer.user.id,
-				role: participantSupervisorRoleDisplay(tp),
+				role: supervisorRoleDisplayName(tp.supervisorRole ?? tp.role?.name),
 				fullName: tp.lecturer.user.fullName,
 				email: tp.lecturer.user.email,
 			}));
@@ -1217,8 +1102,6 @@ export async function getStudentDetail(userId) {
 		};
 	});
 
-	const latestThesis = user.student.thesis?.[0] ?? null;
-
 	return {
 		id: user.id,
 		fullName: user.fullName,
@@ -1228,22 +1111,17 @@ export async function getStudentDetail(userId) {
 		phoneNumber: user.phoneNumber,
 		isVerified: user.isVerified,
 		createdAt: user.createdAt,
-		metopenEligibility: buildMetopenEligibilityView(user.student, latestThesis),
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
-			sksCompleted: user.student.sksCompleted,
-			currentSemester: user.student.currentSemester,
+			sksCompleted: studentSksCompleted(user.student),
 			status: user.student.status || null,
-			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
-			mkwuCompleted: user.student.mkwuCompleted,
-			internshipCompleted: user.student.internshipCompleted,
-			kknCompleted: user.student.kknCompleted,
 		},
-		roles: user.userHasRoles.map((ur) => ({
+		roles: (user.userHasRoles || []).map((ur) => ({
 			id: ur.role.id,
 			name: ur.role.name,
 			status: ur.status,
 		})),
+		metopenEligibility: buildMetopenEligibilitySnapshot(user.student, user.student.thesis?.[0] ?? null),
 		theses,
 	};
 }
@@ -1263,9 +1141,8 @@ export async function getLecturerDetail(userId) {
 				include: {
 					scienceGroup: true,
 					thesisSupervisors: {
-						where: { status: "active" },
 						include: {
-							role: true,
+							role: { select: { name: true } },
 							thesis: {
 								include: {
 									thesisStatus: true,
@@ -1320,7 +1197,7 @@ export async function getLecturerDetail(userId) {
 			thesisId: tp.thesis.id,
 			title: tp.thesis.title,
 			status: tp.thesis.thesisStatus?.name || null,
-			role: participantSupervisorRoleDisplay(tp),
+			role: supervisorRoleDisplayName(participantRoleName(tp)),
 			student: {
 				id: tp.thesis.student.user.id,
 				fullName: tp.thesis.student.user.fullName,
@@ -1399,10 +1276,7 @@ export async function deleteThesis(thesisId, reason = null, actorUserId = null) 
 			thesisTopic: { select: { name: true } },
 			thesisStatus: { select: { name: true } },
 			thesisSupervisors: {
-				include: {
-					role: true,
-					lecturer: { include: { user: { select: { fullName: true } } } },
-				},
+				include: { lecturer: { include: { user: { select: { fullName: true } } } } },
 			},
 			thesisMilestones: true,
 			thesisGuidances: true,
@@ -1432,7 +1306,7 @@ export async function deleteThesis(thesisId, reason = null, actorUserId = null) 
 		reason,
 	};
 
-	console.log("?????�� Archiving thesis:", JSON.stringify(logInfo, null, 2));
+	console.log("📦 Archiving thesis:", JSON.stringify(logInfo, null, 2));
 
 	// Find 'Dibatalkan' status
 	const dibatalkanStatus = await prisma.thesisStatus.findFirst({
@@ -1473,8 +1347,8 @@ export async function deleteThesis(thesisId, reason = null, actorUserId = null) 
 		if (studentUserId) {
 			const isFailedReason = reason && reason.toLowerCase().includes('failed');
 			const title = isFailedReason
-				? '????�???????? Tugas Akhir Anda Dibatalkan (Batas Waktu Terlampaui)'
-				: '?????�� Tugas Akhir Anda Dibatalkan';
+				? '⚠️ Tugas Akhir Anda Dibatalkan (Batas Waktu Terlampaui)'
+				: '📋 Tugas Akhir Anda Dibatalkan';
 			const message = isFailedReason
 				? `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan karena melampaui batas waktu 1 tahun. Silakan daftar tugas akhir kembali dari awal.`
 				: `Tugas Akhir "${thesis.title || 'Untitled'}" telah dibatalkan. ${reason ? `Alasan: ${reason}` : ''} Silakan daftar tugas akhir kembali jika diperlukan.`;
@@ -1493,13 +1367,13 @@ export async function deleteThesis(thesisId, reason = null, actorUserId = null) 
 				},
 			});
 
-			console.log("?????�� Notification sent to student:", studentUserId);
+			console.log("📬 Notification sent to student:", studentUserId);
 		}
 	} catch (notifErr) {
 		console.warn("Could not send notification to student:", notifErr.message);
 	}
 
-	console.log("??�� Thesis archived successfully:", result.id);
+	console.log("✅ Thesis archived successfully:", result.id);
 
 	// Audit log: thesis deleted/archived
 	await logAudit({
@@ -1550,9 +1424,8 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 				thesisTopic: { select: { id: true, name: true } },
 				thesisStatus: { select: { id: true, name: true } },
 				thesisSupervisors: {
-					where: { status: "active" },
 					include: {
-						role: true,
+						role: { select: { name: true } },
 						lecturer: { include: { user: { select: { fullName: true } } } },
 					},
 				},
@@ -1579,8 +1452,8 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 				id: p.id,
 				lecturerId: p.lecturerId,
 				fullName: p.lecturer?.user?.fullName,
-				role: participantSupervisorRoleDisplay(p),
-				supervisorRole: participantSupervisorRole(p),
+				role: supervisorRoleDisplayName(participantRoleName(p)),
+				supervisorRole: participantRoleName(p),
 			})),
 			createdAt: t.createdAt,
 			updatedAt: t.updatedAt,
@@ -1639,6 +1512,7 @@ export async function createThesisManually({ studentId, title, thesisTopicId, su
 	const activeYear = await prisma.academicYear.findFirst({
 		where: { isActive: true },
 	});
+	const supervisorRows = await buildSupervisorCreateRows(supervisors);
 
 	const thesis = await prisma.$transaction(async (tx) => {
 		const newThesis = await tx.thesis.create({
@@ -1652,16 +1526,16 @@ export async function createThesisManually({ studentId, title, thesisTopicId, su
 			},
 		});
 
-		if (supervisors && supervisors.length > 0) {
-			const supervisorResult = await createSupervisorAssignments(tx, newThesis.id, supervisors, {
-				requireP1: true,
+		// Add supervisors
+		if (supervisorRows.length > 0) {
+			await tx.thesisParticipant.createMany({
+				data: supervisorRows.map((sup) => ({
+					thesisId: newThesis.id,
+					lecturerId: sup.lecturerId,
+					roleId: sup.roleId,
+					status: sup.status,
+				})),
 			});
-
-			if (activeYear?.id) {
-				for (const lecturerId of supervisorResult.affectedLecturerIds) {
-					await syncQuotaCount(tx, lecturerId, activeYear.id);
-				}
-			}
 		}
 
 		return newThesis;
@@ -1692,9 +1566,8 @@ export async function getThesisById(id) {
 			thesisTopic: { select: { id: true, name: true } },
 			thesisStatus: { select: { id: true, name: true } },
 			thesisSupervisors: {
-				where: { status: "active" },
 				include: {
-					role: true,
+					role: { select: { name: true } },
 					lecturer: { include: { user: { select: { id: true, fullName: true } } } },
 				},
 			},
@@ -1726,6 +1599,7 @@ export async function updateThesisManually(id, { title, thesisTopicId, superviso
 		err.statusCode = 404;
 		throw err;
 	}
+	const supervisorRows = supervisors !== undefined ? await buildSupervisorCreateRows(supervisors) : [];
 
 	await prisma.$transaction(async (tx) => {
 		await tx.thesis.update({
@@ -1737,14 +1611,20 @@ export async function updateThesisManually(id, { title, thesisTopicId, superviso
 		});
 
 		if (supervisors !== undefined) {
-			const supervisorResult = await replaceSupervisorAssignments(tx, id, supervisors, {
-				requireP1: supervisors.length > 0,
+			// Delete existing supervisors for this thesis
+			await tx.thesisParticipant.deleteMany({
+				where: { thesisId: id },
 			});
 
-			if (existing.academicYearId) {
-				for (const lecturerId of supervisorResult.affectedLecturerIds) {
-					await syncQuotaCount(tx, lecturerId, existing.academicYearId);
-				}
+			if (supervisorRows.length > 0) {
+				await tx.thesisParticipant.createMany({
+					data: supervisorRows.map((sup) => ({
+						thesisId: id,
+						lecturerId: sup.lecturerId,
+						roleId: sup.roleId,
+						status: sup.status,
+					})),
+				});
 			}
 		}
 	});
@@ -1829,6 +1709,320 @@ export async function getThesisStatuses() {
 /**
  * Transform thesis for API response
  */
+// ─── Room CRUD ───
+const ROOM_LIST_STATUSES = new Set(["all", "available", "in_use"]);
+
+function roomRelationCount(room) {
+	return room?._count
+		? (room._count.internshipSeminars || 0) + (room._count.thesisSeminars || 0) + (room._count.thesisDefences || 0) + (room._count.yudisiums || 0)
+		: 0;
+}
+
+function normalizeRoomPayload(payload = {}) {
+	const name = clean(payload.name);
+	const location = payload.location === undefined ? undefined : clean(payload.location) || null;
+	const capacity = payload.capacity === undefined || payload.capacity === null || payload.capacity === ""
+		? null
+		: Number(payload.capacity);
+
+	return { name, location, capacity };
+}
+
+export async function getRooms({ page = 1, pageSize, limit, search = "", status = "all" } = {}) {
+	const normalizedStatus = ROOM_LIST_STATUSES.has(status) ? status : "all";
+	const normalizedSearch = clean(search);
+	const normalizedLimit = Number(limit ?? pageSize) || 10;
+	const { rooms, total } = await findRoomsPaginated({
+		status: normalizedStatus,
+		search: normalizedSearch,
+		page,
+		limit: normalizedLimit,
+	});
+	const data = rooms.map((r) => {
+		const relationCount = roomRelationCount(r);
+		return {
+			id: r.id,
+			name: r.name,
+			location: r.location ?? null,
+			capacity: r.capacity ?? null,
+			createdAt: r.createdAt,
+			updatedAt: r.updatedAt,
+			relationCount,
+			usageCount: relationCount,
+			canDelete: relationCount === 0,
+		};
+	});
+
+	return {
+		data,
+		total,
+		rooms: data,
+		meta: { page, pageSize: normalizedLimit, total, totalPages: Math.ceil(total / normalizedLimit) },
+	};
+}
+
+export async function createRoom(payload = {}) {
+	const { name, location, capacity } = normalizeRoomPayload(payload);
+	if (!name) {
+		const err = new Error("Nama ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+	if (capacity !== null && (!Number.isInteger(capacity) || capacity <= 0)) {
+		const err = new Error("Kapasitas ruangan harus lebih dari 0");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const existing = await prisma.room.findFirst({ where: { name, location } });
+	if (existing) {
+		const err = new Error("Ruangan dengan nama dan lokasi tersebut sudah ada");
+		err.statusCode = 409;
+		throw err;
+	}
+	return prisma.room.create({ data: { name, location, capacity } });
+}
+
+export async function updateRoom(id, payload = {}) {
+	const room = await prisma.room.findUnique({
+		where: { id },
+		include: { _count: { select: { internshipSeminars: true, thesisSeminars: true, thesisDefences: true, yudisiums: true } } },
+	});
+	if (!room) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+	const { name, location, capacity } = normalizeRoomPayload(payload);
+	if (payload.name !== undefined && !name) {
+		const err = new Error("Nama ruangan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+	if (capacity !== null && (!Number.isInteger(capacity) || capacity <= 0)) {
+		const err = new Error("Kapasitas ruangan harus lebih dari 0");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const data = {};
+	if (payload.name !== undefined) data.name = name;
+	if (payload.location !== undefined) data.location = location;
+	if (payload.capacity !== undefined) data.capacity = capacity;
+
+	const nextName = data.name ?? room.name;
+	const nextLocation = data.location !== undefined ? data.location : room.location ?? null;
+	if (roomRelationCount(room) > 0 && nextName !== room.name) {
+		const err = new Error("Ruangan yang sudah digunakan untuk penjadwalan tidak dapat mengubah nama");
+		err.statusCode = 400;
+		throw err;
+	}
+	if (nextName !== room.name || nextLocation !== (room.location ?? null)) {
+		const dup = await prisma.room.findFirst({ where: { name: nextName, location: nextLocation, NOT: { id } } });
+		if (dup) {
+			const err = new Error("Ruangan dengan nama dan lokasi tersebut sudah ada");
+			err.statusCode = 409;
+			throw err;
+		}
+	}
+	return prisma.room.update({ where: { id }, data });
+}
+
+export async function deleteRoom(id) {
+	const room = await prisma.room.findUnique({
+		where: { id },
+		include: { _count: { select: { internshipSeminars: true, thesisSeminars: true, thesisDefences: true, yudisiums: true } } },
+	});
+	if (!room) {
+		const err = new Error("Ruangan tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+	const usageCount = (room._count.internshipSeminars || 0) + (room._count.thesisSeminars || 0) + (room._count.thesisDefences || 0) + (room._count.yudisiums || 0);
+	if (usageCount > 0) {
+		const err = new Error("Ruangan tidak dapat dihapus karena sedang digunakan");
+		err.statusCode = 400;
+		throw err;
+	}
+	await prisma.room.delete({ where: { id } });
+	return { success: true };
+}
+
+// ─── Admin Update Student ───
+export async function adminUpdateStudent(userId, payload = {}) {
+	const student = await findStudentByUserId(userId);
+	if (!student) {
+		const err = new Error("Mahasiswa tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+	const { enrollmentYear, status } = payload;
+	const sksCompleted = payload.sksCompleted ?? payload.skscompleted;
+	const data = {};
+	if (enrollmentYear !== undefined) data.enrollmentYear = enrollmentYear;
+	if (sksCompleted !== undefined) data.sksCompleted = sksCompleted;
+	if (status !== undefined) data.status = status;
+
+	const userPayload = {};
+	if (payload.fullName) userPayload.fullName = payload.fullName;
+	if (payload.email) userPayload.email = payload.email.toLowerCase();
+	if (payload.identityNumber) userPayload.identityNumber = payload.identityNumber;
+
+	if (Object.keys(userPayload).length) {
+		await repoUpdateUserById(userId, userPayload);
+	}
+	let updatedStudent = student;
+	if (Object.keys(data).length) {
+		updatedStudent = await updateStudentByUserId(userId, data);
+	}
+	if (!Object.keys(userPayload).length) return updatedStudent;
+	return prisma.user.findUnique({
+		where: { id: userId },
+		include: { student: true, userHasRoles: { include: { role: true } } },
+	});
+}
+
+// ─── Admin Update Lecturer ───
+export async function adminUpdateLecturer(userId, payload = {}) {
+	const lecturer = await findLecturerByUserId(userId);
+	if (!lecturer) {
+		const err = new Error("Dosen tidak ditemukan");
+		err.statusCode = 404;
+		throw err;
+	}
+	const lecturerData = {};
+	if (payload.scienceGroupId !== undefined) lecturerData.scienceGroupId = payload.scienceGroupId;
+
+	const userPayload = {};
+	if (payload.fullName) userPayload.fullName = payload.fullName;
+	if (payload.email) userPayload.email = payload.email.toLowerCase();
+	if (payload.identityNumber) userPayload.identityNumber = payload.identityNumber;
+
+	if (Object.keys(userPayload).length) {
+		await repoUpdateUserById(userId, userPayload);
+	}
+	let updatedLecturer = lecturer;
+	if (Object.keys(lecturerData).length) {
+		updatedLecturer = await updateLecturerByUserId(userId, lecturerData);
+	}
+	if (!Object.keys(userPayload).length) return updatedLecturer;
+	return prisma.user.findUnique({
+		where: { id: userId },
+		include: { lecturer: { include: { scienceGroup: true } }, userHasRoles: { include: { role: true } } },
+	});
+}
+
+// ─── Excel Import (JSON payload from frontend) ───
+export async function importStudentsExcel(rows) {
+	if (!Array.isArray(rows) || rows.length === 0) {
+		const err = new Error("Data mahasiswa tidak boleh kosong");
+		err.statusCode = 400;
+		throw err;
+	}
+	let created = 0, skipped = 0, failed = 0;
+	const studentRole = await getOrCreateRole(ROLES.MAHASISWA);
+	for (const row of rows) {
+		try {
+			const nim = String(row.nim || "").trim();
+			const email = String(row.email || "").trim().toLowerCase();
+			const nama = String(row.nama || row.fullName || "").trim();
+			if (!nim || !email) { skipped++; continue; }
+			const existing = await findUserByEmailOrIdentity(email, nim);
+			if (existing) { skipped++; continue; }
+			const user = await createUser({ fullName: nama, email, password: null, identityNumber: nim, identityType: "NIM", isVerified: false });
+			await addRolesToUser(user.id, [studentRole.id]);
+			const enrollmentYear = deriveEnrollmentYearFromNIM(nim);
+			await createStudentForUser({ userId: user.id, enrollmentYear, skscompleted: 0 });
+			created++;
+		} catch { failed++; }
+	}
+	return { created, skipped, failed, total: rows.length };
+}
+
+export async function importLecturersExcel(rows) {
+	if (!Array.isArray(rows) || rows.length === 0) {
+		const err = new Error("Data dosen tidak boleh kosong");
+		err.statusCode = 400;
+		throw err;
+	}
+	let created = 0, skipped = 0, failed = 0;
+	for (const row of rows) {
+		try {
+			const nip = String(row.nip || row.identityNumber || "").trim();
+			const email = String(row.email || "").trim().toLowerCase();
+			const nama = String(row.nama || row.fullName || "").trim();
+			if (!nip || !email) { skipped++; continue; }
+			const existing = await findUserByEmailOrIdentity(email, nip);
+			if (existing) { skipped++; continue; }
+			const user = await createUser({ fullName: nama, email, password: null, identityNumber: nip, identityType: "NIP", isVerified: false });
+			const roles = Array.isArray(row.roles) && row.roles.length > 0 ? row.roles : [ROLES.PEMBIMBING_1];
+			for (const rn of roles) {
+				const role = await getOrCreateRole(rn);
+				await addRolesToUser(user.id, [role.id]);
+			}
+			await createLecturerForUser({ userId: user.id });
+			created++;
+		} catch { failed++; }
+	}
+	return { created, skipped, failed, total: rows.length };
+}
+
+export async function importUsersExcel(rows) {
+	if (!Array.isArray(rows) || rows.length === 0) {
+		const err = new Error("Data user tidak boleh kosong");
+		err.statusCode = 400;
+		throw err;
+	}
+	let created = 0, skipped = 0, failed = 0;
+	for (const row of rows) {
+		try {
+			const email = String(row.email || "").trim().toLowerCase();
+			const nama = String(row.nama || row.fullName || "").trim();
+			const identityNumber = String(row.identityNumber || row.nim || row.nip || "").trim();
+			const identityType = String(row.identityType || "").trim() || null;
+			const roles = Array.isArray(row.roles) ? row.roles : [];
+			if (!email) { skipped++; continue; }
+			const existing = await findUserByEmailOrIdentity(email, identityNumber || undefined);
+			if (existing) { skipped++; continue; }
+			const user = await createUser({ fullName: nama, email, password: null, identityNumber: identityNumber || null, identityType, isVerified: false });
+			for (const rn of roles) {
+				const role = await getOrCreateRole(rn);
+				await addRolesToUser(user.id, [role.id]);
+			}
+			created++;
+		} catch { failed++; }
+	}
+	return { created, skipped, failed, total: rows.length };
+}
+
+export async function importAcademicYearsExcel(rows) {
+	if (!Array.isArray(rows) || rows.length === 0) {
+		const err = new Error("Data tahun ajaran tidak boleh kosong");
+		err.statusCode = 400;
+		throw err;
+	}
+	let created = 0, skipped = 0, failed = 0;
+	for (const row of rows) {
+		try {
+			const semester = String(row.semester || "ganjil").trim().toLowerCase();
+			const year = parseInt(String(row.year || row.tahun || ""), 10);
+			if (!year || isNaN(year)) { skipped++; continue; }
+			const existing = await prisma.academicYear.findFirst({ where: { semester, year } });
+			if (existing) { skipped++; continue; }
+			await prisma.academicYear.create({
+				data: {
+					semester,
+					year,
+					startDate: row.startDate ? new Date(row.startDate) : null,
+					endDate: row.endDate ? new Date(row.endDate) : null,
+				},
+			});
+			created++;
+		} catch { failed++; }
+	}
+	return { created, skipped, failed, total: rows.length };
+}
+
 function transformThesis(thesis) {
 	if (!thesis) return null;
 
@@ -1837,8 +2031,8 @@ function transformThesis(thesis) {
 			id: p.id,
 			lecturerId: p.lecturerId,
 			fullName: p.lecturer?.user?.fullName,
-			role: participantSupervisorRoleDisplay(p),
-			supervisorRole: participantSupervisorRole(p),
+			role: supervisorRoleDisplayName(participantRoleName(p)),
+			supervisorRole: participantRoleName(p),
 		})) || [];
 
 	return {
@@ -1863,428 +2057,3 @@ function transformThesis(thesis) {
 	};
 }
 
-
-// ==================== Room Management (non-SIMPTA, from origin/main) ====================
-
-function mapRoomRow(room) {
-	const relationCount =
-		room._count.internshipSeminars +
-		room._count.thesisSeminars +
-		room._count.thesisDefences +
-		room._count.yudisiums;
-
-	return {
-		id: room.id,
-		name: room.name,
-		location: room.location,
-		capacity: room.capacity,
-		relationCount,
-		createdAt: room.createdAt,
-		updatedAt: room.updatedAt,
-		canDelete: relationCount === 0,
-	};
-}
-
-/**
- * @param {{ page?: number; limit?: number; pageSize?: number; search?: string; status?: string }} params
- * status: all | available | in_use - "available" = no scheduling relations; "in_use" = has at least one.
- */
-export async function getRooms({ page = 1, limit: limitArg, pageSize, search = "", status = "all" } = {}) {
-	const limit = parseInt(String(limitArg ?? pageSize ?? 10), 10) || 10;
-	const parsedPage = parseInt(String(page), 10) || 1;
-	const normalizedStatus = ["all", "available", "in_use"].includes(status) ? status : "all";
-
-	const { rooms, total } = await findRoomsPaginated({
-		status: normalizedStatus,
-		search: String(search || "").trim(),
-		page: parsedPage,
-		limit,
-	});
-
-	return {
-		data: rooms.map(mapRoomRow),
-		total,
-	};
-}
-
-export async function createRoom({ name, location, capacity }) {
-	if (!name || !String(name).trim()) {
-		const err = new Error("Nama ruangan wajib diisi");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const normalizedName = String(name).trim();
-	const normalizedLocation = typeof location === "string" && location.trim() ? location.trim() : null;
-	const normalizedCapacity = Number.isInteger(capacity) ? capacity : null;
-
-	if (normalizedCapacity !== null && normalizedCapacity <= 0) {
-		const err = new Error("Kapasitas harus lebih dari 0");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const existing = await prisma.room.findFirst({
-		where: {
-			name: normalizedName,
-			location: normalizedLocation,
-		},
-	});
-
-	if (existing) {
-		const err = new Error("Ruangan dengan nama dan lokasi yang sama sudah ada");
-		err.statusCode = 409;
-		throw err;
-	}
-
-	return prisma.room.create({
-		data: {
-			name: normalizedName,
-			location: normalizedLocation,
-			capacity: normalizedCapacity,
-		},
-	});
-}
-
-export async function updateRoom(id, { name, location, capacity } = {}) {
-	if (!id) {
-		const err = new Error("Id ruangan wajib diisi");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const existing = await prisma.room.findUnique({
-		where: { id },
-		include: {
-			_count: {
-				select: {
-					internshipSeminars: true,
-					thesisSeminars: true,
-					thesisDefences: true,
-					yudisiums: true,
-				},
-			},
-		},
-	});
-	if (!existing) {
-		const err = new Error("Ruangan tidak ditemukan");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	const relationCount =
-		existing._count.internshipSeminars +
-		existing._count.thesisSeminars +
-		existing._count.thesisDefences +
-		existing._count.yudisiums;
-
-	const data = {};
-	if (name !== undefined) {
-		const trimmedName = String(name).trim();
-		if (!trimmedName) {
-			const err = new Error("Nama ruangan wajib diisi");
-			err.statusCode = 400;
-			throw err;
-		}
-		if (relationCount > 0 && trimmedName !== existing.name) {
-			const err = new Error(
-				"Ruangan yang sudah digunakan untuk penjadwalan tidak dapat mengubah nama"
-			);
-			err.statusCode = 400;
-			throw err;
-		}
-		data.name = trimmedName;
-	}
-	if (location !== undefined) data.location = typeof location === "string" && location.trim() ? location.trim() : null;
-	if (capacity !== undefined) {
-		if (capacity !== null && (!Number.isInteger(capacity) || capacity <= 0)) {
-			const err = new Error("Kapasitas harus lebih dari 0");
-			err.statusCode = 400;
-			throw err;
-		}
-		data.capacity = capacity;
-	}
-
-	if (Object.keys(data).length === 0) {
-		return existing;
-	}
-
-	const candidateName = data.name ?? existing.name;
-	const candidateLocation = data.location !== undefined ? data.location : existing.location;
-
-	const duplicate = await prisma.room.findFirst({
-		where: {
-			id: { not: id },
-			name: candidateName,
-			location: candidateLocation,
-		},
-	});
-
-	if (duplicate) {
-		const err = new Error("Ruangan dengan nama dan lokasi yang sama sudah ada");
-		err.statusCode = 409;
-		throw err;
-	}
-
-	return prisma.room.update({ where: { id }, data });
-}
-
-export async function deleteRoom(id) {
-	if (!id) {
-		const err = new Error("Id ruangan wajib diisi");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const room = await prisma.room.findUnique({
-		where: { id },
-		include: {
-			_count: {
-				select: {
-					internshipSeminars: true,
-					thesisSeminars: true,
-					thesisDefences: true,
-					yudisiums: true,
-				},
-			},
-		},
-	});
-
-	if (!room) {
-		const err = new Error("Ruangan tidak ditemukan");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	const relationCount =
-		room._count.internshipSeminars +
-		room._count.thesisSeminars +
-		room._count.thesisDefences +
-		room._count.yudisiums;
-
-	if (relationCount > 0) {
-		const err = new Error("Ruangan tidak dapat dihapus karena sudah memiliki relasi data");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	await prisma.room.delete({ where: { id } });
-	return { success: true };
-}
-
-// ==================== Excel Import (non-SIMPTA, from origin/main) ====================
-
-export async function importStudentsExcel(rows) {
-	const results = { success: 0, updated: 0, failed: 0, errors: [] };
-	const studentRole = await getOrCreateRole(ROLES.MAHASISWA);
-
-	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i];
-		const rowNum = i + 2;
-		try {
-			const nim = clean(row["NIM"]);
-			const email = clean(row["Email"]).toLowerCase();
-			const fullName = clean(row["Nama"]);
-			const sks = parseInt(row["SKS Selesai"]) || 0;
-			const enrollmentYear = parseInt(row["Tahun Masuk"]) || deriveEnrollmentYearFromNIM(nim);
-
-			if (!nim || !email) throw new Error("NIM dan Email wajib diisi");
-
-			const existingUser = await findUserByEmailOrIdentity(email, nim);
-			if (existingUser) {
-				await prisma.user.update({
-					where: { id: existingUser.id },
-					data: { fullName, identityNumber: nim, identityType: "NIM" }
-				});
-				await prisma.student.upsert({
-					where: { id: existingUser.id },
-					create: { id: existingUser.id, enrollmentYear, sksCompleted: sks, status: "active" },
-					update: { enrollmentYear, sksCompleted: sks }
-				});
-				results.updated++;
-			} else {
-				const plainPassword = generatePassword(12);
-				const hash = await bcrypt.hash(plainPassword, 10);
-				const user = await prisma.user.create({
-					data: {
-						fullName,
-						email,
-						password: hash,
-						identityNumber: nim,
-						identityType: "NIM",
-						isVerified: false
-					}
-				});
-				await upsertUserRole(user.id, studentRole.id, "active");
-				await prisma.student.create({
-					data: { id: user.id, enrollmentYear, sksCompleted: sks, status: "active" }
-				});
-				results.success++;
-			}
-		} catch (err) {
-			results.failed++;
-			results.errors.push("Baris " + rowNum + ": " + err.message);
-		}
-	}
-	return results;
-}
-
-export async function importLecturersExcel(rows) {
-	const results = { success: 0, updated: 0, failed: 0, errors: [] };
-
-	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i];
-		const rowNum = i + 2;
-		try {
-			const nip = clean(row["NIP"]);
-			const email = clean(row["Email"]).toLowerCase();
-			const fullName = clean(row["Nama"]);
-			const phone = clean(row["Telepon"]);
-			const scienceGroupName = clean(row["Kelompok Keilmuan"]);
-
-			if (!nip || !email) throw new Error("NIP dan Email wajib diisi");
-
-			let scienceGroupId = null;
-			if (scienceGroupName && scienceGroupName !== "-") {
-				const sg = await prisma.scienceGroup.findFirst({ where: { name: { contains: scienceGroupName } } });
-				if (sg) scienceGroupId = sg.id;
-			}
-
-			const existingUser = await findUserByEmailOrIdentity(email, nip);
-			if (existingUser) {
-				await prisma.user.update({
-					where: { id: existingUser.id },
-					data: { fullName, identityNumber: nip, identityType: "NIP", phone }
-				});
-				await prisma.lecturer.upsert({
-					where: { id: existingUser.id },
-					create: { id: existingUser.id, scienceGroupId },
-					update: { scienceGroupId }
-				});
-				results.updated++;
-			} else {
-				const plainPassword = generatePassword(12);
-				const hash = await bcrypt.hash(plainPassword, 10);
-				const user = await prisma.user.create({
-					data: {
-						fullName,
-						email,
-						password: hash,
-						identityNumber: nip,
-						identityType: "NIP",
-						isVerified: false,
-						phone
-					}
-				});
-				const role = await getOrCreateRole(ROLES.PEMBIMBING_1);
-				await upsertUserRole(user.id, role.id, "active");
-				await prisma.lecturer.create({
-					data: { id: user.id, scienceGroupId }
-				});
-				results.success++;
-			}
-		} catch (err) {
-			results.failed++;
-			results.errors.push("Baris " + rowNum + ": " + err.message);
-		}
-	}
-	return results;
-}
-
-export async function importUsersExcel(rows) {
-	const results = { success: 0, updated: 0, failed: 0, errors: [] };
-
-	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i];
-		const rowNum = i + 2;
-		try {
-			const email = clean(row["Email"]).toLowerCase();
-			const fullName = clean(row["Nama Lengkap"]);
-			const identityNumber = clean(row["NIM/NIP"]);
-			const identityType = clean(row["Tipe Identitas"]).toUpperCase() || "OTHER";
-			const rolesStr = clean(row["Role"]);
-
-			if (!email) throw new Error("Email wajib diisi");
-
-			const existingUser = await prisma.user.findUnique({ where: { email } });
-			let user;
-			if (existingUser) {
-				user = await prisma.user.update({
-					where: { id: existingUser.id },
-					data: { fullName, identityNumber, identityType }
-				});
-				results.updated++;
-			} else {
-				const plainPassword = generatePassword(12);
-				const hash = await bcrypt.hash(plainPassword, 10);
-				user = await prisma.user.create({
-					data: { fullName, email, password: hash, identityNumber, identityType, isVerified: true }
-				});
-				results.success++;
-			}
-
-			if (rolesStr) {
-				const roleNames = rolesStr.split(";").map(s => s.trim());
-				for (const rn of roleNames) {
-					const role = await getOrCreateRole(rn);
-					await upsertUserRole(user.id, role.id, "active");
-				}
-			}
-
-			if (identityType === "NIM") {
-				await prisma.student.upsert({
-					where: { id: user.id },
-					create: { id: user.id, enrollmentYear: deriveEnrollmentYearFromNIM(identityNumber), status: "active", sksCompleted: 0 },
-					update: {}
-				});
-			} else if (identityType === "NIP") {
-				await prisma.lecturer.upsert({
-					where: { id: user.id },
-					create: { id: user.id },
-					update: {}
-				});
-			}
-		} catch (err) {
-			results.failed++;
-			results.errors.push("Baris " + rowNum + ": " + err.message);
-		}
-	}
-	return results;
-}
-
-export async function importAcademicYearsExcel(rows) {
-	const results = { success: 0, updated: 0, failed: 0, errors: [] };
-
-	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i];
-		const rowNum = i + 2;
-		try {
-			const year = clean(row["Tahun"]);
-			const semester = clean(row["Semester"]).toLowerCase();
-			const startStr = clean(row["Tanggal Mulai"]);
-			const endStr = clean(row["Tanggal Selesai"]);
-
-			if (!year || !semester) throw new Error("Tahun dan Semester wajib diisi");
-
-			const existing = await prisma.academicYear.findFirst({ where: { year, semester } });
-			const data = {
-				year,
-				semester,
-				startDate: startStr ? new Date(startStr) : null,
-				endDate: endStr ? new Date(endStr) : null
-			};
-
-			if (existing) {
-				await prisma.academicYear.update({ where: { id: existing.id }, data });
-				results.updated++;
-			} else {
-				await prisma.academicYear.create({ data });
-				results.success++;
-			}
-		} catch (err) {
-			results.failed++;
-			results.errors.push("Baris " + rowNum + ": " + err.message);
-		}
-	}
-	return results;
-}

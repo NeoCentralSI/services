@@ -44,6 +44,31 @@ function mapProposalVersion(versionRow) {
   };
 }
 
+function isScoreProgressStarted(scoreProgress) {
+  return Boolean(
+    scoreProgress &&
+      (scoreProgress.isFinalized ||
+        scoreProgress.supervisorScore != null ||
+        scoreProgress.lecturerScore != null)
+  );
+}
+
+function getUploadLockedReason({ isAccepted, scoreProgress }) {
+  if (isAccepted) {
+    return "Proposal sudah disahkan (TA-04).";
+  }
+
+  if (scoreProgress?.isFinalized) {
+    return "Penilaian TA-03 sudah final. Proposal final dikunci permanen dan tidak dapat diganti.";
+  }
+
+  if (isScoreProgressStarted(scoreProgress)) {
+    return "Penilaian TA-03 sedang berlangsung.";
+  }
+
+  return null;
+}
+
 async function getStudentAndThesis(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) throw new NotFoundError("Data mahasiswa tidak ditemukan");
@@ -59,6 +84,21 @@ export async function uploadProposalVersion(userId, file, description) {
   assertPdfBuffer(file);
 
   const { thesis } = await getStudentAndThesis(userId);
+
+  if (thesis.proposalStatus === "accepted") {
+    throw new BadRequestError(
+      "Proposal sudah disahkan (TA-04). Tidak dapat mengunggah versi baru."
+    );
+  }
+
+  const scoreProgress = await proposalRepo.findResearchMethodScoreProgress(thesis.id);
+  if (isScoreProgressStarted(scoreProgress)) {
+    throw new BadRequestError(
+      scoreProgress?.isFinalized
+        ? "Penilaian TA-03 sudah final. Tidak dapat mengunggah versi proposal baru."
+        : "Penilaian TA-03 sudah dimulai. Tidak dapat mengunggah versi proposal baru sampai siklus penilaian selesai/di-reset."
+    );
+  }
 
   const uploadsDir = path.join(process.cwd(), "uploads", "thesis", thesis.id, "proposal");
   await fs.mkdir(uploadsDir, { recursive: true });
@@ -111,16 +151,24 @@ export async function getProposalVersions(userId) {
 
 export async function getProposalSubmissionStatus(userId) {
   const { thesis } = await getStudentAndThesis(userId);
-  const [latestVersion, submissionStatus, supervisorCount] = await Promise.all([
+  const [latestVersion, submissionStatus, supervisorCount, scoreProgress] = await Promise.all([
     proposalRepo.findLatestProposalVersion(thesis.id),
     proposalRepo.getProposalSubmissionStatus(thesis.id),
     proposalRepo.countActiveSupervisors(thesis.id),
+    proposalRepo.findResearchMethodScoreProgress(thesis.id),
   ]);
+
+  const isAccepted = submissionStatus?.proposalStatus === "accepted";
+  const isScoringStarted = isScoreProgressStarted(scoreProgress);
+  const uploadLocked = isAccepted || isScoringStarted;
+  const uploadLockedReason = getUploadLockedReason({ isAccepted, scoreProgress });
 
   return {
     thesisId: thesis.id,
     hasSupervisor: supervisorCount > 0,
     proposalStatus: submissionStatus?.proposalStatus ?? null,
+    uploadLocked,
+    uploadLockedReason,
     latestVersion: latestVersion ? mapProposalVersion(latestVersion) : null,
     finalProposalVersion: submissionStatus?.finalProposalVersion
       ? {
@@ -170,6 +218,18 @@ export async function submitFinalProposal(userId) {
       finalProposalVersion: mapProposalVersion(latestVersion),
       alreadySubmitted: true,
     };
+  }
+
+  // F-4.3: lock integritas — bila penilaian TA-03 sudah dimulai/terkunci untuk
+  // proposal final aktif, jangan biarkan mahasiswa menukar versi yang sedang
+  // (atau sudah) dinilai. Idempotent re-submit versi yang sama tetap lolos di atas.
+  const scoreProgress = await proposalRepo.findResearchMethodScoreProgress(thesis.id);
+  if (isScoreProgressStarted(scoreProgress)) {
+    throw new BadRequestError(
+      scoreProgress?.isFinalized
+        ? "Penilaian TA-03 sudah final untuk proposal final saat ini. Versi final tidak dapat diganti (canon §5.6 + §5.7.2)."
+        : "Penilaian TA-03 sudah dimulai untuk proposal final saat ini. Versi final tidak dapat diganti sampai siklus penilaian selesai/di-reset (canon §5.6 + §5.7.2).",
+    );
   }
 
   const submittedVersion = await proposalRepo.submitFinalProposalVersion(
