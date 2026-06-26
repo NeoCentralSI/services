@@ -176,11 +176,12 @@ model LecturerAvailability {
 }
 
 model ScienceGroup {
-  id        String     @id @default(uuid())
-  name      String
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
-  lecturers Lecturer[]
+  id           String        @id @default(uuid())
+  name         String
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  lecturers    Lecturer[]
+  thesisTopics ThesisTopic[]
 
   @@map("science_groups")
 }
@@ -606,11 +607,14 @@ model ThesisSupervisors {
 model ThesisTopic {
   id                 String                    @id @default(uuid())
   name               String
+  scienceGroupId     String?                   @map("science_group_id")
   createdAt          DateTime                  @default(now()) @map("created_at")
   updatedAt          DateTime                  @updatedAt @map("updated_at")
+  scienceGroup       ScienceGroup?             @relation(fields: [scienceGroupId], references: [id])
   thesis             Thesis[]
   milestoneTemplates ThesisMilestoneTemplate[]
 
+  @@index([scienceGroupId], map: "thesis_topics_science_group_id_fkey")
   @@map("thesis_topics")
 }
 
