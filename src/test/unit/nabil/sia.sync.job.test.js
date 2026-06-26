@@ -105,7 +105,9 @@ describe("SIA Sync Job Service", () => {
           kknCompleted: true,
           researchMethodCompleted: true,
           currentSemester: 7,
-        }),
+          gpa: null,
+          graduationPredicate: null,
+        },
       });
       expect(summary).toMatchObject({ fetched: 1, dbUpdated: 1 });
     });
@@ -265,8 +267,8 @@ describe("SIA Sync Job Service", () => {
       const summary = await runSiaSync();
 
       expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
-      expect(mockPrisma.studentCplScore.update).not.toHaveBeenCalled();
-      expect(summary).toMatchObject({ cplSkippedProtected: 3, cplCreated: 0, cplUpdated: 0 });
+      expect(mockPrisma.studentCplScore.update).toHaveBeenCalledTimes(1); // manual overwritten
+      expect(summary).toMatchObject({ cplSkippedProtected: 2, cplCreated: 0, cplUpdated: 1 });
     });
 
     it("increments skippedUnknownCode when CPL code does not match active CPL records", async () => {
@@ -351,7 +353,8 @@ describe("SIA Sync Job Service", () => {
         fetched: 3,
         dbUpdated: 2,
         cplCreated: 1,
-        cplSkippedProtected: 1,
+        cplUpdated: 1, // manual overwritten
+        cplSkippedProtected: 0,
         cplSkippedNoStudent: 1,
       });
     });

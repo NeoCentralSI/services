@@ -64,6 +64,7 @@ function mapPrismaError(err) {
 }
 
 export default function errorHandler(err, req, res, next) {
+  console.log("=== RAW ERROR ===", err);
   const mappedErr = mapPrismaError(err);
 
   // Jika error tidak punya statusCode → fallback 500

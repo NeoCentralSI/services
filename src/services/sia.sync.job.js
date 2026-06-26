@@ -128,6 +128,13 @@ export async function runSiaSync() {
  * Batch update student academic fields in database (optimized version)
  * Uses single query with updateMany instead of N+1 queries
  */
+const parseGpa = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return null;
+  return Math.round(parsed * 100) / 100;
+};
+
 async function updateStudentAcademicBatch(stamped) {
   const startedAt = new Date();
   // Prepare updates data
@@ -144,8 +151,10 @@ async function updateStudentAcademicBatch(stamped) {
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
           : Number(entry.data.currentSemester),
-      eligibleMetopen: deriveMetopenEligibilityFromSiaStudent(entry.data),
-      takingThesisCourse: deriveThesisCourseEnrollmentFromSiaStudent(entry.data),
+      gpa: parseGpa(entry.data?.gpa),
+      graduationPredicate: entry.data?.graduationPredicate
+        ? String(entry.data.graduationPredicate).trim()
+        : null,
     }))
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
@@ -178,12 +187,8 @@ async function updateStudentAcademicBatch(stamped) {
             kknCompleted: u.kknCompleted,
             researchMethodCompleted: u.researchMethodCompleted,
             currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
-            eligibleMetopen: u.eligibleMetopen,
-            metopenEligibilitySource: u.eligibleMetopen === null ? null : "sia",
-            metopenEligibilityUpdatedAt: u.eligibleMetopen === null ? null : startedAt,
-            takingThesisCourse: u.takingThesisCourse,
-            thesisCourseEnrollmentSource: u.takingThesisCourse === null ? null : "sia",
-            thesisCourseEnrollmentUpdatedAt: u.takingThesisCourse === null ? null : startedAt,
+            gpa: u.gpa,
+            graduationPredicate: u.graduationPredicate,
           },
         })
       );
@@ -219,8 +224,8 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
     kknCompleted,
     researchMethodCompleted,
     currentSemester,
-    eligibleMetopen,
-    takingThesisCourse,
+    gpa,
+    graduationPredicate,
   } of updates) {
     try {
       const user = await prisma.user.findUnique({
@@ -239,12 +244,8 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
           kknCompleted,
           researchMethodCompleted,
           currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
-          eligibleMetopen,
-          metopenEligibilitySource: eligibleMetopen === null ? null : "sia",
-          metopenEligibilityUpdatedAt: eligibleMetopen === null ? null : updatedAt,
-          takingThesisCourse,
-          thesisCourseEnrollmentSource: takingThesisCourse === null ? null : "sia",
-          thesisCourseEnrollmentUpdatedAt: takingThesisCourse === null ? null : updatedAt,
+          gpa,
+          graduationPredicate,
         },
       });
       if (takingThesisCourse === true) {
@@ -430,7 +431,6 @@ async function updateStudentCplScoresBatch(stamped) {
     }
 
     const isProtected =
-      existing.source === "manual" ||
       existing.status === "verified" ||
       existing.status === "finalized";
     if (isProtected) {
@@ -438,11 +438,14 @@ async function updateStudentCplScoresBatch(stamped) {
       continue;
     }
 
-    const canOverwrite = existing.source === "SIA" && existing.status === "calculated";
+    const canOverwrite = 
+      (existing.source === "SIA" && existing.status === "calculated") || 
+      existing.source === "manual";
     if (!canOverwrite) {
       skippedProtected += 1;
       continue;
     }
+
 
     updated += 1;
     writes.push({

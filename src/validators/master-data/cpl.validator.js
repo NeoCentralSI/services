@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const createCplSchema = z.object({
+    curriculumId: z
+        .string({ required_error: "ID Kurikulum wajib diisi" })
+        .uuid("ID Kurikulum tidak valid"),
     code: z
         .string({ required_error: "Kode CPL wajib diisi" })
         .min(1, "Kode CPL tidak boleh kosong")
@@ -18,6 +21,10 @@ export const createCplSchema = z.object({
 });
 
 export const updateCplSchema = z.object({
+    curriculumId: z
+        .string()
+        .uuid("ID Kurikulum tidak valid")
+        .optional(),
     code: z
         .string()
         .min(1, "Kode CPL tidak boleh kosong")
@@ -42,7 +49,7 @@ export const createCplStudentScoreSchema = z.object({
         .number({ required_error: "score wajib diisi" })
         .int("score harus bilangan bulat")
         .max(100, "score maksimal 100"),
-    status: z.enum(["calculated", "verified", "finalized"]).optional(),
+    status: z.enum(["calculated", "validated", "finalized"]).optional(),
 });
 
 export const updateCplStudentScoreSchema = z.object({
@@ -50,5 +57,5 @@ export const updateCplStudentScoreSchema = z.object({
         .number({ required_error: "score wajib diisi" })
         .int("score harus bilangan bulat")
         .max(100, "score maksimal 100"),
-    status: z.enum(["calculated", "verified", "finalized"]).optional(),
+    status: z.enum(["calculated", "validated", "finalized"]).optional(),
 });

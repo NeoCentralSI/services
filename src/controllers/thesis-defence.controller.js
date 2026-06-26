@@ -1,8 +1,8 @@
-import * as coreService from "../services/thesis-defence.service.js";
-import * as docService from "../services/thesis-defence-doc.service.js";
-import * as examinerService from "../services/thesis-defence-examiner.service.js";
-import * as revisionService from "../services/thesis-defence-revision.service.js";
-import * as studentService from "../services/thesis-defence-student.service.js";
+import * as coreService from "../services/thesis-defence/core.service.js";
+import * as docService from "../services/thesis-defence/doc.service.js";
+import * as examinerService from "../services/thesis-defence/examiner.service.js";
+import * as revisionService from "../services/thesis-defence/revision.service.js";
+import * as studentService from "../services/thesis-defence/student.service.js";
 
 // ============================================================
 // CORE — list, detail, schedule
@@ -54,7 +54,7 @@ export async function setSchedule(req, res, next) {
 
 export async function finalizeSchedule(req, res, next) {
   try {
-    const result = await coreService.finalizeSchedule(req.params.id);
+    const result = await coreService.finalizeSchedule(req.params.id, req.user?.id);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -199,9 +199,9 @@ export async function viewDocument(req, res, next) {
   }
 }
 
-export async function validateDocument(req, res, next) {
+export async function verifyDocument(req, res, next) {
   try {
-    const result = await docService.validateDocument(req.params.id, req.params.documentTypeId, {
+    const result = await docService.verifyDocument(req.params.id, req.params.documentTypeId, {
       action: req.body.action,
       notes: req.body.notes,
       userId: req.user.id,

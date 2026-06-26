@@ -19,6 +19,7 @@ class ValidationError extends Error {
 
 const toCplResponse = (item) => ({
     id: item.id,
+    curriculumId: item.curriculumId,
     code: item.code,
     description: item.description,
     minimalScore: item.minimalScore,
@@ -28,6 +29,12 @@ const toCplResponse = (item) => ({
             ? item.hasRelatedScores
             : item._count?.studentCplScores > 0,
     studentCplScoreCount: item._count?.studentCplScores ?? 0,
+    curriculum: item.curriculum ? {
+        id: item.curriculum.id,
+        name: item.curriculum.name,
+        startYear: item.curriculum.startYear,
+        endYear: item.curriculum.endYear,
+    } : null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
 });
@@ -44,7 +51,7 @@ const normalizeSource = (source) => {
 const normalizeStatus = (status) => {
     if (!status) return undefined;
     const value = String(status).toLowerCase();
-    if (["calculated", "verified", "finalized"].includes(value)) return value;
+    if (["calculated", "validated", "finalized"].includes(value)) return value;
     return undefined;
 };
 
@@ -65,6 +72,8 @@ const toCplStudentScoreResponse = (item) => ({
               description: item.cpl.description,
               minimalScore: item.cpl.minimalScore,
               isActive: item.cpl.isActive,
+              curriculumId: item.cpl.curriculumId,
+              curriculumName: item.cpl.curriculum?.name,
           }
         : null,
     student: item.student
@@ -82,14 +91,14 @@ const toCplStudentScoreResponse = (item) => ({
               identityNumber: item.inputUser.identityNumber,
           }
         : null,
-    verifiedBy: item.verifier
+    validatedBy: item.validator
         ? {
-              id: item.verifier.id,
-              fullName: item.verifier.fullName,
-              identityNumber: item.verifier.identityNumber,
+              id: item.validator.id,
+              fullName: item.validator.fullName,
+              identityNumber: item.validator.identityNumber,
           }
         : null,
-    verifiedAt: item.verifiedAt,
+    validatedAt: item.validatedAt,
     finalizedAt: item.finalizedAt,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -113,16 +122,17 @@ export const getCplById = async (id) => {
 
 export const createCpl = async (data) => {
     const newIsActive = data.isActive !== false;
-    if (newIsActive && data.code) {
-        const existing = await repository.findActiveByCode(data.code);
+    if (newIsActive && data.code && data.curriculumId) {
+        const existing = await repository.findActiveByCodeAndCurriculum(data.code, data.curriculumId);
         if (existing) {
             throw new ValidationError(
-                `Tidak dapat membuat CPL. Versi aktif dengan kode "${data.code}" sudah ada`
+                `Tidak dapat membuat CPL. Versi aktif dengan kode "${data.code}" sudah ada di kurikulum ini`
             );
         }
     }
 
     const created = await repository.create({
+        curriculumId: data.curriculumId,
         code: data.code,
         description: data.description,
         minimalScore: data.minimalScore,
@@ -148,16 +158,21 @@ export const updateCpl = async (id, data) => {
 
     const updateData = {};
 
-    if (data.code !== undefined) {
-        if (existing.isActive) {
-            const activeDuplicate = await repository.findActiveByCode(data.code, id);
+    if (data.curriculumId !== undefined) updateData.curriculumId = data.curriculumId;
+
+    if (data.code !== undefined || data.curriculumId !== undefined) {
+        const codeToCheck = data.code !== undefined ? data.code : existing.code;
+        const curriculumIdToCheck = data.curriculumId !== undefined ? data.curriculumId : existing.curriculumId;
+        
+        if (existing.isActive && codeToCheck && curriculumIdToCheck) {
+            const activeDuplicate = await repository.findActiveByCodeAndCurriculum(codeToCheck, curriculumIdToCheck, id);
             if (activeDuplicate) {
                 throw new ValidationError(
-                    `Tidak dapat mengubah kode. Versi aktif dengan kode "${data.code}" sudah ada`
+                    `Tidak dapat mengubah. Versi aktif dengan kode "${codeToCheck}" sudah ada di kurikulum ini`
                 );
             }
         }
-        updateData.code = data.code;
+        if (data.code !== undefined) updateData.code = data.code;
     }
 
     if (data.description !== undefined) updateData.description = data.description;
@@ -183,11 +198,11 @@ export const toggleCpl = async (id) => {
 
     const nextIsActive = !existing.isActive;
 
-    if (nextIsActive && existing.code) {
-        const activeDuplicate = await repository.findActiveByCode(existing.code, id);
+    if (nextIsActive && existing.code && existing.curriculumId) {
+        const activeDuplicate = await repository.findActiveByCodeAndCurriculum(existing.code, existing.curriculumId, id);
         if (activeDuplicate) {
             throw new ValidationError(
-                `Tidak dapat mengaktifkan ulang CPL. Versi aktif dengan kode "${existing.code}" sudah ada`
+                `Tidak dapat mengaktifkan ulang CPL. Versi aktif dengan kode "${existing.code}" sudah ada di kurikulum ini`
             );
         }
     }
@@ -264,14 +279,18 @@ export const createCplStudentScore = async (cplId, payload, actorUserId) => {
         throw new ValidationError("Mahasiswa tidak ditemukan");
     }
 
+    const status = payload.status || "finalized";
+
     const created = await repository.createStudentScore({
         studentId: payload.studentId,
         cplId,
         score: payload.score,
         source: "manual",
-        status: payload.status || "finalized",
+        status: status,
         inputBy: actorUserId || null,
-        finalizedAt: payload.status === "finalized" ? new Date() : null,
+        validatedBy: status === "validated" ? (actorUserId || null) : null,
+        validatedAt: status === "validated" ? new Date() : null,
+        finalizedAt: status === "finalized" ? new Date() : null,
     });
 
     const row = await repository.findStudentScoreByCplAndStudent(created.cplId, created.studentId);
@@ -288,13 +307,24 @@ export const updateCplStudentScore = async (cplId, studentId, payload, actorUser
         throw new ValidationError("Nilai dari SIA tidak dapat diubah secara manual");
     }
 
+    const newStatus = payload.status || existing.status;
+
     await repository.updateStudentScore(cplId, studentId, {
         score: payload.score,
-        status: payload.status || "finalized",
-        inputBy: actorUserId || existing.inputBy || null,
-        verifiedBy: payload.status === "verified" ? (actorUserId || null) : null,
-        verifiedAt: payload.status === "verified" ? new Date() : null,
-        finalizedAt: payload.status === "finalized" ? new Date() : null,
+        status: newStatus,
+        inputBy: existing.inputBy || actorUserId || null,
+        validatedBy:
+            newStatus === "validated" && existing.status !== "validated"
+                ? (actorUserId || null)
+                : existing.validatedBy,
+        validatedAt:
+            newStatus === "validated" && existing.status !== "validated"
+                ? new Date()
+                : existing.validatedAt,
+        finalizedAt:
+            newStatus === "finalized" && existing.status !== "finalized"
+                ? new Date()
+                : existing.finalizedAt,
     });
 
     const updated = await repository.findStudentScoreByCplAndStudent(cplId, studentId);
@@ -380,6 +410,12 @@ export const importCplStudentScores = async (cplId, rows = [], actorUserId) => {
 };
 
 const formatExportRows = (rows = []) => {
+    const statusLabels = {
+        calculated: "Sedang Dihitung",
+        validated: "Valid",
+        finalized: "Final",
+    };
+
     return rows.map((row, index) => {
         const minimalScore = row.cpl?.minimalScore ?? 0;
         const result = computeResult(row.score, minimalScore);
@@ -393,10 +429,10 @@ const formatExportRows = (rows = []) => {
             "Skor Minimal": minimalScore,
             Hasil: result,
             Sumber: row.source === "SIA" ? "SIA" : "Manual",
-            Status: row.status,
+            Status: statusLabels[row.status] || row.status,
             "Input Oleh": row.inputUser?.fullName ?? "-",
-            "Terverifikasi Oleh": row.verifier?.fullName ?? "-",
-            "Tanggal Verifikasi": row.verifiedAt,
+            "Tervalidasi Oleh": row.validator?.fullName ?? "-",
+            "Tanggal Validasi": row.validatedAt,
             "Tanggal Finalisasi": row.finalizedAt,
         };
     });

@@ -29,21 +29,25 @@ import upload from "../middlewares/file.middleware.js";
 const router = express.Router();
 
 router.use(authGuard);
-router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]));
 
-router.get("/", getAll);
-router.get("/export", exportAllCplScores);
-router.get("/:id", getById);
+// View and Export routes accessible to Sekdep, Kadep, and GKM
+router.get("/", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]), getAll);
+router.get("/export", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]), exportAllCplScores);
+router.get("/:id", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]), getById);
+router.get("/:id/students", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]), getCplStudents);
+router.get("/:id/students/export", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]), exportCplStudentScores);
+
+// Management routes restricted to GKM only
+router.use(requireAnyRole([ROLES.GKM]));
+
 router.post("/", validate(createCplSchema), create);
 router.patch("/:id", validate(updateCplSchema), update);
 router.patch("/:id/toggle", toggle);
 router.delete("/:id", remove);
-router.get("/:id/students", getCplStudents);
 router.get("/:id/students/options", getCplStudentOptions);
 router.post("/:id/students", validate(createCplStudentScoreSchema), createCplStudentScore);
 router.put("/:id/students/:studentId", validate(updateCplStudentScoreSchema), updateCplStudentScore);
 router.delete("/:id/students/:studentId", deleteCplStudentScore);
 router.post("/:id/students/import", upload.single("file"), importCplStudentScores);
-router.get("/:id/students/export", exportCplStudentScores);
 
 export default router;

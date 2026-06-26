@@ -1,6 +1,6 @@
 import prisma from "../config/prisma.js";
 
-export const findAll = async ({ status = "active", search = "", page = 1, limit = 10 } = {}) => {
+export const findAll = async ({ status = "all", search = "", page = 1, limit = 10, curriculumId } = {}) => {
     const where = {};
     const parsedPage = parseInt(page) || 1;
     const parsedLimit = parseInt(limit) || 10;
@@ -17,6 +17,10 @@ export const findAll = async ({ status = "active", search = "", page = 1, limit 
             { description: { contains: search } },
         ];
     }
+    
+    if (curriculumId) {
+        where.curriculumId = curriculumId;
+    }
 
     const skip = (parsedPage - 1) * parsedLimit;
 
@@ -30,6 +34,14 @@ export const findAll = async ({ status = "active", search = "", page = 1, limit 
                         studentCplScores: true,
                     },
                 },
+                curriculum: {
+                    select: {
+                        id: true,
+                        name: true,
+                        startYear: true,
+                        endYear: true,
+                    }
+                }
             },
             skip,
             take: parsedLimit,
@@ -49,6 +61,14 @@ export const findById = async (id) => {
                     studentCplScores: true,
                 },
             },
+            curriculum: {
+                select: {
+                    id: true,
+                    name: true,
+                    startYear: true,
+                    endYear: true,
+                }
+            }
         },
     });
 };
@@ -61,9 +81,10 @@ export const findByCode = async (code, excludeId = null) => {
     return await prisma.cpl.findFirst({ where });
 };
 
-export const findActiveByCode = async (code, excludeId = null) => {
+export const findActiveByCodeAndCurriculum = async (code, curriculumId, excludeId = null) => {
     const where = {
         code,
+        curriculumId,
         isActive: true,
     };
 
@@ -116,6 +137,13 @@ const studentScoreInclude = {
             description: true,
             minimalScore: true,
             isActive: true,
+            curriculumId: true,
+            curriculum: {
+                select: {
+                    name: true,
+                    startYear: true
+                }
+            }
         },
     },
     inputUser: {
@@ -125,7 +153,7 @@ const studentScoreInclude = {
             identityNumber: true,
         },
     },
-    verifier: {
+    validator: {
         select: {
             id: true,
             fullName: true,

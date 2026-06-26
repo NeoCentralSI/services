@@ -5,13 +5,17 @@ import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
-import { runAdvisorWithdrawReminderJob } from "../jobs/advisor-withdraw-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
-import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
-import { runTa04BatchReminderJob } from "../jobs/ta04-batch-reminder.job.js";
+import {
+  runAcademicEventReminderJob,
+  runExaminerNoResponseReminderJob,
+  runYudisiumRegistrationClosedReminderJob,
+  runYudisiumRegistrationClosingReminderJob,
+  runYudisiumRegistrationOpenReminderJob,
+} from "../jobs/academic-event-notification.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -196,41 +200,6 @@ export async function scheduleDailyThesisReminder() {
   }
 }
 
-/**
- * Schedule advisor request withdraw unlock reminder job.
- * Default: hourly at minute 0, so students are notified soon after the 72h lock expires.
- */
-export async function scheduleAdvisorWithdrawReminder() {
-  const pattern = ENV.ADVISOR_WITHDRAW_REMINDER_CRON || "0 * * * *";
-  const tz = ENV.ADVISOR_WITHDRAW_REMINDER_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "advisor-withdraw-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-    }
-  );
-  console.log(`📣 Scheduled repeatable advisor withdraw reminder job with cron: "${pattern}" tz="${tz}"`);
-}
-
-export async function scheduleYudisiumFinalize() {
-  // Run daily at 00:15 WIB to finalize yudisium events whose event date has passed
-  const pattern = "15 0 * * *";
-  const tz = "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "yudisium-finalize",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled yudisium-finalize job with cron: "${pattern}" tz="${tz}"`);
-}
 
 export async function scheduleDailyInternshipStatus() {
   // Run daily at 00:00 WIB to enforce internship reporting/seminar deadlines
@@ -284,16 +253,9 @@ export async function scheduleInternshipLogbookReminder() {
   console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
 }
 
-/**
- * Schedule TA-04 batch finalize reminder job (canon v2.4 F-5.2 + §5.13).
- * Default: daily at 08:00 WIB. Nudge KaDep agar memfinalisasi Formulir TA-04
- * batch periode ketika ada thesis accepted tanpa dokumen batch resmi.
- */
-export async function scheduleTa04BatchReminder() {
-  const pattern = ENV.TA04_BATCH_REMINDER_CRON || "0 8 * * *";
-  const tz = ENV.TA04_BATCH_REMINDER_TZ || "Asia/Jakarta";
+async function scheduleRepeatableMaintenanceJob(name, pattern, tz = "Asia/Jakarta") {
   await maintenanceQueue.add(
-    "ta04-batch-reminder",
+    name,
     {},
     {
       repeat: { pattern, tz },
@@ -301,7 +263,55 @@ export async function scheduleTa04BatchReminder() {
       removeOnFail: 100,
     }
   );
-  console.log(`📋 Scheduled repeatable ta04-batch-reminder job with cron: "${pattern}" tz="${tz}"`);
+  console.log(`🗓️  Scheduled repeatable ${name} job with cron: "${pattern}" tz="${tz}"`);
+}
+
+export async function scheduleAcademicEventHMinusOneReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "academic-event-h-minus-one-reminder",
+    ENV.ACADEMIC_EVENT_H_MINUS_ONE_CRON || "0 18 * * *",
+    ENV.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleAcademicEventDayReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "academic-event-day-reminder",
+    ENV.ACADEMIC_EVENT_DAY_CRON || "0 7 * * *",
+    ENV.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationClosingReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-closing-reminder",
+    ENV.YUDISIUM_REGISTRATION_CLOSING_REMINDER_CRON || "0 12 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationOpenReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-open-reminder",
+    ENV.YUDISIUM_REGISTRATION_OPEN_REMINDER_CRON || "0 6 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationClosedReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-closed-reminder",
+    ENV.YUDISIUM_REGISTRATION_CLOSED_REMINDER_CRON || "0 6 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleExaminerNoResponseReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "examiner-no-response-reminder",
+    ENV.EXAMINER_NO_RESPONSE_REMINDER_CRON || "0 8 * * *",
+    ENV.EXAMINER_NO_RESPONSE_REMINDER_TZ || "Asia/Jakarta"
+  );
 }
 
 // Worker to process maintenance jobs
@@ -324,11 +334,6 @@ export const maintenanceWorker = new Worker(
       case "daily-thesis-reminder":
         await runDailyThesisReminderJob();
         break;
-      case "advisor-withdraw-reminder":
-        await runAdvisorWithdrawReminderJob();
-        break;
-      case "yudisium-finalize":
-        await finalizeCompletedYudisium();
         break;
       case "internship-status":
         await runInternshipStatusJob();
@@ -339,8 +344,23 @@ export const maintenanceWorker = new Worker(
       case "internship-logbook-reminder":
         await runInternshipLogbookReminderJob();
         break;
-      case "ta04-batch-reminder":
-        await runTa04BatchReminderJob();
+      case "academic-event-h-minus-one-reminder":
+        await runAcademicEventReminderJob({ offsetDays: 1, phase: "h_minus_one" });
+        break;
+      case "academic-event-day-reminder":
+        await runAcademicEventReminderJob({ offsetDays: 0, phase: "event_day" });
+        break;
+      case "yudisium-registration-closing-reminder":
+        await runYudisiumRegistrationClosingReminderJob();
+        break;
+      case "yudisium-registration-open-reminder":
+        await runYudisiumRegistrationOpenReminderJob();
+        break;
+      case "yudisium-registration-closed-reminder":
+        await runYudisiumRegistrationClosedReminderJob();
+        break;
+      case "examiner-no-response-reminder":
+        await runExaminerNoResponseReminderJob();
         break;
       default:
         // no-op

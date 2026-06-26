@@ -25,6 +25,7 @@
     "worker": "node scripts/run-workers.js"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "1.6.1",
     "prisma": "^6.2.0",
     "supertest": "^7.2.2",
     "vitest": "^1.6.1"

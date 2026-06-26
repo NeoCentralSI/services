@@ -1,10 +1,10 @@
-import * as coreService from "../services/thesis-seminar.service.js";
-import * as docService from "../services/thesis-seminar-doc.service.js";
-import * as audienceService from "../services/thesis-seminar-audience.service.js";
-import * as examinerService from "../services/thesis-seminar-examiner.service.js";
-import * as revisionService from "../services/thesis-seminar-revision.service.js";
-import * as studentService from "../services/thesis-seminar-student.service.js";
-import { ROLES } from "../constants/roles.js";
+import * as coreService from "../services/thesis-seminar/core.service.js";
+import * as docService from "../services/thesis-seminar/doc.service.js";
+import * as audienceService from "../services/thesis-seminar/audience.service.js";
+import * as examinerService from "../services/thesis-seminar/examiner.service.js";
+import * as revisionService from "../services/thesis-seminar/revision.service.js";
+import * as studentService from "../services/thesis-seminar/student.service.js";
+import { ROLES, isStudentRole } from "../constants/roles.js";
 
 // ============================================================
 // CORE (Admin / Lecturer List)
@@ -17,7 +17,7 @@ export async function getSeminars(req, res, next) {
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 10,
       search: search || "",
-      view: view || "validation",
+      view: view || "verification",
       status: status || null,
       user: req.user,
     });
@@ -54,7 +54,7 @@ export async function setSchedule(req, res, next) {
 
 export async function finalizeSchedule(req, res, next) {
   try {
-    const result = await coreService.finalizeSchedule(req.params.id);
+    const result = await coreService.finalizeSchedule(req.params.id, req.user.id);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -166,9 +166,9 @@ export async function viewDocument(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function validateDocument(req, res, next) {
+export async function verifyDocument(req, res, next) {
   try {
-    const result = await docService.validateDocument(req.params.id, req.params.documentTypeId, {
+    const result = await docService.verifyDocument(req.params.id, req.params.documentTypeId, {
       action: req.body.action,
       notes: req.body.notes,
       userId: req.user.id,
@@ -354,9 +354,15 @@ export async function getStudentOverview(req, res, next) {
   } catch (error) { next(error); }
 }
 
+function userHasStudentRole(user) {
+  return (user?.roles || []).some((role) => isStudentRole(role));
+}
+
 export async function getAnnouncements(req, res, next) {
   try {
-    const result = await studentService.getAnnouncements(req.user.id);
+    const result = userHasStudentRole(req.user)
+      ? await studentService.getAnnouncements(req.user.id)
+      : await coreService.getAnnouncements();
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }

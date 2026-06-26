@@ -1,11 +1,3 @@
-/**
- * Unit Tests — Student Thesis Seminar: thesis-seminar-student.service.js
- * Covers:
- *  - getOverview (Checklist, Research Method, Effective Status)
- *  - getAttendanceHistory (Summary, Records)
- *  - getSeminarHistory (Failed/Cancelled filter, "Attempt" logic)
- *  - getAnnouncements (Effective Status, Registration check)
- */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ─────────────────────────────────────────────
@@ -45,6 +37,7 @@ const {
   mockPrisma: {
     lecturer: { findMany: vi.fn() },
     thesis: { findFirst: vi.fn() },
+    student: { findUnique: vi.fn() },
   },
   mockStatusUtil: {
     computeEffectiveStatus: vi.fn((s) => s),
@@ -54,10 +47,10 @@ const {
 vi.mock("../../../../repositories/thesisGuidance/student.guidance.repository.js", () => ({
   getStudentByUserId: mockLecturerRepo.getStudentByUserId,
 }));
-vi.mock("../../../../repositories/thesis-seminar.repository.js", () => mockCoreRepo);
-vi.mock("../../../../repositories/thesis-seminar-doc.repository.js", () => mockDocRepo);
-vi.mock("../../../../repositories/thesis-seminar-revision.repository.js", () => mockRevisionRepo);
-vi.mock("../../../../repositories/thesis-seminar-audience.repository.js", () => mockAudienceRepo);
+vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
+vi.mock("../../../../repositories/thesis-seminar/doc.repository.js", () => mockDocRepo);
+vi.mock("../../../../repositories/thesis-seminar/revision.repository.js", () => mockRevisionRepo);
+vi.mock("../../../../repositories/thesis-seminar/audience.repository.js", () => mockAudienceRepo);
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("xlsx", () => ({}));
 vi.mock("../../../../utils/seminarStatus.util.js", () => mockStatusUtil);
@@ -67,7 +60,7 @@ import {
   getAttendanceHistory,
   getSeminarHistory,
   getAnnouncements,
-} from "../../../../services/thesis-seminar-student.service.js";
+} from "../../../../services/thesis-seminar/student.service.js";
 
 // ── helpers ───────────────────────────────────────────────────
 const makeStudent = (id = "student-1") => ({
@@ -89,7 +82,7 @@ const makeThesis = (id = "thesis-1") => ({
 const makeSeminar = (overrides = {}) => ({
   id: "sem-1",
   status: "registered",
-  registeredAt: "2026-04-20T10:00:00.000Z",
+  registeredAt: new Date(),
   date: null,
   startTime: null,
   endTime: null,
@@ -99,117 +92,149 @@ const makeSeminar = (overrides = {}) => ({
 });
 
 // ── tests ─────────────────────────────────────────────────────
-describe("Student Seminar Service — Overview", () => {
+describe("Student Seminar Service — Overview Milestones", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLecturerRepo.getStudentByUserId.mockResolvedValue(makeStudent());
   });
 
-  it("calculates checklist correctly when all requirements met", async () => {
+  it("stage 0: checklist not met", async () => {
     const thesis = makeThesis();
+    thesis.thesisSupervisors[0].seminarReady = false; // Supervisor not ready
     mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
-    mockCoreRepo.countSeminarAttendance.mockResolvedValue(8);
-
-    const result = await getOverview("user-1");
-
-    expect(result.allChecklistMet).toBe(true);
-    expect(result.checklist.bimbingan.met).toBe(true);
-    expect(result.checklist.kehadiran.met).toBe(true);
-    expect(result.checklist.metopen.met).toBe(true);
-    expect(result.checklist.pembimbing.met).toBe(true);
-  });
-
-  it("calculates checklist correctly when some requirements missing", async () => {
-    const thesis = makeThesis();
-    thesis.thesisGuidances = Array(5).fill({}); // Only 5
-    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
-    mockCoreRepo.countSeminarAttendance.mockResolvedValue(2); // Only 2
-
-    const student = makeStudent();
-    student.researchMethodCompleted = false; // Not completed
-    mockLecturerRepo.getStudentByUserId.mockResolvedValue(student);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
 
     const result = await getOverview("user-1");
 
     expect(result.allChecklistMet).toBe(false);
+    expect(result.milestones.find(m => m.id === 'checklist').checked).toBe(false);
+    expect(result.canUpload).toBe(false);
+  });
+
+  it("stage 1: checklist met, no seminar yet (can upload)", async () => {
+    const thesis = makeThesis();
+    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
+
+    const result = await getOverview("user-1");
+
+    expect(result.allChecklistMet).toBe(true);
+    expect(result.milestones.find(m => m.id === 'checklist').checked).toBe(true);
+    expect(result.milestones.find(m => m.id === 'documents').checked).toBe(false);
+    expect(result.canUpload).toBe(true);
+  });
+
+  it("stage 2: registered (documents in progress)", async () => {
+    const thesis = makeThesis();
+    thesis.thesisSeminars = [makeSeminar({ status: "registered" })];
+    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
+
+    const result = await getOverview("user-1");
+
+    expect(result.milestones.find(m => m.id === 'checklist').checked).toBe(true);
+    expect(result.milestones.find(m => m.id === 'documents').checked).toBe(false);
+    expect(result.canUpload).toBe(true);
+  });
+
+  it("stage 3: verified (documents locked)", async () => {
+    const thesis = makeThesis();
+    thesis.thesisSeminars = [makeSeminar({ status: "verified" })];
+    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
+
+    const result = await getOverview("user-1");
+
+    expect(result.milestones.find(m => m.id === 'documents').checked).toBe(true);
+    expect(result.milestones.find(m => m.id === 'examiner').checked).toBe(false);
+    expect(result.canUpload).toBe(false);
+  });
+
+  it("stage 4: scheduled", async () => {
+    const thesis = makeThesis();
+    thesis.thesisSeminars = [makeSeminar({ status: "scheduled", date: new Date() })];
+    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
+
+    const result = await getOverview("user-1");
+
+    expect(result.milestones.find(m => m.id === 'schedule').checked).toBe(true);
+    expect(result.milestones.find(m => m.id === 'concluded').checked).toBe(false);
+  });
+
+  it("stage 5: passed", async () => {
+    const thesis = makeThesis();
+    thesis.thesisSeminars = [makeSeminar({ status: "passed" })];
+    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
+
+    const result = await getOverview("user-1");
+
+    expect(result.milestones.every(m => m.checked)).toBe(true);
+  });
+
+  it("returns preview overview when student has no thesis", async () => {
+    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(null);
+    mockCoreRepo.countSeminarAttendance.mockResolvedValue(3);
+
+    const result = await getOverview("user-1");
+
+    expect(result.thesisId).toBeNull();
+    expect(result.thesisTitle).toBeNull();
+    expect(result.seminar).toBeNull();
+    expect(result.allChecklistMet).toBe(false);
+    expect(result.canUpload).toBe(false);
     expect(result.checklist.bimbingan.met).toBe(false);
-    expect(result.checklist.kehadiran.met).toBe(false);
-    expect(result.checklist.metopen.met).toBe(false);
+    expect(result.checklist.kehadiran.current).toBe(3);
+    expect(result.milestones.every((m) => !m.checked)).toBe(true);
   });
 
-  it("maps status to 'examiner_assigned' when examiners assigned but no date", async () => {
+  it("resets overview when latest seminar is failed (treats as no active seminar)", async () => {
     const thesis = makeThesis();
-    thesis.thesisSeminars = [makeSeminar({ status: "examiner_assigned", date: null })];
+    thesis.thesisSeminars = [makeSeminar({ id: "failed-sem", status: "failed" })];
     mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
     mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
-    mockStatusUtil.computeEffectiveStatus.mockReturnValue("examiner_assigned");
 
     const result = await getOverview("user-1");
 
-    expect(result.seminar.status).toBe("examiner_assigned");
-  });
-
-  it("maps status to 'scheduled' when scheduled", async () => {
-    const thesis = makeThesis();
-    thesis.thesisSeminars = [makeSeminar({ status: "scheduled", date: "2026-05-01" })];
-    mockCoreRepo.getStudentThesisWithSeminarInfo.mockResolvedValue(thesis);
-    mockCoreRepo.countSeminarAttendance.mockResolvedValue(10);
-    mockStatusUtil.computeEffectiveStatus.mockReturnValue("scheduled");
-
-    const result = await getOverview("user-1");
-
-    expect(result.seminar.status).toBe("scheduled");
+    expect(result.seminar).toBeNull(); // History filtered out from current attempt
+    expect(result.milestones.find(m => m.id === 'documents').checked).toBe(false);
   });
 });
 
-describe("Student Seminar Service — History", () => {
+describe("Student Seminar Service — History & Attendance", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLecturerRepo.getStudentByUserId.mockResolvedValue(makeStudent());
   });
 
-  it("filters out passed seminars from history (only failed/cancelled)", async () => {
+  it("filters seminar history correctly", async () => {
     mockCoreRepo.getAllStudentSeminars.mockResolvedValue([
-      makeSeminar({ id: "sem-passed", status: "passed" }),
-      makeSeminar({ id: "sem-failed", status: "failed" }),
-      makeSeminar({ id: "sem-cancelled", status: "cancelled" }),
+      makeSeminar({ id: "s1", status: "passed" }),
+      makeSeminar({ id: "s2", status: "failed" }),
     ]);
-
     const result = await getSeminarHistory("user-1");
-
-    expect(result).toHaveLength(2);
-    expect(result.find(s => s.id === "sem-passed")).toBeUndefined();
-    expect(result.find(s => s.id === "sem-failed")).toBeDefined();
-    expect(result.find(s => s.id === "sem-cancelled")).toBeDefined();
+    expect(result).toHaveLength(1);
+    expect(result[0].status).toBe("failed");
   });
 
-  it("includes maxWeight=100 in history records", async () => {
-    mockCoreRepo.getAllStudentSeminars.mockResolvedValue([
-      makeSeminar({ id: "sem-1", status: "failed" }),
-    ]);
-
-    const result = await getSeminarHistory("user-1");
-
-    expect(result[0].maxWeight).toBe(100);
-  });
-});
-
-describe("Student Seminar Service — Attendance", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockLecturerRepo.getStudentByUserId.mockResolvedValue(makeStudent());
-  });
-
-  it("returns summary and records correctly", async () => {
+  it("calculates attendance summary correctly", async () => {
     mockCoreRepo.getSeminarAttendanceHistory.mockResolvedValue([
-      { thesisSeminarId: "s1", approvedAt: "2026-04-01", seminar: { thesis: { student: { user: { fullName: "P1" } } } } },
-      { thesisSeminarId: "s2", approvedAt: null, seminar: { thesis: { student: { user: { fullName: "P2" } } } } },
+      { approvedAt: new Date(), seminar: { status: "passed", endTime: new Date("1970-01-01T10:00:00.000Z"), resultFinalizedAt: new Date("2026-05-01T00:00:00.000Z") } },
+      { approvedAt: null, seminar: { status: "passed", endTime: new Date("1970-01-01T10:00:00.000Z"), resultFinalizedAt: new Date("2026-05-01T00:00:00.000Z") } },
     ]);
-
     const result = await getAttendanceHistory("user-1");
-
     expect(result.summary.attended).toBe(1);
     expect(result.summary.total).toBe(2);
-    expect(result.records).toHaveLength(2);
+    expect(result.records[1].seminarStatus).toBe("passed");
+    expect(result.records[1].seminarEndTime).toBeTruthy();
+    expect(result.records[1].seminarResultFinalizedAt).toBeTruthy();
+  });
+
+  it("getAnnouncements returns list of ongoing/scheduled seminars", async () => {
+    mockCoreRepo.getAllAnnouncedSeminars.mockResolvedValue([makeSeminar({ id: "s1" })]);
+    mockPrisma.lecturer.findMany.mockResolvedValue([]);
+    const result = await getAnnouncements("user-1");
+    expect(result).toHaveLength(1);
   });
 });
