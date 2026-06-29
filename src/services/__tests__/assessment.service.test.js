@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = {
-  assessmentCriteria: { findMany: vi.fn() },
+  metopenAssessmentCriteria: { findMany: vi.fn() },
   // BR-20 v2.0: thesisSupervisors.findFirst dipakai oleh
   // `thesisHasActivePembimbing2` untuk menentukan apakah co-sign P2
   // diperlukan sebelum auto-finalize.
   thesisSupervisors: { findMany: vi.fn(), findFirst: vi.fn() },
-  thesisSupervisors: { findMany: vi.fn() },
   thesis: { findMany: vi.fn(), findUnique: vi.fn() },
   researchMethodScore: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
   researchMethodScoreDetail: { upsert: vi.fn(), deleteMany: vi.fn() },
@@ -90,7 +89,7 @@ describe("assessment.service — TA-03B active flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
-    prisma.assessmentCriteria.findMany.mockResolvedValue([
+    prisma.metopenAssessmentCriteria.findMany.mockResolvedValue([
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
@@ -791,7 +790,7 @@ describe("assessment.service — TA-03B active flow", () => {
         attendanceAutoZeroReason: expect.stringContaining("Presensi Metopel kurang dari 75%"),
       }),
     });
-    expect(prisma.assessmentCriteria.findMany).not.toHaveBeenCalled();
+    expect(prisma.metopenAssessmentCriteria.findMany).not.toHaveBeenCalled();
     expect(prisma.researchMethodScoreDetail.upsert).not.toHaveBeenCalled();
   });
 
@@ -973,7 +972,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
-    prisma.assessmentCriteria.findMany.mockResolvedValue([
+    prisma.metopenAssessmentCriteria.findMany.mockResolvedValue([
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
@@ -1093,7 +1092,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
-    prisma.assessmentCriteria.findMany.mockResolvedValue([
+    prisma.metopenAssessmentCriteria.findMany.mockResolvedValue([
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
@@ -1242,7 +1241,7 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
-    prisma.assessmentCriteria.findMany.mockResolvedValue([
+    prisma.metopenAssessmentCriteria.findMany.mockResolvedValue([
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);

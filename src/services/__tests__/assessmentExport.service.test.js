@@ -69,7 +69,7 @@ function detail({ score, cpmkCode, role, criteriaName = "Kriteria" }) {
       name: criteriaName,
       role,
       maxScore: score,
-      cpmk: { code: cpmkCode },
+      metopenCpmk: { code: cpmkCode },
     },
   };
 }

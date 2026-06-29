@@ -286,15 +286,15 @@ describe("metopenMonitoring.service — getMetopenMonitoring", () => {
         researchMethodScoreDetails: [
           {
             score: 18,
-            criteria: { id: "c1", role: "supervisor", maxScore: 20, cpmk: { code: "CPMK-01" } },
+            criteria: { id: "c1", role: "supervisor", maxScore: 20, metopenCpmk: { code: "CPMK-01" } },
           },
           {
             score: 35,
-            criteria: { id: "c2", role: "supervisor", maxScore: 40, cpmk: { code: "CPMK-02" } },
+            criteria: { id: "c2", role: "supervisor", maxScore: 40, metopenCpmk: { code: "CPMK-02" } },
           },
           {
             score: 12,
-            criteria: { id: "c3", role: "supervisor", maxScore: 15, cpmk: { code: "CPMK-03" } },
+            criteria: { id: "c3", role: "supervisor", maxScore: 15, metopenCpmk: { code: "CPMK-03" } },
           },
         ],
       }),
@@ -322,7 +322,7 @@ describe("metopenMonitoring.service — getMetopenMonitoring", () => {
         researchMethodScoreDetails: [
           {
             score: 20,
-            criteria: { id: "c4", role: "default", maxScore: 25, cpmk: { code: "CPMK-02" } },
+            criteria: { id: "c4", role: "default", maxScore: 25, metopenCpmk: { code: "CPMK-02" } },
           },
         ],
       }),

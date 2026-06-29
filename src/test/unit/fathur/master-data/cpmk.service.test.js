@@ -44,6 +44,17 @@ const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
       createMany: vi.fn(),
       deleteMany: vi.fn(),
     },
+    metopenCpmk: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      create: vi.fn(),
+    },
+    metopenAssessmentCriteria: {
+      create: vi.fn(),
+    },
+    metopenAssessmentRubric: {
+      createMany: vi.fn(),
+    },
   },
   mockGetActiveAcademicYearId: vi.fn(),
 }));
@@ -388,6 +399,8 @@ describe("CPMK Service", () => {
     mockTx.cpmk.create.mockResolvedValue({ id: "new-cpmk" });
     mockTx.assessmentCriteria.create.mockResolvedValue({ id: "new-cr-1" });
     mockTx.assessmentRubric.createMany.mockResolvedValue({ count: 1 });
+    mockTx.metopenCpmk.findMany.mockResolvedValue([]);
+    mockTx.metopenCpmk.count.mockResolvedValue(0);
 
     const result = await copyTemplateCpmk({
       sourceAcademicYearId: "ay-src",
