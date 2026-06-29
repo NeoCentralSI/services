@@ -67,7 +67,7 @@ export async function loginWithEmailPassword(email, password) {
 	const profile = await getUserProfile(user.id);
 
 	return {
-		user: { id: user.id, fullName: user.fullName, email: user.email, gender: user.gender ?? null, roles },
+		user: profile,
 		accessToken,
 		refreshToken,
 	};
