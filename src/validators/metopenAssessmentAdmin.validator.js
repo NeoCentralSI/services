@@ -3,12 +3,11 @@ import { z } from "zod";
 const assessmentRoleSchema = z.enum(["default", "supervisor"]);
 
 export const createCriteriaSchema = z.object({
-  cpmkId: z.string().uuid("CPMK tidak valid"),
+  metopenCpmkId: z.string().uuid("CPMK tidak valid"),
   name: z.string().min(1, "Nama kriteria wajib diisi").max(255, "Nama kriteria maksimal 255 karakter"),
   role: assessmentRoleSchema,
   maxScore: z.number().int().min(0, "Skor maksimal minimal 0").max(100, "Skor maksimal terlalu besar"),
   displayOrder: z.number().int().min(0).optional(),
-  isActive: z.boolean().optional(),
 });
 
 export const updateCriteriaSchema = createCriteriaSchema.partial();
@@ -55,4 +54,10 @@ export const reorderRubricsSchema = z.object({
   orderedIds: z
     .array(z.string().uuid("ID tidak valid"))
     .min(1, "Minimal 1 item"),
+});
+
+export const createMetopenCpmkSchema = z.object({
+  code: z.string().min(1, "Kode CPMK wajib diisi").max(50, "Kode CPMK maksimal 50 karakter"),
+  description: z.string().min(1, "Deskripsi CPMK wajib diisi").max(255, "Deskripsi CPMK maksimal 255 karakter"),
+  academicYearId: z.string().uuid("Tahun akademik tidak valid").optional(),
 });

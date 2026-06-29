@@ -83,7 +83,7 @@ export function findResearchMethodScoresForStudentExport(studentIds, client = pr
               name: true,
               role: true,
               maxScore: true,
-              cpmk: { select: { code: true } },
+              metopenCpmk: { select: { code: true } },
             },
           },
         },

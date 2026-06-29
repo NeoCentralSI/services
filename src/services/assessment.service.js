@@ -5,7 +5,6 @@ import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import { syncKadepProposalQueueByThesisId } from "./metopen.service.js";
 import { assertAttendanceEligibleForManualReview } from "./metopenAttendance.service.js";
 
-const RESEARCH_METHOD_APPLIES_TO = ["proposal", "metopen"];
 const FORM_CONFIG = {
   "TA-03A": { role: "supervisor", cap: 75 },
   "TA-03B": { role: "default", cap: 25 },
@@ -31,21 +30,16 @@ function normalizeScoreValue(value, criteriaName) {
 }
 
 async function getResearchMethodCriteriaByRole(role) {
-  return prisma.assessmentCriteria.findMany({
+  return prisma.metopenAssessmentCriteria.findMany({
     where: {
-      appliesTo: { in: RESEARCH_METHOD_APPLIES_TO },
       role,
-      isActive: true,
-      isDeleted: false,
-      cpmk: { type: "research_method" },
     },
     select: {
       id: true,
       name: true,
       maxScore: true,
       displayOrder: true,
-      assessmentRubrics: {
-        where: { isDeleted: false },
+      metopenAssessmentRubrics: {
         select: {
           id: true,
           minScore: true,
@@ -86,7 +80,7 @@ async function validateResearchMethodScores(formCode, scores) {
     }
 
     const rubricId = item.rubricId ? String(item.rubricId).trim() : null;
-    const rubrics = criteriaItem.assessmentRubrics ?? [];
+    const rubrics = criteriaItem.metopenAssessmentRubrics ?? [];
     let selectedRubricId = null;
 
     if (rubricId) {
@@ -239,18 +233,13 @@ function resolveSupervisorActionStatus(score, isP1) {
 export async function getCriteriaByFormCode(formCode) {
   const { role: roleFilter } = getFormConfig(formCode);
 
-  const criteria = await prisma.assessmentCriteria.findMany({
+  const criteria = await prisma.metopenAssessmentCriteria.findMany({
     where: {
-      appliesTo: { in: RESEARCH_METHOD_APPLIES_TO },
       role: roleFilter,
-      isActive: true,
-      isDeleted: false,
-      cpmk: { type: "research_method" },
     },
     include: {
-      cpmk: { select: { id: true, code: true, description: true } },
-      assessmentRubrics: {
-        where: { isDeleted: false },
+      metopenCpmk: { select: { id: true, code: true, description: true } },
+      metopenAssessmentRubrics: {
         orderBy: { displayOrder: "asc" },
       },
     },
@@ -628,11 +617,9 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
         create: {
           researchMethodScoreId: nextScoreRecord.id,
           assessmentCriteriaId: s.criteriaId,
-          assessmentRubricId: s.rubricId,
           score: s.score,
         },
         update: {
-          assessmentRubricId: s.rubricId,
           score: s.score,
         },
       });
@@ -1082,11 +1069,9 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
         create: {
           researchMethodScoreId: nextScoreRecord.id,
           assessmentCriteriaId: s.criteriaId,
-          assessmentRubricId: s.rubricId,
           score: s.score,
         },
         update: {
-          assessmentRubricId: s.rubricId,
           score: s.score,
         },
       });
@@ -1186,10 +1171,9 @@ async function getScoreRecordWithDetails(thesisId) {
     include: {
       researchMethodScoreDetails: {
         include: {
-          assessmentRubric: true,
           criteria: {
             include: {
-              cpmk: { select: { code: true, description: true } },
+              metopenCpmk: { select: { code: true, description: true } },
             },
           },
         },

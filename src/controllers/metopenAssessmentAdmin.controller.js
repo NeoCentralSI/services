@@ -107,6 +107,24 @@ export async function getCpmksWithRubrics(req, res, next) {
   }
 }
 
+export async function listAllMetopenCpmks(req, res, next) {
+  try {
+    const data = await service.listAllMetopenCpmks(req.query.academicYearId || null);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createMetopenCpmk(req, res, next) {
+  try {
+    const data = await service.createMetopenCpmk(req.validated ?? req.body);
+    res.status(201).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function removeCpmkConfig(req, res, next) {
   try {
     const { cpmkId } = req.params;

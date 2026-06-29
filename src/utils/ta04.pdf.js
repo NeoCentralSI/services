@@ -13,9 +13,11 @@ const TEMPLATE_PATH = join(
   "TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf",
 );
 
-const ROWS_PER_TABLE_PAGE = 7;
+const ROWS_PER_FIRST_PAGE = 7;
+const ROWS_PER_CONTINUATION_PAGE = 10;
 const COLOR_WHITE = rgb(1, 1, 1);
 const COLOR_BLACK = rgb(0, 0, 0);
+const LINE_THIN = 0.75;
 
 // Coordinates measured from the official TA-04 PDF using PyMuPDF.
 // They use the template's native top-left coordinate system and are converted
@@ -23,10 +25,6 @@ const COLOR_BLACK = rgb(0, 0, 0);
 const TA04_COORDS = {
   page1: {
     semesterTailBox: { x0: 321.8, y0: 214.8, x1: 542.6, y1: 231.2 },
-    continuationMasks: [
-      { x0: 72.0, y0: 157.0, x1: 541.0, y1: 286.5 }, // title + intro
-      { x0: 72.0, y0: 620.0, x1: 543.0, y1: 820.0 }, // B. Ketentuan + footer content
-    ],
     columns: {
       no: { x0: 72.5, y0: 358.8, x1: 103.2, y1: 590.6, align: "center" },
       name: { x0: 103.7, y0: 358.8, x1: 215.7, y1: 590.6, align: "left" },
@@ -44,11 +42,29 @@ const TA04_COORDS = {
       { y0: 558.0, y1: 590.6 },
     ],
   },
-  page2: {
-    dateBox: { x0: 432.0, y0: 248.5, x1: 543.2, y1: 264.8 },
-    nameBox: { x0: 360.0, y0: 344.8, x1: 541.0, y1: 361.5 },
-    nipBox: { x0: 393.0, y0: 366.0, x1: 541.0, y1: 382.5 },
+};
+
+const CONTINUATION_PAGE = {
+  titleBox: { x0: 72.5, y0: 72.0, x1: 540.0, y1: 96.0 },
+  tableTop: 118.0,
+  headerHeight: 38.0,
+  rowHeight: 54.0,
+  columns: {
+    no: { x0: 72.5, x1: 103.2, align: "center" },
+    name: { x0: 103.7, x1: 215.7, align: "left" },
+    nim: { x0: 216.2, x1: 292.2, align: "center" },
+    title: { x0: 292.8, x1: 446.1, align: "left" },
+    supervisor: { x0: 446.6, x1: 539.6, align: "left" },
   },
+};
+
+const SIGNATURE_PAGE = {
+  ketentuanBulletBox: { x0: 108.0, y0: 72.0, x1: 540.0, y1: 130.0 },
+  pengesahanTitleBox: { x0: 72.5, y0: 160.0, x1: 540.0, y1: 184.0 },
+  dateBox: { x0: 310.0, y0: 222.0, x1: 540.0, y1: 240.0 },
+  roleBox: { x0: 310.0, y0: 254.0, x1: 540.0, y1: 274.0 },
+  nameBox: { x0: 310.0, y0: 364.0, x1: 540.0, y1: 396.0 },
+  nipBox: { x0: 310.0, y0: 406.0, x1: 540.0, y1: 424.0 },
 };
 
 let templateBytesCache = null;
@@ -62,6 +78,29 @@ async function loadTemplateBytes() {
 
 function topToBottomY(pageHeight, topY, fontSize) {
   return pageHeight - topY - fontSize;
+}
+
+function topToPdfY(page, topY) {
+  return page.getHeight() - topY;
+}
+
+function drawLineTop(page, x1, y1, x2, y2, thickness = LINE_THIN) {
+  page.drawLine({
+    start: { x: x1, y: topToPdfY(page, y1) },
+    end: { x: x2, y: topToPdfY(page, y2) },
+    thickness,
+    color: COLOR_BLACK,
+  });
+}
+
+function drawTextAtTop(page, text, x, topY, font, size, options = {}) {
+  page.drawText(String(text ?? ""), {
+    x,
+    y: topToBottomY(page.getHeight(), topY, size),
+    size,
+    font,
+    color: options.color ?? COLOR_BLACK,
+  });
 }
 
 function drawWhiteMask(page, box, padding = {}) {
@@ -229,16 +268,19 @@ function getRowCellBox(column, row, innerPadding = 2) {
   };
 }
 
+function getContinuationCellBox(column, row, innerPadding = 2) {
+  return {
+    x0: column.x0 + innerPadding,
+    y0: row.y0 + innerPadding,
+    x1: column.x1 - innerPadding,
+    y1: row.y1 - innerPadding,
+  };
+}
+
 async function copyTemplatePage(outputDoc, templateDoc, pageIndex) {
   const [page] = await outputDoc.copyPages(templateDoc, [pageIndex]);
   outputDoc.addPage(page);
   return page;
-}
-
-function applyContinuationMasks(page) {
-  for (const mask of TA04_COORDS.page1.continuationMasks) {
-    drawWhiteMask(page, mask);
-  }
 }
 
 function drawRowNumber(page, rowIndex, globalRowNumber, font) {
@@ -246,9 +288,8 @@ function drawRowNumber(page, rowIndex, globalRowNumber, font) {
   const noColumn = TA04_COORDS.page1.columns.no;
   const box = getRowCellBox(noColumn, row, 4);
 
-  // On continuation pages the base template still contains 1..7,
-  // so we must always mask and redraw them. On page 1 this redraws the same
-  // numbers for consistency and alignment.
+  // The official template already contains static 1..7 row numbers, so mask
+  // and redraw them to keep generated text aligned with row content.
   drawTextInBox(page, String(globalRowNumber), box, font, {
     align: "center",
     mask: true,
@@ -312,23 +353,19 @@ function drawEntryCells(page, rowIndex, entry, font) {
   });
 }
 
-function overlayPageOne(page, entries, startIndex, semester, font, isContinuation = false) {
-  if (!isContinuation) {
-    drawTextInBox(page, `semester ${semester}, maka melalui formulir`, TA04_COORDS.page1.semesterTailBox, font, {
-      align: "left",
-      textPaddingX: 0,
-      textPaddingY: 2,
-      maxSize: 10.75,
-      minSize: 10.75,
-      maxLines: 1,
-      lineHeightMultiplier: 1.0,
-      maskPadding: { left: 1, right: 2, top: 1, bottom: 1 },
-    });
-  } else {
-    applyContinuationMasks(page);
-  }
+function overlayPageOne(page, entries, startIndex, semester, font) {
+  drawTextInBox(page, `semester ${semester}, maka melalui formulir`, TA04_COORDS.page1.semesterTailBox, font, {
+    align: "left",
+    textPaddingX: 0,
+    textPaddingY: 2,
+    maxSize: 10.75,
+    minSize: 10.75,
+    maxLines: 1,
+    lineHeightMultiplier: 1.0,
+    maskPadding: { left: 1, right: 2, top: 1, bottom: 1 },
+  });
 
-  for (let rowIndex = 0; rowIndex < ROWS_PER_TABLE_PAGE; rowIndex += 1) {
+  for (let rowIndex = 0; rowIndex < ROWS_PER_FIRST_PAGE; rowIndex += 1) {
     const globalRowNumber = startIndex + rowIndex + 1;
     const entry = entries[rowIndex];
     drawRowNumber(page, rowIndex, entry ? globalRowNumber : "", font);
@@ -337,38 +374,229 @@ function overlayPageOne(page, entries, startIndex, semester, font, isContinuatio
   }
 }
 
-function overlayPageTwo(page, dateGenerated, kadepName, kadepNip, regularFont, boldFont) {
-  drawTextInBox(page, dateGenerated, TA04_COORDS.page2.dateBox, regularFont, {
-    align: "left",
+function buildContinuationRows(rowCount) {
+  return Array.from({ length: rowCount }, (_, index) => {
+    const y0 = CONTINUATION_PAGE.tableTop + CONTINUATION_PAGE.headerHeight + (index * CONTINUATION_PAGE.rowHeight);
+    return { y0, y1: y0 + CONTINUATION_PAGE.rowHeight };
+  });
+}
+
+function drawTableGrid(page, rows) {
+  const { columns, tableTop, headerHeight } = CONTINUATION_PAGE;
+  const x0 = columns.no.x0;
+  const x1 = columns.supervisor.x1;
+  const tableBottom = rows.length > 0 ? rows[rows.length - 1].y1 : tableTop + headerHeight;
+  const columnEdges = [
+    columns.no.x0,
+    columns.no.x1,
+    columns.name.x1,
+    columns.nim.x1,
+    columns.title.x1,
+    columns.supervisor.x1,
+  ];
+
+  drawLineTop(page, x0, tableTop, x1, tableTop);
+  drawLineTop(page, x0, tableTop + headerHeight, x1, tableTop + headerHeight);
+  for (const row of rows) {
+    drawLineTop(page, x0, row.y1, x1, row.y1);
+  }
+  for (const edge of columnEdges) {
+    drawLineTop(page, edge, tableTop, edge, tableBottom);
+  }
+}
+
+function drawContinuationHeader(page, boldFont) {
+  const { columns, tableTop, headerHeight } = CONTINUATION_PAGE;
+  const headerRow = { y0: tableTop, y1: tableTop + headerHeight };
+  const cells = [
+    [columns.no, "No."],
+    [columns.name, "Nama Mahasiswa"],
+    [columns.nim, "NIM"],
+    [columns.title, "Judul Tugas Akhir"],
+    [columns.supervisor, "Nama Dosen Pembimbing"],
+  ];
+
+  for (const [column, label] of cells) {
+    drawTextInBox(page, label, getContinuationCellBox(column, headerRow, 3), boldFont, {
+      align: "center",
+      mask: false,
+      textPaddingX: 2,
+      textPaddingY: 2,
+      maxSize: 12,
+      minSize: 9,
+      lineHeightMultiplier: 1.0,
+      verticalAlign: "middle",
+    });
+  }
+}
+
+function drawContinuationRow(page, row, entry, globalRowNumber, font) {
+  const { columns } = CONTINUATION_PAGE;
+  drawTextInBox(page, String(globalRowNumber), getContinuationCellBox(columns.no, row, 4), font, {
+    align: "center",
+    mask: false,
     textPaddingX: 2,
-    textPaddingY: 2,
+    textPaddingY: 4,
+    maxSize: 11,
+    minSize: 10,
+    maxLines: 1,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
+  });
+
+  drawTextInBox(page, entry.studentName, getContinuationCellBox(columns.name, row), font, {
+    align: "left",
+    mask: false,
+    textPaddingX: 5,
+    textPaddingY: 4,
+    maxSize: 10,
+    minSize: 8,
+    maxLines: 4,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
+  });
+
+  drawTextInBox(page, entry.nim, getContinuationCellBox(columns.nim, row), font, {
+    align: "center",
+    mask: false,
+    textPaddingX: 2,
+    textPaddingY: 4,
+    maxSize: 10,
+    minSize: 9,
+    maxLines: 1,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
+  });
+
+  drawTextInBox(page, entry.title, getContinuationCellBox(columns.title, row), font, {
+    align: "left",
+    mask: false,
+    textPaddingX: 4,
+    textPaddingY: 4,
+    maxSize: 9,
+    minSize: 7,
+    maxLines: 5,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
+  });
+
+  drawTextInBox(page, entry.supervisorName, getContinuationCellBox(columns.supervisor, row), font, {
+    align: "left",
+    mask: false,
+    textPaddingX: 4,
+    textPaddingY: 4,
+    maxSize: 9,
+    minSize: 7,
+    maxLines: 5,
+    lineHeightMultiplier: 1.0,
+    verticalAlign: "middle",
+  });
+}
+
+function addBlankPageLike(outputDoc, templateDoc) {
+  const templatePage = templateDoc.getPage(0);
+  return outputDoc.addPage([templatePage.getWidth(), templatePage.getHeight()]);
+}
+
+function drawContinuationPage(page, entries, startIndex, regularFont, boldFont) {
+  drawTextInBox(
+    page,
+    "A. Data Penugasan Dosen Pembimbing Tugas Akhir (lanjutan)",
+    CONTINUATION_PAGE.titleBox,
+    boldFont,
+    {
+      align: "left",
+      mask: false,
+      textPaddingX: 0,
+      textPaddingY: 0,
+      maxSize: 14,
+      minSize: 12,
+      maxLines: 1,
+      lineHeightMultiplier: 1.0,
+    },
+  );
+
+  const rows = buildContinuationRows(Math.max(1, entries.length));
+  drawTableGrid(page, rows);
+  drawContinuationHeader(page, boldFont);
+
+  entries.forEach((entry, index) => {
+    drawContinuationRow(page, rows[index], entry, startIndex + index + 1, regularFont);
+  });
+}
+
+function drawSignaturePage(page, dateGenerated, kadepName, kadepNip, regularFont, boldFont) {
+  drawTextAtTop(page, "\u2022", 90.0, 76.0, regularFont, 13);
+  drawTextInBox(
+    page,
+    "Perubahan dosen pembimbing hanya dapat dilakukan melalui prosedur resmi dan disetujui oleh Ketua Departemen.",
+    SIGNATURE_PAGE.ketentuanBulletBox,
+    regularFont,
+    {
+      align: "left",
+      mask: false,
+      textPaddingX: 0,
+      textPaddingY: 0,
+      maxSize: 13,
+      minSize: 11,
+      lineHeightMultiplier: 1.25,
+    },
+  );
+
+  drawTextInBox(page, "C. Pengesahan", SIGNATURE_PAGE.pengesahanTitleBox, boldFont, {
+    align: "left",
+    mask: false,
+    textPaddingX: 0,
+    textPaddingY: 0,
+    maxSize: 14,
+    minSize: 12,
+    maxLines: 1,
+    lineHeightMultiplier: 1.0,
+  });
+
+  drawTextInBox(page, `Padang, ${dateGenerated}`, SIGNATURE_PAGE.dateBox, regularFont, {
+    align: "center",
+    mask: false,
+    textPaddingX: 0,
+    textPaddingY: 0,
     maxSize: 12,
     minSize: 10,
     maxLines: 1,
     lineHeightMultiplier: 1.0,
-    maskPadding: { left: 1, right: 2, top: 1, bottom: 1 },
   });
 
-  drawTextInBox(page, kadepName, TA04_COORDS.page2.nameBox, boldFont, {
-    align: "left",
-    textPaddingX: 2,
-    textPaddingY: 2,
+  drawTextInBox(page, "Ketua Departemen Sistem Informasi,", SIGNATURE_PAGE.roleBox, regularFont, {
+    align: "center",
+    mask: false,
+    textPaddingX: 0,
+    textPaddingY: 0,
+    maxSize: 12,
+    minSize: 10,
+    maxLines: 1,
+    lineHeightMultiplier: 1.0,
+  });
+
+  drawTextInBox(page, kadepName, SIGNATURE_PAGE.nameBox, boldFont, {
+    align: "center",
+    mask: false,
+    textPaddingX: 0,
+    textPaddingY: 0,
     maxSize: 11,
     minSize: 8,
-    maxLines: 1,
+    maxLines: 2,
     lineHeightMultiplier: 1.0,
-    maskPadding: { left: 1, right: 2, top: 1, bottom: 1 },
+    verticalAlign: "middle",
   });
 
-  drawTextInBox(page, kadepNip, TA04_COORDS.page2.nipBox, regularFont, {
-    align: "left",
-    textPaddingX: 2,
-    textPaddingY: 2,
+  drawTextInBox(page, `NIP: ${kadepNip}`, SIGNATURE_PAGE.nipBox, regularFont, {
+    align: "center",
+    mask: false,
+    textPaddingX: 0,
+    textPaddingY: 0,
     maxSize: 12,
     minSize: 10,
     maxLines: 1,
     lineHeightMultiplier: 1.0,
-    maskPadding: { left: 1, right: 2, top: 1, bottom: 1 },
   });
 }
 
@@ -377,13 +605,12 @@ function overlayPageTwo(page, dateGenerated, kadepName, kadepNip, regularFont, b
  *
  * For <= 7 rows:
  * - page 1 = official TA-04 page 1 with row data
- * - page 2 = official TA-04 page 2 with signature data
+ * - page 2 = content-only ketentuan/pengesahan page
  *
  * For > 7 rows:
  * - page 1 = official TA-04 page 1 with rows 1..7
- * - page 2..n = cloned page 1 with title/intro/ketentuan masked, used as
- *   continuation table pages for rows 8+
- * - last page = official TA-04 page 2
+ * - page 2..n = content-only continuation table pages for rows 8+
+ * - last page = content-only ketentuan/pengesahan page
  *
  * @param {Object} opts
  * @param {string} opts.semester
@@ -409,24 +636,24 @@ export async function generateTA04Pdf(opts) {
   const regularFont = await outputDoc.embedFont(StandardFonts.TimesRoman);
   const boldFont = await outputDoc.embedFont(StandardFonts.TimesRomanBold);
 
-  const pageOneEntries = entries.slice(0, ROWS_PER_TABLE_PAGE);
+  const pageOneEntries = entries.slice(0, ROWS_PER_FIRST_PAGE);
   const continuationChunks = [];
-  for (let i = ROWS_PER_TABLE_PAGE; i < entries.length; i += ROWS_PER_TABLE_PAGE) {
-    continuationChunks.push(entries.slice(i, i + ROWS_PER_TABLE_PAGE));
+  for (let i = ROWS_PER_FIRST_PAGE; i < entries.length; i += ROWS_PER_CONTINUATION_PAGE) {
+    continuationChunks.push(entries.slice(i, i + ROWS_PER_CONTINUATION_PAGE));
   }
 
   const officialPage1 = await copyTemplatePage(outputDoc, templateDoc, 0);
-  overlayPageOne(officialPage1, pageOneEntries, 0, semester, regularFont, false);
+  overlayPageOne(officialPage1, pageOneEntries, 0, semester, regularFont);
 
-  let continuationStart = ROWS_PER_TABLE_PAGE;
+  let continuationStart = ROWS_PER_FIRST_PAGE;
   for (const chunk of continuationChunks) {
-    const continuationPage = await copyTemplatePage(outputDoc, templateDoc, 0);
-    overlayPageOne(continuationPage, chunk, continuationStart, semester, regularFont, true);
-    continuationStart += ROWS_PER_TABLE_PAGE;
+    const continuationPage = addBlankPageLike(outputDoc, templateDoc);
+    drawContinuationPage(continuationPage, chunk, continuationStart, regularFont, boldFont);
+    continuationStart += ROWS_PER_CONTINUATION_PAGE;
   }
 
-  const officialPage2 = await copyTemplatePage(outputDoc, templateDoc, 1);
-  overlayPageTwo(officialPage2, dateGenerated, kadepName, kadepNip, regularFont, boldFont);
+  const signaturePage = addBlankPageLike(outputDoc, templateDoc);
+  drawSignaturePage(signaturePage, dateGenerated, kadepName, kadepNip, regularFont, boldFont);
 
   const pdfBytes = await outputDoc.save();
   return Buffer.from(pdfBytes);

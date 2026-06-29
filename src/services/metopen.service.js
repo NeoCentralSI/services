@@ -1420,10 +1420,9 @@ export async function getStudentArchiveDetail(userId) {
     include: {
       researchMethodScoreDetails: {
         include: {
-          assessmentRubric: true,
           criteria: {
             include: {
-              cpmk: { select: { code: true, description: true, type: true } },
+              metopenCpmk: { select: { code: true, description: true } },
             },
           },
         },

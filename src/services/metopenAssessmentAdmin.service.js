@@ -1,12 +1,8 @@
-import {
-  BadRequestError,
-  NotFoundError,
-} from "../utils/errors.js";
+import { BadRequestError, NotFoundError } from "../utils/errors.js";
 import * as repo from "../repositories/metopenAssessmentAdmin.repository.js";
 
 const METOPEN_SCORE_CAP = { supervisor: 75, default: 25 };
-const RESEARCH_METHOD_APPLIES_TO = new Set(["proposal", "metopen"]);
-const SEMANTIC_CRITERIA_FIELDS = new Set(["cpmkId", "name", "role", "maxScore"]);
+const SEMANTIC_CRITERIA_FIELDS = new Set(["metopenCpmkId", "name", "role", "maxScore"]);
 
 function hasSemanticCriteriaChange(payload) {
   return Object.keys(payload).some((key) => SEMANTIC_CRITERIA_FIELDS.has(key));
@@ -39,30 +35,19 @@ function assertRubricRange(criteria, rubrics, minScore, maxScore, excludeRubricI
   }
 }
 
-async function ensureResearchMethodCpmk(cpmkId) {
+async function ensureMetopenCpmk(cpmkId) {
   const cpmk = await repo.findCpmkById(cpmkId);
-
   if (!cpmk) {
     throw new NotFoundError("CPMK tidak ditemukan");
   }
-
-  if (cpmk.type !== "research_method") {
-    throw new BadRequestError("CPMK yang dipilih bukan CPMK Metode Penelitian (research_method)");
-  }
-
   return cpmk;
 }
 
 async function ensureMetopenCriteria(criteriaId) {
   const criteria = await repo.findCriteriaById(criteriaId);
-  if (!criteria || criteria.isDeleted) {
+  if (!criteria) {
     throw new NotFoundError("Kriteria penilaian tidak ditemukan");
   }
-
-  if (!RESEARCH_METHOD_APPLIES_TO.has(criteria.appliesTo)) {
-    throw new BadRequestError("Kriteria ini bukan bagian dari penilaian proposal/TA-03 Metode Penelitian");
-  }
-
   return criteria;
 }
 
@@ -75,7 +60,7 @@ export async function getCriteria(id) {
 }
 
 export async function createCriteria(payload) {
-  await ensureResearchMethodCpmk(payload.cpmkId);
+  await ensureMetopenCpmk(payload.metopenCpmkId);
 
   const cap = METOPEN_SCORE_CAP[payload.role];
   if (cap != null) {
@@ -92,13 +77,11 @@ export async function createCriteria(payload) {
     payload.displayOrder ?? (await repo.getNextCriteriaDisplayOrder(payload.role));
 
   return repo.createCriteria({
-    cpmkId: payload.cpmkId,
+    metopenCpmkId: payload.metopenCpmkId,
     name: payload.name,
-    appliesTo: "proposal",
     role: payload.role,
     maxScore: payload.maxScore,
     displayOrder,
-    isActive: payload.isActive ?? true,
   });
 }
 
@@ -114,8 +97,8 @@ export async function updateCriteria(id, payload) {
     }
   }
 
-  if (payload.cpmkId) {
-    await ensureResearchMethodCpmk(payload.cpmkId);
+  if (payload.metopenCpmkId) {
+    await ensureMetopenCpmk(payload.metopenCpmkId);
   }
 
   if (payload.maxScore !== undefined || payload.role !== undefined) {
@@ -133,15 +116,7 @@ export async function updateCriteria(id, payload) {
     }
   }
 
-  return repo.updateCriteria(id, {
-    ...(payload.cpmkId !== undefined ? { cpmkId: payload.cpmkId } : {}),
-    ...(payload.name !== undefined ? { name: payload.name } : {}),
-    ...(payload.role !== undefined ? { role: payload.role } : {}),
-    ...(payload.maxScore !== undefined ? { maxScore: payload.maxScore } : {}),
-    ...(payload.displayOrder !== undefined ? { displayOrder: payload.displayOrder } : {}),
-    ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
-    appliesTo: existing.appliesTo,
-  });
+  return repo.updateCriteria(id, payload);
 }
 
 export async function deleteCriteria(id) {
@@ -152,7 +127,7 @@ export async function deleteCriteria(id) {
       "Kriteria tidak dapat dihapus karena sudah digunakan pada data penilaian Metode Penelitian",
     );
   }
-  return repo.softDeleteCriteria(id);
+  return repo.deleteCriteria(id);
 }
 
 export async function listRubrics(criteriaId) {
@@ -170,7 +145,7 @@ export async function createRubric(criteriaId, payload) {
     (await repo.getNextRubricDisplayOrder(criteriaId));
 
   return repo.createRubric({
-    assessmentCriteriaId: criteriaId,
+    metopenAssessmentCriteriaId: criteriaId,
     minScore: payload.minScore,
     maxScore: payload.maxScore,
     description: payload.description,
@@ -180,33 +155,22 @@ export async function createRubric(criteriaId, payload) {
 
 export async function updateRubric(id, payload) {
   const existing = await repo.findRubricById(id);
-  if (!existing || existing.isDeleted) {
+  if (!existing) {
     throw new NotFoundError("Rubrik penilaian tidak ditemukan");
   }
-  const hasData = await repo.rubricHasAssessmentData(id);
-  if (hasData) {
-    throw new BadRequestError(
-      "Rubrik tidak dapat diubah karena sudah digunakan pada data penilaian Metode Penelitian",
-    );
-  }
 
-  const criteria = await ensureMetopenCriteria(existing.assessmentCriteriaId);
+  const criteria = await ensureMetopenCriteria(existing.metopenAssessmentCriteriaId);
   const minScore = payload.minScore ?? existing.minScore;
   const maxScore = payload.maxScore ?? existing.maxScore;
-  const rubrics = await repo.findRubricsByCriteria(existing.assessmentCriteriaId);
+  const rubrics = await repo.findRubricsByCriteria(existing.metopenAssessmentCriteriaId);
   assertRubricRange(criteria, rubrics, minScore, maxScore, id);
 
-  return repo.updateRubric(id, {
-    ...(payload.minScore !== undefined ? { minScore: payload.minScore } : {}),
-    ...(payload.maxScore !== undefined ? { maxScore: payload.maxScore } : {}),
-    ...(payload.description !== undefined ? { description: payload.description } : {}),
-    ...(payload.displayOrder !== undefined ? { displayOrder: payload.displayOrder } : {}),
-  });
+  return repo.updateRubric(id, payload);
 }
 
 export async function deleteRubric(id) {
   const existing = await repo.findRubricById(id);
-  if (!existing || existing.isDeleted) {
+  if (!existing) {
     throw new NotFoundError("Rubrik penilaian tidak ditemukan");
   }
   const hasData = await repo.rubricHasAssessmentData(id);
@@ -216,15 +180,31 @@ export async function deleteRubric(id) {
     );
   }
 
-  return repo.softDeleteRubric(id);
+  return repo.deleteRubric(id);
 }
 
 export async function getCpmksWithRubrics(role = null) {
   return repo.findConfiguredMetopenCpmks(role);
 }
 
+export async function listAllMetopenCpmks(academicYearId = null) {
+  return repo.findAllMetopenCpmks(academicYearId);
+}
+
+export async function createMetopenCpmk(payload) {
+  const existing = await repo.findMetopenCpmkByCode(payload.code, payload.academicYearId || null);
+  if (existing) {
+    throw new BadRequestError(`CPMK dengan kode '${payload.code}' sudah ada`);
+  }
+  return repo.createMetopenCpmk({
+    code: payload.code,
+    description: payload.description,
+    academicYearId: payload.academicYearId || null,
+  });
+}
+
 export async function removeCpmkConfig(cpmkId, role) {
-  await ensureResearchMethodCpmk(cpmkId);
+  await ensureMetopenCpmk(cpmkId);
 
   const criteriaRows = await repo.findMetopenCriteriaByCpmk(cpmkId, role);
   for (const criteria of criteriaRows) {

@@ -42,7 +42,7 @@ const FALLBACK_BUCKETS = () => ({
 });
 
 function classifyDetail(detail) {
-  const cpmkCode = String(detail?.criteria?.cpmk?.code ?? "");
+  const cpmkCode = String(detail?.criteria?.metopenCpmk?.code ?? "");
   const role = detail?.criteria?.role;
   for (const matcher of BUCKET_RESOLUTIONS) {
     if (role === matcher.role && cpmkCode.includes(matcher.codeSubstring)) {

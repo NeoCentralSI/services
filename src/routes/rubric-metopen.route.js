@@ -1,6 +1,8 @@
 import express from "express";
 import {
     getCpmksWithRubrics,
+    listAllMetopenCpmks,
+    createMetopenCpmk,
     createCriteria,
     updateCriteria,
     deleteCriteria,
@@ -21,6 +23,7 @@ import {
     updateRubricSchema,
     reorderCriteriaSchema,
     reorderRubricsSchema,
+    createMetopenCpmkSchema,
 } from "../validators/metopenAssessmentAdmin.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
@@ -31,6 +34,8 @@ router.use(authGuard);
 router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]));
 
 router.get("/cpmks", getCpmksWithRubrics);
+router.get("/cpmks/all", listAllMetopenCpmks);
+router.post("/cpmks", validate(createMetopenCpmkSchema), createMetopenCpmk);
 
 router.post("/criteria", validate(createCriteriaSchema), createCriteria);
 router.patch("/criteria/reorder", validate(reorderCriteriaSchema), reorderCriteria);

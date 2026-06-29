@@ -222,7 +222,7 @@ export function findResearchMethodScoresByStudentIds(studentIds, client = prisma
               name: true,
               role: true,
               maxScore: true,
-              cpmk: { select: { code: true } },
+              metopenCpmk: { select: { code: true } },
             },
           },
         },
