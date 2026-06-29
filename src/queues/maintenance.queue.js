@@ -36,35 +36,51 @@ const connection = { connection: buildRedisConnection(ENV.REDIS_URL) };
 
 export const MAINTENANCE_QUEUE = "maintenance";
 
+let queueReady = true;
+
 export const maintenanceQueue = new Queue(MAINTENANCE_QUEUE, {
   ...connection,
-  // global throughput limiter (optional)
   limiter: { max: 100, duration: 60_000 },
 });
 
+maintenanceQueue.on("error", (err) => {
+  if (!queueReady) return;
+  queueReady = false;
+  console.warn("⚠️  Maintenance queue unavailable (Redis/BullMQ init failed). Background jobs disabled. API server will continue normally.");
+  console.warn("   Cause:", err.message);
+  if (err.message.includes("Redis version")) {
+    console.warn("   Fix: upgrade Redis to >= 5.0 (recommended 7.x). Current Redis is too old for BullMQ.");
+  }
+});
+
+async function safeAdd(name, opts) {
+  if (!queueReady) {
+    console.warn(`⏭️  Skip scheduling ${name} (queue unavailable).`);
+    return false;
+  }
+  try {
+    await maintenanceQueue.add(name, {}, opts);
+    return true;
+  } catch (err) {
+    queueReady = false;
+    console.warn(`⚠️  Failed to schedule ${name} (non-fatal): ${err.message}`);
+    return false;
+  }
+}
+
 export async function scheduleDailyThesisStatus() {
-  // Add or update a repeatable job that runs on a cron schedule
-  // Default: once every 24 hours at 02:30 WIB. Override via ENV.THESIS_STATUS_CRON and ENV.THESIS_STATUS_TZ.
   const pattern = ENV.THESIS_STATUS_CRON || "30 2 * * *";
   const tz = ENV.THESIS_STATUS_TZ || "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "thesis-status",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable thesis-status job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("thesis-status", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable thesis-status job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "thesis-status");
     if (jobInfo) {
       const nextIso = jobInfo.next ? new Date(jobInfo.next).toISOString() : "unknown";
       const nextLocal = jobInfo.next ? new Date(jobInfo.next).toLocaleString() : "unknown";
-      // BullMQ v5 returns a `key` for repeatables; `id` may be undefined
       console.log(`📌 Repeat registered: next=${nextIso} (local ${nextLocal}) key=${jobInfo.key || "n/a"}`);
     }
   } catch (e) {
@@ -73,53 +89,30 @@ export async function scheduleDailyThesisStatus() {
 }
 
 export async function scheduleAcademicYearSync() {
-  const pattern = ENV.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *"; // Midnight + 1 hr
+  const pattern = ENV.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *";
   const tz = ENV.ACADEMIC_YEAR_SYNC_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "academic-year-sync",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("academic-year-sync", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
 }
 
-/**
- * Schedule automatic SIA sync job
- * Default: every 6 hours. Override via ENV.SIA_SYNC_CRON
- */
 export async function scheduleSiaSync() {
-  // Check if SIA sync cron is enabled
   if (ENV.ENABLE_SIA_CRON === false || ENV.ENABLE_SIA_CRON === "false") {
     console.log("⏸️  SIA sync cron is disabled (ENABLE_SIA_CRON=false)");
     return;
   }
-
-  // Default: every 6 hours at minute 0. Override via ENV.SIA_SYNC_CRON
   const pattern = ENV.SIA_SYNC_CRON || "0 */6 * * *";
   const tz = ENV.SIA_SYNC_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "sia-sync",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-      attempts: 3,
-      backoff: {
-        type: "exponential",
-        delay: 2000,
-      },
-    }
-  );
-  console.log(`🔄 Scheduled repeatable SIA sync job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("sia-sync", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 2000 },
+  });
+  if (ok) console.log(`🔄 Scheduled repeatable SIA sync job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "sia-sync");
     if (jobInfo) {
@@ -132,28 +125,14 @@ export async function scheduleSiaSync() {
   }
 }
 
-/**
- * Schedule daily guidance reminder job
- * Default: every day at 07:00 WIB. Override via ENV.GUIDANCE_REMINDER_CRON
- * Sends FCM notifications to students and lecturers who have guidance scheduled for today
- */
 export async function scheduleGuidanceReminder() {
-  // Default: every day at 07:00 WIB
   const pattern = ENV.GUIDANCE_REMINDER_CRON || "0 7 * * *";
   const tz = ENV.GUIDANCE_REMINDER_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "guidance-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-    }
-  );
-  console.log(`📅 Scheduled repeatable guidance reminder job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("guidance-reminder", { repeat: { pattern, tz }, removeOnComplete: 50, removeOnFail: 100 });
+  if (ok) console.log(`📅 Scheduled repeatable guidance reminder job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "guidance-reminder");
     if (jobInfo) {
@@ -166,28 +145,14 @@ export async function scheduleGuidanceReminder() {
   }
 }
 
-/**
- * Schedule daily thesis reminder job for all active thesis students
- * Default: every day at 09:00 WIB. Override via ENV.DAILY_THESIS_REMINDER_CRON
- * Sends FCM notifications to students who are currently working on their thesis
- */
 export async function scheduleDailyThesisReminder() {
-  // Default: every day at 09:00 WIB
   const pattern = ENV.DAILY_THESIS_REMINDER_CRON || "0 9 * * *";
   const tz = ENV.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "daily-thesis-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-    }
-  );
-  console.log(`🎓 Scheduled repeatable daily thesis reminder job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("daily-thesis-reminder", { repeat: { pattern, tz }, removeOnComplete: 50, removeOnFail: 100 });
+  if (ok) console.log(`🎓 Scheduled repeatable daily thesis reminder job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "daily-thesis-reminder");
     if (jobInfo) {
@@ -200,70 +165,30 @@ export async function scheduleDailyThesisReminder() {
   }
 }
 
-
 export async function scheduleDailyInternshipStatus() {
-  // Run daily at 00:00 WIB to enforce internship reporting/seminar deadlines
   const pattern = ENV.INTERNSHIP_STATUS_CRON || "0 0 * * *";
   const tz = ENV.INTERNSHIP_STATUS_TZ || "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "internship-status",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable internship-status job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("internship-status", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable internship-status job with cron: "${pattern}" tz="${tz}"`);
 }
 
-/**
- * Schedule internship seminar reminder job (every minute)
- */
 export async function scheduleInternshipSeminarReminder() {
-  const pattern = "* * * * *"; // Every minute
+  const pattern = "* * * * *";
   const tz = "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "internship-seminar-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable internship-seminar-reminder job with cron: "${pattern}"`);
+  const ok = await safeAdd("internship-seminar-reminder", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable internship-seminar-reminder job with cron: "${pattern}"`);
 }
 
-/**
- * Schedule internship logbook reminder job (16:00 and 17:00 WIB)
- */
 export async function scheduleInternshipLogbookReminder() {
-  const pattern = "0 16,17 * * *"; 
+  const pattern = "0 16,17 * * *";
   const tz = "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "internship-logbook-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("internship-logbook-reminder", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
 }
 
 async function scheduleRepeatableMaintenanceJob(name, pattern, tz = "Asia/Jakarta") {
-  await maintenanceQueue.add(
-    name,
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable ${name} job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd(name, { repeat: { pattern, tz }, removeOnComplete: 50, removeOnFail: 100 });
+  if (ok) console.log(`🗓️  Scheduled repeatable ${name} job with cron: "${pattern}" tz="${tz}"`);
 }
 
 export async function scheduleAcademicEventHMinusOneReminder() {
@@ -369,6 +294,11 @@ export const maintenanceWorker = new Worker(
   },
   { ...connection, concurrency: 1 }
 );
+
+maintenanceWorker.on("error", (err) => {
+  if (ENV.NODE_ENV === "test") return;
+  console.warn("⚠️  Maintenance worker error (non-fatal):", err.message);
+});
 
 maintenanceWorker.on("completed", (job) => {
   if (ENV.NODE_ENV !== "test") console.log(`🧹 Maintenance job done → ${job.name} (${job.id})`);
