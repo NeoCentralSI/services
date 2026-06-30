@@ -823,6 +823,7 @@ model ThesisSupervisors {
   thesisId                           String                  @map("thesis_id")
   lecturerId                         String                  @map("lecturer_id")
   roleId                             String                  @map("role_id")
+  status                             SupervisorStatus        @default(active)
   seminarReady                       Boolean                 @default(false) @map("seminar_ready")
   defenceReady                       Boolean                 @default(false) @map("defence_ready")
   createdAt                          DateTime                @default(now()) @map("created_at")
@@ -1477,6 +1478,7 @@ model Yudisium {
   status                YudisiumStatus @default(draft)
   decreeNumber          String?        @map("decree_number") @db.VarChar(255)
   decreeIssuedAt        DateTime?      @map("decree_issued_at")
+  appointedAt           DateTime?      @map("appointed_at")
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
 
