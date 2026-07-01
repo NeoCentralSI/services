@@ -1565,6 +1565,7 @@ model YudisiumParticipantRequirement {
   yudisiumRequirementItemId String               @map("yudisium_requirement_item_id") @db.VarChar(255)
   yudisiumId                String               @map("yudisium_id") @db.VarChar(255)
   verifiedBy                String?              @map("verified_by") @db.VarChar(255)
+  documentId                String?              @map("document_id") @db.VarChar(255)
   filePath                  String               @map("file_path") @db.VarChar(255)
   fileName                  String               @map("file_name") @db.VarChar(255)
   mimeType                  String               @map("mime_type") @db.VarChar(255)
@@ -1579,10 +1580,12 @@ model YudisiumParticipantRequirement {
   participant YudisiumParticipant     @relation(fields: [yudisiumParticipantId, yudisiumId], references: [id, yudisiumId], onDelete: Cascade)
   requirement YudisiumRequirementItem @relation(fields: [yudisiumRequirementItemId, yudisiumId], references: [id, yudisiumId])
   verifier    User?                   @relation("YudisiumReqVerifiedBy", fields: [verifiedBy], references: [id])
+  document    Document?               @relation("YudisiumParticipantRequirementDocument", fields: [documentId], references: [id], onDelete: SetNull)
 
   @@id([yudisiumParticipantId, yudisiumRequirementItemId, yudisiumId])
   @@index([yudisiumRequirementItemId, yudisiumId], map: "yudisium_participant_requirements_yudisium_requirement_id_fkey")
   @@index([verifiedBy], map: "yudisium_participant_requirements_verified_by_fkey")
+  @@index([documentId], map: "yudisium_participant_requirements_document_id_fkey")
   @@map("yudisium_participant_requirements")
 }
 
@@ -1717,7 +1720,8 @@ model Document {
   thesisChangeRequestSupportingDocs   ThesisChangeRequest[]            @relation("ChangeRequestSupportingDocument")
   thesisStudentInformalLogAttachments ThesisStudentInformalLog[]       @relation("ThesisInformalLogDocument")
   metopenAttendanceImports            MetopenAttendanceImport[]        @relation("MetopenAttendanceImportDocument")
-  ta04Batches                         Ta04Batch[]                      @relation("Ta04BatchDocument")
+  ta04Batches                       Ta04Batch[]                        @relation("Ta04BatchDocument")
+  yudisiumParticipantRequirements   YudisiumParticipantRequirement[]   @relation("YudisiumParticipantRequirementDocument")
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")
