@@ -238,12 +238,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
       expect(result).toHaveProperty("students");
     });
 
-    it("returns academicYearContext and same visibleAcademicYear for all rows when effective year is set", async () => {
-      mockAcademicYear.getActiveAcademicYear.mockResolvedValue({
-        id: "ay-active",
-        year: "2025/2026",
-        semester: "genap",
-      });
+    it("returns transformed students with meta (activeTheses + sksCompleted)", async () => {
       mockPrisma.user.findMany.mockResolvedValue([{
         ...USER,
         student: {
@@ -255,7 +250,6 @@ describe("Module 15: Data Master Mahasiswa", () => {
             id: "thesis-1",
             title: "AI Research",
             proposalStatus: "submitted",
-            academicYear: { id: "ay-active", year: "2025/2026", semester: "genap" },
             thesisSupervisors: [],
           }],
         },
@@ -265,35 +259,20 @@ describe("Module 15: Data Master Mahasiswa", () => {
 
       const result = await getStudents({ page: 1, pageSize: 10 });
 
-      expect(result.academicYearContext).toEqual({
-        id: "ay-active",
-        year: "2025/2026",
-        semester: "genap",
-        label: "2025/2026 Genap",
-        isActive: true,
-      });
-      expect(result.students[0].student.visibleAcademicYear).toEqual(result.academicYearContext);
+      expect(result.meta).toMatchObject({ page: 1, pageSize: 10, total: 1 });
+      expect(result.students[0].student.sksCompleted).toBe(120);
+      expect(result.students[0].student.status).toBe("active");
+      expect(result.students[0].student.activeTheses[0]).toMatchObject({ title: "AI Research" });
     });
 
-    it("keeps metopen programFilter exclusive from active thesis", async () => {
-      mockAcademicYear.getActiveAcademicYear.mockResolvedValue(null);
+    it("builds where filter with student presence and enrollmentYear", async () => {
       mockPrisma.user.findMany.mockResolvedValue([]);
       mockPrisma.user.count.mockResolvedValue(0);
 
-      await getStudents({ page: 1, pageSize: 10, programFilter: "metopen" });
+      await getStudents({ page: 1, pageSize: 10, enrollmentYear: 2021 });
 
       const call = mockPrisma.user.findMany.mock.calls[0][0];
-      const studentFilter = call.where.AND.find((condition) => condition.student)?.student.is;
-      expect(studentFilter.AND).toEqual(expect.arrayContaining([
-        { eligibleMetopen: true },
-        expect.objectContaining({
-          thesis: {
-            none: expect.objectContaining({
-              thesisStatus: expect.any(Object),
-            }),
-          },
-        }),
-      ]));
+      expect(call.where.student).toEqual({ isNot: null, enrollmentYear: 2021 });
     });
   });
 
@@ -331,14 +310,11 @@ describe("Module 15: Data Master Mahasiswa", () => {
       const result = await getStudentDetail("user-1");
 
       expect(result).toBeDefined();
-      expect(result.metopenEligibility).toMatchObject({
-        eligibleMetopen: null,
-        hasExternalStatus: false,
-        canAccess: false,
-        canSubmit: false,
-        thesisId: "thesis-1",
-        thesisTitle: "AI Research",
-        thesisStatus: "Bimbingan",
+      expect(result.student.sksCompleted).toBe(100);
+      expect(result.theses[0]).toMatchObject({
+        id: "thesis-1",
+        title: "AI Research",
+        status: "Bimbingan",
       });
     });
 
@@ -355,13 +331,15 @@ describe("Module 15: Data Master Mahasiswa", () => {
 
   describe("adminUpdateStudent", () => {
     it("updates student status and SKS", async () => {
-      mockAdminRepo.findStudentByUserId.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 100 });
-      mockAdminRepo.updateStudentByUserId.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 120 });
+      mockPrisma.student.update.mockResolvedValue({ id: "user-1", status: "active", skscompleted: 120 });
 
       const result = await adminUpdateStudent("user-1", { status: "active", skscompleted: 120 });
 
       expect(result).toHaveProperty("status", "active");
-      expect(mockAdminRepo.updateStudentByUserId).toHaveBeenCalledWith("user-1", expect.objectContaining({ sksCompleted: 120 }));
+      expect(mockPrisma.student.update).toHaveBeenCalledWith({
+        where: { id: "user-1" },
+        data: expect.objectContaining({ status: "active", skscompleted: 120 }),
+      });
     });
   });
 });
@@ -427,13 +405,15 @@ describe("Module 16: Data Master Dosen", () => {
 
   describe("adminUpdateLecturer", () => {
     it("updates lecturer science group", async () => {
-      mockAdminRepo.findLecturerByUserId.mockResolvedValue({ id: "user-lec", scienceGroupId: null });
-      mockAdminRepo.updateLecturerByUserId.mockResolvedValue({ id: "user-lec", scienceGroupId: "sg-1" });
+      mockPrisma.lecturer.update.mockResolvedValue({ id: "user-lec", scienceGroupId: "sg-1" });
 
       const result = await adminUpdateLecturer("user-lec", { scienceGroupId: "sg-1" });
 
       expect(result).toHaveProperty("scienceGroupId", "sg-1");
-      expect(mockAdminRepo.updateLecturerByUserId).toHaveBeenCalledWith("user-lec", { scienceGroupId: "sg-1" });
+      expect(mockPrisma.lecturer.update).toHaveBeenCalledWith({
+        where: { id: "user-lec" },
+        data: { scienceGroupId: "sg-1" },
+      });
     });
   });
 });

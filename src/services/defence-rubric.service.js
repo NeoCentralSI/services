@@ -129,6 +129,10 @@ export const getCpmksWithRubrics = async (role, { academicYearId } = {}) => {
 };
 
 export const createCriteria = async (data) => {
+    if (!VALID_ROLES.includes(data.role)) {
+        throw new ValidationError("Role tidak valid");
+    }
+
     const cpmk = await repository.findThesisCpmkById(data.thesisCpmkId);
     if (!cpmk) {
         throw new NotFoundError("CPMK tidak ditemukan");
@@ -276,6 +280,9 @@ export const reorderCriteria = async (role, data) => {
 };
 
 export const reorderRubrics = async (role, data) => {
+    if (!VALID_ROLES.includes(role)) {
+        throw new ValidationError("Role tidak valid");
+    }
     return await repository.reorderRubrics(role, data.criteriaId, data.orderedIds);
 };
 

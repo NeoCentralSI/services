@@ -42,7 +42,7 @@ vi.mock('../../../../services/push.service.js', () => ({
 vi.mock('../../../../services/outlook-calendar.service.js', () => ({
   createSeminarCalendarEvents: vi.fn().mockResolvedValue({}),
 }));
-vi.mock('../../../../helpers/pdf.helper.js', () => ({
+vi.mock('../../../../utils/pdf.util.js', () => ({
   convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from('fake-pdf')),
 }));
 vi.mock('../../../../services/thesis-defence/examiner.service.js', () => ({

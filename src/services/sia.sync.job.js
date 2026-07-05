@@ -155,6 +155,7 @@ async function updateStudentAcademicBatch(stamped) {
       graduationPredicate: entry.data?.graduationPredicate
         ? String(entry.data.graduationPredicate).trim()
         : null,
+      takingThesisCourse: deriveThesisCourseEnrollmentFromSiaStudent(entry.data),
     }))
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
@@ -226,6 +227,7 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
     currentSemester,
     gpa,
     graduationPredicate,
+    takingThesisCourse,
   } of updates) {
     try {
       const user = await prisma.user.findUnique({

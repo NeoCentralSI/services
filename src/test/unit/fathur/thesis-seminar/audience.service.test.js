@@ -53,7 +53,7 @@ vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", 
 vi.mock("../../../../services/outlook-calendar.service.js", () => mockOutlook);
 vi.mock("../../../../services/notification.service.js", () => mockNotification);
 vi.mock("xlsx", () => mockXlsx);
-vi.mock("../../../../helpers/pdf.helper.js", () => ({ convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) }));
+vi.mock("../../../../utils/pdf.util.js", () => ({ convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) }));
 
 import {
   getAudiences, addAudience, updateAudience, removeAudience,

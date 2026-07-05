@@ -48,6 +48,8 @@ const {
   mockPrisma: {
     user: { findUnique: vi.fn() },
     thesis: { findUnique: vi.fn(), update: vi.fn() },
+    thesisSupervisors: { findFirst: vi.fn().mockResolvedValue(null) },
+    researchMethodScore: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() },
     $transaction: vi.fn(async (cb) => cb(mockPrisma)),
   },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
@@ -73,6 +75,7 @@ const {
   },
   mockMetopen: {
     generateTitleApprovalLetter: vi.fn().mockResolvedValue(undefined),
+    syncKadepProposalQueueByThesisId: vi.fn().mockResolvedValue({ dequeued: false }),
   },
 }));
 
@@ -205,12 +208,21 @@ describe("Pembimbing 2 Service (unit)", () => {
       expect(mockQuota.checkQuotaAvailability).toHaveBeenCalledWith(LECTURER_ID, "ay-1");
     });
 
-    it("menolak (400) jika thesis masih fase proposal (F2-2)", async () => {
+    it("mengizinkan request saat fase proposal (BR-20: P2 untuk co-sign TA-03A)", async () => {
       mockActiveThesis({ isProposal: true });
+      mockSupervisor2Repo.hasPembimbing1.mockResolvedValue(true);
+      mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(false);
+      mockSupervisor2Repo.findPendingSupervisor2Request.mockResolvedValue(null);
+      mockSupervisor2Repo.findAvailableSupervisor2Lecturers.mockResolvedValue([
+        { id: LECTURER_ID, fullName: "Dr. Andi" },
+      ]);
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Budi" });
+      mockSupervisor2Repo.createSupervisor2Request.mockResolvedValue({ id: "req-new" });
 
-      await expect(
-        requestSupervisor2Service(STUDENT_USER_ID, { lecturerId: LECTURER_ID }),
-      ).rejects.toMatchObject({ statusCode: 400 });
+      const result = await requestSupervisor2Service(STUDENT_USER_ID, {
+        lecturerId: LECTURER_ID,
+      });
+      expect(result.requestId).toBe("req-new");
     });
 
     it("menolak (400) jika sudah punya Pembimbing 2", async () => {

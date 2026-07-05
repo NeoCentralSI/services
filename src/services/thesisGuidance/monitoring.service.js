@@ -42,7 +42,19 @@ function newestActivityIso(values, fallback) {
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, supervisorLoads, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
+  const [
+    statusDistribution,
+    ratingDistribution,
+    progressStats,
+    atRiskStudents,
+    slowStudents,
+    readyForSeminar,
+    topicDistribution,
+    batchDistribution,
+    progressDistribution,
+    guidanceTrend,
+    supervisorLoads,
+  ] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
     monitoringRepository.getRatingDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
@@ -53,6 +65,7 @@ export async function getMonitoringDashboard(academicYear) {
     monitoringRepository.getBatchDistribution(academicYear),
     monitoringRepository.getProgressDistribution(academicYear),
     monitoringRepository.getGuidanceTrend(academicYear),
+    getSupervisorWorkloads(academicYear),
   ]);
 
   return {
