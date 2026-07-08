@@ -67,10 +67,17 @@ export const findAcceptedThesisForStudentTitleApproval = async (userId) => {
   return prisma.thesis.findFirst({
     where: {
       studentId: userId,
-      proposalStatus: "accepted",
+      titleApprovalDocumentId: { not: null },
+      ta04AssignmentIssuedAt: { not: null },
     },
-    select: { id: true, studentId: true, title: true, academicYearId: true },
-    orderBy: [{ proposalReviewedAt: "desc" }, { updatedAt: "desc" }],
+    select: {
+      id: true,
+      studentId: true,
+      title: true,
+      academicYearId: true,
+      ta04AssignmentIssuedAt: true,
+    },
+    orderBy: [{ ta04AssignmentIssuedAt: "desc" }, { updatedAt: "desc" }],
   });
 };
 
@@ -82,6 +89,7 @@ export const createTa04BatchWithDocument = async ({
   members,
   generatedByUserId = null,
 }) => {
+  const issuedAt = new Date();
   return prisma.$transaction(async (tx) => {
     await tx.ta04Batch.updateMany({
       where: { academicYearId, status: TA04_BATCH_STATUS.CURRENT },
@@ -124,6 +132,20 @@ export const createTa04BatchWithDocument = async ({
       where: { id: { in: thesisIds } },
       data: { titleApprovalDocumentId: document.id },
     });
+
+    const membersNeedingSnapshot = members.filter((member) => member.needsAssignmentSnapshot);
+    for (const member of membersNeedingSnapshot) {
+      await tx.thesis.update({
+        where: { id: member.thesisId },
+        data: {
+          ta04AssignmentIssuedAt: issuedAt,
+          ta04AssignmentIssuedByUserId: generatedByUserId,
+          ta04AssignmentTitle: member.title,
+          ta04AssignmentSupervisorNames: member.supervisorNames,
+          ta04AssignmentAcademicYearId: academicYearId,
+        },
+      });
+    }
 
     return { document, batch };
   }, { isolationLevel: "Serializable" });

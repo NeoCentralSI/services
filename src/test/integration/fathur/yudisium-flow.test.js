@@ -60,7 +60,7 @@ describe("Integration: Yudisium Flow", () => {
     student = await prisma.student.create({
       data: {
         id: studentUser.id,
-        skscompleted: 150,
+        sksCompleted: 150,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
         internshipCompleted: true,

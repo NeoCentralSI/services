@@ -2,7 +2,7 @@
 // eksplisit, bukan inferred. Validasi minimum:
 // - Harus ada dokumen proposal terupload sebelumnya
 // - Harus punya pembimbing aktif
-// - Tidak bisa diulang setelah TA-04 disahkan
+// - Tidak bisa diulang setelah promosi aktif TA
 // - Idempotent jika versi yang sama sudah pernah disubmit final
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

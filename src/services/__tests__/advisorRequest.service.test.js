@@ -1,5 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const prismaMock = vi.hoisted(() => {
+  const mock = {
+    thesis: {
+      update: vi.fn(),
+    },
+    $transaction: vi.fn(),
+  };
+  mock.$transaction.mockImplementation(async (arg) => {
+    if (Array.isArray(arg)) return Promise.all(arg);
+    return arg(mock);
+  });
+  return mock;
+});
+
+vi.mock("../../config/prisma.js", () => ({
+  default: prismaMock,
+}));
+
 vi.mock("../../repositories/advisorRequest.repository.js", () => ({
   findById: vi.fn(),
   findAlternativeLecturers: vi.fn(),
@@ -220,6 +238,10 @@ describe("advisorRequest.service — finalizeBatchTA04", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (arg) => {
+      if (Array.isArray(arg)) return Promise.all(arg);
+      return arg(prismaMock);
+    });
     repo.findAcademicYearById.mockResolvedValue(academicYear);
     repo.findThesesWithSupervisors.mockResolvedValue(theses);
     repo.findActiveKaDep.mockResolvedValue({
@@ -229,7 +251,7 @@ describe("advisorRequest.service — finalizeBatchTA04", () => {
     repo.updateThesisDocuments.mockResolvedValue({ count: 2 });
   });
 
-  it("reuses current batch only when cohort hash and membership match exactly", async () => {
+  it("reuses current batch only when booking cohort hash and membership match exactly", async () => {
     ta04BatchRepo.findCurrentTa04BatchByAcademicYear.mockResolvedValue(null);
     ta04BatchRepo.createTa04BatchWithDocument.mockResolvedValue({
       document: {
@@ -298,6 +320,42 @@ describe("advisorRequest.service — finalizeBatchTA04", () => {
         members: [
           expect.objectContaining({ thesisId: "thesis-1", studentNim: "2200000001" }),
           expect.objectContaining({ thesisId: "thesis-2", supervisorNames: "Dr. P1, Dr. P2" }),
+        ],
+      }),
+    );
+  });
+
+  it("uses frozen TA-04 title and supervisor snapshots when present", async () => {
+    repo.findThesesWithSupervisors.mockResolvedValue([
+      {
+        ...theses[0],
+        title: "Judul Berubah Setelah Batch",
+        ta04AssignmentIssuedAt: new Date("2026-07-01T00:00:00.000Z"),
+        ta04AssignmentTitle: "Judul Frozen TA-04",
+        ta04AssignmentSupervisorNames: "Dr. Frozen",
+      },
+    ]);
+    ta04BatchRepo.findCurrentTa04BatchByAcademicYear.mockResolvedValue(null);
+    ta04BatchRepo.createTa04BatchWithDocument.mockResolvedValue({
+      document: {
+        id: "doc-frozen",
+        fileName: "TA04_BATCH_2025-2026_Genap_frozen.pdf",
+        filePath: "uploads/documents/ta04/TA04_BATCH_2025-2026_Genap_frozen.pdf",
+      },
+      batch: { id: "batch-frozen" },
+    });
+
+    await finalizeBatchTA04("ay-1", "kadep-1");
+
+    expect(ta04BatchRepo.createTa04BatchWithDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        members: [
+          expect.objectContaining({
+            thesisId: "thesis-1",
+            title: "Judul Frozen TA-04",
+            supervisorNames: "Dr. Frozen",
+            needsAssignmentSnapshot: false,
+          }),
         ],
       }),
     );
@@ -644,7 +702,7 @@ describe("advisorRequest.service — dual justification Path C", () => {
   });
 });
 
-describe("advisorRequest.service — reject notifications (canon v2.5)", () => {
+describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repo.executeTransaction.mockImplementation(async (cb) => cb({}));
@@ -657,7 +715,7 @@ describe("advisorRequest.service — reject notifications (canon v2.5)", () => {
     }));
   });
 
-  it("lecturer reject sends notification + FCM to student (canon v2.5 §5.8 / BPMN Task_UpdateRejectedRequest)", async () => {
+  it("lecturer reject sends notification + FCM to student (canon v2.6 §5.8 / BPMN Task_UpdateRejectedRequest)", async () => {
     const request = {
       id: "req-1",
       lecturerId: "lecturer-1",
@@ -689,7 +747,7 @@ describe("advisorRequest.service — reject notifications (canon v2.5)", () => {
     );
   });
 
-  it("KaDep reject sends notification + FCM to student (canon v2.5 §5.8 / BPMN Task_UpdateRejectedRequest)", async () => {
+  it("KaDep reject sends notification + FCM to student (canon v2.6 §5.8 / BPMN Task_UpdateRejectedRequest)", async () => {
     const request = {
       id: "req-1",
       lecturerId: "lecturer-1",

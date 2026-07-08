@@ -17,7 +17,7 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
   beforeAll(async () => {
     try {
       studentUser = await prisma.user.create({ data: { fullName: "S " + ts, identityNumber: "NIM-" + ts, identityType: "NIM", email: `s${ts}@t.com`, password: "p" } });
-      student = await prisma.student.create({ data: { id: studentUser.id, researchMethodCompleted: true, skscompleted: 140 } });
+      student = await prisma.student.create({ data: { id: studentUser.id, researchMethodCompleted: true, sksCompleted: 140 } });
       lecturerUser = await prisma.user.create({ data: { fullName: "L " + ts, identityNumber: "NIP-" + ts, identityType: "NIP", email: `l${ts}@t.com`, password: "p" } });
       lecturer = await prisma.lecturer.create({ data: { id: lecturerUser.id } });
 
@@ -36,7 +36,7 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
 
       for (let i = 0; i < 8; i++) {
         const u = await prisma.user.create({ data: { fullName: "O" + i + ts, identityNumber: "N-O-" + i + ts, identityType: "NIM", email: `o${i}${ts}@t.com`, password: "p" } });
-        const s = await prisma.student.create({ data: { id: u.id, skscompleted: 100 } });
+        const s = await prisma.student.create({ data: { id: u.id, sksCompleted: 100 } });
         const t = await prisma.thesis.create({ data: { studentId: s.id, title: "O", thesisStatusId: status.id } });
         const sem = await prisma.thesisSeminar.create({ data: { thesisId: t.id, status: "passed", date: new Date() } });
         dummyTheses.push({ user: u, student: s, thesis: t });

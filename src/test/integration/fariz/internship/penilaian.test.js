@@ -1,9 +1,9 @@
 import jwt from "jsonwebtoken";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import app from "../../../app.js";
+import app from "../../../../app.js";
 import { ENV } from "../../../config/env.js";
-import prisma from "../../../config/prisma.js";
+import prisma from "../../../../config/prisma.js";
 import { createOngoingInternship } from "./test-utils.js";
 
 function logResponseOnFailure(label, response, expectedStatus, payload) {

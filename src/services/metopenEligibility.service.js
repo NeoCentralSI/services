@@ -168,16 +168,14 @@ export async function setStudentThesisCourseEnrollment(
     },
   });
 
-  if (updatedStudent.takingThesisCourse === true) {
-    try {
-      const { syncKadepProposalQueueForStudent } = await import("./metopen.service.js");
-      await syncKadepProposalQueueForStudent(studentId);
-    } catch (error) {
-      console.warn(
-        `[metopenEligibility] Failed to sync KaDep proposal queue for student ${studentId}:`,
-        error?.message ?? error,
-      );
-    }
+  try {
+    const { syncBookingActivationForStudent } = await import("./metopen.service.js");
+    await syncBookingActivationForStudent(studentId);
+  } catch (error) {
+    console.warn(
+      `[metopenEligibility] Failed to sync advisor booking lifecycle for student ${studentId}:`,
+      error?.message ?? error,
+    );
   }
 
   return updatedStudent;

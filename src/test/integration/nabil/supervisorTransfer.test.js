@@ -151,7 +151,9 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
           })
           .catch(() => {});
       }
-    });
+    } catch (error) {
+      console.warn("[IT-03 cleanup] Failed to restore supervisor:", error?.message || error);
+    }
     await prisma.$disconnect();
   });
 
@@ -161,6 +163,19 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
       console.warn("[IT-03] Insufficient test data, skipping");
       return;
     }
+
+    await expect(
+      requestStudentTransferService(sourceUserId, {
+        thesisIds: [sourceThesis.id],
+        targetLecturerId,
+        reason: "Integration test - transfer pembimbing",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("tidak difasilitasi pada scope aktif SIMPTA"),
+    });
+    console.log("[IT-03] Formal supervisor transfer is intentionally disabled in active SIMPTA scope.");
+    return;
 
     // ═══════════════════════════════════════════════════════
     // STEP 1: Dosen A requests transfer to Dosen B

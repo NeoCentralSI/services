@@ -155,7 +155,10 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
         select: {
           id: true,
           title: true,
+          academicYearId: true,
           proposalStatus: true,
+          activeAcademicYearId: true,
+          ta04AssignmentAcademicYearId: true,
           thesisStatus: { select: { name: true } },
           studentId: true,
         },
@@ -172,7 +175,16 @@ export async function findTrackedSupervisorAssignments(client, academicYearId, l
       status: "active",
       lecturerId: lecturerIds?.length ? { in: lecturerIds } : undefined,
       role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
-      ...(academicYearId ? { thesis: { academicYearId } } : {}),
+      ...(academicYearId
+        ? {
+            thesis: {
+              OR: [
+                { academicYearId },
+                { activeAcademicYearId: academicYearId },
+              ],
+            },
+          }
+        : {}),
     },
     select: {
       id: true,
@@ -184,7 +196,10 @@ export async function findTrackedSupervisorAssignments(client, academicYearId, l
         select: {
           id: true,
           title: true,
+          academicYearId: true,
           proposalStatus: true,
+          activeAcademicYearId: true,
+          ta04AssignmentAcademicYearId: true,
           thesisStatus: { select: { name: true } },
           studentId: true,
           student: {

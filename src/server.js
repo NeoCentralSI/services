@@ -28,29 +28,33 @@ async function startServer() {
     console.error("❌ Connection init failed, aborting:", err.message);
     process.exit(1);
   }
-  // Schedule daily maintenance jobs (non-fatal — server runs even if queue unavailable)
-  const schedulers = [
-    scheduleDailyThesisStatus,
-    scheduleAcademicYearSync,
-    scheduleSiaSync,
-    scheduleGuidanceReminder,
-    scheduleDailyThesisReminder,
-    scheduleDailyInternshipStatus,
-    scheduleInternshipSeminarReminder,
-    scheduleInternshipLogbookReminder,
-    scheduleAcademicEventHMinusOneReminder,
-    scheduleAcademicEventDayReminder,
-    scheduleYudisiumRegistrationClosingReminder,
-    scheduleYudisiumRegistrationOpenReminder,
-    scheduleYudisiumRegistrationClosedReminder,
-    scheduleExaminerNoResponseReminder,
-  ];
-  for (const fn of schedulers) {
-    try {
-      await fn();
-    } catch (err) {
-      console.warn(`⚠️  Scheduler ${fn.name} failed (non-fatal): ${err.message}`);
+  if (ENV.ENABLE_CRON) {
+    // Schedule daily maintenance jobs (non-fatal — server runs even if queue unavailable)
+    const schedulers = [
+      scheduleDailyThesisStatus,
+      scheduleAcademicYearSync,
+      scheduleSiaSync,
+      scheduleGuidanceReminder,
+      scheduleDailyThesisReminder,
+      scheduleDailyInternshipStatus,
+      scheduleInternshipSeminarReminder,
+      scheduleInternshipLogbookReminder,
+      scheduleAcademicEventHMinusOneReminder,
+      scheduleAcademicEventDayReminder,
+      scheduleYudisiumRegistrationClosingReminder,
+      scheduleYudisiumRegistrationOpenReminder,
+      scheduleYudisiumRegistrationClosedReminder,
+      scheduleExaminerNoResponseReminder,
+    ];
+    for (const fn of schedulers) {
+      try {
+        await fn();
+      } catch (err) {
+        console.warn(`⚠️  Scheduler ${fn.name} failed (non-fatal): ${err.message}`);
+      }
     }
+  } else {
+    console.log("⏸️  Maintenance schedulers disabled (ENABLE_CRON=false).");
   }
   const server = app.listen(PORT, () => {
     console.log(`✅ Server running at http://localhost:${PORT}`);

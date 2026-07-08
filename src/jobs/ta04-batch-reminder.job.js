@@ -7,14 +7,13 @@ import { findUsersByActiveRole } from "../repositories/thesisGuidanceEvaluation.
 const REMINDER_TYPE = "ta04_batch_finalize_reminder";
 
 /**
- * Audit F-5.2 follow-up (canon v2.4 §5.13 + §5.8): nudge harian ke KaDep agar
- * memfinalisasi Formulir TA-04 batch periode ketika ada thesis accepted yang
- * belum terhubung ke dokumen batch resmi.
+ * Audit F-5.2 follow-up (canon v2.6 §5.8): nudge harian ke KaDep agar
+ * memfinalisasi Formulir TA-04 awal ketika ada booking TA-01/TA-02 yang belum
+ * terhubung ke dokumen batch resmi.
  *
  * Tanpa reminder ini, KaDep harus ingat sendiri klik "Finalisasi Formulir TA-04"
- * di tab Riwayat. Mahasiswa tidak bisa unduh SK dari arsip Metode Penelitian
- * sampai batch difinalisasi → UX gap yang membuat mahasiswa bertanya
- * "sudah disahkan tapi kenapa SK belum ada?".
+ * di tab Batch TA-04 Awal. Mahasiswa tidak bisa unduh SK penugasan awal sampai
+ * batch difinalisasi.
  *
  * Idempotensi: reminder hanya dikirim max 1x per 24 jam per academicYearId
  * (cek notification terbaru dengan type+academicYearId).
@@ -30,11 +29,18 @@ export async function runTa04BatchReminderJob() {
   let failed = 0;
 
   try {
-    // Cari thesis accepted yang belum punya dokumen batch resmi (TA04_BATCH_*)
-    // dan belum ter-link ke current batch periode-nya. Ini mirror logic
-    // `getAcceptedThesesMissingApprovalDocument` tapi di-aggregate per academicYear.
-    const acceptedTheses = await prisma.thesis.findMany({
-      where: { proposalStatus: "accepted" },
+    // Cari thesis booking_approved yang belum punya dokumen batch resmi
+    // (TA04_BATCH_*) dan belum ter-link ke current batch periode-nya.
+    const bookingTheses = await prisma.thesis.findMany({
+      where: {
+        advisorRequests: { some: { status: "booking_approved" } },
+        thesisSupervisors: {
+          some: {
+            status: "active",
+            role: { name: ROLES.PEMBIMBING_1 },
+          },
+        },
+      },
       select: {
         id: true,
         academicYearId: true,
@@ -44,7 +50,7 @@ export async function runTa04BatchReminderJob() {
     });
 
     // Filter: dokumen non-batch atau belum ada dokumen sama sekali.
-    const missingDocTheses = acceptedTheses.filter((t) => {
+    const missingDocTheses = bookingTheses.filter((t) => {
       const fileName = t.titleApprovalDocument?.fileName;
       if (!fileName) return true;
       return !String(fileName).startsWith("TA04_BATCH_");
@@ -53,12 +59,17 @@ export async function runTa04BatchReminderJob() {
     // Cek current batch per academicYear untuk pastikan belum ter-link.
     const academicYearIds = [...new Set(missingDocTheses.map((t) => t.academicYearId).filter(Boolean))];
     if (academicYearIds.length === 0) {
-      console.log(`✅ [ta04-batch-reminder] Tidak ada thesis accepted tanpa batch dokumen. Job selesai.`);
+      console.log(`✅ [ta04-batch-reminder] Tidak ada booking tanpa batch dokumen. Job selesai.`);
       return { total: 0, reminded: 0, skipped: 0, failed: 0 };
     }
 
     const currentBatches = await prisma.ta04BatchMember.findMany({
-      where: { academicYearId: { in: academicYearIds } },
+      where: {
+        batch: {
+          academicYearId: { in: academicYearIds },
+          status: "current",
+        },
+      },
       select: {
         thesisId: true,
         batch: { select: { id: true, document: { select: { fileName: true } } } },
@@ -66,7 +77,7 @@ export async function runTa04BatchReminderJob() {
     });
     const linkedThesisIds = new Set(currentBatches.map((m) => m.thesisId));
 
-    // Aggregate per academicYear: jumlah thesis accepted yang belum ter-link batch.
+    // Aggregate per academicYear: jumlah booking yang belum ter-link batch.
     const perYearPending = new Map();
     for (const t of missingDocTheses) {
       if (!t.academicYearId || linkedThesisIds.has(t.id)) continue;
@@ -80,8 +91,8 @@ export async function runTa04BatchReminderJob() {
     }
 
     if (perYearPending.size === 0) {
-      console.log(`✅ [ta04-batch-reminder] Semua thesis accepted sudah ter-link batch. Job selesai.`);
-      return { total: acceptedTheses.length, reminded: 0, skipped: 0, failed: 0 };
+      console.log(`✅ [ta04-batch-reminder] Semua booking sudah ter-link batch. Job selesai.`);
+      return { total: bookingTheses.length, reminded: 0, skipped: 0, failed: 0 };
     }
 
     // Cari KaDep user(s) aktif.
@@ -89,7 +100,7 @@ export async function runTa04BatchReminderJob() {
     const kadepUserIds = kadepUsers.map((u) => u.id).filter(Boolean);
     if (kadepUserIds.length === 0) {
       console.warn(`⚠️  [ta04-batch-reminder] Tidak ada user KaDep aktif. Skip reminder.`);
-      return { total: acceptedTheses.length, reminded: 0, skipped: perYearPending.size, failed: 0 };
+      return { total: bookingTheses.length, reminded: 0, skipped: perYearPending.size, failed: 0 };
     }
 
     // Cek reminder terakhir per academicYear (idempotensi 24 jam).
@@ -120,7 +131,7 @@ export async function runTa04BatchReminderJob() {
         : "periode ini";
 
       const title = "Formulir TA-04 Perlu Difinalisasi";
-      const message = `Ada ${entry.thesisCount} mahasiswa yang judulnya sudah disahkan namun Formulir TA-04 batch periode ${semesterPretty} belum difinalisasi. Mahasiswa tidak dapat mengunduh SK dari arsip sampai batch difinalisasi. Buka tab Riwayat Pengesahan → Finalisasi Formulir TA-04.`;
+      const message = `Ada ${entry.thesisCount} mahasiswa dengan booking TA-01/TA-02 yang belum masuk Formulir TA-04 awal periode ${semesterPretty}. Buka tab Batch TA-04 Awal → Finalisasi TA-04 Awal.`;
       const data = {
         type: REMINDER_TYPE,
         academicYearId,
@@ -150,9 +161,9 @@ export async function runTa04BatchReminderJob() {
 
     const finished = new Date();
     console.log(
-      `✅ [ta04-batch-reminder] Job finished at ${finished.toISOString()} — totalAccepted: ${acceptedTheses.length}, reminded: ${reminded}, skipped: ${skipped}, failed: ${failed}`,
+      `✅ [ta04-batch-reminder] Job finished at ${finished.toISOString()} — totalBooking: ${bookingTheses.length}, reminded: ${reminded}, skipped: ${skipped}, failed: ${failed}`,
     );
-    return { total: acceptedTheses.length, reminded, skipped, failed };
+    return { total: bookingTheses.length, reminded, skipped, failed };
   } catch (err) {
     console.error(`❌ [ta04-batch-reminder] Job error:`, err?.message || err);
     return { total: 0, reminded, skipped, failed: failed + 1 };

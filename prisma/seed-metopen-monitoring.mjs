@@ -75,6 +75,12 @@ async function ensureTopic({ name, scienceGroupId }) {
   });
 }
 
+async function ensureThesisStatus(name) {
+  const found = await prisma.thesisStatus.findFirst({ where: { name } });
+  if (found) return found;
+  return prisma.thesisStatus.create({ data: { name } });
+}
+
 async function ensureLecturer({ fullName, nip, email, scienceGroupId }) {
   const user = await prisma.user.upsert({
     where: { identityNumber: nip },
@@ -161,34 +167,35 @@ async function ensureStudent({
   return { user, student };
 }
 
-async function ensureCpmk(code, description, type = "research_method") {
-  const found = await prisma.cpmk.findFirst({ where: { code, type } });
-  if (found) return found;
-  return prisma.cpmk.create({
-    data: { code, description, type },
+async function ensureCpmk(code, description, academicYearId) {
+  const found = await prisma.metopenCpmk.findFirst({ where: { code, academicYearId } });
+  if (found) {
+    return prisma.metopenCpmk.update({
+      where: { id: found.id },
+      data: { description },
+    });
+  }
+  return prisma.metopenCpmk.create({
+    data: { code, description, academicYearId },
   });
 }
 
 async function ensureAssessmentCriteria({ name, cpmkId, role, maxScore }) {
-  const appliesTo = role === "default" ? "metopen" : "proposal";
-  const found = await prisma.assessmentCriteria.findFirst({
-    where: { name, cpmkId, role, appliesTo },
+  const found = await prisma.metopenAssessmentCriteria.findFirst({
+    where: { name, metopenCpmkId: cpmkId, role },
   });
   if (found) {
-    return prisma.assessmentCriteria.update({
+    return prisma.metopenAssessmentCriteria.update({
       where: { id: found.id },
-      data: { maxScore, isActive: true, isDeleted: false },
+      data: { maxScore },
     });
   }
-  return prisma.assessmentCriteria.create({
+  return prisma.metopenAssessmentCriteria.create({
     data: {
       name,
-      cpmkId,
+      metopenCpmkId: cpmkId,
       role,
-      appliesTo,
       maxScore,
-      isActive: true,
-      isDeleted: false,
     },
   });
 }
@@ -204,31 +211,29 @@ async function ensureAssessmentCriteria({ name, cpmkId, role, maxScore }) {
  */
 async function ensureRubricLevels(criteriaId, levels) {
   for (const [idx, level] of levels.entries()) {
-    const existing = await prisma.assessmentRubric.findFirst({
+    const existing = await prisma.metopenAssessmentRubric.findFirst({
       where: {
-        assessmentCriteriaId: criteriaId,
+        metopenAssessmentCriteriaId: criteriaId,
         minScore: level.minScore,
         maxScore: level.maxScore,
       },
     });
     if (existing) {
-      await prisma.assessmentRubric.update({
+      await prisma.metopenAssessmentRubric.update({
         where: { id: existing.id },
         data: {
           description: level.description,
           displayOrder: idx,
-          isDeleted: false,
         },
       });
     } else {
-      await prisma.assessmentRubric.create({
+      await prisma.metopenAssessmentRubric.create({
         data: {
-          assessmentCriteriaId: criteriaId,
+          metopenAssessmentCriteriaId: criteriaId,
           minScore: level.minScore,
           maxScore: level.maxScore,
           description: level.description,
           displayOrder: idx,
-          isDeleted: false,
         },
       });
     }
@@ -350,7 +355,7 @@ async function cleanupEdgeCaseData() {
     await prisma.researchMethodScore.deleteMany({
       where: { thesis: { studentId: { in: dummyUserIds } } },
     });
-    await prisma.thesisParticipant.deleteMany({
+    await prisma.thesisSupervisors.deleteMany({
       where: { thesis: { studentId: { in: dummyUserIds } } },
     });
     await prisma.thesisAdvisorRequest.deleteMany({
@@ -442,9 +447,9 @@ async function main() {
   // 3. Assessment Criteria 4 bucket
   // ============================================
   console.log("[3/6] Assessment Criteria (4 bucket SIA)...");
-  const cpmk1 = await ensureCpmk("CPMK-01", "Presentasi proposal");
-  const cpmk2 = await ensureCpmk("CPMK-02", "Konten + struktur proposal");
-  const cpmk3 = await ensureCpmk("CPMK-03", "Kemampuan merespon pertanyaan");
+  const cpmk1 = await ensureCpmk("CPMK-01", "Presentasi proposal", academicYear.id);
+  const cpmk2 = await ensureCpmk("CPMK-02", "Konten + struktur proposal", academicYear.id);
+  const cpmk3 = await ensureCpmk("CPMK-03", "Kemampuan merespon pertanyaan", academicYear.id);
 
   const criteriaPresentasi = await ensureAssessmentCriteria({
     name: "Presentasi",
@@ -481,11 +486,11 @@ async function main() {
   // 4. Thesis status canonical (name BUKAN unique, pakai findFirst pattern)
   // ============================================
   console.log("[4/6] Thesis status...");
-  let statusBimbingan = await prisma.thesisStatus.findFirst({
-    where: { name: "Bimbingan" },
-  });
-  if (!statusBimbingan) {
-    statusBimbingan = await prisma.thesisStatus.create({ data: { name: "Bimbingan" } });
+  const thesisStatusNames = ["Metopel", "Bimbingan", "Dibatalkan", "Gagal", "Selesai", "Lulus", "Drop Out"];
+  let statusBimbingan = null;
+  for (const name of thesisStatusNames) {
+    const status = await ensureThesisStatus(name);
+    if (name === "Bimbingan") statusBimbingan = status;
   }
 
   // ============================================
@@ -514,7 +519,7 @@ async function main() {
       },
     });
     const roleP1 = await ensureRole(ROLES.PEMBIMBING_1);
-    await prisma.thesisParticipant.create({
+    await prisma.thesisSupervisors.create({
       data: {
         thesisId: thesis.id,
         lecturerId: p1Id,
@@ -524,7 +529,7 @@ async function main() {
     });
     if (p2Id) {
       const roleP2 = await ensureRole(ROLES.PEMBIMBING_2);
-      await prisma.thesisParticipant.create({
+      await prisma.thesisSupervisors.create({
         data: {
           thesisId: thesis.id,
           lecturerId: p2Id,
@@ -908,10 +913,10 @@ async function main() {
   });
   const roleP1Ec15 = await ensureRole(ROLES.PEMBIMBING_1);
   const roleP2Ec15 = await ensureRole(ROLES.PEMBIMBING_2);
-  await prisma.thesisParticipant.create({
+  await prisma.thesisSupervisors.create({
     data: { thesisId: thesis15.id, lecturerId: drDoe.id, roleId: roleP1Ec15.id, status: "active" },
   });
-  await prisma.thesisParticipant.create({
+  await prisma.thesisSupervisors.create({
     data: { thesisId: thesis15.id, lecturerId: drWang.id, roleId: roleP2Ec15.id, status: "active" },
   });
   const score15 = await prisma.researchMethodScore.create({

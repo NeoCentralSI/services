@@ -126,7 +126,7 @@ async function syncProposalQueueAfterScore(thesisId) {
   try {
     await syncKadepProposalQueueByThesisId(thesisId);
   } catch (error) {
-    console.warn("[assessment] syncKadepProposalQueueByThesisId failed:", error?.message || error);
+    console.warn("[assessment] TA-04 lifecycle sync failed:", error?.message || error);
   }
 }
 

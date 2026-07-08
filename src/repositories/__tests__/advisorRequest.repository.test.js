@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ADVISOR_REQUEST_PENDING_REVIEW_STATUSES } from "../../constants/advisorRequestStatus.js";
+import {
+  ADVISOR_REQUEST_PENDING_REVIEW_STATUSES,
+  ADVISOR_REQUEST_STATUS,
+} from "../../constants/advisorRequestStatus.js";
 import { ROLES } from "../../constants/roles.js";
 
 const prisma = vi.hoisted(() => ({
@@ -38,7 +41,7 @@ describe("advisorRequest.repository", () => {
     );
   });
 
-  it("revalidates official TA-04 prerequisites in batch thesis query", async () => {
+  it("loads approved booking cohort for early TA-04 batch thesis query", async () => {
     prisma.thesis.findMany.mockResolvedValue([]);
 
     await repo.findThesesWithSupervisors("academic-year-1");
@@ -47,15 +50,10 @@ describe("advisorRequest.repository", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           academicYearId: "academic-year-1",
-          proposalStatus: "accepted",
-          finalProposalVersionId: { not: null },
-          student: { takingThesisCourse: true },
-          researchMethodScores: {
+          advisorRequests: {
             some: {
-              supervisorScore: { not: null },
-              lecturerScore: { not: null },
-              isFinalized: true,
-              attendanceAutoZeroedAt: null,
+              academicYearId: "academic-year-1",
+              status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
             },
           },
           thesisSupervisors: {

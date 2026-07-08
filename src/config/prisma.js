@@ -226,7 +226,7 @@ export async function assertSimptaSchemaCompatibility(client = basePrisma) {
 }
 
 /**
- * After TA-03A/TA-03B rows change, keep KaDep queue in sync (Panduan Langkah 4–6).
+ * After TA-03A/TA-03B rows change, run early TA-04 promotion/release lifecycle.
  * Dynamic import avoids circular dependency with metopen.service (which imports prisma).
  */
 async function afterResearchMethodScoreWrite(thesisId) {
@@ -238,7 +238,7 @@ async function afterResearchMethodScoreWrite(thesisId) {
     await syncKadepProposalQueueByThesisId(thesisId);
   } catch (err) {
     console.error(
-      "[Prisma] syncKadepProposalQueueByThesisId failed:",
+      "[Prisma] TA-04 lifecycle sync failed:",
       err?.message ?? err
     );
   }

@@ -123,6 +123,16 @@ export function findAdvisorRequestsByStudentIds(studentIds, client = prisma) {
       withdrawnAt: true,
       createdAt: true,
       updatedAt: true,
+      releasedAt: true,
+      releaseReason: true,
+      thesis: {
+        select: {
+          id: true,
+          ta04AssignmentIssuedAt: true,
+          activeAcademicYearId: true,
+          activePromotedAt: true,
+        },
+      },
       lecturer: {
         select: {
           id: true,

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
-import app from "../../../app.js";
-import prisma from "../../../config/prisma.js";
+import app from "../../../../app.js";
+import prisma from "../../../../config/prisma.js";
 import { ENV } from "../../../config/env.js";
 import { createOngoingInternship } from "./test-utils.js";
 

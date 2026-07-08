@@ -73,6 +73,13 @@ describe("IT-04: Guidance Request & Approval Flow", () => {
       return;
     }
 
+    await prisma.thesisGuidance.deleteMany({
+      where: {
+        thesisId: testThesis.id,
+        studentNotes: "IT Test Guidance Notes",
+      },
+    });
+
     // 1. Student Requests Guidance
     const futureDate = new Date(Date.now() + 86400000).toISOString(); // 1 day from now
     const requestResult = await requestGuidanceService(

@@ -29,7 +29,7 @@ describe("Integration: Thesis Defence Flow (Registration to Finalization)", () =
       console.log("Starting Setup...");
       // 1. Create Users
       studentUser = await prisma.user.create({ data: { fullName: "S " + ts, identityNumber: "NIM-" + ts, identityType: "NIM", email: `s${ts}@t.com`, password: "p" } });
-      student = await prisma.student.create({ data: { id: studentUser.id, researchMethodCompleted: true, skscompleted: 144 } });
+      student = await prisma.student.create({ data: { id: studentUser.id, researchMethodCompleted: true, sksCompleted: 144 } });
       console.log("Student created:", student.id);
       
       lecturerUser = await prisma.user.create({ data: { fullName: "L " + ts, identityNumber: "NIP-" + ts, identityType: "NIP", email: `l${ts}@t.com`, password: "p" } });

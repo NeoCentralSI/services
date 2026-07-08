@@ -93,14 +93,14 @@ export async function assignCoAdvisor(thesisId, lecturerId, actorUserId) {
     await syncQuotaCount(prisma, lecturerId, thesis.academicYearId);
   }
 
-  // Dequeue thesis dari antrean TA-04 jika sudah masuk.
+  // Backward-compatible lifecycle sync after P2 assignment.
   let dequeued = false;
   try {
     const { syncKadepProposalQueueByThesisId } = await import('./metopen.service.js');
     const syncResult = await syncKadepProposalQueueByThesisId(thesisId);
     dequeued = syncResult?.dequeued === true;
   } catch (syncErr) {
-    console.warn('[thesisSupervisors] syncKadepProposalQueueByThesisId failed:', syncErr?.message || syncErr);
+    console.warn('[thesisSupervisors] TA-04 lifecycle sync failed:', syncErr?.message || syncErr);
   }
 
   // Celah #7: Notifikasi ke semua pihak terkait.
@@ -145,7 +145,7 @@ export async function assignCoAdvisor(thesisId, lecturerId, actorUserId) {
     if (p1?.lecturerId) cosignTargets.push(p1.lecturerId);
     await createNotificationsForUsers(cosignTargets, {
       title: 'Co-sign Pembimbing 2 Diperlukan',
-      message: `${lecturerName} ditambahkan sebagai Pembimbing 2. Antrean TA-04 ditunda hingga co-sign TA-03A diberikan.`,
+      message: `${lecturerName} ditambahkan sebagai Pembimbing 2. Promosi aktif menunggu co-sign TA-03A diberikan.`,
     });
   }
 

@@ -35,25 +35,37 @@ function buildRedisConnection(url) {
 const connection = { connection: buildRedisConnection(ENV.REDIS_URL) };
 
 export const MAINTENANCE_QUEUE = "maintenance";
+const MAINTENANCE_ENABLED =
+  ENV.ENABLE_CRON === true && ENV.SKIP_REDIS !== true && ENV.NODE_ENV !== "test";
 
 let queueReady = true;
 
-export const maintenanceQueue = new Queue(MAINTENANCE_QUEUE, {
-  ...connection,
-  limiter: { max: 100, duration: 60_000 },
-});
+export const maintenanceQueue = MAINTENANCE_ENABLED
+  ? new Queue(MAINTENANCE_QUEUE, {
+      ...connection,
+      limiter: { max: 100, duration: 60_000 },
+    })
+  : null;
 
-maintenanceQueue.on("error", (err) => {
-  if (!queueReady) return;
-  queueReady = false;
-  console.warn("⚠️  Maintenance queue unavailable (Redis/BullMQ init failed). Background jobs disabled. API server will continue normally.");
-  console.warn("   Cause:", err.message);
-  if (err.message.includes("Redis version")) {
-    console.warn("   Fix: upgrade Redis to >= 5.0 (recommended 7.x). Current Redis is too old for BullMQ.");
-  }
-});
+if (maintenanceQueue) {
+  maintenanceQueue.on("error", (err) => {
+    if (!queueReady) return;
+    queueReady = false;
+    console.warn("⚠️  Maintenance queue unavailable (Redis/BullMQ init failed). Background jobs disabled. API server will continue normally.");
+    console.warn("   Cause:", err.message);
+    if (err.message.includes("Redis version")) {
+      console.warn("   Fix: upgrade Redis to >= 5.0 (recommended 7.x). Current Redis is too old for BullMQ.");
+    }
+  });
+}
 
 async function safeAdd(name, opts) {
+  if (!MAINTENANCE_ENABLED || !maintenanceQueue) {
+    if (ENV.NODE_ENV !== "test") {
+      console.log(`⏭️  Skip scheduling ${name} (maintenance jobs disabled).`);
+    }
+    return false;
+  }
   if (!queueReady) {
     console.warn(`⏭️  Skip scheduling ${name} (queue unavailable).`);
     return false;
@@ -240,72 +252,75 @@ export async function scheduleExaminerNoResponseReminder() {
 }
 
 // Worker to process maintenance jobs
-export const maintenanceWorker = new Worker(
-  MAINTENANCE_QUEUE,
-  async (job) => {
-    switch (job.name) {
-      case "thesis-status":
-        await runThesisStatusJob();
-        break;
-      case "sia-sync":
-        await runSiaSync();
-        break;
-      case "academic-year-sync":
-        await syncActiveAcademicYear();
-        break;
-      case "guidance-reminder":
-        await runGuidanceReminderJob();
-        break;
-      case "daily-thesis-reminder":
-        await runDailyThesisReminderJob();
-        break;
-        break;
-      case "internship-status":
-        await runInternshipStatusJob();
-        break;
-      case "internship-seminar-reminder":
-        await runInternshipSeminarReminderJob();
-        break;
-      case "internship-logbook-reminder":
-        await runInternshipLogbookReminderJob();
-        break;
-      case "academic-event-h-minus-one-reminder":
-        await runAcademicEventReminderJob({ offsetDays: 1, phase: "h_minus_one" });
-        break;
-      case "academic-event-day-reminder":
-        await runAcademicEventReminderJob({ offsetDays: 0, phase: "event_day" });
-        break;
-      case "yudisium-registration-closing-reminder":
-        await runYudisiumRegistrationClosingReminderJob();
-        break;
-      case "yudisium-registration-open-reminder":
-        await runYudisiumRegistrationOpenReminderJob();
-        break;
-      case "yudisium-registration-closed-reminder":
-        await runYudisiumRegistrationClosedReminderJob();
-        break;
-      case "examiner-no-response-reminder":
-        await runExaminerNoResponseReminderJob();
-        break;
-      default:
-        // no-op
-        break;
-    }
-  },
-  { ...connection, concurrency: 1 }
-);
+export const maintenanceWorker = MAINTENANCE_ENABLED
+  ? new Worker(
+      MAINTENANCE_QUEUE,
+      async (job) => {
+        switch (job.name) {
+          case "thesis-status":
+            await runThesisStatusJob();
+            break;
+          case "sia-sync":
+            await runSiaSync();
+            break;
+          case "academic-year-sync":
+            await syncActiveAcademicYear();
+            break;
+          case "guidance-reminder":
+            await runGuidanceReminderJob();
+            break;
+          case "daily-thesis-reminder":
+            await runDailyThesisReminderJob();
+            break;
+          case "internship-status":
+            await runInternshipStatusJob();
+            break;
+          case "internship-seminar-reminder":
+            await runInternshipSeminarReminderJob();
+            break;
+          case "internship-logbook-reminder":
+            await runInternshipLogbookReminderJob();
+            break;
+          case "academic-event-h-minus-one-reminder":
+            await runAcademicEventReminderJob({ offsetDays: 1, phase: "h_minus_one" });
+            break;
+          case "academic-event-day-reminder":
+            await runAcademicEventReminderJob({ offsetDays: 0, phase: "event_day" });
+            break;
+          case "yudisium-registration-closing-reminder":
+            await runYudisiumRegistrationClosingReminderJob();
+            break;
+          case "yudisium-registration-open-reminder":
+            await runYudisiumRegistrationOpenReminderJob();
+            break;
+          case "yudisium-registration-closed-reminder":
+            await runYudisiumRegistrationClosedReminderJob();
+            break;
+          case "examiner-no-response-reminder":
+            await runExaminerNoResponseReminderJob();
+            break;
+          default:
+            // no-op
+            break;
+        }
+      },
+      { ...connection, concurrency: 1 }
+    )
+  : null;
 
-maintenanceWorker.on("error", (err) => {
-  if (ENV.NODE_ENV === "test") return;
-  console.warn("⚠️  Maintenance worker error (non-fatal):", err.message);
-});
+if (maintenanceWorker) {
+  maintenanceWorker.on("error", (err) => {
+    if (ENV.NODE_ENV === "test") return;
+    console.warn("⚠️  Maintenance worker error (non-fatal):", err.message);
+  });
 
-maintenanceWorker.on("completed", (job) => {
-  if (ENV.NODE_ENV !== "test") console.log(`🧹 Maintenance job done → ${job.name} (${job.id})`);
-});
-maintenanceWorker.on("failed", (job, err) => {
-  console.error(`❌ Maintenance job failed → ${job?.name} (${job?.id}):`, err?.message || err);
-});
-maintenanceWorker.on("ready", () => {
-  console.log("🛠️  Maintenance worker is ready and listening for jobs");
-});
+  maintenanceWorker.on("completed", (job) => {
+    if (ENV.NODE_ENV !== "test") console.log(`🧹 Maintenance job done → ${job.name} (${job.id})`);
+  });
+  maintenanceWorker.on("failed", (job, err) => {
+    console.error(`❌ Maintenance job failed → ${job?.name} (${job?.id}):`, err?.message || err);
+  });
+  maintenanceWorker.on("ready", () => {
+    console.log("🛠️  Maintenance worker is ready and listening for jobs");
+  });
+}

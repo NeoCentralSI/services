@@ -31,7 +31,7 @@ const { mockPrisma, mockSiaClient, mockSiaStore, mockMetopenService } = vi.hoist
     cleanupObsoleteStudents: vi.fn(),
   },
   mockMetopenService: {
-    syncKadepProposalQueueForStudent: vi.fn(),
+    syncBookingActivationForStudent: vi.fn(),
   },
 }));
 
@@ -59,7 +59,7 @@ describe("SIA Sync Job Service", () => {
     mockSiaStore.saveStudents.mockResolvedValue({ updated: 0, skipped: 0 });
     mockSiaStore.saveSyncStatus.mockResolvedValue(undefined);
     mockSiaStore.cleanupObsoleteStudents.mockResolvedValue({ cleaned: 0 });
-    mockMetopenService.syncKadepProposalQueueForStudent.mockResolvedValue({
+    mockMetopenService.syncBookingActivationForStudent.mockResolvedValue({
       synced: false,
     });
 
@@ -107,12 +107,15 @@ describe("SIA Sync Job Service", () => {
           currentSemester: 7,
           gpa: null,
           graduationPredicate: null,
+          takingThesisCourse: null,
+          thesisCourseEnrollmentSource: "sia",
+          thesisCourseEnrollmentUpdatedAt: expect.any(Date),
         }),
       });
       expect(summary).toMatchObject({ fetched: 1, dbUpdated: 1 });
     });
 
-    it("syncs the KaDep TA-04 queue after SIA confirms the thesis course", async () => {
+    it("syncs booking lifecycle after SIA writes thesis course snapshot", async () => {
       mockSiaClient.fetchStudentsFull.mockResolvedValue([
         {
           nim: "2211521002",
@@ -129,7 +132,7 @@ describe("SIA Sync Job Service", () => {
 
       await runSiaSync();
 
-      expect(mockMetopenService.syncKadepProposalQueueForStudent).toHaveBeenCalledWith(
+      expect(mockMetopenService.syncBookingActivationForStudent).toHaveBeenCalledWith(
         "student-dimas",
       );
     });

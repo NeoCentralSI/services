@@ -33,7 +33,7 @@ router.get(
   controller.getProgressByThesisId,
 );
 
-// Mahasiswa: transparansi & sinkron antre
+// Mahasiswa: transparansi & sinkron lifecycle TA-04/promosi aktif
 router.get(
   "/me/proposal-approval",
   requireAnyRole([ROLES.MAHASISWA]),
@@ -49,7 +49,7 @@ router.post(
   requireAnyRole([ROLES.MAHASISWA]),
   controller.postMyProposalQueueSync,
 );
-// BR-23 (canon §5.13): Arsip Metopel mahasiswa pasca TA-04 — read-only.
+// BR-23 (canon §5.13): Arsip Metopel mahasiswa pasca promosi aktif TA — read-only.
 router.get(
   "/me/archive",
   requireAnyRole([ROLES.MAHASISWA]),
@@ -67,7 +67,7 @@ router.get(
   controller.getMyAssessmentHistory,
 );
 
-// KaDep: antre pengesahan judul
+// KaDep: legacy antre pengesahan judul
 router.get(
   "/kadep/title-reports/pending",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
@@ -80,14 +80,14 @@ router.post(
   controller.postKadepTitleReportReview,
 );
 
-// Legacy compatibility: KaDep dapat melihat thesis accepted yang belum terhubung
+// Legacy compatibility: KaDep dapat melihat thesis aktif/TA-04 awal yang belum terhubung
 // ke Formulir TA-04 batch resmi.
 router.get(
   "/kadep/title-reports/missing-document",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
   controller.getKadepMissingTitleDocuments,
 );
-// Riwayat keputusan TA-04 (accepted/rejected) antar-periode untuk dashboard KaDep.
+// Riwayat TA-04 awal + legacy accepted/rejected antar-periode untuk dashboard KaDep.
 router.get(
   "/kadep/title-reports/history",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),

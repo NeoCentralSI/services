@@ -1,6 +1,6 @@
 // Test untuk BR-18 (KONTEKS_KANONIS_SIMPTA.md §5.8 / PRD FR-TA04-05).
 //
-// Saat KaDep accept TA-04 lewat reviewTitleReport, semua 5 syarat kanonik
+// Saat KaDep accept lewat legacy reviewTitleReport, semua prasyarat lama
 // HARUS divalidasi ulang di server. Tidak cukup mengandalkan gate enqueue,
 // karena snapshot SIA, penambahan P2, dan auto-zero bisa berubah antara
 // enqueue dan keputusan KaDep (audit F-5.1 + F-4.4 follow-up).
@@ -104,7 +104,7 @@ beforeEach(async () => {
   ({ sendFcmToUsers } = await import("../../services/push.service.js"));
 });
 
-// Helper: mock prisma return untuk skenario "semua 5 syarat terpenuhi" (P1-only).
+// Helper: mock prisma return untuk skenario semua prasyarat legacy terpenuhi (P1-only).
 // `reviewTitleReport` memanggil `thesis.findUnique` 2x: (1) validasi awal dengan
 // select finalProposalVersionId, (2) getThesisNotificationContext tanpa select tsb.
 // Karena mock tidak bisa bedakan select, kita pakai call counter.

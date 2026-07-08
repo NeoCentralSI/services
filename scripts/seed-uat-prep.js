@@ -11,6 +11,7 @@
  * Yang disiapkan:
  *  1) Password Password@2025 untuk akun dummy yang dipakai login UAT:
  *     - wang.liu@dummy.ac.id        (UAT-21 co-sign P2)
+ *     - edge06@dummy.ac.id          (TA04-v26 booking + TA-04 awal)
  *     - edge15@dummy.ac.id          (UAT-16 arsip pasca TA-04)
  *     - edge02@dummy.ac.id          (UAT-10 tarik pengajuan >72 jam)
  *     - garcia.hernandez@dummy.ac.id(UAT-19 dosen kuota penuh → forward overquota)
@@ -19,12 +20,14 @@
  *     (terima + tolak) dari mahasiswa requester khusus UAT.
  *  4) UAT-19: garcia.hernandez dibuat kuota PENUH (quotaMax=1) + 1 pengajuan
  *     escalated pending dengan justifikasi mahasiswa → dosen accept → forward KaDep.
- *  5) UAT-16: finalisasi Formulir TA-04 batch resmi agar arsip edge15 bisa diunduh.
+ *  5) TA-04 v2.6: finalisasi Formulir TA-04 awal untuk booking, lalu edge15
+ *     dipromosikan otomatis dan edge16 dilepas karena auto-zero.
  */
 
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import bcrypt from 'bcrypt';
 import { finalizeBatchTA04 } from '../src/services/advisorRequest.service.js';
+import { syncBookingActivationForStudent } from '../src/services/metopen.service.js';
 import { ROLES } from '../src/constants/roles.js';
 import { THESIS_STATUS } from '../src/constants/thesisStatus.js';
 
@@ -114,7 +117,7 @@ async function cleanupTa03AFixtures(studentIds) {
     where: { researchMethodScore: { thesisId: { in: thesisIds } } },
   });
   await prisma.researchMethodScore.deleteMany({ where: { thesisId: { in: thesisIds } } });
-  await prisma.thesisParticipant.deleteMany({ where: { thesisId: { in: thesisIds } } });
+  await prisma.thesisSupervisors.deleteMany({ where: { thesisId: { in: thesisIds } } });
   await prisma.thesisProposalVersion.deleteMany({ where: { thesisId: { in: thesisIds } } });
   await prisma.thesisAdvisorRequest.deleteMany({ where: { thesisId: { in: thesisIds } } });
   await prisma.thesis.deleteMany({ where: { id: { in: thesisIds } } });
@@ -170,7 +173,7 @@ async function createTa03AThesis({
   });
 
   const roleP1 = await ensureRole(ROLES.PEMBIMBING_1);
-  await prisma.thesisParticipant.create({
+  await prisma.thesisSupervisors.create({
     data: {
       thesisId: thesis.id,
       lecturerId: p1Id,
@@ -181,7 +184,7 @@ async function createTa03AThesis({
 
   if (p2Id) {
     const roleP2 = await ensureRole(ROLES.PEMBIMBING_2);
-    await prisma.thesisParticipant.create({
+    await prisma.thesisSupervisors.create({
       data: {
         thesisId: thesis.id,
         lecturerId: p2Id,
@@ -260,15 +263,7 @@ async function createAdvisorRequest({ studentId, lecturerId, academicYearId, top
   });
 }
 
-/**
- * UAT-30/31: kandidat pengesahan TA-04. Daftar pending KaDep mensyaratkan 5 kondisi:
- * P1 aktif, proposal final (finalProposalVersionId), TA-03A (+co-sign P2), TA-03B,
- * dan takingThesisCourse. EC14 dari seed monitoring sudah punya P1+P2 co-sign + skor
- * TA-03A/TA-03B, tetapi BELUM punya finalProposalVersionId → tidak muncul di daftar.
- * Di sini kita lengkapi proposal final-nya supaya EC14 menjadi kandidat sah (belum
- * disahkan) untuk UAT-30 (Sahkan) dan UAT-31 (daftar eligible).
- */
-async function ensureTa04PengesahanCandidate() {
+async function ensureLegacyProposalFinalForEc14() {
   const ec14 = await prisma.user.findFirst({
     where: { identityNumber: '2399000014', identityType: 'NIM' },
     include: { student: true },
@@ -277,13 +272,8 @@ async function ensureTa04PengesahanCandidate() {
   const thesis = await prisma.thesis.findFirst({ where: { studentId: ec14.student.id } });
   if (!thesis) { warn('EC14 thesis tidak ada'); return; }
 
-  await prisma.student.update({
-    where: { id: ec14.student.id },
-    data: { takingThesisCourse: true, thesisCourseEnrollmentSource: 'sia', thesisCourseEnrollmentUpdatedAt: new Date() },
-  });
-
   if (thesis.finalProposalVersionId) {
-    ok('EC14 sudah punya proposal final (kandidat pengesahan TA-04)');
+    ok('EC14 sudah punya proposal final untuk coverage legacy non-happy-path');
     return;
   }
 
@@ -310,65 +300,133 @@ async function ensureTa04PengesahanCandidate() {
     },
   });
   await prisma.thesis.update({ where: { id: thesis.id }, data: { finalProposalVersionId: version.id } });
-  ok('EC14 → proposal final di-set (kandidat pengesahan TA-04 untuk UAT-30/31)');
+  ok('EC14 → proposal final di-set untuk coverage legacy non-happy-path');
 }
 
-async function ensureOfficialTa04Batch(academicYearId) {
-  const ec15 = await prisma.user.findFirst({
-    where: { identityNumber: '2399000015', identityType: 'NIM' },
+async function ensureLifecycleAcademicYear(currentAcademicYear) {
+  const nextYear = currentAcademicYear?.year === '2025/2026' ? '2026/2027' : '2026/2027';
+  const existing = await prisma.academicYear.findFirst({
+    where: { year: nextYear, semester: 'ganjil' },
+  });
+  if (existing) return existing;
+  return prisma.academicYear.create({
+    data: {
+      year: nextYear,
+      semester: 'ganjil',
+      isActive: false,
+      startDate: new Date('2026-08-01T00:00:00.000Z'),
+      endDate: new Date('2027-01-31T00:00:00.000Z'),
+    },
+  });
+}
+
+async function resetBookingForLifecycleFixture(nim, academicYearId, { takingThesisCourse }) {
+  const user = await prisma.user.findFirst({
+    where: { identityNumber: nim, identityType: 'NIM' },
     include: { student: true },
   });
-  if (!ec15?.student) {
-    warn('EC15 (2399000015) tidak ada — jalankan seed-metopen-monitoring dulu');
-    return;
+  if (!user?.student) {
+    warn(`${nim} tidak ada — jalankan seed-metopen-monitoring dulu`);
+    return null;
   }
+  const thesis = await prisma.thesis.findFirst({ where: { studentId: user.student.id } });
+  if (!thesis) {
+    warn(`${nim} thesis tidak ada — jalankan seed-metopen-monitoring dulu`);
+    return null;
+  }
+
   await prisma.student.update({
-    where: { id: ec15.student.id },
+    where: { id: user.student.id },
     data: {
-      takingThesisCourse: true,
+      takingThesisCourse,
       thesisCourseEnrollmentSource: 'sia',
       thesisCourseEnrollmentUpdatedAt: new Date(),
     },
   });
+  await prisma.thesisAdvisorRequest.updateMany({
+    where: { studentId: user.student.id },
+    data: {
+      status: 'booking_approved',
+      academicYearId,
+      thesisId: thesis.id,
+      releasedAt: null,
+      releaseReason: null,
+      releasedAcademicYearId: null,
+    },
+  });
+  await prisma.thesisSupervisors.updateMany({
+    where: { thesisId: thesis.id },
+    data: { status: 'active' },
+  });
+  await prisma.thesis.update({
+    where: { id: thesis.id },
+    data: {
+      academicYearId,
+      isProposal: true,
+      proposalStatus: null,
+      activeAcademicYearId: null,
+      activePromotedAt: null,
+      ta04AssignmentIssuedAt: null,
+      ta04AssignmentIssuedByUserId: null,
+      ta04AssignmentTitle: null,
+      ta04AssignmentSupervisorNames: null,
+      ta04AssignmentAcademicYearId: null,
+    },
+  });
 
-  const thesis = await prisma.thesis.findFirst({ where: { studentId: ec15.student.id } });
-  if (!thesis) {
-    warn('EC15 thesis tidak ada — jalankan seed-metopen-monitoring dulu');
-    return;
-  }
-  if (!thesis.finalProposalVersionId) {
-    let dt = await prisma.documentType.findFirst({ where: { name: 'Proposal Tugas Akhir' } });
-    if (!dt) dt = await prisma.documentType.create({ data: { name: 'Proposal Tugas Akhir' } });
-    const doc = await prisma.document.create({
-      data: {
-        userId: ec15.id,
-        documentTypeId: dt.id,
-        fileName: 'proposal-final-ec15.pdf',
-        filePath: 'uploads/dummy/proposal-final-ec15.pdf',
-        fileSize: 2048,
-        mimeType: 'application/pdf',
-      },
-    });
-    const version = await prisma.thesisProposalVersion.create({
-      data: {
-        thesisId: thesis.id,
-        documentId: doc.id,
-        version: 1,
-        isLatest: true,
-        submittedAsFinalAt: new Date(),
-        submittedAsFinalByUserId: ec15.id,
-      },
-    });
-    await prisma.thesis.update({
-      where: { id: thesis.id },
-      data: { finalProposalVersionId: version.id },
-    });
-  }
+  return { user, thesis };
+}
+
+async function ensureEarlyTa04BookingCandidate(academicYearId) {
+  const fixture = await resetBookingForLifecycleFixture('2399000006', academicYearId, {
+    takingThesisCourse: null,
+  });
+  if (fixture) ok('EC06 siap sebagai fixture TA-04 awal: booking_approved + tetap fase Metopel');
+}
+
+async function ensureCurrentTitleDiffersFromFrozen(nim) {
+  const user = await prisma.user.findFirst({
+    where: { identityNumber: nim, identityType: 'NIM' },
+    include: { student: true },
+  });
+  if (!user?.student) return;
+  const thesis = await prisma.thesis.findFirst({ where: { studentId: user.student.id } });
+  if (!thesis?.ta04AssignmentTitle) return;
+  const changedTitle = `${thesis.ta04AssignmentTitle} (judul berjalan setelah batch)`;
+  await prisma.thesis.update({
+    where: { id: thesis.id },
+    data: { title: changedTitle },
+  });
+  ok(`${nim}: current title diubah setelah batch; TA-04 tetap memakai snapshot "${thesis.ta04AssignmentTitle}"`);
+}
+
+async function ensureOfficialTa04Batch(academicYear) {
+  const academicYearId = academicYear.id;
+  const nextAcademicYear = await ensureLifecycleAcademicYear(academicYear);
+
+  await ensureEarlyTa04BookingCandidate(academicYearId);
+  const ec15Fixture = await resetBookingForLifecycleFixture('2399000015', academicYearId, {
+    takingThesisCourse: true,
+  });
+  const ec16Fixture = await resetBookingForLifecycleFixture('2399000016', academicYearId, {
+    takingThesisCourse: false,
+  });
 
   const result = await finalizeBatchTA04(academicYearId);
   ok(
-    `Formulir TA-04 batch periode siap: ${result.fileName} (${result.thesisCount} mahasiswa${result.alreadyFinalized ? ', sudah final' : ''})`,
+    `Formulir TA-04 awal siap: ${result.storedFileName ?? result.fileName} (${result.thesisCount} mahasiswa${result.alreadyFinalized ? ', sudah sinkron' : ''})`,
   );
+
+  await ensureCurrentTitleDiffersFromFrozen('2399000006');
+
+  if (ec15Fixture) {
+    const syncResult = await syncBookingActivationForStudent(ec15Fixture.user.id, nextAcademicYear.id);
+    ok(`EC15 promoted fixture → ${JSON.stringify(syncResult)}`);
+  }
+  if (ec16Fixture) {
+    const syncResult = await syncBookingActivationForStudent(ec16Fixture.user.id, nextAcademicYear.id);
+    ok(`EC16 released fixture → ${JSON.stringify(syncResult)}`);
+  }
 }
 
 async function main() {
@@ -385,7 +443,7 @@ async function main() {
 
   // 1) Passwords
   console.log('\n── 1. Password akun dummy (login UAT) ──');
-  for (const email of ['wang.liu@dummy.ac.id', 'edge15@dummy.ac.id', 'edge02@dummy.ac.id', 'garcia.hernandez@dummy.ac.id']) {
+  for (const email of ['wang.liu@dummy.ac.id', 'edge06@dummy.ac.id', 'edge15@dummy.ac.id', 'edge02@dummy.ac.id', 'garcia.hernandez@dummy.ac.id']) {
     await setPassword(email, hash);
   }
 
@@ -443,13 +501,13 @@ async function main() {
   console.log('\n── 4. UAT-20/21: antrean TA-03A P1 + P2 co-sign ──');
   await ensureTa03AQueues(academicYear.id, topic.id);
 
-  // 5) UAT-30/31: kandidat pengesahan TA-04 (EC14 dilengkapi proposal final)
-  console.log('\n── 5. UAT-30/31: kandidat pengesahan TA-04 (EC14) ──');
-  await ensureTa04PengesahanCandidate();
+  // 5) Legacy EC14 tetap diberi proposal final untuk coverage historis, bukan happy path.
+  console.log('\n── 5. Legacy EC14: proposal final untuk coverage non-happy-path ──');
+  await ensureLegacyProposalFinalForEc14();
 
-  // 6) UAT-16: arsip mahasiswa wajib memakai dokumen batch resmi.
-  console.log('\n── 6. UAT-16: finalisasi Formulir TA-04 batch periode ──');
-  await ensureOfficialTa04Batch(academicYear.id);
+  // 6) TA-04 v2.6: batch awal + promoted/released fixtures.
+  console.log('\n── 6. TA-04 v2.6: batch awal + promosi/release otomatis ──');
+  await ensureOfficialTa04Batch(academicYear);
 
   console.log('\n' + '-'.repeat(60));
   console.log('Selesai prep UAT.');
@@ -459,8 +517,9 @@ async function main() {
   console.log('  UAT-19 : login garcia.hernandez@dummy.ac.id → Inbox → Terima di atas kuota → isi alasan → forward');
   console.log('  UAT-20 : login pembimbing_si → Penilaian TA-03A → UATTA03A P1 Pending');
   console.log('  UAT-21 : login wang.liu@dummy.ac.id (co-sign P2)');
-  console.log('  UAT-16 : login edge15@dummy.ac.id (arsip pasca TA-04 + unduh Formulir batch)');
-  console.log('  UAT-30/31 : login kadep_si → pengesahan-judul → EC14 (EDGE14) muncul sbg kandidat');
+  console.log('  TA04-v26: login edge06@dummy.ac.id → /metopel → TA-04 awal bisa diunduh, Metopel tetap aktif');
+  console.log('  UAT-16 : login edge15@dummy.ac.id (promoted active + arsip pasca promosi + unduh Formulir batch)');
+  console.log('  UAT-30/31 : login kadep_si → pengesahan-judul → batch TA-04 awal booking TA-01/TA-02');
   console.log('  Semua password: Password@2025');
 }
 

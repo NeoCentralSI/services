@@ -19,12 +19,15 @@ import {
 import prisma from "../../config/prisma.js";
 import { sendFcmToUsers } from "../../services/push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
+import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import { deleteCalendarEvent } from "../outlook-calendar.service.js";
 import {
   ROLES,
   isSupervisorRole,
+  isPembimbing1,
+  isPembimbing2,
   ROLE_CATEGORY,
 } from "../../constants/roles.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";

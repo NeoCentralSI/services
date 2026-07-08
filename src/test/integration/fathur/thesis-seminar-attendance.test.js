@@ -13,9 +13,9 @@ describe("Integration: Thesis Seminar Attendance Flow", () => {
   beforeAll(async () => {
     try {
       pUser = await prisma.user.create({ data: { fullName: "P "+ts, identityNumber: "NIM-P-"+ts, identityType: "NIM", email: `p${ts}@t.com`, password: "p" } });
-      pStudent = await prisma.student.create({ data: { id: pUser.id, skscompleted: 140 } });
+      pStudent = await prisma.student.create({ data: { id: pUser.id, sksCompleted: 140 } });
       aUser = await prisma.user.create({ data: { fullName: "A "+ts, identityNumber: "NIM-A-"+ts, identityType: "NIM", email: `a${ts}@t.com`, password: "p" } });
-      aStudent = await prisma.student.create({ data: { id: aUser.id, skscompleted: 140 } });
+      aStudent = await prisma.student.create({ data: { id: aUser.id, sksCompleted: 140 } });
       lUser = await prisma.user.create({ data: { fullName: "L "+ts, identityNumber: "NIP-L-"+ts, identityType: "NIP", email: `l${ts}@t.com`, password: "p" } });
       lecturer = await prisma.lecturer.create({ data: { id: lUser.id } });
 

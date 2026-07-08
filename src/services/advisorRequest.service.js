@@ -1030,7 +1030,7 @@ export async function getDosenInboxHistory(userId) {
  * Fire-and-forget: notifikasi mahasiswa bahwa pengajuan pembimbing ditolak
  * (oleh dosen atau KaDep). Membawa alasan/catatan supaya mahasiswa tahu
  * arahan selanjutnya. Selaras BPMN `Task_UpdateRejectedRequest` "mengirim
- * notifikasi" (canon v2.5 §5.8 + label BPMN).
+ * notifikasi" (canon v2.6 §5.8 + label BPMN).
  */
 async function notifyAdvisorRequestRejected(request, { actor, reason }) {
   const studentUserId = request?.student?.user?.id;
@@ -1659,14 +1659,18 @@ export async function getRequestDetail(requestId, callerUserId) {
 
 function buildTa04Cohort(theses = []) {
   const entries = theses.map((t) => {
-    const supervisorNames = formatCompactSupervisorNames(t.thesisSupervisors);
+    const supervisorNames =
+      t.ta04AssignmentSupervisorNames || formatCompactSupervisorNames(t.thesisSupervisors);
+    const requestTitle = t.advisorRequests?.[0]?.proposedTitle ?? null;
+    const frozenTitle = t.ta04AssignmentTitle ?? null;
 
     return {
       thesisId: t.id,
       studentName: t.student?.user?.fullName ?? "-",
       studentNim: t.student?.user?.identityNumber ?? "-",
-      title: t.title ?? "Judul belum ditentukan",
+      title: frozenTitle ?? t.title ?? requestTitle ?? "Judul belum ditentukan",
       supervisorNames: supervisorNames || "-",
+      needsAssignmentSnapshot: !t.ta04AssignmentIssuedAt,
     };
   });
 
@@ -1703,8 +1707,8 @@ function isBatchCurrentForCohort(batch, cohortHash, thesisIds = []) {
 
 /**
  * Generate Formulir TA-04 preview for an entire academic year.
- * This is the official batch document for students taking the thesis course
- * in that semester.
+ * TA-04 is an early official assignment batch for approved TA-01/TA-02
+ * bookings; it does not promote advisor load to active official.
  */
 export async function generateBatchTA04(academicYearId) {
   const academicYear = await repo.findAcademicYearById(academicYearId);
@@ -1714,7 +1718,7 @@ export async function generateBatchTA04(academicYearId) {
 
   if (theses.length === 0) {
     throw new BadRequestError(
-      "Tidak ada mahasiswa dengan pengesahan judul (status proposal diterima KaDep) untuk tahun akademik ini. Formulir TA-04 batch resmi mengikuti Panduan Langkah 6."
+      "Tidak ada mahasiswa dengan booking pembimbing TA-01/TA-02 yang sudah disetujui untuk tahun akademik ini."
     );
   }
 
@@ -1748,8 +1752,10 @@ export async function generateBatchTA04(academicYearId) {
 }
 
 /**
- * Finalize the semester TA-04 form as the official archived document.
- * This persists the PDF and links the same document to all theses in that semester.
+ * Finalize the semester TA-04 form as the official early assignment document.
+ * This persists the PDF, links it to all booking theses, and freezes the
+ * first TA-04 title/supervisor snapshot. It intentionally keeps theses in
+ * Metopen phase until automatic promotion.
  */
 export async function finalizeBatchTA04(academicYearId, generatedByUserId = null) {
   const academicYear = await repo.findAcademicYearById(academicYearId);
@@ -1758,7 +1764,7 @@ export async function finalizeBatchTA04(academicYearId, generatedByUserId = null
   const theses = await repo.findThesesWithSupervisors(academicYearId);
   if (theses.length === 0) {
     throw new BadRequestError(
-      "Tidak ada mahasiswa dengan pengesahan judul (status proposal diterima KaDep) untuk tahun akademik ini. Formulir TA-04 batch resmi mengikuti Panduan Langkah 6."
+      "Tidak ada mahasiswa dengan booking pembimbing TA-01/TA-02 yang sudah disetujui untuk tahun akademik ini."
     );
   }
 
@@ -1768,6 +1774,24 @@ export async function finalizeBatchTA04(academicYearId, generatedByUserId = null
   if (isBatchCurrentForCohort(currentBatch, cohortHash, thesisIds)) {
     const semesterName = academicYear.semester === "genap" ? "Genap" : "Ganjil";
     await repo.updateThesisDocuments(thesisIds, currentBatch.document.id);
+    const snapshotEntries = cohortEntries.filter((entry) => entry.needsAssignmentSnapshot);
+    if (snapshotEntries.length > 0) {
+      const issuedAt = new Date();
+      await prisma.$transaction(
+        snapshotEntries.map((entry) =>
+          prisma.thesis.update({
+            where: { id: entry.thesisId },
+            data: {
+              ta04AssignmentIssuedAt: issuedAt,
+              ta04AssignmentIssuedByUserId: generatedByUserId,
+              ta04AssignmentTitle: entry.title,
+              ta04AssignmentSupervisorNames: entry.supervisorNames,
+              ta04AssignmentAcademicYearId: academicYearId,
+            },
+          }),
+        ),
+      );
+    }
     return {
       batchId: currentBatch.id,
       documentId: currentBatch.document.id,
@@ -1809,15 +1833,15 @@ export async function finalizeBatchTA04(academicYearId, generatedByUserId = null
     generatedByUserId,
   });
 
-  // Notifikasi ke mahasiswa affected bahwa Formulir TA-04 batch resmi telah
-  // diterbitkan dan tersedia di arsip Metode Penelitian.
+  // Notifikasi ke mahasiswa affected bahwa Formulir TA-04 awal telah
+  // diterbitkan. Mahasiswa tetap berada di fase Metopel sampai promosi otomatis.
   try {
     const studentIds = theses.map((t) => t.student?.user?.id).filter(Boolean);
     if (studentIds.length > 0) {
       const semesterPretty = `${academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${academicYear.year ?? ""}`.trim();
       await createNotificationsForUsers(studentIds, {
         title: "Formulir TA-04 Diterbitkan",
-        message: `Formulir TA-04 periode ${semesterPretty} telah difinalisasi KaDep. Anda dapat mengunduh dokumen resmi dari menu Metode Penelitian (Arsip).`,
+        message: `Formulir TA-04 penugasan awal periode ${semesterPretty} telah diterbitkan KaDep. Status pembimbing tetap booking sampai TA-03 final dan KRS Tugas Akhir terkonfirmasi.`,
       });
     }
   } catch (notifErr) {

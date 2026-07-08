@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import prisma from "../../../config/prisma.js";
+import prisma from "../../../../config/prisma.js";
 import { updateAllInternshipDeadlineStatuses } from "../../../services/insternship/internshipStatus.service.js";
 import { ensureActiveAcademicYear, ensureCompany } from "./test-utils.js";
 

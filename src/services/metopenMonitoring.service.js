@@ -39,7 +39,8 @@ const ADVISOR_STATUS_DISPLAY = Object.freeze({
   [ADVISOR_REQUEST_STATUS.UNDER_REVIEW]: { label: "Sedang ditinjau dosen", category: "pending_review" },
   [ADVISOR_REQUEST_STATUS.PENDING_KADEP]: { label: "Menunggu validasi KaDep", category: "pending_kadep" },
   [ADVISOR_REQUEST_STATUS.BOOKING_APPROVED]: { label: "Booking pembimbing", category: "active_pre_ta04" },
-  [ADVISOR_REQUEST_STATUS.ACTIVE_OFFICIAL]: { label: "Bimbingan resmi (TA-04)", category: "active_official" },
+  [ADVISOR_REQUEST_STATUS.ACTIVE_OFFICIAL]: { label: "Beban aktif TA", category: "active_official" },
+  [ADVISOR_REQUEST_STATUS.RELEASED]: { label: "Booking dilepas", category: "released" },
   [ADVISOR_REQUEST_STATUS.REVISION_REQUESTED]: { label: "Revisi TA-02 oleh KaDep", category: "revision" },
   [ADVISOR_REQUEST_STATUS.REJECTED_BY_DOSEN]: { label: "Ditolak dosen", category: "rejected" },
   [ADVISOR_REQUEST_STATUS.REJECTED_BY_KADEP]: { label: "Ditolak KaDep", category: "rejected" },
@@ -226,9 +227,13 @@ function serializeAdvisorRequest(req) {
     label: req.status,
     category: "other",
   };
+  const hasEarlyTa04 =
+    req.status === ADVISOR_REQUEST_STATUS.BOOKING_APPROVED &&
+    req.thesis?.ta04AssignmentIssuedAt != null;
+  const statusLabel = hasEarlyTa04 ? "TA-04 terbit, masih booking" : display.label;
   return {
     status: req.status,
-    statusLabel: display.label,
+    statusLabel,
     statusCategory: display.category,
     routeType: req.routeType,
     routeLabel: req.routeType ? ROUTE_LABEL[req.routeType] ?? req.routeType : null,
@@ -240,6 +245,9 @@ function serializeAdvisorRequest(req) {
     acceptedOverNormal: Boolean(req.acceptedOverNormal),
     forwardedToKadepAt: req.forwardedToKadepAt ?? null,
     withdrawnAt: req.withdrawnAt ?? null,
+    releasedAt: req.releasedAt ?? null,
+    releaseReason: req.releaseReason ?? null,
+    ta04AssignmentIssuedAt: req.thesis?.ta04AssignmentIssuedAt ?? null,
     lastUpdatedAt: req.updatedAt ?? req.createdAt ?? null,
   };
 }
@@ -415,6 +423,7 @@ function buildSummaryStats(studentRows, unmatchedRecords) {
       pending_kadep: 0,
       active_pre_ta04: 0,
       active_official: 0,
+      released: 0,
       revision: 0,
       rejected: 0,
       withdrawn: 0,

@@ -7,6 +7,7 @@ vi.mock("../../repositories/metopen.repository.js", () => ({
 vi.mock("../../config/prisma.js", () => ({
   default: {
     student: { findUnique: vi.fn() },
+    academicYear: { findFirst: vi.fn() },
     researchMethodScore: { findFirst: vi.fn() },
     thesis: { findUnique: vi.fn(), update: vi.fn() },
     thesisSupervisors: { count: vi.fn(), findMany: vi.fn() },
@@ -29,6 +30,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       id: "student-1",
       takingThesisCourse: true,
     });
+    prisma.academicYear.findFirst.mockResolvedValue(null);
   });
 
   function setupThesis(overrides = {}) {

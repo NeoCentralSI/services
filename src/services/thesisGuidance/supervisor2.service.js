@@ -73,7 +73,7 @@ async function ensurePembimbing1Exists(thesisId) {
 
 /**
  * Guard status: penambahan Pembimbing 2 boleh dilakukan di fase mana pun
- * (proposal maupun pasca TA-04), selama thesis masih aktif/terbuka.
+ * (proposal maupun pasca promosi aktif), selama thesis masih aktif/terbuka.
  * P2 dibutuhkan sejak awal agar bisa co-sign TA-03A (BR-20, canon §5.7.1).
  */
 function ensureThesisOpenForSupervisor2(thesis) {
@@ -372,7 +372,7 @@ export async function getSupervisor2RequestsService(lecturerId) {
  * Lecturer menyatakan BERSEDIA menjadi Pembimbing 2 → diteruskan ke KaDep.
  *
  * Keputusan audit pass 2 (F2-5, OQ-2.2 2026-06-10): penambahan Pembimbing 2
- * pasca TA-04 wajib persetujuan KaDep (selaras Panduan TA: perubahan pembimbing
+ * pasca promosi aktif wajib persetujuan KaDep (selaras Panduan TA: perubahan pembimbing
  * disetujui Ketua Departemen). Kesediaan dosen TIDAK langsung membuat
  * `thesis_supervisors` — partisipan baru dibuat saat KaDep approve.
  */
@@ -644,7 +644,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		await markSupervisor2RequestsProcessedForThesis(thesisId, tx);
 	});
 
-	// Dequeue thesis dari antrean KaDep TA-04 jika sudah masuk (P2 belum co-sign).
+	// Backward-compatible lifecycle sync after P2 assignment.
 	// BUKAN fire-and-forget — kegagalan di-log tapi tidak membatalkan approval P2
 	// (participant sudah terbuat di transaction di atas, konsistensi dijamin oleh
 	// evaluateKadepProposalQueueReadiness yang akan memblokir di GET berikutnya).
@@ -654,10 +654,10 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		const syncResult = await syncKadepProposalQueueByThesisId(thesisId);
 		dequeued = syncResult?.dequeued === true;
 	} catch (syncErr) {
-		console.warn("[supervisor2] syncKadepProposalQueueByThesisId failed:", syncErr?.message || syncErr);
+		console.warn("[supervisor2] TA-04 lifecycle sync failed:", syncErr?.message || syncErr);
 	}
 
-	// Notifikasi P1 bahwa co-sign diperlukan sebelum thesis bisa lanjut ke TA-04.
+	// Notifikasi P1 bahwa co-sign diperlukan sebelum promosi aktif bisa berjalan.
 	const p1Participant = await prisma.thesisSupervisors.findFirst({
 		where: {
 			thesisId,
@@ -673,11 +673,11 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 
 		await createNotificationsForUsers(notifyTargets, {
 			title: "Co-sign Pembimbing 2 Diperlukan",
-			message: `${lecturerName} telah ditambahkan sebagai Pembimbing 2. Antrean TA-04 ditunda hingga co-sign TA-03A diberikan oleh Pembimbing 2.`,
+			message: `${lecturerName} telah ditambahkan sebagai Pembimbing 2. Promosi aktif menunggu co-sign TA-03A diberikan oleh Pembimbing 2.`,
 		});
 		await sendFcmToUsers(notifyTargets, {
 			title: "Co-sign Pembimbing 2 Diperlukan",
-			body: `Antrean TA-04 ditunda — co-sign TA-03A dari Pembimbing 2 diperlukan.`,
+			body: `Promosi aktif menunggu co-sign TA-03A dari Pembimbing 2.`,
 			data: { type: "supervisor2_cosign_needed", thesisId },
 			dataOnly: true,
 		});
@@ -687,13 +687,13 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	await createNotificationsForUsers([studentId], {
 		title: "Pembimbing 2 Disetujui",
 		message: thesis.proposalStatus === "accepted"
-			? `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda. Formulir TA-04 batch periode perlu difinalisasi ulang sebelum dapat diunduh dari arsip.`
+			? `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem.`
 			: `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda.`,
 	});
 	await createNotificationsForUsers([lecturerId], {
 		title: "Penetapan Pembimbing 2",
 		message: thesis.proposalStatus === "accepted"
-			? "Ketua Departemen menyetujui Anda sebagai Pembimbing 2. Formulir TA-04 batch periode perlu difinalisasi ulang."
+			? "Ketua Departemen menyetujui Anda sebagai Pembimbing 2. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem."
 			: "Ketua Departemen menyetujui Anda sebagai Pembimbing 2.",
 	});
 	await sendFcmToUsers([studentId, lecturerId], {
@@ -703,15 +703,15 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		dataOnly: true,
 	});
 
-	// Celah #1: Jika thesis sudah accepted, notifikasi KaDep bahwa dokumen TA-04
-	// perlu di-regenerate karena P2 baru harus tertera.
+	// Jika thesis sudah promoted, TA-04 awal tetap memakai snapshot batch pertama.
+	// Notifikasi KaDep bersifat informatif, bukan instruksi regenerasi dokumen.
 	if (thesis.proposalStatus === "accepted") {
 		const kadepUsers = await findUsersByActiveRole(ROLES.KETUA_DEPARTEMEN);
 		const kadepIds = (kadepUsers || []).map((u) => u.id).filter((id) => id !== kadepUserId);
 		if (kadepIds.length > 0) {
 			await createNotificationsForUsers(kadepIds, {
-				title: "Dokumen TA-04 Perlu Regenerasi",
-				message: `Pembimbing 2 (${lecturerName}) ditambahkan pada thesis yang sudah disahkan. Formulir TA-04 perlu di-generate ulang agar P2 tercantum.`,
+				title: "Pembimbing 2 Ditambahkan Pasca-Promosi",
+				message: `Pembimbing 2 (${lecturerName}) ditambahkan pada thesis yang sudah aktif. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem.`,
 			});
 		}
 	}

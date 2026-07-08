@@ -3,9 +3,9 @@ import jwt from "jsonwebtoken";
 import path from "path";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import app from "../../../app.js";
+import app from "../../../../app.js";
 import { ENV } from "../../../config/env.js";
-import prisma from "../../../config/prisma.js";
+import prisma from "../../../../config/prisma.js";
 
 describe("Internship Pendaftaran Integration Test", () => {
   let tokens = {};

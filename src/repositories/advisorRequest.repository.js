@@ -1272,22 +1272,19 @@ export const findActiveKaDep = async () => {
 };
 
 /**
- * Find theses eligible for official TA-04 batch (Panduan Langkah 6): TA-03A/TA-03B
- * complete, enrolled in TA course, final proposal selected, and Pembimbing 1 active.
+ * Find theses eligible for early TA-04 assignment batch: TA-01/TA-02 booking
+ * already approved in the Metopen academic year and Pembimbing 1 exists.
+ * TA-03/KRS gates are intentionally excluded; they are handled by automatic
+ * promotion/release after the next SIA snapshot.
  */
 export const findThesesWithSupervisors = async (academicYearId) => {
   return prisma.thesis.findMany({
     where: {
       academicYearId,
-      proposalStatus: "accepted",
-      finalProposalVersionId: { not: null },
-      student: { takingThesisCourse: true },
-      researchMethodScores: {
+      advisorRequests: {
         some: {
-          supervisorScore: { not: null },
-          lecturerScore: { not: null },
-          isFinalized: true,
-          attendanceAutoZeroedAt: null,
+          academicYearId,
+          status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
         },
       },
       thesisSupervisors: {
@@ -1301,10 +1298,29 @@ export const findThesesWithSupervisors = async (academicYearId) => {
       id: true,
       title: true,
       titleApprovalDocumentId: true,
+      ta04AssignmentIssuedAt: true,
+      ta04AssignmentTitle: true,
+      ta04AssignmentSupervisorNames: true,
+      ta04AssignmentAcademicYearId: true,
       student: {
         select: {
           user: { select: { id: true, fullName: true, identityNumber: true } },
         },
+      },
+      advisorRequests: {
+        where: {
+          academicYearId,
+          status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
+        },
+        select: {
+          id: true,
+          status: true,
+          academicYearId: true,
+          lecturerId: true,
+          proposedTitle: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "asc" },
       },
       thesisSupervisors: {
         where: {

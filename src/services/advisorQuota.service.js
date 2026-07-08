@@ -227,6 +227,15 @@ function classifySupervisorBucket(supervisor) {
   return isOfficialAccepted(thesis) ? "active" : "booking";
 }
 
+function supervisorBelongsToQuotaYear(supervisor, academicYearId) {
+  if (!academicYearId) return true;
+  const thesis = supervisor.thesis ?? null;
+  if (isOfficialAccepted(thesis)) {
+    return (thesis.activeAcademicYearId ?? thesis.academicYearId) === academicYearId;
+  }
+  return thesis?.academicYearId === academicYearId;
+}
+
 function pushEntry(snapshot, bucket, entry) {
   if (bucket === "active") {
     snapshot.activeCount += 1;
@@ -295,6 +304,8 @@ export async function getLecturerQuotaSnapshots({
   }
 
   for (const supervisor of trackedSupervisors) {
+    if (!supervisorBelongsToQuotaYear(supervisor, resolvedAcademicYearId)) continue;
+
     const snapshot = snapshots.get(supervisor.lecturerId);
     if (!snapshot) continue;
 

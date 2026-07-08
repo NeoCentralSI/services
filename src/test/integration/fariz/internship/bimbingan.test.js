@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import app from "../../../app.js";
-import prisma from "../../../config/prisma.js";
+import app from "../../../../app.js";
+import prisma from "../../../../config/prisma.js";
 import { createOngoingInternship, getUserByEmailOrThrow, makeAuthToken } from "./test-utils.js";
 
 describe("Internship Bimbingan Integration Test", () => {

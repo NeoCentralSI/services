@@ -15,7 +15,7 @@ export async function getProgressByThesisId(req, res, next) {
 
 /**
  * GET /metopen/eligibility
- * Akses permukaan Metode Penelitian/proposal + flag read-only pasca-pengesahan proposal.
+ * Akses permukaan Metode Penelitian/proposal + flag read-only pasca promosi aktif TA.
  * Mahasiswa: data nyata. User lain: nilai aman (tanpa akses) — dipakai guard sisi klien.
  */
 export async function getEligibility(req, res, next) {
@@ -42,7 +42,7 @@ export async function getMyProposalApproval(req, res, next) {
 
 /**
  * GET /metopen/me/archive
- * BR-23 (canon §5.13): Detail arsip Metopel mahasiswa pasca TA-04. Read-only.
+ * BR-23 (canon §5.13): Detail arsip Metopel mahasiswa pasca promosi aktif TA. Read-only.
  * 4 kategori: substansi TA-01/02, detail rubrik TA-03A & TA-03B, Formulir TA-04.
  */
 export async function getMyArchive(req, res, next) {
@@ -57,7 +57,7 @@ export async function getMyArchive(req, res, next) {
 /**
  * GET /metopen/me/assessment-history
  * Read-only detail TA-03 untuk mahasiswa sejak penilaian tersedia, termasuk
- * fase menunggu TA-04. Setelah TA-04, payload sama dengan arsip.
+ * fase sebelum arsip aktif. Setelah promosi aktif, payload sama dengan arsip.
  */
 export async function getMyAssessmentHistory(req, res, next) {
   try {
@@ -70,7 +70,7 @@ export async function getMyAssessmentHistory(req, res, next) {
 
 /**
  * GET /metopen/me/seminar-eligibility
- * Snapshot FR-SYS-01 tanpa sync antre KaDep (REST-safe).
+ * Snapshot FR-SYS-01 tanpa lifecycle sync (REST-safe).
  */
 export async function getMySeminarEligibility(req, res, next) {
   try {
@@ -83,7 +83,7 @@ export async function getMySeminarEligibility(req, res, next) {
 
 /**
  * POST /metopen/me/proposal-queue/sync
- * Jalankan sync antre KaDep + kembalikan ringkasan (disarankan dipanggil setelah nilai TA-03 / ACC tugas).
+ * Jalankan sync promosi/release TA-04 awal + kembalikan ringkasan.
  */
 export async function postMyProposalQueueSync(req, res, next) {
   try {
@@ -130,7 +130,7 @@ export async function postKadepTitleReportReview(req, res, next) {
 
 /**
  * GET /metopen/kadep/title-reports/missing-document?academicYearId=
- * Legacy compatibility: thesis accepted yang belum terhubung ke Formulir TA-04 batch resmi.
+ * Legacy compatibility: thesis aktif/TA-04 awal yang belum terhubung ke Formulir TA-04 batch resmi.
  */
 export async function getKadepMissingTitleDocuments(req, res, next) {
   try {
@@ -146,7 +146,7 @@ export async function getKadepMissingTitleDocuments(req, res, next) {
 
 /**
  * GET /metopen/kadep/title-reports/history?academicYearId=
- * Riwayat keputusan TA-04 (accepted/rejected) antar-periode untuk dashboard KaDep.
+ * Riwayat TA-04 awal + legacy accepted/rejected antar-periode untuk dashboard KaDep.
  */
 export async function getKadepTitleReportHistory(req, res, next) {
   try {

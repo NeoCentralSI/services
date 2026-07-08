@@ -32,25 +32,26 @@ model User {
   student                    Student?
   userHasRoles               UserHasRole[]
 
-  cplScoresInputBy                   StudentCplScore[]                      @relation("CplScoreInputBy")
-  cplScoresVerifiedBy                StudentCplScore[]                      @relation("CplScoreVerifiedBy")
-  yudisiumReqVerifications           YudisiumParticipantRequirement[]       @relation("YudisiumReqVerifiedBy")
-  yudisiumCplRecsCreated             YudisiumCplRecommendation[]            @relation("YudisiumCplRecCreatedBy")
-  yudisiumCplRecsResolved            YudisiumCplRecommendation[]            @relation("YudisiumCplRecResolvedBy")
-  yudisiumDecreeUploads              Yudisium[]                             @relation("YudisiumDecreeUploader")
-  seminarExaminerAssignments         ThesisSeminarExaminer[]                @relation("SeminarExaminerAssignedBy")
-  seminarDocVerifications            ThesisSeminarDocument[]                @relation("SeminarDocVerifiedBy")
-  seminarRequirementDocVerifications ThesisSeminarRequirementDocument[]     @relation("SeminarRequirementDocVerifiedBy")
-  defenceExaminerAssignments         ThesisDefenceExaminer[]                @relation("DefenceExaminerAssignedBy")
-  defenceDocVerifications            ThesisDefenceDocument[]                @relation("DefenceDocVerifiedBy")
-  defenceRequirementDocVerifications ThesisDefenceRequirementDocument[]     @relation("DefenceRequirementDocVerifiedBy")
-  advisorRequestsReviewed            ThesisAdvisorRequest[]                 @relation("AdvisorRequestReviewer")
-  guidanceEvaluationsApproved        ThesisGuidanceEvaluation[]             @relation("GuidanceEvalKadepApprover")
-  proposalTitleReviews               Thesis[]                               @relation("ThesisProposalReviewedBy")
-  researchMethodScoresFinalized      ResearchMethodScore[]                  @relation("ResearchMethodScoreFinalizer")
-  metopenAttendanceImportsUploaded   MetopenAttendanceImport[]              @relation("MetopenAttendanceImportUploader")
-  proposalVersionsSubmittedAsFinal   ThesisProposalVersion[]                @relation("ThesisProposalVersionSubmittedBy")
-  ta04BatchesGenerated               Ta04Batch[]                            @relation("Ta04BatchGeneratedBy")
+  cplScoresInputBy                   StudentCplScore[]                  @relation("CplScoreInputBy")
+  cplScoresVerifiedBy                StudentCplScore[]                  @relation("CplScoreVerifiedBy")
+  yudisiumReqVerifications           YudisiumParticipantRequirement[]   @relation("YudisiumReqVerifiedBy")
+  yudisiumCplRecsCreated             YudisiumCplRecommendation[]        @relation("YudisiumCplRecCreatedBy")
+  yudisiumCplRecsResolved            YudisiumCplRecommendation[]        @relation("YudisiumCplRecResolvedBy")
+  yudisiumDecreeUploads              Yudisium[]                         @relation("YudisiumDecreeUploader")
+  seminarExaminerAssignments         ThesisSeminarExaminer[]            @relation("SeminarExaminerAssignedBy")
+  seminarDocVerifications            ThesisSeminarDocument[]            @relation("SeminarDocVerifiedBy")
+  seminarRequirementDocVerifications ThesisSeminarRequirementDocument[] @relation("SeminarRequirementDocVerifiedBy")
+  defenceExaminerAssignments         ThesisDefenceExaminer[]            @relation("DefenceExaminerAssignedBy")
+  defenceDocVerifications            ThesisDefenceDocument[]            @relation("DefenceDocVerifiedBy")
+  defenceRequirementDocVerifications ThesisDefenceRequirementDocument[] @relation("DefenceRequirementDocVerifiedBy")
+  advisorRequestsReviewed            ThesisAdvisorRequest[]             @relation("AdvisorRequestReviewer")
+  guidanceEvaluationsApproved        ThesisGuidanceEvaluation[]         @relation("GuidanceEvalKadepApprover")
+  proposalTitleReviews               Thesis[]                           @relation("ThesisProposalReviewedBy")
+  ta04AssignmentsIssued              Thesis[]                           @relation("ThesisTa04AssignmentIssuedBy")
+  researchMethodScoresFinalized      ResearchMethodScore[]              @relation("ResearchMethodScoreFinalizer")
+  metopenAttendanceImportsUploaded   MetopenAttendanceImport[]          @relation("MetopenAttendanceImportUploader")
+  proposalVersionsSubmittedAsFinal   ThesisProposalVersion[]            @relation("ThesisProposalVersionSubmittedBy")
+  ta04BatchesGenerated               Ta04Batch[]                        @relation("Ta04BatchGeneratedBy")
 
   internshipSupLetterSigned InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
 
@@ -230,10 +231,13 @@ model AcademicYear {
   supervisionQuotaDefault            SupervisionQuotaDefault?
   lecturerQuotas                     LecturerSupervisionQuota[]
   advisorRequests                    ThesisAdvisorRequest[]
+  advisorRequestsReleased            ThesisAdvisorRequest[]               @relation("AdvisorRequestReleasedAcademicYear")
   yudisiums                          Yudisium[]
   metopenAttendanceImports           MetopenAttendanceImport[]
   metopenCpmks                       MetopenCpmk[]
   ta04Batches                        Ta04Batch[]
+  ta04AssignmentTheses               Thesis[]                             @relation("ThesisTa04AssignmentAcademicYear")
+  activeTheses                       Thesis[]                             @relation("ThesisActiveAcademicYear")
 
   @@map("academic_years")
 }
@@ -499,8 +503,8 @@ model MetopenAssessmentCriteria {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
-  metopenCpmk               MetopenCpmk               @relation(fields: [metopenCpmkId], references: [id])
-  metopenAssessmentRubrics  MetopenAssessmentRubric[]
+  metopenCpmk                MetopenCpmk                 @relation(fields: [metopenCpmkId], references: [id])
+  metopenAssessmentRubrics   MetopenAssessmentRubric[]
   researchMethodScoreDetails ResearchMethodScoreDetail[]
 
   @@index([metopenCpmkId], map: "metopen_assessment_criterias_metopen_cpmk_id_fkey")
@@ -520,7 +524,7 @@ model MetopenAssessmentRubric {
   createdAt                   DateTime @default(now()) @map("created_at")
   updatedAt                   DateTime @updatedAt @map("updated_at")
 
-  metopenAssessmentCriteria  MetopenAssessmentCriteria    @relation(fields: [metopenAssessmentCriteriaId], references: [id])
+  metopenAssessmentCriteria  MetopenAssessmentCriteria   @relation(fields: [metopenAssessmentCriteriaId], references: [id])
   researchMethodScoreDetails ResearchMethodScoreDetail[]
 
   @@index([metopenAssessmentCriteriaId], map: "metopen_assessment_rubrics_metopen_assessment_criteria_id_fkey")
@@ -625,10 +629,21 @@ model Thesis {
   proposalStatus         ProposalStatus? @map("proposal_status")
 
   // === SIMPTA SCOPE: TA-04 KaDep Decision Audit (canon §5.8, §5.13) ===
-  titleApprovalDocumentId  String?   @map("title_approval_document_id")
-  proposalReviewNotes      String?   @map("proposal_review_notes") @db.Text
-  proposalReviewedAt       DateTime? @map("proposal_reviewed_at")
-  proposalReviewedByUserId String?   @map("proposal_reviewed_by_user_id") @db.VarChar(255)
+  titleApprovalDocumentId       String?   @map("title_approval_document_id")
+  proposalReviewNotes           String?   @map("proposal_review_notes") @db.Text
+  proposalReviewedAt            DateTime? @map("proposal_reviewed_at")
+  proposalReviewedByUserId      String?   @map("proposal_reviewed_by_user_id") @db.VarChar(255)
+  /// TA-04 awal = SK penugasan resmi setelah TA-01/TA-02 booking disetujui.
+  /// Metadata ini membekukan judul + nama pembimbing yang tampil pada batch
+  /// pertama; promosi beban aktif tetap menunggu TA-03 final + KRS TA.
+  ta04AssignmentIssuedAt        DateTime? @map("ta04_assignment_issued_at")
+  ta04AssignmentIssuedByUserId  String?   @map("ta04_assignment_issued_by_user_id") @db.VarChar(255)
+  ta04AssignmentTitle           String?   @map("ta04_assignment_title") @db.Text
+  ta04AssignmentSupervisorNames String?   @map("ta04_assignment_supervisor_names") @db.Text
+  ta04AssignmentAcademicYearId  String?   @map("ta04_assignment_academic_year_id")
+  /// Tahun akademik beban aktif setelah promosi otomatis dari booking.
+  activeAcademicYearId          String?   @map("active_academic_year_id")
+  activePromotedAt              DateTime? @map("active_promoted_at")
 
   // === MODUL TA SCOPE (post-TA-04, isProposal=false — BUKAN SIMPTA scope) ===
   /// out-of-SIMPTA-scope: Modul TA penuh. Rating monitoring (ONGOING/SLOW/AT_RISK/FAILED).
@@ -658,6 +673,9 @@ model Thesis {
   finalProposalVersion       ThesisProposalVersion?      @relation("FinalProposalVersion", fields: [finalProposalVersionId], references: [id])
   titleApprovalDocument      Document?                   @relation("TitleApprovalDocument", fields: [titleApprovalDocumentId], references: [id])
   proposalReviewedBy         User?                       @relation("ThesisProposalReviewedBy", fields: [proposalReviewedByUserId], references: [id])
+  ta04AssignmentIssuedBy     User?                       @relation("ThesisTa04AssignmentIssuedBy", fields: [ta04AssignmentIssuedByUserId], references: [id], onDelete: SetNull)
+  ta04AssignmentAcademicYear AcademicYear?               @relation("ThesisTa04AssignmentAcademicYear", fields: [ta04AssignmentAcademicYearId], references: [id])
+  activeAcademicYear         AcademicYear?               @relation("ThesisActiveAcademicYear", fields: [activeAcademicYearId], references: [id])
   student                    Student                     @relation(fields: [studentId], references: [id])
   thesisStatus               ThesisStatus?               @relation(fields: [thesisStatusId], references: [id])
   thesisTopic                ThesisTopic?                @relation(fields: [thesisTopicId], references: [id])
@@ -683,6 +701,9 @@ model Thesis {
   @@index([finalProposalVersionId], map: "thesis_final_proposal_version_id_fkey")
   @@index([titleApprovalDocumentId])
   @@index([proposalReviewedByUserId], map: "thesis_proposal_reviewed_by_user_id_fkey")
+  @@index([ta04AssignmentIssuedByUserId], map: "thesis_ta04_assignment_issued_by_user_id_fkey")
+  @@index([ta04AssignmentAcademicYearId], map: "thesis_ta04_assignment_academic_year_id_fkey")
+  @@index([activeAcademicYearId], map: "thesis_active_academic_year_id_fkey")
   @@index([studentId], map: "thesis_student_id_fkey")
   @@index([thesisStatusId], map: "thesis_thesis_status_id_fkey")
   @@index([thesisTopicId], map: "thesis_thesis_topic_id_fkey")
@@ -692,18 +713,18 @@ model Thesis {
 /// Formulir TA-04 resmi per periode. Source of truth dokumen batch current
 /// disimpan di sini, bukan disimpulkan dari pointer per-thesis yang bisa stale.
 model Ta04Batch {
-  id                String    @id @default(uuid())
-  academicYearId    String    @map("academic_year_id")
-  documentId        String    @map("document_id")
-  version           Int       @default(1)
+  id                String   @id @default(uuid())
+  academicYearId    String   @map("academic_year_id")
+  documentId        String   @map("document_id")
+  version           Int      @default(1)
   /// String status sengaja dipakai untuk menghindari enum DB baru.
   /// Nilai aktif: current, superseded.
-  status            String    @default("current") @db.VarChar(32)
-  cohortHash        String    @map("cohort_hash") @db.VarChar(64)
-  generatedByUserId String?   @map("generated_by_user_id")
-  generatedAt       DateTime  @default(now()) @map("generated_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  status            String   @default("current") @db.VarChar(32)
+  cohortHash        String   @map("cohort_hash") @db.VarChar(64)
+  generatedByUserId String?  @map("generated_by_user_id")
+  generatedAt       DateTime @default(now()) @map("generated_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   academicYear AcademicYear      @relation(fields: [academicYearId], references: [id])
   document     Document          @relation("Ta04BatchDocument", fields: [documentId], references: [id])
@@ -819,25 +840,25 @@ model ThesisChangeRequestApproval {
 }
 
 model ThesisSupervisors {
-  id                                 String                  @id @default(uuid())
-  thesisId                           String                  @map("thesis_id")
-  lecturerId                         String                  @map("lecturer_id")
-  roleId                             String                  @map("role_id")
-  status                             SupervisorStatus        @default(active)
-  seminarReady                       Boolean                 @default(false) @map("seminar_ready")
-  defenceReady                       Boolean                 @default(false) @map("defence_ready")
-  createdAt                          DateTime                @default(now()) @map("created_at")
-  updatedAt                          DateTime                @updatedAt @map("updated_at")
-  lecturer                           Lecturer                @relation(fields: [lecturerId], references: [id])
-  role                               UserRole                @relation(fields: [roleId], references: [id])
-  thesis                             Thesis                  @relation(fields: [thesisId], references: [id])
+  id                                 String                     @id @default(uuid())
+  thesisId                           String                     @map("thesis_id")
+  lecturerId                         String                     @map("lecturer_id")
+  roleId                             String                     @map("role_id")
+  status                             SupervisorStatus           @default(active)
+  seminarReady                       Boolean                    @default(false) @map("seminar_ready")
+  defenceReady                       Boolean                    @default(false) @map("defence_ready")
+  createdAt                          DateTime                   @default(now()) @map("created_at")
+  updatedAt                          DateTime                   @updatedAt @map("updated_at")
+  lecturer                           Lecturer                   @relation(fields: [lecturerId], references: [id])
+  role                               UserRole                   @relation(fields: [roleId], references: [id])
+  thesis                             Thesis                     @relation(fields: [thesisId], references: [id])
   guidanceEvaluations                ThesisGuidanceEvaluation[]
   thesisSeminarAudienceApprovals     ThesisSeminarAudience[]
   thesisSeminarRevisionApprovals     ThesisSeminarRevision[]
-  thesisSeminarResultFinalizations   ThesisSeminar[]         @relation("SeminarResultFinalizedBy")
-  thesisSeminarRevisionFinalizations ThesisSeminar[]         @relation("SeminarRevisionFinalizedBy")
-  thesisDefenceResultFinalizations   ThesisDefence[]         @relation("DefenceResultFinalizedBy")
-  thesisDefenceRevisionFinalizations ThesisDefence[]         @relation("DefenceRevisionFinalizedBy")
+  thesisSeminarResultFinalizations   ThesisSeminar[]            @relation("SeminarResultFinalizedBy")
+  thesisSeminarRevisionFinalizations ThesisSeminar[]            @relation("SeminarRevisionFinalizedBy")
+  thesisDefenceResultFinalizations   ThesisDefence[]            @relation("DefenceResultFinalizedBy")
+  thesisDefenceRevisionFinalizations ThesisDefence[]            @relation("DefenceRevisionFinalizedBy")
   thesisDefenceRevisionApprovals     ThesisDefenceRevision[]
 
   @@unique([id, thesisId])
@@ -1711,17 +1732,17 @@ model Document {
   thesisGuidances                     ThesisGuidance[]
   seminarDocuments                    ThesisSeminarDocument[]          @relation("SeminarDocDocument")
   defenceDocuments                    ThesisDefenceDocument[]          @relation("DefenceDocDocument")
-  yudisiums                          Yudisium[]
-  yudisiumCplRecommendationDocuments YudisiumCplRecommendation[] @relation("YudisiumCplRecommendationDocument")
-  yudisiumCplSettlementDocuments     YudisiumCplRecommendation[] @relation("YudisiumCplSettlementDocument")
-  milestoneTemplateAttachments       MilestoneTemplateAttachment[]
+  yudisiums                           Yudisium[]
+  yudisiumCplRecommendationDocuments  YudisiumCplRecommendation[]      @relation("YudisiumCplRecommendationDocument")
+  yudisiumCplSettlementDocuments      YudisiumCplRecommendation[]      @relation("YudisiumCplSettlementDocument")
+  milestoneTemplateAttachments        MilestoneTemplateAttachment[]
   advisorRequestsAttachment           ThesisAdvisorRequest[]           @relation("AdvisorRequestAttachment")
   advisorRequestDraftAttachments      ThesisAdvisorRequestDraft[]      @relation("AdvisorRequestDraftAttachment")
   thesisChangeRequestSupportingDocs   ThesisChangeRequest[]            @relation("ChangeRequestSupportingDocument")
   thesisStudentInformalLogAttachments ThesisStudentInformalLog[]       @relation("ThesisInformalLogDocument")
   metopenAttendanceImports            MetopenAttendanceImport[]        @relation("MetopenAttendanceImportDocument")
-  ta04Batches                       Ta04Batch[]                        @relation("Ta04BatchDocument")
-  yudisiumParticipantRequirements   YudisiumParticipantRequirement[]   @relation("YudisiumParticipantRequirementDocument")
+  ta04Batches                         Ta04Batch[]                      @relation("Ta04BatchDocument")
+  yudisiumParticipantRequirements     YudisiumParticipantRequirement[] @relation("YudisiumParticipantRequirementDocument")
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
   @@index([userId], map: "documents_user_id_fkey")
@@ -2285,6 +2306,9 @@ model ThesisAdvisorRequest {
   reviewedAt              DateTime?                  @map("reviewed_at")
   lecturerRespondedAt     DateTime?                  @map("lecturer_responded_at")
   withdrawnAt             DateTime?                  @map("withdrawn_at")
+  releasedAt              DateTime?                  @map("released_at")
+  releaseReason           String?                    @map("release_reason") @db.VarChar(64)
+  releasedAcademicYearId  String?                    @map("released_academic_year_id") @db.VarChar(255)
   withdrawCount           Int                        @default(0) @map("withdraw_count")
   redirectedTo            String?                    @map("redirected_to") @db.VarChar(255)
   kadepNotes              String?                    @map("kadep_notes") @db.Text
@@ -2302,15 +2326,16 @@ model ThesisAdvisorRequest {
   createdAt               DateTime                   @default(now()) @map("created_at")
   updatedAt               DateTime                   @updatedAt @map("updated_at")
 
-  student             Student      @relation(fields: [studentId], references: [id])
-  lecturer            Lecturer?    @relation("AdvisorRequestTarget", fields: [lecturerId], references: [id])
-  topic               ThesisTopic? @relation(fields: [topicId], references: [id])
-  thesis              Thesis?      @relation(fields: [thesisId], references: [id])
-  academicYear        AcademicYear @relation(fields: [academicYearId], references: [id])
-  reviewer            User?        @relation("AdvisorRequestReviewer", fields: [reviewedBy], references: [id])
-  redirectTarget      Lecturer?    @relation("AdvisorRequestRedirect", fields: [redirectedTo], references: [id])
-  forwardedByLecturer Lecturer?    @relation("AdvisorRequestForwarder", fields: [forwardedByLecturerId], references: [id])
-  attachment          Document?    @relation("AdvisorRequestAttachment", fields: [attachmentId], references: [id])
+  student              Student       @relation(fields: [studentId], references: [id])
+  lecturer             Lecturer?     @relation("AdvisorRequestTarget", fields: [lecturerId], references: [id])
+  topic                ThesisTopic?  @relation(fields: [topicId], references: [id])
+  thesis               Thesis?       @relation(fields: [thesisId], references: [id])
+  academicYear         AcademicYear  @relation(fields: [academicYearId], references: [id])
+  releasedAcademicYear AcademicYear? @relation("AdvisorRequestReleasedAcademicYear", fields: [releasedAcademicYearId], references: [id])
+  reviewer             User?         @relation("AdvisorRequestReviewer", fields: [reviewedBy], references: [id])
+  redirectTarget       Lecturer?     @relation("AdvisorRequestRedirect", fields: [redirectedTo], references: [id])
+  forwardedByLecturer  Lecturer?     @relation("AdvisorRequestForwarder", fields: [forwardedByLecturerId], references: [id])
+  attachment           Document?     @relation("AdvisorRequestAttachment", fields: [attachmentId], references: [id])
 
   @@index([studentId])
   @@index([studentId, status])
@@ -2318,6 +2343,7 @@ model ThesisAdvisorRequest {
   @@index([lecturerId, academicYearId, status])
   @@index([thesisId])
   @@index([status])
+  @@index([releasedAcademicYearId])
   @@index([reviewedBy])
   @@index([redirectedTo])
   @@index([forwardedByLecturerId])
@@ -2403,9 +2429,9 @@ model ResearchMethodScoreDetail {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
-  researchMethodScore ResearchMethodScore         @relation(fields: [researchMethodScoreId], references: [id], onDelete: Cascade)
-  criteria            MetopenAssessmentCriteria   @relation(fields: [assessmentCriteriaId], references: [id])
-  assessmentRubric    MetopenAssessmentRubric?    @relation(fields: [assessmentRubricId], references: [id], onDelete: SetNull)
+  researchMethodScore ResearchMethodScore       @relation(fields: [researchMethodScoreId], references: [id], onDelete: Cascade)
+  criteria            MetopenAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id])
+  assessmentRubric    MetopenAssessmentRubric?  @relation(fields: [assessmentRubricId], references: [id], onDelete: SetNull)
 
   @@id([researchMethodScoreId, assessmentCriteriaId])
   @@index([assessmentCriteriaId], map: "research_method_score_details_criteria_id_fkey")
@@ -2593,6 +2619,7 @@ enum GuidanceEvaluationRecommendation {
 enum SupervisorStatus {
   active
   terminated
+  released
 }
 
 enum ExaminerAvailabilityStatus {
@@ -2661,7 +2688,7 @@ enum AssessmentAppliesTo {
 /// Status enum lifecycle pengajuan pembimbing. Canon §5.2 + skill system-design.
 /// === ACTIVE STATES (canon-aligned) ===
 /// pending, under_review, pending_kadep, booking_approved, active_official,
-/// revision_requested, rejected_by_dosen, rejected_by_kadep, redirected,
+/// released, revision_requested, rejected_by_dosen, rejected_by_kadep, redirected,
 /// withdrawn, canceled.
 /// === LEGACY (deprecated, read-only untuk backward compat) ===
 /// approved, rejected, override_approved, assigned, closed, escalated.
@@ -2675,6 +2702,7 @@ enum ThesisAdvisorRequestStatus {
   pending_kadep
   booking_approved
   active_official
+  released
   revision_requested
   rejected_by_dosen
   rejected_by_kadep

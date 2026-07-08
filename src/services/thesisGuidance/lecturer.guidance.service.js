@@ -952,7 +952,7 @@ export async function approveThesisProposalService(userId, thesisId) {
 	void userId;
 	void thesisId;
 	throw new ForbiddenError(
-		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan proses melalui penilaian TA-03; keputusan TA-04 diputuskan oleh KaDep.",
+		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan proses melalui penilaian TA-03; promosi aktif berjalan otomatis setelah TA-03 final dan KRS Tugas Akhir terkonfirmasi.",
 	);
 }
 

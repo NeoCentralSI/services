@@ -40,12 +40,13 @@ export async function syncActiveAcademicYear() {
                     }),
                 ]);
 
-                // Finalize TA-04 for the previous academic year when the active semester rolls over.
+                // Finalize/refresh early TA-04 assignment batch for the previous Metopen
+                // academic year when the active semester rolls over.
                 if (previousActive && previousActive.id !== shouldBeActive.id) {
                     try {
                         const result = await finalizeBatchTA04(previousActive.id);
                         const status = result.alreadyFinalized ? "already finalized" : "finalized";
-                        console.log(`[AcademicYear Sync] TA-04 batch ${status} for previous semester: ${previousActive.semester} ${previousActive.year}`);
+                        console.log(`[AcademicYear Sync] Early TA-04 batch ${status} for previous semester: ${previousActive.semester} ${previousActive.year}`);
                     } catch (ta04Error) {
                         console.error("[AcademicYear Sync] Failed finalizing previous semester TA-04 batch:", ta04Error.message);
                     }

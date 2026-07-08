@@ -22,7 +22,12 @@ describe("advisorQuota.repository", () => {
         status: "active",
         lecturerId: { in: ["lecturer-1"] },
         role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
-        thesis: { academicYearId: "academic-year-1" },
+        thesis: {
+          OR: [
+            { academicYearId: "academic-year-1" },
+            { activeAcademicYearId: "academic-year-1" },
+          ],
+        },
       },
       select: expect.any(Object),
       orderBy: { createdAt: "desc" },

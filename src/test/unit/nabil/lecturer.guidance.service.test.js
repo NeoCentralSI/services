@@ -531,7 +531,7 @@ describe("Approve Thesis Proposal", () => {
         approveThesisProposalService("user-dosen-1", "thesis-1")
       ).rejects.toMatchObject({
         statusCode: 403,
-        message: expect.stringContaining("TA-04"),
+        message: expect.stringContaining("promosi aktif"),
       });
       expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
     });

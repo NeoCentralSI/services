@@ -104,6 +104,8 @@ function createSupervisor({
   lecturerId = "lecturer-1",
   studentId,
   thesisId,
+  academicYearId = "ay-1",
+  activeAcademicYearId = null,
   proposalStatus = null,
   thesisStatusName = "Metopel",
   thesisTitle,
@@ -118,6 +120,8 @@ function createSupervisor({
       id: thesisId,
       title: thesisTitle ?? `Thesis ${thesisId}`,
       proposalStatus,
+      academicYearId,
+      activeAcademicYearId,
       thesisStatus: { name: thesisStatusName },
       studentId,
       student: {
