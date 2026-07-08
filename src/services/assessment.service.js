@@ -149,6 +149,13 @@ function isClosedThesisStatus(statusName) {
   return Boolean(statusName) && CLOSED_THESIS_STATUSES.includes(statusName);
 }
 
+function assertTa04AssignmentIssuedForScoring(thesis, formCode = "TA-03") {
+  if (thesis?.ta04AssignmentIssuedAt) return;
+  throw new BadRequestError(
+    `Formulir TA-04 awal belum diterbitkan. Penilaian ${formCode} baru boleh dilakukan setelah batch TA-04 awal difinalisasi KaDep.`,
+  );
+}
+
 /**
  * BR-20 (canon §5.7.1): Detect whether a thesis has Pembimbing 2 in the
  * active thesis_supervisors. When P2 exists, TA-03A finalization requires
@@ -263,6 +270,7 @@ export async function getCriteriaByFormCode(formCode) {
  * Returns thesis dimana:
  * - Lecturer adalah Pembimbing 1 (`actorRole = "P1"`) atau Pembimbing 2 (`actorRole = "P2"`)
  * - Mahasiswa dan thesis aktif di scope proposal SIMPTA
+ * - TA-04 awal sudah terbit (`ta04AssignmentIssuedAt` terisi)
  * - Final proposal sudah disubmit
  * - Belum `isFinalized` (auto-finalize akan keluar dari antrean)
  *
@@ -292,6 +300,7 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
           id: true,
           title: true,
           finalProposalVersionId: true,
+          ta04AssignmentIssuedAt: true,
           student: {
             select: {
               status: true,
@@ -346,6 +355,7 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
         thesis.student?.status === "active"
         && !isClosedThesisStatus(thesis.thesisStatus?.name)
         && !!thesis.finalProposalVersionId
+        && !!thesis.ta04AssignmentIssuedAt
       );
     })
     .map((ts) => {
@@ -501,6 +511,7 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
     select: {
       id: true,
       finalProposalVersionId: true,
+      ta04AssignmentIssuedAt: true,
       student: {
         select: { status: true },
       },
@@ -529,6 +540,7 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
       "Mahasiswa belum submit proposal final. Penilaian TA-03A hanya boleh dilakukan pada proposal final yang sudah diajukan."
     );
   }
+  assertTa04AssignmentIssuedForScoring(thesis, "TA-03A");
 
   const isSupervisor = thesis.thesisSupervisors.some((ts) =>
     ts.role?.name === ROLES.PEMBIMBING_1
@@ -659,6 +671,7 @@ export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {})
     where: { id: thesisId },
     select: {
       id: true,
+      ta04AssignmentIssuedAt: true,
       student: { select: { status: true } },
       thesisStatus: { select: { name: true } },
       thesisSupervisors: {
@@ -686,6 +699,7 @@ export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {})
   if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
     throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03A aktif");
   }
+  assertTa04AssignmentIssuedForScoring(thesis, "TA-03A");
 
   // BR-28 (canon v2.2 §5.7.x): Re-cek presensi Metopel ≥75% saat co-sign P2.
   // Bila presensi mahasiswa berubah (mis. import attendance baru) antara submit
@@ -787,6 +801,7 @@ export async function coSignSupervisorScoreAndSync(thesisId, coSignerUserId, dat
  *
  * Returns theses where:
  * - TA-03B lecturer score not yet submitted
+ * - Early TA-04 assignment has been issued
  * - Student has an active proposal/thesis record in the current SIMPTA scope
  */
 export async function getMetopenScoringQueue(lecturerUserId) {
@@ -810,6 +825,7 @@ export async function getMetopenScoringQueue(lecturerUserId) {
         },
       ],
       finalProposalVersionId: { not: null },
+      ta04AssignmentIssuedAt: { not: null },
       student: { status: "active" },
     },
     select: {
@@ -951,6 +967,7 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
     select: {
       id: true,
       finalProposalVersionId: true,
+      ta04AssignmentIssuedAt: true,
       student: {
         select: { status: true },
       },
@@ -975,6 +992,7 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
       "Mahasiswa belum submit proposal final. Penilaian TA-03B hanya boleh dilakukan pada proposal final yang sudah diajukan."
     );
   }
+  assertTa04AssignmentIssuedForScoring(thesis, "TA-03B");
 
   const attendanceGate = await assertAttendanceEligibleForManualReview(thesisId, lecturerUserId);
   if (!attendanceGate.allowed) {
@@ -1112,6 +1130,12 @@ export async function publishFinalScore(thesisId, actorUserId) {
       "Nilai akhir TA-03 hanya dapat dipublikasikan oleh Koordinator Metopen yang menginput TA-03B",
     );
   }
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: { id: true, ta04AssignmentIssuedAt: true },
+  });
+  if (!thesis) throw new NotFoundError("Thesis tidak ditemukan");
+  assertTa04AssignmentIssuedForScoring(thesis, "TA-03");
 
   // BR-28 (canon v2.2 §5.7.x): Re-cek presensi sebelum publish final.
   // Mencegah publish nilai pada mahasiswa yang seharusnya auto-zero karena
