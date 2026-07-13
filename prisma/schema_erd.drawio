@@ -1,0 +1,209 @@
+<mxfile host="app.diagrams.net" modified="2026-06-21" type="device">
+  <diagram name="ERD Internship" id="erd1">
+    <mxGraphModel dx="2500" dy="2500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="4000" pageHeight="6000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- ========== USER MANAGEMENT (Blue) ========== -->
+        <mxCell id="t_users" value="&lt;b style=&quot;font-size:13px&quot;&gt;users&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;full_name VARCHAR&lt;br&gt;identity_number VARCHAR UK&lt;br&gt;identity_type ENUM&lt;br&gt;email VARCHAR UK&lt;br&gt;password VARCHAR&lt;br&gt;phone_number VARCHAR&lt;br&gt;isVerified BOOLEAN&lt;br&gt;token TEXT&lt;br&gt;refresh_token TEXT&lt;br&gt;oauth_provider VARCHAR&lt;br&gt;oauth_id VARCHAR&lt;br&gt;oauth_refresh_token TEXT&lt;br&gt;avatarUrl VARCHAR&lt;br&gt;createdAt DATETIME&lt;br&gt;updatedAt DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="250" height="310" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_user_roles" value="&lt;b style=&quot;font-size:13px&quot;&gt;user_roles&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;name VARCHAR&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="40" width="190" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_user_has_roles" value="&lt;b style=&quot;font-size:13px&quot;&gt;user_has_roles&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔗 user_id VARCHAR PK,FK&lt;br&gt;🔗 role_id VARCHAR PK,FK&lt;br&gt;status ENUM&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="150" width="230" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_students" value="&lt;b style=&quot;font-size:13px&quot;&gt;students&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑🔗 user_id VARCHAR PK,FK&lt;br&gt;student_status ENUM&lt;br&gt;enrollment_year INT&lt;br&gt;skscompleted INT&lt;br&gt;mandatory_courses_completed BOOL&lt;br&gt;mkwu_completed BOOL&lt;br&gt;internship_completed BOOL&lt;br&gt;kkn_completed BOOL&lt;br&gt;research_method_completed BOOL&lt;br&gt;current_semester INT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="280" height="240" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_lecturers" value="&lt;b style=&quot;font-size:13px&quot;&gt;lecturers&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑🔗 user_id VARCHAR PK,FK&lt;br&gt;🔗 science_group_id VARCHAR FK&lt;br&gt;data JSON&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="400" width="240" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_science_groups" value="&lt;b style=&quot;font-size:13px&quot;&gt;science_groups&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;name VARCHAR&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="280" width="220" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== REFERENCE DATA (Green) ========== -->
+        <mxCell id="t_academic_years" value="&lt;b style=&quot;font-size:13px&quot;&gt;academic_years&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;semester ENUM&lt;br&gt;year VARCHAR&lt;br&gt;start_date DATETIME&lt;br&gt;end_date DATETIME&lt;br&gt;is_active BOOLEAN&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="40" width="240" height="175" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_rooms" value="&lt;b style=&quot;font-size:13px&quot;&gt;rooms&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;name VARCHAR&lt;br&gt;location VARCHAR&lt;br&gt;capacity INT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="40" width="210" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_document_types" value="&lt;b style=&quot;font-size:13px&quot;&gt;document_types&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;name VARCHAR&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="40" width="210" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_documents" value="&lt;b style=&quot;font-size:13px&quot;&gt;documents&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 user_id VARCHAR FK&lt;br&gt;🔗 document_type_id VARCHAR FK&lt;br&gt;file_path VARCHAR&lt;br&gt;file_name VARCHAR&lt;br&gt;file_hash VARCHAR&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="200" width="250" height="170" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_document_templates" value="&lt;b style=&quot;font-size:13px&quot;&gt;document_templates&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;name VARCHAR UK&lt;br&gt;type VARCHAR&lt;br&gt;content LONGTEXT&lt;br&gt;file_path VARCHAR&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1400" y="200" width="240" height="155" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_companies" value="&lt;b style=&quot;font-size:13px&quot;&gt;companies&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;company_name VARCHAR&lt;br&gt;company_address VARCHAR&lt;br&gt;alasan TEXT&lt;br&gt;status ENUM&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="270" width="240" height="155" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== INTERNSHIP CORE (Orange) ========== -->
+        <mxCell id="t_internship_proposals" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_proposals&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 coordinator_id VARCHAR FK&lt;br&gt;🔗 proposal_document_id VARCHAR FK&lt;br&gt;🔗 academic_year_id VARCHAR FK&lt;br&gt;🔗 target_company_id VARCHAR FK&lt;br&gt;status ENUM&lt;br&gt;proposal_sekdep_notes TEXT&lt;br&gt;proposed_start_date DATE&lt;br&gt;proposed_end_date DATE&lt;br&gt;app_letter_doc_number VARCHAR UK&lt;br&gt;app_letter_date_issued DATE&lt;br&gt;start_date_planned DATE&lt;br&gt;end_date_planned DATE&lt;br&gt;🔗 app_letter_doc_id VARCHAR FK&lt;br&gt;🔗 app_letter_signed_by_id VARCHAR FK&lt;br&gt;🔗 app_letter_signed_as_role_id FK&lt;br&gt;🔗 company_response_doc_id FK&lt;br&gt;company_response_notes TEXT&lt;br&gt;assign_letter_doc_number VARCHAR UK&lt;br&gt;assign_letter_date_issued DATE&lt;br&gt;start_date_actual DATE&lt;br&gt;end_date_actual DATE&lt;br&gt;🔗 assign_letter_doc_id VARCHAR FK&lt;br&gt;🔗 assign_letter_signed_by_id FK&lt;br&gt;🔗 assign_letter_signed_as_role_id FK&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="720" width="310" height="500" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_internship_sup_letters" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_supervisor_letters&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;document_number VARCHAR UK&lt;br&gt;date_issued DATE&lt;br&gt;start_date DATE&lt;br&gt;end_date DATE&lt;br&gt;🔗 supervisor_id VARCHAR FK&lt;br&gt;🔗 document_id VARCHAR FK&lt;br&gt;🔗 signed_by_id VARCHAR FK&lt;br&gt;🔗 signed_as_role_id VARCHAR FK&lt;br&gt;status ENUM&lt;br&gt;superseded_at DATETIME&lt;br&gt;superseded_reason TEXT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="720" width="290" height="270" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_internships" value="&lt;b style=&quot;font-size:13px&quot;&gt;internships&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.4&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 student_id VARCHAR FK&lt;br&gt;🔗 proposal_id VARCHAR FK&lt;br&gt;🔗 supervisor_id VARCHAR FK&lt;br&gt;field_supervisor_name VARCHAR&lt;br&gt;field_supervisor_email VARCHAR&lt;br&gt;field_supervisor_phone VARCHAR&lt;br&gt;field_supervisor_nip VARCHAR&lt;br&gt;unit_section VARCHAR&lt;br&gt;actual_start_date DATE&lt;br&gt;actual_end_date DATE&lt;br&gt;status ENUM&lt;br&gt;is_logbook_locked BOOLEAN&lt;br&gt;logbook_locked_at DATETIME&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;br&gt;🔗 sup_letter_id VARCHAR FK&lt;br&gt;report_title VARCHAR&lt;br&gt;🔗 report_document_id VARCHAR FK&lt;br&gt;report_status ENUM&lt;br&gt;report_notes TEXT&lt;br&gt;report_uploaded_at DATETIME&lt;br&gt;🔗 report_feedback_document_id FK&lt;br&gt;lecturer_assessment_status ENUM&lt;br&gt;field_assessment_status ENUM&lt;br&gt;field_assessment_notes TEXT&lt;br&gt;🔗 field_assessment_doc_id FK&lt;br&gt;🔗 completion_certificate_doc_id FK&lt;br&gt;completion_certificate_status ENUM&lt;br&gt;completion_certificate_notes TEXT&lt;br&gt;🔗 company_receipt_doc_id FK&lt;br&gt;company_receipt_status ENUM&lt;br&gt;company_receipt_notes TEXT&lt;br&gt;🔗 logbook_document_id VARCHAR FK&lt;br&gt;logbook_document_status ENUM&lt;br&gt;logbook_document_notes TEXT&lt;br&gt;🔗 company_report_doc_id FK&lt;br&gt;company_report_status ENUM&lt;br&gt;company_report_notes TEXT&lt;br&gt;field_assessment_submitted_at DT&lt;br&gt;field_assessment_signature_hash VC&lt;br&gt;logbook_field_signature_hash VC&lt;br&gt;logbook_field_signed_at DATETIME&lt;br&gt;final_numeric_score DOUBLE&lt;br&gt;final_grade VARCHAR&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="780" y="500" width="310" height="720" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_sup_replace" value="&lt;b style=&quot;font-size:13px&quot;&gt;supervisor_replacement_requests&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 letter_id VARCHAR FK&lt;br&gt;🔗 internship_id VARCHAR FK&lt;br&gt;🔗 old_supervisor_id VARCHAR FK&lt;br&gt;🔗 new_supervisor_id VARCHAR FK&lt;br&gt;reason TEXT&lt;br&gt;status ENUM&lt;br&gt;🔗 requested_by_id VARCHAR FK&lt;br&gt;🔗 approved_by_id VARCHAR FK&lt;br&gt;requested_at DATETIME&lt;br&gt;resolved_at DATETIME&lt;br&gt;rejection_notes TEXT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="500" width="300" height="275" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== GUIDANCE (Purple) ========== -->
+        <mxCell id="t_logbooks" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_logbooks&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 internship_id VARCHAR FK&lt;br&gt;activity_date DATE&lt;br&gt;activity_description TEXT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1340" width="260" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_guid_sessions" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_guidance_sessions&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 internship_id VARCHAR FK&lt;br&gt;week_number INT&lt;br&gt;status ENUM&lt;br&gt;submission_date DATE&lt;br&gt;approved_at DATETIME&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="1340" width="280" height="175" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_guid_questions" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_guidance_questions&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;week_number INT&lt;br&gt;question_text TEXT&lt;br&gt;order_index INT&lt;br&gt;🔗 academic_year_id VARCHAR FK&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="1340" width="280" height="155" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_guid_lect_criteria" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_guidance_lecturer_criteria&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;criteria_name VARCHAR&lt;br&gt;week_number INT&lt;br&gt;input_type ENUM&lt;br&gt;order_index INT&lt;br&gt;🔗 academic_year_id VARCHAR FK&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="1340" width="310" height="175" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_guid_lect_crit_opts" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_guidance_lecturer_criteria_options&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 criteria_id VARCHAR FK&lt;br&gt;option_text VARCHAR&lt;br&gt;order_index INT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="1340" width="330" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_guid_stud_ans" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_guidance_student_answers&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔗 guidance_session_id VARCHAR PK,FK&lt;br&gt;🔗 question_id VARCHAR PK,FK&lt;br&gt;week_number INT PK&lt;br&gt;answer_text TEXT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="1570" width="310" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_guid_lect_ans" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_guidance_lecturer_answers&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔗 guidance_session_id VARCHAR PK,FK&lt;br&gt;🔗 criteria_id VARCHAR PK,FK&lt;br&gt;week_number INT PK&lt;br&gt;evaluation_value VARCHAR&lt;br&gt;answer_text TEXT&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="730" y="1570" width="310" height="155" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== SEMINARS (Yellow) ========== -->
+        <mxCell id="t_seminars" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_seminars&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 internship_id VARCHAR FK&lt;br&gt;🔗 room_id VARCHAR FK&lt;br&gt;seminar_date DATE&lt;br&gt;start_time TIME&lt;br&gt;end_time TIME&lt;br&gt;link_meeting VARCHAR&lt;br&gt;🔗 moderator_student_id VARCHAR FK&lt;br&gt;status ENUM&lt;br&gt;🔗 approved_by VARCHAR FK&lt;br&gt;supervisor_notes TEXT&lt;br&gt;🔗 berita_acara_document_id FK&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1800" width="300" height="270" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_sem_audiences" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_seminar_audiences&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔗 seminar_id VARCHAR PK,FK&lt;br&gt;🔗 student_id VARCHAR PK,FK&lt;br&gt;status ENUM&lt;br&gt;validated_at DATETIME&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1800" width="280" height="140" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== ASSESSMENT (Pink) ========== -->
+        <mxCell id="t_cpmks" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_cpmks&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;code VARCHAR&lt;br&gt;name TEXT&lt;br&gt;weight DOUBLE&lt;br&gt;assessor_type VARCHAR&lt;br&gt;🔗 academic_year_id VARCHAR FK&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="2150" width="260" height="175" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_rubrics" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_assessment_rubrics&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 cpmk_id VARCHAR FK&lt;br&gt;level_name VARCHAR&lt;br&gt;rubric_level_description TEXT&lt;br&gt;min_score DOUBLE&lt;br&gt;max_score DOUBLE&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="2150" width="290" height="175" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_lect_scores" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_lecturer_scores&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔗 internship_id VARCHAR PK,FK&lt;br&gt;🔗 chosen_rubric_id VARCHAR PK,FK&lt;br&gt;score DOUBLE&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="2380" width="270" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_field_scores" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_field_scores&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔗 internship_id VARCHAR PK,FK&lt;br&gt;🔗 chosen_rubric_id VARCHAR PK,FK&lt;br&gt;score DOUBLE&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="2380" width="270" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_field_tokens" value="&lt;b style=&quot;font-size:13px&quot;&gt;field_assessment_tokens&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;🔗 internship_id VARCHAR FK&lt;br&gt;token VARCHAR UK&lt;br&gt;pin VARCHAR&lt;br&gt;expires_at DATETIME&lt;br&gt;is_used BOOLEAN&lt;br&gt;used_at DATETIME&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="2150" width="260" height="195" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="t_holidays" value="&lt;b style=&quot;font-size:13px&quot;&gt;internship_holidays&lt;/b&gt;&lt;hr size=&quot;1&quot;/&gt;&lt;div style=&quot;text-align:left;font-size:10px;line-height:1.5&quot;&gt;🔑 id VARCHAR PK&lt;br&gt;holiday_date DATE UK&lt;br&gt;name VARCHAR&lt;br&gt;created_at DATETIME&lt;br&gt;updated_at DATETIME&lt;/div&gt;" style="whiteSpace=wrap;html=1;verticalAlign=top;align=center;overflow=fill;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="2150" width="230" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== RELATIONSHIPS (Edges) ========== -->
+        <!-- USER MANAGEMENT -->
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#808080;" edge="1" source="t_user_has_roles" target="t_users" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#808080;" edge="1" source="t_user_has_roles" target="t_user_roles" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;startFill=0;endArrow=ERone;endFill=0;strokeColor=#808080;" edge="1" source="t_students" target="t_users" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;startFill=0;endArrow=ERone;endFill=0;strokeColor=#808080;" edge="1" source="t_lecturers" target="t_users" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#808080;" edge="1" source="t_lecturers" target="t_science_groups" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- DOCUMENTS -->
+        <mxCell id="e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#808080;" edge="1" source="t_documents" target="t_document_types" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#808080;" edge="1" source="t_documents" target="t_users" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- INTERNSHIP PROPOSALS -->
+        <mxCell id="e8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_internship_proposals" target="t_students" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_internship_proposals" target="t_documents" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_internship_proposals" target="t_academic_years" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_internship_proposals" target="t_companies" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internship_proposals" target="t_lecturers" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internship_proposals" target="t_user_roles" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- INTERNSHIP SUPERVISOR LETTERS -->
+        <mxCell id="e14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_internship_sup_letters" target="t_lecturers" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internship_sup_letters" target="t_documents" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e16" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internship_sup_letters" target="t_users" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internship_sup_letters" target="t_user_roles" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- INTERNSHIPS -->
+        <mxCell id="e18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_internships" target="t_students" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e19" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_internships" target="t_internship_proposals" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internships" target="t_lecturers" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internships" target="t_internship_sup_letters" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_internships" target="t_documents" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- SUPERVISOR REPLACEMENT REQUESTS -->
+        <mxCell id="e23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_sup_replace" target="t_internship_sup_letters" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e24" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_sup_replace" target="t_internships" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e25" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;" edge="1" source="t_sup_replace" target="t_lecturers" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e26" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d79b00;dashed=1;" edge="1" source="t_sup_replace" target="t_users" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- LOGBOOKS & GUIDANCE -->
+        <mxCell id="e27" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_logbooks" target="t_internships" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_sessions" target="t_internships" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e29" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_questions" target="t_academic_years" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e30" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_lect_criteria" target="t_academic_years" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_lect_crit_opts" target="t_guid_lect_criteria" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e32" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_stud_ans" target="t_guid_sessions" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e33" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_stud_ans" target="t_guid_questions" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e34" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_lect_ans" target="t_guid_sessions" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e35" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#9673a6;" edge="1" source="t_guid_lect_ans" target="t_guid_lect_criteria" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- SEMINARS -->
+        <mxCell id="e36" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d6b656;" edge="1" source="t_seminars" target="t_internships" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e37" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d6b656;" edge="1" source="t_seminars" target="t_rooms" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e38" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d6b656;" edge="1" source="t_seminars" target="t_students" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e39" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d6b656;dashed=1;" edge="1" source="t_seminars" target="t_users" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e40" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d6b656;dashed=1;" edge="1" source="t_seminars" target="t_documents" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e41" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d6b656;" edge="1" source="t_sem_audiences" target="t_seminars" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e42" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#d6b656;" edge="1" source="t_sem_audiences" target="t_students" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- ASSESSMENT -->
+        <mxCell id="e43" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#b85450;" edge="1" source="t_cpmks" target="t_academic_years" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e44" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#b85450;" edge="1" source="t_rubrics" target="t_cpmks" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e45" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#b85450;" edge="1" source="t_lect_scores" target="t_internships" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e46" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#b85450;" edge="1" source="t_lect_scores" target="t_rubrics" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e47" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#b85450;" edge="1" source="t_field_scores" target="t_internships" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e48" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#b85450;" edge="1" source="t_field_scores" target="t_rubrics" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e49" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;strokeColor=#b85450;" edge="1" source="t_field_tokens" target="t_internships" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

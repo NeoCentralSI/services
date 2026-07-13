@@ -23,6 +23,8 @@ services:
       - "3000:3000"
     volumes:
       - uploads:/app/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy

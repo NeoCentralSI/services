@@ -195,6 +195,9 @@ Catatan:
 | FK | `document_id` | `String?` | Menghubungkan surat tugas pembimbing dengan file dokumennya. |
 | FK | `signed_by_id` | `String?` | Menghubungkan surat tugas pembimbing dengan pengguna penandatangan. |
 | FK | `signed_as_role_id` | `String?` | Menghubungkan surat tugas pembimbing dengan jabatan penandatangan. |
+| Kolom | `status` | `SupervisorLetterStatus` | Menyimpan status keaktifan surat tugas pembimbing. |
+| Kolom | `superseded_at` | `DateTime?` | Menyimpan waktu saat surat tugas pembimbing digantikan. |
+| Kolom | `superseded_reason` | `String? @db.Text` | Menyimpan alasan surat tugas pembimbing digantikan. |
 | Kolom | `created_at` | `DateTime` | Menyimpan waktu saat data surat tugas pembimbing dibuat. |
 | Kolom | `updated_at` | `DateTime` | Menyimpan waktu terakhir data surat tugas pembimbing diperbarui. |
 
@@ -208,6 +211,8 @@ Catatan:
 | FK | `supervisor_id` | `String?` | Menghubungkan pelaksanaan kerja praktik dengan dosen pembimbing. |
 | Kolom | `field_supervisor_name` | `String?` | Menyimpan nama pembimbing lapangan dari perusahaan. |
 | Kolom | `field_supervisor_email` | `String?` | Menyimpan email pembimbing lapangan dari perusahaan. |
+| Kolom | `field_supervisor_phone` | `String?` | Menyimpan nomor telepon pembimbing lapangan dari perusahaan. |
+| Kolom | `field_supervisor_nip` | `String?` | Menyimpan NIP atau nomor identitas pembimbing lapangan dari perusahaan. |
 | Kolom | `unit_section` | `String?` | Menyimpan unit atau bagian tempat mahasiswa melaksanakan kerja praktik. |
 | Kolom | `actual_start_date` | `DateTime? @db.Date` | Menyimpan tanggal mulai aktual kerja praktik mahasiswa. |
 | Kolom | `actual_end_date` | `DateTime? @db.Date` | Menyimpan tanggal selesai aktual kerja praktik mahasiswa. |
@@ -428,3 +433,22 @@ Catatan:
 | Kolom | `name` | `String?` | Menyimpan nama atau keterangan hari libur. |
 | Kolom | `created_at` | `DateTime` | Menyimpan waktu saat data hari libur dibuat. |
 | Kolom | `updated_at` | `DateTime` | Menyimpan waktu terakhir data hari libur diperbarui. |
+
+## `supervisor_replacement_requests` (`SupervisorReplacementRequest`)
+
+| Jenis | Nama Kolom | Tipe data | Keterangan |
+|---|---|---|---|
+| PK | `id` | `String` | Menyimpan identitas unik pengajuan penggantian dosen pembimbing kerja praktik. |
+| FK | `letter_id` | `String` | Menghubungkan pengajuan penggantian dengan surat tugas pembimbing yang terkait. |
+| FK | `internship_id` | `String` | Menghubungkan pengajuan penggantian dengan pelaksanaan kerja praktik mahasiswa. |
+| FK | `old_supervisor_id` | `String` | Menghubungkan pengajuan dengan dosen pembimbing lama yang akan digantikan. |
+| FK | `new_supervisor_id` | `String` | Menghubungkan pengajuan dengan dosen pembimbing baru yang diusulkan. |
+| Kolom | `reason` | `String @db.Text` | Menyimpan alasan pengajuan penggantian dosen pembimbing. |
+| Kolom | `status` | `ReplacementRequestStatus` | Menyimpan status persetujuan pengajuan penggantian pembimbing. |
+| FK | `requested_by_id` | `String` | Menghubungkan pengajuan dengan pengguna yang membuat permintaan. |
+| FK | `approved_by_id` | `String?` | Menghubungkan pengajuan dengan pengguna yang menyetujui atau menolak permintaan. |
+| Kolom | `requested_at` | `DateTime` | Menyimpan waktu saat pengajuan penggantian dibuat. |
+| Kolom | `resolved_at` | `DateTime?` | Menyimpan waktu saat pengajuan penggantian diputuskan. |
+| Kolom | `rejection_notes` | `String? @db.Text` | Menyimpan catatan penolakan jika pengajuan tidak disetujui. |
+| Kolom | `created_at` | `DateTime` | Menyimpan waktu saat data pengajuan penggantian dibuat. |
+| Kolom | `updated_at` | `DateTime` | Menyimpan waktu terakhir data pengajuan penggantian diperbarui. |

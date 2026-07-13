@@ -2,21 +2,22 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 
-# Install pnpm via npm (more reliable than corepack on Alpine)
-RUN npm install -g pnpm
+# Note: using npm instead of pnpm to avoid strict build scripts rules
 
-# Copy manifests first for better layer caching
-COPY package.json pnpm-lock.yaml ./
+# Install build tools for native dependencies (bcrypt, etc.)
+RUN apk add --no-cache python3 make g++
+
+COPY package.json ./
 COPY prisma ./prisma/
 
 # Install ALL deps (devDeps needed for prisma CLI)
-RUN pnpm install --frozen-lockfile
+RUN npm install
 
 # Generate Prisma client using binary directly (avoids pnpm exec issues)
 RUN ./node_modules/.bin/prisma generate
 
 # Strip devDependencies before copying to runner
-RUN pnpm prune --prod
+RUN npm prune --omit=dev
 
 # ── Stage 2: prod image ────────────────────────────────────────
 FROM node:22-alpine AS runner
