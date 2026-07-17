@@ -348,11 +348,27 @@ async function cleanupEdgeCaseData() {
   });
   const dummyUserIds = dummyUsers.map((u) => u.id);
   if (dummyUserIds.length > 0) {
+    const dummyTheses = await prisma.thesis.findMany({
+      where: { studentId: { in: dummyUserIds } },
+      select: { id: true },
+    });
+    const dummyThesisIds = dummyTheses.map((thesis) => thesis.id);
+
     // Delete dependencies in correct order (FK constraints)
     await prisma.researchMethodScoreDetail.deleteMany({
       where: { researchMethodScore: { thesis: { studentId: { in: dummyUserIds } } } },
     });
     await prisma.researchMethodScore.deleteMany({
+      where: { thesis: { studentId: { in: dummyUserIds } } },
+    });
+    await prisma.ta04BatchMember.deleteMany({
+      where: { thesisId: { in: dummyThesisIds } },
+    });
+    await prisma.thesis.updateMany({
+      where: { studentId: { in: dummyUserIds } },
+      data: { finalProposalVersionId: null },
+    });
+    await prisma.thesisProposalVersion.deleteMany({
       where: { thesis: { studentId: { in: dummyUserIds } } },
     });
     await prisma.thesisSupervisors.deleteMany({
@@ -506,6 +522,7 @@ async function main() {
     title = `Rancang Bangun ${student.user.fullName}`,
     proposalStatus = null,
     isProposal = true,
+    ta04AssignmentIssuedAt = null,
   }) {
     const thesis = await prisma.thesis.create({
       data: {
@@ -516,6 +533,7 @@ async function main() {
         title,
         proposalStatus,
         isProposal,
+        ta04AssignmentIssuedAt,
       },
     });
     const roleP1 = await ensureRole(ROLES.PEMBIMBING_1);
@@ -672,7 +690,9 @@ async function main() {
   });
   await createThesisFor({ student: ec07, p1Id: drSmith.id, proposalStatus: "submitted" });
 
-  // EC08: Active official + dual supervisor + TA-03A partial (presentasi+konten, belum cosign)
+  // EC08: booking + TA-04 issued + dual supervisor + TA-03A partial.
+  // Partial scoring must never be represented as active_official: promotion
+  // only happens after TA-03 is final and SIA confirms MK Tugas Akhir.
   const ec08 = await ensureStudent({
     nim: "2399000008",
     fullName: "EDGE08 Dual Supervisor TA-03A Parsial",
@@ -681,7 +701,7 @@ async function main() {
   await createAdvisorRequest({
     student: ec08,
     lecturerId: drDoe.id,
-    status: "active_official",
+    status: "booking_approved",
     routeType: "normal",
   });
   const thesis08 = await createThesisFor({
@@ -689,7 +709,8 @@ async function main() {
     p1Id: drDoe.id,
     p2Id: drWang.id,
     proposalStatus: "submitted",
-    isProposal: false,
+    isProposal: true,
+    ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
   });
   const score08 = await prisma.researchMethodScore.create({
     data: {

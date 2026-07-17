@@ -14,8 +14,12 @@ const TRACKED_REQUEST_STATUSES = [
   ...ADVISOR_REQUEST_LEGACY_BOOKING_OR_ACTIVE_STATUSES,
 ];
 
-export function getQuotaRepositoryClient(client = prisma) {
-  return client;
+export function getQuotaRepositoryClient(client) {
+  // Explicit undefined/null must fall back to the root Prisma client.
+  // Default-parameter fallback only covers omitted args, not `client: undefined`
+  // from `{ client }` destructuring — that previously caused
+  // "Cannot read properties of undefined (reading 'findMany')".
+  return client ?? prisma;
 }
 
 export async function findActiveAcademicYear(client = prisma) {

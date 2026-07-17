@@ -25,6 +25,7 @@
  */
 
 import { PrismaClient } from '../src/generated/prisma/index.js';
+import servicePrisma from '../src/config/prisma.js';
 import bcrypt from 'bcrypt';
 import { finalizeBatchTA04 } from '../src/services/advisorRequest.service.js';
 import { syncBookingActivationForStudent } from '../src/services/metopen.service.js';
@@ -46,6 +47,16 @@ const REQUESTERS = [
 const TA03A_QUEUE_STUDENTS = [
   { nim: '2388000004', name: 'UATTA03A P1 Pending', email: 'uatta03a-p1@dummy.ac.id' },
   { nim: '2388000005', name: 'UATTA03A P2 Cosign', email: 'uatta03a-p2@dummy.ac.id' },
+];
+
+const INDEPENDENT_FIXTURES = [
+  { nim: '2388000011', name: 'UATSTU01 TA01 Fresh', email: 'uatstu01-ta01@dummy.ac.id' },
+  { nim: '2388000012', name: 'UATSTU02 TA02 Approve', email: 'uatstu02-ta02-approve@dummy.ac.id' },
+  { nim: '2388000013', name: 'UATSTU03 TA02 Reject', email: 'uatstu03-ta02-reject@dummy.ac.id' },
+  { nim: '2388000014', name: 'UATSTU04 Path C Fresh', email: 'uatstu04-pathc@dummy.ac.id' },
+  { nim: '2388000017', name: 'UATTA04 Batch Ready', email: 'uatta04-batch-ready@dummy.ac.id' },
+  { nim: '2388000018', name: 'UATIMM01 Final Score', email: 'uatimm01-final-score@dummy.ac.id' },
+  { nim: '2388000019', name: 'UATWDR01 Under Review', email: 'uatwdr01-under-review@dummy.ac.id' },
 ];
 
 const ok = (s) => console.log('  [OK]  ' + s);
@@ -117,6 +128,7 @@ async function cleanupTa03AFixtures(studentIds) {
     where: { researchMethodScore: { thesisId: { in: thesisIds } } },
   });
   await prisma.researchMethodScore.deleteMany({ where: { thesisId: { in: thesisIds } } });
+  await prisma.ta04BatchMember.deleteMany({ where: { thesisId: { in: thesisIds } } });
   await prisma.thesisSupervisors.deleteMany({ where: { thesisId: { in: thesisIds } } });
   await prisma.thesisProposalVersion.deleteMany({ where: { thesisId: { in: thesisIds } } });
   await prisma.thesisAdvisorRequest.deleteMany({ where: { thesisId: { in: thesisIds } } });
@@ -169,6 +181,11 @@ async function createTa03AThesis({
       title,
       isProposal: true,
       proposalStatus: null,
+      ta04AssignmentIssuedAt: new Date(),
+      ta04AssignmentIssuedByUserId: p1Id,
+      ta04AssignmentTitle: title,
+      ta04AssignmentSupervisorNames: p2Id ? 'Pembimbing 1; Pembimbing 2' : 'Pembimbing 1',
+      ta04AssignmentAcademicYearId: academicYearId,
     },
   });
 
@@ -195,7 +212,55 @@ async function createTa03AThesis({
   }
 
   await attachFinalProposal(thesis.id, student.id, `${student.identityNumber}-proposal-final-ta03a.pdf`);
+  await prisma.thesisAdvisorRequest.create({
+    data: {
+      studentId: student.id,
+      lecturerId: p1Id,
+      academicYearId,
+      topicId,
+      thesisId: thesis.id,
+      proposedTitle: title,
+      status: 'booking_approved',
+      routeType: 'normal',
+      requestType: 'ta_01',
+    },
+  });
   return thesis;
+}
+
+async function ensureLatestAttendanceCoversTa03(students) {
+  const attendanceImport = await prisma.metopenAttendanceImport.findFirst({ orderBy: { uploadedAt: 'desc' } });
+  if (!attendanceImport) { warn('Import presensi belum ada — jalankan seed-metopen-monitoring dulu'); return; }
+  for (const student of students) {
+    await prisma.metopenAttendanceRecord.upsert({
+      where: { importId_identityNumber: { importId: attendanceImport.id, identityNumber: student.identityNumber } },
+      update: { studentId: student.id, studentName: student.fullName, presentCount: 14, absentCount: 2, totalMeetings: 16, attendancePercentage: 0.875, isEligible: true },
+      create: {
+        importId: attendanceImport.id,
+        studentId: student.id,
+        identityNumber: student.identityNumber,
+        studentName: student.fullName,
+        presentCount: 14,
+        absentCount: 2,
+        sickCount: 0,
+        permitCount: 0,
+        totalMeetings: 16,
+        attendancePercentage: 0.875,
+        isEligible: true,
+        rawRow: { fixture: 'UAT-20/21', deterministic: true },
+      },
+    });
+  }
+  const [totalRows, matchedRows, eligibleRows] = await Promise.all([
+    prisma.metopenAttendanceRecord.count({ where: { importId: attendanceImport.id } }),
+    prisma.metopenAttendanceRecord.count({ where: { importId: attendanceImport.id, studentId: { not: null } } }),
+    prisma.metopenAttendanceRecord.count({ where: { importId: attendanceImport.id, isEligible: true } }),
+  ]);
+  await prisma.metopenAttendanceImport.update({
+    where: { id: attendanceImport.id },
+    data: { totalRows, matchedRows, eligibleRows, ineligibleRows: totalRows - eligibleRows },
+  });
+  ok('Presensi eligible UAT-20/21 tersedia pada import terbaru');
 }
 
 async function ensureTa03AQueues(academicYearId, topicId) {
@@ -207,6 +272,7 @@ async function ensureTa03AQueues(academicYearId, topicId) {
   const students = [];
   for (const spec of TA03A_QUEUE_STUDENTS) students.push(await ensureRequester(spec));
   await cleanupTa03AFixtures(students.map((u) => u.id));
+  await ensureLatestAttendanceCoversTa03(students);
 
   const statusBimbingan = await ensureThesisStatus(THESIS_STATUS.BIMBINGAN);
   const p1Pending = await createTa03AThesis({
@@ -303,6 +369,12 @@ async function ensureLegacyProposalFinalForEc14() {
   ok('EC14 → proposal final di-set untuk coverage legacy non-happy-path');
 }
 
+async function cleanupExistingTa03AQueues() {
+  const students = [];
+  for (const spec of TA03A_QUEUE_STUDENTS) students.push(await ensureRequester(spec));
+  await cleanupTa03AFixtures(students.map((user) => user.id));
+}
+
 async function ensureLifecycleAcademicYear(currentAcademicYear) {
   const nextYear = currentAcademicYear?.year === '2025/2026' ? '2026/2027' : '2026/2027';
   const existing = await prisma.academicYear.findFirst({
@@ -358,10 +430,12 @@ async function resetBookingForLifecycleFixture(nim, academicYearId, { takingThes
     where: { thesisId: thesis.id },
     data: { status: 'active' },
   });
+  const normalizedTitle = thesis.title?.replace(/(?: \(judul berjalan setelah batch\))+$/u, '') ?? thesis.title;
   await prisma.thesis.update({
     where: { id: thesis.id },
     data: {
       academicYearId,
+      title: normalizedTitle,
       isProposal: true,
       proposalStatus: null,
       activeAcademicYearId: null,
@@ -392,7 +466,7 @@ async function ensureCurrentTitleDiffersFromFrozen(nim) {
   if (!user?.student) return;
   const thesis = await prisma.thesis.findFirst({ where: { studentId: user.student.id } });
   if (!thesis?.ta04AssignmentTitle) return;
-  const changedTitle = `${thesis.ta04AssignmentTitle} (judul berjalan setelah batch)`;
+  const changedTitle = `${thesis.ta04AssignmentTitle.replace(/(?: \(judul berjalan setelah batch\))+$/u, '')} (judul berjalan setelah batch)`;
   await prisma.thesis.update({
     where: { id: thesis.id },
     data: { title: changedTitle },
@@ -427,6 +501,121 @@ async function ensureOfficialTa04Batch(academicYear) {
     const syncResult = await syncBookingActivationForStudent(ec16Fixture.user.id, nextAcademicYear.id);
     ok(`EC16 released fixture → ${JSON.stringify(syncResult)}`);
   }
+}
+
+async function ensureIndependentMutationFixtures(academicYear, topic) {
+  const users = [];
+  for (const spec of INDEPENDENT_FIXTURES) users.push(await ensureRequester(spec));
+  const userByNim = new Map(users.map((user) => [user.identityNumber, user]));
+  await cleanupTa03AFixtures(users.map((user) => user.id));
+  await cleanupPrevRequests(users.map((user) => user.id));
+
+  const pembimbing = await prisma.user.findFirst({ where: { email: 'pembimbing_si@fti.unand.ac.id' } });
+  if (!pembimbing) { warn('pembimbing_si tidak ada — fixture mutasi independen tidak lengkap'); return; }
+
+  await createAdvisorRequest({
+    studentId: userByNim.get('2388000011').id,
+    lecturerId: pembimbing.id,
+    academicYearId: academicYear.id,
+    topicId: topic.id,
+    status: 'pending',
+    routeType: 'normal',
+  });
+  for (const nim of ['2388000012', '2388000013']) {
+    await createAdvisorRequest({
+      studentId: userByNim.get(nim).id,
+      lecturerId: null,
+      academicYearId: academicYear.id,
+      topicId: topic.id,
+      status: 'pending_kadep',
+      routeType: 'dept',
+      requestType: 'ta_02',
+    });
+  }
+  await createAdvisorRequest({
+    studentId: userByNim.get('2388000014').id,
+    lecturerId: pembimbing.id,
+    academicYearId: academicYear.id,
+    topicId: topic.id,
+    status: 'pending',
+    routeType: 'escalated',
+    studentJustification: 'Topik penelitian sangat spesifik dan selaras dengan rekam keahlian dosen tujuan.',
+  });
+
+  const underReview = await createAdvisorRequest({
+    studentId: userByNim.get('2388000019').id,
+    lecturerId: pembimbing.id,
+    academicYearId: academicYear.id,
+    topicId: topic.id,
+    status: 'under_review',
+    routeType: 'normal',
+  });
+  await prisma.thesisAdvisorRequest.update({
+    where: { id: underReview.id },
+    data: { createdAt: new Date(Date.now() - (WITHDRAW_LOCK_HOURS + 8) * 60 * 60 * 1000) },
+  });
+
+  const statusBimbingan = await ensureThesisStatus(THESIS_STATUS.BIMBINGAN);
+  const roleP1 = await ensureRole(ROLES.PEMBIMBING_1);
+  const batchStudent = userByNim.get('2388000017');
+  const batchThesis = await prisma.thesis.create({
+    data: {
+      studentId: batchStudent.id,
+      academicYearId: academicYear.id,
+      thesisTopicId: topic.id,
+      thesisStatusId: statusBimbingan.id,
+      title: '[UAT-PREP] Booking baru belum masuk batch TA-04',
+      isProposal: true,
+    },
+  });
+  await prisma.thesisSupervisors.create({
+    data: { thesisId: batchThesis.id, lecturerId: pembimbing.id, roleId: roleP1.id, status: 'active' },
+  });
+  await prisma.thesisAdvisorRequest.create({
+    data: {
+      studentId: batchStudent.id,
+      lecturerId: pembimbing.id,
+      academicYearId: academicYear.id,
+      topicId: topic.id,
+      thesisId: batchThesis.id,
+      proposedTitle: batchThesis.title,
+      status: 'booking_approved',
+      routeType: 'normal',
+      requestType: 'ta_01',
+    },
+  });
+
+  const immutableThesis = await createTa03AThesis({
+    student: userByNim.get('2388000018'),
+    academicYearId: academicYear.id,
+    topicId: topic.id,
+    thesisStatusId: statusBimbingan.id,
+    p1Id: pembimbing.id,
+    title: '[UAT-PREP] Nilai final immutable',
+  });
+  await prisma.researchMethodScore.create({
+    data: {
+      thesisId: immutableThesis.id,
+      supervisorId: pembimbing.id,
+      supervisorScore: 70,
+      lecturerId: pembimbing.id,
+      lecturerScore: 25,
+      finalScore: 95,
+      isFinalized: true,
+      finalizedBy: pembimbing.id,
+      finalizedAt: new Date(),
+      calculatedAt: new Date(),
+    },
+  });
+
+  ok('Fixture mutasi independen siap: TA-01, TA-02 approve/reject, Path C, batch baru, immutable, withdraw >72 jam');
+}
+
+async function cleanupExistingIndependentFixtures() {
+  const users = [];
+  for (const spec of INDEPENDENT_FIXTURES) users.push(await ensureRequester(spec));
+  await cleanupTa03AFixtures(users.map((user) => user.id));
+  await cleanupPrevRequests(users.map((user) => user.id));
 }
 
 async function main() {
@@ -497,9 +686,11 @@ async function main() {
     ok('UAT-19: pengajuan ESCALATED pending + justifikasi → garcia.hernandez (untuk Forward overquota)');
   }
 
-  // 4) UAT-20/21: antrean TA-03A P1 + P2 co-sign
-  console.log('\n── 4. UAT-20/21: antrean TA-03A P1 + P2 co-sign ──');
-  await ensureTa03AQueues(academicYear.id, topic.id);
+  // 4) Bersihkan antrean TA-03A sebelum batch agar fixture scoring tidak
+  // ikut mengubah cohort/hash batch TA-04 pada setiap rerun.
+  console.log('\n── 4. Bersihkan fixture TA-03A sebelum finalisasi batch ──');
+  await cleanupExistingTa03AQueues();
+  await cleanupExistingIndependentFixtures();
 
   // 5) Legacy EC14 tetap diberi proposal final untuk coverage historis, bukan happy path.
   console.log('\n── 5. Legacy EC14: proposal final untuk coverage non-happy-path ──');
@@ -509,6 +700,17 @@ async function main() {
   console.log('\n── 6. TA-04 v2.6: batch awal + promosi/release otomatis ──');
   await ensureOfficialTa04Batch(academicYear);
 
+  // Fixture scoring dibuat setelah batch dan diberi gate TA-04 deterministik.
+  console.log('\n── 7. UAT-20/21: antrean TA-03A P1 + P2 co-sign ──');
+  await ensureTa03AQueues(academicYear.id, topic.id);
+
+  // 8) Start state independen dibuat SETELAH batch awal agar UAT-30 belum ikut batch.
+  console.log('\n── 8. Fixture mutasi independen UAT formal ──');
+  await ensureIndependentMutationFixtures(academicYear, topic);
+  for (const spec of [...REQUESTERS, ...TA03A_QUEUE_STUDENTS, ...INDEPENDENT_FIXTURES]) {
+    await setPassword(spec.email, hash);
+  }
+
   console.log('\n' + '-'.repeat(60));
   console.log('Selesai prep UAT.');
   console.log('  UAT-10 : login edge02@dummy.ac.id → Status & Riwayat → tarik pengajuan');
@@ -517,10 +719,19 @@ async function main() {
   console.log('  UAT-19 : login garcia.hernandez@dummy.ac.id → Inbox → Terima di atas kuota → isi alasan → forward');
   console.log('  UAT-20 : login pembimbing_si → Penilaian TA-03A → UATTA03A P1 Pending');
   console.log('  UAT-21 : login wang.liu@dummy.ac.id (co-sign P2)');
-  console.log('  TA04-v26: login edge06@dummy.ac.id → /metopel → TA-04 awal bisa diunduh, Metopel tetap aktif');
-  console.log('  UAT-16 : login edge15@dummy.ac.id (promoted active + arsip pasca promosi + unduh Formulir batch)');
+  console.log('  UAT-45 : login edge06@dummy.ac.id → /metopel → status TA-04 tampil tanpa unduh PDF mahasiswa');
+  console.log('  UAT-16 : login edge15@dummy.ac.id (promoted active + arsip status pasca promosi)');
   console.log('  UAT-30/31 : login kadep_si → pengesahan-judul → batch TA-04 awal booking TA-01/TA-02');
   console.log('  Semua password: Password@2025');
 }
 
-main().catch((e) => { console.error('FATAL:', e); process.exitCode = 1; }).finally(() => prisma.$disconnect());
+let exitCode = 0;
+try {
+  await main();
+} catch (e) {
+  console.error('FATAL:', e);
+  exitCode = 1;
+} finally {
+  await Promise.allSettled([prisma.$disconnect(), servicePrisma.$disconnect()]);
+}
+process.exit(exitCode);

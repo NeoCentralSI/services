@@ -20,6 +20,7 @@ import {
   finalApproval,
   failStudentThesis,
 } from "../controllers/thesisGuidance/lecturer.guidance.controller.js";
+import monitoringRouter from "./thesisGuidance/monitoring.route.js";
 import * as monitoringController from "../controllers/thesisGuidance/monitoring.controller.js";
 import prisma from "../config/prisma.js";
 import * as studentRepo from "../repositories/thesisGuidance/student.guidance.repository.js";
@@ -51,11 +52,23 @@ import {
 import * as supervisor2Service from "../services/thesisGuidance/supervisor2.service.js";
 import * as proposalService from "../services/thesisGuidance/proposal.service.js";
 import * as informalLogService from "../services/thesisGuidance/informalLog.service.js";
+import { assertTa04GuidanceAuthorized } from "../services/ta04Authorization.service.js";
 import { uploadThesisFile, parseGuidanceRequestForm, uploadGuideFile } from "../middlewares/file.middleware.js";
 import { BadRequestError, NotFoundError } from "../utils/errors.js";
 
 const router = express.Router();
 router.use(authGuard);
+
+/**
+ * Legacy proposal-guidance rows may exist from before the TA-04 policy. Their
+ * lecturer-side mutation must not bypass the same authorization required to
+ * create a new proposal guidance session.
+ */
+async function assertProposalGuidanceMutationAuthorized(guidance) {
+  if ((guidance?.phase ?? "proposal") === "proposal") {
+    await assertTa04GuidanceAuthorized(guidance.thesisId);
+  }
+}
 
 // ============================================
 // Student Routes
@@ -85,6 +98,10 @@ router.post("/student/guidance/request", requireAnyRole([ROLES.MAHASISWA]), pars
       thesis.proposalStatus === "accepted" || thesis.isProposal === false ? "thesis" : "proposal";
     const rawPhase = req.body.phase;
     const phase = ["proposal", "thesis"].includes(rawPhase) ? rawPhase : defaultPhase;
+
+    if (phase === "proposal") {
+      await assertTa04GuidanceAuthorized(thesis.id);
+    }
 
     const rawMilestoneIds = req.body.milestoneIds || req.body['milestoneIds[]'];
     const milestoneIds = Array.isArray(rawMilestoneIds)
@@ -465,6 +482,7 @@ router.post("/lecturer/requests/:id/approve", requireAnyRole(LECTURER_ROLES), as
     const guidance = await lecturerRepo.findGuidanceByIdForLecturer(req.params.id, req.user.sub);
     if (!guidance) throw new NotFoundError("Bimbingan tidak ditemukan");
     if (guidance.status !== "requested") throw new BadRequestError("Hanya bimbingan berstatus 'diajukan' yang bisa disetujui");
+    await assertProposalGuidanceMutationAuthorized(guidance);
     const updated = await lecturerRepo.approveGuidanceById(req.params.id);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
@@ -475,6 +493,7 @@ router.post("/lecturer/requests/:id/reject", requireAnyRole(LECTURER_ROLES), asy
     const guidance = await lecturerRepo.findGuidanceByIdForLecturer(req.params.id, req.user.sub);
     if (!guidance) throw new NotFoundError("Bimbingan tidak ditemukan");
     if (guidance.status !== "requested") throw new BadRequestError("Hanya bimbingan berstatus 'diajukan' yang bisa ditolak");
+    await assertProposalGuidanceMutationAuthorized(guidance);
     const updated = await lecturerRepo.rejectGuidanceById(req.params.id, { feedback: req.body.rejectionReason || "Ditolak oleh dosen" });
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
@@ -484,6 +503,7 @@ router.post("/lecturer/requests/:id/cancel", requireAnyRole(LECTURER_ROLES), asy
   try {
     const guidance = await lecturerRepo.findGuidanceByIdForLecturer(req.params.id, req.user.sub);
     if (!guidance) throw new NotFoundError("Bimbingan tidak ditemukan");
+    await assertProposalGuidanceMutationAuthorized(guidance);
     const updated = await cancelGuidanceByLecturer(req.params.id, req.body.reason);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
@@ -496,6 +516,7 @@ router.patch("/lecturer/requests/:id/reschedule", requireAnyRole(LECTURER_ROLES)
   try {
     const guidance = await lecturerRepo.findGuidanceByIdForLecturer(req.params.id, req.user.sub);
     if (!guidance) throw new NotFoundError("Bimbingan tidak ditemukan");
+    await assertProposalGuidanceMutationAuthorized(guidance);
     if (!["requested", "accepted", "rescheduled"].includes(guidance.status)) {
       throw new BadRequestError(
         "Sesi hanya bisa dijadwalkan ulang ketika masih berstatus 'diajukan', 'disetujui', atau telah dijadwalkan ulang sebelumnya.",
@@ -527,6 +548,7 @@ router.post("/lecturer/guidance/:id/approve-summary", requireAnyRole(LECTURER_RO
     const guidance = await lecturerRepo.findPendingGuidanceById(req.params.id, req.user.sub);
     if (!guidance) throw new NotFoundError("Bimbingan tidak ditemukan");
     if (guidance.status !== "summary_pending") throw new BadRequestError("Ringkasan belum disubmit oleh mahasiswa");
+    await assertProposalGuidanceMutationAuthorized(guidance);
     const updated = await lecturerRepo.approveSessionSummary(req.params.id, req.body.supervisorFeedback || null);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
@@ -537,6 +559,7 @@ router.post("/lecturer/guidance/:id/reject-summary", requireAnyRole(LECTURER_ROL
     const guidance = await lecturerRepo.findPendingGuidanceById(req.params.id, req.user.sub);
     if (!guidance) throw new NotFoundError("Bimbingan tidak ditemukan");
     if (guidance.status !== "summary_pending") throw new BadRequestError("Ringkasan belum disubmit oleh mahasiswa");
+    await assertProposalGuidanceMutationAuthorized(guidance);
     const updated = await rejectSessionSummary(req.params.id, req.body.reason);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
@@ -553,6 +576,7 @@ router.post("/lecturer/feedback/:id", requireAnyRole(LECTURER_ROLES), async (req
   try {
     const guidance = await lecturerRepo.findGuidanceByIdForLecturer(req.params.id, req.user.sub);
     if (!guidance) throw new NotFoundError("Bimbingan tidak ditemukan");
+    await assertProposalGuidanceMutationAuthorized(guidance);
     const updated = await updateSupervisorFeedback(req.params.id, req.body.feedback);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
@@ -669,13 +693,21 @@ router.get("/lecturer/students/:thesisId/proposal/versions", requireAnyRole(LECT
   } catch (err) { next(err); }
 });
 
+// FR-LOG-08: P1/P2 aktif read-only catatan informal Metopel (tanpa bypass Koordinator)
+router.get("/lecturer/students/:thesisId/metopen/informal-logs", requireAnyRole(LECTURER_ROLES), async (req, res, next) => {
+  try {
+    const result = await informalLogService.listInformalLogsForLecturer(req.user.sub, req.params.thesisId);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
 // ============================================
 // Monitoring Routes (KaDep/Sekdep)
 // ============================================
 
 // Monitoring & persetujuan transfer Kadep (selaras dengan routes/thesisGuidance/monitoring.route.js)
 // Monitoring TA: HANYA KaDep + Sekdep (audit pass 2 F2-7 / OQ-2.4 — GKM dicabut).
-router.get("/monitoring/dashboard", requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), monitoringController.getMonitoringDashboard);
+router.use("/monitoring", monitoringRouter);
 router.get("/monitoring/transfers/pending", requireRole(ROLES.KETUA_DEPARTEMEN), monitoringController.getKadepPendingTransfers);
 router.get("/monitoring/transfers/all", requireRole(ROLES.KETUA_DEPARTEMEN), monitoringController.getKadepAllTransfers);
 router.patch("/monitoring/transfers/:notificationId/approve", requireRole(ROLES.KETUA_DEPARTEMEN), monitoringController.kadepApproveTransfer);

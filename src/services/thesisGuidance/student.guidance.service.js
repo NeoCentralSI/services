@@ -1563,6 +1563,12 @@ export async function getMyThesisDetailService(userId) {
       thesisStatus: true,
       academicYear: true,
       document: true,
+      proposalDocument: true,
+      finalProposalVersion: {
+        include: {
+          document: true,
+        },
+      },
       thesisSupervisors: {
         include: {
           role: { select: { name: true } },
@@ -1703,17 +1709,22 @@ export async function getMyThesisDetailService(userId) {
             filePath: fullThesis.document.filePath,
           }
         : null,
-      // Proposal Document
-      proposalDocument: fullThesis.thesisProposal?.document
-        ? {
-            id: fullThesis.thesisProposal.document.id,
-            fileName:
-              path.basename(
-                fullThesis.thesisProposal.document.filePath || "",
-              ) || fullThesis.thesisProposal.document.fileName,
-            filePath: fullThesis.thesisProposal.document.filePath,
-          }
-        : null,
+      // Proposal Document (canon §5.6: finalProposalVersion, fallback legacy proposalDocument)
+      proposalDocument: (() => {
+        const activeProposalDocument =
+          fullThesis.finalProposalVersion?.document ??
+          fullThesis.proposalDocument ??
+          null;
+        if (!activeProposalDocument) return null;
+        return {
+          id: activeProposalDocument.id,
+          version: fullThesis.finalProposalVersion?.version ?? null,
+          fileName:
+            path.basename(activeProposalDocument.filePath || "") ||
+            activeProposalDocument.fileName,
+          filePath: activeProposalDocument.filePath,
+        };
+      })(),
       // Per-guidance uploaded file versions
       uploadedFiles: (guidanceDocuments || [])
         .filter((g) => g.document)

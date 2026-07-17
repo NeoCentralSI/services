@@ -7,6 +7,10 @@ import {
   getActiveThesisForStudent,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as proposalRepo from "../../repositories/thesisGuidance/proposal.repository.js";
+import {
+  assertTa04GuidanceAuthorized,
+  getTa04GuidanceAuthorization,
+} from "../ta04Authorization.service.js";
 
 function sanitizePdfFileName(originalName) {
   const base = path.basename(String(originalName || "proposal.pdf"));
@@ -55,7 +59,7 @@ function isScoreProgressStarted(scoreProgress) {
 
 function getUploadLockedReason({ isAccepted, scoreProgress }) {
   if (isAccepted) {
-    return "Proposal sudah disahkan (TA-04).";
+    return "Mahasiswa sudah promosi ke beban aktif Tugas Akhir.";
   }
 
   if (scoreProgress?.isFinalized) {
@@ -87,7 +91,7 @@ export async function uploadProposalVersion(userId, file, description) {
 
   if (thesis.proposalStatus === "accepted") {
     throw new BadRequestError(
-      "Proposal sudah disahkan (TA-04). Tidak dapat mengunggah versi baru."
+      "Mahasiswa sudah promosi ke beban aktif Tugas Akhir. Tidak dapat mengunggah versi proposal Metopel baru."
     );
   }
 
@@ -151,11 +155,12 @@ export async function getProposalVersions(userId) {
 
 export async function getProposalSubmissionStatus(userId) {
   const { thesis } = await getStudentAndThesis(userId);
-  const [latestVersion, submissionStatus, supervisorCount, scoreProgress] = await Promise.all([
+  const [latestVersion, submissionStatus, supervisorCount, scoreProgress, guidanceAuthorization] = await Promise.all([
     proposalRepo.findLatestProposalVersion(thesis.id),
     proposalRepo.getProposalSubmissionStatus(thesis.id),
     proposalRepo.countActiveSupervisors(thesis.id),
     proposalRepo.findResearchMethodScoreProgress(thesis.id),
+    getTa04GuidanceAuthorization(thesis.id),
   ]);
 
   const isAccepted = submissionStatus?.proposalStatus === "accepted";
@@ -166,6 +171,11 @@ export async function getProposalSubmissionStatus(userId) {
   return {
     thesisId: thesis.id,
     hasSupervisor: supervisorCount > 0,
+    hasBookedSupervisor: guidanceAuthorization.hasBookedSupervisor,
+    hasOfficialSupervisor: guidanceAuthorization.hasOfficialSupervisor,
+    canSubmitFinalProposal: guidanceAuthorization.guidanceGateOpen && !isAccepted && !isScoringStarted,
+    guidanceGateOpen: guidanceAuthorization.guidanceGateOpen,
+    guidanceGateReason: guidanceAuthorization.guidanceGateReason,
     proposalStatus: submissionStatus?.proposalStatus ?? null,
     uploadLocked,
     uploadLockedReason,
@@ -191,9 +201,11 @@ export async function submitFinalProposal(userId) {
 
   if (thesis.proposalStatus === "accepted") {
     throw new BadRequestError(
-      "Proposal sudah disahkan sebagai TA-04. Versi final tidak dapat diubah dari alur mahasiswa."
+      "Mahasiswa sudah promosi ke beban aktif Tugas Akhir. Versi final proposal Metopel tidak dapat diubah dari alur mahasiswa."
     );
   }
+
+  await assertTa04GuidanceAuthorized(thesis.id);
 
   const [latestVersion, supervisorCount] = await Promise.all([
     proposalRepo.findLatestProposalVersion(thesis.id),
@@ -227,8 +239,8 @@ export async function submitFinalProposal(userId) {
   if (isScoreProgressStarted(scoreProgress)) {
     throw new BadRequestError(
       scoreProgress?.isFinalized
-        ? "Penilaian TA-03 sudah final untuk proposal final saat ini. Versi final tidak dapat diganti (canon §5.6 + §5.7.2)."
-        : "Penilaian TA-03 sudah dimulai untuk proposal final saat ini. Versi final tidak dapat diganti sampai siklus penilaian selesai/di-reset (canon §5.6 + §5.7.2).",
+        ? "Penilaian TA-03 sudah final untuk proposal final saat ini. Versi final tidak dapat diganti."
+        : "Penilaian TA-03 sudah dimulai untuk proposal final saat ini. Versi final tidak dapat diganti sampai siklus penilaian selesai/di-reset.",
     );
   }
 
@@ -255,6 +267,8 @@ export async function getProposalVersionsForLecturer(lecturerUserId, thesisId) {
   if (!isSupervisor && !isMetopenLecturer) {
     throw new ForbiddenError("Anda tidak memiliki akses untuk melihat proposal mahasiswa ini");
   }
+
+  await assertTa04GuidanceAuthorized(thesisId);
 
   const versions = await proposalRepo.getProposalVersions(thesisId);
 

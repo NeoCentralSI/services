@@ -30,7 +30,7 @@ async function findDuplicateRoleNames() {
 }
 
 async function findDuplicateActiveSupervisorRoles() {
-  const participants = await prisma.thesisParticipant.findMany({
+  const participants = await prisma.thesisSupervisors.findMany({
     where: {
       status: "active",
       role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },

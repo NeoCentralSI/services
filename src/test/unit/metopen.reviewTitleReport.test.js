@@ -159,7 +159,7 @@ function mockAllPrerequisitesMet(overrides = {}) {
   );
 }
 
-describe("BR-18 reviewTitleReport — re-validates takingThesisCourse on accept", () => {
+describe("BR-18 legacy post-TA-03 promotion — re-validates takingThesisCourse", () => {
   const baseThesis = {
     id: "thesis-1",
     studentId: "student-1",
@@ -287,7 +287,7 @@ describe("BR-18 reviewTitleReport — re-validates takingThesisCourse on accept"
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  // §5.7.3 (BR-28): mahasiswa auto-zero presensi <75% gagal Metopel → tidak boleh disahkan TA-04.
+  // §5.7.3 (BR-28): mahasiswa auto-zero presensi <75% gagal Metopel → tidak boleh dipromosikan ke fase TA.
   it("rejects accept when student is auto-zeroed by Metopel attendance <75%", async () => {
     mockAllPrerequisitesMet({
       score: {
@@ -380,7 +380,7 @@ describe("BR-18 reviewTitleReport — re-validates takingThesisCourse on accept"
 
     await expect(
       reviewTitleReport("thesis-1", "accept", "ok", "kadep-1"),
-    ).rejects.toThrow(/Status thesis 'Bimbingan' belum dikonfigurasi/i);
+    ).rejects.toThrow(/Konfigurasi status bimbingan belum lengkap/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 

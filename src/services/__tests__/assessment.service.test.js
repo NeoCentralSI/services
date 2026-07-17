@@ -13,6 +13,7 @@ const prismaMock = {
   metopenAttendanceRecord: { findFirst: vi.fn(), findMany: vi.fn(), createMany: vi.fn() },
   documentType: { findFirst: vi.fn(), create: vi.fn() },
   document: { create: vi.fn() },
+  user: { findMany: vi.fn() },
   $transaction: vi.fn(),
 };
 
@@ -24,6 +25,10 @@ vi.mock("../../config/prisma.js", () => ({
 
 vi.mock("../metopen.service.js", () => ({
   syncKadepProposalQueueByThesisId: vi.fn(),
+}));
+
+vi.mock("../notification.service.js", () => ({
+  createNotificationEventForUsers: vi.fn(),
 }));
 
 const prisma = (await import("../../config/prisma.js")).default;
@@ -97,6 +102,7 @@ describe("assessment.service — TA-03B active flow", () => {
     // Default: thesis tidak punya P2 → tidak butuh co-sign.
     // Test yang butuh P2 wajib override mock ini ke return value object.
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -1077,6 +1083,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -1219,6 +1226,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -1373,6 +1381,7 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
     ]);
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });

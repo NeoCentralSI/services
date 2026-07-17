@@ -3,6 +3,8 @@ import {
     getCpmksWithRubrics,
     listAllMetopenCpmks,
     createMetopenCpmk,
+    updateMetopenCpmk,
+    deleteMetopenCpmk,
     createCriteria,
     updateCriteria,
     deleteCriteria,
@@ -24,6 +26,7 @@ import {
     reorderCriteriaSchema,
     reorderRubricsSchema,
     createMetopenCpmkSchema,
+    updateMetopenCpmkSchema,
 } from "../validators/metopenAssessmentAdmin.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
@@ -36,6 +39,8 @@ router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]));
 router.get("/cpmks", getCpmksWithRubrics);
 router.get("/cpmks/all", listAllMetopenCpmks);
 router.post("/cpmks", validate(createMetopenCpmkSchema), createMetopenCpmk);
+router.patch("/cpmks/:cpmkId", validate(updateMetopenCpmkSchema), updateMetopenCpmk);
+router.delete("/cpmks/:cpmkId", deleteMetopenCpmk);
 
 router.post("/criteria", validate(createCriteriaSchema), createCriteria);
 router.patch("/criteria/reorder", validate(reorderCriteriaSchema), reorderCriteria);
@@ -44,6 +49,7 @@ router.delete("/criteria/:criteriaId", deleteCriteria);
 
 router.patch("/rubrics/reorder", validate(reorderRubricsSchema), reorderRubrics);
 
+/** Hapus kriteria+rubrik untuk role tertentu (bukan hapus master CPMK). */
 router.delete("/cpmk/:cpmkId", removeCpmkConfig);
 
 router.get("/criteria/:criteriaId/rubrics", listRubrics);

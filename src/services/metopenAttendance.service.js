@@ -11,6 +11,21 @@ export const METOPEN_ATTENDANCE_THRESHOLD = 0.75;
 export const METOPEN_ATTENDANCE_AUTO_ZERO_REASON =
   "Presensi Metopel kurang dari 75%; nilai TA-03A dan TA-03B otomatis 0 tanpa review proposal.";
 
+/**
+ * Auto-zero may be cleared on corrective re-upload only while the thesis is
+ * still in Metopel proposal phase and has not crossed promotion/release.
+ * After active promotion or booking release, auto-zero stays permanent.
+ */
+export function canClearAttendanceAutoZeroOnEligibleReupload(thesis) {
+  if (!thesis) return false;
+  if (thesis.activePromotedAt) return false;
+  if (thesis.isProposal === false) return false;
+  if (Array.isArray(thesis.advisorRequests) && thesis.advisorRequests.length > 0) {
+    return false;
+  }
+  return true;
+}
+
 const DOCUMENT_TYPE_NAME = "Presensi Metode Penelitian";
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "metopen", "attendance");
 
@@ -317,7 +332,7 @@ export async function applyAttendanceAutoZeroForThesis(thesisId, actorUserId, at
 
   if (result.blockedFinalized) {
     throw new ForbiddenError(
-      "Penilaian TA-03 sudah final sebelum presensi terbaru diproses. Auto-zero tidak diterapkan otomatis pada nilai final.",
+      "Penilaian TA-03 sudah final sebelum presensi terbaru diproses. Nilai otomatis 0 tidak diterapkan pada nilai yang sudah final.",
     );
   }
 
@@ -530,6 +545,7 @@ export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
     const score = thesis.researchMethodScores?.[0];
     const attendanceRecord = eligibleByStudentId.get(thesis.studentId);
     if (!attendanceRecord || !score?.attendanceAutoZeroedAt) return [];
+    if (!canClearAttendanceAutoZeroOnEligibleReupload(thesis)) return [];
 
     return [{
       thesisId: thesis.id,

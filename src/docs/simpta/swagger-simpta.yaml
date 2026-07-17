@@ -3,12 +3,45 @@ paths:
     get:
       tags: [AdvisorRequest]
       summary: Get canonical advisor access state
+      description: >-
+        Includes ta04AssignmentIssued so clients can close booking-withdraw
+        actions immediately after the TA-04 assignment is issued, including
+        data-repair cases where the active P1 relation is missing.
       security: [{ bearerAuth: [] }]
       responses:
         '200':
           description: Advisor access state resolved
         '401':
           description: Unauthorized
+
+  /advisorRequest/{id}/withdraw:
+    post:
+      tags: [AdvisorRequest]
+      summary: Withdraw an advisor request or pre-TA-04 booking
+      description: >-
+        Pending review states follow the 72-hour withdrawal policy. A
+        booking_approved request may be cancelled only while its thesis has no
+        ta04AssignmentIssuedAt. After TA-04 is issued, supervisor changes are
+        outside the active SIMPTA scope and this endpoint returns a bad request.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Request withdrawn
+        '400':
+          description: Withdrawal is locked or TA-04 has already been issued
+        '401':
+          description: Unauthorized
+        '403':
+          description: Request does not belong to the authenticated student
+        '404':
+          description: Request not found
 
   /advisorRequest/catalog:
     get:
@@ -204,6 +237,11 @@ paths:
     get:
       tags: [Proposal]
       summary: Get current final-proposal submission status for the current student
+      description: >-
+        Returns hasBookedSupervisor, hasOfficialSupervisor,
+        canSubmitFinalProposal, guidanceGateOpen, and guidanceGateReason.
+        A booking reserves P1 and quota only; the final-submission gate opens
+        after KaDep finalizes the applicable TA-04 batch.
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -213,10 +251,37 @@ paths:
     post:
       tags: [Proposal]
       summary: Mark the latest proposal version as the official final proposal for TA-03 review
+      description: >-
+        Requires an issued TA-04 assignment. Private proposal drafts may be
+        uploaded before TA-04, but this action returns 403 until KaDep has
+        finalized the batch.
       security: [{ bearerAuth: [] }]
       responses:
         '200':
           description: Final proposal submission stored
+
+  /thesisGuidance/lecturer/students/{thesisId}/metopen/informal-logs:
+    get:
+      tags: [Proposal]
+      summary: Read-only Metopel informal guidance notes for an active P1/P2 supervisor
+      description: >-
+        FR-LOG-08 / canon v3.0 §5.5. Returns informal notes + attachments for
+        the thesis after hasOfficialSupervisor (P1 active + TA-04 issued).
+        Active Pembimbing 1 or Pembimbing 2 only — no Koordinator Metopen /
+        KaDep / Sekdep bypass. GET only; no create/update/delete/approve.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: thesisId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Informal log list returned
+        '403':
+          description: Not an active supervisor, or TA-04 guidance gate closed
+        '404':
+          description: Thesis not found
 
   /metopen/me/proposal-approval:
     get:
@@ -295,16 +360,13 @@ paths:
   /metopen/me/archive/title-approval-document:
     get:
       tags: [Metopen]
-      summary: FR-ARC-05 — Download student's Formulir TA-04 PDF (authenticated stream)
+      deprecated: true
+      summary: Deprecated — student TA-04 PDF download disabled; use status in /metopen/me/archive
+      description: Mahasiswa melihat status penugasan TA-04 di sistem. PDF Formulir TA-04 batch adalah artefak cetak KaDep-only.
       security: [{ bearerAuth: [] }]
       responses:
-        '200':
-          description: Formulir TA-04 PDF stream
-          content:
-            application/pdf:
-              schema:
-                type: string
-                format: binary
+        '403':
+          description: Student PDF download is disabled; TA-04 status is available in archive/overview
         '404':
           description: Formulir TA-04 batch not finalized yet or file missing
 
@@ -327,7 +389,12 @@ paths:
   /metopen/kadep/title-reports/history:
     get:
       tags: [Metopen]
-      summary: KaDep early TA-04 history plus legacy accepted/rejected rows across periods
+      summary: KaDep early TA-04 cohort (booking_approved + issued) plus legacy accepted/rejected
+      description: >
+        Returns the same early TA-04 cohort used by batch preview/finalize
+        (booking_approved with active Pembimbing 1), including rows that are
+        not yet ta04AssignmentIssuedAt, plus already-issued and legacy
+        accepted/rejected rows. Aligns list UI with generateBatchTA04.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
@@ -338,7 +405,7 @@ paths:
             format: uuid
       responses:
         '200':
-          description: TA-04 decision history returned
+          description: Early TA-04 cohort and decision history returned
 
   /metopen/kadep/thesis/{thesisId}/title-report/regenerate:
     post:

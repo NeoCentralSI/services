@@ -86,9 +86,9 @@ async function debugTa04State(identifier) {
   }
 
   console.log("\n─".repeat(60));
-  console.log("👥 PEMBIMBING (ThesisParticipant active)");
+  console.log("👥 PEMBIMBING (thesisSupervisors active)");
   console.log("─".repeat(60));
-  const supervisors = await prisma.thesisParticipant.findMany({
+  const supervisors = await prisma.thesisSupervisors.findMany({
     where: { thesisId: thesis.id, status: "active" },
     include: { role: { select: { name: true } }, lecturer: { include: { user: { select: { fullName: true } } } } },
   });
@@ -149,11 +149,25 @@ async function debugTa04State(identifier) {
   const allOk = checks.every((c) => c.ok);
 
   console.log("\n─".repeat(60));
-  console.log("🔍 RIWAYAT PENGESAHAN (getKadepTitleReportHistory visibility)");
+  console.log("🔍 BATCH TA-04 AWAL (getKadepTitleReportHistory visibility)");
   console.log("─".repeat(60));
-  const isInHistory = thesis.proposalStatus === "accepted" || thesis.proposalStatus === "rejected";
-  console.log(`  proposalStatus: "${thesis.proposalStatus}"`);
-  console.log(`  Akan muncul di riwayat? ${isInHistory ? "YA (filter accepted/rejected)" : "TIDAK — status bukan accepted/rejected"}`);
+  const bookingApproved = await prisma.thesisAdvisorRequest.findFirst({
+    where: { thesisId: thesis.id, status: "booking_approved" },
+    select: { id: true, status: true, academicYearId: true },
+  });
+  const hasP1Active = supervisors.some((s) => s.role?.name === "Pembimbing 1");
+  const inEarlyBatchCohort =
+    Boolean(thesis.ta04AssignmentIssuedAt) ||
+    thesis.proposalStatus === "accepted" ||
+    thesis.proposalStatus === "rejected" ||
+    (Boolean(bookingApproved) && hasP1Active);
+  console.log(`  ta04AssignmentIssuedAt: ${thesis.ta04AssignmentIssuedAt?.toISOString() ?? "(null)"}`);
+  console.log(`  booking_approved request: ${bookingApproved ? "YA" : "TIDAK"}`);
+  console.log(`  P1 aktif: ${hasP1Active ? "YA" : "TIDAK"}`);
+  console.log(`  Akan muncul di tab Batch TA-04 Awal? ${inEarlyBatchCohort ? "YA" : "TIDAK"}`);
+  console.log(
+    `  Antrean penilaian dosen (TA-03A/B)? ${thesis.ta04AssignmentIssuedAt && thesis.finalProposalVersionId ? "YA (setelah final + TA-04 terbit)" : "TIDAK — butuh ta04AssignmentIssuedAt + proposal final"}`,
+  );
 
   console.log("\n─".repeat(60));
   console.log("🎯 KESIMPULAN");

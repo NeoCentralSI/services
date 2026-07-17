@@ -67,7 +67,7 @@ describe("IT: Metopen Monitoring service — edge case end-to-end", () => {
     ["2399000005", "pending_kadep"],
     ["2399000006", "active_pre_ta04"],
     ["2399000007", "active_pre_ta04"],
-    ["2399000008", "active_official"],
+    ["2399000008", "active_pre_ta04"],
     ["2399000009", "rejected"],
     ["2399000010", "rejected"],
     ["2399000011", "withdrawn"],

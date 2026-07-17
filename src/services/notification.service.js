@@ -9,6 +9,7 @@ import {
 	deleteAllNotifications,
 	findThesisDeletionNotification,
 } from "../repositories/notification.repository.js";
+import { sendFcmToUsers } from "./push.service.js";
 
 /**
  * Get user's notifications
@@ -81,6 +82,44 @@ export async function createNotificationsForUsers(userIds = [], payload = {}) {
 	if (!rows.length) return { count: 0 };
 	const result = await createNotificationsMany(rows);
 	return { count: result.count || 0 };
+}
+
+/**
+ * Create a user-facing notification event and optionally send FCM.
+ * This helper keeps SIMPTA business events from drifting into "row-only" or
+ * "push-only" implementations.
+ *
+ * @param {string[]} userIds
+ * @param {{ title?: string, message?: string, type?: string, data?: object }} payload
+ * @param {{ push?: boolean, dataOnly?: boolean, targetPlatform?: string|null }} options
+ */
+export async function createNotificationEventForUsers(userIds = [], payload = {}, options = {}) {
+	const uniqueUserIds = Array.from(new Set((userIds || []).filter(Boolean).map(String)));
+	const { title = "", message = "", type = undefined, data: payloadData = undefined } = payload;
+	const data = {
+		...(payloadData || {}),
+	};
+	if (type && data.type == null) data.type = type;
+
+	const inApp = await createNotificationsForUsers(uniqueUserIds, {
+		title,
+		message,
+		type,
+		data: Object.keys(data).length ? data : undefined,
+	});
+
+	if (!options.push || uniqueUserIds.length === 0) {
+		return { inApp, push: null };
+	}
+
+	const push = await sendFcmToUsers(uniqueUserIds, {
+		title,
+		body: message,
+		data,
+		dataOnly: options.dataOnly ?? true,
+		targetPlatform: options.targetPlatform ?? null,
+	});
+	return { inApp, push };
 }
 
 /**

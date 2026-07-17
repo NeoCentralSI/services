@@ -27,8 +27,14 @@ vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
   findResearchMethodScoreProgress: vi.fn(),
 }));
 
+vi.mock("../ta04Authorization.service.js", () => ({
+  getTa04GuidanceAuthorization: vi.fn(),
+  assertTa04GuidanceAuthorized: vi.fn(),
+}));
+
 const studentRepo = await import("../../repositories/thesisGuidance/student.guidance.repository.js");
 const proposalRepo = await import("../../repositories/thesisGuidance/proposal.repository.js");
+const ta04Authorization = await import("../ta04Authorization.service.js");
 const {
   uploadProposalVersion,
   submitFinalProposal,
@@ -43,6 +49,12 @@ describe("proposal.service", () => {
       proposalStatus: null,
       finalProposalVersionId: null,
     });
+    ta04Authorization.getTa04GuidanceAuthorization.mockResolvedValue({
+      hasBookedSupervisor: true,
+      guidanceGateOpen: true,
+      guidanceGateReason: null,
+    });
+    ta04Authorization.assertTa04GuidanceAuthorized.mockResolvedValue({ guidanceGateOpen: true });
   });
 
   it("stores proposal uploads as thesis proposal versions without creating milestone records", async () => {
@@ -101,6 +113,15 @@ describe("proposal.service", () => {
     proposalRepo.countActiveSupervisors.mockResolvedValue(0);
 
     await expect(submitFinalProposal("user-1")).rejects.toThrow("dosen pembimbing");
+  });
+
+  it("blocks final proposal submission until KaDep finalizes TA-04", async () => {
+    ta04Authorization.assertTa04GuidanceAuthorized.mockRejectedValue(
+      new Error("TA-04 belum difinalisasi KaDep"),
+    );
+
+    await expect(submitFinalProposal("user-1")).rejects.toThrow("TA-04 belum difinalisasi KaDep");
+    expect(proposalRepo.findLatestProposalVersion).not.toHaveBeenCalled();
   });
 
   it("submits the latest proposal version as the active final proposal", async () => {

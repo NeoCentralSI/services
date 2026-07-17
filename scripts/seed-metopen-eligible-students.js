@@ -135,7 +135,7 @@ async function findOrCreateDosenMetopen() {
 
 async function ensureMetopenClassAndEnroll(_academicYear, _enrollableStudentIds) {
   // Model MetopenClass/MetopenClassStudent sudah dihapus dari schema (digantikan
-  // MetopenAttendanceImport/Record + ThesisParticipant). Dulu fungsi ini meng-enroll
+  // MetopenAttendanceImport/Record + thesisSupervisors). Dulu fungsi ini meng-enroll
   // mahasiswa ke kelas; kini cukup memastikan ada Koordinator Matkul Metopen aktif
   // supaya halaman /kelola/metopen/* (ta03b, monitoring) bisa diakses saat UAT.
   const dosenMetopen = await findOrCreateDosenMetopen();
@@ -171,7 +171,7 @@ async function ensureDimasEligibleAndClean() {
   for (const t of theses) {
     await prisma.researchMethodScoreDetail.deleteMany({ where: { researchMethodScore: { thesisId: t.id } } });
     await prisma.researchMethodScore.deleteMany({ where: { thesisId: t.id } });
-    await prisma.thesisParticipant.deleteMany({ where: { thesisId: t.id } });
+    await prisma.thesisSupervisors.deleteMany({ where: { thesisId: t.id } });
     await prisma.thesisGuidance.deleteMany({ where: { thesisId: t.id } });
     await prisma.thesisMilestone.deleteMany({ where: { thesisId: t.id } });
   }

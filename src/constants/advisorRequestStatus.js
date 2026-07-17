@@ -119,13 +119,13 @@ export const ADVISOR_REQUEST_STATUS_LABELS = {
   [ADVISOR_REQUEST_STATUS.REJECTED_BY_KADEP]: "Ditolak KaDep",
   [ADVISOR_REQUEST_STATUS.CANCELED]: "Dibatalkan",
   [ADVISOR_REQUEST_STATUS.CLOSED]: "Ditutup",
-  [ADVISOR_REQUEST_STATUS.ESCALATED]: "Eskalasi Legacy",
-  [ADVISOR_REQUEST_STATUS.APPROVED]: "Approved Legacy",
-  [ADVISOR_REQUEST_STATUS.REJECTED]: "Rejected Legacy",
-  [ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED]: "Override Legacy",
-  [ADVISOR_REQUEST_STATUS.REDIRECTED]: "Redirected Legacy",
-  [ADVISOR_REQUEST_STATUS.WITHDRAWN]: "Withdrawn Legacy",
-  [ADVISOR_REQUEST_STATUS.ASSIGNED]: "Assigned Legacy",
+  [ADVISOR_REQUEST_STATUS.ESCALATED]: "Menunggu KaDep (data lama)",
+  [ADVISOR_REQUEST_STATUS.APPROVED]: "Disetujui (data lama)",
+  [ADVISOR_REQUEST_STATUS.REJECTED]: "Ditolak (data lama)",
+  [ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED]: "Disetujui di atas kuota (data lama)",
+  [ADVISOR_REQUEST_STATUS.REDIRECTED]: "Dialihkan (data lama)",
+  [ADVISOR_REQUEST_STATUS.WITHDRAWN]: "Ditarik (data lama)",
+  [ADVISOR_REQUEST_STATUS.ASSIGNED]: "Ditetapkan (data lama)",
 };
 
 export function isAdvisorRequestBlocking(status) {

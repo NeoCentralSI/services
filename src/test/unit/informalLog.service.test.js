@@ -10,21 +10,36 @@ const mockPrisma = vi.hoisted(() => ({
 }));
 
 const mockGetActiveThesis = vi.hoisted(() => vi.fn());
+const mockFindThesisById = vi.hoisted(() => vi.fn());
+const mockFindThesisSupervisor = vi.hoisted(() => vi.fn());
+const mockFindMetopenLecturerRole = vi.hoisted(() => vi.fn());
 
 vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../repositories/thesisGuidance/student.guidance.repository.js", () => ({
   getActiveThesisForStudent: (...args) => mockGetActiveThesis(...args),
 }));
+vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
+  findThesisById: (...args) => mockFindThesisById(...args),
+  findThesisSupervisor: (...args) => mockFindThesisSupervisor(...args),
+  findMetopenLecturerRole: (...args) => mockFindMetopenLecturerRole(...args),
+}));
+
+vi.mock("../../services/ta04Authorization.service.js", () => ({
+  assertTa04GuidanceAuthorized: vi.fn(),
+}));
 
 import {
   listInformalLogsForStudent,
+  listInformalLogsForLecturer,
   createInformalLogForStudent,
 } from "../../services/thesisGuidance/informalLog.service.js";
 import { AppError, ForbiddenError, NotFoundError } from "../../utils/errors.js";
+import { assertTa04GuidanceAuthorized } from "../../services/ta04Authorization.service.js";
 
 describe("informalLog.service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(assertTa04GuidanceAuthorized).mockResolvedValue({ guidanceGateOpen: true });
   });
 
   describe("listInformalLogsForStudent", () => {
@@ -95,6 +110,88 @@ describe("informalLog.service", () => {
     });
   });
 
+  describe("listInformalLogsForLecturer", () => {
+    it("returns 404 when thesis does not exist", async () => {
+      mockFindThesisById.mockResolvedValue(null);
+
+      await expect(listInformalLogsForLecturer("lect-1", "missing")).rejects.toBeInstanceOf(
+        NotFoundError,
+      );
+      expect(mockFindThesisSupervisor).not.toHaveBeenCalled();
+    });
+
+    it("rejects non-supervisor even if they are Koordinator Metopen", async () => {
+      mockFindThesisById.mockResolvedValue({ id: "thesis-1", studentId: "u1" });
+      mockFindThesisSupervisor.mockResolvedValue(null);
+
+      await expect(listInformalLogsForLecturer("koor-1", "thesis-1")).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+      expect(mockFindMetopenLecturerRole).not.toHaveBeenCalled();
+      expect(assertTa04GuidanceAuthorized).not.toHaveBeenCalled();
+      expect(mockPrisma.thesisStudentInformalLog.findMany).not.toHaveBeenCalled();
+    });
+
+    it("blocks read until KaDep finalizes TA-04", async () => {
+      mockFindThesisById.mockResolvedValue({ id: "thesis-1", studentId: "u1" });
+      mockFindThesisSupervisor.mockResolvedValue({ id: "sup-1" });
+      vi.mocked(assertTa04GuidanceAuthorized).mockRejectedValue(
+        new ForbiddenError("TA-04 belum difinalisasi KaDep"),
+      );
+
+      await expect(listInformalLogsForLecturer("lect-1", "thesis-1")).rejects.toThrow(
+        "TA-04 belum difinalisasi KaDep",
+      );
+      expect(mockPrisma.thesisStudentInformalLog.findMany).not.toHaveBeenCalled();
+    });
+
+    it("returns mapped rows for active P1/P2 after TA-04", async () => {
+      mockFindThesisById.mockResolvedValue({ id: "thesis-1", studentId: "u1" });
+      mockFindThesisSupervisor.mockResolvedValue({ id: "sup-1" });
+      const created = new Date("2026-01-04T00:00:00.000Z");
+      mockPrisma.thesisStudentInformalLog.findMany.mockResolvedValue([
+        {
+          id: "log-2",
+          content: "Progress minggu ini",
+          createdAt: created,
+          updatedAt: created,
+          document: {
+            id: "doc-1",
+            fileName: "catatan.pdf",
+            filePath: "uploads/thesis/thesis-1/informal-log/catatan.pdf",
+            fileSize: 10,
+            mimeType: "application/pdf",
+          },
+        },
+      ]);
+
+      const out = await listInformalLogsForLecturer("lect-1", "thesis-1");
+
+      expect(assertTa04GuidanceAuthorized).toHaveBeenCalledWith("thesis-1");
+      expect(mockPrisma.thesisStudentInformalLog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { thesisId: "thesis-1" } }),
+      );
+      expect(out).toEqual({
+        thesisId: "thesis-1",
+        items: [
+          {
+            id: "log-2",
+            content: "Progress minggu ini",
+            createdAt: created.toISOString(),
+            updatedAt: created.toISOString(),
+            document: {
+              id: "doc-1",
+              fileName: "catatan.pdf",
+              url: "/uploads/thesis/thesis-1/informal-log/catatan.pdf",
+              fileSize: 10,
+              mimeType: "application/pdf",
+            },
+          },
+        ],
+      });
+    });
+  });
+
   describe("createInformalLogForStudent", () => {
     it("throws when no active thesis", async () => {
       mockPrisma.student.findUnique.mockResolvedValue({
@@ -138,6 +235,22 @@ describe("informalLog.service", () => {
       );
       expect(row.id).toBe("log-new");
       expect(row.content).toBe("Catatan");
+    });
+
+    it("blocks creation until KaDep finalizes TA-04", async () => {
+      mockPrisma.student.findUnique.mockResolvedValue({
+        takingThesisCourse: false,
+        eligibleMetopen: true,
+      });
+      mockGetActiveThesis.mockResolvedValue({ id: "thesis-1", studentId: "u1" });
+      vi.mocked(assertTa04GuidanceAuthorized).mockRejectedValue(
+        new ForbiddenError("TA-04 belum difinalisasi KaDep"),
+      );
+
+      await expect(createInformalLogForStudent("u1", { content: "Catatan" }, undefined)).rejects.toThrow(
+        "TA-04 belum difinalisasi KaDep",
+      );
+      expect(mockPrisma.thesisStudentInformalLog.create).not.toHaveBeenCalled();
     });
   });
 });

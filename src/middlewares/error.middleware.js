@@ -31,7 +31,7 @@ function mapPrismaError(err) {
 
     if (err.code === "P2021" || err.code === "P2022") {
       const e = new Error(
-        "Skema database belum sinkron dengan code aplikasi. Periksa `npx prisma migrate status` di folder services dan sinkronkan database ke baseline migration repo ini."
+        "Skema database belum sinkron dengan code aplikasi. Hubungi administrator sistem."
       );
       e.statusCode = 500;
       e.code = err.code;

@@ -63,9 +63,9 @@ async function main() {
       }
 
       // Move thesis_participants → canonical (jaga-jaga kalau ada referensi)
-      const partsCount = await tx.thesisParticipant.count({ where: { roleId: dup.id } });
+      const partsCount = await tx.thesisSupervisors.count({ where: { roleId: dup.id } });
       if (partsCount > 0) {
-        await tx.thesisParticipant.updateMany({
+        await tx.thesisSupervisors.updateMany({
           where: { roleId: dup.id },
           data: { roleId: canonical.id },
         });

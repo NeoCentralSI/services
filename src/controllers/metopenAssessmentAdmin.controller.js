@@ -99,7 +99,7 @@ export async function getCpmksWithRubrics(req, res, next) {
     const data = await service.getCpmksWithRubrics(role);
     res.json({
       success: true,
-      message: "Berhasil mengambil CPMK research_method dan rubrik penilaian Metode Penelitian untuk proposal, TA-03A, dan TA-03B",
+      message: "Berhasil mengambil CPMK Metode Penelitian beserta rubrik penilaian TA-03A dan TA-03B",
       data,
     });
   } catch (error) {
@@ -120,6 +120,28 @@ export async function createMetopenCpmk(req, res, next) {
   try {
     const data = await service.createMetopenCpmk(req.validated ?? req.body);
     res.status(201).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateMetopenCpmk(req, res, next) {
+  try {
+    const data = await service.updateMetopenCpmk(req.params.cpmkId, req.validated ?? req.body);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteMetopenCpmk(req, res, next) {
+  try {
+    const data = await service.deleteMetopenCpmk(req.params.cpmkId);
+    res.json({
+      success: true,
+      message: "CPMK Metode Penelitian berhasil dihapus dari katalog",
+      data,
+    });
   } catch (error) {
     next(error);
   }

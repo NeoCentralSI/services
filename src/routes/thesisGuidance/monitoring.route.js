@@ -18,7 +18,7 @@ import {
 
 const router = express.Router();
 
-// Base path: /thesis-guidance/monitoring
+// Base path: /thesisGuidance/monitoring
 // Akses Monitoring TA: HANYA KaDep + Sekdep (keputusan audit pass 2 F2-7 /
 // OQ-2.4 2026-06-10 — GKM dicabut agar konsisten sidebar/route/backend).
 

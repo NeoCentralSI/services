@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles } = vi.hoisted(() => ({
+const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles, mockTa04Authorization } = vi.hoisted(() => ({
   mockPrisma: {
     thesisGuidance: { update: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn(),
@@ -72,6 +72,9 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
     ROLE_CATEGORY: { STUDENT: "student", LECTURER: "lecturer" },
     isSupervisorRole: vi.fn((r) => r === "pembimbing_1" || r === "pembimbing_2"),
   },
+  mockTa04Authorization: {
+    assertTa04GuidanceAuthorized: vi.fn().mockResolvedValue({ guidanceGateOpen: true }),
+  },
 }));
 
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
@@ -82,6 +85,7 @@ vi.mock("../../../services/outlook-calendar.service.js", () => mockCalendar);
 vi.mock("../../../utils/date.util.js", () => mockDateUtil);
 vi.mock("../../../utils/global.util.js", () => mockGlobalUtil);
 vi.mock("../../../constants/roles.js", () => mockRoles);
+vi.mock("../../../services/ta04Authorization.service.js", () => mockTa04Authorization);
 
 import {
   getMyStudentsService,
@@ -201,6 +205,19 @@ describe("Module 2 (Dosen): Approve/Reject Guidance", () => {
 
       expect(result).toHaveProperty("guidance");
       expect(mockRepo.approveGuidanceById).toHaveBeenCalledWith("guid-1", expect.objectContaining({ feedback: "OK" }));
+    });
+
+    it("blocks proposal-guidance approval until the TA-04 gate is open", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findGuidanceByIdForLecturer.mockResolvedValue(GUIDANCE_REQUESTED);
+      mockTa04Authorization.assertTa04GuidanceAuthorized.mockRejectedValueOnce(
+        new Error("Booking pembimbing sudah disetujui, tetapi Formulir TA-04 belum difinalisasi KaDep."),
+      );
+
+      await expect(
+        approveGuidanceService("user-dosen-1", "guid-1", { feedback: "OK" }),
+      ).rejects.toThrow(/TA-04 belum difinalisasi KaDep/i);
+      expect(mockRepo.approveGuidanceById).not.toHaveBeenCalled();
     });
 
     it("rejects (400) if guidance status is not 'requested' (status guard)", async () => {
@@ -451,7 +468,7 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         id: "thesis-1", title: "AI Research",
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         thesisStatus: { name: "Bimbingan" },
-        document: null, thesisProposal: null,
+        document: null, proposalDocument: null, finalProposalVersion: null,
         rating: "on_track", startDate: new Date(), deadlineDate: new Date(),
         thesisMilestones: [{ id: "m1", title: "Bab 1", status: "completed", updatedAt: new Date(), progressPercentage: 100, targetDate: null }],
         studentId: "stu-1",

@@ -20,8 +20,14 @@ vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
   findResearchMethodScoreProgress: vi.fn(),
 }));
 
+vi.mock("../../services/ta04Authorization.service.js", () => ({
+  assertTa04GuidanceAuthorized: vi.fn(),
+  getTa04GuidanceAuthorization: vi.fn(),
+}));
+
 let studentRepo;
 let proposalRepo;
+let ta04Authorization;
 let submitFinalProposal;
 let getProposalSubmissionStatus;
 
@@ -34,6 +40,17 @@ beforeEach(async () => {
   proposalRepo = await import(
     "../../repositories/thesisGuidance/proposal.repository.js"
   );
+  ta04Authorization = await import(
+    "../../services/ta04Authorization.service.js"
+  );
+  ta04Authorization.getTa04GuidanceAuthorization.mockResolvedValue({
+    hasBookedSupervisor: true,
+    guidanceGateOpen: true,
+    guidanceGateReason: null,
+  });
+  ta04Authorization.assertTa04GuidanceAuthorized.mockResolvedValue({
+    guidanceGateOpen: true,
+  });
   ({ submitFinalProposal, getProposalSubmissionStatus } = await import(
     "../../services/thesisGuidance/proposal.service.js"
   ));
@@ -78,7 +95,7 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
     expect(proposalRepo.submitFinalProposalVersion).not.toHaveBeenCalled();
   });
 
-  it("rejects ketika proposal sudah disahkan TA-04 (proposalStatus accepted)", async () => {
+  it("rejects ketika proposal sudah promosi beban aktif (proposalStatus accepted)", async () => {
     studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
     studentRepo.getActiveThesisForStudent.mockResolvedValue({
       ...baseThesis,
@@ -86,7 +103,7 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
     });
 
     await expect(submitFinalProposal(studentId)).rejects.toThrow(
-      /Proposal sudah disahkan sebagai TA-04/i,
+      /sudah promosi ke beban aktif Tugas Akhir/i,
     );
     expect(proposalRepo.findLatestProposalVersion).not.toHaveBeenCalled();
   });

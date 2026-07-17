@@ -474,8 +474,8 @@ model AssessmentRubric {
 /// Migrasi data dari cpmks (type=research_method) → metopen_cpmks
 /// dilakukan oleh scripts/migrate_metopen_data.mjs.
 model MetopenCpmk {
-  id             String   @id @default(uuid()) @db.VarChar(255)
-  academicYearId String?  @map("academic_year_id") @db.VarChar(255)
+  id             String   @id @default(uuid()) @db.VarChar(191)
+  academicYearId String?  @map("academic_year_id") @db.VarChar(191)
   code           String   @db.VarChar(255)
   description    String   @db.VarChar(255)
   createdAt      DateTime @default(now()) @map("created_at")
@@ -494,8 +494,8 @@ model MetopenCpmk {
 /// soft-delete) sesuai desain metopen admin rubric management.
 /// Canon §5.7.1 (P1+P2 co-sign) + §5.7 (TA-03B koordinator).
 model MetopenAssessmentCriteria {
-  id            String         @id @default(uuid()) @db.VarChar(255)
-  metopenCpmkId String         @map("metopen_cpmk_id") @db.VarChar(255)
+  id            String         @id @default(uuid()) @db.VarChar(191)
+  metopenCpmkId String         @map("metopen_cpmk_id") @db.VarChar(191)
   name          String?        @db.VarChar(255)
   role          AssessmentRole @default(default)
   maxScore      Int?           @map("max_score")
@@ -515,8 +515,8 @@ model MetopenAssessmentCriteria {
 /// (tanpa isDeleted/deletedAt — hard delete). Dipakai oleh RubricGradingForm
 /// untuk selection descriptor saat supervisor/koordinator input nilai.
 model MetopenAssessmentRubric {
-  id                          String   @id @default(uuid()) @db.VarChar(255)
-  metopenAssessmentCriteriaId String   @map("metopen_assessment_criteria_id") @db.VarChar(255)
+  id                          String   @id @default(uuid()) @db.VarChar(191)
+  metopenAssessmentCriteriaId String   @map("metopen_assessment_criteria_id") @db.VarChar(191)
   minScore                    Int      @default(0) @map("min_score")
   maxScore                    Int      @default(0) @map("max_score")
   description                 String   @db.Text
@@ -606,12 +606,13 @@ model ExitSurveyOption {
 }
 
 /// Thesis = shared container antara SIMPTA (proposal phase, isProposal=true)
-/// dan Modul Tugas Akhir penuh (isProposal=false, post-TA-04).
+/// dan Modul Tugas Akhir penuh (isProposal=false, post-promosi aktif setelah
+/// TA-03 final + snapshot KRS TA true; bukan hanya karena TA-04 terbit).
 /// Lihat HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-06 untuk field ownership matrix.
 model Thesis {
   // === IDENTITAS & PHASE FLAG ===
   id             String    @id @default(uuid())
-  /// Flag transisi ownership: true = SIMPTA scope; false = Modul TA scope post-TA-04.
+  /// Flag transisi ownership: true = SIMPTA scope; false = Modul TA scope setelah promosi aktif.
   isProposal     Boolean   @default(true) @map("is_proposal")
   studentId      String    @map("student_id")
   thesisTopicId  String?   @map("thesis_topic_id")
@@ -625,19 +626,19 @@ model Thesis {
   // === SIMPTA SCOPE: Proposal Versioning & Submission (canon §5.6) ===
   /// Source of truth proposal final aktif. Pointer ke ThesisProposalVersion
   /// yang ditetapkan via aksi "Submit Final" eksplisit oleh mahasiswa.
-  finalProposalVersionId String?         @map("final_proposal_version_id") @db.VarChar(255)
+  finalProposalVersionId String?         @map("final_proposal_version_id") @db.VarChar(191)
   proposalStatus         ProposalStatus? @map("proposal_status")
 
   // === SIMPTA SCOPE: TA-04 KaDep Decision Audit (canon §5.8, §5.13) ===
   titleApprovalDocumentId       String?   @map("title_approval_document_id")
   proposalReviewNotes           String?   @map("proposal_review_notes") @db.Text
   proposalReviewedAt            DateTime? @map("proposal_reviewed_at")
-  proposalReviewedByUserId      String?   @map("proposal_reviewed_by_user_id") @db.VarChar(255)
+  proposalReviewedByUserId      String?   @map("proposal_reviewed_by_user_id") @db.VarChar(191)
   /// TA-04 awal = SK penugasan resmi setelah TA-01/TA-02 booking disetujui.
   /// Metadata ini membekukan judul + nama pembimbing yang tampil pada batch
   /// pertama; promosi beban aktif tetap menunggu TA-03 final + KRS TA.
   ta04AssignmentIssuedAt        DateTime? @map("ta04_assignment_issued_at")
-  ta04AssignmentIssuedByUserId  String?   @map("ta04_assignment_issued_by_user_id") @db.VarChar(255)
+  ta04AssignmentIssuedByUserId  String?   @map("ta04_assignment_issued_by_user_id") @db.VarChar(191)
   ta04AssignmentTitle           String?   @map("ta04_assignment_title") @db.Text
   ta04AssignmentSupervisorNames String?   @map("ta04_assignment_supervisor_names") @db.Text
   ta04AssignmentAcademicYearId  String?   @map("ta04_assignment_academic_year_id")
@@ -645,7 +646,7 @@ model Thesis {
   activeAcademicYearId          String?   @map("active_academic_year_id")
   activePromotedAt              DateTime? @map("active_promoted_at")
 
-  // === MODUL TA SCOPE (post-TA-04, isProposal=false — BUKAN SIMPTA scope) ===
+  // === MODUL TA SCOPE (post-promosi aktif, isProposal=false — BUKAN SIMPTA scope) ===
   /// out-of-SIMPTA-scope: Modul TA penuh. Rating monitoring (ONGOING/SLOW/AT_RISK/FAILED).
   rating                ThesisRating @default(ONGOING)
   /// out-of-SIMPTA-scope: Modul TA penuh — deadline absolut thesis.
@@ -761,8 +762,9 @@ model Ta04BatchMember {
   @@map("ta04_batch_members")
 }
 
-/// Catatan bimbingan informal (mahasiswa saja, pra-MK Tugas Akhir / fase Metopen).
-/// Tidak menggantikan thesis_guidances (alur sesi formal).
+/// Catatan bimbingan informal fase Metopen: mahasiswa membuat/mengubah catatan;
+/// P1/P2 aktif dapat membaca read-only setelah TA-04. Tidak memiliki workflow
+/// approval dan tidak menggantikan thesis_guidances (alur sesi formal pasca-promosi).
 model ThesisStudentInformalLog {
   id         String   @id @default(uuid())
   thesisId   String   @map("thesis_id")
@@ -1525,6 +1527,7 @@ model YudisiumRequirement {
   name        String   @db.VarChar(255)
   description String?  @db.Text
   isActive    Boolean  @default(true) @map("is_active")
+  isPublic    Boolean  @default(false) @map("is_public")
   order       Int      @default(0)
   notes       String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
@@ -2244,10 +2247,10 @@ enum ThesisRating {
 }
 
 model ThesisAdvisorRequestDraft {
-  id                   String                @id @default(uuid()) @db.VarChar(255)
-  studentId            String                @unique @map("student_id") @db.VarChar(199)
-  lecturerId           String?               @map("lecturer_id") @db.VarChar(255)
-  topicId              String?               @map("topic_id") @db.VarChar(255)
+  id                   String                @id @default(uuid()) @db.VarChar(191)
+  studentId            String                @unique @map("student_id") @db.VarChar(191)
+  lecturerId           String?               @map("lecturer_id") @db.VarChar(191)
+  topicId              String?               @map("topic_id") @db.VarChar(191)
   proposedTitle        String?               @map("proposed_title") @db.VarChar(255)
   backgroundSummary    String?               @map("background_summary") @db.Text
   problemStatement     String?               @map("problem_statement") @db.Text
@@ -2260,7 +2263,7 @@ model ThesisAdvisorRequestDraft {
   /// data ke studentJustification. Sumber: HANDOFF §5 P0-05.
   justificationText    String?               @map("justification_text") @db.Text
   studentJustification String?               @map("student_justification") @db.Text
-  attachmentId         String?               @map("attachment_id") @db.VarChar(255)
+  attachmentId         String?               @map("attachment_id") @db.VarChar(191)
   lastSubmittedAt      DateTime?             @map("last_submitted_at")
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")
@@ -2278,12 +2281,12 @@ model ThesisAdvisorRequestDraft {
 
 // ==================== Thesis Advisor Request ====================
 model ThesisAdvisorRequest {
-  id                      String                     @id @default(uuid()) @db.VarChar(255)
-  studentId               String                     @map("student_id") @db.VarChar(199)
-  lecturerId              String?                    @map("lecturer_id") @db.VarChar(255)
-  academicYearId          String                     @map("academic_year_id") @db.VarChar(255)
-  topicId                 String?                    @map("topic_id") @db.VarChar(255)
-  thesisId                String?                    @map("thesis_id") @db.VarChar(255)
+  id                      String                     @id @default(uuid()) @db.VarChar(191)
+  studentId               String                     @map("student_id") @db.VarChar(191)
+  lecturerId              String?                    @map("lecturer_id") @db.VarChar(191)
+  academicYearId          String                     @map("academic_year_id") @db.VarChar(191)
+  topicId                 String?                    @map("topic_id") @db.VarChar(191)
+  thesisId                String?                    @map("thesis_id") @db.VarChar(191)
   proposedTitle           String?                    @map("proposed_title") @db.VarChar(255)
   backgroundSummary       String?                    @map("background_summary") @db.Text
   problemStatement        String?                    @map("problem_statement") @db.Text
@@ -2302,23 +2305,23 @@ model ThesisAdvisorRequest {
   lecturerApprovalNote    String?                    @map("lecturer_approval_note") @db.Text
   lecturerOverquotaReason String?                    @map("lecturer_overquota_reason") @db.Text
   rejectionReason         String?                    @map("rejection_reason") @db.Text
-  reviewedBy              String?                    @map("reviewed_by") @db.VarChar(255)
+  reviewedBy              String?                    @map("reviewed_by") @db.VarChar(191)
   reviewedAt              DateTime?                  @map("reviewed_at")
   lecturerRespondedAt     DateTime?                  @map("lecturer_responded_at")
   withdrawnAt             DateTime?                  @map("withdrawn_at")
   releasedAt              DateTime?                  @map("released_at")
   releaseReason           String?                    @map("release_reason") @db.VarChar(64)
-  releasedAcademicYearId  String?                    @map("released_academic_year_id") @db.VarChar(255)
+  releasedAcademicYearId  String?                    @map("released_academic_year_id") @db.VarChar(191)
   withdrawCount           Int                        @default(0) @map("withdraw_count")
-  redirectedTo            String?                    @map("redirected_to") @db.VarChar(255)
+  redirectedTo            String?                    @map("redirected_to") @db.VarChar(191)
   kadepNotes              String?                    @map("kadep_notes") @db.Text
-  attachmentId            String?                    @map("attachment_id") @db.VarChar(255) // TA-01 or Draft Proposal
+  attachmentId            String?                    @map("attachment_id") @db.VarChar(191) // TA-01 or Draft Proposal
   // BR-26 Path C dual-justification audit (canon §5.2.1).
   // forwardedToKadepAt + forwardedByLecturerId menandai kapan/oleh siapa dosen
   // forward overquota request ke KaDep. Wajib di-set bersamaan dengan
   // lecturerOverquotaReason di service `advisorRequest.forwardOverquotaToKadep`.
   forwardedToKadepAt      DateTime?                  @map("forwarded_to_kadep_at")
-  forwardedByLecturerId   String?                    @map("forwarded_by_lecturer_id") @db.VarChar(255)
+  forwardedByLecturerId   String?                    @map("forwarded_by_lecturer_id") @db.VarChar(191)
   // BR-06 + canon §7.3: flag eksplisit untuk computed "Overquota Sah".
   // Di-set true saat KaDep override Path C escalated → status=booking_approved.
   // Hindari computed gabungan routeType+status yang fragile.
@@ -2354,14 +2357,14 @@ model ThesisAdvisorRequest {
 // ThesisSupervisionDecree, ThesisProposalNew, ThesisProposalHistory removed — dead models
 
 model ThesisProposalVersion {
-  id                       String    @id @default(uuid()) @db.VarChar(255)
-  thesisId                 String    @map("thesis_id") @db.VarChar(255)
-  documentId               String    @map("document_id") @db.VarChar(255)
+  id                       String    @id @default(uuid()) @db.VarChar(191)
+  thesisId                 String    @map("thesis_id") @db.VarChar(191)
+  documentId               String    @map("document_id") @db.VarChar(191)
   version                  Int
   description              String?   @db.Text
   isLatest                 Boolean   @default(true) @map("is_latest")
   submittedAsFinalAt       DateTime? @map("submitted_as_final_at")
-  submittedAsFinalByUserId String?   @map("submitted_as_final_by_user_id") @db.VarChar(255)
+  submittedAsFinalByUserId String?   @map("submitted_as_final_by_user_id") @db.VarChar(191)
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
@@ -2380,18 +2383,18 @@ model ThesisProposalVersion {
 
 // ==================== Research Method Scores ====================
 model ResearchMethodScore {
-  id                       String    @id @default(uuid()) @db.VarChar(255)
-  thesisId                 String    @unique @map("thesis_id") @db.VarChar(255)
-  supervisorId             String?   @map("supervisor_id") @db.VarChar(255)
+  id                       String    @id @default(uuid()) @db.VarChar(191)
+  thesisId                 String    @unique @map("thesis_id") @db.VarChar(191)
+  supervisorId             String?   @map("supervisor_id") @db.VarChar(191)
   supervisorScore          Int?      @map("supervisor_score")
-  lecturerId               String?   @map("lecturer_id") @db.VarChar(255)
+  lecturerId               String?   @map("lecturer_id") @db.VarChar(191)
   lecturerScore            Int?      @map("lecturer_score")
   finalScore               Int?      @map("final_score")
   isFinalized              Boolean   @default(false) @map("is_finalized")
-  finalizedBy              String?   @map("finalized_by") @db.VarChar(255)
+  finalizedBy              String?   @map("finalized_by") @db.VarChar(191)
   finalizedAt              DateTime? @map("finalized_at")
   calculatedAt             DateTime? @map("calculated_at")
-  attendanceRecordId       String?   @map("attendance_record_id") @db.VarChar(255)
+  attendanceRecordId       String?   @map("attendance_record_id") @db.VarChar(191)
   attendanceAutoZeroedAt   DateTime? @map("attendance_auto_zeroed_at")
   attendanceAutoZeroReason String?   @map("attendance_auto_zero_reason") @db.Text
   // BR-20 (canon §5.7.1): TA-03A konsensus P1 master + P2 co-sign.
@@ -2399,7 +2402,7 @@ model ResearchMethodScore {
   // P2 melakukan co-sign sebagai persetujuan tanpa modifikasi nilai.
   // Field opsional — bila thesis hanya punya 1 pembimbing (P1 saja),
   // co-sign di-skip dan field-field ini tetap null.
-  coSignedByLecturerId     String?   @map("co_signed_by_lecturer_id") @db.VarChar(255)
+  coSignedByLecturerId     String?   @map("co_signed_by_lecturer_id") @db.VarChar(191)
   coSignedAt               DateTime? @map("co_signed_at")
   coSignNote               String?   @map("co_sign_note") @db.Text
   createdAt                DateTime  @default(now()) @map("created_at")
@@ -2422,9 +2425,9 @@ model ResearchMethodScore {
 }
 
 model ResearchMethodScoreDetail {
-  researchMethodScoreId String   @map("research_method_score_id") @db.VarChar(255)
-  assessmentCriteriaId  String   @map("assessment_criteria_id") @db.VarChar(255)
-  assessmentRubricId    String?  @map("assessment_rubric_id") @db.VarChar(255)
+  researchMethodScoreId String   @map("research_method_score_id") @db.VarChar(191)
+  assessmentCriteriaId  String   @map("assessment_criteria_id") @db.VarChar(191)
+  assessmentRubricId    String?  @map("assessment_rubric_id") @db.VarChar(191)
   score                 Int
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
@@ -2440,8 +2443,8 @@ model ResearchMethodScoreDetail {
 }
 
 model MetopenAttendanceImport {
-  id                    String   @id @default(uuid()) @db.VarChar(255)
-  academicYearId        String?  @map("academic_year_id") @db.VarChar(255)
+  id                    String   @id @default(uuid()) @db.VarChar(191)
+  academicYearId        String?  @map("academic_year_id") @db.VarChar(191)
   documentId            String?  @map("document_id")
   uploadedByUserId      String   @map("uploaded_by_user_id")
   classCode             String?  @map("class_code") @db.VarChar(100)
@@ -2473,8 +2476,8 @@ model MetopenAttendanceImport {
 }
 
 model MetopenAttendanceRecord {
-  id                   String   @id @default(uuid()) @db.VarChar(255)
-  importId             String   @map("import_id") @db.VarChar(255)
+  id                   String   @id @default(uuid()) @db.VarChar(191)
+  importId             String   @map("import_id") @db.VarChar(191)
   studentId            String?  @map("student_id")
   identityNumber       String   @map("identity_number") @db.VarChar(50)
   studentName          String?  @map("student_name") @db.VarChar(255)

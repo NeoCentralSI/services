@@ -199,7 +199,7 @@ describe("metopenMonitoring.service — getMetopenMonitoring", () => {
     const out = await getMetopenMonitoring();
     const adv = out.students[0].advisorRequest;
     expect(adv.routeType).toBe("escalated");
-    expect(adv.routeLabel).toContain("Path C");
+    expect(adv.routeLabel).toContain("di atas kuota normal");
     expect(adv.forwardedToKadepAt).toEqual(new Date("2026-05-10"));
   });
 

@@ -23,6 +23,11 @@ vi.mock("../../repositories/metopenAssessmentAdmin.repository.js", () => ({
   removeMetopenConfigByCpmk: vi.fn(),
   reorderCriteria: vi.fn(),
   reorderRubrics: vi.fn(),
+  findMetopenCpmkByCode: vi.fn(),
+  createMetopenCpmk: vi.fn(),
+  updateMetopenCpmk: vi.fn(),
+  deleteMetopenCpmk: vi.fn(),
+  cpmkHasAssessmentData: vi.fn(),
 }));
 
 const repo = await import("../../repositories/metopenAssessmentAdmin.repository.js");
@@ -326,6 +331,44 @@ describe("metopenAssessmentAdmin.service", () => {
 
       const result = await service.removeCpmkConfig("cpmk-1", "supervisor");
       expect(result.deletedCriteria).toBe(1);
+    });
+  });
+
+  describe("MetopenCpmk master catalog", () => {
+    it("normalizes code on create", async () => {
+      repo.findMetopenCpmkByCode.mockResolvedValue(null);
+      repo.createMetopenCpmk.mockResolvedValue({ id: "c1", code: "CPMK-01" });
+
+      await service.createMetopenCpmk({
+        code: "cpmk 01",
+        description: "Presentasi proposal tugas akhir",
+      });
+
+      expect(repo.createMetopenCpmk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "CPMK-01",
+          description: "Presentasi proposal tugas akhir",
+        }),
+      );
+    });
+
+    it("rejects delete when CPMK already has score details", async () => {
+      repo.findCpmkById.mockResolvedValue(makeCpmk());
+      repo.cpmkHasAssessmentData.mockResolvedValue(true);
+
+      await expect(service.deleteMetopenCpmk("cpmk-1")).rejects.toThrow(
+        "sudah dipakai pada data penilaian",
+      );
+      expect(repo.deleteMetopenCpmk).not.toHaveBeenCalled();
+    });
+
+    it("deletes master CPMK when unused by scores", async () => {
+      repo.findCpmkById.mockResolvedValue(makeCpmk());
+      repo.cpmkHasAssessmentData.mockResolvedValue(false);
+      repo.deleteMetopenCpmk.mockResolvedValue({ id: "cpmk-1" });
+
+      await service.deleteMetopenCpmk("cpmk-1");
+      expect(repo.deleteMetopenCpmk).toHaveBeenCalledWith("cpmk-1");
     });
   });
 });

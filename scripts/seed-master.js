@@ -8,6 +8,7 @@
 
 import { PrismaClient } from "../src/generated/prisma/index.js";
 import bcrypt from "bcrypt";
+import { syncDsiMaster } from "./sync-dsi-master.js";
 
 const prisma = new PrismaClient();
 
@@ -928,6 +929,9 @@ async function main() {
     const thesisStatusMap = await seedThesisStatus();
     const academicYearMap = await seedAcademicYears();
     const userMap = await seedUsers(roleMap);
+    // Canonical DSI master must run before thesis fixtures so every topic has
+    // a ScienceGroup and real lecturer NIPs/names cannot drift back.
+    await syncDsiMaster(prisma);
     const thesisMap = await seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap);
     await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);

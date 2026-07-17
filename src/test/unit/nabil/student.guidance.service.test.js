@@ -747,7 +747,8 @@ describe("Module 5: Thesis Overview & History", () => {
           { lecturerId: "lec-1", lecturer: { user: { fullName: "Dr. Andi", email: "andi@test.com" } }, role: { name: "pembimbing_1" } },
         ],
         document: null,
-        thesisProposal: null,
+        proposalDocument: null,
+        finalProposalVersion: null,
         _count: { thesisGuidances: 5, thesisMilestones: 3 },
       });
       mockPrisma.thesisMilestone.findMany.mockResolvedValue([

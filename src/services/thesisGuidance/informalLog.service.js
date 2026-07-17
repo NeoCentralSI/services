@@ -4,6 +4,8 @@ import { randomUUID } from "crypto";
 import prisma from "../../config/prisma.js";
 import { AppError, BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors.js";
 import * as studentRepo from "../../repositories/thesisGuidance/student.guidance.repository.js";
+import * as proposalRepo from "../../repositories/thesisGuidance/proposal.repository.js";
+import { assertTa04GuidanceAuthorized } from "../ta04Authorization.service.js";
 
 const MAX_CONTENT_LENGTH = 12000;
 
@@ -16,6 +18,28 @@ function assertInformalLogDelegate() {
     );
   }
 }
+
+function mapInformalLogItem(r) {
+  return {
+    id: r.id,
+    content: r.content,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+    document: r.document
+      ? {
+          id: r.document.id,
+          fileName: r.document.fileName,
+          url: r.document.filePath ? `/${r.document.filePath}` : null,
+          fileSize: r.document.fileSize,
+          mimeType: r.document.mimeType,
+        }
+      : null,
+  };
+}
+
+const INFORMAL_LOG_DOCUMENT_SELECT = {
+  document: { select: { id: true, fileName: true, filePath: true, fileSize: true, mimeType: true } },
+};
 
 async function assertMetopenInformalEligibility(userId) {
   const student = await prisma.student.findUnique({
@@ -42,28 +66,43 @@ export async function listInformalLogsForStudent(userId) {
   const rows = await prisma.thesisStudentInformalLog.findMany({
     where: { thesisId: thesis.id, studentId: userId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    include: {
-      document: { select: { id: true, fileName: true, filePath: true, fileSize: true, mimeType: true } },
-    },
+    include: INFORMAL_LOG_DOCUMENT_SELECT,
   });
 
   return {
     thesisId: thesis.id,
-    items: rows.map((r) => ({
-      id: r.id,
-      content: r.content,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
-      document: r.document
-        ? {
-            id: r.document.id,
-            fileName: r.document.fileName,
-            url: r.document.filePath ? `/${r.document.filePath}` : null,
-            fileSize: r.document.fileSize,
-            mimeType: r.document.mimeType,
-          }
-        : null,
-    })),
+    items: rows.map(mapInformalLogItem),
+  };
+}
+
+/**
+ * FR-LOG-08 / canon v2.9 §5.5: P1/P2 aktif read-only setelah hasOfficialSupervisor.
+ * Tidak ada bypass Koordinator Metopen / KaDep / Sekdep.
+ */
+export async function listInformalLogsForLecturer(lecturerUserId, thesisId) {
+  assertInformalLogDelegate();
+
+  const thesis = await proposalRepo.findThesisById(thesisId);
+  if (!thesis) throw new NotFoundError("Tugas akhir tidak ditemukan");
+
+  const isSupervisor = await proposalRepo.findThesisSupervisor(thesisId, lecturerUserId);
+  if (!isSupervisor) {
+    throw new ForbiddenError(
+      "Hanya Pembimbing 1 atau Pembimbing 2 aktif yang dapat melihat catatan informal mahasiswa ini",
+    );
+  }
+
+  await assertTa04GuidanceAuthorized(thesisId);
+
+  const rows = await prisma.thesisStudentInformalLog.findMany({
+    where: { thesisId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    include: INFORMAL_LOG_DOCUMENT_SELECT,
+  });
+
+  return {
+    thesisId,
+    items: rows.map(mapInformalLogItem),
   };
 }
 
@@ -87,6 +126,8 @@ export async function createInformalLogForStudent(userId, { content }, file) {
   if (thesis.studentId !== userId) {
     throw new ForbiddenError("Akses ditolak.");
   }
+
+  await assertTa04GuidanceAuthorized(thesis.id);
 
   let documentId = null;
   if (file?.buffer?.length) {
@@ -119,24 +160,8 @@ export async function createInformalLogForStudent(userId, { content }, file) {
       content: trimmed,
       documentId,
     },
-    include: {
-      document: { select: { id: true, fileName: true, filePath: true, fileSize: true, mimeType: true } },
-    },
+    include: INFORMAL_LOG_DOCUMENT_SELECT,
   });
 
-  return {
-    id: created.id,
-    content: created.content,
-    createdAt: created.createdAt.toISOString(),
-    updatedAt: created.updatedAt.toISOString(),
-    document: created.document
-      ? {
-          id: created.document.id,
-          fileName: created.document.fileName,
-          url: created.document.filePath ? `/${created.document.filePath}` : null,
-          fileSize: created.document.fileSize,
-          mimeType: created.document.mimeType,
-        }
-      : null,
-  };
+  return mapInformalLogItem(created);
 }

@@ -102,6 +102,7 @@ async function getThesisForValidation(thesisId) {
 			isProposal: true,
 			academicYearId: true,
 			proposalStatus: true,
+			ta04AssignmentIssuedAt: true,
 			thesisStatus: { select: { name: true } },
 		},
 	});
@@ -622,6 +623,22 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	// isFinalized agar P2 bisa co-sign — tanpa reset ini P2 deadlock (403 immutable).
 	await prisma.$transaction(async (tx) => {
 		await createThesisSupervisors(thesisId, lecturerId, tx);
+
+		// TA-04 adalah satu-satunya surat penugasan. Jika komposisi pembimbing
+		// berubah, batch lama tidak lagi menjadi otorisasi yang berlaku. KaDep
+		// harus memfinalisasi refresh batch sebelum P2 dapat membimbing/co-sign.
+		if (thesis.ta04AssignmentIssuedAt) {
+			await tx.thesis.update({
+				where: { id: thesisId },
+				data: {
+					ta04AssignmentIssuedAt: null,
+					ta04AssignmentIssuedByUserId: null,
+					ta04AssignmentSupervisorNames: null,
+					ta04AssignmentAcademicYearId: null,
+					titleApprovalDocumentId: null,
+				},
+			});
+		}
 
 		const existingScore = await tx.researchMethodScore.findFirst({
 			where: { thesisId },

@@ -1,7 +1,7 @@
 /**
  * Audit Duplicate Supervisors Script
  *
- * Finds thesisParticipant records where the same (thesisId, roleId) combination
+ * Finds thesisSupervisors records where the same (thesisId, roleId) combination
  * exists more than once with status = "active" — which should never happen.
  *
  * Usage:
@@ -31,7 +31,7 @@ async function main() {
   console.log("=== Audit: Duplicate Active Thesis Participants ===\n");
 
   // Fetch all active supervisors with role and thesis info
-  const allActive = await prisma.thesisParticipant.findMany({
+  const allActive = await prisma.thesisSupervisors.findMany({
     where: { status: "active" },
     select: {
       id: true,

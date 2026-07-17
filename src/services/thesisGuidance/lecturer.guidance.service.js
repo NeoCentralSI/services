@@ -49,12 +49,19 @@ import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
 import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
+import { assertTa04GuidanceAuthorized } from "../ta04Authorization.service.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
 		const err = new Error("Lecturer profile not found for this user");
 		err.statusCode = 404;
 		throw err;
+	}
+}
+
+async function assertProposalGuidanceMutationAuthorized(guidance) {
+	if ((guidance?.phase ?? "proposal") === "proposal") {
+		await assertTa04GuidanceAuthorized(guidance.thesisId ?? guidance.thesis?.id);
 	}
 }
 
@@ -304,6 +311,7 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 		err.statusCode = 400;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	const updated = await rejectGuidanceById(guidanceId, { feedback });
 
@@ -359,6 +367,7 @@ export async function cancelGuidanceByLecturerService(userId, guidanceId, { reas
 		err.statusCode = 400;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	if (!reason || !reason.trim()) {
 		const err = new Error("Alasan pembatalan wajib diisi");
@@ -441,6 +450,7 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, app
 		err.statusCode = 400;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	const updated = await approveGuidanceById(guidanceId, { feedback, approvedDate, duration });
 
@@ -579,6 +589,7 @@ export async function postGuidanceFeedbackService(userId, guidanceId, { feedback
 		err.statusCode = 404;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 	await approveGuidanceById(guidanceId, { feedback });
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
 	return { guidance: toFlatGuidance(fresh) };
@@ -697,6 +708,7 @@ export async function approveSessionSummaryService(userId, guidanceId) {
 		err.statusCode = 404;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	const updated = await approveSessionSummary(guidanceId);
 

@@ -184,8 +184,9 @@ async function deleteStudentSimptaProgress(tx, studentId) {
     advisorRequests: 0,
     advisorDrafts: 0,
     theses: thesisIds.length,
-    thesisProposals: 0,
-    researchMethodGrades: 0,
+    thesisProposalVersions: 0,
+    researchMethodScores: 0,
+    ta04BatchMembers: 0,
     metopenAttendanceRecordsDetached: 0,
   };
 
@@ -246,19 +247,23 @@ async function deleteStudentSimptaProgress(tx, studentId) {
     ]);
   }
 
-  const legacyProposalRows = await tx.thesisProposal.findMany({
-    where: { studentId },
-    select: { id: true },
-  });
-  const legacyProposalIds = legacyProposalRows.map((row) => row.id);
-  if (legacyProposalIds.length > 0) {
-    await tx.thesisProposalGrade.deleteMany({
-      where: { proposalId: { in: legacyProposalIds } },
-    });
+  if (thesisIds.length > 0) {
+    counts.thesisProposalVersions = (
+      await tx.thesisProposalVersion.deleteMany({
+        where: { thesisId: { in: thesisIds } },
+      })
+    ).count;
+    counts.researchMethodScores = (
+      await tx.researchMethodScore.deleteMany({
+        where: { thesisId: { in: thesisIds } },
+      })
+    ).count;
+    counts.ta04BatchMembers = (
+      await tx.ta04BatchMember.deleteMany({
+        where: { thesisId: { in: thesisIds } },
+      })
+    ).count;
   }
-  counts.thesisProposals = (
-    await tx.thesisProposal.deleteMany({ where: { studentId } })
-  ).count;
 
   counts.advisorDrafts = (
     await tx.thesisAdvisorRequestDraft.deleteMany({ where: { studentId } })
@@ -279,9 +284,6 @@ async function deleteStudentSimptaProgress(tx, studentId) {
     await tx.thesis.deleteMany({ where: { id: { in: thesisIds } } });
   }
 
-  counts.researchMethodGrades = (
-    await tx.researchMethodGrade.deleteMany({ where: { studentId } })
-  ).count;
   counts.metopenAttendanceRecordsDetached = (
     await tx.metopenAttendanceRecord.updateMany({
       where: { studentId },
@@ -337,10 +339,6 @@ async function cleanupUserBeforeDelete(tx, userId) {
     studentCleanup = await deleteStudentSimptaProgress(tx, user.student.id);
     await tx.internshipSeminar.deleteMany({
       where: { moderatorStudentId: user.student.id },
-    });
-    await tx.researchMethodGrade.updateMany({
-      where: { studentId: user.student.id },
-      data: { studentId: null },
     });
   }
 

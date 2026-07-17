@@ -205,6 +205,8 @@ export function findScoreableThesesByStudentIds(studentIds, closedStatusNames, c
       id: true,
       studentId: true,
       title: true,
+      isProposal: true,
+      activePromotedAt: true,
       researchMethodScores: {
         take: 1,
         select: {
@@ -212,6 +214,13 @@ export function findScoreableThesesByStudentIds(studentIds, closedStatusNames, c
           isFinalized: true,
           attendanceAutoZeroedAt: true,
         },
+      },
+      advisorRequests: {
+        where: {
+          status: { in: ["active_official", "released"] },
+        },
+        take: 1,
+        select: { id: true, status: true },
       },
     },
   });

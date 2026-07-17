@@ -4,6 +4,7 @@ import { ROLES } from "../constants/roles.js";
 import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import { syncKadepProposalQueueByThesisId } from "./metopen.service.js";
 import { assertAttendanceEligibleForManualReview } from "./metopenAttendance.service.js";
+import { createNotificationEventForUsers } from "./notification.service.js";
 
 const FORM_CONFIG = {
   "TA-03A": { role: "supervisor", cap: 75 },
@@ -130,6 +131,208 @@ async function syncProposalQueueAfterScore(thesisId) {
   }
 }
 
+async function findKoordinatorMetopenUserIds() {
+  const users = await prisma.user.findMany({
+    where: {
+      userHasRoles: {
+        some: {
+          status: "active",
+          role: { name: ROLES.KOORDINATOR_METOPEN },
+        },
+      },
+    },
+    select: { id: true },
+  });
+  return users.map((user) => user.id).filter(Boolean);
+}
+
+async function getAssessmentNotificationContext(thesisId) {
+  return prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      student: {
+        select: {
+          user: { select: { id: true, fullName: true, identityNumber: true } },
+        },
+      },
+      thesisSupervisors: {
+        where: {
+          status: "active",
+          role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+        },
+        select: {
+          lecturerId: true,
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              user: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+      },
+      researchMethodScores: {
+        take: 1,
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          supervisorScore: true,
+          lecturerScore: true,
+          coSignedAt: true,
+          coSignedByLecturerId: true,
+          finalScore: true,
+          isFinalized: true,
+        },
+      },
+    },
+  });
+}
+
+function getAssessmentSupervisorUserId(context, roleName) {
+  return (
+    context?.thesisSupervisors?.find((item) => item.role?.name === roleName)?.lecturer?.user?.id ??
+    null
+  );
+}
+
+async function safeCreateAssessmentNotification(userIds, payload, options, context) {
+  try {
+    await createNotificationEventForUsers(userIds, payload, options);
+  } catch (error) {
+    console.error(`[assessment:${context}] gagal mengirim notifikasi:`, error?.message || error);
+  }
+}
+
+async function notifyTa03Finalized(context, score, event) {
+  const studentUserId = context?.student?.user?.id;
+  if (!studentUserId) return;
+
+  await safeCreateAssessmentNotification(
+    [studentUserId],
+    {
+      title: "Nilai TA-03 Final",
+      message: `Nilai akhir TA-03 untuk "${context.title ?? "proposal Anda"}" sudah final${score?.finalScore != null ? ` (${score.finalScore}/100)` : ""}. Promosi beban aktif menunggu konfirmasi KRS Tugas Akhir bila belum terpenuhi.`,
+      type: "simpta_ta03_finalized",
+      data: {
+        thesisId: context.id,
+        scoreId: score?.id ?? null,
+        sourceEvent: event,
+        route: "/metopel",
+      },
+    },
+    { push: true },
+    "ta03_finalized",
+  );
+}
+
+async function notifyTa03AssessmentProgress(thesisId, event) {
+  try {
+    const context = await getAssessmentNotificationContext(thesisId);
+    if (!context) return;
+
+    const score = context.researchMethodScores?.[0] ?? null;
+    const title = context.title ?? "proposal mahasiswa";
+    const studentName = context.student?.user?.fullName ?? "Mahasiswa";
+    const p1UserId = getAssessmentSupervisorUserId(context, ROLES.PEMBIMBING_1);
+    const p2UserId = getAssessmentSupervisorUserId(context, ROLES.PEMBIMBING_2);
+    const baseData = {
+      thesisId: context.id,
+      scoreId: score?.id ?? null,
+    };
+
+    if (score?.isFinalized) {
+      await notifyTa03Finalized(context, score, event);
+      return;
+    }
+
+    if (event === "ta03a_submitted") {
+      if (p2UserId && !score?.coSignedAt) {
+        await safeCreateAssessmentNotification(
+          [p2UserId],
+          {
+            title: "TA-03A Menunggu Co-sign",
+            message: `Pembimbing 1 sudah mengisi TA-03A untuk ${studentName}. Co-sign Pembimbing 2 diperlukan sebelum nilai final dikunci.`,
+            type: "simpta_ta03a_waiting_cosign",
+            data: { ...baseData, route: "/kelola/metopen/ta03a" },
+          },
+          { push: true },
+          event,
+        );
+      }
+
+      if (score?.lecturerScore == null) {
+        const koordinatorIds = await findKoordinatorMetopenUserIds();
+        await safeCreateAssessmentNotification(
+          koordinatorIds,
+          {
+            title: "TA-03B Menunggu Penilaian",
+            message: `TA-03A untuk ${studentName} sudah masuk. Lengkapi TA-03B untuk "${title}".`,
+            type: "simpta_ta03b_waiting_assessment",
+            data: { ...baseData, route: "/kelola/metopen/ta03b" },
+          },
+          { push: true },
+          event,
+        );
+      }
+      return;
+    }
+
+    if (event === "ta03a_cosigned") {
+      if (score?.lecturerScore == null) {
+        const koordinatorIds = await findKoordinatorMetopenUserIds();
+        await safeCreateAssessmentNotification(
+          koordinatorIds,
+          {
+            title: "TA-03A Sudah Co-sign",
+            message: `TA-03A ${studentName} sudah lengkap dengan co-sign. TA-03B masih menunggu penilaian.`,
+            type: "simpta_ta03b_waiting_after_cosign",
+            data: { ...baseData, route: "/kelola/metopen/ta03b" },
+          },
+          { push: true },
+          event,
+        );
+      }
+      return;
+    }
+
+    if (event === "ta03b_submitted") {
+      if (score?.supervisorScore == null && p1UserId) {
+        await safeCreateAssessmentNotification(
+          [p1UserId],
+          {
+            title: "TA-03A Menunggu Penilaian",
+            message: `Koordinator Metopel sudah mengisi TA-03B untuk ${studentName}. TA-03A Pembimbing 1 masih perlu dilengkapi.`,
+            type: "simpta_ta03a_waiting_assessment",
+            data: { ...baseData, route: "/kelola/metopen/ta03a" },
+          },
+          { push: true },
+          event,
+        );
+      } else if (p2UserId && !score?.coSignedAt) {
+        await safeCreateAssessmentNotification(
+          [p2UserId],
+          {
+            title: "TA-03A Menunggu Co-sign",
+            message: `TA-03B untuk ${studentName} sudah masuk. Co-sign Pembimbing 2 masih diperlukan sebelum nilai final dikunci.`,
+            type: "simpta_ta03a_waiting_cosign_after_ta03b",
+            data: { ...baseData, route: "/kelola/metopen/ta03a" },
+          },
+          { push: true },
+          event,
+        );
+      }
+      return;
+    }
+
+    if (event === "ta03_manual_published") {
+      await notifyTa03Finalized(context, score, event);
+    }
+  } catch (error) {
+    console.error(`[assessment:${event}] gagal membangun notifikasi TA-03:`, error?.message || error);
+  }
+}
+
 /**
  * Formula 75:25 (KONTEKS_KANONIS_SIMPTA.md §5.7, BR-10).
  * `finalScore = supervisorScore + lecturerScore` (additive, max 100).
@@ -234,8 +437,8 @@ function resolveSupervisorActionStatus(score, isP1) {
 
 /**
  * Get AssessmentCriteria for a given form code.
- * formCode "TA-03A" → supervisor-role proposal criteria for research_method CPMK
- * formCode "TA-03B" → default-role proposal criteria for research_method CPMK
+ * formCode "TA-03A" → supervisor-role criteria on MetopenCpmk (cap 75)
+ * formCode "TA-03B" → default-role criteria on MetopenCpmk (cap 25)
  */
 export async function getCriteriaByFormCode(formCode) {
   const { role: roleFilter } = getFormConfig(formCode);
@@ -563,7 +766,7 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
       // BadRequest ringan — supaya UI bisa tampilkan banner finalitas yang
       // tidak ambigu. Sumber: audit P0-08, Q2 2026-05-10.
       throw new ForbiddenError(
-        "Penilaian sudah final dan tidak dapat direvisi (canon §5.7.2). " +
+        "Penilaian sudah final dan tidak dapat direvisi. " +
           "Revisi proposal hanya berlaku di fase bimbingan informal pra-submit-final.",
       );
     }
@@ -641,6 +844,7 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
   });
 
   await syncProposalQueueAfterScore(thesisId);
+  await notifyTa03AssessmentProgress(thesisId, "ta03a_submitted");
   return scoreRecord;
 }
 
@@ -710,7 +914,7 @@ export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {})
     return {
       ...attendanceGate.scoreRecord,
       _autoZeroed: true,
-      _autoZeroReason: "Presensi Metopel mahasiswa <75%. Nilai otomatis di-nol-kan (BR-28). Co-sign tidak dapat dilanjutkan.",
+      _autoZeroReason: "Presensi Metopel mahasiswa kurang dari 75%. Nilai otomatis 0. Co-sign tidak dapat dilanjutkan.",
     };
   }
 
@@ -738,7 +942,7 @@ export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {})
     }
     if (existing.isFinalized) {
       throw new ForbiddenError(
-        "Penilaian sudah final dan tidak dapat direvisi (canon §5.7.2). Co-sign sudah tercatat sebelumnya.",
+        "Penilaian sudah final dan tidak dapat direvisi. Co-sign sudah tercatat sebelumnya.",
       );
     }
 
@@ -778,6 +982,7 @@ async function syncAfterCoSign(thesisId) {
 export async function coSignSupervisorScoreAndSync(thesisId, coSignerUserId, data) {
   const result = await coSignSupervisorScore(thesisId, coSignerUserId, data);
   await syncAfterCoSign(thesisId);
+  await notifyTa03AssessmentProgress(thesisId, "ta03a_cosigned");
   return result;
 }
 
@@ -1018,7 +1223,7 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
       // BR-21 (canon §5.7.2): Immutable post-submit. Tegakkan 403 — ini
       // mengikuti BR-20+BR-21 v2.0 yang menggantikan BadRequest ringan v1.0.
       throw new ForbiddenError(
-        "Penilaian sudah final dan tidak dapat direvisi (canon §5.7.2). " +
+        "Penilaian sudah final dan tidak dapat direvisi. " +
           "Membuka revisi pasca-submit akan merusak integritas state TA-04 (Beban Aktif vs Booking).",
       );
     }
@@ -1099,6 +1304,7 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
   });
 
   await syncProposalQueueAfterScore(thesisId);
+  await notifyTa03AssessmentProgress(thesisId, "ta03b_submitted");
   return scoreRecord;
 }
 
@@ -1161,7 +1367,7 @@ export async function publishFinalScore(thesisId, actorUserId) {
     }
     if (scoreRecord.isFinalized) {
       // BR-21: Tetap 403 — finalisasi sudah terjadi, tidak boleh diulang.
-      throw new ForbiddenError("Nilai sudah dipublikasikan sebelumnya dan tidak dapat diubah (canon §5.7.2)");
+      throw new ForbiddenError("Nilai sudah dipublikasikan sebelumnya dan tidak dapat diubah");
     }
 
     const hasP2 = await thesisHasActivePembimbing2(tx, thesisId);
@@ -1185,6 +1391,7 @@ export async function publishFinalScore(thesisId, actorUserId) {
     return updated;
   }).then(async (updated) => {
     await syncProposalQueueAfterScore(thesisId);
+    await notifyTa03AssessmentProgress(thesisId, "ta03_manual_published");
     return updated;
   });
 }

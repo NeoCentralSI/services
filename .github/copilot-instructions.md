@@ -1,290 +1,37 @@
-# Backend Development Rules
+# Backend Development Rules — NeoCentral
 
-## Context Awareness
-Setiap kali memulai implementasi fitur atau perubahan, agent **HARUS** mengikuti langkah-langkah berikut:
+This file is a backend-specific projection. Business truth remains in root
+`AGENTS.md`, `KONTEKS_KANONIS_SIMPTA.md` v2.9, and `prdpurpose.md` v7.9.
+Technical truth remains in root `.cursor/rules/10-services-backend.mdc`.
 
-### 1. Check Schema Prisma TERLEBIH DAHULU
-- **WAJIB** membaca `prisma/schema.prisma` sebelum implementasi
-- Pahami relasi antar model yang terkait dengan fitur yang akan dibuat
-- Identifikasi field yang tersedia dan tipe datanya
-- Perhatikan constraint (unique, foreign key, enum, dll)
-- Pastikan menggunakan model dan relasi yang sudah ada, jangan membuat asumsi
+## Mandatory preflight
 
-### 2. Implementasi Sesuai Layer Architecture
-Project ini menggunakan **layered architecture**. Implementasi **HARUS** mengikuti urutan layer berikut:
+1. Read `prisma/schema.prisma` before touching a model, relation, status, query,
+   endpoint, or response contract.
+2. Inspect the existing route, controller, service, repository, validator,
+   Swagger contract, consumers, and tests before creating a new file.
+3. For SIMPTA, read the canon/PRD and relevant KC entry before changing behavior.
 
-#### a. Repository Layer (`src/repositories/`)
-- Berisi query database menggunakan Prisma Client
-- Hanya fokus pada operasi CRUD dan query logic
-- Return raw data dari database
-- Tidak ada business logic di sini
-- File naming: `{feature}.repository.js`
+## Architecture contract
 
-**Contoh Structure:**
-```javascript
-// repositories/example.repository.js
-const prisma = require('../config/prisma');
+- ESM only: `import`/`export`; never `require` or `module.exports`.
+- Preserve `route -> controller -> service -> repository -> Prisma`.
+- Controllers handle HTTP only; services own business logic; repositories own DB queries.
+- Validate input with Zod through the project `validate()` middleware.
+- Use error classes from `src/utils/errors.js`; the global handler remains in
+  `src/middlewares/error.middleware.js`.
+- Use `ROLES` constants and explicit RBAC/resource-access checks.
+- Multi-step writes require a Prisma transaction.
+- Endpoint changes require Swagger and frontend-consumer impact review.
 
-const findAll = async () => {
-  return await prisma.modelName.findMany({
-    include: { /* relasi */ }
-  });
-};
+## SIMPTA invariants that commonly regress
 
-const findById = async (id) => {
-  return await prisma.modelName.findUnique({
-    where: { id }
-  });
-};
+- Path C is lecturer-first: student submits `pending` with
+  `studentJustification`; lecturer adds `lecturerOverquotaReason` and forwards
+  `pending_kadep`; KaDep decides using both values.
+- TA-04 early does not promote active workload. Promotion/release occurs only
+  after TA-03 final and SIA lifecycle sync of `takingThesisCourse`.
+- TA-04 gates recorded proposal activity; P1/P2 can only read informal logs.
+- Attendance BR-28 must be enforced at every score mutation point.
 
-module.exports = {
-  findAll,
-  findById,
-  // ... CRUD operations
-};
-```
-
-#### b. Service Layer (`src/services/`)
-- Berisi business logic dan validasi
-- Memanggil repository untuk operasi database
-- Handle error dan exception
-- Transform data sesuai kebutuhan
-- File naming: `{feature}.service.js`
-
-**Contoh Structure:**
-```javascript
-// services/example.service.js
-const repository = require('../repositories/example.repository');
-const { NotFoundError } = require('../middlewares/error.middleware');
-
-const getAll = async () => {
-  const data = await repository.findAll();
-  // Transform atau business logic
-  return data;
-};
-
-const getById = async (id) => {
-  const data = await repository.findById(id);
-  if (!data) {
-    throw new NotFoundError('Data not found');
-  }
-  return data;
-};
-
-module.exports = {
-  getAll,
-  getById,
-  // ... business operations
-};
-```
-
-#### c. Controller Layer (`src/controllers/`)
-- Handle HTTP request dan response
-- Validasi input dari request (menggunakan validator)
-- Memanggil service layer
-- Return response dengan format yang konsisten
-- File naming: `{feature}.controller.js`
-
-**Contoh Structure:**
-```javascript
-// controllers/example.controller.js
-const service = require('../services/example.service');
-
-const getAll = async (req, res, next) => {
-  try {
-    const data = await service.getAll();
-    res.status(200).json({
-      success: true,
-      data
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-const getById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const data = await service.getById(id);
-    res.status(200).json({
-      success: true,
-      data
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-module.exports = {
-  getAll,
-  getById,
-  // ... controller methods
-};
-```
-
-#### d. Validator Layer (`src/validators/`)
-- Validasi input menggunakan Joi atau library serupa
-- Validate request body, params, query
-- File naming: `{feature}.validator.js`
-
-**Contoh Structure:**
-```javascript
-// validators/example.validator.js
-const Joi = require('joi');
-
-const createSchema = Joi.object({
-  field1: Joi.string().required(),
-  field2: Joi.number().optional(),
-  // ... sesuai dengan schema prisma
-});
-
-const updateSchema = Joi.object({
-  field1: Joi.string().optional(),
-  field2: Joi.number().optional(),
-  // ...
-});
-
-module.exports = {
-  createSchema,
-  updateSchema,
-  // ... validation schemas
-};
-```
-
-#### e. Route Layer (`src/routes/`)
-- Define endpoints dan HTTP methods
-- Gunakan middleware untuk auth, validation, dll
-- File naming: `{feature}.route.js`
-
-**Contoh Structure:**
-```javascript
-// routes/example.route.js
-const express = require('express');
-const router = express.Router();
-const controller = require('../controllers/example.controller');
-const { authenticate } = require('../middlewares/auth.middleware');
-const { validate } = require('../middlewares/validation.middleware');
-const validator = require('../validators/example.validator');
-
-router.get('/', authenticate, controller.getAll);
-router.get('/:id', authenticate, controller.getById);
-router.post('/', authenticate, validate(validator.createSchema), controller.create);
-router.put('/:id', authenticate, validate(validator.updateSchema), controller.update);
-router.delete('/:id', authenticate, controller.delete);
-
-module.exports = router;
-```
-
-### 3. Testing (Optional tapi Recommended)
-- Buat test file di `src/test/{feature}.test.js`
-- Test business logic di service layer
-- Test edge cases dan error handling
-
-
-
-
-
-## Checklist Implementasi Fitur
-
-Sebelum menganggap fitur selesai, pastikan semua checklist berikut sudah terpenuhi:
-
-- [ ] Schema Prisma sudah dicek dan dipahami
-- [ ] Repository layer dibuat dengan query yang efisien
-- [ ] Service layer dibuat dengan business logic yang jelas
-- [ ] Controller layer dibuat dengan error handling yang baik
-- [ ] Validator dibuat untuk semua input
-- [ ] Route didefinisikan dengan middleware yang sesuai
-- [ ] Testing (jika diperlukan)
-- [ ] Code sudah ditest secara manual
-- [ ] Tidak ada error atau warning
-
-## Best Practices
-
-### Error Handling
-- Gunakan custom error classes di `src/middlewares/error.middleware.js`
-- Selalu gunakan try-catch di controller
-- Return error yang informatif
-
-### Database Query
-- Gunakan Prisma Client dengan proper include/select
-- Hindari N+1 query problem
-- Gunakan transaction untuk operasi multiple insert/update
-
-### Security
-- Selalu gunakan authentication middleware untuk protected routes
-- Validasi semua input dari user
-- Sanitize data sebelum insert ke database
-
-### Code Quality
-- Consistent naming convention (camelCase untuk JS)
-- Single responsibility principle
-- DRY (Don't Repeat Yourself)
-- Meaningful variable and function names
-
-## File Organization untuk Feature Baru
-
-Ketika membuat feature baru (misal: `feature-name`):
-
-```
-src/
-├── repositories/
-│   └── featureName.repository.js
-├── services/
-│   └── featureName.service.js
-├── controllers/
-│   └── featureName.controller.js
-├── validators/
-│   └── featureName.validator.js
-├── routes/
-│   └── featureName.route.js
-└── docs/
-    └── featureName/
-        └── swagger-featureName.yaml
-```
-
-Atau untuk feature yang kompleks dengan sub-modules:
-
-```
-src/
-├── repositories/
-│   └── featureName/
-│       ├── subFeature1.repository.js
-│       └── subFeature2.repository.js
-├── services/
-│   └── featureName/
-│       ├── subFeature1.service.js
-│       └── subFeature2.service.js
-├── controllers/
-│   └── featureName/
-│       ├── subFeature1.controller.js
-│       └── subFeature2.controller.js
-└── docs/
-    └── featureName/
-        ├── swagger-subFeature1.yaml
-        └── swagger-subFeature2.yaml
-```
-
-## PENTING: Urutan Kerja yang WAJIB Diikuti
-
-1. **READ** `prisma/schema.prisma` terlebih dahulu
-2. **CREATE** repository layer
-3. **CREATE** service layer
-4. **CREATE** controller layer
-5. **CREATE** validator layer
-6. **CREATE** route layer
-7. **TEST** manual atau automated
-
-
-## DILARANG: Membuat File Summary/Changelog
-
-❌ **JANGAN PERNAH** membuat file markdown untuk summary setelah implementasi selesai, seperti:
-- `IMPLEMENTATION.md`
-- `CHANGES.md`
-- `SUMMARY.md`
-- `CHANGELOG.md`
-- atau file dokumentasi perubahan lainnya
-
-✅ **YANG BENAR:**
-- Langsung implementasi code
-- Berikan penjelasan singkat di chat jika diperlukan
-
+Run `pnpm test` and `pnpm exec prisma validate` before handoff.

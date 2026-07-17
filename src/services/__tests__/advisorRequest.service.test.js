@@ -34,10 +34,20 @@ vi.mock("../../repositories/advisorRequest.repository.js", () => ({
   upsertDraftByStudentWithClient: vi.fn(),
   findDraftByStudentWithClient: vi.fn(),
   findTopicByIdWithClient: vi.fn(),
+  findAllTopicsWithScienceGroup: vi.fn(),
+  findAllTopicsWithScienceGroupWithClient: vi.fn(),
   findLecturerForValidationWithClient: vi.fn(),
+  findLecturerForAssignment: vi.fn(),
   createWithClient: vi.fn(),
   createAuditLogWithClient: vi.fn(),
   findByIdWithClient: vi.fn(),
+  findThesisProcessLockState: vi.fn(),
+  terminateSupervisorAssignmentByLecturerAndThesis: vi.fn(),
+  findThesisByIdWithClient: vi.fn(),
+  findThesisByStudentWithClient: vi.fn(),
+  createThesisWithClient: vi.fn(),
+  updateThesisWithClient: vi.fn(),
+  findSupervisorAssignmentByLecturerAndThesis: vi.fn(),
   updateStatusWithClient: vi.fn(),
   findAcademicYearById: vi.fn(),
   findThesesWithSupervisors: vi.fn(),
@@ -63,6 +73,7 @@ vi.mock("../advisorQuota.service.js", () => ({
 
 vi.mock("../notification.service.js", () => ({
   createNotificationsForUsers: vi.fn(),
+  createNotificationEventForUsers: vi.fn(),
 }));
 
 vi.mock("../push.service.js", () => ({
@@ -87,7 +98,6 @@ const ta04BatchRepo = await import("../../repositories/ta04Batch.repository.js")
 const metopenEligibility = await import("../metopenEligibility.service.js");
 const advisorQuota = await import("../advisorQuota.service.js");
 const notificationService = await import("../notification.service.js");
-const pushService = await import("../push.service.js");
 const {
   getLecturerCatalog,
   getRecommendations,
@@ -97,7 +107,58 @@ const {
   respondByLecturer,
   decideByKadep,
   submitRequest,
+  withdrawRequest,
 } = await import("../advisorRequest.service.js");
+
+describe("advisorRequest.service — withdraw booking before TA-04", () => {
+  const bookingRequest = {
+    id: "req-booking",
+    studentId: "student-1",
+    lecturerId: "lecturer-1",
+    academicYearId: "ay-1",
+    status: "booking_approved",
+    thesisId: "thesis-1",
+    thesis: { id: "thesis-1" },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    repo.findStudentByUserId.mockResolvedValue({ id: "student-1" });
+    repo.findById.mockResolvedValue(bookingRequest);
+    repo.findByIdWithClient.mockResolvedValue(bookingRequest);
+    repo.executeTransaction.mockImplementation(async (callback) => callback({}));
+    repo.updateStatusWithClient.mockResolvedValue({ ...bookingRequest, status: "canceled" });
+  });
+
+  it("allows booking withdrawal before TA-04 is issued", async () => {
+    repo.findThesisProcessLockState.mockResolvedValue({
+      ta04AssignmentIssuedAt: null,
+      proposalStatus: "submitted",
+      finalProposalVersionId: null,
+      _count: { thesisGuidances: 0, researchMethodScores: 0 },
+    });
+
+    await expect(withdrawRequest("req-booking", "student-1")).resolves.toMatchObject({
+      status: "canceled",
+    });
+    expect(repo.terminateSupervisorAssignmentByLecturerAndThesis).toHaveBeenCalled();
+  });
+
+  it("rejects booking withdrawal after TA-04 is issued", async () => {
+    repo.findThesisProcessLockState.mockResolvedValue({
+      ta04AssignmentIssuedAt: new Date("2026-07-13T00:00:00.000Z"),
+      proposalStatus: "submitted",
+      finalProposalVersionId: null,
+      _count: { thesisGuidances: 0, researchMethodScores: 0 },
+    });
+
+    await expect(withdrawRequest("req-booking", "student-1")).rejects.toThrow(
+      "TA-04 sudah diterbitkan",
+    );
+    expect(repo.updateStatusWithClient).not.toHaveBeenCalled();
+    expect(repo.terminateSupervisorAssignmentByLecturerAndThesis).not.toHaveBeenCalled();
+  });
+});
 
 describe("advisorRequest.service — getRecommendations", () => {
   beforeEach(() => {
@@ -248,6 +309,7 @@ describe("advisorRequest.service — finalizeBatchTA04", () => {
       fullName: "Ketua Departemen",
       identityNumber: "198000000000000001",
     });
+    repo.findAllTopicsWithScienceGroup.mockResolvedValue([]);
     repo.updateThesisDocuments.mockResolvedValue({ count: 2 });
   });
 
@@ -267,6 +329,18 @@ describe("advisorRequest.service — finalizeBatchTA04", () => {
     const first = await finalizeBatchTA04("ay-1", "kadep-1");
     expect(first.alreadyFinalized).toBe(false);
     expect(first.cohortHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["student-1", "student-2"],
+      expect.objectContaining({
+        type: "simpta_ta04_batch_finalized",
+        data: expect.objectContaining({
+          route: "/metopel",
+          batchId: "batch-1",
+          documentId: "doc-1",
+        }),
+      }),
+      { push: true },
+    );
 
     ta04BatchRepo.createTa04BatchWithDocument.mockClear();
     ta04BatchRepo.findCurrentTa04BatchByAcademicYear.mockResolvedValue({
@@ -422,7 +496,7 @@ describe("advisorRequest.service — getMyAccessState", () => {
     expect(result.reason).toContain("sedang diproses");
   });
 
-  it("uses active thesis participants as official supervisors before proposal acceptance", async () => {
+  it("opens official-supervisor access after TA-04 is issued, before active promotion", async () => {
     repo.findStudentAdvisorAccessContext.mockResolvedValue({
       id: "student-1",
       thesis: [
@@ -430,6 +504,7 @@ describe("advisorRequest.service — getMyAccessState", () => {
           id: "thesis-1",
           title: "Rancang Bangun SIMPTA",
           proposalStatus: null,
+          ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
           thesisStatus: null,
           thesisSupervisors: [
             {
@@ -457,6 +532,7 @@ describe("advisorRequest.service — getMyAccessState", () => {
     const result = await getMyAccessState("user-1");
 
     expect(result.hasOfficialSupervisor).toBe(true);
+    expect(result.ta04AssignmentIssued).toBe(true);
     expect(result.hasBlockingRequest).toBe(true);
     expect(result.canOpenLogbook).toBe(true);
     expect(result.canBrowseCatalog).toBe(false);
@@ -468,6 +544,29 @@ describe("advisorRequest.service — getMyAccessState", () => {
         role: "Pembimbing 1",
       }),
     ]);
+  });
+
+  it("exposes TA-04 issuance independently from P1 integrity", async () => {
+    repo.findStudentAdvisorAccessContext.mockResolvedValue({
+      id: "student-1",
+      thesis: [
+        {
+          id: "thesis-1",
+          title: "Rancang Bangun SIMPTA",
+          ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
+          thesisStatus: null,
+          thesisSupervisors: [],
+          advisorRequests: [],
+        },
+      ],
+    });
+    repo.findBlockingByStudent.mockResolvedValue({ id: "req-1", status: "booking_approved" });
+    repo.findLatestByStudent.mockResolvedValue({ id: "req-1", status: "booking_approved" });
+
+    const result = await getMyAccessState("user-1");
+
+    expect(result.ta04AssignmentIssued).toBe(true);
+    expect(result.hasOfficialSupervisor).toBe(false);
   });
 });
 
@@ -573,6 +672,7 @@ describe("advisorRequest.service — dual justification Path C", () => {
     repo.executeTransaction.mockImplementation(async (callback) => callback({}));
     repo.findBlockingConflictByStudent.mockResolvedValue(null);
     repo.createAuditLogWithClient.mockResolvedValue({ id: "audit-1" });
+    repo.findAllTopicsWithScienceGroupWithClient.mockResolvedValue([]);
     advisorQuota.lockLecturerQuotaForUpdate.mockResolvedValue(undefined);
     advisorQuota.syncLecturerQuotaCurrentCount.mockResolvedValue(8);
     metopenEligibility.resolveMetopenEligibilityState.mockResolvedValue({
@@ -628,6 +728,17 @@ describe("advisorRequest.service — dual justification Path C", () => {
       updatedAt: new Date("2026-05-11T00:00:00.000Z"),
       ...data,
     }));
+    repo.findById.mockResolvedValue({
+      id: "req-1",
+      studentId: "student-1",
+      lecturerId: "lecturer-1",
+      thesisId: "thesis-1",
+      proposedTitle: "Sistem Rekomendasi Pembimbing",
+      routeType: "escalated",
+      student: { user: { id: "user-student-1", fullName: "Mahasiswa A" } },
+      lecturer: { user: { id: "lecturer-1", fullName: "Dr. Target" } },
+      thesis: { id: "thesis-1", title: "Sistem Rekomendasi Pembimbing" },
+    });
 
     const result = await submitRequest("student-1", {
       lecturerId: "lecturer-1",
@@ -652,6 +763,151 @@ describe("advisorRequest.service — dual justification Path C", () => {
         justificationText: "Saya tetap memilih dosen ini karena risetnya sangat sesuai KBK.",
       }),
     );
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["lecturer-1"],
+      expect.objectContaining({
+        type: "simpta_advisor_request_escalated_to_lecturer",
+        data: expect.objectContaining({
+          route: "/dosen/inbox-pembimbing",
+          requestId: "req-1",
+          thesisId: "thesis-1",
+        }),
+      }),
+      { push: true },
+    );
+  });
+
+  it("notifies KaDep when a student submits TA-02 department route", async () => {
+    repo.findStudentAdvisorAccessContext.mockResolvedValue({
+      id: "student-1",
+      thesis: [],
+    });
+    repo.findBlockingByStudent.mockResolvedValue(null);
+    repo.findLatestByStudent.mockResolvedValue(null);
+    repo.findActiveAcademicYear.mockResolvedValue({ id: "ay-1" });
+    repo.findTopicByIdWithClient.mockResolvedValue({
+      id: "topic-1",
+      scienceGroupId: "kbk-1",
+    });
+    repo.findDraftByStudentWithClient.mockResolvedValue({
+      lecturerId: null,
+      topicId: "topic-1",
+      proposedTitle: "Sistem Informasi Monitoring Akademik",
+      backgroundSummary: "Latar belakang yang cukup panjang untuk validasi.",
+      problemStatement: "Masalah akademik yang jelas dan relevan.",
+      proposedSolution: "Solusi sistem yang cukup jelas untuk diajukan.",
+      researchObject: "Departemen",
+      researchPermitStatus: "approved",
+      studentJustification: null,
+      justificationText: null,
+      attachmentId: null,
+    });
+    repo.createWithClient.mockImplementation(async (_tx, data) => ({
+      id: "req-ta02",
+      createdAt: new Date("2026-05-11T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-11T00:00:00.000Z"),
+      ...data,
+    }));
+    repo.findById.mockResolvedValue({
+      id: "req-ta02",
+      studentId: "student-1",
+      lecturerId: null,
+      thesisId: "thesis-1",
+      proposedTitle: "Sistem Informasi Monitoring Akademik",
+      routeType: "dept",
+      student: { user: { id: "user-student-1", fullName: "Mahasiswa A" } },
+      lecturer: null,
+      thesis: { id: "thesis-1", title: "Sistem Informasi Monitoring Akademik" },
+    });
+    repo.findActiveKaDep.mockResolvedValue({
+      id: "kadep-user-1",
+      fullName: "Ketua Departemen",
+      identityNumber: "198000000000000001",
+    });
+
+    const result = await submitRequest("student-1", {
+      topicId: "topic-1",
+      proposedTitle: "Sistem Informasi Monitoring Akademik",
+      backgroundSummary: "Latar belakang yang cukup panjang untuk validasi.",
+      problemStatement: "Masalah akademik yang jelas dan relevan.",
+      proposedSolution: "Solusi sistem yang cukup jelas untuk diajukan.",
+      researchObject: "Departemen",
+      researchPermitStatus: "approved",
+    });
+
+    expect(result.status).toBe("pending_kadep");
+    expect(result.routeType).toBe("dept");
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["kadep-user-1"],
+      expect.objectContaining({
+        type: "simpta_advisor_request_submitted_to_kadep",
+        data: expect.objectContaining({
+          route: "/kelola/tugas-akhir/kadep/pembimbing",
+          requestId: "req-ta02",
+          thesisId: "thesis-1",
+        }),
+      }),
+      { push: true },
+    );
+  });
+
+  it("notifies student when lecturer approves a normal booking", async () => {
+    const request = {
+      id: "req-normal",
+      studentId: "student-1",
+      lecturerId: "lecturer-1",
+      academicYearId: "ay-1",
+      topicId: "topic-1",
+      proposedTitle: "Sistem Rekomendasi Pembimbing",
+      status: "pending",
+      routeType: "normal",
+      thesisId: "thesis-1",
+      student: { user: { id: "user-student-1", fullName: "Mahasiswa A" } },
+      lecturer: { user: { id: "lecturer-1", fullName: "Dr. Target" } },
+      thesis: { id: "thesis-1", title: "Sistem Rekomendasi Pembimbing" },
+    };
+    repo.findById.mockResolvedValue(request);
+    repo.findByIdWithClient.mockResolvedValue(request);
+    repo.findThesisByIdWithClient.mockResolvedValue({
+      id: "thesis-1",
+      academicYearId: "ay-1",
+      thesisTopicId: "topic-1",
+      title: "Sistem Rekomendasi Pembimbing",
+    });
+    repo.findSupervisorAssignmentByLecturerAndThesis.mockResolvedValue({
+      role: { name: "Pembimbing 1" },
+    });
+    advisorQuota.getLecturerQuotaSnapshot.mockResolvedValue({
+      currentCount: 1,
+      quotaMax: 8,
+    });
+    repo.updateStatusWithClient.mockImplementation(async (_tx, _id, data) => ({
+      ...request,
+      ...data,
+    }));
+
+    await respondByLecturer("req-normal", "lecturer-1", {
+      action: "accept",
+      approvalNote: "Topik sesuai KBK dan siap dibimbing.",
+    });
+
+    expect(repo.updateStatusWithClient).toHaveBeenCalledWith(
+      expect.anything(),
+      "req-normal",
+      expect.objectContaining({ status: "booking_approved" }),
+    );
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["user-student-1"],
+      expect.objectContaining({
+        type: "simpta_advisor_booking_approved",
+        data: expect.objectContaining({
+          route: "/metopel",
+          requestId: "req-normal",
+          thesisId: "thesis-1",
+        }),
+      }),
+      { push: true },
+    );
   });
 
   it("requires lecturerOverquotaReason before forwarding Path C to KaDep", async () => {
@@ -661,6 +917,11 @@ describe("advisorRequest.service — dual justification Path C", () => {
       lecturerId: "lecturer-1",
       academicYearId: "ay-1",
       status: "pending",
+      proposedTitle: "Sistem Rekomendasi Pembimbing",
+      student: { user: { id: "user-student-1", fullName: "Mahasiswa A" } },
+      lecturer: { user: { id: "lecturer-1", fullName: "Dr. Target" } },
+      thesisId: "thesis-1",
+      thesis: { id: "thesis-1", title: "Sistem Rekomendasi Pembimbing" },
     });
     repo.findByIdWithClient.mockResolvedValue({
       id: "req-1",
@@ -683,6 +944,11 @@ describe("advisorRequest.service — dual justification Path C", () => {
       id: "req-1",
       ...data,
     }));
+    repo.findActiveKaDep.mockResolvedValue({
+      id: "kadep-user-1",
+      fullName: "Ketua Departemen",
+      identityNumber: "198000000000000001",
+    });
 
     await respondByLecturer("req-1", "lecturer-1", {
       action: "accept",
@@ -698,6 +964,30 @@ describe("advisorRequest.service — dual justification Path C", () => {
         lecturerApprovalNote: "Dua mahasiswa aktif sudah siap sidang bulan ini.",
         lecturerOverquotaReason: "Dua mahasiswa aktif sudah siap sidang bulan ini.",
       }),
+    );
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["user-student-1"],
+      expect.objectContaining({
+        type: "simpta_advisor_request_forwarded_student",
+        data: expect.objectContaining({
+          route: "/metopel",
+          requestId: "req-1",
+          thesisId: "thesis-1",
+        }),
+      }),
+      { push: true },
+    );
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["kadep-user-1"],
+      expect.objectContaining({
+        type: "simpta_advisor_request_forwarded_to_kadep",
+        data: expect.objectContaining({
+          route: "/kelola/tugas-akhir/kadep/pembimbing",
+          requestId: "req-1",
+          thesisId: "thesis-1",
+        }),
+      }),
+      { push: true },
     );
   });
 });
@@ -737,13 +1027,17 @@ describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
       "req-1",
       expect.objectContaining({ status: "rejected_by_dosen" }),
     );
-    expect(notificationService.createNotificationsForUsers).toHaveBeenCalledWith(
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
       ["user-student-1"],
-      expect.objectContaining({ type: "advisor_request_rejected_by_dosen" }),
-    );
-    expect(pushService.sendFcmToUsers).toHaveBeenCalledWith(
-      ["user-student-1"],
-      expect.objectContaining({ title: "Pengajuan Pembimbing Ditolak Dosen" }),
+      expect.objectContaining({
+        title: "Pengajuan Pembimbing Ditolak Dosen",
+        type: "advisor_request_rejected_by_dosen",
+        data: expect.objectContaining({
+          route: "/metopel",
+          requestId: "req-1",
+        }),
+      }),
+      { push: true },
     );
   });
 
@@ -769,13 +1063,17 @@ describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
       "req-1",
       expect.objectContaining({ status: "rejected_by_kadep" }),
     );
-    expect(notificationService.createNotificationsForUsers).toHaveBeenCalledWith(
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
       ["user-student-1"],
-      expect.objectContaining({ type: "advisor_request_rejected_by_kadep" }),
-    );
-    expect(pushService.sendFcmToUsers).toHaveBeenCalledWith(
-      ["user-student-1"],
-      expect.objectContaining({ title: "Pengajuan Pembimbing Ditolak KaDep" }),
+      expect.objectContaining({
+        title: "Pengajuan Pembimbing Ditolak KaDep",
+        type: "advisor_request_rejected_by_kadep",
+        data: expect.objectContaining({
+          route: "/metopel",
+          requestId: "req-1",
+        }),
+      }),
+      { push: true },
     );
   });
 });

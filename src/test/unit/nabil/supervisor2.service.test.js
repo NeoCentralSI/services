@@ -438,6 +438,31 @@ describe("Pembimbing 2 Service (unit)", () => {
       expect(mockQuota.checkQuotaAvailability).toHaveBeenCalledWith(LECTURER_ID, "ay-1");
     });
 
+    it("membatalkan penerbitan TA-04 saat P2 disetujui agar batch terbaru wajib difinalisasi", async () => {
+      mockKadepStageRequest();
+      mockThesisForValidation({
+        isProposal: true,
+        proposalStatus: null,
+        ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
+      });
+
+      await decideSupervisor2ByKadepService(KADEP_USER_ID, "req-kadep-1", {
+        approve: true,
+      });
+
+      expect(mockPrisma.thesis.update).toHaveBeenCalledWith({
+        where: { id: THESIS.id },
+        data: {
+          ta04AssignmentIssuedAt: null,
+          ta04AssignmentIssuedByUserId: null,
+          ta04AssignmentSupervisorNames: null,
+          ta04AssignmentAcademicYearId: null,
+          titleApprovalDocumentId: null,
+        },
+      });
+      expect(mockMetopen.generateTitleApprovalLetter).not.toHaveBeenCalled();
+    });
+
     it("approve menolak (400) bila thesis sudah ditutup (F2-2)", async () => {
       mockKadepStageRequest();
       mockThesisForValidation({ thesisStatus: { name: "Selesai" } });

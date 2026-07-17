@@ -9,7 +9,7 @@ import { parseAcademicYearQuery } from "../../validators/monitoring.validator.js
 
 /**
  * Get monitoring dashboard for management
- * @route GET /api/thesis-guidance/monitoring/dashboard
+ * @route GET /api/thesisGuidance/monitoring/dashboard
  */
 export async function getMonitoringDashboard(req, res, next) {
   try {
@@ -26,7 +26,7 @@ export async function getMonitoringDashboard(req, res, next) {
 
 /**
  * Get thesis list with filters for monitoring
- * @route GET /api/thesis-guidance/monitoring/theses
+ * @route GET /api/thesisGuidance/monitoring/theses
  */
 export async function getThesesList(req, res, next) {
   try {
@@ -54,7 +54,7 @@ export async function getThesesList(req, res, next) {
 
 /**
  * Get filter options for monitoring page
- * @route GET /api/thesis-guidance/monitoring/filters
+ * @route GET /api/thesisGuidance/monitoring/filters
  */
 export async function getFilterOptions(req, res, next) {
   try {
@@ -70,7 +70,7 @@ export async function getFilterOptions(req, res, next) {
 
 /**
  * Get at-risk students list
- * @route GET /api/thesis-guidance/monitoring/at-risk
+ * @route GET /api/thesisGuidance/monitoring/at-risk
  */
 export async function getAtRiskStudents(req, res, next) {
   try {
@@ -87,7 +87,7 @@ export async function getAtRiskStudents(req, res, next) {
 
 /**
  * Get slow students list
- * @route GET /api/thesis-guidance/monitoring/slow
+ * @route GET /api/thesisGuidance/monitoring/slow
  */
 export async function getSlowStudents(req, res, next) {
   try {
@@ -104,7 +104,7 @@ export async function getSlowStudents(req, res, next) {
 
 /**
  * Get students ready for seminar list
- * @route GET /api/thesis-guidance/monitoring/ready-seminar
+ * @route GET /api/thesisGuidance/monitoring/ready-seminar
  */
 export async function getStudentsReadyForSeminar(req, res, next) {
   try {
@@ -121,7 +121,7 @@ export async function getStudentsReadyForSeminar(req, res, next) {
 
 /**
  * Get lecturer supervision workload list
- * @route GET /api/thesis-guidance/monitoring/supervisor-loads
+ * @route GET /api/thesisGuidance/monitoring/supervisor-loads
  */
 export async function getSupervisorWorkloads(req, res, next) {
   try {
@@ -138,7 +138,7 @@ export async function getSupervisorWorkloads(req, res, next) {
 
 /**
  * Get thesis detail by ID
- * @route GET /api/thesis-guidance/monitoring/theses/:thesisId
+ * @route GET /api/thesisGuidance/monitoring/theses/:thesisId
  */
 export async function getThesisDetail(req, res, next) {
   try {
@@ -155,7 +155,7 @@ export async function getThesisDetail(req, res, next) {
 
 /**
  * Send warning notification to student
- * @route POST /api/thesis-guidance/monitoring/theses/:thesisId/send-warning
+ * @route POST /api/thesisGuidance/monitoring/theses/:thesisId/send-warning
  */
 export async function sendWarningNotification(req, res, next) {
   try {
@@ -170,7 +170,7 @@ export async function sendWarningNotification(req, res, next) {
 
 /**
  * Send batch warning notifications to students
- * @route POST /api/thesis-guidance/monitoring/batch-warning
+ * @route POST /api/thesisGuidance/monitoring/batch-warning
  */
 export async function sendBatchWarnings(req, res, next) {
   try {
@@ -184,7 +184,7 @@ export async function sendBatchWarnings(req, res, next) {
 
 /**
  * Get progress report data for PDF generation
- * @route GET /api/thesis-guidance/monitoring/report
+ * @route GET /api/thesisGuidance/monitoring/report
  */
 export async function getProgressReport(req, res, next) {
   try {
@@ -206,7 +206,7 @@ export async function getProgressReport(req, res, next) {
 
 /**
  * Download progress report as PDF (server-side generation via Gotenberg)
- * @route GET /api/thesis-guidance/monitoring/report/download
+ * @route GET /api/thesisGuidance/monitoring/report/download
  */
 export async function downloadProgressReport(req, res, next) {
   try {
@@ -232,7 +232,7 @@ export async function downloadProgressReport(req, res, next) {
 
 /**
  * Get pending transfer requests for Kadep
- * @route GET /api/thesis-guidance/monitoring/transfers/pending
+ * @route GET /api/thesisGuidance/monitoring/transfers/pending
  */
 export async function getKadepPendingTransfers(req, res, next) {
   try {
@@ -245,7 +245,7 @@ export async function getKadepPendingTransfers(req, res, next) {
 
 /**
  * Get all transfer requests for Kadep (with pagination for history)
- * @route GET /api/thesis-guidance/monitoring/transfers/all
+ * @route GET /api/thesisGuidance/monitoring/transfers/all
  */
 export async function getKadepAllTransfers(req, res, next) {
   try {
@@ -264,7 +264,7 @@ export async function getKadepAllTransfers(req, res, next) {
 
 /**
  * Kadep approves a transfer request
- * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/approve
+ * @route PATCH /api/thesisGuidance/monitoring/transfers/:notificationId/approve
  */
 export async function kadepApproveTransfer(req, res, next) {
   try {
@@ -278,7 +278,7 @@ export async function kadepApproveTransfer(req, res, next) {
 
 /**
  * Kadep rejects a transfer request
- * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/reject
+ * @route PATCH /api/thesisGuidance/monitoring/transfers/:notificationId/reject
  */
 export async function kadepRejectTransfer(req, res, next) {
   try {
@@ -293,7 +293,7 @@ export async function kadepRejectTransfer(req, res, next) {
 
 /**
  * Download supervisor transfer history report as PDF
- * @route GET /api/thesis-guidance/monitoring/transfers/report/download
+ * @route GET /api/thesisGuidance/monitoring/transfers/report/download
  */
 export async function downloadTransferReport(req, res, next) {
   try {

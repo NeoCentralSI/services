@@ -1,81 +1,18 @@
 /**
- * Seed Script - Thesis Topics
- * 
- * Usage: node scripts/seed-thesis-topics.js
- * 
- * This script populates the thesis_topics table with predefined topics.
+ * Backward-compatible entry point for master DSI.
+ *
+ * The old implementation only created unlinked topics. Keep this command for
+ * existing runbooks, but delegate to the idempotent NIP/KBK/topic synchronizer
+ * so BR-16 and the four official KBK names cannot drift again.
  */
+import { syncDsiMaster } from "./sync-dsi-master.js";
 
-import { PrismaClient } from "../src/generated/prisma/index.js";
-
-const prisma = new PrismaClient();
-
-// Thesis Topics to seed
-const THESIS_TOPICS = [
-  { name: "Sistem Pendukung Keputusan (SPK)" },
-  { name: "Business Intelligence (BI)" },
-  { name: "Pengembangan Sistem (Enterprise Application)" },
-  { name: "Machine Learning" },
-  { name: "Enterprise System" },
-];
-
-async function seedThesisTopics() {
-  console.log("\n" + "=".repeat(60));
-  console.log("📋 Seeding Thesis Topics...");
-  console.log("=".repeat(60));
-
-  let created = 0;
-  let skipped = 0;
-
-  for (const topic of THESIS_TOPICS) {
-    // Check if topic already exists
-    const existing = await prisma.thesisTopic.findFirst({
-      where: { name: topic.name },
-    });
-
-    if (existing) {
-      console.log(`  ⏭️  Topic "${topic.name}" already exists, skipping...`);
-      skipped++;
-      continue;
-    }
-
-    // Create new topic
-    await prisma.thesisTopic.create({
-      data: { name: topic.name },
-    });
-
-    console.log(`  ✅ Created topic: "${topic.name}"`);
-    created++;
-  }
-
-  console.log("\n" + "-".repeat(60));
-  console.log(`📊 Summary: ${created} created, ${skipped} skipped`);
-  console.log("=".repeat(60));
-}
-
-async function main() {
-  console.log("\n🚀 Starting Thesis Topics Seed Script...\n");
-
-  try {
-    await seedThesisTopics();
-
-    // List all topics
-    const topics = await prisma.thesisTopic.findMany({
-      orderBy: { name: "asc" },
-    });
-
-    console.log("\n📝 Current Thesis Topics in Database:");
-    topics.forEach((topic, idx) => {
-      console.log(`  ${idx + 1}. ${topic.name} (ID: ${topic.id})`);
-    });
-
-    console.log("\n✅ Thesis Topics seed completed successfully!\n");
-  } catch (error) {
-    console.error("\n❌ Error seeding thesis topics:", error);
-    process.exit(1);
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
-main();
+syncDsiMaster()
+  .then((result) => {
+    console.log("DSI master sync selesai.");
+    console.log(JSON.stringify(result, null, 2));
+  })
+  .catch((error) => {
+    console.error("DSI master sync gagal:", error);
+    process.exitCode = 1;
+  });

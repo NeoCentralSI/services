@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import generated from "../src/generated/prisma/index.js";
+import { syncDsiMaster } from "../scripts/sync-dsi-master.js";
 
 dotenv.config();
 
@@ -283,6 +284,11 @@ async function main() {
     userIdMap,
     roleIdMap
   );
+
+  // Keep a fresh/reset database aligned with the canonical DSI master. The
+  // synchronizer upserts by NIP/name and never deletes thesis transactions.
+  const master = await syncDsiMaster(prisma);
+  console.log(`DSI master synced: ${master.groups.length} KBK, ${master.lecturers.length} real lecturers`);
 
   console.log("Seed completed.");
   console.log(`Roles: ${roleIdMap.size}`);

@@ -62,6 +62,7 @@ export const findStudentAdvisorAccessContext = async (userId) => {
           id: true,
           title: true,
           proposalStatus: true,
+          ta04AssignmentIssuedAt: true,
           thesisStatus: {
             select: { id: true, name: true },
           },
@@ -87,6 +88,10 @@ export const findStudentAdvisorAccessContext = async (userId) => {
                 },
               },
             },
+          },
+          advisorRequests: {
+            where: { status: "booking_approved" },
+            select: { id: true },
           },
         },
       },
@@ -774,6 +779,30 @@ export const findTopicByIdWithClient = async (client, id) => {
   });
 };
 
+export const findAllTopicsWithScienceGroup = async () => {
+  return prisma.thesisTopic.findMany({
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+};
+
+export const findAllTopicsWithScienceGroupWithClient = async (client) => {
+  return client.thesisTopic.findMany({
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+};
+
 /**
  * Find a lecturer with acceptingRequests flag.
  */
@@ -1103,6 +1132,7 @@ export const findThesisProcessLockState = async (client, thesisId) => {
       id: true,
       proposalStatus: true,
       finalProposalVersionId: true,
+      ta04AssignmentIssuedAt: true,
       _count: {
         select: {
           thesisGuidances: {
@@ -1265,7 +1295,7 @@ export const findActiveKaDep = async () => {
   const assignment = await prisma.userHasRole.findFirst({
     where: { roleId: kadepRole.id, status: "active" },
     include: {
-      user: { select: { fullName: true, identityNumber: true } },
+      user: { select: { id: true, fullName: true, identityNumber: true } },
     },
   });
   return assignment?.user ?? null;
@@ -1302,6 +1332,14 @@ export const findThesesWithSupervisors = async (academicYearId) => {
       ta04AssignmentTitle: true,
       ta04AssignmentSupervisorNames: true,
       ta04AssignmentAcademicYearId: true,
+      thesisTopicId: true,
+      thesisTopic: {
+        select: {
+          id: true,
+          name: true,
+          scienceGroup: { select: { id: true, name: true } },
+        },
+      },
       student: {
         select: {
           user: { select: { id: true, fullName: true, identityNumber: true } },

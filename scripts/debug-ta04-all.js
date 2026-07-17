@@ -66,7 +66,7 @@ async function main() {
   const submitted = theses.filter((t) => t.proposalStatus === "submitted");
   console.log(`\n⏳ Thesis submitted (antrean KaDep): ${submitted.length}`);
   for (const t of submitted) {
-    const supervisors = await prisma.thesisParticipant.findMany({
+    const supervisors = await prisma.thesisSupervisors.findMany({
       where: { thesisId: t.id, status: "active" },
       include: { role: { select: { name: true } } },
     });

@@ -38,6 +38,7 @@ vi.mock("../repositories/advisorRequest.repository.js", () => ({
   findActiveAcademicYear: vi.fn(),
   findTopicById: vi.fn(),
   findTopicByIdWithClient: vi.fn(),
+  findAllTopicsWithScienceGroupWithClient: vi.fn(),
   findLecturerForValidation: vi.fn(),
   findLecturerForValidationWithClient: vi.fn(),
   findLecturerQuota: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("../repositories/advisorRequest.repository.js", () => ({
   createDocument: vi.fn(),
   findAcademicYearById: vi.fn(),
   findSupervisorsByAcademicYear: vi.fn(),
+  findActiveKaDep: vi.fn(),
   createAuditLogWithClient: vi.fn(),
 }));
 
@@ -92,6 +94,8 @@ function createStudentContext({
   gateStatuses = ["completed"],
   supervisors = [],
   proposalStatus = null,
+  ta04AssignmentIssuedAt = null,
+  advisorRequests = [],
 } = {}) {
   return {
     id: "student-1",
@@ -106,6 +110,8 @@ function createStudentContext({
         id: "thesis-1",
         title: "Judul Uji",
         proposalStatus,
+        ta04AssignmentIssuedAt,
+        advisorRequests,
         thesisStatus: { id: "status-metopen", name: "Metopel" },
         thesisSupervisors: supervisors,
         thesisMilestones: gateStatuses.map((status, index) => ({
@@ -176,6 +182,7 @@ describe("advisorRequest.service", () => {
     repo.findLatestByStudent.mockResolvedValue(null);
     repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
     repo.findBlockingConflictByStudent.mockResolvedValue(null);
+    repo.findAllTopicsWithScienceGroupWithClient.mockResolvedValue([]);
     repo.executeTransaction.mockImplementation(async (callback) => callback({ tx: true }));
     repo.upsertDraftByStudentWithClient.mockImplementation(async (_tx, _studentId, patch) => {
       advisorDraft = { ...(advisorDraft ?? {}), ...patch };
@@ -187,6 +194,7 @@ describe("advisorRequest.service", () => {
       ...data,
     }));
     repo.createAuditLogWithClient.mockResolvedValue({});
+    repo.findActiveKaDep.mockResolvedValue(null);
     vi.mocked(countActiveSupervisionsForYear).mockResolvedValue(0);
     vi.mocked(getLecturerQuotaSnapshot).mockResolvedValue({
       lecturerId: "lecturer-1",
@@ -231,6 +239,8 @@ describe("advisorRequest.service", () => {
         createStudentContext({
           supervisors: [createSupervisor()],
           proposalStatus: "accepted",
+          ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
+          advisorRequests: [{ id: "request-assigned", status: "booking_approved" }],
         })
       );
       repo.findBlockingByStudent.mockResolvedValue(null);
@@ -239,7 +249,7 @@ describe("advisorRequest.service", () => {
         service.submitRequest("student-1", {
           lecturerId: "lecturer-1",
           topicId: "topic-1",
-          proposedTitle: "Judul Uji",
+          proposedTitle: "Rancang Bangun Sistem Uji",
           backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
           problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
           proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -259,7 +269,7 @@ describe("advisorRequest.service", () => {
         service.submitRequest("student-1", {
           lecturerId: "lecturer-1",
           topicId: "topic-1",
-          proposedTitle: "Judul Uji",
+          proposedTitle: "Rancang Bangun Sistem Uji",
           backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
           problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
           proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -284,7 +294,7 @@ describe("advisorRequest.service", () => {
       await service.submitRequest("student-1", {
         lecturerId: "lecturer-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
         backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
         problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
         proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -407,7 +417,7 @@ describe("advisorRequest.service", () => {
       await service.submitRequest("student-1", {
         lecturerId: "lecturer-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
         backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
         problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
         proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -434,7 +444,7 @@ describe("advisorRequest.service", () => {
         lecturerId: "lecturer-1",
         academicYearId: "academic-year-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
       });
       repo.findRoleByName.mockResolvedValue({ id: "role-p1", name: ROLES.PEMBIMBING_1 });
       repo.findThesisStatusByName.mockResolvedValue({ id: "status-bimbingan", name: "Bimbingan" });
@@ -523,7 +533,7 @@ describe("advisorRequest.service", () => {
         lecturerId: "lecturer-1",
         academicYearId: "academic-year-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
       });
       repo.findRoleByName.mockResolvedValue({ id: "role-p1", name: ROLES.PEMBIMBING_1 });
       repo.findThesisStatusByName.mockResolvedValue({ id: "status-bimbingan", name: "Bimbingan" });

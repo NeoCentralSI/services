@@ -9,7 +9,7 @@ export function validate(schema) {
 		} catch (err) {
 			if (err instanceof ZodError) {
 				const issues = err.issues?.map((i) => ({ path: i.path.join("."), message: i.message }));
-				const e = new Error("Validation error");
+				const e = new Error("Data tidak valid");
 				e.statusCode = 400;
 				e.details = issues;
 				return next(e);

@@ -35,7 +35,7 @@ tags:
   - name: Topic
     description: Thesis topic management endpoints (Sekretaris Departemen)
   - name: Thesis Monitoring
-    description: Thesis monitoring endpoints for Kadep/Sekdep/GKM
+    description: Thesis monitoring endpoints for Kadep/Sekdep
   - name: SIA Sync
     description: External SIA (Academic Information System) synchronization endpoints
   - name: AuditLog
@@ -308,17 +308,221 @@ paths:
   "/topics/{id}":
     $ref: "./topic/swagger-topic.yaml#/paths/~1topics~1{id}"
 
-  # Thesis Monitoring (Kadep/Sekdep/GKM)
-  "/thesis-guidance/monitoring/dashboard":
-    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1dashboard"
-  "/thesis-guidance/monitoring/theses":
-    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1theses"
-  "/thesis-guidance/monitoring/filters":
-    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1filters"
-  "/thesis-guidance/monitoring/at-risk":
-    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1at-risk"
-  "/thesis-guidance/monitoring/ready-seminar":
-    $ref: "./thesisGuidance/monitoring/swagger-monitoring.yaml#/paths/~1thesis-guidance~1monitoring~1ready-seminar"
+  # Thesis Monitoring (Kadep/Sekdep)
+  "/thesisGuidance/monitoring/dashboard":
+    get:
+      tags: [Thesis Monitoring]
+      summary: Get thesis monitoring dashboard summary
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Monitoring dashboard returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/theses":
+    get:
+      tags: [Thesis Monitoring]
+      summary: List monitored theses with filters and pagination
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: lecturerId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: topicId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: academicYear
+          schema: { type: string, format: uuid }
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Monitored theses returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/filters":
+    get:
+      tags: [Thesis Monitoring]
+      summary: Get monitoring filter options
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Filter options returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/report":
+    get:
+      tags: [Thesis Monitoring]
+      summary: Get thesis monitoring report data
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Monitoring report data returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/report/download":
+    get:
+      tags: [Thesis Monitoring]
+      summary: Download thesis monitoring report as PDF
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: PDF report returned
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/at-risk":
+    get:
+      tags: [Thesis Monitoring]
+      summary: List at-risk students
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: At-risk students returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/slow":
+    get:
+      tags: [Thesis Monitoring]
+      summary: List students with slow progress
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYear
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Slow-progress students returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/ready-seminar":
+    get:
+      tags: [Thesis Monitoring]
+      summary: List students ready for seminar
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Students ready for seminar returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/supervisor-loads":
+    get:
+      tags: [Thesis Monitoring]
+      summary: Get supervisor workload summary
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Supervisor workloads returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  "/thesisGuidance/monitoring/theses/{thesisId}":
+    get:
+      tags: [Thesis Monitoring]
+      summary: Get monitored thesis detail
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Thesis detail returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Thesis not found
+  "/thesisGuidance/monitoring/theses/{thesisId}/send-warning":
+    post:
+      tags: [Thesis Monitoring]
+      summary: Send a warning notification for one thesis
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [warningType]
+              properties:
+                warningType:
+                  type: string
+                  enum: [SLOW, AT_RISK]
+      responses:
+        "200":
+          description: Warning notification sent
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Thesis not found
+  "/thesisGuidance/monitoring/batch-warning":
+    post:
+      tags: [Thesis Monitoring]
+      summary: Send warning notifications for multiple theses
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thesisIds, warningType]
+              properties:
+                thesisIds:
+                  type: array
+                  items: { type: string, format: uuid }
+                warningType:
+                  type: string
+                  enum: [SLOW, AT_RISK]
+      responses:
+        "200":
+          description: Batch warnings processed
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
 
   # ============================================
   # Supervision Quota Endpoints

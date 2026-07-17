@@ -48,17 +48,17 @@ const ADVISOR_STATUS_DISPLAY = Object.freeze({
   [ADVISOR_REQUEST_STATUS.WITHDRAWN]: { label: "Ditarik mahasiswa", category: "withdrawn" },
   [ADVISOR_REQUEST_STATUS.CANCELED]: { label: "Dibatalkan", category: "withdrawn" },
   [ADVISOR_REQUEST_STATUS.CLOSED]: { label: "Ditutup", category: "withdrawn" },
-  // Legacy values yang masih bisa muncul di rows historis (canon §5.2 Tahap 1).
-  [ADVISOR_REQUEST_STATUS.APPROVED]: { label: "Disetujui (legacy)", category: "active_pre_ta04" },
-  [ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED]: { label: "Disetujui overquota (legacy)", category: "active_pre_ta04" },
-  [ADVISOR_REQUEST_STATUS.ASSIGNED]: { label: "Aktif (legacy)", category: "active_official" },
-  [ADVISOR_REQUEST_STATUS.ESCALATED]: { label: "Eskalasi (legacy)", category: "pending_kadep" },
-  [ADVISOR_REQUEST_STATUS.REJECTED]: { label: "Ditolak (legacy)", category: "rejected" },
+  // Status historis yang masih bisa muncul di baris monitoring lama.
+  [ADVISOR_REQUEST_STATUS.APPROVED]: { label: "Disetujui (data lama)", category: "active_pre_ta04" },
+  [ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED]: { label: "Disetujui di atas kuota (data lama)", category: "active_pre_ta04" },
+  [ADVISOR_REQUEST_STATUS.ASSIGNED]: { label: "Aktif (data lama)", category: "active_official" },
+  [ADVISOR_REQUEST_STATUS.ESCALATED]: { label: "Menunggu KaDep (data lama)", category: "pending_kadep" },
+  [ADVISOR_REQUEST_STATUS.REJECTED]: { label: "Ditolak (data lama)", category: "rejected" },
 });
 
 const ROUTE_LABEL = Object.freeze({
   normal: "Normal (TA-01)",
-  escalated: "Escalated (Path C)",
+  escalated: "TA-01 di atas kuota normal",
   dept: "Departemen (TA-02)",
 });
 

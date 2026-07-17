@@ -120,6 +120,9 @@ describe("metopenAttendance.service — uploadMetopenAttendance", () => {
         id: "thesis-1",
         studentId: "student-1",
         title: "Sistem Informasi Pengajuan Proposal",
+        isProposal: true,
+        activePromotedAt: null,
+        advisorRequests: [],
         researchMethodScores: [
           {
             id: "score-auto-zero",
@@ -141,6 +144,56 @@ describe("metopenAttendance.service — uploadMetopenAttendance", () => {
     ]);
     expect(result.totals.eligibleRows).toBe(1);
     expect(result.totals.autoZeroedCount).toBe(0);
+  });
+
+  it("keeps attendance auto-zero permanent after promotion or release lifecycle", async () => {
+    const file = makeAttendanceFile([
+      ["2311523026", "Dimas", 8, 1, 0, 0, 9, "88.89%"],
+    ]);
+
+    repoMock.findStudentsByIdentityNumbers.mockResolvedValue([
+      {
+        id: "student-1",
+        user: {
+          id: "user-student-1",
+          fullName: "Dimas",
+          identityNumber: "2311523026",
+        },
+      },
+    ]);
+    repoMock.findEligibleRecordsForImport.mockResolvedValue([
+      {
+        id: "attendance-record-eligible",
+        studentId: "student-1",
+        identityNumber: "2311523026",
+        studentName: "Dimas",
+        attendancePercentage: 0.8889,
+        presentCount: 8,
+        totalMeetings: 9,
+      },
+    ]);
+    repoMock.findScoreableThesesByStudentIds.mockResolvedValue([
+      {
+        id: "thesis-promoted",
+        studentId: "student-1",
+        title: "Sistem Informasi Pengajuan Proposal",
+        isProposal: false,
+        activePromotedAt: new Date("2026-07-01T00:00:00.000Z"),
+        advisorRequests: [{ id: "req-1", status: "active_official" }],
+        researchMethodScores: [
+          {
+            id: "score-auto-zero",
+            isFinalized: true,
+            attendanceAutoZeroedAt: new Date("2026-05-10T09:00:00.000Z"),
+          },
+        ],
+      },
+    ]);
+
+    await uploadMetopenAttendance(file, "koord-1");
+
+    expect(repoMock.clearAttendanceAutoZeroForTheses).toHaveBeenCalledWith([]);
+    expect(repoMock.autoZeroResearchMethodScore).not.toHaveBeenCalled();
   });
 
   it("does not clear manually finalized scores when re-upload attendance is eligible", async () => {

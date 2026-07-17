@@ -192,15 +192,57 @@ export async function listAllMetopenCpmks(academicYearId = null) {
 }
 
 export async function createMetopenCpmk(payload) {
-  const existing = await repo.findMetopenCpmkByCode(payload.code, payload.academicYearId || null);
+  const code = String(payload.code || "").trim().toUpperCase().replace(/\s+/g, "-");
+  const description = String(payload.description || "").trim();
+  const existing = await repo.findMetopenCpmkByCode(code, payload.academicYearId || null);
   if (existing) {
-    throw new BadRequestError(`CPMK dengan kode '${payload.code}' sudah ada`);
+    throw new BadRequestError(`CPMK dengan kode '${code}' sudah ada`);
   }
   return repo.createMetopenCpmk({
-    code: payload.code,
-    description: payload.description,
+    code,
+    description,
     academicYearId: payload.academicYearId || null,
   });
+}
+
+export async function updateMetopenCpmk(id, payload) {
+  const existing = await ensureMetopenCpmk(id);
+  const hasScores = await repo.cpmkHasAssessmentData(id);
+
+  const nextCode =
+    payload.code !== undefined
+      ? String(payload.code).trim().toUpperCase().replace(/\s+/g, "-")
+      : undefined;
+  const nextDescription =
+    payload.description !== undefined ? String(payload.description).trim() : undefined;
+
+  if (nextCode && nextCode !== existing.code) {
+    if (hasScores) {
+      throw new BadRequestError(
+        "Kode CPMK tidak dapat diubah karena sudah dipakai pada data penilaian Metode Penelitian",
+      );
+    }
+    const duplicate = await repo.findMetopenCpmkByCode(nextCode, existing.academicYearId || null);
+    if (duplicate && duplicate.id !== id) {
+      throw new BadRequestError(`CPMK dengan kode '${nextCode}' sudah ada`);
+    }
+  }
+
+  return repo.updateMetopenCpmk(id, {
+    ...(nextCode ? { code: nextCode } : {}),
+    ...(nextDescription !== undefined ? { description: nextDescription } : {}),
+  });
+}
+
+export async function deleteMetopenCpmk(id) {
+  await ensureMetopenCpmk(id);
+  const hasScores = await repo.cpmkHasAssessmentData(id);
+  if (hasScores) {
+    throw new BadRequestError(
+      "CPMK tidak dapat dihapus karena sudah dipakai pada data penilaian Metode Penelitian",
+    );
+  }
+  return repo.deleteMetopenCpmk(id);
 }
 
 export async function removeCpmkConfig(cpmkId, role) {

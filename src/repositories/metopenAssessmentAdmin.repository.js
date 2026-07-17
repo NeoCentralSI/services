@@ -3,7 +3,7 @@ import prisma from "../config/prisma.js";
 export function findCpmkById(id) {
   return prisma.metopenCpmk.findUnique({
     where: { id },
-    select: { id: true, code: true },
+    select: { id: true, code: true, description: true, academicYearId: true },
   });
 }
 
@@ -12,12 +12,59 @@ export function findAllMetopenCpmks(academicYearId = null) {
     where: {
       ...(academicYearId ? { academicYearId } : {}),
     },
+    include: {
+      _count: {
+        select: { metopenAssessmentCriterias: true },
+      },
+    },
     orderBy: { code: "asc" },
   });
 }
 
 export function createMetopenCpmk(data) {
   return prisma.metopenCpmk.create({ data });
+}
+
+export function updateMetopenCpmk(id, data) {
+  return prisma.metopenCpmk.update({
+    where: { id },
+    data,
+    include: {
+      _count: {
+        select: { metopenAssessmentCriterias: true },
+      },
+    },
+  });
+}
+
+export async function cpmkHasAssessmentData(cpmkId) {
+  const count = await prisma.researchMethodScoreDetail.count({
+    where: {
+      criteria: { metopenCpmkId: cpmkId },
+    },
+  });
+  return count > 0;
+}
+
+export async function deleteMetopenCpmk(id) {
+  return prisma.$transaction(async (tx) => {
+    const criteriaRows = await tx.metopenAssessmentCriteria.findMany({
+      where: { metopenCpmkId: id },
+      select: { id: true },
+    });
+    const criteriaIds = criteriaRows.map((row) => row.id);
+
+    if (criteriaIds.length > 0) {
+      await tx.metopenAssessmentRubric.deleteMany({
+        where: { metopenAssessmentCriteriaId: { in: criteriaIds } },
+      });
+      await tx.metopenAssessmentCriteria.deleteMany({
+        where: { id: { in: criteriaIds } },
+      });
+    }
+
+    return tx.metopenCpmk.delete({ where: { id } });
+  });
 }
 
 export function findMetopenCpmkByCode(code, academicYearId = null) {

@@ -57,7 +57,42 @@ export const reorderRubricsSchema = z.object({
 });
 
 export const createMetopenCpmkSchema = z.object({
-  code: z.string().min(1, "Kode CPMK wajib diisi").max(50, "Kode CPMK maksimal 50 karakter"),
-  description: z.string().min(1, "Deskripsi CPMK wajib diisi").max(255, "Deskripsi CPMK maksimal 255 karakter"),
+  code: z
+    .string()
+    .trim()
+    .min(5, "Kode CPMK terlalu pendek")
+    .max(20, "Kode CPMK maksimal 20 karakter")
+    .regex(
+      /^CPMK[- ]?\d{1,2}$/i,
+      "Kode harus berformat resmi, contoh: CPMK-01, CPMK-02, CPMK-03 (dipakai export nilai SIA)",
+    ),
+  description: z
+    .string()
+    .trim()
+    .min(10, "Deskripsi CPMK minimal 10 karakter")
+    .max(255, "Deskripsi CPMK maksimal 255 karakter"),
   academicYearId: z.string().uuid("Tahun akademik tidak valid").optional(),
 });
+
+export const updateMetopenCpmkSchema = z
+  .object({
+    code: z
+      .string()
+      .trim()
+      .min(5, "Kode CPMK terlalu pendek")
+      .max(20, "Kode CPMK maksimal 20 karakter")
+      .regex(
+        /^CPMK[- ]?\d{1,2}$/i,
+        "Kode harus berformat resmi, contoh: CPMK-01, CPMK-02, CPMK-03 (dipakai export nilai SIA)",
+      )
+      .optional(),
+    description: z
+      .string()
+      .trim()
+      .min(10, "Deskripsi CPMK minimal 10 karakter")
+      .max(255, "Deskripsi CPMK maksimal 255 karakter")
+      .optional(),
+  })
+  .refine((payload) => payload.code !== undefined || payload.description !== undefined, {
+    message: "Minimal satu field (kode atau deskripsi) harus diisi",
+  });

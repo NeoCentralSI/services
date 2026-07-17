@@ -1,8 +1,27 @@
+/**
+ * OBSOLETE — do not run.
+ *
+ * Model MetopenClass / MetopenClassStudent sudah dihapus dari schema.
+ * Untuk data UAT SIMPTA, gunakan urutan resmi dari folder services/:
+ *
+ *   node scripts/ensure-users.js
+ *   node prisma/seed-metopen-monitoring.mjs
+ *   node scripts/seed-metopen-eligible-students.js
+ *
+ * Lihat knowledge/05-developer-docs/uat/03_PersiapanEnvironment.md
+ */
 import { PrismaClient } from '../src/generated/prisma/index.js';
 
 const prisma = new PrismaClient();
 
 async function main() {
+  console.error('❌ seed-metopen-dummy.js sudah obsolete (MetopenClass dihapus).');
+  console.error('   Gunakan seed UAT resmi:');
+  console.error('     node scripts/ensure-users.js');
+  console.error('     node prisma/seed-metopen-monitoring.mjs');
+  console.error('     node scripts/seed-metopen-eligible-students.js');
+  process.exit(1);
+
   console.log('🚀 Seeding Metopen dummy data...');
 
   // 1. Ensure Active Academic Year
