@@ -283,7 +283,7 @@ async function updateStudentCplScoresBatch(stamped) {
   );
 
   const cpls = await prisma.cpl.findMany({
-    where: { isActive: true, code: { not: null } },
+    where: { isActive: true },
     select: { id: true, code: true },
   });
   const codeToCplId = new Map(cpls.map((cpl) => [normalizeCode(cpl.code), cpl.id]));

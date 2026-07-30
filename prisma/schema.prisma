@@ -238,8 +238,8 @@ model Room {
 
 model Cpl {
   id           String   @id @default(uuid())
-  curriculumId String?  @map("curriculum_id") @db.VarChar(255)
-  code         String?  @db.VarChar(255)
+  curriculumId String   @map("curriculum_id") @db.VarChar(255)
+  code         String   @db.VarChar(255)
   description  String   @db.VarChar(255)
   minimalScore Int      @map("minimal_score")
   version      Int      @default(1)
@@ -248,7 +248,7 @@ model Cpl {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   studentCplScores StudentCplScore[]
-  curriculum       Curriculum?     @relation(fields: [curriculumId], references: [id])
+  curriculum       Curriculum      @relation(fields: [curriculumId], references: [id], onDelete: Restrict)
 
   @@unique([curriculumId, code, version])
   @@map("cpls")

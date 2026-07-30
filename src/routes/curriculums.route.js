@@ -18,8 +18,8 @@ const router = express.Router();
 
 router.use(authGuard);
 
-router.get("/", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM, ROLES.ADMIN]), getAll);
-router.get("/:id", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM, ROLES.ADMIN]), getById);
+router.get("/", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]), getAll);
+router.get("/:id", requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.GKM]), getById);
 
 // Management routes restricted to GKM only
 router.use(requireAnyRole([ROLES.GKM]));

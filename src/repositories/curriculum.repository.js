@@ -21,6 +21,15 @@ export const findAll = async ({ search = "", page = 1, limit = 10 } = {}) => {
                         cpls: true,
                     },
                 },
+                cpls: {
+                    select: {
+                        _count: {
+                            select: {
+                                studentCplScores: true,
+                            },
+                        },
+                    },
+                },
             },
             skip,
             take: parsedLimit,
@@ -40,6 +49,31 @@ export const findById = async (id) => {
                     cpls: true,
                 },
             },
+            cpls: {
+                select: {
+                    _count: {
+                        select: {
+                            studentCplScores: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+};
+
+export const findOverlappingYearRange = async (startYear, endYear, excludeId) => {
+    return await prisma.curriculum.findFirst({
+        where: {
+            ...(excludeId ? { id: { not: excludeId } } : {}),
+            ...(endYear !== null ? { startYear: { lte: endYear } } : {}),
+            OR: [
+                { endYear: null },
+                { endYear: { gte: startYear } },
+            ],
+        },
+        select: {
+            id: true,
         },
     });
 };
@@ -55,8 +89,25 @@ export const update = async (id, data) => {
     });
 };
 
-export const remove = async (id) => {
-    return await prisma.curriculum.delete({
-        where: { id },
+export const countStudentScores = async (id) => {
+    return await prisma.studentCplScore.count({
+        where: {
+            cpl: {
+                curriculumId: id,
+            },
+        },
     });
+};
+
+export const removeWithCpls = async (id) => {
+    const [, curriculum] = await prisma.$transaction([
+        prisma.cpl.deleteMany({
+            where: { curriculumId: id },
+        }),
+        prisma.curriculum.delete({
+            where: { id },
+        }),
+    ]);
+
+    return curriculum;
 };
