@@ -95,6 +95,20 @@ export const update = async (id, data) => {
         throw new NotFoundError("Data kurikulum tidak ditemukan");
     }
 
+    const hasRelatedScores =
+        existing.cpls?.some((cpl) => cpl._count?.studentCplScores > 0) ?? false;
+    const startYearChanged =
+        data.startYear !== undefined && data.startYear !== existing.startYear;
+    const endYearChanged =
+        data.endYear !== undefined && data.endYear !== existing.endYear;
+    const yearRangeChanged = startYearChanged || endYearChanged;
+
+    if (hasRelatedScores && yearRangeChanged) {
+        throw new ValidationError(
+            "Tahun berlaku kurikulum tidak dapat diubah karena CPL terkait sudah memiliki nilai mahasiswa"
+        );
+    }
+
     const updateData = { ...data };
     if (data.name !== undefined) {
         updateData.name = normalizeName(data.name);
@@ -106,7 +120,9 @@ export const update = async (id, data) => {
     const nextStartYear = data.startYear ?? existing.startYear;
     const nextEndYear = data.endYear !== undefined ? data.endYear : existing.endYear;
     validateYearRange(nextStartYear, nextEndYear);
-    await validateNoOverlappingYearRange(nextStartYear, nextEndYear, id);
+    if (yearRangeChanged) {
+        await validateNoOverlappingYearRange(nextStartYear, nextEndYear, id);
+    }
 
     const updated = await repository.update(id, updateData);
     const updatedWithRelations = await repository.findById(updated.id);

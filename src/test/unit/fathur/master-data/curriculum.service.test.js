@@ -270,6 +270,53 @@ describe("Curriculum Service", () => {
       expect(result.endYear).toBe(2027);
     });
 
+    it("allows renaming a curriculum that already has student CPL scores", async () => {
+      const curriculumWithScores = {
+        ...CURRICULUM_1,
+        cpls: [{ _count: { studentCplScores: 1 } }],
+        _count: { cpls: 1 },
+      };
+      mockPrisma.curriculum.findUnique
+        .mockResolvedValueOnce(curriculumWithScores)
+        .mockResolvedValueOnce({
+          ...curriculumWithScores,
+          name: "Kurikulum OBE",
+        });
+      mockPrisma.curriculum.update.mockResolvedValue({
+        ...curriculumWithScores,
+        name: "Kurikulum OBE",
+      });
+
+      await expect(
+        update(CURRICULUM_1.id, { name: "Kurikulum OBE" })
+      ).resolves.toMatchObject({ name: "Kurikulum OBE", hasRelatedScores: true });
+      expect(mockPrisma.curriculum.update).toHaveBeenCalledWith({
+        where: { id: CURRICULUM_1.id },
+        data: { name: "Kurikulum OBE" },
+      });
+      expect(mockPrisma.curriculum.findFirst).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [{ startYear: 2020 }],
+      [{ endYear: 2027 }],
+      [{ endYear: null }],
+    ])("rejects year-range changes after student CPL scores exist", async (payload) => {
+      mockPrisma.curriculum.findUnique.mockResolvedValue({
+        ...CURRICULUM_1,
+        cpls: [{ _count: { studentCplScores: 1 } }],
+        _count: { cpls: 1 },
+      });
+
+      await expect(update(CURRICULUM_1.id, payload)).rejects.toMatchObject({
+        statusCode: 400,
+        message:
+          "Tahun berlaku kurikulum tidak dapat diubah karena CPL terkait sudah memiliki nilai mahasiswa",
+      });
+      expect(mockPrisma.curriculum.update).not.toHaveBeenCalled();
+      expect(mockPrisma.curriculum.findFirst).not.toHaveBeenCalled();
+    });
+
     it("throws NotFoundError if updating non-existent curriculum", async () => {
       mockPrisma.curriculum.findUnique.mockResolvedValue(null);
 
