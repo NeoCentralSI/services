@@ -6,10 +6,13 @@ export const createCplSchema = z.object({
         .uuid("ID Kurikulum tidak valid"),
     code: z
         .string({ required_error: "Kode CPL wajib diisi" })
+        .trim()
         .min(1, "Kode CPL tidak boleh kosong")
-        .max(255, "Kode CPL maksimal 255 karakter"),
+        .max(255, "Kode CPL maksimal 255 karakter")
+        .transform((value) => value.toUpperCase()),
     description: z
         .string({ required_error: "Deskripsi wajib diisi" })
+        .trim()
         .min(1, "Deskripsi tidak boleh kosong")
         .max(255, "Deskripsi maksimal 255 karakter"),
     minimalScore: z
@@ -27,11 +30,14 @@ export const updateCplSchema = z.object({
         .optional(),
     code: z
         .string()
+        .trim()
         .min(1, "Kode CPL tidak boleh kosong")
         .max(255, "Kode CPL maksimal 255 karakter")
+        .transform((value) => value.toUpperCase())
         .optional(),
     description: z
         .string()
+        .trim()
         .min(1, "Deskripsi tidak boleh kosong")
         .max(255, "Deskripsi maksimal 255 karakter")
         .optional(),
@@ -48,6 +54,7 @@ export const createCplStudentScoreSchema = z.object({
     score: z
         .number({ required_error: "score wajib diisi" })
         .int("score harus bilangan bulat")
+        .min(0, "score minimal 0")
         .max(100, "score maksimal 100"),
     status: z.enum(["calculated", "validated", "finalized"]).optional(),
 });
@@ -56,6 +63,7 @@ export const updateCplStudentScoreSchema = z.object({
     score: z
         .number({ required_error: "score wajib diisi" })
         .int("score harus bilangan bulat")
+        .min(0, "score minimal 0")
         .max(100, "score maksimal 100"),
     status: z.enum(["calculated", "validated", "finalized"]).optional(),
 });
