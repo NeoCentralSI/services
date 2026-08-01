@@ -2,18 +2,15 @@ import { z } from "zod";
 
 export const createRequirementSchema = z.object({
   academicYearId: z.string().uuid("ID Tahun Ajaran tidak valid"),
-  code: z.string().optional(),
-  name: z.string().min(1, "Nama persyaratan tidak boleh kosong"),
-  description: z.string().optional(),
-  isRequired: z.boolean().optional().default(true),
-  isActive: z.boolean().optional().default(true),
-  displayOrder: z.number().int().optional().default(0),
+  name: z.string().trim().min(1, "Nama persyaratan tidak boleh kosong").max(255, "Nama persyaratan maksimal 255 karakter"),
+  description: z.string().trim().optional(),
 });
 
 export const updateRequirementSchema = createRequirementSchema.partial().omit({ academicYearId: true });
 
 export const reorderRequirementsSchema = z.object({
-  orderedIds: z.array(z.string().uuid("ID persyaratan tidak valid")),
+  academicYearId: z.string().uuid("ID Tahun Ajaran tidak valid"),
+  orderedIds: z.array(z.string().uuid("ID persyaratan tidak valid")).min(1, "Daftar urutan tidak boleh kosong"),
 });
 
 export const copyTemplateSchema = z.object({
