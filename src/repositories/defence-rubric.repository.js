@@ -135,7 +135,7 @@ export const updateCriteria = async (role, id, data) => {
 export const removeCriteriaWithRubrics = async (role, criteriaId) => {
     const criteriaModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
     const rubricModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentRubric" : "thesisDefenceSupervisorAssessmentRubric";
-    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
+    const foreignKey = "assessmentCriteriaId";
 
     return await prisma.$transaction(async (tx) => {
         await tx[rubricModelName].deleteMany({
@@ -156,7 +156,7 @@ export const findDefenceCriteriaByCpmk = async (role, thesisCpmkId) => {
 export const removeDefenceConfigByCpmk = async (role, thesisCpmkId) => {
     const criteriaModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
     const rubricModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentRubric" : "thesisDefenceSupervisorAssessmentRubric";
-    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
+    const foreignKey = "assessmentCriteriaId";
 
     return await prisma.$transaction(async (tx) => {
         const criteriaRows = await tx[criteriaModelName].findMany({
@@ -224,7 +224,7 @@ export const hasAnyAssessmentDataForAcademicYear = async (academicYearId) => {
 
 export const findRubricById = async (role, id) => {
     const model = getRubricModel(role);
-    const criteriaField = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
+    const criteriaField = "assessmentCriteria";
     
     return await model.findUnique({
         where: { id },
@@ -239,7 +239,7 @@ export const findRubricById = async (role, id) => {
 export const createRubricTx = async (role, { criteriaId, data }) => {
     const criteriaModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteria" : "thesisDefenceSupervisorAssessmentCriteria";
     const rubricModelName = role === "examiner" ? "thesisDefenceExaminerAssessmentRubric" : "thesisDefenceSupervisorAssessmentRubric";
-    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
+    const foreignKey = "assessmentCriteriaId";
 
     return await prisma.$transaction(async (tx) => {
         const last = await tx[rubricModelName].findFirst({
@@ -274,7 +274,7 @@ export const removeRubric = async (role, id) => {
 
 export const findRubricsByCriteria = async (role, criteriaId, excludeRubricId = null) => {
     const model = getRubricModel(role);
-    const foreignKey = role === "examiner" ? "thesisDefenceExaminerAssessmentCriteriaId" : "thesisDefenceSupervisorAssessmentCriteriaId";
+    const foreignKey = "assessmentCriteriaId";
     
     const where = { [foreignKey]: criteriaId };
     if (excludeRubricId) {

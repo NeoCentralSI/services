@@ -8,7 +8,11 @@ import {
     copyTemplate,
 } from "../controllers/thesis-cpmk.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { createThesisCpmkSchema, updateThesisCpmkSchema } from "../validators/master-data/thesis-cpmk.validator.js";
+import {
+    copyThesisCpmkTemplateSchema,
+    createThesisCpmkSchema,
+    updateThesisCpmkSchema,
+} from "../validators/master-data/thesis-cpmk.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
 
@@ -20,7 +24,7 @@ router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN])
 
 // Routes
 router.get("/", getAll);
-router.post("/copy-template", copyTemplate);
+router.post("/copy-template", validate(copyThesisCpmkTemplateSchema), copyTemplate);
 router.get("/:id", getById);
 router.post("/", validate(createThesisCpmkSchema), create);
 router.patch("/:id", validate(updateThesisCpmkSchema), update);

@@ -1,5 +1,14 @@
 import * as thesisCpmkRepository from "../repositories/thesis-cpmk.repository.js";
 
+const createValidationError = (message) => {
+    const error = new Error(message);
+    error.statusCode = 400;
+    return error;
+};
+
+const normalizeCode = (code) => code.trim().toUpperCase();
+const normalizeDescription = (description) => description.trim();
+
 export const getAllThesisCpmks = async (filters) => {
     return await thesisCpmkRepository.findAll(filters);
 };
@@ -15,29 +24,59 @@ export const getThesisCpmkById = async (id) => {
 };
 
 export const createThesisCpmk = async (data) => {
-    const existingCpmk = await thesisCpmkRepository.findByCode(data.code, data.academicYearId);
+    const createData = {
+        ...data,
+        code: normalizeCode(data.code),
+        description: normalizeDescription(data.description),
+    };
+    const existingCpmk = await thesisCpmkRepository.findByCode(createData.code, createData.academicYearId);
     if (existingCpmk) {
-        const error = new Error(`CPMK dengan kode ${data.code} sudah ada pada tahun ajaran ini`);
-        error.statusCode = 400;
-        throw error;
+        throw createValidationError(`CPMK dengan kode ${createData.code} sudah ada pada tahun ajaran ini`);
     }
 
-    return await thesisCpmkRepository.create(data);
+    try {
+        return await thesisCpmkRepository.create(createData);
+    } catch (error) {
+        if (error.code === "P2002") {
+            throw createValidationError(`CPMK dengan kode ${createData.code} sudah ada pada tahun ajaran ini`);
+        }
+        throw error;
+    }
 };
 
 export const updateThesisCpmk = async (id, data) => {
     const cpmk = await getThesisCpmkById(id);
+    const updateData = {};
 
-    if (data.code && data.code !== cpmk.code) {
-        const existingCpmk = await thesisCpmkRepository.findByCode(data.code, cpmk.academicYearId, id);
-        if (existingCpmk) {
-            const error = new Error(`CPMK dengan kode ${data.code} sudah ada pada tahun ajaran ini`);
-            error.statusCode = 400;
-            throw error;
-        }
+    if (data.description !== undefined) {
+        updateData.description = normalizeDescription(data.description);
     }
 
-    return await thesisCpmkRepository.update(id, data);
+    if (data.code !== undefined) {
+        const normalizedCode = normalizeCode(data.code);
+        if (normalizedCode !== cpmk.code) {
+            const hasRelations = await thesisCpmkRepository.hasRelatedData(id);
+            if (hasRelations) {
+                throw createValidationError("Kode CPMK tidak dapat diubah karena sudah digunakan dalam penilaian");
+            }
+
+            const existingCpmk = await thesisCpmkRepository.findByCode(normalizedCode, cpmk.academicYearId, id);
+            if (existingCpmk) {
+                throw createValidationError(`CPMK dengan kode ${normalizedCode} sudah ada pada tahun ajaran ini`);
+            }
+        }
+        updateData.code = normalizedCode;
+    }
+
+    try {
+        return await thesisCpmkRepository.update(id, updateData);
+    } catch (error) {
+        if (error.code === "P2002") {
+            const code = updateData.code ?? cpmk.code;
+            throw createValidationError(`CPMK dengan kode ${code} sudah ada pada tahun ajaran ini`);
+        }
+        throw error;
+    }
 };
 
 export const deleteThesisCpmk = async (id) => {

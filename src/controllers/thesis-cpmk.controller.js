@@ -48,7 +48,7 @@ export const remove = async (req, res, next) => {
 
 export const copyTemplate = async (req, res, next) => {
     try {
-        const { sourceAcademicYearId, targetAcademicYearId } = req.body;
+        const { sourceAcademicYearId, targetAcademicYearId } = req.validated;
         const result = await thesisCpmkService.copyTemplate(sourceAcademicYearId, targetAcademicYearId);
         res.status(200).json({
             success: true,

@@ -44,8 +44,8 @@ const SEMINAR_EXAMINER_CRITERIA = [
             { min: 0, max: 3, desc: "Solusi tidak relevan dengan masalah yang diangkat atau tanpa dasar analisis kebutuhan." },
             { min: 4, max: 6, desc: "Solusi kurang sesuai dan tidak menunjukkan hubungan langsung dengan permasalahan organisasi." },
             { min: 7, max: 9, desc: "Solusi cukup sesuai namun tidak sepenuhnya menjawab masalah inti." },
-            { min: 9, max: 12, desc: "Solusi relevan dengan sebagian besar masalah utama, namun belum menunjukkan bukti kebutuhan pengguna secara lengkap." },
-            { min: 12, max: 15, desc: "Solusi sepenuhnya menjawab akar masalah dan selaras dengan kebutuhan organisasi, disertai bukti kebutuhan pengguna dan hasil analisis masalah." },
+            { min: 10, max: 12, desc: "Solusi relevan dengan sebagian besar masalah utama, namun belum menunjukkan bukti kebutuhan pengguna secara lengkap." },
+            { min: 13, max: 15, desc: "Solusi sepenuhnya menjawab akar masalah dan selaras dengan kebutuhan organisasi, disertai bukti kebutuhan pengguna dan hasil analisis masalah." },
         ],
     },
     {
@@ -104,8 +104,8 @@ const SEMINAR_EXAMINER_CRITERIA = [
             { min: 0, max: 3, desc: "Tidak mampu menyampaikan ide atau hasil dengan jelas; komunikasi tidak efektif." },
             { min: 4, max: 6, desc: "Presentasi tidak runtut dan sulit dipahami; penggunaan bahasa tidak efektif." },
             { min: 7, max: 9, desc: "Presentasi cukup runtut, namun penjelasan sering tidak mendalam atau tidak fokus." },
-            { min: 9, max: 12, desc: "Presentasi teratur dan jelas, namun kurang kuat dalam argumentasi atau visualisasi." },
-            { min: 12, max: 15, desc: "Presentasi terstruktur, logis, dan sistematis; penyampaian jelas dan meyakinkan; penggunaan bahasa dan visualisasi efektif; mampu menjelaskan konsep tanpa membaca naskah." },
+            { min: 10, max: 12, desc: "Presentasi teratur dan jelas, namun kurang kuat dalam argumentasi atau visualisasi." },
+            { min: 13, max: 15, desc: "Presentasi terstruktur, logis, dan sistematis; penyampaian jelas dan meyakinkan; penggunaan bahasa dan visualisasi efektif; mampu menjelaskan konsep tanpa membaca naskah." },
         ],
     },
     {
@@ -116,8 +116,8 @@ const SEMINAR_EXAMINER_CRITERIA = [
             { min: 0, max: 3, desc: "Laporan tidak memenuhi kaidah akademik dan tidak logis dalam isi maupun format." },
             { min: 4, max: 6, desc: "Laporan tidak sistematis, dengan banyak kesalahan bahasa atau sitasi." },
             { min: 7, max: 9, desc: "Laporan cukup baik, tetapi analisis tidak mendalam atau format tidak konsisten." },
-            { min: 9, max: 12, desc: "Laporan sistematis dan jelas, namun ada kesalahan minor dalam bahasa atau format referensi." },
-            { min: 12, max: 15, desc: "Laporan terstruktur sesuai pedoman, menggunakan bahasa ilmiah baku, referensi terbaru dan valid, serta konsisten antara hasil, pembahasan, dan kesimpulan." },
+            { min: 10, max: 12, desc: "Laporan sistematis dan jelas, namun ada kesalahan minor dalam bahasa atau format referensi." },
+            { min: 13, max: 15, desc: "Laporan terstruktur sesuai pedoman, menggunakan bahasa ilmiah baku, referensi terbaru dan valid, serta konsisten antara hasil, pembahasan, dan kesimpulan." },
         ],
     },
     {
@@ -128,8 +128,8 @@ const SEMINAR_EXAMINER_CRITERIA = [
             { min: 0, max: 3, desc: "Tidak mampu menjawab dengan baik, menolak kritik, atau tidak memahami pertanyaan." },
             { min: 4, max: 6, desc: "Jawaban kurang tepat dan tidak menunjukkan sikap reflektif." },
             { min: 7, max: 9, desc: "Menjawab sebagian pertanyaan, namun tidak mendalam atau kurang relevan." },
-            { min: 9, max: 12, desc: "Menjawab tepat dan jelas, namun refleksi terhadap masukan masih terbatas." },
-            { min: 12, max: 15, desc: "Menjawab tepat dan logis, dengan argumentasi berbasis data/literatur; sopan dan terbuka terhadap kritik; menunjukkan refleksi terhadap perbaikan karya." },
+            { min: 10, max: 12, desc: "Menjawab tepat dan jelas, namun refleksi terhadap masukan masih terbatas." },
+            { min: 13, max: 15, desc: "Menjawab tepat dan logis, dengan argumentasi berbasis data/literatur; sopan dan terbuka terhadap kritik; menunjukkan refleksi terhadap perbaikan karya." },
         ],
     },
 ];
@@ -143,8 +143,8 @@ const DEFENCE_EXAMINER_CRITERIA = [
             { min: 0, max: 4, desc: "Mahasiswa tidak menunjukkan kemampuan yang dapat dievaluasi, solusi tidak relevan, tanpa analisis, rancangan, implementasi, atau pengujian yang dapat dibuktikan." },
             { min: 5, max: 8, desc: "Mahasiswa kurang menunjukkan integrasi antara analisis, rancangan, dan implementasi. Solusi kurang relevan, rancangan tidak lengkap atau tidak logis, implementasi belum berjalan dengan baik, dan pengujian tidak sistematis." },
             { min: 9, max: 12, desc: "Mahasiswa menunjukkan kemampuan cukup pada sebagian tahapan. Solusi cukup relevan, analisis dan rancangan masih terbatas, sistem hanya sebagian berfungsi, dan pengujian dilakukan secara terbatas tanpa metode yang jelas." },
-            { min: 12, max: 16, desc: "Mahasiswa menunjukkan kemampuan baik dalam seluruh tahapan perancangan dan implementasi. Solusi relevan dan logis, analisis dan rancangan cukup lengkap, sistem berfungsi baik dengan kekurangan minor, serta pengujian telah dilakukan namun belum sepenuhnya mendalam atau terdokumentasi sempurna." },
-            { min: 16, max: 20, desc: "Mahasiswa menunjukkan kemampuan menyeluruh dan terintegrasi dalam mengembangkan solusi sistem informasi. Solusi sangat relevan dengan masalah organisasi, analisis proses dan model sistem akurat dan logis, perancangan sistem komprehensif dan konsisten, implementasi berfungsi penuh, pengujian valid dan terdokumentasi baik." },
+            { min: 13, max: 16, desc: "Mahasiswa menunjukkan kemampuan baik dalam seluruh tahapan perancangan dan implementasi. Solusi relevan dan logis, analisis dan rancangan cukup lengkap, sistem berfungsi baik dengan kekurangan minor, serta pengujian telah dilakukan namun belum sepenuhnya mendalam atau terdokumentasi sempurna." },
+            { min: 17, max: 20, desc: "Mahasiswa menunjukkan kemampuan menyeluruh dan terintegrasi dalam mengembangkan solusi sistem informasi. Solusi sangat relevan dengan masalah organisasi, analisis proses dan model sistem akurat dan logis, perancangan sistem komprehensif dan konsisten, implementasi berfungsi penuh, pengujian valid dan terdokumentasi baik." },
         ],
     },
     {
@@ -167,8 +167,8 @@ const DEFENCE_EXAMINER_CRITERIA = [
             { min: 0, max: 3, desc: "Laporan tidak memenuhi kaidah akademik dan tidak logis dalam isi maupun format." },
             { min: 4, max: 6, desc: "Laporan tidak sistematis, dengan banyak kesalahan bahasa atau sitasi." },
             { min: 7, max: 9, desc: "Laporan cukup baik, tetapi analisis tidak mendalam atau format tidak konsisten." },
-            { min: 9, max: 12, desc: "Laporan sistematis dan jelas, namun ada kesalahan minor dalam bahasa atau format referensi." },
-            { min: 12, max: 15, desc: "Laporan terstruktur sesuai pedoman, menggunakan bahasa ilmiah baku, referensi terbaru dan valid, serta konsisten antara hasil, pembahasan, dan kesimpulan." },
+            { min: 10, max: 12, desc: "Laporan sistematis dan jelas, namun ada kesalahan minor dalam bahasa atau format referensi." },
+            { min: 13, max: 15, desc: "Laporan terstruktur sesuai pedoman, menggunakan bahasa ilmiah baku, referensi terbaru dan valid, serta konsisten antara hasil, pembahasan, dan kesimpulan." },
         ],
     },
     {
@@ -179,8 +179,8 @@ const DEFENCE_EXAMINER_CRITERIA = [
             { min: 0, max: 3, desc: "Tidak mampu menjawab dengan baik, menolak kritik, atau tidak memahami pertanyaan." },
             { min: 4, max: 6, desc: "Jawaban kurang tepat dan tidak menunjukkan sikap reflektif." },
             { min: 7, max: 9, desc: "Menjawab sebagian pertanyaan, namun tidak mendalam atau kurang relevan." },
-            { min: 9, max: 12, desc: "Menjawab tepat dan jelas, namun refleksi terhadap masukan masih terbatas." },
-            { min: 12, max: 15, desc: "Menjawab tepat dan logis, dengan argumentasi berbasis data/literatur; sopan dan terbuka terhadap kritik; menunjukkan refleksi terhadap perbaikan karya." },
+            { min: 10, max: 12, desc: "Menjawab tepat dan jelas, namun refleksi terhadap masukan masih terbatas." },
+            { min: 13, max: 15, desc: "Menjawab tepat dan logis, dengan argumentasi berbasis data/literatur; sopan dan terbuka terhadap kritik; menunjukkan refleksi terhadap perbaikan karya." },
         ],
     },
     {
@@ -237,66 +237,120 @@ const DEFENCE_SUPERVISOR_CRITERIA = [
 ];
 
 async function main() {
-    console.log("🌱 Starting Thesis Rubrics seeding with NEW TABLES...");
+    console.log("Starting thesis rubric seed for the active academic year...");
 
-    let activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-    if (!activeYear) {
-        console.log("⚠️ No active academic year found. Creating a default one (Ganjil 2025)...");
-        activeYear = await prisma.academicYear.create({
-            data: {
-                semester: "ganjil",
-                year: "2025",
-                startDate: new Date("2025-08-01"),
-                endDate: new Date("2026-01-31"),
-                isActive: true,
-                thesisSeminarMinimumScore: 65,
-                thesisDefenceMinimumScore: 65,
-            }
-        });
-        console.log(`✅ Created Academic Year: ${activeYear.semester} ${activeYear.year}`);
-    } else {
-        console.log(`📅 Found Active Academic Year: ${activeYear.semester} ${activeYear.year}`);
-        
-        // Ensure the active year has a minimum score
-        if (activeYear.thesisSeminarMinimumScore === null || activeYear.thesisDefenceMinimumScore === null) {
-            await prisma.academicYear.update({
-                where: { id: activeYear.id },
-                data: {
-                    thesisSeminarMinimumScore: 65,
-                    thesisDefenceMinimumScore: 65,
-                }
-            });
-            console.log(`✅ Initialized Minimum Scores for Active Academic Year`);
-        }
-    }
-
-    // Clear existing data specific to this script (optional, but safe for dev)
-    console.log("\n🧹 Cleaning up old thesis assessment data...");
-    await prisma.thesisSeminarAssessmentRubric.deleteMany({});
-    await prisma.thesisSeminarAssessmentCriteria.deleteMany({});
-    await prisma.thesisDefenceExaminerAssessmentRubric.deleteMany({});
-    await prisma.thesisDefenceExaminerAssessmentCriteria.deleteMany({});
-    await prisma.thesisDefenceSupervisorAssessmentRubric.deleteMany({});
-    await prisma.thesisDefenceSupervisorAssessmentCriteria.deleteMany({});
-    await prisma.thesisCpmk.deleteMany({
-        where: { academicYearId: activeYear.id }
+    const activeYear = await prisma.academicYear.findFirst({
+        where: { isActive: true },
+        orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
     });
 
-    // 1. Seed Thesis CPMKs
+    if (!activeYear) {
+        throw new Error("No academic year with is_active=true was found. Activate an academic year before running this seed.");
+    }
+
+    console.log(`Active academic year: ${activeYear.semester} ${activeYear.year || ""}`);
+
+    const minimumScoreData = {};
+    if (activeYear.thesisSeminarMinimumScore === null) {
+        minimumScoreData.thesisSeminarMinimumScore = 65;
+    }
+    if (activeYear.thesisDefenceMinimumScore === null) {
+        minimumScoreData.thesisDefenceMinimumScore = 65;
+    }
+    if (Object.keys(minimumScoreData).length > 0) {
+        await prisma.academicYear.update({
+            where: { id: activeYear.id },
+            data: minimumScoreData,
+        });
+    }
+
+    const validateTemplate = (label, criteriaList) => {
+        for (const criteria of criteriaList) {
+            let previousMax = -1;
+            for (const rubric of criteria.rubrics) {
+                if (rubric.min < 0 || rubric.min > rubric.max || rubric.max > criteria.maxScore) {
+                    throw new Error(`${label} has an invalid score range for ${criteria.name}`);
+                }
+                if (rubric.min !== previousMax + 1) {
+                    throw new Error(label + " must have continuous, non-overlapping score ranges for " + criteria.name);
+                }
+                previousMax = rubric.max;
+            }
+            if (previousMax !== criteria.maxScore) {
+                throw new Error(label + " score ranges must end at maxScore for " + criteria.name);
+            }
+        }
+    };
+
+    validateTemplate("Seminar", SEMINAR_EXAMINER_CRITERIA);
+    validateTemplate("Defence examiner", DEFENCE_EXAMINER_CRITERIA);
+    validateTemplate("Defence supervisor", DEFENCE_SUPERVISOR_CRITERIA);
+
+    const seminarTotal = SEMINAR_EXAMINER_CRITERIA.reduce((sum, item) => sum + item.maxScore, 0);
+    const defenceTotal = [...DEFENCE_EXAMINER_CRITERIA, ...DEFENCE_SUPERVISOR_CRITERIA]
+        .reduce((sum, item) => sum + item.maxScore, 0);
+    if (seminarTotal !== 100 || defenceTotal !== 100) {
+        throw new Error(`Rubric weights must total 100 (seminar=${seminarTotal}, defence=${defenceTotal})`);
+    }
+
     const cpmkMap = new Map();
-    let displayOrderCpmk = 0;
     for (const data of CPMKS) {
-        const cpmk = await prisma.thesisCpmk.create({
-            data: {
+        const cpmk = await prisma.thesisCpmk.upsert({
+            where: {
+                academicYearId_code: {
+                    academicYearId: activeYear.id,
+                    code: data.code,
+                },
+            },
+            create: {
+                academicYearId: activeYear.id,
                 code: data.code,
                 description: data.description,
-                
-                academicYearId: activeYear.id,
+            },
+            update: {
+                description: data.description,
             },
         });
-        console.log(`✨ Created Thesis CPMK: ${data.code}`);
         cpmkMap.set(data.code, cpmk);
     }
+
+    const seededCpmkIds = [...cpmkMap.values()].map((cpmk) => cpmk.id);
+    const [seminarAssessmentCount, defenceExaminerAssessmentCount, defenceSupervisorAssessmentCount] = await Promise.all([
+        prisma.thesisSeminarExaminerAssessmentDetail.count({
+            where: { criteria: { thesisCpmkId: { in: seededCpmkIds } } },
+        }),
+        prisma.thesisDefenceExaminerAssessmentDetail.count({
+            where: { criteria: { thesisCpmkId: { in: seededCpmkIds } } },
+        }),
+        prisma.thesisDefenceSupervisorAssessmentDetail.count({
+            where: { criteria: { thesisCpmkId: { in: seededCpmkIds } } },
+        }),
+    ]);
+
+    if (seminarAssessmentCount + defenceExaminerAssessmentCount + defenceSupervisorAssessmentCount > 0) {
+        throw new Error("The active academic year already has thesis assessment scores. Rubric seed aborted to preserve assessment data.");
+    }
+
+    await prisma.$transaction([
+        prisma.thesisSeminarAssessmentRubric.deleteMany({
+            where: { assessmentCriteria: { thesisCpmkId: { in: seededCpmkIds } } },
+        }),
+        prisma.thesisDefenceExaminerAssessmentRubric.deleteMany({
+            where: { assessmentCriteria: { thesisCpmkId: { in: seededCpmkIds } } },
+        }),
+        prisma.thesisDefenceSupervisorAssessmentRubric.deleteMany({
+            where: { assessmentCriteria: { thesisCpmkId: { in: seededCpmkIds } } },
+        }),
+        prisma.thesisSeminarAssessmentCriteria.deleteMany({
+            where: { thesisCpmkId: { in: seededCpmkIds } },
+        }),
+        prisma.thesisDefenceExaminerAssessmentCriteria.deleteMany({
+            where: { thesisCpmkId: { in: seededCpmkIds } },
+        }),
+        prisma.thesisDefenceSupervisorAssessmentCriteria.deleteMany({
+            where: { thesisCpmkId: { in: seededCpmkIds } },
+        }),
+    ]);
 
     // 2. Seed Seminar Examiner Criteria
     console.log("\n📋 Seeding Seminar Examiner Criteria...");

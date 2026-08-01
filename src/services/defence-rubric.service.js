@@ -19,6 +19,12 @@ class ValidationError extends Error {
 
 const VALID_ROLES = ["examiner", "supervisor"];
 
+const ensureValidRole = (role) => {
+    if (!VALID_ROLES.includes(role)) {
+        throw new ValidationError("Role tidak valid");
+    }
+};
+
 const resolveAcademicYearId = async (academicYearId) => {
     if (academicYearId && academicYearId !== "undefined" && academicYearId !== "null") return academicYearId;
     return await getActiveAcademicYearId();
@@ -118,9 +124,7 @@ export const updateDefenceMinimumScore = async (academicYearId, minimumScore) =>
 };
 
 export const getCpmksWithRubrics = async (role, { academicYearId } = {}) => {
-    if (!VALID_ROLES.includes(role)) {
-        throw new ValidationError("Role tidak valid");
-    }
+    ensureValidRole(role);
 
     const effectiveAcademicYearId = await resolveAcademicYearId(academicYearId);
     const cpmks = await repository.findConfiguredDefenceCpmks(role, effectiveAcademicYearId);
@@ -129,6 +133,7 @@ export const getCpmksWithRubrics = async (role, { academicYearId } = {}) => {
 };
 
 export const createCriteria = async (data) => {
+    ensureValidRole(data.role);
     const cpmk = await repository.findThesisCpmkById(data.thesisCpmkId);
     if (!cpmk) {
         throw new NotFoundError("CPMK tidak ditemukan");
@@ -153,11 +158,12 @@ export const createCriteria = async (data) => {
 };
 
 export const updateCriteria = async (role, criteriaId, data) => {
+    ensureValidRole(role);
     const criteria = await repository.findCriteriaById(role, criteriaId);
     ensureCriteriaExists(criteria);
 
     const hasAssessmentDetails = await criteriaHasAssessmentDetails(role, criteriaId);
-    if (hasAssessmentDetails) {
+    if (hasAssessmentDetails && data.maxScore !== undefined) {
         throw new ValidationError("Kriteria tidak dapat diubah karena sudah memiliki detail penilaian turunan");
     }
 
@@ -187,6 +193,7 @@ export const updateCriteria = async (role, criteriaId, data) => {
 };
 
 export const deleteCriteria = async (role, criteriaId) => {
+    ensureValidRole(role);
     const criteria = await repository.findCriteriaById(role, criteriaId);
     ensureCriteriaExists(criteria);
 
@@ -200,6 +207,7 @@ export const deleteCriteria = async (role, criteriaId) => {
 };
 
 export const removeDefenceCpmkConfig = async (role, cpmkId) => {
+    ensureValidRole(role);
     const cpmk = await repository.findThesisCpmkById(cpmkId);
     if (!cpmk) throw new NotFoundError("CPMK tidak ditemukan");
 
@@ -215,6 +223,7 @@ export const removeDefenceCpmkConfig = async (role, cpmkId) => {
 };
 
 export const createRubric = async (role, criteriaId, data) => {
+    ensureValidRole(role);
     validateRange(data.minScore, data.maxScore);
 
     const criteria = await repository.findCriteriaById(role, criteriaId);
@@ -235,10 +244,11 @@ export const createRubric = async (role, criteriaId, data) => {
 };
 
 export const updateRubric = async (role, id, data) => {
+    ensureValidRole(role);
     const rubric = await repository.findRubricById(role, id);
     if (!rubric) throw new NotFoundError("Rubrik tidak ditemukan");
 
-    const criteria = rubric.thesisDefenceExaminerAssessmentCriteria || rubric.thesisDefenceSupervisorAssessmentCriteria;
+    const criteria = rubric.assessmentCriteria;
 
     await ensureRubricMutationAllowed(role, criteria.id);
 
@@ -260,10 +270,11 @@ export const updateRubric = async (role, id, data) => {
 };
 
 export const deleteRubric = async (role, id) => {
+    ensureValidRole(role);
     const rubric = await repository.findRubricById(role, id);
     if (!rubric) throw new NotFoundError("Rubrik tidak ditemukan");
 
-    const criteria = rubric.thesisDefenceExaminerAssessmentCriteria || rubric.thesisDefenceSupervisorAssessmentCriteria;
+    const criteria = rubric.assessmentCriteria;
 
     await ensureRubricMutationAllowed(role, criteria.id);
 
@@ -272,14 +283,38 @@ export const deleteRubric = async (role, id) => {
 };
 
 export const reorderCriteria = async (role, data) => {
+    ensureValidRole(role);
+    const criteriaList = await repository.findDefenceCriteriaByCpmk(role, data.thesisCpmkId);
+    if (criteriaList.length !== data.orderedIds.length ||
+        !data.orderedIds.every((id) => criteriaList.some((criteria) => criteria.id === id))) {
+        throw new ValidationError("Urutan kriteria tidak sesuai dengan CPMK dan peran");
+    }
+
+    const inUse = await Promise.all(criteriaList.map((criteria) => criteriaHasAssessmentDetails(role, criteria.id)));
+    if (inUse.some(Boolean)) {
+        throw new ValidationError("Urutan kriteria tidak dapat diubah karena sudah memiliki detail penilaian");
+    }
+
     return await repository.reorderCriteria(role, data.thesisCpmkId, data.orderedIds);
 };
 
 export const reorderRubrics = async (role, data) => {
+    ensureValidRole(role);
+    const criteria = await repository.findCriteriaById(role, data.criteriaId);
+    ensureCriteriaExists(criteria);
+    await ensureRubricMutationAllowed(role, data.criteriaId);
+
+    const rubrics = await repository.findRubricsByCriteria(role, data.criteriaId);
+    if (rubrics.length !== data.orderedIds.length ||
+        !data.orderedIds.every((id) => rubrics.some((rubric) => rubric.id === id))) {
+        throw new ValidationError("Urutan rubrik tidak sesuai dengan kriteria dan peran");
+    }
+
     return await repository.reorderRubrics(role, data.criteriaId, data.orderedIds);
 };
 
 export const getWeightSummary = async (role, { academicYearId } = {}) => {
+    ensureValidRole(role);
     const effectiveAcademicYearId = await resolveAcademicYearId(academicYearId);
     const summary = await repository.getDefenceWeightSummary(role, effectiveAcademicYearId);
     const totals = await calculateDefenceTotals(effectiveAcademicYearId);
@@ -289,6 +324,7 @@ export const getWeightSummary = async (role, { academicYearId } = {}) => {
         examinerTotal: totals.examinerTotal,
         supervisorTotal: totals.supervisorTotal,
         combinedTotal: totals.combinedTotal,
+        isComplete: totals.combinedTotal === 100,
     };
 };
 
