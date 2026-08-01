@@ -69,7 +69,7 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
   describe("getAudiences", () => {
     it("returns mapped list of audiences", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1" });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1" });
       mockAudienceRepo.findAudiencesBySeminarId.mockResolvedValue([
         { studentId: "st1", student: { user: { fullName: "A", identityNumber: "1" } }, supervisor: { lecturer: { user: { fullName: "S" } } } }
       ]);
@@ -80,7 +80,7 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
   describe("addAudience", () => {
     it("allows student self-registration", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1" });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1" });
       mockPrisma.thesisSeminar.findUnique.mockResolvedValue({ status: "scheduled", thesis: { student: { id: "owner" } } });
       mockAudienceRepo.findAudienceRegistration.mockResolvedValue(null);
       mockPrisma.student.findUnique.mockResolvedValue({ id: "st1", user: { id: "u1" } });
@@ -88,16 +88,19 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
       const res = await addAudience("s1", {}, { studentId: "st1" });
       expect(res.message).toContain("Berhasil");
+      expect(mockAudienceRepo.createAudienceRegistration).toHaveBeenCalledWith("s1", "t1", "st1");
     });
 
     it("allows admin to add audience manually for archive", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", registeredAt: null });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1", registeredAt: null });
       mockAudienceRepo.findAudienceByKey.mockResolvedValue(null);
       mockCoreRepo.findThesisById.mockResolvedValue({ studentId: "owner" });
       mockCoreRepo.findSupervisorsByThesisId.mockResolvedValue([{ id: "sup1" }]);
 
       await addAudience("s1", { studentId: "st1" }, { role: "admin" });
-      expect(mockAudienceRepo.createAudience).toHaveBeenCalled();
+      expect(mockAudienceRepo.createAudience).toHaveBeenCalledWith(
+        expect.objectContaining({ seminarId: "s1", thesisId: "t1", studentId: "st1" })
+      );
     });
   });
 
@@ -145,7 +148,7 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
   describe("Import/Export", () => {
     it("imports from excel successfully", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", registeredAt: null });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1", registeredAt: null });
       mockXlsx.read.mockReturnValue({ SheetNames: ["S"], Sheets: { "S": {} } });
       mockXlsx.utils.sheet_to_json.mockReturnValue([{ "Nama Mahasiswa": "A", "NIM": "1" }]);
       mockCoreRepo.findStudentByNameOrNim.mockResolvedValue({ id: "st1" });
@@ -154,6 +157,9 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
       const res = await importAudiences("s1", { buffer: Buffer.from("test") });
       expect(res.successCount).toBe(1);
+      expect(mockAudienceRepo.createAudience).toHaveBeenCalledWith(
+        expect.objectContaining({ seminarId: "s1", thesisId: "t1", studentId: "st1" })
+      );
     });
 
     it("exports to excel successfully", async () => {

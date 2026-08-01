@@ -88,7 +88,7 @@ export async function addAudience(seminarId, body, user) {
   const supervisors = await coreRepo.findSupervisorsByThesisId(seminar.thesisId);
   const supervisorId = supervisors?.[0]?.id || null;
 
-  await audienceRepo.createAudience({ seminarId, studentId, supervisorId, seminarDate: seminar.date });
+  await audienceRepo.createAudience({ seminarId, thesisId: seminar.thesisId, studentId, supervisorId, seminarDate: seminar.date });
   return { success: true };
 }
 
@@ -108,7 +108,7 @@ async function registerAsAudience(seminarId, studentId, seminar) {
   const existing = await audienceRepo.findAudienceRegistration(seminarId, studentId);
   if (existing) throwError("Anda sudah terdaftar sebagai peserta seminar ini.", 409);
 
-  await audienceRepo.createAudienceRegistration(seminarId, studentId);
+  await audienceRepo.createAudienceRegistration(seminarId, seminar.thesisId, studentId);
 
   // Calendar sync (background/fire-and-forget style to avoid blocking the response)
   syncAudienceToOutlook(seminarId, studentId).catch(err =>
@@ -306,7 +306,7 @@ export async function importAudiences(seminarId, file) {
 
       const existing = await audienceRepo.findAudienceByKey(seminarId, student.id);
       if (existing) { results.failed++; results.failedRows.push({ row: i + 2, error: `Mahasiswa ${rawName} sudah terdaftar sebagai audience` }); continue; }
-      await audienceRepo.createAudience({ seminarId, studentId: student.id, supervisorId, seminarDate: seminar.date });
+      await audienceRepo.createAudience({ seminarId, thesisId: seminar.thesisId, studentId: student.id, supervisorId, seminarDate: seminar.date });
       results.successCount++;
     } catch (err) {
       results.failed++;

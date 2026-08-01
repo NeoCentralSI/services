@@ -785,7 +785,7 @@ model ThesisSeminarExaminer {
   id                    String                     @id @default(uuid()) @db.VarChar(255)
   thesisSeminarId       String                     @map("thesis_seminar_id") @db.VarChar(255)
   lecturerId            String                     @map("lecturer_id") @db.VarChar(255)
-  assignedBy            String                     @map("assigned_by") @db.VarChar(255)
+  assignedBy            String?                    @map("assigned_by") @db.VarChar(255)
   order                 Int
   assignedAt            DateTime                   @map("assigned_at")
   availabilityStatus    ExaminerAvailabilityStatus @default(pending) @map("availability_status")
@@ -799,7 +799,7 @@ model ThesisSeminarExaminer {
 
   seminar                                ThesisSeminar                           @relation(fields: [thesisSeminarId], references: [id], onDelete: Cascade)
   lecturer                               Lecturer                                @relation("SeminarExaminerLecturer", fields: [lecturerId], references: [id])
-  assignedByLecturer                     Lecturer                                @relation("SeminarExaminerAssignedBy", fields: [assignedBy], references: [id])
+  assignedByLecturer                     Lecturer?                               @relation("SeminarExaminerAssignedBy", fields: [assignedBy], references: [id])
   thesisSeminarExaminerAssessmentDetails ThesisSeminarExaminerAssessmentDetail[]
   thesisSeminarRevisions                 ThesisSeminarRevision[]
 

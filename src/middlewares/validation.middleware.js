@@ -9,7 +9,8 @@ export function validate(schema) {
 		} catch (err) {
 			if (err instanceof ZodError) {
 				const issues = err.issues?.map((i) => ({ path: i.path.join("."), message: i.message }));
-				const e = new Error("Validation error");
+				const firstMessage = issues?.[0]?.message;
+				const e = new Error(firstMessage || "Data formulir belum valid.");
 				e.statusCode = 400;
 				e.details = issues;
 				return next(e);

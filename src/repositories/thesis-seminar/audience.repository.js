@@ -63,10 +63,11 @@ export async function findAudienceByKey(seminarId, studentId) {
 /**
  * Create a single audience record (admin adds audience to archive).
  */
-export async function createAudience({ seminarId, studentId, supervisorId, seminarDate }) {
+export async function createAudience({ seminarId, thesisId, studentId, supervisorId, seminarDate }) {
   return prisma.thesisSeminarAudience.create({
     data: {
       thesisSeminarId: seminarId,
+      thesisId,
       studentId,
       approvedBy: supervisorId,
       registeredAt: null,
@@ -121,10 +122,11 @@ export async function findAudienceRegistration(seminarId, studentId) {
 /**
  * Register a student as audience (self-registration, no approval yet).
  */
-export async function createAudienceRegistration(seminarId, studentId) {
+export async function createAudienceRegistration(seminarId, thesisId, studentId) {
   return prisma.thesisSeminarAudience.create({
     data: {
       thesisSeminarId: seminarId,
+      thesisId,
       studentId,
       registeredAt: new Date(),
     },

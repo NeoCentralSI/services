@@ -49,23 +49,23 @@ export const scheduleSchema = z
 // ============================================================
 
 export const createSeminarSchema = z.object({
-  thesisId: z.string().uuid("thesisId harus UUID valid"),
-  date: z.string().datetime("date harus datetime ISO valid"),
-  roomId: z.string().uuid("roomId harus UUID valid"),
+  thesisId: z.string().uuid("Tugas akhir yang dipilih tidak valid."),
+  date: z.string().datetime("Tanggal seminar tidak valid."),
+  roomId: z.string().uuid("Ruangan yang dipilih tidak valid."),
   status: seminarResultStatus,
   examinerLecturerIds: z
-    .array(z.string().uuid("examinerLecturerIds harus berisi UUID valid"))
-    .min(1, "Minimal 1 dosen penguji harus dipilih"),
+    .array(z.string().uuid("Dosen penguji yang dipilih tidak valid."))
+    .min(1, "Minimal satu dosen penguji harus dipilih."),
 });
 
 export const updateSeminarSchema = z.object({
-  thesisId: z.string().uuid("thesisId harus UUID valid"),
-  date: z.string().datetime("date harus datetime ISO valid"),
-  roomId: z.string().uuid("roomId harus UUID valid"),
+  thesisId: z.string().uuid("Tugas akhir yang dipilih tidak valid."),
+  date: z.string().datetime("Tanggal seminar tidak valid."),
+  roomId: z.string().uuid("Ruangan yang dipilih tidak valid."),
   status: seminarResultStatus,
   examinerLecturerIds: z
-    .array(z.string().uuid("examinerLecturerIds harus berisi UUID valid"))
-    .min(1, "Minimal 1 dosen penguji harus dipilih"),
+    .array(z.string().uuid("Dosen penguji yang dipilih tidak valid."))
+    .min(1, "Minimal satu dosen penguji harus dipilih."),
 });
 
 // ============================================================

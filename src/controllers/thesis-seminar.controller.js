@@ -68,14 +68,14 @@ export async function cancelSeminar(req, res, next) {
 
 export async function createArchive(req, res, next) {
   try {
-    const result = await coreService.createArchive(req.body, req.user.id);
+    const result = await coreService.createArchive(req.validated);
     res.status(201).json({ success: true, data: result });
   } catch (error) { next(error); }
 }
 
 export async function updateArchive(req, res, next) {
   try {
-    const result = await coreService.updateArchive(req.params.id, req.body, req.user.id);
+    const result = await coreService.updateArchive(req.params.id, req.validated);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -118,7 +118,8 @@ export async function getRoomOptions(req, res, next) {
 export async function exportArchive(req, res, next) {
   try {
     const buffer = await coreService.exportArchive();
-    res.setHeader("Content-Disposition", 'attachment; filename="Arsip_Seminar_Hasil.xlsx"');
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename="Arsip Seminar Hasil - ${exportDate}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buffer);
   } catch (error) { next(error); }
@@ -128,7 +129,7 @@ export async function exportArchive(req, res, next) {
 export async function importArchive(req, res, next) {
   try {
     if (!req.file) throw Object.assign(new Error("File tidak ditemukan"), { statusCode: 400 });
-    const result = await coreService.importArchive(req.file.buffer, req.user.id);
+    const result = await coreService.importArchive(req.file.buffer);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
