@@ -1,6 +1,36 @@
 import { PrismaClient } from "../src/generated/prisma/index.js";
 
 const prisma = new PrismaClient();
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+async function findEffectiveAcademicYear() {
+    const now = new Date();
+    const candidates = await prisma.academicYear.findMany({
+        where: {
+            startDate: { not: null, lte: now },
+            endDate: { not: null },
+        },
+        orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+    });
+
+    const derivedActiveYear = candidates.find((academicYear) => {
+        const inclusiveEnd = academicYear.endDate.getTime() + DAY_IN_MS - 1;
+        return now.getTime() <= inclusiveEnd;
+    });
+
+    if (derivedActiveYear) {
+        return { academicYear: derivedActiveYear, source: "date range" };
+    }
+
+    const persistedActiveYear = await prisma.academicYear.findFirst({
+        where: { isActive: true },
+        orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+    });
+
+    return persistedActiveYear
+        ? { academicYear: persistedActiveYear, source: "is_active fallback" }
+        : null;
+}
 
 const CPMKS = [
     {
@@ -239,16 +269,14 @@ const DEFENCE_SUPERVISOR_CRITERIA = [
 async function main() {
     console.log("Starting thesis rubric seed for the active academic year...");
 
-    const activeYear = await prisma.academicYear.findFirst({
-        where: { isActive: true },
-        orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
-    });
+    const resolvedActiveYear = await findEffectiveAcademicYear();
+    const activeYear = resolvedActiveYear?.academicYear;
 
     if (!activeYear) {
-        throw new Error("No academic year with is_active=true was found. Activate an academic year before running this seed.");
+        throw new Error("No academic year matched the current date range and no is_active fallback was found.");
     }
 
-    console.log(`Active academic year: ${activeYear.semester} ${activeYear.year || ""}`);
+    console.log(`Active academic year: ${activeYear.semester} ${activeYear.year || ""} (${resolvedActiveYear.source})`);
 
     const minimumScoreData = {};
     if (activeYear.thesisSeminarMinimumScore === null) {
