@@ -342,7 +342,7 @@ export async function exportAudiencesPdf(seminarId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
-  const rows = await audienceRepo.findAudiencesBySeminarId(seminarId);
+  const rows = (await audienceRepo.findAudiencesBySeminarId(seminarId)).filter((row) => row.approvedAt);
 
   // Fetch Ketua Departemen
   const ketuaDept = await prisma.user.findFirst({
@@ -487,7 +487,7 @@ export async function exportAudiencesPdf(seminarId) {
         </tr>
       `).join('') : `
         <tr>
-          <td colspan="3" class="text-center">Belum ada data audience</td>
+          <td colspan="3" class="text-center">Belum ada peserta dengan kehadiran yang disetujui</td>
         </tr>
       `}
     </tbody>

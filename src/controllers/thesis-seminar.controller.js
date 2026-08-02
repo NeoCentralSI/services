@@ -274,7 +274,8 @@ export async function updateAudience(req, res, next) {
 export async function exportAudiences(req, res, next) {
   try {
     const buffer = await audienceService.exportAudiences(req.params.id);
-    res.setHeader("Content-Disposition", 'attachment; filename="Daftar_Audience.xlsx"');
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename="Daftar Peserta Seminar Hasil - ${exportDate}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buffer);
   } catch (error) { next(error); }
@@ -283,7 +284,8 @@ export async function exportAudiences(req, res, next) {
 export async function exportAudiencesPdf(req, res, next) {
   try {
     const buffer = await audienceService.exportAudiencesPdf(req.params.id);
-    res.setHeader("Content-Disposition", 'attachment; filename="Daftar_Audience.pdf"');
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename="Daftar Hadir Peserta Seminar Hasil - ${exportDate}.pdf"`);
     res.setHeader("Content-Type", "application/pdf");
     res.send(buffer);
   } catch (error) { next(error); }

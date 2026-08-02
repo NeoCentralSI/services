@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockNotification } = vi.hoisted(() => ({
+const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockNotification, mockPdf } = vi.hoisted(() => ({
   mockPrisma: {
     thesisSeminar: { findUnique: vi.fn() },
     thesisSeminarAudience: { create: vi.fn() },
@@ -45,6 +45,7 @@ const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockN
   },
   mockOutlook: { hasCalendarAccess: vi.fn(), createCalendarEvent: vi.fn() },
   mockNotification: { createNotificationService: vi.fn() },
+  mockPdf: { convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
@@ -53,7 +54,7 @@ vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", 
 vi.mock("../../../../services/outlook-calendar.service.js", () => mockOutlook);
 vi.mock("../../../../services/notification.service.js", () => mockNotification);
 vi.mock("xlsx", () => mockXlsx);
-vi.mock("../../../../helpers/pdf.helper.js", () => ({ convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) }));
+vi.mock("../../../../utils/pdf.util.js", () => mockPdf);
 
 import {
   getAudiences, addAudience, updateAudience, removeAudience,
@@ -170,12 +171,26 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
       expect(res).toBeDefined();
     });
 
-    it("exports to PDF successfully", async () => {
+    it("only renders supervisor-approved audiences in the PDF", async () => {
       mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1", thesis: { thesisSupervisors: [] } });
-      mockAudienceRepo.findAudiencesBySeminarId.mockResolvedValue([]);
+      mockAudienceRepo.findAudiencesBySeminarId.mockResolvedValue([
+        {
+          approvedAt: new Date(),
+          student: { user: { fullName: "Mahasiswa Disetujui", identityNumber: "111" } },
+        },
+        {
+          approvedAt: null,
+          student: { user: { fullName: "Mahasiswa Belum Disetujui", identityNumber: "222" } },
+        },
+      ]);
       mockPrisma.user.findFirst.mockResolvedValue({ fullName: "Kadep" });
+
       const res = await exportAudiencesPdf("s1");
-      expect(res).toBeDefined();
+      const html = mockPdf.convertHtmlToPdf.mock.calls[0][0];
+
+      expect(res).toEqual(Buffer.from("fake-pdf"));
+      expect(html).toContain("Mahasiswa Disetujui");
+      expect(html).not.toContain("Mahasiswa Belum Disetujui");
     });
   });
 });
