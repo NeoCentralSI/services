@@ -24,6 +24,8 @@ const { mockExaminerRepo, mockCoreRepo, mockPrisma, mockStatusUtil } = vi.hoiste
   },
   mockPrisma: {
     thesis: { findUnique: vi.fn() },
+    thesisDefence: { findUnique: vi.fn() },
+    academicYear: { findUnique: vi.fn().mockResolvedValue({ thesisDefenceMinimumScore: 55 }) },
     thesisSeminar: { findFirst: vi.fn() },
     thesisDefenceExaminer: { findMany: vi.fn(), deleteMany: vi.fn(), update: vi.fn(), createMany: vi.fn() },
     lecturer: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -57,6 +59,12 @@ describe("Thesis Defence Examiner Service (Full Suite)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStatusUtil.computeEffectiveDefenceStatus.mockImplementation((s) => s);
+    mockPrisma.thesisDefence.findUnique.mockResolvedValue({
+      id: "d1",
+      requirementDocuments: [{ requirement: { academicYearId: "ay1" } }],
+    });
+    mockPrisma.academicYear.findUnique.mockResolvedValue({ thesisDefenceMinimumScore: 55 });
+    mockExaminerRepo.findDefenceMinimumScore = vi.fn().mockResolvedValue(55);
     mockExaminerRepo.findDefenceAssessmentCpmks.mockResolvedValue([]);
     mockCoreRepo.findDefenceSupervisorAssessmentDetails.mockResolvedValue([]);
     mockPrisma.thesisSeminarExaminer.findMany.mockResolvedValue([]);
@@ -170,6 +178,7 @@ describe("Thesis Defence Examiner Service (Full Suite)", () => {
       mockCoreRepo.findDefenceById.mockResolvedValue({
         id: "d1", status: "scheduled", thesisId: "t1",
         supervisorScore: 20,
+        supervisorAssessmentSubmittedAt: new Date(),
         thesis: { id: "t1", studentId: "st1" },
       });
       mockStatusUtil.computeEffectiveDefenceStatus.mockReturnValue("ongoing");
@@ -194,6 +203,7 @@ describe("Thesis Defence Examiner Service (Full Suite)", () => {
       mockCoreRepo.findDefenceById.mockResolvedValue({
         id: "d1", status: "scheduled", thesisId: "t1",
         supervisorScore: 10,
+        supervisorAssessmentSubmittedAt: new Date(),
         thesis: { id: "t1", studentId: "st1" },
       });
       mockStatusUtil.computeEffectiveDefenceStatus.mockReturnValue("ongoing");

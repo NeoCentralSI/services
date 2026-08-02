@@ -9,6 +9,7 @@ const defenceListInclude = {
     select: {
       id: true,
       title: true,
+      studentId: true,
       student: {
         select: {
           id: true,
@@ -39,6 +40,9 @@ const defenceListInclude = {
     select: {
       lecturer: {
         select: { user: { select: { fullName: true } } },
+      },
+      role: {
+        select: { name: true },
       },
     },
   },
@@ -545,7 +549,7 @@ export async function findDefenceSupervisorAssessmentDetails(defenceId) {
           name: true,
           maxScore: true,
           displayOrder: true,
-          cpmk: { select: { id: true, code: true, description: true } },
+          thesisCpmk: { select: { id: true, code: true, description: true } },
           assessmentRubrics: {
             select: { id: true, minScore: true, maxScore: true, description: true },
             orderBy: { displayOrder: "asc" },
@@ -598,17 +602,31 @@ export async function finalizeDefenceResult({
   grade,
   resultFinalizedBy,
 }) {
-  return prisma.thesisDefence.update({
-    where: { id: defenceId },
-    data: {
-      status,
-      examinerAverageScore,
-      supervisorScore,
-      finalScore,
-      grade,
-      resultFinalizedAt: new Date(),
-      resultFinalizedBy,
-    },
+  return prisma.$transaction(async (tx) => {
+    const finalized = await tx.thesisDefence.update({
+      where: { id: defenceId },
+      data: {
+        status,
+        examinerAverageScore,
+        supervisorScore,
+        finalScore,
+        grade,
+        resultFinalizedAt: new Date(),
+        resultFinalizedBy,
+      },
+      include: {
+        thesis: { select: { id: true } },
+      },
+    });
+
+    if (status === "failed" && finalized.thesis?.id) {
+      await tx.thesisSupervisors.updateMany({
+        where: { thesisId: finalized.thesis.id },
+        data: { defenceReady: false },
+      });
+    }
+
+    return finalized;
   });
 }
 

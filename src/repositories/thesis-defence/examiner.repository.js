@@ -108,23 +108,59 @@ export async function updateExaminerAvailability(examinerId, status, unavailable
 // ASSESSMENTS
 // ============================================================
 
-export async function findDefenceAssessmentCpmks(role) {
-  return prisma.cpmk.findMany({
-    where: {
-      type: "thesis",
-      assessmentCriterias: {
-        some: { appliesTo: "defence", role },
-      },
+export async function findDefenceAssessmentCpmks(academicYearId, role) {
+  const criteriaField =
+    role === "examiner"
+      ? "thesisDefenceExaminerAssessmentCriterias"
+      : "thesisDefenceSupervisorAssessmentCriterias";
+
+  const where = {
+    [criteriaField]: {
+      some: {},
     },
+  };
+
+  if (academicYearId) {
+    where.academicYearId = academicYearId;
+  }
+
+  const cpmks = await prisma.thesisCpmk.findMany({
+    where,
     include: {
-      assessmentCriterias: {
-        where: { appliesTo: "defence", role },
-        include: { assessmentRubrics: { orderBy: { displayOrder: "asc" } } },
+      [criteriaField]: {
+        include: {
+          assessmentRubrics: {
+            orderBy: { displayOrder: "asc" },
+          },
+        },
         orderBy: { displayOrder: "asc" },
       },
     },
     orderBy: { code: "asc" },
   });
+
+  return cpmks.map((cpmk) => ({
+    id: cpmk.id,
+    code: cpmk.code,
+    description: cpmk.description,
+    academicYearId: cpmk.academicYearId,
+    assessmentCriterias: (cpmk[criteriaField] || []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      maxScore: c.maxScore,
+      displayOrder: c.displayOrder,
+      assessmentRubrics: c.assessmentRubrics || [],
+    })),
+  }));
+}
+
+export async function findDefenceMinimumScore(academicYearId) {
+  if (!academicYearId) return null;
+  const ay = await prisma.academicYear.findUnique({
+    where: { id: academicYearId },
+    select: { thesisDefenceMinimumScore: true },
+  });
+  return ay?.thesisDefenceMinimumScore ?? null;
 }
 
 export async function saveDefenceExaminerAssessment({ examinerId, scores, revisionNotes, isDraft }) {
@@ -167,7 +203,7 @@ export async function findActiveExaminersWithAssessments(defenceId) {
               name: true,
               maxScore: true,
               displayOrder: true,
-              cpmk: { select: { id: true, code: true, description: true } },
+              thesisCpmk: { select: { id: true, code: true, description: true } },
               assessmentRubrics: {
                 select: { id: true, minScore: true, maxScore: true, description: true },
                 orderBy: { displayOrder: "asc" },
@@ -197,7 +233,7 @@ export async function findStudentDefenceExaminerAssessmentDetails(defenceId) {
           name: true,
           maxScore: true,
           displayOrder: true,
-          cpmk: { select: { id: true, code: true, description: true } },
+          thesisCpmk: { select: { id: true, code: true, description: true } },
           assessmentRubrics: {
             select: { id: true, minScore: true, maxScore: true, description: true },
             orderBy: { displayOrder: "asc" },

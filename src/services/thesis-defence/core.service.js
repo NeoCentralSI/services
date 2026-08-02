@@ -353,6 +353,7 @@ export async function getDefenceDetail(defenceId, user = {}) {
     id: defence.id,
     status: effectiveStatus,
     registeredAt: defence.registeredAt,
+    isArchive: defence.registeredAt === null,
     date: defence.date,
     startTime: defence.startTime,
     endTime: defence.endTime,

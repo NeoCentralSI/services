@@ -346,7 +346,7 @@ export async function getAssessmentView(userId, defenceId) {
   const examinerGroupsByExaminer = {};
   (examinerAssessmentDetails || []).forEach((item) => {
     const examinerId = item.thesisDefenceExaminerId;
-    const cpmk = item.criteria?.cpmk;
+    const cpmk = item.criteria?.thesisCpmk;
     if (!examinerId || !cpmk) return;
     if (!examinerGroupsByExaminer[examinerId]) examinerGroupsByExaminer[examinerId] = {};
     if (!examinerGroupsByExaminer[examinerId][cpmk.id]) {
@@ -368,7 +368,7 @@ export async function getAssessmentView(userId, defenceId) {
 
   const supervisorGroups = {};
   (supervisorAssessmentDetails || []).forEach((item) => {
-    const cpmk = item.criteria?.cpmk;
+    const cpmk = item.criteria?.thesisCpmk;
     if (!cpmk) return;
     if (!supervisorGroups[cpmk.id]) {
       supervisorGroups[cpmk.id] = {
