@@ -324,7 +324,7 @@ export async function getAssessmentView(userId, seminarId) {
     examiners: examiners.map((item) => {
       const groups = {};
       (item.thesisSeminarExaminerAssessmentDetails || []).forEach((d) => {
-        const cpmk = d.criteria?.cpmk; if (!cpmk) return;
+        const cpmk = d.criteria?.thesisCpmk; if (!cpmk) return;
         if (!groups[cpmk.id]) groups[cpmk.id] = { id: cpmk.id, code: cpmk.code, description: cpmk.description, criteria: [] };
         groups[cpmk.id].criteria.push({ id: d.criteria.id, name: d.criteria.name, maxScore: d.criteria.maxScore, score: d.score, displayOrder: d.criteria.displayOrder });
       });

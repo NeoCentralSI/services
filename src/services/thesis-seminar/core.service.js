@@ -1046,7 +1046,7 @@ export async function generateAssessmentResultPdf(seminarId) {
   // Fetch all examiners with their assessments
   const finalizationData = await examinerService.getFinalizationData(seminarId, { role: 'admin' });
   
-  const { seminar: semDetail, examiners, criteriaGroups } = finalizationData;
+  const { seminar: semDetail, examiners, criteriaGroups, minimumPassingScore } = finalizationData;
   const isFinalized = !!semDetail.resultFinalizedAt;
 
   if (!isFinalized) {
@@ -1262,7 +1262,7 @@ export async function generateAssessmentResultPdf(seminarId) {
       </tr>
     </tbody>
   </table>
-  <p style="font-size: 8pt; margin-top: 4px;">Keterangan: nilai rata-rata &le; 55 dinyatakan tidak lulus</p>
+  <p style="font-size: 8pt; margin-top: 4px;">Keterangan: nilai rata-rata di bawah ${minimumPassingScore} dinyatakan tidak lulus</p>
 
   <div class="section-title" style="margin-top: 20px;">C. Keputusan Seminar Hasil</div>
   <p style="margin-left: 20px;">Berdasarkan hasil seminar, mahasiswa dinyatakan:</p>

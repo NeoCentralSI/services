@@ -239,7 +239,7 @@ export async function findActiveExaminersWithAssessments(seminarId) {
               name: true,
               maxScore: true,
               displayOrder: true,
-              cpmk: {
+              thesisCpmk: {
                 select: {
                   id: true,
                   code: true,
@@ -258,43 +258,28 @@ export async function findActiveExaminersWithAssessments(seminarId) {
 /**
  * Get seminar assessment criteria (CPMK + criteria + rubrics) for the grading form.
  */
-export async function findSeminarAssessmentCpmks() {
-  const cpmks = await prisma.cpmk.findMany({
+export async function findSeminarAssessmentCpmks(academicYearId) {
+  return prisma.thesisCpmk.findMany({
     where: {
-      type: "thesis",
-      assessmentCriterias: {
-        some: {
-          appliesTo: "seminar",
-          role: "default",
-        },
-      },
+      academicYearId,
+      thesisSeminarAssessmentCriterias: { some: {} },
     },
     include: {
-      assessmentCriterias: {
-        where: {
-          appliesTo: "seminar",
-          role: "default",
-        },
+      thesisSeminarAssessmentCriterias: {
         include: {
-          assessmentRubrics: {
-            orderBy: { displayOrder: "asc" },
-          },
+          assessmentRubrics: { orderBy: { displayOrder: "asc" } },
         },
         orderBy: { displayOrder: "asc" },
       },
     },
     orderBy: { code: "asc" },
   });
+}
 
-  const bestCpmkByCode = new Map();
-  for (const c of cpmks) {
-    const rubricsCount = (c.assessmentCriterias || []).reduce((sum, crit) => sum + (crit.assessmentRubrics || []).length, 0);
-    const currentBest = bestCpmkByCode.get(c.code);
-    
-    if (!currentBest || rubricsCount > currentBest.rubricsCount) {
-      bestCpmkByCode.set(c.code, { cpmk: c, rubricsCount });
-    }
-  }
-  
-  return Array.from(bestCpmkByCode.values()).map(item => item.cpmk).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+export async function findSeminarMinimumScore(academicYearId) {
+  const academicYear = await prisma.academicYear.findUnique({
+    where: { id: academicYearId },
+    select: { thesisSeminarMinimumScore: true },
+  });
+  return academicYear?.thesisSeminarMinimumScore ?? null;
 }
