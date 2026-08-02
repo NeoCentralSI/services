@@ -1,6 +1,7 @@
 import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
 import * as docRepo from "../../repositories/thesis-defence/doc.repository.js";
+import * as docService from "./doc.service.js";
 import * as examinerRepo from "../../repositories/thesis-defence/examiner.repository.js";
 import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
@@ -97,6 +98,16 @@ async function buildOverviewWithoutThesis(student) {
     allChecklistMet: false,
     milestones: buildDefenceMilestones(false, null),
     canUpload: false,
+    requirements: [],
+    requirementConfiguration: {
+      isConfigured: false,
+      message: "Tugas akhir belum terdaftar.",
+    },
+    uploadConfig: {
+      accept: [".pdf"],
+      maxFileSizeBytes: 10485760,
+      maxFileSizeMb: 10,
+    },
     defence: null,
   };
 }
@@ -188,6 +199,8 @@ export async function getOverview(userId) {
 
   // Locking Logic
   const canUpload = allChecklistMet && (!currentDefence || currentDefence.status === "registered");
+  const { requirements, requirementConfiguration, uploadConfig } =
+    await docService.getRequirementsForOverview(thesis, currentDefence);
 
   return {
     thesisId: thesis.id,
@@ -196,30 +209,44 @@ export async function getOverview(userId) {
     allChecklistMet,
     milestones,
     canUpload,
+    requirements,
+    requirementConfiguration,
+    uploadConfig,
     defence: currentDefence
       ? {
-        id: currentDefence.id,
-        status: computeEffectiveDefenceStatus(
-          currentDefence.status,
-          currentDefence.date,
-          currentDefence.startTime,
-          currentDefence.endTime
-        ),
-        registeredAt: currentDefence.registeredAt,
-        date: currentDefence.date,
-        startTime: currentDefence.startTime,
-        endTime: currentDefence.endTime,
-        meetingLink: currentDefence.meetingLink,
-        finalScore: currentDefence.finalScore,
-        grade: currentDefence.grade,
-        resultFinalizedAt: currentDefence.resultFinalizedAt,
-        cancelledReason: currentDefence.cancelledReason,
-        scheduledAt: currentDefence.scheduledAt,
-        invitationLetterNo: currentDefence.invitationLetterNo,
-        room: currentDefence.room,
-        documents: currentDefence.documents,
-        examiners: enrichedExaminers,
-      }
+          id: currentDefence.id,
+          status: computeEffectiveDefenceStatus(
+            currentDefence.status,
+            currentDefence.date,
+            currentDefence.startTime,
+            currentDefence.endTime
+          ),
+          registeredAt: currentDefence.registeredAt,
+          date: currentDefence.date,
+          startTime: currentDefence.startTime,
+          endTime: currentDefence.endTime,
+          meetingLink: currentDefence.meetingLink,
+          finalScore: currentDefence.finalScore,
+          grade: currentDefence.grade,
+          resultFinalizedAt: currentDefence.resultFinalizedAt,
+          cancelledReason: currentDefence.cancelledReason,
+          scheduledAt: currentDefence.scheduledAt,
+          invitationLetterNo: currentDefence.invitationLetterNo,
+          room: currentDefence.room,
+          documents: (currentDefence.requirementDocuments || []).map((doc) => ({
+            thesisDefenceId: doc.thesisDefenceId,
+            requirementId: doc.thesisDefenceRequirementId,
+            requirementName: doc.requirement?.name || "-",
+            status: doc.status,
+            submittedAt: doc.submittedAt,
+            verifiedAt: doc.verifiedAt,
+            verifiedBy: doc.verifier?.fullName || null,
+            notes: doc.notes,
+            fileName: doc.fileName || null,
+            filePath: doc.filePath || null,
+          })),
+          examiners: enrichedExaminers,
+        }
       : null,
   };
 }
@@ -265,18 +292,6 @@ export async function getDefenceDetail(userId, defenceId) {
     (detail.examiners || []).map((examiner) => examiner.lecturerId)
   );
 
-  const docTypes = await docRepo.getDefenceDocumentTypes();
-  const docTypeMap = new Map(docTypes.map((dt) => [dt.id, dt.name]));
-
-  const docIds = (detail.documents || []).map((doc) => doc.documentId).filter(Boolean);
-  const docFiles = docIds.length
-    ? await prisma.document.findMany({
-      where: { id: { in: docIds } },
-      select: { id: true, fileName: true, filePath: true },
-    })
-    : [];
-  const docFileMap = new Map(docFiles.map((doc) => [doc.id, doc]));
-
   return {
     ...detail,
     scheduledAt: detail.scheduledAt,
@@ -285,15 +300,18 @@ export async function getDefenceDetail(userId, defenceId) {
       ...examiner,
       lecturerName: lecturerNameMap.get(examiner.lecturerId) || "-",
     })),
-    documents: (detail.documents || []).map((doc) => {
-      const fileMeta = docFileMap.get(doc.documentId);
-      return {
-        ...doc,
-        documentTypeName: docTypeMap.get(doc.documentTypeId) || "-",
-        fileName: fileMeta?.fileName || null,
-        filePath: fileMeta?.filePath || null,
-      };
-    }),
+    documents: (detail.requirementDocuments || []).map((doc) => ({
+      thesisDefenceId: doc.thesisDefenceId,
+      requirementId: doc.thesisDefenceRequirementId,
+      requirementName: doc.requirement?.name || "-",
+      status: doc.status,
+      submittedAt: doc.submittedAt,
+      verifiedAt: doc.verifiedAt,
+      verifiedBy: doc.verifier?.fullName || null,
+      notes: doc.notes,
+      fileName: doc.fileName || null,
+      filePath: doc.filePath || null,
+    })),
     examinerNotes: (detail.examiners || [])
       .filter((e) => e.revisionNotes)
       .map((e) => ({

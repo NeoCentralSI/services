@@ -1,148 +1,157 @@
 import prisma from "../../config/prisma.js";
 
-// ============================================================
-// CONSTANTS
-// ============================================================
-
-export const DEFENCE_DOC_TYPES = [
-  "Laporan Tugas Akhir",
-  "Slide Presentasi",
-  "Draft Jurnal TEKNOSI",
-  "Sertifikat TOEFL",
-  "Sertifikat SAPS",
-];
-
-// ============================================================
-// DOCUMENT TYPES
-// ============================================================
-
-export async function getOrCreateDocumentType(name) {
-  let dt = await prisma.documentType.findFirst({ where: { name } });
-  if (!dt) {
-    dt = await prisma.documentType.create({ data: { name } });
+const requirementDocumentInclude = {
+  requirement: {
+    select: { id: true, academicYearId: true, name: true, description: true, displayOrder: true },
+  },
+  verifier: { select: { id: true, fullName: true } },
+  defence: {
+    select: {
+      id: true,
+      thesisId: true,
+      thesis: {
+        select: {
+          id: true,
+          studentId: true,
+          student: {
+            select: { id: true }
+          },
+          thesisSupervisors: {
+            select: { lecturerId: true }
+          }
+        }
+      },
+      examiners: {
+        select: { lecturerId: true, availabilityStatus: true }
+      }
+    }
   }
-  return dt;
-}
+};
 
-export async function ensureDefenceDocumentTypes() {
-  const result = {};
-  for (const name of DEFENCE_DOC_TYPES) {
-    result[name] = await getOrCreateDocumentType(name);
-  }
-  return result;
-}
-
-export async function getDefenceDocumentTypes() {
-  const types = await prisma.documentType.findMany({
-    where: { name: { in: DEFENCE_DOC_TYPES } },
-  });
-  return DEFENCE_DOC_TYPES.map((name) => types.find((t) => t.name === name)).filter(Boolean);
-}
-
-// ============================================================
-// THESIS DEFENCE DOCUMENT — CRUD
-// ============================================================
-
-export async function findDefenceDocument(thesisDefenceId, documentTypeId) {
-  return prisma.thesisDefenceDocument.findUnique({
-    where: { thesisDefenceId_documentTypeId: { thesisDefenceId, documentTypeId } },
+export async function findRequirementsByAcademicYear(academicYearId, client = prisma) {
+  return client.thesisDefenceRequirement.findMany({
+    where: { academicYearId },
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
   });
 }
 
-export async function findDefenceDocuments(thesisDefenceId) {
-  const docs = await prisma.thesisDefenceDocument.findMany({
+export async function findRequirementForAcademicYear(requirementId, academicYearId, client = prisma) {
+  return client.thesisDefenceRequirement.findFirst({ where: { id: requirementId, academicYearId } });
+}
+
+export async function findDefenceDocument(thesisDefenceId, requirementId, client = prisma) {
+  return client.thesisDefenceRequirementDocument.findUnique({
+    where: {
+      thesisDefenceId_thesisDefenceRequirementId: {
+        thesisDefenceId,
+        thesisDefenceRequirementId: requirementId,
+      },
+    },
+    include: requirementDocumentInclude,
+  });
+}
+
+export async function findDefenceDocuments(thesisDefenceId, client = prisma) {
+  return client.thesisDefenceRequirementDocument.findMany({
     where: { thesisDefenceId },
-    include: { verifier: { select: { fullName: true } } },
+    include: requirementDocumentInclude,
+    orderBy: [{ requirement: { displayOrder: "asc" } }, { submittedAt: "asc" }],
   });
-
-  const docIds = docs.map((d) => d.documentId).filter(Boolean);
-  const documents = docIds.length
-    ? await prisma.document.findMany({
-        where: { id: { in: docIds } },
-        select: { id: true, fileName: true, filePath: true },
-      })
-    : [];
-  const docMap = new Map(documents.map((d) => [d.id, d]));
-
-  return docs.map((d) => ({
-    thesisDefenceId: d.thesisDefenceId,
-    documentTypeId: d.documentTypeId,
-    documentId: d.documentId,
-    status: d.status,
-    submittedAt: d.submittedAt,
-    verifiedAt: d.verifiedAt,
-    notes: d.notes,
-    verifiedBy: d.verifier?.fullName || null,
-    fileName: docMap.get(d.documentId)?.fileName || null,
-    filePath: docMap.get(d.documentId)?.filePath || null,
-  }));
 }
 
-export async function findDefenceDocumentWithFile(thesisDefenceId, documentTypeId) {
-  const defenceDoc = await prisma.thesisDefenceDocument.findUnique({
-    where: { thesisDefenceId_documentTypeId: { thesisDefenceId, documentTypeId } },
-  });
-  if (!defenceDoc) return null;
-
-  const doc = await prisma.document.findUnique({
-    where: { id: defenceDoc.documentId },
-    select: { id: true, fileName: true, filePath: true },
-  });
-  return { ...defenceDoc, document: doc };
-}
-
-export async function upsertDefenceDocument({ thesisDefenceId, documentTypeId, documentId }) {
-  return prisma.thesisDefenceDocument.upsert({
-    where: { thesisDefenceId_documentTypeId: { thesisDefenceId, documentTypeId } },
-    update: {
-      documentId,
-      status: "submitted",
-      submittedAt: new Date(),
-      verifiedAt: null,
-      verifiedBy: null,
-      notes: null,
+export async function upsertDefenceDocument(thesisDefenceId, requirementId, data, client = prisma) {
+  return client.thesisDefenceRequirementDocument.upsert({
+    where: {
+      thesisDefenceId_thesisDefenceRequirementId: {
+        thesisDefenceId,
+        thesisDefenceRequirementId: requirementId,
+      },
     },
-    create: {
-      thesisDefenceId,
-      documentTypeId,
-      documentId,
-      status: "submitted",
-      submittedAt: new Date(),
-    },
+    create: { thesisDefenceId, thesisDefenceRequirementId: requirementId, ...data },
+    update: data,
+    include: requirementDocumentInclude,
   });
 }
 
-export async function updateDefenceDocumentStatus(thesisDefenceId, documentTypeId, { status, notes, verifiedBy }) {
-  return prisma.thesisDefenceDocument.update({
-    where: { thesisDefenceId_documentTypeId: { thesisDefenceId, documentTypeId } },
-    data: {
-      status,
-      notes: notes || null,
-      verifiedBy,
-      verifiedAt: new Date(),
-    },
-  });
-}
+export async function verifyRequirementDocumentAtomic({
+  academicYearId,
+  thesisDefenceId,
+  requirementId,
+  status,
+  notes,
+  verifiedBy,
+}) {
+  return prisma.$transaction(async (tx) => {
+    const defence = await tx.thesisDefence.findUnique({
+      where: { id: thesisDefenceId },
+      select: {
+        id: true,
+        status: true,
+        thesis: {
+          select: {
+            student: { select: { user: { select: { id: true } } } },
+          },
+        },
+      },
+    });
+    if (!defence) return { kind: "defence_not_found" };
+    if (defence.status !== "registered") {
+      return { kind: "defence_locked", defenceStatus: defence.status };
+    }
 
-export async function countDefenceDocumentsByStatus(thesisDefenceId) {
-  return prisma.thesisDefenceDocument.findMany({
-    where: { thesisDefenceId },
-    select: { status: true, documentTypeId: true },
-  });
-}
+    const requirement = await findRequirementForAcademicYear(
+      requirementId,
+      academicYearId,
+      tx
+    );
+    if (!requirement) return { kind: "requirement_not_found" };
 
-// ============================================================
-// GENERIC DOCUMENT (file metadata)
-// ============================================================
+    const existing = await findDefenceDocument(thesisDefenceId, requirementId, tx);
+    if (!existing) return { kind: "document_not_found" };
 
-export async function createDocument(data) {
-  return prisma.document.create({ data });
-}
+    const verifiedAt = new Date();
+    const document = await tx.thesisDefenceRequirementDocument.update({
+      where: {
+        thesisDefenceId_thesisDefenceRequirementId: {
+          thesisDefenceId,
+          thesisDefenceRequirementId: requirementId,
+        },
+      },
+      data: { status, notes: notes || null, verifiedBy, verifiedAt },
+      include: requirementDocumentInclude,
+    });
 
-export async function findDocumentById(id) {
-  return prisma.document.findUnique({ where: { id } });
-}
+    let defenceTransitioned = false;
+    if (status === "approved") {
+      const [requiredCount, approvedCount] = await Promise.all([
+        tx.thesisDefenceRequirement.count({
+          where: { academicYearId: academicYearId },
+        }),
+        tx.thesisDefenceRequirementDocument.count({
+          where: {
+            thesisDefenceId,
+            status: "approved",
+            requirement: { academicYearId: academicYearId },
+          },
+        }),
+      ]);
 
-export async function deleteDocument(id) {
-  return prisma.document.delete({ where: { id } });
+      if (requiredCount > 0 && approvedCount === requiredCount) {
+        const transition = await tx.thesisDefence.updateMany({
+          where: { id: thesisDefenceId, status: "registered" },
+          data: { status: "verified", verifiedAt },
+        });
+        defenceTransitioned = transition.count === 1;
+      }
+    }
+
+    return {
+      kind: "ok",
+      document,
+      requirement,
+      studentUserId: defence.thesis.student.user.id,
+      defenceTransitioned,
+      newDefenceStatus: defenceTransitioned ? "verified" : defence.status,
+    };
+  }, { isolationLevel: "Serializable" });
 }

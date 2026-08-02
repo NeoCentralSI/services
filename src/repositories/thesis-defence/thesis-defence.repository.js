@@ -676,16 +676,12 @@ export async function getStudentThesisWithDefenceInfo(studentId) {
           resultFinalizedAt: true,
           cancelledReason: true,
           room: { select: { id: true, name: true } },
-          documents: {
-            select: {
-              thesisDefenceId: true,
-              documentTypeId: true,
-              documentId: true,
-              status: true,
-              submittedAt: true,
-              verifiedAt: true,
-              notes: true,
+          requirementDocuments: {
+            include: {
+              requirement: { select: { id: true, name: true, displayOrder: true } },
+              verifier: { select: { id: true, fullName: true } },
             },
+            orderBy: { requirement: { displayOrder: "asc" } },
           },
           examiners: {
             select: {
@@ -808,16 +804,12 @@ export async function findStudentDefenceDetail(defenceId) {
         },
         orderBy: { order: "asc" },
       },
-      documents: {
-        select: {
-          thesisDefenceId: true,
-          documentTypeId: true,
-          documentId: true,
-          status: true,
-          submittedAt: true,
-          verifiedAt: true,
-          notes: true,
+      requirementDocuments: {
+        include: {
+          requirement: { select: { id: true, name: true, displayOrder: true } },
+          verifier: { select: { id: true, fullName: true } },
         },
+        orderBy: { requirement: { displayOrder: "asc" } },
       },
     },
   });

@@ -8,6 +8,7 @@ import * as docRepo from "../../repositories/thesis-defence/doc.repository.js";
 import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import * as examinerService from "./examiner.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -130,7 +131,8 @@ async function getAdminList({ search, status }) {
   }
 
   const data = await coreRepo.findAllDefences({ search, status: where.status });
-  const docTypes = await docRepo.getDefenceDocumentTypes();
+  const academicYear = await getActiveAcademicYear();
+  const requirements = academicYear ? await docRepo.findRequirementsByAcademicYear(academicYear.id) : [];
   
   const mapped = data.map((d) => ({
     id: d.id,
@@ -156,7 +158,7 @@ async function getAdminList({ search, status }) {
       availabilityStatus: e.availabilityStatus,
     })),
     documentSummary: {
-      total: docTypes.length,
+      total: requirements.length,
       submitted: (d.requirementDocuments || []).filter((doc) => doc.status === "submitted").length,
       approved: (d.requirementDocuments || []).filter((doc) => doc.status === "approved").length,
       declined: (d.requirementDocuments || []).filter((doc) => doc.status === "declined").length,
@@ -180,7 +182,8 @@ async function getAdminList({ search, status }) {
 }
 
 async function mapLecturerDefenceList(data, lecturerId, role) {
-  const docTypes = await docRepo.getDefenceDocumentTypes();
+  const academicYear = await getActiveAcademicYear();
+  const requirements = academicYear ? await docRepo.findRequirementsByAcademicYear(academicYear.id) : [];
   return data.map((d) => {
     const myExaminer = (d.examiners || []).find((e) => e.lecturerId === lecturerId);
     const mySupervisor = (d.thesis?.thesisSupervisors || []).find((ts) => ts.lecturerId === lecturerId);
@@ -209,7 +212,7 @@ async function mapLecturerDefenceList(data, lecturerId, role) {
         availabilityStatus: e.availabilityStatus,
       })),
       documentSummary: {
-        total: docTypes.length,
+        total: requirements.length,
         submitted: (d.requirementDocuments || []).filter((doc) => doc.status === "submitted").length,
         approved: (d.requirementDocuments || []).filter((doc) => doc.status === "approved").length,
         declined: (d.requirementDocuments || []).filter((doc) => doc.status === "declined").length,
@@ -331,6 +334,21 @@ export async function getDefenceDetail(defenceId, user = {}) {
     activeExaminers.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
   const supervisorAssessmentSubmitted = defence.supervisorScore !== null;
 
+  const academicYear = await getActiveAcademicYear();
+  const activeRequirements = academicYear ? await docRepo.findRequirementsByAcademicYear(academicYear.id) : [];
+  const historicalRequirements = (defence.requirementDocuments || [])
+    .map((doc) => doc.requirement)
+    .filter(Boolean);
+  const requirements = defence.status === "registered" || historicalRequirements.length === 0
+    ? activeRequirements
+    : historicalRequirements;
+
+  const documentTypes = requirements.map((req) => ({
+    id: req.id,
+    name: req.name,
+    description: req.description || null,
+  }));
+
   return {
     id: defence.id,
     status: effectiveStatus,
@@ -353,7 +371,7 @@ export async function getDefenceDetail(defenceId, user = {}) {
     },
     supervisors,
     documents,
-    documentTypes: [],   // Phase F1: will be replaced with dynamic ThesisDefenceRequirement list
+    documentTypes,
     examiners: (defence.examiners || [])
       .filter((e) => e.availabilityStatus === "available" || e.availabilityStatus === "pending")
       .map((e) => ({

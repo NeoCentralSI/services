@@ -13,6 +13,7 @@ const { mockPrisma, mockXlsx } = vi.hoisted(() => ({
     student: { findMany: vi.fn().mockResolvedValue([]) },
     user: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
     lecturer: { findMany: vi.fn().mockResolvedValue([]) },
+    academicYear: { findFirst: vi.fn().mockResolvedValue({ id: 'ay-1' }) },
   },
   mockXlsx: {
     read: vi.fn().mockReturnValue({
@@ -58,7 +59,7 @@ describe('Thesis Defence Core Service', () => {
     vi.clearAllMocks();
     mockPrisma.student.findMany.mockResolvedValue([]);
     mockPrisma.user.findMany.mockResolvedValue([]);
-    docRepo.getDefenceDocumentTypes.mockResolvedValue([]);
+    docRepo.findRequirementsByAcademicYear.mockResolvedValue([]);
   });
 
   describe('Archive Management', () => {

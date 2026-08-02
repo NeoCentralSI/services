@@ -17,6 +17,7 @@ const {
     findDefenceSupervisorAssessmentDetails: vi.fn(),
   },
   mockDocRepo: {
+    findRequirementsByAcademicYear: vi.fn().mockResolvedValue([]),
     getDefenceDocumentTypes: vi.fn(),
   },
   mockExaminerRepo: {
@@ -29,6 +30,8 @@ const {
     lecturer: { findMany: vi.fn() },
     document: { findMany: vi.fn() },
     thesis: { findFirst: vi.fn() },
+    academicYear: { findFirst: vi.fn().mockResolvedValue({ id: "ay-1" }) },
+    thesisDefenceRequirement: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockStatusUtil: {
     computeEffectiveDefenceStatus: vi.fn((s) => s),
