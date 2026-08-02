@@ -931,7 +931,7 @@ model ThesisDefenceExaminer {
   id                    String                     @id @default(uuid()) @db.VarChar(255)
   thesisDefenceId       String                     @map("thesis_defence_id") @db.VarChar(255)
   lecturerId            String                     @map("lecturer_id") @db.VarChar(255)
-  assignedBy            String                     @map("assigned_by") @db.VarChar(255)
+  assignedBy            String?                    @map("assigned_by") @db.VarChar(255)
   order                 Int
   assignedAt            DateTime                   @map("assigned_at")
   availabilityStatus    ExaminerAvailabilityStatus @default(pending) @map("availability_status")
@@ -945,7 +945,7 @@ model ThesisDefenceExaminer {
 
   defence                                ThesisDefence                           @relation(fields: [thesisDefenceId], references: [id], onDelete: Cascade)
   lecturer                               Lecturer                                @relation("DefenceExaminerLecturer", fields: [lecturerId], references: [id])
-  assignedByLecturer                     Lecturer                                @relation("DefenceExaminerAssignedBy", fields: [assignedBy], references: [id])
+  assignedByLecturer                     Lecturer?                               @relation("DefenceExaminerAssignedBy", fields: [assignedBy], references: [id])
   thesisDefenceExaminerAssessmentDetails ThesisDefenceExaminerAssessmentDetail[]
   thesisDefenceRevisions                 ThesisDefenceRevision[]
 

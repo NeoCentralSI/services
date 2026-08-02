@@ -136,7 +136,8 @@ export async function getRoomOptions(req, res, next) {
 export async function exportArchive(req, res, next) {
   try {
     const buffer = await coreService.exportArchive();
-    res.setHeader("Content-Disposition", 'attachment; filename="Arsip_Sidang_TA.xlsx"');
+    const exportDate = new Date().toISOString().split("T")[0];
+    res.setHeader("Content-Disposition", `attachment; filename="Arsip Sidang TA - ${exportDate}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buffer);
   } catch (error) {

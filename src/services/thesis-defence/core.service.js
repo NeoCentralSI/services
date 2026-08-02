@@ -157,9 +157,9 @@ async function getAdminList({ search, status }) {
     })),
     documentSummary: {
       total: docTypes.length,
-      submitted: (d.documents || []).filter((doc) => doc.status === "submitted").length,
-      approved: (d.documents || []).filter((doc) => doc.status === "approved").length,
-      declined: (d.documents || []).filter((doc) => doc.status === "declined").length,
+      submitted: (d.requirementDocuments || []).filter((doc) => doc.status === "submitted").length,
+      approved: (d.requirementDocuments || []).filter((doc) => doc.status === "approved").length,
+      declined: (d.requirementDocuments || []).filter((doc) => doc.status === "declined").length,
     },
   }));
 
@@ -210,9 +210,9 @@ async function mapLecturerDefenceList(data, lecturerId, role) {
       })),
       documentSummary: {
         total: docTypes.length,
-        submitted: (d.documents || []).filter((doc) => doc.status === "submitted").length,
-        approved: (d.documents || []).filter((doc) => doc.status === "approved").length,
-        declined: (d.documents || []).filter((doc) => doc.status === "declined").length,
+        submitted: (d.requirementDocuments || []).filter((doc) => doc.status === "submitted").length,
+        approved: (d.requirementDocuments || []).filter((doc) => doc.status === "approved").length,
+        declined: (d.requirementDocuments || []).filter((doc) => doc.status === "declined").length,
       },
       // Lecturer specific
       myRole: mySupervisor?.role?.name || (myExaminer ? "Penguji" : "-"),
@@ -290,24 +290,20 @@ export async function getDefenceDetail(defenceId, user = {}) {
     role: ts.role?.name || "-",
   }));
 
-  const documents = await Promise.all(
-    (defence.documents || []).map(async (d) => {
-      const withFile = await docRepo.findDefenceDocumentWithFile(defence.id, d.documentTypeId);
-      return {
-        documentTypeId: d.documentTypeId,
-        documentId: d.documentId,
-        status: d.status,
-        submittedAt: d.submittedAt,
-        verifiedAt: d.verifiedAt,
-        notes: d.notes,
-        verifiedBy: d.verifier?.fullName || null,
-        fileName: withFile?.document?.fileName || null,
-        filePath: withFile?.document?.filePath || null,
-      };
-    })
-  );
+  // Map requirementDocuments to a display-compatible shape.
+  // Full document subsystem migration is pending (Phase F1/F2).
+  const documents = (defence.requirementDocuments || []).map((d) => ({
+    requirementId: d.thesisDefenceRequirementId,
+    requirementName: d.requirement?.name || "-",
+    status: d.status,
+    submittedAt: d.submittedAt,
+    verifiedAt: d.verifiedAt,
+    notes: d.notes,
+    verifiedBy: d.verifier?.fullName || null,
+    fileName: d.fileName || null,
+    filePath: d.filePath || null,
+  }));
 
-  const docTypes = await docRepo.getDefenceDocumentTypes();
   const effectiveStatus = computeEffectiveDefenceStatus(
     defence.status,
     defence.date,
@@ -357,7 +353,7 @@ export async function getDefenceDetail(defenceId, user = {}) {
     },
     supervisors,
     documents,
-    documentTypes: docTypes.map((dt) => ({ id: dt.id, name: dt.name })),
+    documentTypes: [],   // Phase F1: will be replaced with dynamic ThesisDefenceRequirement list
     examiners: (defence.examiners || [])
       .filter((e) => e.availabilityStatus === "available" || e.availabilityStatus === "pending")
       .map((e) => ({
@@ -866,7 +862,9 @@ export async function importArchive(fileBuffer, userId) {
       results.successCount++;
     } catch (err) {
       results.failed++;
-      results.failedRows.push({ row: i + 2, error: err.message.includes("prisma") ? "Format data tidak valid." : err.message });
+      const isKnownError = err.statusCode || (typeof err.message === "string" && !err.message.match(/prisma|constraint|foreign|unique|p\d{4}/i));
+      const safeMessage = isKnownError ? err.message : "Format data tidak valid atau terdapat konflik data.";
+      results.failedRows.push({ row: i + 2, error: safeMessage });
     }
   }
   return results;

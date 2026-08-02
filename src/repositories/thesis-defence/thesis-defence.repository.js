@@ -28,10 +28,12 @@ const defenceListInclude = {
   },
   room: { select: { id: true, name: true, location: true } },
   examiners: { orderBy: { order: "asc" } },
-  documents: {
+  requirementDocuments: {
     include: {
-      verifier: { select: { fullName: true } },
+      requirement: { select: { id: true, name: true, displayOrder: true } },
+      verifier: { select: { id: true, fullName: true } },
     },
+    orderBy: { requirement: { displayOrder: "asc" } },
   },
   resultFinalizer: {
     select: {
@@ -266,19 +268,17 @@ export async function createThesisDefence(thesisId) {
 }
 
 export async function deleteDefence(id) {
+  // requirementDocuments and examinerAssessmentDetails cascade-delete via schema onDelete: Cascade.
+  // We only need to explicitly delete examiners (which cascade their own assessment details and revisions).
   return prisma.$transaction(async (tx) => {
-    await tx.thesisDefenceDocument.deleteMany({ where: { thesisDefenceId: id } });
     await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
     await tx.thesisDefenceSupervisorAssessmentDetail.deleteMany({ where: { thesisDefenceId: id } });
-    await tx.thesisDefenceRevision.deleteMany({
-      where: { defenceExaminer: { thesisDefenceId: id } },
-    });
     return tx.thesisDefence.delete({ where: { id } });
   });
 }
 
 export async function createArchive(data) {
-  const { thesisId, date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
+  const { thesisId, date, roomId, status, examinerLecturerIds, finalScore, grade } = data;
   return prisma.$transaction(async (tx) => {
     const defence = await tx.thesisDefence.create({
       data: {
@@ -288,21 +288,22 @@ export async function createArchive(data) {
         status,
         finalScore,
         grade,
-        registeredAt: null, // Mark as archive
+        registeredAt: null, // Mark as archive (no registeredAt = archive record)
         resultFinalizedAt: new Date(),
       },
     });
 
     if (examinerLecturerIds && examinerLecturerIds.length > 0) {
+      const now = new Date();
       await tx.thesisDefenceExaminer.createMany({
         data: examinerLecturerIds.map((lecturerId, index) => ({
           thesisDefenceId: defence.id,
           lecturerId,
-          assignedBy: userId,
+          assignedBy: null, // Archive records have no fabricated assigning lecturer
           order: index + 1,
           availabilityStatus: "available",
-          assignedAt: new Date(),
-          respondedAt: new Date(),
+          assignedAt: now,
+          respondedAt: now,
         })),
       });
     }
@@ -312,7 +313,7 @@ export async function createArchive(data) {
 }
 
 export async function updateArchive(id, data) {
-  const { date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
+  const { date, roomId, status, examinerLecturerIds, finalScore, grade } = data;
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefence.update({
       where: { id },
@@ -326,18 +327,19 @@ export async function updateArchive(id, data) {
     });
 
     if (examinerLecturerIds) {
-      // Refresh examiners to ensure all have assignedBy and correct order
+      // Refresh examiners — cascade deletes their assessment details and revisions.
       await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
       if (examinerLecturerIds.length > 0) {
+        const now = new Date();
         await tx.thesisDefenceExaminer.createMany({
           data: examinerLecturerIds.map((lecturerId, index) => ({
             thesisDefenceId: id,
             lecturerId,
-            assignedBy: userId,
+            assignedBy: null, // Archive records have no fabricated assigning lecturer
             order: index + 1,
             availabilityStatus: "available",
-            assignedAt: new Date(),
-            respondedAt: new Date(),
+            assignedAt: now,
+            respondedAt: now,
           })),
         });
       }
