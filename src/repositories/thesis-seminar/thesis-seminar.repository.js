@@ -40,8 +40,9 @@ const seminarListInclude = {
   examiners: {
     orderBy: { order: "asc" },
   },
-  documents: {
+  requirementDocuments: {
     include: {
+      requirement: { select: { id: true, academicYearId: true, name: true, description: true, displayOrder: true } },
       verifier: { select: { fullName: true } },
     },
   },
@@ -357,6 +358,8 @@ export async function findSeminarBasicById(id) {
 
 /**
  * Create seminar with examiners in one transaction (archive input).
+ * Seminar results are attempt-local: never mutate Thesis.thesisStatusId here.
+ * A failed/cancelled seminar retries against the same thesis record.
  */
 export async function createSeminarWithExaminers({
   thesisId,
@@ -396,6 +399,7 @@ export async function createSeminarWithExaminers({
 
 /**
  * Update seminar + replace all examiners in one transaction (archive edit).
+ * Keep the parent thesis status independent from the seminar result.
  */
 export async function updateSeminarWithExaminers({
   seminarId,
@@ -653,15 +657,22 @@ export async function getStudentThesisWithSeminarInfo(studentId) {
           resultFinalizedAt: true,
           cancelledReason: true,
           room: { select: { id: true, name: true } },
-          documents: {
+          requirementDocuments: {
             select: {
               thesisSeminarId: true,
-              documentTypeId: true,
-              documentId: true,
+              thesisSeminarRequirementId: true,
+              filePath: true,
+              fileName: true,
+              mimeType: true,
+              fileSize: true,
               status: true,
               submittedAt: true,
               verifiedAt: true,
               notes: true,
+              verifier: { select: { fullName: true } },
+              requirement: {
+                select: { id: true, academicYearId: true, name: true, description: true, displayOrder: true },
+              },
             },
           },
           examiners: {
@@ -1138,6 +1149,7 @@ export async function getThesisWithSeminar(studentId) {
       id: true,
       title: true,
       studentId: true,
+      student: { select: { user: { select: { id: true, fullName: true } } } },
       thesisSeminars: {
         orderBy: { createdAt: "desc" },
         take: 1,

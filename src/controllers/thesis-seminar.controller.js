@@ -140,7 +140,7 @@ export async function importArchive(req, res, next) {
 
 export async function getDocumentTypes(req, res, next) {
   try {
-    const result = await docService.getDocumentTypes();
+    const result = await docService.getDocumentTypes(req.user.studentId);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -155,21 +155,21 @@ export async function getDocuments(req, res, next) {
 export async function uploadDocument(req, res, next) {
   try {
     // Note: If uploading from student route without seminarId in param, we pass undefined
-    const result = await docService.uploadDocument(req.params.id, req.user.studentId, req.file, req.body.documentTypeName);
+    const result = await docService.uploadDocument(req.params.id, req.user.studentId, req.file, req.body.requirementId);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
 
 export async function viewDocument(req, res, next) {
   try {
-    const result = await docService.viewDocument(req.params.id, req.params.documentTypeId);
+    const result = await docService.viewDocument(req.params.id, req.params.requirementId);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
 
 export async function verifyDocument(req, res, next) {
   try {
-    const result = await docService.verifyDocument(req.params.id, req.params.documentTypeId, {
+    const result = await docService.verifyDocument(req.params.id, req.params.requirementId, {
       action: req.body.action,
       notes: req.body.notes,
       userId: req.user.id,

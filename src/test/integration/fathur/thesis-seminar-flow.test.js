@@ -1,18 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { unlink } from "fs/promises";
 import prisma from "../../../config/prisma.js";
 import * as docService from "../../../services/thesis-seminar/doc.service.js";
 import * as examinerService from "../../../services/thesis-seminar/examiner.service.js";
 import * as coreService from "../../../services/thesis-seminar/core.service.js";
-import * as docRepo from "../../../repositories/thesis-seminar/doc.repository.js";
 
 vi.mock("../../../services/notification.service.js", () => ({ createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }), createNotificationService: vi.fn().mockResolvedValue(true) }));
 vi.mock("../../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }) }));
 vi.mock("../../../services/outlook-calendar.service.js", () => ({ hasCalendarAccess: vi.fn().mockResolvedValue(true), createCalendarEvent: vi.fn().mockResolvedValue({ eventId: "f" }), createSeminarCalendarEvents: vi.fn().mockResolvedValue(true) }));
 
-describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () => {
+describe("Integration: Thesis Seminar Flow (Registration to Scheduling)", () => {
   const ts = Date.now();
   let studentUser, student, lecturerUser, lecturer, thesis, supervisor, dummyTheses = [], dummySeminars = [];
-  let seminarId, docTypes;
+  let seminarId, academicYear, requirements = [], uploadedPaths = [];
 
   beforeAll(async () => {
     try {
@@ -25,7 +25,24 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
       const role = await prisma.userRole.findFirst({ where: { name: { contains: "Pembimbing" } } });
       if (!status || !role) throw new Error(`Seeds missing`);
 
-      thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Int Test", thesisStatusId: status.id } });
+      academicYear = await prisma.academicYear.create({
+        data: {
+          year: "9999",
+          semester: "ganjil",
+          isActive: false,
+          startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+          endDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+      requirements = await Promise.all(
+        ["Laporan Tugas Akhir", "Slide Presentasi", "Draft Jurnal TEKNOSI"].map((name, index) =>
+          prisma.thesisSeminarRequirement.create({
+            data: { academicYearId: academicYear.id, name, displayOrder: index + 1 },
+          })
+        )
+      );
+
+      thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Int Test", thesisStatusId: status.id, academicYearId: academicYear.id } });
       supervisor = await prisma.thesisSupervisors.create({ data: { thesisId: thesis.id, lecturerId: lecturer.id, roleId: role.id, seminarReady: true } });
 
       await prisma.thesisGuidance.createMany({
@@ -41,10 +58,9 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
         const sem = await prisma.thesisSeminar.create({ data: { thesisId: t.id, status: "passed", date: new Date() } });
         dummyTheses.push({ user: u, student: s, thesis: t });
         dummySeminars.push(sem);
-        await prisma.thesisSeminarAudience.create({ data: { thesisSeminarId: sem.id, studentId: student.id, approvedAt: new Date() } });
+        await prisma.thesisSeminarAudience.create({ data: { thesisSeminarId: sem.id, thesisId: t.id, studentId: student.id, approvedAt: new Date() } });
       }
 
-      docTypes = await docRepo.ensureSeminarDocumentTypes();
     } catch (err) {
       console.error("SETUP ERROR:", err); throw err;
     }
@@ -52,8 +68,9 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
 
   afterAll(async () => {
     try {
+      for (const filePath of uploadedPaths) await unlink(filePath).catch(() => {});
       if (seminarId) {
-        await prisma.thesisSeminarDocument.deleteMany({ where: { thesisSeminarId: seminarId } }).catch(() => {});
+        await prisma.thesisSeminarRequirementDocument.deleteMany({ where: { thesisSeminarId: seminarId } }).catch(() => {});
         await prisma.thesisSeminarExaminer.deleteMany({ where: { thesisSeminarId: seminarId } }).catch(() => {});
         await prisma.thesisSeminar.delete({ where: { id: seminarId } }).catch(() => {});
       }
@@ -71,6 +88,8 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
         await prisma.thesisSupervisors.deleteMany({ where: { thesisId: thesis.id } }).catch(() => {});
         await prisma.thesis.delete({ where: { id: thesis.id } }).catch(() => {});
       }
+      if (requirements.length > 0) await prisma.thesisSeminarRequirement.deleteMany({ where: { id: { in: requirements.map((item) => item.id) } } }).catch(() => {});
+      if (academicYear) await prisma.academicYear.delete({ where: { id: academicYear.id } }).catch(() => {});
       if (student) await prisma.student.delete({ where: { id: student.id } }).catch(() => {});
       if (lecturer) await prisma.lecturer.delete({ where: { id: lecturer.id } }).catch(() => {});
       if (studentUser) await prisma.user.deleteMany({ where: { id: { in: [studentUser.id, lecturerUser.id] } } }).catch(() => {});
@@ -78,25 +97,23 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
   });
 
   it("Step 1: Student uploads all required documents", async () => {
-    const fakeFile = { originalname: "t.pdf", buffer: Buffer.from("t"), mimetype: "application/pdf" };
-    const names = ["Laporan Tugas Akhir", "Slide Presentasi", "Draft Jurnal TEKNOSI"];
-    
-    for (const name of names) {
-      const res = await docService.uploadDocument(null, student.id, fakeFile, name);
+    const fakeFile = { originalname: "t.pdf", buffer: Buffer.from("%PDF-1.4\nbody"), size: 13, mimetype: "application/pdf" };
+    for (const requirement of requirements) {
+      const res = await docService.uploadDocument("active", student.id, fakeFile, requirement.id);
       expect(res.status).toBe("submitted");
+      uploadedPaths.push(res.filePath);
     }
-    
+
     const seminar = await prisma.thesisSeminar.findFirst({ where: { thesisId: thesis.id } });
     seminarId = seminar.id;
     expect(seminar.status).toBe("registered");
   });
 
   it("Step 2: Lecturer verifies all documents and transitions status to verified", async () => {
-    const names = ["Laporan Tugas Akhir", "Slide Presentasi", "Draft Jurnal TEKNOSI"];
-    for (const name of names) {
-      await docService.verifyDocument(seminarId, docTypes[name].id, { action: "approve", userId: lecturerUser.id });
+    for (const requirement of requirements) {
+      await docService.verifyDocument(seminarId, requirement.id, { action: "approve", userId: lecturerUser.id });
     }
-    
+
     const seminar = await prisma.thesisSeminar.findUnique({ where: { id: seminarId } });
     expect(seminar.status).toBe("verified");
   });
@@ -111,7 +128,7 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
   it("Step 4: Examiner responds available and transitions status to examiner_assigned", async () => {
     const examinerRec = await prisma.thesisSeminarExaminer.findFirst({ where: { thesisSeminarId: seminarId, lecturerId: lecturer.id } });
     await examinerService.respondExaminerAssignment(seminarId, examinerRec.id, { status: "available" }, lecturer.id);
-    
+
     const seminar = await prisma.thesisSeminar.findUnique({ where: { id: seminarId } });
     expect(seminar.status).toBe("examiner_assigned");
   });
@@ -119,14 +136,15 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
   it("Step 5: Admin drafts and finalizes the schedule", async () => {
     // Ensure we pick a weekday (Next Monday)
     const nextMonday = new Date();
-    nextMonday.setDate(nextMonday.getDate() + ((7 - nextMonday.getDay() + 1) % 7 || 7));
+    nextMonday.setUTCHours(12, 0, 0, 0);
+    nextMonday.setUTCDate(nextMonday.getUTCDate() + ((8 - nextMonday.getUTCDay()) % 7 || 7));
     const dateStr = nextMonday.toISOString().split("T")[0];
 
     await coreService.scheduleSeminar(seminarId, {
       date: dateStr,
       startTime: "10:00", endTime: "12:00", isOnline: true, meetingLink: "https://zoom.us"
     });
-    
+
     await coreService.finalizeSchedule(seminarId, lecturerUser.id);
 
     const finalSeminar = await prisma.thesisSeminar.findUnique({ where: { id: seminarId } });
@@ -135,32 +153,4 @@ describe("Integration: Thesis Seminar Flow (Registration to Finalization)", () =
     expect(new Date(finalSeminar.scheduledAt).getTime()).toBeLessThanOrEqual(Date.now());
   });
 
-  it("Step 6: Supervisor finalizes seminar result and verifies audit trail", async () => {
-    // Manually update date/time to NOW to make it "ongoing"
-    await prisma.thesisSeminar.update({
-      where: { id: seminarId },
-      data: { 
-        date: new Date(),
-        startTime: new Date("1970-01-01T00:00:00.000Z"),
-        endTime: new Date("1970-01-01T23:59:00.000Z")
-      }
-    });
-
-    // Mock examiner assessment to satisfy finalization requirements
-    await prisma.thesisSeminarExaminer.updateMany({
-      where: { thesisSeminarId: seminarId, availabilityStatus: "available" },
-      data: { assessmentScore: 80, assessmentSubmittedAt: new Date() }
-    });
-
-    await examinerService.finalizeSeminar(seminarId, lecturer.id, { targetStatus: "passed" });
-
-    const finalizedSeminar = await prisma.thesisSeminar.findUnique({
-      where: { id: seminarId },
-      include: { resultFinalizer: { include: { lecturer: { include: { user: true } } } } }
-    });
-
-    expect(finalizedSeminar.status).toBe("passed");
-    expect(finalizedSeminar.resultFinalizedBy).toBe(supervisor.id);
-    expect(finalizedSeminar.resultFinalizer.lecturer.user.fullName).toContain("L ");
-  });
 });

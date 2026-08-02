@@ -90,6 +90,7 @@ export const ENV = {
   // ===============================
   SEMINAR_MIN_BIMBINGAN: toNum(process.env.SEMINAR_MIN_BIMBINGAN, 8),
   SEMINAR_MIN_KEHADIRAN: toNum(process.env.SEMINAR_MIN_KEHADIRAN, 8),
+  REQUIREMENT_DOCUMENT_MAX_SIZE_MB: toNum(process.env.REQUIREMENT_DOCUMENT_MAX_SIZE_MB, 10),
 
   // ===============================
   // 🧰 LOGGING

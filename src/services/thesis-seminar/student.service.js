@@ -3,6 +3,7 @@ import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repo
 import { mapSeminarsToAnnouncementItems } from "./core.service.js";
 import * as examinerRepo from "../../repositories/thesis-seminar/examiner.repository.js";
 import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
+import * as docService from "./doc.service.js";
 import * as revisionRepo from "../../repositories/thesis-seminar/revision.repository.js";
 import * as audienceRepo from "../../repositories/thesis-seminar/audience.repository.js";
 import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
@@ -24,7 +25,7 @@ async function resolveStudent(userId) {
 
 function buildSeminarMilestones(allChecklistMet, currentSeminar) {
   return [
-    { id: "checklist", label: "Memenuhi Syarat Pendaftaran", checked: allChecklistMet },
+    { id: "checklist", label: "Memenuhi Syarat Pendaftaran", checked: allChecklistMet || Boolean(currentSeminar) },
     {
       id: "documents",
       label: "Dokumen Seminar Lengkap",
@@ -83,6 +84,9 @@ async function buildOverviewWithoutThesis(student) {
     milestones: buildSeminarMilestones(false, null),
     canUpload: false,
     seminar: null,
+    requirements: [],
+    requirementConfiguration: { isConfigured: false, message: "Tugas akhir belum tersedia sehingga syarat dokumen seminar belum dapat dimuat." },
+    uploadConfig: { accept: [".pdf"], maxFileSizeBytes: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB * 1024 * 1024, maxFileSizeMb: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB },
   };
 }
 
@@ -114,11 +118,12 @@ export async function getOverview(userId) {
   }
 
   const milestones = buildSeminarMilestones(allChecklistMet, currentSeminar);
+  const requirementState = await docService.getRequirementsForOverview(thesis, currentSeminar);
 
   // Locking Logic
   // 1. Cannot upload if checklist not met
   // 2. Cannot change documents if status > registered
-  const canUpload = allChecklistMet && (!currentSeminar || currentSeminar.status === "registered");
+  const canUpload = allChecklistMet && requirementState.requirementConfiguration.isConfigured && (!currentSeminar || currentSeminar.status === "registered");
 
   let enrichedExaminers = [];
   if (currentSeminar?.examiners?.length) {
@@ -137,6 +142,7 @@ export async function getOverview(userId) {
     allChecklistMet,
     milestones,
     canUpload,
+    ...requirementState,
     seminar: currentSeminar
       ? {
           id: currentSeminar.id,
@@ -152,7 +158,6 @@ export async function getOverview(userId) {
           cancelledReason: currentSeminar.cancelledReason,
           scheduledAt: currentSeminar.scheduledAt,
           room: currentSeminar.room,
-          documents: currentSeminar.documents || [],
           examiners: enrichedExaminers,
         }
       : null,
@@ -237,7 +242,6 @@ export async function getSeminarDetail(userId, seminarId) {
     for (const l of lecs) lecMap.set(l.id, l.user?.fullName || "-");
   }
 
-  const docTypes = await docRepo.getSeminarDocumentTypes();
   const docs = await docRepo.findSeminarDocuments(seminarId);
   const examinerNotes = (seminar.examiners || []).filter((e) => e.revisionNotes).map((e) => ({ examinerOrder: e.order, lecturerName: lecMap.get(e.lecturerId) || "-", revisionNotes: e.revisionNotes }));
 
@@ -277,19 +281,18 @@ export async function getSeminarDetail(userId, seminarId) {
       assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null 
     })),
     documents: (isPresenter || isAudience)
-      ? docs.map((d) => {
-          const dt = docTypes.find((t) => t.id === d.documentTypeId);
-          return {
-            documentTypeId: d.documentTypeId,
-            documentTypeName: dt?.name || "-",
-            fileName: d.document?.fileName || null,
-            filePath: d.document?.filePath || null,
-            status: d.status,
-            submittedAt: d.submittedAt,
-            verifiedAt: d.verifiedAt,
-            notes: d.notes,
-          };
-        })
+      ? docs.map((d) => ({
+          requirementId: d.thesisSeminarRequirementId,
+          requirementName: d.requirement?.name || "-",
+          documentTypeId: d.thesisSeminarRequirementId,
+          documentTypeName: d.requirement?.name || "-",
+          fileName: d.fileName,
+          filePath: d.filePath,
+          status: d.status,
+          submittedAt: d.submittedAt,
+          verifiedAt: d.verifiedAt,
+          notes: d.notes,
+        }))
       : [],
     examinerNotes: isPresenter ? examinerNotes : [], 
     revisions: isPresenter ? revisions : [], 

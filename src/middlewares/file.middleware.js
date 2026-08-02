@@ -1,4 +1,5 @@
 import multer from "multer";
+import { ENV } from "../config/env.js";
 
 const storage = multer.memoryStorage();
 
@@ -22,15 +23,12 @@ function thesisFileFilter(req, file, cb) {
 }
 
 function seminarDocFileFilter(req, file, cb) {
-	const name = (file.originalname || "").toLowerCase();
-	const allowedMimes = [
-		"application/pdf",
-		"application/vnd.ms-powerpoint",
-		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-	];
-	const allowedExts = [".pdf", ".ppt", ".pptx"];
-	const isAllowed = allowedMimes.includes(file.mimetype) || allowedExts.some((ext) => name.endsWith(ext));
-	if (!isAllowed) return cb(new Error("Only PDF and PPT/PPTX files are allowed for seminar documents"));
+	const isPdf = file.mimetype === "application/pdf" && (file.originalname || "").toLowerCase().endsWith(".pdf");
+	if (!isPdf) {
+		const error = new Error("Format dokumen tidak didukung. Gunakan file PDF.");
+		error.statusCode = 400;
+		return cb(error);
+	}
 	cb(null, true);
 }
 
@@ -50,7 +48,11 @@ function guideFileFilter(req, file, cb) {
 
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 const thesisUpload = multer({ storage, fileFilter: thesisFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
-const seminarDocUpload = multer({ storage, fileFilter: seminarDocFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
+const seminarDocUpload = multer({
+	storage,
+	fileFilter: seminarDocFileFilter,
+	limits: { fileSize: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB * 1024 * 1024 },
+});
 const guideUpload = multer({ storage, fileFilter: guideFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 
 export const uploadCsv = upload.single("file");

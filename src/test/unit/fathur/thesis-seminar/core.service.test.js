@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil } = vi.hoisted(() => ({
+const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil, mockAcademicYear } = vi.hoisted(() => ({
   mockPrisma: {
     thesisSeminar: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     user: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
     student: { findMany: vi.fn(), findUnique: vi.fn() },
     thesisSupervisors: { updateMany: vi.fn(), findMany: vi.fn() },
-    documentType: { findMany: vi.fn().mockResolvedValue([]) },
-    thesisSeminarDocument: { findMany: vi.fn().mockResolvedValue([]) },
+    thesisSeminarRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+    thesisSeminarRequirementDocument: { findMany: vi.fn().mockResolvedValue([]) },
     thesisSeminarAudience: { findMany: vi.fn().mockResolvedValue([]) },
     lecturer: { findMany: vi.fn().mockResolvedValue([]) },
   },
@@ -49,18 +49,20 @@ const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil } = vi.hoisted(() => 
       SheetNames: ['Sheet1'],
       Sheets: { Sheet1: {} }
     }),
-    utils: { 
-      sheet_to_json: vi.fn().mockReturnValue([]), 
-      json_to_sheet: vi.fn().mockReturnValue({}), 
-      book_new: vi.fn().mockReturnValue({}), 
-      book_append_sheet: vi.fn() 
+    utils: {
+      sheet_to_json: vi.fn().mockReturnValue([]),
+      json_to_sheet: vi.fn().mockReturnValue({}),
+      book_new: vi.fn().mockReturnValue({}),
+      book_append_sheet: vi.fn()
     },
     write: vi.fn().mockReturnValue(Buffer.from('')),
   },
   mockStatusUtil: { computeEffectiveStatus: vi.fn() },
+  mockAcademicYear: { getActiveAcademicYear: vi.fn() },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../../../helpers/academicYear.helper.js", () => mockAcademicYear);
 vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
 vi.mock("xlsx", () => mockXlsx);
 vi.mock("../../../../utils/seminarStatus.util.js", () => mockStatusUtil);
@@ -77,6 +79,7 @@ describe("Thesis Seminar Core Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStatusUtil.computeEffectiveStatus.mockImplementation((s) => s);
+    mockAcademicYear.getActiveAcademicYear.mockResolvedValue({ id: "ay-current" });
     mockCoreRepo.findEligibleExaminerLecturers.mockResolvedValue([{ id: "l1" }]);
   });
 
@@ -151,10 +154,10 @@ describe("Thesis Seminar Core Service", () => {
       mockCoreRepo.findSupervisorsByThesisId.mockResolvedValue([]);
       mockCoreRepo.createSeminarWithExaminers.mockResolvedValue({ id: "s1" });
       mockCoreRepo.findArchiveSeminarById.mockResolvedValue({ id: "s1" });
-      const res = await coreService.createArchive({ thesisId: "t1", roomId: "r1", status: "passed", examinerLecturerIds: ["l1"], date: "2026-01-01" });
+      const res = await coreService.createArchive({ thesisId: "t1", roomId: "r1", status: "failed", examinerLecturerIds: ["l1"], date: "2026-01-01" });
       expect(res.id).toBeDefined();
       expect(mockCoreRepo.createSeminarWithExaminers).toHaveBeenCalledWith(
-        expect.objectContaining({ assignedByLecturerId: null })
+        expect.objectContaining({ assignedByLecturerId: null, status: "failed" })
       );
     });
 

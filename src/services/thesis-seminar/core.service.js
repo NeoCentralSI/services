@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import * as examinerService from "./examiner.service.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +50,12 @@ function parseStatusFilter(status) {
   const database = [...new Set(requested.map((item) => (item === "ongoing" ? "scheduled" : item)))];
   return { requested, database };
 }
+async function getCurrentRequirementTotal() {
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) return 0;
+  return (await docRepo.findRequirementsByAcademicYear(academicYear.id)).length;
+}
+
 
 // ==================== LIST ====================
 
@@ -68,7 +75,7 @@ export async function getSeminarList({ page, pageSize, search, view, status, use
 }
 
 async function mapLecturerSeminarList(data, lecturerId, primaryRole) {
-  const docTypes = await docRepo.getSeminarDocumentTypes();
+  const currentRequirementTotal = await getCurrentRequirementTotal();
   return data.map((s) => {
     const myExaminer = s.examiners.find((e) => e.lecturerId === lecturerId);
     const mySupervisor = s.thesis?.thesisSupervisors?.find((ts) => ts.lecturerId === lecturerId);
@@ -90,10 +97,12 @@ async function mapLecturerSeminarList(data, lecturerId, primaryRole) {
       })),
       audienceCount: s._count?.audiences || 0,
       documentSummary: { 
-        total: docTypes.length, 
-        submitted: s.documents.filter((d) => d.status === "submitted").length, 
-        approved: s.documents.filter((d) => d.status === "approved").length, 
-        declined: s.documents.filter((d) => d.status === "declined").length 
+        total: s.status === "registered"
+          ? currentRequirementTotal
+          : s.requirementDocuments.length,
+        submitted: s.requirementDocuments.filter((d) => d.status === "submitted").length,
+        approved: s.requirementDocuments.filter((d) => d.status === "approved").length,
+        declined: s.requirementDocuments.filter((d) => d.status === "declined").length
       },
       // Lecturer specific
       myRole: mySupervisor?.role?.name || (myExaminer ? "Penguji" : "-"),
@@ -116,7 +125,7 @@ async function getAdminList({ search, status }) {
         : {}),
   };
   const { data } = await coreRepo.findSeminarsPaginated({ where, skip: 0, take: 500 });
-  const docTypes = await docRepo.getSeminarDocumentTypes();
+  const currentRequirementTotal = await getCurrentRequirementTotal();
   const mapped = data.map((s) => ({
     id: s.id, thesisId: s.thesis?.id || null,
     studentName: s.thesis?.student?.user?.fullName || "-", studentNim: s.thesis?.student?.user?.identityNumber || "-",
@@ -133,7 +142,9 @@ async function getAdminList({ search, status }) {
       availabilityStatus: e.availabilityStatus,
     })),
     audienceCount: s._count?.audiences || 0,
-    documentSummary: { total: docTypes.length, submitted: s.documents.filter((d) => d.status === "submitted").length, approved: s.documents.filter((d) => d.status === "approved").length, declined: s.documents.filter((d) => d.status === "declined").length },
+    documentSummary: { total: s.status === "registered"
+          ? currentRequirementTotal
+          : s.requirementDocuments.length, submitted: s.requirementDocuments.filter((d) => d.status === "submitted").length, approved: s.requirementDocuments.filter((d) => d.status === "approved").length, declined: s.requirementDocuments.filter((d) => d.status === "declined").length },
   }));
   const filtered = statusFilter.requested.length > 0
     ? mapped.filter((item) => statusFilter.requested.includes(item.status))
@@ -251,8 +262,11 @@ export async function getSeminarDetail(seminarId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
-  const docTypes = await docRepo.getSeminarDocumentTypes();
   const docs = await docRepo.findSeminarDocuments(seminarId);
+  const academicYear = seminar.status === "registered" ? await getActiveAcademicYear() : null;
+  const requirements = seminar.status === "registered" && academicYear
+    ? await docRepo.findRequirementsByAcademicYear(academicYear.id)
+    : docs.map((document) => document.requirement);
   const audiences = await audienceRepo.findAudiencesBySeminarId(seminarId);
   const active = (seminar.examiners || []).filter((e) => ["available", "pending"].includes(e.availabilityStatus));
   return {
@@ -268,8 +282,8 @@ export async function getSeminarDetail(seminarId) {
     thesis: { id: seminar.thesis?.id, title: seminar.thesis?.title },
     student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
     supervisors: (seminar.thesis?.thesisSupervisors || []).map((ts) => ({ lecturerId: ts.lecturerId, name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
-    documents: docs.map((d) => ({ documentTypeId: d.documentTypeId, documentId: d.documentId, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes, verifiedBy: d.verifier?.fullName || null, fileName: d.document?.fileName || null, filePath: d.document?.filePath || null })),
-    documentTypes: docTypes.map((dt) => ({ id: dt.id, name: dt.name })),
+    documents: docs.map((d) => ({ requirementId: d.thesisSeminarRequirementId, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes, verifiedBy: d.verifier?.fullName || null, fileName: d.fileName, filePath: d.filePath })),
+    documentTypes: requirements.map((requirement) => ({ id: requirement.id, name: requirement.name })),
     examiners: active.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus })),
     audiences: audiences.map((a) => ({ studentName: a.student?.user?.fullName || "-", nim: a.student?.user?.identityNumber || "-", registeredAt: a.registeredAt, approvedAt: a.approvedAt, approvedByName: a.supervisor?.lecturer?.user?.fullName || null })),
   };

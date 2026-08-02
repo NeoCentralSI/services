@@ -49,6 +49,7 @@ describe("Thesis Seminar Examiner Service (Full Suite)", () => {
     mockStatusUtil.computeEffectiveStatus.mockImplementation((s) => s);
     mockPrisma.userHasRole.findMany.mockResolvedValue([]);
     mockExaminerRepo.findSeminarAssessmentCpmks.mockResolvedValue([]);
+    mockCoreRepo.findUserIdsByRole.mockResolvedValue([]);
   });
 
   describe("Assignment Flow", () => {

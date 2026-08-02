@@ -57,7 +57,7 @@ router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getSeminarDetail);
 router.get("/:id/invitation-letter", requireAnyRole(ALL_ROLES), ctrl.downloadInvitationLetter);
 router.get("/:id/assessment-result", requireAnyRole(ALL_ROLES), ctrl.downloadAssessmentResult);
 router.get("/:id/documents", requireAnyRole(ALL_ROLES), ctrl.getDocuments);
-router.get("/:id/documents/:documentTypeId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
+router.get("/:id/documents/:requirementId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
 
 // ============================================================
 // ADMIN: Management & Scheduling
@@ -69,7 +69,7 @@ router.get("/:id/scheduling-data", requireAnyRole([ROLES.ADMIN]), ctrl.getSchedu
 router.post("/:id/schedule", requireAnyRole([ROLES.ADMIN]), validate(scheduleSchema), ctrl.setSchedule);
 router.post("/:id/schedule/finalize", requireAnyRole([ROLES.ADMIN]), ctrl.finalizeSchedule);
 router.post("/:id/cancel", requireAnyRole([ROLES.ADMIN]), validate(cancelSeminarSchema), ctrl.cancelSeminar);
-router.post("/:id/documents/:documentTypeId/verify", requireAnyRole([ROLES.ADMIN]), ctrl.verifyDocument);
+router.post("/:id/documents/:requirementId/verify", requireAnyRole([ROLES.ADMIN]), ctrl.verifyDocument);
 
 // ============================================================
 // STUDENT ACTIONS

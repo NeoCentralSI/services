@@ -3,6 +3,12 @@ import generated from "../generated/prisma/index.js";
 const { Prisma } = generated;
 
 function mapPrismaError(err) {
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    const e = new Error("Ukuran file melebihi batas maksimal yang diperbolehkan.");
+    e.statusCode = 400;
+    e.code = err.code;
+    return e;
+  }
   if (err?.statusCode) {
     return err;
   }
