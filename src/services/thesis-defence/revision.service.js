@@ -31,6 +31,9 @@ function resolveSupervisorMembership(supervisorRelation) {
 export async function getRevisions(defenceId, user) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian revisi tidak tersedia untuk data arsip sidang.", 400);
+  }
 
   // Role resolution (admin, supervisor, student)
   const isAdmin = await prisma.userHasRole.findFirst({
@@ -40,7 +43,8 @@ export async function getRevisions(defenceId, user) {
     ? await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId)
     : null;
   const isSupervisor = !!resolveSupervisorMembership(supervisorRelation);
-  const isStudent = defence.thesis?.studentId === user.studentId;
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
 
   if (!isAdmin && !isSupervisor && !isStudent) {
     throwError("Anda tidak memiliki akses untuk melihat revisi sidang ini.", 403);
@@ -104,11 +108,15 @@ export async function getRevisions(defenceId, user) {
 export async function createRevision(defenceId, body, studentId, user) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian revisi tidak tersedia untuk data arsip sidang.", 400);
+  }
   if (defence.status !== "passed_with_revision") {
     throwError("Revisi hanya tersedia untuk sidang berstatus lulus dengan revisi.", 400);
   }
 
-  const isStudent = user.studentId && defence.thesis?.studentId === user.studentId;
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
   if (!isStudent) throwError("Hanya mahasiswa bersangkutan yang dapat menambahkan item revisi.", 403);
 
   if (defence.revisionFinalizedAt) {
@@ -146,11 +154,15 @@ export async function createRevision(defenceId, body, studentId, user) {
 export async function updateRevision(defenceId, revisionId, body, user) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian revisi tidak tersedia untuk data arsip sidang.", 400);
+  }
   if (defence.status !== "passed_with_revision") {
     throwError("Revisi hanya tersedia untuk sidang berstatus lulus dengan revisi.", 403);
   }
 
-  const isStudent = user.studentId && defence.thesis?.studentId === user.studentId;
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
   const supervisorRelation = user.lecturerId
     ? await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId)
     : null;
@@ -298,11 +310,15 @@ async function unapproveRevision(defenceId, revision, user) {
 export async function deleteRevision(defenceId, revisionId, studentId, user) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian revisi tidak tersedia untuk data arsip sidang.", 400);
+  }
   if (defence.status !== "passed_with_revision") {
     throwError("Revisi hanya tersedia untuk sidang berstatus lulus dengan revisi.", 400);
   }
 
-  const isStudent = user.studentId && defence.thesis?.studentId === user.studentId;
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
   if (!isStudent) throwError("Hanya mahasiswa bersangkutan yang dapat menghapus item revisi.", 403);
 
   const revision = await revisionRepo.findRevisionById(revisionId);
@@ -327,6 +343,12 @@ export async function deleteRevision(defenceId, revisionId, studentId, user) {
 export async function finalizeRevisions(defenceId, lecturerId) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian revisi tidak tersedia untuk data arsip sidang.", 400);
+  }
+  if (defence.status !== "passed_with_revision") {
+    throwError("Finalisasi revisi hanya tersedia untuk sidang berstatus lulus dengan revisi.", 400);
+  }
 
   const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, lecturerId);
   const supervisorRole = resolveSupervisorMembership(supervisorRelation);
@@ -335,12 +357,11 @@ export async function finalizeRevisions(defenceId, lecturerId) {
   if (defence.revisionFinalizedAt) throwError("Revisi sidang sudah difinalisasi sebelumnya.", 400);
 
   const revisions = await revisionRepo.findRevisionsByDefenceId(defenceId);
-  const relevantRevisions = revisions.filter((item) => item.studentSubmittedAt || isRevisionFinished(item));
-  if (relevantRevisions.length === 0) {
-    throwError("Tidak ada item revisi yang diajukan mahasiswa untuk difinalisasi.", 400);
+  if (revisions.length === 0) {
+    throwError("Tidak ada item revisi untuk difinalisasi.", 400);
   }
 
-  const unfinished = relevantRevisions.filter((item) => !isRevisionFinished(item));
+  const unfinished = revisions.filter((item) => !isRevisionFinished(item));
   if (unfinished.length > 0) throwError("Masih ada item revisi yang belum disetujui.", 400);
 
   const finalized = await coreRepo.updateDefence(defenceId, {
@@ -372,6 +393,9 @@ export async function finalizeRevisions(defenceId, lecturerId) {
 export async function unfinalizeRevisions(defenceId, lecturerId) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian revisi tidak tersedia untuk data arsip sidang.", 400);
+  }
 
   const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, lecturerId);
   if (!resolveSupervisorMembership(supervisorRelation)) {
