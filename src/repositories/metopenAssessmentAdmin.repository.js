@@ -78,17 +78,18 @@ export function findMetopenCpmkByCode(code, academicYearId = null) {
 
 function buildCriteriaInclude() {
   return {
-    metopenCpmk: { select: { id: true, code: true, description: true } },
+    metopenCpmk: { select: { id: true, code: true, description: true, academicYearId: true } },
     metopenAssessmentRubrics: {
       orderBy: { displayOrder: "asc" },
     },
   };
 }
 
-export function findCriteria({ role = null } = {}) {
+export function findCriteria({ role = null, academicYearId = null } = {}) {
   return prisma.metopenAssessmentCriteria.findMany({
     where: {
       ...(role ? { role } : {}),
+      ...(academicYearId ? { metopenCpmk: { academicYearId } } : {}),
     },
     include: buildCriteriaInclude(),
     orderBy: [{ role: "asc" }, { displayOrder: "asc" }],
@@ -102,9 +103,12 @@ export function findCriteriaById(id) {
   });
 }
 
-export async function getNextCriteriaDisplayOrder(role) {
+export async function getNextCriteriaDisplayOrder(role, academicYearId) {
   const result = await prisma.metopenAssessmentCriteria.aggregate({
-    where: { role },
+    where: {
+      role,
+      metopenCpmk: { academicYearId },
+    },
     _max: { displayOrder: true },
   });
 
@@ -188,9 +192,10 @@ export function deleteRubric(id) {
   });
 }
 
-export function findConfiguredMetopenCpmks(role) {
+export function findConfiguredMetopenCpmks(role, academicYearId) {
   return prisma.metopenCpmk.findMany({
     where: {
+      academicYearId,
       metopenAssessmentCriterias: {
         some: {
           ...(role ? { role } : {}),
@@ -254,8 +259,15 @@ export async function removeMetopenConfigByCpmk(cpmkId, role) {
   });
 }
 
-export async function getActiveCriteriaTotalScore(role, excludeCriteriaId = null) {
-  const where = { role };
+export async function getActiveCriteriaTotalScore(
+  role,
+  academicYearId,
+  excludeCriteriaId = null,
+) {
+  const where = {
+    role,
+    metopenCpmk: { academicYearId },
+  };
   if (excludeCriteriaId) {
     where.id = { not: excludeCriteriaId };
   }
@@ -266,9 +278,10 @@ export async function getActiveCriteriaTotalScore(role, excludeCriteriaId = null
   return result._sum.maxScore || 0;
 }
 
-export async function getMetopenWeightSummary(role) {
+export async function getMetopenWeightSummary(role, academicYearId) {
   const cpmks = await prisma.metopenCpmk.findMany({
     where: {
+      academicYearId,
       metopenAssessmentCriterias: {
         some: {
           ...(role ? { role } : {}),

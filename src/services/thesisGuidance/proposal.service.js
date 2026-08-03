@@ -11,6 +11,7 @@ import {
   assertTa04GuidanceAuthorized,
   getTa04GuidanceAuthorization,
 } from "../ta04Authorization.service.js";
+import { reconcileAttendanceForThesis } from "../metopenAttendance.service.js";
 
 function sanitizePdfFileName(originalName) {
   const base = path.basename(String(originalName || "proposal.pdf"));
@@ -250,10 +251,28 @@ export async function submitFinalProposal(userId) {
     userId,
   );
 
+  // BR-28 catch-up: upload-first then submit-final must still resolve attendance
+  // (NIM match + deferred auto-zero / clear). Only on submitFinalProposal — not TA-04.
+  let attendanceReconcile = null;
+  try {
+    attendanceReconcile = await reconcileAttendanceForThesis(thesis.id, userId);
+  } catch (err) {
+    console.error(
+      "[submitFinalProposal] attendance reconcile failed",
+      { thesisId: thesis.id, message: err?.message },
+    );
+    attendanceReconcile = {
+      status: "error",
+      applied: null,
+      message: err?.message ?? "Attendance reconcile failed",
+    };
+  }
+
   return {
     thesisId: thesis.id,
     finalProposalVersion: mapProposalVersion(submittedVersion),
     alreadySubmitted: false,
+    attendanceReconcile,
   };
 }
 

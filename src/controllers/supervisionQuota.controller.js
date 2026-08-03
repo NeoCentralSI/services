@@ -35,6 +35,17 @@ export async function getLecturerQuotas(req, res, next) {
   }
 }
 
+/** GET /supervision-quota/lecturers/:lecturerId/:academicYearId */
+export async function getLecturerQuotaDetail(req, res, next) {
+  try {
+    const { lecturerId, academicYearId } = req.params;
+    const data = await service.getLecturerQuotaDetail(lecturerId, academicYearId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** PATCH /supervision-quota/lecturers/:lecturerId/:academicYearId */
 export async function updateLecturerQuota(req, res, next) {
   try {

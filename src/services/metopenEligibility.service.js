@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
 
 const METOPEN_COURSE_HINTS = ["metodologi penelitian", "metode penelitian"];
 const THESIS_COURSE_HINTS = ["tugas akhir", "skripsi"];
@@ -168,14 +169,75 @@ export async function setStudentThesisCourseEnrollment(
     },
   });
 
-  try {
+  if (hasEnrollmentValue) {
+    const [academicYear, studentAcademicState] = await Promise.all([
+      getActiveAcademicYear(),
+      client.student.findUnique({
+        where: { id: studentId },
+        select: {
+          eligibleMetopen: true,
+          metopenEligibilitySource: true,
+          metopenEligibilityUpdatedAt: true,
+          researchMethodCompleted: true,
+        },
+      }),
+    ]);
+    if (
+      academicYear
+      && typeof studentAcademicState?.eligibleMetopen === "boolean"
+    ) {
+      const existing = await client.studentAcademicYearSnapshot.findUnique({
+        where: {
+          studentId_academicYearId: {
+            studentId,
+            academicYearId: academicYear.id,
+          },
+        },
+      });
+      const normalizedSource = source === "devtools" ? "devtools" : "sia";
+      if (!existing) {
+        await client.studentAcademicYearSnapshot.create({
+          data: {
+            studentId,
+            academicYearId: academicYear.id,
+            eligibleMetopen: studentAcademicState.eligibleMetopen,
+            researchMethodCompleted: studentAcademicState.researchMethodCompleted,
+            takingThesisCourse,
+            eligibilitySource:
+              studentAcademicState.metopenEligibilitySource ?? normalizedSource,
+            eligibilityCapturedAt:
+              studentAcademicState.metopenEligibilityUpdatedAt ?? updatedAt,
+            thesisCourseSource: normalizedSource,
+            thesisCourseCapturedAt: updatedAt,
+            capturedAt: updatedAt,
+          },
+        });
+      } else {
+        const fillData = {};
+        if (existing.eligibleMetopen == null) {
+          fillData.eligibleMetopen = studentAcademicState.eligibleMetopen;
+          fillData.researchMethodCompleted = studentAcademicState.researchMethodCompleted;
+          fillData.eligibilitySource =
+            studentAcademicState.metopenEligibilitySource ?? normalizedSource;
+          fillData.eligibilityCapturedAt =
+            studentAcademicState.metopenEligibilityUpdatedAt ?? updatedAt;
+        }
+        if (existing.takingThesisCourse == null) {
+          fillData.takingThesisCourse = takingThesisCourse;
+          fillData.thesisCourseSource = normalizedSource;
+          fillData.thesisCourseCapturedAt = updatedAt;
+        }
+        if (Object.keys(fillData).length > 0) {
+          await client.studentAcademicYearSnapshot.update({
+            where: { id: existing.id },
+            data: fillData,
+          });
+        }
+      }
+    }
+
     const { syncBookingActivationForStudent } = await import("./metopen.service.js");
-    await syncBookingActivationForStudent(studentId);
-  } catch (error) {
-    console.warn(
-      `[metopenEligibility] Failed to sync advisor booking lifecycle for student ${studentId}:`,
-      error?.message ?? error,
-    );
+    await syncBookingActivationForStudent(studentId, academicYear?.id ?? null);
   }
 
   return updatedStudent;

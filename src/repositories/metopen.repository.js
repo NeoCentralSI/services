@@ -207,6 +207,8 @@ export async function findStudentThesis(userId) {
       title: true,
       thesisStatusId: true,
       proposalStatus: true,
+      academicYearId: true,
+      ta04AssignmentAcademicYearId: true,
       thesisStatus: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },

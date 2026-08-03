@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES, SUPERVISOR_ROLES } from "../constants/roles.js";
-import { uploadExcelFile } from "../middlewares/file.middleware.js";
+import { uploadExcelAttendance } from "../middlewares/file.middleware.js";
 import * as metopenAttendanceController from "../controllers/metopenAttendance.controller.js";
 import * as assessmentExportController from "../controllers/assessmentExport.controller.js";
 import * as metopenMonitoringController from "../controllers/metopenMonitoring.controller.js";
@@ -48,7 +48,10 @@ const CRITERIA_READER_ROLES = [
  */
 router.get("/criteria/:formCode", requireAnyRole(CRITERIA_READER_ROLES), async (req, res, next) => {
   try {
-    const data = await getCriteriaByFormCode(req.params.formCode);
+    const academicYearId = req.query.academicYearId
+      ? String(req.query.academicYearId)
+      : null;
+    const data = await getCriteriaByFormCode(req.params.formCode, academicYearId);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -68,7 +71,10 @@ router.get(
   requireAnyRole(SUPERVISOR_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getSupervisorScoringQueue(req.user.sub);
+      const data = await getSupervisorScoringQueue(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
       res.json({ success: true, data });
     } catch (err) {
       next(err);
@@ -85,7 +91,10 @@ router.get(
   requireAnyRole(SUPERVISOR_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getSupervisorScoringHistory(req.user.sub);
+      const data = await getSupervisorScoringHistory(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
       res.json({ success: true, data });
     } catch (err) {
       next(err);
@@ -191,7 +200,10 @@ router.get(
   requireAnyRole(KOORDINATOR_METOPEN_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getMetopenScoringQueue(req.user.sub);
+      const data = await getMetopenScoringQueue(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
       res.json({ success: true, data });
     } catch (err) {
       next(err);
@@ -208,7 +220,10 @@ router.get(
   requireAnyRole(KOORDINATOR_METOPEN_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getMetopenScoringHistory(req.user.sub);
+      const data = await getMetopenScoringHistory(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
       res.json({ success: true, data });
     } catch (err) {
       next(err);
@@ -218,7 +233,7 @@ router.get(
 
 /**
  * GET /assessment/metopen/attendance/latest
- * Latest Metopel attendance XLSX import summary.
+ * Latest Metopel attendance XLSX import summary for required `academicYearId`.
  */
 router.get(
   "/metopen/attendance/latest",
@@ -230,30 +245,34 @@ router.get(
  * POST /assessment/metopen/attendance/preview
  * F-4.2: dry-run pratinjau dampak auto-zero (<75% PERMANEN) sebelum commit.
  * Tidak menulis DB; hanya parse + hitung daftar yang akan di-auto-zero.
- * Multipart field: file
+ * Multipart: `files` (1–2 xlsx, merged by NIM) and/or legacy single `file`.
+ * Required form field: `academicYearId`.
+ * Same NIM in both files → 400 with conflict list (no auto-pick %).
  */
 router.post(
   "/metopen/attendance/preview",
   requireAnyRole(KOORDINATOR_METOPEN_ROLES),
-  uploadExcelFile,
+  uploadExcelAttendance,
   metopenAttendanceController.previewAttendance,
 );
 
 /**
  * POST /assessment/metopen/attendance/upload
- * Upload report peserta kelas Metopel. Rows below 75% attendance are auto-zeroed.
- * Multipart field: file
+ * Upload report peserta kelas Metopel (1–2 xlsx → one active import).
+ * Rows below 75% attendance are auto-zeroed for already-scoreable theses.
+ * Multipart: `files` (1–2) and/or legacy single `file`.
+ * Required form field: `academicYearId`.
  */
 router.post(
   "/metopen/attendance/upload",
   requireAnyRole(KOORDINATOR_METOPEN_ROLES),
-  uploadExcelFile,
+  uploadExcelAttendance,
   metopenAttendanceController.uploadAttendance,
 );
 
 /**
  * GET /assessment/metopen/attendance/eligibility/:thesisId
- * Gate TA-03A/TA-03B scoring by latest Metopel attendance import.
+ * Gate TA-03A/TA-03B scoring by the latest import in the thesis period.
  */
 router.get(
   "/metopen/attendance/eligibility/:thesisId",

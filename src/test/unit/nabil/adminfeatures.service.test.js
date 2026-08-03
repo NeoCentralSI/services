@@ -16,6 +16,7 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
     studentCplScore: { findMany: vi.fn() },
     lecturer: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
     academicYear: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
+    metopenScoreComposition: { create: vi.fn() },
     userRole: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
     studentCplScore: { findMany: vi.fn() },
     $transaction: vi.fn(),
@@ -70,6 +71,7 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
   mockAcademicYear: {
     getActiveAcademicYear: vi.fn(),
+    resolveOperationalAcademicYear: vi.fn(),
     formatAcademicYearLabel: vi.fn((ay) => `${ay.year} ${ay.semester === "ganjil" ? "Ganjil" : "Genap"}`.trim()),
   },
 }));
@@ -420,12 +422,19 @@ describe("Module 16: Data Master Dosen", () => {
 
 // ══════════════════════════════════════════════════════════════
 describe("Module 18: Tahun Ajaran", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(async (callback) =>
+      callback(mockPrisma),
+    );
+    mockAcademicYear.resolveOperationalAcademicYear.mockResolvedValue(null);
+  });
 
   // ─── Create Academic Year ─────────────────────────────────
   describe("createAcademicYear", () => {
     it("creates academic year with valid dates", async () => {
       mockPrisma.academicYear.findFirst.mockResolvedValue(null); // no duplicate
+      mockPrisma.academicYear.findUnique.mockResolvedValue(null);
       mockPrisma.academicYear.create.mockResolvedValue({
         id: "ay-new",
         semester: "ganjil",
@@ -442,6 +451,13 @@ describe("Module 18: Tahun Ajaran", () => {
       });
 
       expect(result).toHaveProperty("semester", "ganjil");
+      expect(mockPrisma.metopenScoreComposition.create).toHaveBeenCalledWith({
+        data: {
+          academicYearId: "ay-new",
+          ta03aCap: 75,
+          ta03bCap: 25,
+        },
+      });
     });
 
     it("rejects (400) if startDate is after endDate", async () => {
@@ -456,11 +472,30 @@ describe("Module 18: Tahun Ajaran", () => {
     });
 
     it("rejects (409) if duplicate semester and year", async () => {
-      mockPrisma.academicYear.findFirst.mockResolvedValue({ id: "existing" });
+      mockPrisma.academicYear.findFirst.mockResolvedValue(null);
+      mockPrisma.academicYear.findUnique.mockResolvedValue({ id: "existing" });
 
       await expect(
         createAcademicYear({ semester: "ganjil", year: "2024/2025", startDate: "2024-09-01", endDate: "2025-01-31" })
       ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("rejects (409) if the date range overlaps another academic period", async () => {
+      mockPrisma.academicYear.findFirst.mockResolvedValue({
+        id: "ay-overlap",
+        year: "2024/2025",
+        semester: "ganjil",
+      });
+
+      await expect(
+        createAcademicYear({
+          semester: "genap",
+          year: "2024/2025",
+          startDate: "2025-01-01",
+          endDate: "2025-06-30",
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(mockPrisma.academicYear.create).not.toHaveBeenCalled();
     });
   });
 
@@ -501,7 +536,7 @@ describe("Module 18: Tahun Ajaran", () => {
       await expect(updateAcademicYear("nonexistent", {})).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it("rejects (400) if academic year is not active", async () => {
+    it("allows repairing a past inactive academic year without activating it", async () => {
       mockPrisma.academicYear.findUnique.mockResolvedValue({
         id: "ay-1",
         semester: "ganjil",
@@ -509,8 +544,18 @@ describe("Module 18: Tahun Ajaran", () => {
         startDate: new Date("2020-01-01"),
         endDate: new Date("2020-06-30"),
       });
+      mockPrisma.academicYear.findFirst.mockResolvedValue(null);
+      mockPrisma.academicYear.update.mockResolvedValue({
+        id: "ay-1",
+        semester: "ganjil",
+        year: "2020/2021",
+        startDate: new Date("2020-01-01"),
+        endDate: new Date("2020-06-30"),
+      });
 
-      await expect(updateAcademicYear("ay-1", {})).rejects.toMatchObject({ statusCode: 400 });
+      await expect(updateAcademicYear("ay-1", {})).resolves.toMatchObject({
+        id: "ay-1",
+      });
     });
   });
 

@@ -9,6 +9,8 @@
  * - Hapus hanya user residual yang eksplisit tidak terpakai (bukan dosen/mahasiswa real).
  *
  * Jalankan: node scripts/ensure-users.js
+ * Opsional: node scripts/ensure-users.js --skip-dummy
+ *   → tidak membuat/menghidupkan akun @dummy.ac.id (uji berbasis akun real saja)
  * (dari folder services, dengan DATABASE_URL ter-set)
  */
 
@@ -18,6 +20,7 @@ import { ROLES } from '../src/constants/roles.js';
 
 const prisma = new PrismaClient();
 const PASSWORD_PLAIN = 'Password@2025';
+const SKIP_DUMMY = process.argv.includes('--skip-dummy');
 
 /** User residual yang boleh dihapus — jangan masukkan akun real / fixture EDGE / fixture UAT. */
 const UNUSED_USERS = [
@@ -264,8 +267,13 @@ const usersData = [
   },
 ];
 
+function activeUsersData() {
+  if (!SKIP_DUMMY) return usersData;
+  return usersData.filter((u) => !String(u.email || '').toLowerCase().endsWith('@dummy.ac.id'));
+}
+
 async function ensureRoles() {
-  const roleNames = [...new Set(usersData.flatMap((u) => u.roles))];
+  const roleNames = [...new Set(activeUsersData().flatMap((u) => u.roles))];
   for (const name of roleNames) {
     const existing = await prisma.userRole.findFirst({ where: { name } });
     if (!existing) {
@@ -276,7 +284,7 @@ async function ensureRoles() {
 }
 
 async function ensureAllowedUsers(passwordHash) {
-  for (const spec of usersData) {
+  for (const spec of activeUsersData()) {
     let user = await prisma.user.findFirst({
       where: {
         OR: [{ email: spec.email }, { identityNumber: spec.identityNumber }],
@@ -507,7 +515,11 @@ async function ensureSupervisionQuotas() {
 
 async function main() {
   console.log('Ensure users - password: Password@2025');
-  console.log('Kebijakan: akun real tidak dilucuti role; isolasi UAT via akun @dummy.ac.id\n');
+  console.log(
+    SKIP_DUMMY
+      ? 'Mode: --skip-dummy (hanya akun real @fti.unand.ac.id)\n'
+      : 'Kebijakan: akun real tidak dilucuti role; isolasi UAT via akun @dummy.ac.id\n',
+  );
 
   const passwordHash = await bcrypt.hash(PASSWORD_PLAIN, 10);
 
@@ -517,7 +529,9 @@ async function main() {
   console.log('\n--- Hapus user residual tidak terpakai saja ---');
   await deleteUnusedUsers();
 
-  console.log('\n--- Upsert user master + akun dummy peran tunggal ---');
+  console.log(SKIP_DUMMY
+    ? '\n--- Upsert user master (tanpa akun dummy) ---'
+    : '\n--- Upsert user master + akun dummy peran tunggal ---');
   await ensureAllowedUsers(passwordHash);
 
   console.log('\n--- Pastikan kuota bimbingan ada untuk semua pembimbing ---');

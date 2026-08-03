@@ -16,7 +16,8 @@ const router = express.Router();
 
 // Middleware
 router.use(authGuard);
-router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN]));
+// Master Thesis CPMK: eksklusif Sekretaris Departemen (selaras KC-20260717-01).
+router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]));
 
 // Routes
 router.get("/", getAll);

@@ -28,6 +28,10 @@ import { PrismaClient } from '../src/generated/prisma/index.js';
 import servicePrisma from '../src/config/prisma.js';
 import bcrypt from 'bcrypt';
 import { finalizeBatchTA04 } from '../src/services/advisorRequest.service.js';
+import {
+  ensureOperationalAcademicYearWindow,
+  resolveOperationalAcademicYear,
+} from '../src/helpers/academicYear.helper.js';
 import { syncBookingActivationForStudent } from '../src/services/metopen.service.js';
 import { ROLES } from '../src/constants/roles.js';
 import { THESIS_STATUS } from '../src/constants/thesisStatus.js';
@@ -624,8 +628,14 @@ async function main() {
   console.log('='.repeat(60));
 
   const hash = await bcrypt.hash(PASSWORD_PLAIN, 10);
-  const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
+
+  // Tutup celah kalender (mis. Juli setelah endDate Juni) agar Admin UAT-03/31
+  // dan kuota dosen memakai cohort yang sama.
+  console.log('\n── 0. Pastikan tahun ajaran operasional menutup tanggal hari ini ──');
+  const ensured = await ensureOperationalAcademicYearWindow();
+  const academicYear = ensured || (await resolveOperationalAcademicYear());
   if (!academicYear) { warn('Tidak ada AcademicYear aktif — jalankan seed utama dulu'); process.exit(1); }
+  ok(`Tahun operasional: ${academicYear.year} ${academicYear.semester} (${academicYear.id}) | ${academicYear.startDate?.toISOString?.() ?? academicYear.startDate} → ${academicYear.endDate?.toISOString?.() ?? academicYear.endDate}`);
 
   const topic = await prisma.thesisTopic.findFirst({ where: { scienceGroupId: { not: null } } });
   if (!topic) { warn('Tidak ada topik dengan scienceGroupId — jalankan seed utama dulu'); process.exit(1); }
@@ -667,13 +677,14 @@ async function main() {
   }
 
   if (garcia) {
-    // Buat garcia PENUH: quotaMax = 1 (garcia sudah punya >=1 booking EC17 dari monitoring).
+    // Buat garcia PENUH: quotaMax = 1 dengan tepat 1 booking (EC17 dari monitoring).
+    // Jangan biarkan Booking > Max tanpa Overquota Sah — membingungkan saat demo KaDep.
     await prisma.lecturerSupervisionQuota.upsert({
       where: { lecturerId_academicYearId: { lecturerId: garcia.id, academicYearId: academicYear.id } },
-      update: { quotaMax: 1, quotaSoftLimit: 1 },
+      update: { quotaMax: 1, quotaSoftLimit: 1, currentCount: 1 },
       create: { lecturerId: garcia.id, academicYearId: academicYear.id, quotaMax: 1, quotaSoftLimit: 1, currentCount: 1 },
     });
-    ok('garcia.hernandez quotaMax=1 → kuota PENUH (untuk skenario overquota)');
+    ok('garcia.hernandez quotaMax=1 + 1 booking EC17 → kuota PENUH (untuk skenario overquota)');
     await createAdvisorRequest({
       studentId: reqUsers[2].id,
       lecturerId: garcia.id,

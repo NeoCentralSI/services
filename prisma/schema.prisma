@@ -114,6 +114,7 @@ model Student {
   advisorRequestDraft             ThesisAdvisorRequestDraft?
   thesisStudentInformalLogs       ThesisStudentInformalLog[]
   metopenAttendanceRecords        MetopenAttendanceRecord[]       @relation("MetopenAttendanceRecordStudent")
+  academicYearSnapshots           StudentAcademicYearSnapshot[]
 
   @@index([sksCompleted], map: "idx_students_skscompleted")
   @@map("students")
@@ -213,10 +214,13 @@ model ScienceGroup {
 model AcademicYear {
   id                                 String                               @id @default(uuid())
   semester                           Semester                             @default(ganjil)
-  year                               String?                              @db.VarChar(20)
-  startDate                          DateTime?                            @map("start_date")
-  endDate                            DateTime?                            @map("end_date")
+  year                               String                               @db.VarChar(20)
+  startDate                          DateTime                             @map("start_date")
+  endDate                            DateTime                             @map("end_date")
   isActive                           Boolean                              @default(false) @map("is_active")
+  /// Database guard untuk memastikan hanya satu periode memiliki isActive=true.
+  /// Nilai "ACTIVE" untuk periode aktif, null untuk seluruh periode lain.
+  activeKey                          String?                              @unique @map("active_key") @db.VarChar(16)
   createdAt                          DateTime                             @default(now()) @map("created_at")
   updatedAt                          DateTime                             @updatedAt @map("updated_at")
   internshipProposals                InternshipProposal[]
@@ -235,11 +239,42 @@ model AcademicYear {
   yudisiums                          Yudisium[]
   metopenAttendanceImports           MetopenAttendanceImport[]
   metopenCpmks                       MetopenCpmk[]
+  metopenScoreComposition            MetopenScoreComposition?
   ta04Batches                        Ta04Batch[]
   ta04AssignmentTheses               Thesis[]                             @relation("ThesisTa04AssignmentAcademicYear")
   activeTheses                       Thesis[]                             @relation("ThesisActiveAcademicYear")
+  studentSnapshots                   StudentAcademicYearSnapshot[]
 
+  @@unique([year, semester])
+  @@index([startDate, endDate])
   @@map("academic_years")
+}
+
+/// Snapshot KRS Tugas Akhir pertama yang berhasil diterima dari sumber akademik
+/// untuk setiap mahasiswa dan tahun akademik. Record ini immutable dan menjadi
+/// satu-satunya input lifecycle booking -> active_official/released.
+model StudentAcademicYearSnapshot {
+  id                   String                         @id @default(uuid()) @db.VarChar(191)
+  studentId            String                         @map("student_id") @db.VarChar(191)
+  academicYearId       String                         @map("academic_year_id") @db.VarChar(191)
+  eligibleMetopen      Boolean?                       @map("eligible_metopen")
+  researchMethodCompleted Boolean?                    @map("research_method_completed")
+  takingThesisCourse   Boolean?                       @map("taking_thesis_course")
+  eligibilitySource    ExternalAcademicSnapshotSource? @map("eligibility_source")
+  eligibilityCapturedAt DateTime?                     @map("eligibility_captured_at")
+  thesisCourseSource   ExternalAcademicSnapshotSource? @map("thesis_course_source")
+  thesisCourseCapturedAt DateTime?                    @map("thesis_course_captured_at")
+  capturedAt           DateTime                       @map("captured_at")
+  createdAt            DateTime                       @default(now()) @map("created_at")
+  updatedAt            DateTime                       @updatedAt @map("updated_at")
+
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, academicYearId], map: "student_ay_snapshots_student_period_key")
+  @@index([academicYearId, takingThesisCourse], map: "student_ay_snapshots_period_course_idx")
+  @@index([capturedAt], map: "student_ay_snapshots_captured_at_idx")
+  @@map("student_academic_year_snapshots")
 }
 
 model Room {
@@ -475,23 +510,44 @@ model AssessmentRubric {
 /// dilakukan oleh scripts/migrate_metopen_data.mjs.
 model MetopenCpmk {
   id             String   @id @default(uuid()) @db.VarChar(191)
-  academicYearId String?  @map("academic_year_id") @db.VarChar(191)
+  academicYearId String   @map("academic_year_id") @db.VarChar(191)
   code           String   @db.VarChar(255)
   description    String   @db.VarChar(255)
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  academicYear               AcademicYear?               @relation(fields: [academicYearId], references: [id])
+  academicYear               AcademicYear                @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   metopenAssessmentCriterias MetopenAssessmentCriteria[]
 
   @@index([academicYearId], map: "metopen_cpmks_academic_year_id_fkey")
+  @@unique([academicYearId, code], map: "metopen_cpmks_period_code_key")
   @@map("metopen_cpmks")
 }
 
-/// Kriteria penilaian Metopen (TA-03A supervisor cap 75, TA-03B koordinator
-/// cap 25). Dipisahkan dari AssessmentCriteria generik yang menampung
-/// appliesTo + isActive + isDeleted. Tabel ini hard-delete (tidak ada
-/// soft-delete) sesuai desain metopen admin rubric management.
+/// Komposisi batas poin TA-03A:TA-03B per tahun akademik (default 75:25).
+/// Formula tetap additive: finalScore = supervisorScore + lecturerScore.
+/// Sekdep dapat mengubah selama belum ada ResearchMethodScore finalized
+/// pada thesis di tahun akademik yang sama. Cap ≠ bobot persen.
+model MetopenScoreComposition {
+  id             String   @id @default(uuid()) @db.VarChar(191)
+  academicYearId String   @unique @map("academic_year_id") @db.VarChar(191)
+  /// Batas poin TA-03A (role supervisor). Default 75.
+  ta03aCap       Int      @default(75) @map("ta03a_cap")
+  /// Batas poin TA-03B (role default / Koordinator Metopen). Default 25.
+  ta03bCap       Int      @default(25) @map("ta03b_cap")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+
+  @@map("metopen_score_compositions")
+}
+
+/// Kriteria penilaian Metopen (TA-03A supervisor / TA-03B koordinator).
+/// Batas peran (cap) per tahun akademik ada di MetopenScoreComposition
+/// (default 75:25). Dipisahkan dari AssessmentCriteria generik yang
+/// menampung appliesTo + isActive + isDeleted. Tabel ini hard-delete
+/// (tidak ada soft-delete) sesuai desain metopen admin rubric management.
 /// Canon §5.7.1 (P1+P2 co-sign) + §5.7 (TA-03B koordinator).
 model MetopenAssessmentCriteria {
   id            String         @id @default(uuid()) @db.VarChar(191)
@@ -847,6 +903,9 @@ model ThesisSupervisors {
   lecturerId                         String                     @map("lecturer_id")
   roleId                             String                     @map("role_id")
   status                             SupervisorStatus           @default(active)
+  /// Unique guard for one active assignment per (thesis, role). Null when not active
+  /// so terminated/released history rows do not collide (MySQL UNIQUE allows many NULL).
+  activeRoleKey                      String?                    @unique @map("active_role_key") @db.VarChar(191)
   seminarReady                       Boolean                    @default(false) @map("seminar_ready")
   defenceReady                       Boolean                    @default(false) @map("defence_ready")
   createdAt                          DateTime                   @default(now()) @map("created_at")
@@ -867,6 +926,7 @@ model ThesisSupervisors {
   @@index([lecturerId], map: "thesis_participants_lecturer_id_fkey")
   @@index([roleId], map: "thesis_participants_role_id_fkey")
   @@index([thesisId], map: "thesis_participants_thesis_id_fkey")
+  @@index([thesisId, roleId, status])
   @@map("thesis_supervisors")
 }
 
@@ -2344,7 +2404,9 @@ model ThesisAdvisorRequest {
   @@index([studentId, status])
   @@index([lecturerId])
   @@index([lecturerId, academicYearId, status])
+  @@index([academicYearId, status])
   @@index([thesisId])
+  @@index([status, createdAt])
   @@index([status])
   @@index([releasedAcademicYearId])
   @@index([reviewedBy])
@@ -2408,7 +2470,8 @@ model ResearchMethodScore {
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  thesis                     Thesis                      @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  // Restrict: hapus thesis tidak boleh menghapus jejak nilai TA-03 (BR-21 / audit).
+  thesis                     Thesis                      @relation(fields: [thesisId], references: [id], onDelete: Restrict)
   supervisor                 Lecturer?                   @relation("ResearchMethodScoreSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
   lecturerAssessor           Lecturer?                   @relation("ResearchMethodScoreLecturer", fields: [lecturerId], references: [id], onDelete: SetNull)
   coSigner                   Lecturer?                   @relation("ResearchMethodScoreCoSigner", fields: [coSignedByLecturerId], references: [id], onDelete: SetNull)
@@ -2418,6 +2481,7 @@ model ResearchMethodScore {
 
   @@index([supervisorId])
   @@index([lecturerId])
+  @@index([isFinalized])
   @@index([coSignedByLecturerId])
   @@index([finalizedBy])
   @@index([attendanceRecordId])
@@ -2444,7 +2508,7 @@ model ResearchMethodScoreDetail {
 
 model MetopenAttendanceImport {
   id                    String   @id @default(uuid()) @db.VarChar(191)
-  academicYearId        String?  @map("academic_year_id") @db.VarChar(191)
+  academicYearId        String   @map("academic_year_id") @db.VarChar(191)
   documentId            String?  @map("document_id")
   uploadedByUserId      String   @map("uploaded_by_user_id")
   classCode             String?  @map("class_code") @db.VarChar(100)
@@ -2452,6 +2516,8 @@ model MetopenAttendanceImport {
   semesterLabel         String?  @map("semester_label") @db.VarChar(100)
   filterLabel           String?  @map("filter_label") @db.VarChar(100)
   lecturerNames         Json?    @map("lecturer_names")
+  /// Optional dual-class upload metadata: [{ originalName, classCode, filePath, fileHash }, ...]
+  sourceFiles           Json?    @map("source_files")
   thresholdPercent      Float    @default(0.75) @map("threshold_percent")
   totalRows             Int      @default(0) @map("total_rows")
   matchedRows           Int      @default(0) @map("matched_rows")
@@ -2463,9 +2529,10 @@ model MetopenAttendanceImport {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
-  academicYear AcademicYear?             @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  academicYear AcademicYear              @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   document     Document?                 @relation("MetopenAttendanceImportDocument", fields: [documentId], references: [id], onDelete: SetNull)
-  uploadedBy   User                      @relation("MetopenAttendanceImportUploader", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  // Restrict: hapus user uploader tidak boleh menghapus jejak import presensi (BR-28 audit).
+  uploadedBy   User                      @relation("MetopenAttendanceImportUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
   records      MetopenAttendanceRecord[]
 
   @@index([academicYearId])

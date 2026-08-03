@@ -8,6 +8,13 @@ export async function triggerSiaSync(req, res, next) {
     const summary = await runSiaSync();
     res.json({ success: true, message: "SIA sync triggered", summary });
   } catch (err) {
+    const message = err?.message || String(err);
+    // Surface a UAT-friendly hint when the external SIA host is down.
+    if (/fetch failed|ECONNREFUSED|timed out|SIA fetch failed/i.test(message)) {
+      err.message =
+        `${message}. Service SIA eksternal tidak terjangkau. Untuk UAT/lokal set SIA_MOCK=true di services/.env lalu restart backend.`;
+      err.statusCode = err.statusCode || 503;
+    }
     next(err);
   }
 }

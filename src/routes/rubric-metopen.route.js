@@ -16,6 +16,8 @@ import {
     getWeightSummary,
     reorderCriteria,
     reorderRubrics,
+    getScoreComposition,
+    updateScoreComposition,
 } from "../controllers/metopenAssessmentAdmin.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import {
@@ -27,6 +29,7 @@ import {
     reorderRubricsSchema,
     createMetopenCpmkSchema,
     updateMetopenCpmkSchema,
+    updateScoreCompositionSchema,
 } from "../validators/metopenAssessmentAdmin.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
@@ -59,5 +62,13 @@ router.patch("/rubrics/:rubricId", validate(updateRubricSchema), updateRubric);
 router.delete("/rubrics/:rubricId", deleteRubric);
 
 router.get("/weight-summary", getWeightSummary);
+
+/** Komposisi batas poin TA-03A:TA-03B per tahun akademik (default 75:25). */
+router.get("/composition/:academicYearId", getScoreComposition);
+router.put(
+  "/composition/:academicYearId",
+  validate(updateScoreCompositionSchema),
+  updateScoreComposition,
+);
 
 export default router;

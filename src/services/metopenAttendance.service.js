@@ -10,6 +10,7 @@ import * as repo from "../repositories/metopenAttendance.repository.js";
 export const METOPEN_ATTENDANCE_THRESHOLD = 0.75;
 export const METOPEN_ATTENDANCE_AUTO_ZERO_REASON =
   "Presensi Metopel kurang dari 75%; nilai TA-03A dan TA-03B otomatis 0 tanpa review proposal.";
+export const METOPEN_ATTENDANCE_MAX_FILES = 2;
 
 /**
  * Auto-zero may be cleared on corrective re-upload only while the thesis is
@@ -219,14 +220,156 @@ export function parseMetopenAttendanceWorkbook(buffer) {
   };
 }
 
-async function persistAttendanceFile(file, importId) {
+/**
+ * Normalize multipart input: legacy single `file` and/or `files` (1–2).
+ * Dedupes identical uploads; rejects empty or more than 2 files.
+ */
+export function normalizeAttendanceUploadFiles(fileOrFiles) {
+  const list = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+  const unique = [];
+  const seen = new Set();
+
+  for (const file of list) {
+    if (!file?.buffer) continue;
+    const key = `${file.originalname ?? ""}:${file.size ?? file.buffer.length}:${file.buffer.length}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(file);
+  }
+
+  if (unique.length === 0) {
+    throw new BadRequestError("File presensi wajib diunggah");
+  }
+  if (unique.length > METOPEN_ATTENDANCE_MAX_FILES) {
+    throw new BadRequestError(
+      `Maksimal ${METOPEN_ATTENDANCE_MAX_FILES} file kelas Metopel per unggahan (satu import aktif digabung).`,
+    );
+  }
+
+  return unique;
+}
+
+/**
+ * Pure merge of 1–2 parsed workbooks by normalized NIM.
+ * Same NIM in more than one file → BadRequest with conflict list (no auto-pick %).
+ */
+export function mergeAttendanceParsedWorkbooks(parsedItems) {
+  if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
+    throw new BadRequestError("File presensi wajib diunggah");
+  }
+  if (parsedItems.length > METOPEN_ATTENDANCE_MAX_FILES) {
+    throw new BadRequestError(
+      `Maksimal ${METOPEN_ATTENDANCE_MAX_FILES} file kelas Metopel per unggahan.`,
+    );
+  }
+
+  const byNim = new Map();
+  const conflicts = [];
+
+  for (const item of parsedItems) {
+    const sourceFileName = item.sourceFileName ?? "presensi-metopel.xlsx";
+    const sourceClassCode = item.metadata?.classCode ?? null;
+
+    for (const record of item.records ?? []) {
+      const identityNumber = normalizeIdentity(record.identityNumber);
+      if (!identityNumber) continue;
+
+      const existing = byNim.get(identityNumber);
+      if (existing) {
+        conflicts.push({
+          identityNumber,
+          studentName: record.studentName ?? existing.studentName ?? null,
+          sources: [
+            {
+              fileName: existing.sourceFileName,
+              classCode: existing.sourceClassCode,
+              attendancePercentage: existing.attendancePercentage,
+            },
+            {
+              fileName: sourceFileName,
+              classCode: sourceClassCode,
+              attendancePercentage: record.attendancePercentage,
+            },
+          ],
+        });
+        continue;
+      }
+
+      byNim.set(identityNumber, {
+        ...record,
+        identityNumber,
+        sourceFileName,
+        sourceClassCode,
+        rawRow: {
+          ...(record.rawRow ?? {}),
+          sourceFileName,
+          sourceClassCode,
+        },
+      });
+    }
+  }
+
+  if (conflicts.length > 0) {
+    const error = new BadRequestError(
+      `Ditemukan ${conflicts.length} NIM yang muncul di lebih dari satu file kelas. Unggah ditolak; perbaiki data SIA atau unggah ulang tanpa NIM ganda.`,
+    );
+    error.details = { conflicts };
+    throw error;
+  }
+
+  const classCodes = [...new Set(parsedItems.map((item) => item.metadata?.classCode).filter(Boolean))];
+  const courseNames = [...new Set(parsedItems.map((item) => item.metadata?.courseName).filter(Boolean))];
+  const semesterLabels = [...new Set(parsedItems.map((item) => item.metadata?.semesterLabel).filter(Boolean))];
+  const filterLabels = [...new Set(parsedItems.map((item) => item.metadata?.filterLabel).filter(Boolean))];
+  const lecturerNames = [
+    ...new Set(
+      parsedItems.flatMap((item) => (Array.isArray(item.metadata?.lecturerNames) ? item.metadata.lecturerNames : [])),
+    ),
+  ];
+
+  return {
+    metadata: {
+      classCode: classCodes.length > 0 ? classCodes.join(" + ") : null,
+      courseName: courseNames[0] ?? null,
+      semesterLabel: semesterLabels[0] ?? null,
+      filterLabel: filterLabels[0] ?? null,
+      lecturerNames: lecturerNames.length > 0 ? lecturerNames : null,
+    },
+    records: [...byNim.values()],
+    sourceFiles: parsedItems.map((item) => ({
+      originalName: item.sourceFileName ?? null,
+      classCode: item.metadata?.classCode ?? null,
+      courseName: item.metadata?.courseName ?? null,
+      semesterLabel: item.metadata?.semesterLabel ?? null,
+      rowCount: item.records?.length ?? 0,
+    })),
+  };
+}
+
+function parseAndMergeAttendanceFiles(files) {
+  const normalized = normalizeAttendanceUploadFiles(files);
+  const parsedItems = normalized.map((file) => {
+    const parsed = parseMetopenAttendanceWorkbook(file.buffer);
+    return {
+      ...parsed,
+      sourceFileName: file.originalname || "presensi-metopel.xlsx",
+      file,
+    };
+  });
+  const merged = mergeAttendanceParsedWorkbooks(parsedItems);
+  return { normalized, parsedItems, merged };
+}
+
+async function persistAttendanceFile(file, importId, index = 0) {
   await fs.mkdir(UPLOAD_DIR, { recursive: true });
 
-  const fileName = `${importId}-${sanitizeFileName(file.originalname)}`;
+  const suffix = index > 0 ? `-${index + 1}` : "";
+  const fileName = `${importId}${suffix}-${sanitizeFileName(file.originalname)}`;
   const absolutePath = path.join(UPLOAD_DIR, fileName);
   await fs.writeFile(absolutePath, file.buffer);
 
   return {
+    originalName: file.originalname || fileName,
     fileName,
     filePath: path.join("uploads", "metopen", "attendance", fileName).replace(/\\/g, "/"),
     fileSize: file.size ?? file.buffer.length,
@@ -257,12 +400,14 @@ function serializeAttendanceImport(attendanceImport) {
   return {
     id: attendanceImport.id,
     academicYearId: attendanceImport.academicYearId,
+    academicYear: attendanceImport.academicYear ?? null,
     documentId: attendanceImport.documentId,
     classCode: attendanceImport.classCode,
     courseName: attendanceImport.courseName,
     semesterLabel: attendanceImport.semesterLabel,
     filterLabel: attendanceImport.filterLabel,
     lecturerNames: attendanceImport.lecturerNames,
+    sourceFiles: attendanceImport.sourceFiles ?? null,
     thresholdPercent: attendanceImport.thresholdPercent,
     totalRows: attendanceImport.totalRows,
     matchedRows: attendanceImport.matchedRows,
@@ -291,13 +436,66 @@ function buildEligibilityPayload(status, { record = null, attendanceImport = nul
   };
 }
 
-export async function getLatestMetopenAttendanceImport() {
-  const attendanceImport = await repo.findLatestAttendanceImport();
+async function enrichRecordsWithStudents(records) {
+  const identityNumbers = records.map((record) => record.identityNumber);
+  const students = await repo.findStudentsByIdentityNumbers(identityNumbers);
+  const studentByIdentity = new Map(
+    students.map((student) => [normalizeIdentity(student.user.identityNumber), student]),
+  );
+
+  return records.map((record) => {
+    const student = studentByIdentity.get(normalizeIdentity(record.identityNumber));
+    return {
+      ...record,
+      studentId: student?.id ?? null,
+      studentName: record.studentName ?? student?.user?.fullName ?? null,
+    };
+  });
+}
+
+function normalizeRequiredAcademicYearId(value) {
+  const academicYearId = typeof value === "string" ? value.trim() : "";
+  if (!academicYearId) {
+    throw new BadRequestError(
+      "academicYearId wajib diisi agar data presensi tidak tercampur lintas periode akademik.",
+    );
+  }
+  return academicYearId;
+}
+
+async function getRequiredAcademicYear(value) {
+  const academicYearId = normalizeRequiredAcademicYearId(value);
+  const academicYear = await repo.findAcademicYearById(academicYearId);
+  if (!academicYear) {
+    throw new BadRequestError("Periode akademik untuk presensi tidak ditemukan.");
+  }
+  return academicYear;
+}
+
+async function resolveThesisAcademicYearId(thesisId) {
+  const thesis = await repo.findThesisAcademicYear(thesisId);
+  if (!thesis) {
+    throw new BadRequestError("Data tugas akhir tidak ditemukan.");
+  }
+
+  const academicYearId = thesis.academicYearId ?? thesis.ta04AssignmentAcademicYearId;
+  if (!academicYearId) {
+    throw new BadRequestError(
+      "Tugas akhir belum terikat ke periode akademik sehingga presensi tidak dapat ditentukan.",
+    );
+  }
+  return academicYearId;
+}
+
+export async function getLatestMetopenAttendanceImport(academicYearIdInput) {
+  const academicYear = await getRequiredAcademicYear(academicYearIdInput);
+  const attendanceImport = await repo.findLatestAttendanceImport(academicYear.id);
   return serializeAttendanceImport(attendanceImport);
 }
 
 export async function getAttendanceEligibilityForThesis(thesisId) {
-  const attendanceImport = await repo.findLatestAttendanceImport();
+  const academicYearId = await resolveThesisAcademicYearId(thesisId);
+  const attendanceImport = await repo.findLatestAttendanceImport(academicYearId);
   if (!attendanceImport) {
     return buildEligibilityPayload("missing_import", {
       message: "Dokumen presensi Metopel belum diunggah. Penilaian TA-03A dan TA-03B dikunci sampai presensi tersedia.",
@@ -339,6 +537,59 @@ export async function applyAttendanceAutoZeroForThesis(thesisId, actorUserId, at
   return result;
 }
 
+/**
+ * Deferred catch-up after final proposal is set: apply auto-zero / clear
+ * clearable auto-zero from the latest active import (order-independent with
+ * upload-first then submit-final). Does not run on TA-04 issue.
+ */
+export async function reconcileAttendanceForThesis(thesisId, actorUserId = null) {
+  const academicYearId = await resolveThesisAcademicYearId(thesisId);
+  const attendanceImport = await repo.findLatestAttendanceImport(academicYearId);
+  if (!attendanceImport) {
+    return { status: "missing_import", applied: null };
+  }
+
+  const record = await repo.findAttendanceRecordForThesis(attendanceImport.id, thesisId);
+  if (!record) {
+    return { status: "not_found", applied: null };
+  }
+
+  const actor = actorUserId ?? attendanceImport.uploadedByUserId ?? null;
+
+  if (!record.isEligible) {
+    const result = await applyAttendanceAutoZeroForThesis(thesisId, actor, record.id, {
+      skipFinalized: true,
+    });
+    return {
+      status: "ineligible",
+      applied: result.skipped ? "skipped_finalized" : "auto_zeroed",
+      recordId: record.id,
+      attendancePercentage: record.attendancePercentage,
+    };
+  }
+
+  const thesis = await repo.findThesisForAttendanceReconcile(thesisId);
+  const score = thesis?.researchMethodScores?.[0];
+  if (score?.attendanceAutoZeroedAt && canClearAttendanceAutoZeroOnEligibleReupload(thesis)) {
+    await repo.clearAttendanceAutoZeroForTheses([
+      { thesisId, attendanceRecordId: record.id },
+    ]);
+    return {
+      status: "eligible",
+      applied: "cleared_auto_zero",
+      recordId: record.id,
+      attendancePercentage: record.attendancePercentage,
+    };
+  }
+
+  return {
+    status: "eligible",
+    applied: null,
+    recordId: record.id,
+    attendancePercentage: record.attendancePercentage,
+  };
+}
+
 export async function assertAttendanceEligibleForManualReview(thesisId, actorUserId) {
   const eligibility = await getAttendanceEligibilityForThesis(thesisId);
 
@@ -358,52 +609,41 @@ export async function assertAttendanceEligibleForManualReview(thesisId, actorUse
   return { allowed: true, eligibility, scoreRecord: null };
 }
 
-async function findScoreableThesesForAttendanceRecords(records) {
+async function findScoreableThesesForAttendanceRecords(records, academicYearId) {
   const studentIds = [...new Set(records.map((record) => record.studentId).filter(Boolean))];
   if (studentIds.length === 0) return [];
-  return repo.findScoreableThesesByStudentIds(studentIds, CLOSED_THESIS_STATUSES);
+  return repo.findScoreableThesesByStudentIds(
+    studentIds,
+    academicYearId,
+    CLOSED_THESIS_STATUSES,
+  );
 }
 
 /**
- * F-4.2 — Dry-run preview presensi sebelum commit. Auto-zero presensi <75%
- * bersifat PERMANEN (canon §5.7.3, BR-28) dan menghapus rubrik TA-03A/B, jadi
- * Koordinator wajib diberi pratinjau daftar mahasiswa yang AKAN di-auto-zero
- * sebelum benar-benar memproses file. Fungsi ini TIDAK menulis apa pun ke DB.
+ * F-4.2 — Dry-run preview presensi sebelum commit. Accepts 1–2 files
+ * (legacy single `file` or `files[]`). Auto-zero <75% is PERMANEN.
  */
-export async function previewMetopenAttendance(file) {
-  if (!file?.buffer) {
-    throw new BadRequestError("File presensi wajib diunggah");
-  }
-
-  const parsed = parseMetopenAttendanceWorkbook(file.buffer);
-  const identityNumbers = parsed.records.map((record) => record.identityNumber);
-  const students = await repo.findStudentsByIdentityNumbers(identityNumbers);
-  const studentByIdentity = new Map(students.map((student) => [student.user.identityNumber, student]));
-
-  const records = parsed.records.map((record) => {
-    const student = studentByIdentity.get(record.identityNumber);
-    return {
-      ...record,
-      studentId: student?.id ?? null,
-      studentName: record.studentName ?? student?.user?.fullName ?? null,
-    };
-  });
+export async function previewMetopenAttendance(fileOrFiles, academicYearIdInput) {
+  const academicYear = await getRequiredAcademicYear(academicYearIdInput);
+  const { merged } = parseAndMergeAttendanceFiles(fileOrFiles);
+  const records = await enrichRecordsWithStudents(merged.records);
 
   const matchedRows = records.filter((record) => record.studentId != null).length;
   const eligibleRows = records.filter((record) => record.isEligible).length;
   const ineligibleRows = records.length - eligibleRows;
 
-  // Hitung dampak nyata auto-zero: hanya mahasiswa <75% yang punya thesis
-  // scoreable (belum ditutup). Yang skornya sudah final akan di-skip (BR-21).
   const ineligibleMatched = records.filter((record) => !record.isEligible && record.studentId != null);
-  const theses = await findScoreableThesesForAttendanceRecords(ineligibleMatched);
+  const theses = await findScoreableThesesForAttendanceRecords(
+    ineligibleMatched,
+    academicYear.id,
+  );
   const thesisByStudentId = new Map(theses.map((thesis) => [thesis.studentId, thesis]));
 
   const willAutoZero = [];
   const willSkipFinalized = [];
   for (const record of ineligibleMatched) {
     const thesis = thesisByStudentId.get(record.studentId);
-    if (!thesis) continue; // tidak ada thesis scoreable → tidak ada yang di-zero
+    if (!thesis) continue;
     const score = thesis.researchMethodScores?.[0];
     const target = {
       identityNumber: record.identityNumber,
@@ -419,7 +659,9 @@ export async function previewMetopenAttendance(file) {
   }
 
   return {
-    metadata: parsed.metadata,
+    academicYear,
+    metadata: merged.metadata,
+    sourceFiles: merged.sourceFiles,
     thresholdPercent: METOPEN_ATTENDANCE_THRESHOLD,
     totals: {
       totalRows: records.length,
@@ -429,6 +671,7 @@ export async function previewMetopenAttendance(file) {
       ineligibleRows,
       willAutoZeroCount: willAutoZero.length,
       willSkipFinalizedCount: willSkipFinalized.length,
+      sourceFileCount: merged.sourceFiles.length,
     },
     willAutoZero,
     willSkipFinalized,
@@ -442,63 +685,74 @@ export async function previewMetopenAttendance(file) {
   };
 }
 
-export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
-  if (!file?.buffer) {
-    throw new BadRequestError("File presensi wajib diunggah");
+export async function uploadMetopenAttendance(fileOrFiles, actorUserId, options = {}) {
+  const academicYear = await getRequiredAcademicYear(options.academicYearId);
+  const { normalized, merged } = parseAndMergeAttendanceFiles(fileOrFiles);
+  const importId = crypto.randomUUID();
+
+  const storedFiles = [];
+  for (let i = 0; i < normalized.length; i += 1) {
+    const stored = await persistAttendanceFile(normalized[i], importId, i);
+    storedFiles.push({
+      ...stored,
+      classCode: merged.sourceFiles[i]?.classCode ?? null,
+      courseName: merged.sourceFiles[i]?.courseName ?? null,
+      semesterLabel: merged.sourceFiles[i]?.semesterLabel ?? null,
+      rowCount: merged.sourceFiles[i]?.rowCount ?? 0,
+    });
   }
 
-  const parsed = parseMetopenAttendanceWorkbook(file.buffer);
-  const importId = crypto.randomUUID();
-  const storedFile = await persistAttendanceFile(file, importId);
-  const identityNumbers = parsed.records.map((record) => record.identityNumber);
-  const students = await repo.findStudentsByIdentityNumbers(identityNumbers);
-  const studentByIdentity = new Map(students.map((student) => [student.user.identityNumber, student]));
+  const primaryStored = storedFiles[0];
+  const enrichedRecords = await enrichRecordsWithStudents(merged.records);
 
-  const records = parsed.records.map((record) => {
-    const student = studentByIdentity.get(record.identityNumber);
-    return {
-      id: crypto.randomUUID(),
-      importId,
-      studentId: student?.id ?? null,
-      identityNumber: record.identityNumber,
-      studentName: record.studentName ?? student?.user?.fullName ?? null,
-      presentCount: record.presentCount,
-      absentCount: record.absentCount,
-      sickCount: record.sickCount,
-      permitCount: record.permitCount,
-      totalMeetings: record.totalMeetings,
-      attendancePercentage: record.attendancePercentage,
-      isEligible: record.isEligible,
-      rawRow: record.rawRow,
-    };
-  });
+  const records = enrichedRecords.map((record) => ({
+    id: crypto.randomUUID(),
+    importId,
+    studentId: record.studentId,
+    identityNumber: record.identityNumber,
+    studentName: record.studentName,
+    presentCount: record.presentCount,
+    absentCount: record.absentCount,
+    sickCount: record.sickCount,
+    permitCount: record.permitCount,
+    totalMeetings: record.totalMeetings,
+    attendancePercentage: record.attendancePercentage,
+    isEligible: record.isEligible,
+    rawRow: record.rawRow,
+  }));
 
   const matchedRows = records.filter((record) => record.studentId != null).length;
   const eligibleRows = records.filter((record) => record.isEligible).length;
   const ineligibleRows = records.length - eligibleRows;
-  const academicYearId = typeof options.academicYearId === "string" && options.academicYearId.trim()
-    ? options.academicYearId.trim()
-    : null;
-
   const created = await repo.createAttendanceImportWithRecords({
     documentTypeName: DOCUMENT_TYPE_NAME,
     documentData: {
       userId: actorUserId,
-      filePath: storedFile.filePath,
-      fileName: storedFile.fileName,
-      fileSize: storedFile.fileSize,
-      mimeType: storedFile.mimeType,
-      fileHash: storedFile.fileHash,
+      filePath: primaryStored.filePath,
+      fileName: primaryStored.fileName,
+      fileSize: primaryStored.fileSize,
+      mimeType: primaryStored.mimeType,
+      fileHash: primaryStored.fileHash,
     },
     importData: {
       id: importId,
-      academicYearId,
+      academicYearId: academicYear.id,
       uploadedByUserId: actorUserId,
-      classCode: parsed.metadata.classCode,
-      courseName: parsed.metadata.courseName,
-      semesterLabel: parsed.metadata.semesterLabel,
-      filterLabel: parsed.metadata.filterLabel,
-      lecturerNames: parsed.metadata.lecturerNames,
+      classCode: merged.metadata.classCode,
+      courseName: merged.metadata.courseName,
+      semesterLabel: merged.metadata.semesterLabel,
+      filterLabel: merged.metadata.filterLabel,
+      lecturerNames: merged.metadata.lecturerNames,
+      sourceFiles: storedFiles.map((file) => ({
+        originalName: file.originalName,
+        fileName: file.fileName,
+        filePath: file.filePath,
+        fileHash: file.fileHash,
+        classCode: file.classCode,
+        courseName: file.courseName,
+        semesterLabel: file.semesterLabel,
+        rowCount: file.rowCount,
+      })),
       thresholdPercent: METOPEN_ATTENDANCE_THRESHOLD,
       totalRows: records.length,
       matchedRows,
@@ -509,7 +763,10 @@ export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
   });
 
   const ineligibleRecords = await repo.findIneligibleRecordsForImport(importId);
-  const theses = await findScoreableThesesForAttendanceRecords(ineligibleRecords);
+  const theses = await findScoreableThesesForAttendanceRecords(
+    ineligibleRecords,
+    academicYear.id,
+  );
   const ineligibleByStudentId = new Map(ineligibleRecords.map((record) => [record.studentId, record]));
 
   const autoZeroedTheses = [];
@@ -539,7 +796,10 @@ export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
   }
 
   const eligibleRecords = await repo.findEligibleRecordsForImport(importId);
-  const eligibleTheses = await findScoreableThesesForAttendanceRecords(eligibleRecords);
+  const eligibleTheses = await findScoreableThesesForAttendanceRecords(
+    eligibleRecords,
+    academicYear.id,
+  );
   const eligibleByStudentId = new Map(eligibleRecords.map((record) => [record.studentId, record]));
   const autoZeroClearItems = eligibleTheses.flatMap((thesis) => {
     const score = thesis.researchMethodScores?.[0];
@@ -569,7 +829,13 @@ export async function uploadMetopenAttendance(file, actorUserId, options = {}) {
       ineligibleRows,
       autoZeroedCount: autoZeroedTheses.length,
       skippedFinalizedCount,
+      sourceFileCount: storedFiles.length,
     },
+    sourceFiles: storedFiles.map((file) => ({
+      originalName: file.originalName,
+      classCode: file.classCode,
+      rowCount: file.rowCount,
+    })),
     unmatchedRows: records
       .filter((record) => record.studentId == null)
       .map((record) => ({

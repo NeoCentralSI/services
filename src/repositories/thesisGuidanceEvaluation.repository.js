@@ -104,7 +104,7 @@ export const approveEvaluation = async (evaluationId, userId, kadepNotes) => {
     if (evaluation.recommendation === "terminate_supervision") {
       await tx.thesisSupervisors.update({
         where: { id: evaluation.thesisSupervisorId },
-        data: { status: "terminated" },
+        data: { status: "terminated", activeRoleKey: null },
       });
 
       const lecturerId = evaluation.thesisSupervisor?.lecturerId;

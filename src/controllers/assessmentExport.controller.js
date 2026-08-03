@@ -6,9 +6,14 @@ export async function downloadMetopenScores(req, res, next) {
       && req.query.attendanceImportId.trim().length > 0
       ? req.query.attendanceImportId.trim()
       : null;
+    const academicYearId = typeof req.query?.academicYearId === "string"
+      && req.query.academicYearId.trim().length > 0
+      ? req.query.academicYearId.trim()
+      : null;
 
     const { buffer, filename } = await exportMetopenScoresXlsx({
       attendanceImportId,
+      academicYearId,
     });
 
     res.setHeader(

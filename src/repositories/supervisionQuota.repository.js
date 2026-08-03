@@ -1,5 +1,27 @@
 import prisma from "../config/prisma.js";
 
+export async function findAcademicYearById(academicYearId) {
+  return prisma.academicYear.findUnique({
+    where: { id: academicYearId },
+    select: { id: true },
+  });
+}
+
+export async function findAcademicYearBySlug({ year, previousYear, nextYear, semester }) {
+  return prisma.academicYear.findFirst({
+    where: {
+      semester,
+      OR: [
+        { year: { contains: year } },
+        { year: { contains: `${previousYear}/${year}` } },
+        { year: { contains: `${year}/${nextYear}` } },
+      ],
+    },
+    select: { id: true },
+    orderBy: [{ year: "desc" }, { createdAt: "desc" }],
+  });
+}
+
 /**
  * Get default quota for an academic year
  */
@@ -18,28 +40,69 @@ export async function getDefaultQuota(academicYearId) {
 }
 
 /**
- * Upsert default quota for an academic year
+ * Save the default and apply it to every lecturer atomically.
  */
-export async function upsertDefaultQuota(academicYearId, data) {
-  return prisma.supervisionQuotaDefault.upsert({
-    where: { academicYearId },
-    create: {
-      academicYearId,
-      quotaMax: data.quotaMax,
-      quotaSoftLimit: data.quotaSoftLimit,
-    },
-    update: {
-      quotaMax: data.quotaMax,
-      quotaSoftLimit: data.quotaSoftLimit,
-    },
-    select: {
-      id: true,
-      academicYearId: true,
-      quotaMax: true,
-      quotaSoftLimit: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+export async function setDefaultQuotaAndApplyToAllLecturers(academicYearId, data) {
+  return prisma.$transaction(async (tx) => {
+    const defaultQuota = await tx.supervisionQuotaDefault.upsert({
+      where: { academicYearId },
+      create: {
+        academicYearId,
+        quotaMax: data.quotaMax,
+        quotaSoftLimit: data.quotaSoftLimit,
+      },
+      update: {
+        quotaMax: data.quotaMax,
+        quotaSoftLimit: data.quotaSoftLimit,
+      },
+      select: {
+        id: true,
+        academicYearId: true,
+        quotaMax: true,
+        quotaSoftLimit: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    const [lecturers, existingQuotas] = await Promise.all([
+      tx.lecturer.findMany({ select: { id: true } }),
+      tx.lecturerSupervisionQuota.findMany({
+        where: { academicYearId },
+        select: { lecturerId: true },
+      }),
+    ]);
+    const existingLecturerIds = new Set(existingQuotas.map((quota) => quota.lecturerId));
+
+    for (const lecturer of lecturers) {
+      await tx.lecturerSupervisionQuota.upsert({
+        where: {
+          lecturerId_academicYearId: {
+            lecturerId: lecturer.id,
+            academicYearId,
+          },
+        },
+        create: {
+          lecturerId: lecturer.id,
+          academicYearId,
+          quotaMax: data.quotaMax,
+          quotaSoftLimit: data.quotaSoftLimit,
+        },
+        update: {
+          quotaMax: data.quotaMax,
+          quotaSoftLimit: data.quotaSoftLimit,
+        },
+      });
+    }
+
+    const updated = lecturers.filter((lecturer) => existingLecturerIds.has(lecturer.id)).length;
+    return {
+      defaultQuota,
+      generated: {
+        created: lecturers.length - updated,
+        updated,
+        total: lecturers.length,
+      },
+    };
   });
 }
 
@@ -95,6 +158,22 @@ export async function getDefaultQuotaForYear(academicYearId) {
   return prisma.supervisionQuotaDefault.findUnique({
     where: { academicYearId },
     select: { quotaMax: true, quotaSoftLimit: true },
+  });
+}
+
+export async function getLecturerQuotaRecord(lecturerId, academicYearId) {
+  return prisma.lecturerSupervisionQuota.findUnique({
+    where: {
+      lecturerId_academicYearId: { lecturerId, academicYearId },
+    },
+    select: {
+      id: true,
+      lecturerId: true,
+      academicYearId: true,
+      quotaMax: true,
+      quotaSoftLimit: true,
+      notes: true,
+    },
   });
 }
 

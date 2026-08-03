@@ -18,6 +18,14 @@ vi.mock("../../config/prisma.js", () => ({
   default: prismaMock,
 }));
 
+vi.mock("../../helpers/academicYear.helper.js", () => ({
+  resolveOperationalAcademicYear: vi.fn(async () => ({
+    id: "ay-1",
+    year: "2025/2026",
+    semester: "genap",
+  })),
+}));
+
 vi.mock("../../repositories/advisorRequest.repository.js", () => ({
   findById: vi.fn(),
   findAlternativeLecturers: vi.fn(),
@@ -851,6 +859,83 @@ describe("advisorRequest.service — dual justification Path C", () => {
     );
   });
 
+  it("reuses the working draft but not the released thesis relationship in a new period", async () => {
+    repo.findStudentAdvisorAccessContext.mockResolvedValue({
+      id: "student-1",
+      thesis: [
+        {
+          id: "thesis-released-old-period",
+          academicYearId: "ay-previous",
+          ta04AssignmentIssuedAt: null,
+          advisorRequests: [],
+          thesisSupervisors: [],
+          thesisStatus: { name: "Metopel" },
+        },
+      ],
+    });
+    repo.findBlockingByStudent.mockResolvedValue(null);
+    repo.findLatestByStudent.mockResolvedValue({
+      id: "request-released",
+      status: "released",
+    });
+    repo.findTopicByIdWithClient.mockResolvedValue({
+      id: "topic-1",
+      scienceGroupId: "kbk-1",
+    });
+    repo.findDraftByStudentWithClient.mockResolvedValue({
+      lecturerId: null,
+      topicId: "topic-1",
+      proposedTitle: "Sistem Informasi Monitoring Akademik",
+      backgroundSummary: "Latar belakang yang cukup panjang untuk validasi.",
+      problemStatement: "Masalah akademik yang jelas dan relevan.",
+      proposedSolution: "Solusi sistem yang cukup jelas untuk diajukan.",
+      researchObject: "Departemen",
+      researchPermitStatus: "approved",
+      studentJustification: null,
+      justificationText: null,
+      attachmentId: null,
+    });
+    repo.createWithClient.mockImplementation(async (_tx, payload) => ({
+      id: "request-new-period",
+      createdAt: new Date("2026-08-03T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-03T00:00:00.000Z"),
+      ...payload,
+    }));
+    repo.findById.mockResolvedValue({
+      id: "request-new-period",
+      studentId: "student-1",
+      lecturerId: null,
+      thesisId: null,
+      routeType: "dept",
+      student: { user: { id: "user-student-1", fullName: "Mahasiswa A" } },
+      lecturer: null,
+      thesis: null,
+    });
+    repo.findActiveKaDep.mockResolvedValue({
+      id: "kadep-user-1",
+      fullName: "Ketua Departemen",
+    });
+
+    await submitRequest("student-1", {
+      topicId: "topic-1",
+      proposedTitle: "Sistem Informasi Monitoring Akademik",
+      backgroundSummary: "Latar belakang yang cukup panjang untuk validasi.",
+      problemStatement: "Masalah akademik yang jelas dan relevan.",
+      proposedSolution: "Solusi sistem yang cukup jelas untuk diajukan.",
+      researchObject: "Departemen",
+      researchPermitStatus: "approved",
+    });
+
+    expect(repo.createWithClient).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        academicYearId: "ay-1",
+        thesisId: null,
+      }),
+    );
+    expect(repo.upsertDraftByStudentWithClient).toHaveBeenCalled();
+  });
+
   it("notifies student when lecturer approves a normal booking", async () => {
     const request = {
       id: "req-normal",
@@ -992,6 +1077,15 @@ describe("advisorRequest.service — dual justification Path C", () => {
   });
 });
 
+describe("advisorRequest.service — assignAdvisor deprecated", () => {
+  it("selalu menolak POST /assign (pintu belakang active_official)", async () => {
+    const { assignAdvisor } = await import("../advisorRequest.service.js");
+    await expect(assignAdvisor("req-1", "kadep-1")).rejects.toMatchObject({
+      message: expect.stringMatching(/dinonaktifkan|TA-04 batch|promosi otomatis/i),
+    });
+  });
+});
+
 describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1041,10 +1135,11 @@ describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
     );
   });
 
-  it("KaDep reject sends notification + FCM to student (canon v2.6 §5.8 / BPMN Task_UpdateRejectedRequest)", async () => {
+  it("KaDep reject on TA-02 sends notification + FCM to student", async () => {
     const request = {
       id: "req-1",
       lecturerId: "lecturer-1",
+      requestType: "ta_02",
       status: "pending_kadep",
       studentId: "student-1",
       student: { user: { id: "user-student-1", fullName: "Mhs A" } },
@@ -1055,7 +1150,7 @@ describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
 
     await decideByKadep("req-1", "kadep-1", {
       action: "reject",
-      notes: "Kuota dosen target sudah penuh dan tidak ada proyeksi lulus yang kuat.",
+      notes: "Belum ada dosen yang cocok untuk jalur departemen pada periode ini.",
     });
 
     expect(repo.updateStatusWithClient).toHaveBeenCalledWith(
@@ -1075,5 +1170,30 @@ describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
       }),
       { push: true },
     );
+  });
+
+  it("KaDep reject on Path C TA-01 is blocked (canon v3.3 §5.2.1)", async () => {
+    const request = {
+      id: "req-1",
+      lecturerId: "lecturer-1",
+      requestType: "ta_01",
+      routeType: "escalated",
+      status: "pending_kadep",
+      studentId: "student-1",
+      student: { user: { id: "user-student-1", fullName: "Mhs A" } },
+      thesis: { id: "thesis-1" },
+    };
+    repo.findById.mockResolvedValue(request);
+    repo.findByIdWithClient.mockResolvedValue(request);
+
+    await expect(
+      decideByKadep("req-1", "kadep-1", {
+        action: "reject",
+        notes: "Kuota penuh.",
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/tidak dapat ditolak/i),
+    });
+    expect(notificationService.createNotificationEventForUsers).not.toHaveBeenCalled();
   });
 });

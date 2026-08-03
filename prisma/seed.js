@@ -187,7 +187,7 @@ async function seedStudents(students, userIdMap) {
     const data = pickModelData("Student", {
       status: normalizeStudentStatus(student.status),
       enrollmentYear: student.enrollmentYear ?? null,
-      skscompleted: Number(student.skscompleted ?? 0),
+      sksCompleted: Number(student.skscompleted ?? 0),
       gpa: student.gpa ?? null,
       graduationPredicate: asNullableString(student.graduationPredicate),
       mandatoryCoursesCompleted: asBoolean(student.mandatoryCoursesCompleted),

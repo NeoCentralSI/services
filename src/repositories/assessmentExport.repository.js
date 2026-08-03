@@ -2,6 +2,10 @@ import prisma from "../config/prisma.js";
 
 const ATTENDANCE_IMPORT_SELECT = {
   id: true,
+  academicYearId: true,
+  academicYear: {
+    select: { id: true, year: true, semester: true, startDate: true, endDate: true },
+  },
   classCode: true,
   courseName: true,
   semesterLabel: true,
@@ -26,8 +30,9 @@ const ATTENDANCE_IMPORT_SELECT = {
   },
 };
 
-export function findLatestAttendanceImportForExport(client = prisma) {
+export function findLatestAttendanceImportForExport(academicYearId, client = prisma) {
   return client.metopenAttendanceImport.findFirst({
+    where: { academicYearId },
     orderBy: { uploadedAt: "desc" },
     select: ATTENDANCE_IMPORT_SELECT,
   });
@@ -51,11 +56,18 @@ export function findAttendanceImportForExport(importId, client = prisma) {
  * score rows milik mahasiswa target — caller bertanggung jawab memilih score
  * terkini per mahasiswa.
  */
-export function findResearchMethodScoresForStudentExport(studentIds, client = prisma) {
+export function findResearchMethodScoresForStudentExport(
+  studentIds,
+  academicYearId,
+  client = prisma,
+) {
   if (!Array.isArray(studentIds) || studentIds.length === 0) return [];
   return client.researchMethodScore.findMany({
     where: {
-      thesis: { studentId: { in: studentIds } },
+      thesis: {
+        studentId: { in: studentIds },
+        academicYearId,
+      },
     },
     orderBy: { updatedAt: "desc" },
     select: {

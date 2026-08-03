@@ -20,11 +20,17 @@ const repoMock = {
   findAdvisorRequestsByStudentIds: vi.fn(),
   findActiveSupervisorsByStudentIds: vi.fn(),
   findResearchMethodScoresByStudentIds: vi.fn(),
+  findAcademicYearById: vi.fn(),
 };
 
 vi.mock("../../repositories/metopenMonitoring.repository.js", () => repoMock);
 
-const { getMetopenMonitoring, __test } = await import("../metopenMonitoring.service.js");
+const monitoringService = await import("../metopenMonitoring.service.js");
+const { __test } = monitoringService;
+const getMetopenMonitoring = (options = {}) => monitoringService.getMetopenMonitoring({
+  academicYearId: "ay-1",
+  ...options,
+});
 
 // Helper builders untuk shorter test code.
 function studentFixture(overrides = {}) {
@@ -130,6 +136,13 @@ function supervisorFixture({ studentId, lecturerId, lecturerName, role }) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  repoMock.findAcademicYearById.mockResolvedValue({
+    id: "ay-1",
+    year: "2025/2026",
+    semester: "genap",
+    startDate: new Date("2026-01-13T00:00:00.000Z"),
+    endDate: new Date("2026-07-31T23:59:59.999Z"),
+  });
 });
 
 describe("metopenMonitoring.service — getMetopenMonitoring", () => {
@@ -150,6 +163,15 @@ describe("metopenMonitoring.service — getMetopenMonitoring", () => {
     expect(row.attendance).toBeNull();
     expect(row.score.completeness).toBe("none");
     expect(out.stats.advisorByCategory.no_advisor).toBe(1);
+    expect(repoMock.findEligibleMetopenStudents).toHaveBeenCalledWith(
+      "ay-1",
+      undefined,
+    );
+    expect(repoMock.findAdvisorRequestsByStudentIds).toHaveBeenCalledWith(
+      ["stu-ec01"],
+      "ay-1",
+      undefined,
+    );
   });
 
   it.each([

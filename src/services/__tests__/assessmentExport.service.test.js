@@ -9,13 +9,18 @@ const exportRepoMock = {
 
 vi.mock("../../repositories/assessmentExport.repository.js", () => exportRepoMock);
 
-const { exportMetopenScoresXlsx, __test } = await import(
-  "../assessmentExport.service.js"
-);
+const assessmentExportService = await import("../assessmentExport.service.js");
+const { __test } = assessmentExportService;
+const exportMetopenScoresXlsx = (options = {}) =>
+  assessmentExportService.exportMetopenScoresXlsx({
+    academicYearId: "ay-1",
+    ...options,
+  });
 
 function makeAttendanceImport(overrides = {}) {
   return {
     id: "attendance-import-1",
+    academicYearId: "ay-1",
     classCode: "JSI60143/SI/Kuliah/A",
     courseName: "Metode Penelitian",
     semesterLabel: "Genap 2025/2026",
@@ -230,6 +235,34 @@ describe("assessmentExport.service — exportMetopenScoresXlsx", () => {
     await exportMetopenScoresXlsx({ attendanceImportId: "custom-import" });
     expect(exportRepoMock.findAttendanceImportForExport).toHaveBeenCalledWith("custom-import");
     expect(exportRepoMock.findLatestAttendanceImportForExport).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicitly selected import from another academic period", async () => {
+    exportRepoMock.findAttendanceImportForExport.mockResolvedValue(
+      makeAttendanceImport({ id: "old-import", academicYearId: "ay-old" }),
+    );
+
+    await expect(
+      exportMetopenScoresXlsx({ attendanceImportId: "old-import" }),
+    ).rejects.toThrow(/tidak berasal dari periode akademik/i);
+    expect(exportRepoMock.findResearchMethodScoresForStudentExport).not.toHaveBeenCalled();
+  });
+
+  it("queries scores only within the attendance import academic period", async () => {
+    exportRepoMock.findLatestAttendanceImportForExport.mockResolvedValue(
+      makeAttendanceImport({
+        records: [makeRecord({ studentId: "student-period" })],
+      }),
+    );
+    exportRepoMock.findResearchMethodScoresForStudentExport.mockResolvedValue([]);
+
+    await exportMetopenScoresXlsx({});
+
+    expect(exportRepoMock.findLatestAttendanceImportForExport).toHaveBeenCalledWith("ay-1");
+    expect(exportRepoMock.findResearchMethodScoresForStudentExport).toHaveBeenCalledWith(
+      ["student-period"],
+      "ay-1",
+    );
   });
 });
 

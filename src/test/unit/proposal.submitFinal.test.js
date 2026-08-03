@@ -25,9 +25,14 @@ vi.mock("../../services/ta04Authorization.service.js", () => ({
   getTa04GuidanceAuthorization: vi.fn(),
 }));
 
+vi.mock("../../services/metopenAttendance.service.js", () => ({
+  reconcileAttendanceForThesis: vi.fn(),
+}));
+
 let studentRepo;
 let proposalRepo;
 let ta04Authorization;
+let metopenAttendance;
 let submitFinalProposal;
 let getProposalSubmissionStatus;
 
@@ -43,6 +48,7 @@ beforeEach(async () => {
   ta04Authorization = await import(
     "../../services/ta04Authorization.service.js"
   );
+  metopenAttendance = await import("../../services/metopenAttendance.service.js");
   ta04Authorization.getTa04GuidanceAuthorization.mockResolvedValue({
     hasBookedSupervisor: true,
     guidanceGateOpen: true,
@@ -50,6 +56,10 @@ beforeEach(async () => {
   });
   ta04Authorization.assertTa04GuidanceAuthorized.mockResolvedValue({
     guidanceGateOpen: true,
+  });
+  metopenAttendance.reconcileAttendanceForThesis.mockResolvedValue({
+    status: "eligible",
+    applied: null,
   });
   ({ submitFinalProposal, getProposalSubmissionStatus } = await import(
     "../../services/thesisGuidance/proposal.service.js"
@@ -144,9 +154,30 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
       "version-2",
       studentId,
     );
+    expect(metopenAttendance.reconcileAttendanceForThesis).toHaveBeenCalledWith(
+      "thesis-1",
+      studentId,
+    );
     expect(result.alreadySubmitted).toBe(false);
     expect(result.finalProposalVersion).toBeTruthy();
     expect(result.finalProposalVersion.id).toBe("version-2");
+  });
+
+  it("tidak memanggil reconcile pada re-submit idempotent", async () => {
+    studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
+    studentRepo.getActiveThesisForStudent.mockResolvedValue({
+      ...baseThesis,
+      finalProposalVersionId: latestVersion.id,
+    });
+    proposalRepo.findLatestProposalVersion.mockResolvedValue({
+      ...latestVersion,
+      submittedAsFinalAt: new Date("2026-04-01"),
+    });
+    proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+
+    await submitFinalProposal(studentId);
+
+    expect(metopenAttendance.reconcileAttendanceForThesis).not.toHaveBeenCalled();
   });
 
   // F-4.3: lock integritas — versi final tidak boleh ditukar saat penilaian TA-03 berjalan.

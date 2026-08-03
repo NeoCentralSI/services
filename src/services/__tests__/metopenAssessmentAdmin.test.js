@@ -30,11 +30,31 @@ vi.mock("../../repositories/metopenAssessmentAdmin.repository.js", () => ({
   cpmkHasAssessmentData: vi.fn(),
 }));
 
+vi.mock("../metopenScoreComposition.service.js", () => ({
+  getCapForRole: vi.fn(async (role) => ({
+    cap: role === "supervisor" ? 75 : 25,
+    composition: { ta03aCap: 75, ta03bCap: 25 },
+  })),
+  getCompositionForAcademicYear: vi.fn(async () => ({
+    academicYearId: "ay-1",
+    ta03aCap: 75,
+    ta03bCap: 25,
+    isLocked: false,
+    finalizedScoreCount: 0,
+  })),
+  resolveAcademicYearIdForCpmk: vi.fn(async () => "ay-1"),
+  assertCompositionEditable: vi.fn(async () => undefined),
+}));
+
+vi.mock("../../repositories/advisorQuota.repository.js", () => ({
+  findActiveAcademicYear: vi.fn(async () => ({ id: "ay-1", year: "2025/2026", semester: "ganjil" })),
+}));
+
 const repo = await import("../../repositories/metopenAssessmentAdmin.repository.js");
 const service = await import("../metopenAssessmentAdmin.service.js");
 
 function makeCpmk() {
-  return { id: "cpmk-1", code: "CPMK-01" };
+  return { id: "cpmk-1", code: "CPMK-01", academicYearId: "ay-1" };
 }
 
 function makeCriteria(overrides = {}) {
@@ -45,6 +65,7 @@ function makeCriteria(overrides = {}) {
     name: "Presentasi Lisan",
     maxScore: 20,
     metopenAssessmentRubrics: [],
+    metopenCpmk: { id: "cpmk-1", code: "CPMK-01", academicYearId: "ay-1" },
     ...overrides,
   };
 }
@@ -289,8 +310,8 @@ describe("metopenAssessmentAdmin.service", () => {
       const mockData = [{ id: "cpmk-1", code: "CPMK-01", metopenAssessmentCriterias: [] }];
       repo.findConfiguredMetopenCpmks.mockResolvedValue(mockData);
 
-      const result = await service.getCpmksWithRubrics("supervisor");
-      expect(repo.findConfiguredMetopenCpmks).toHaveBeenCalledWith("supervisor");
+      const result = await service.getCpmksWithRubrics("supervisor", "ay-1");
+      expect(repo.findConfiguredMetopenCpmks).toHaveBeenCalledWith("supervisor", "ay-1");
       expect(result).toEqual(mockData);
     });
   });
@@ -306,9 +327,11 @@ describe("metopenAssessmentAdmin.service", () => {
       };
       repo.getMetopenWeightSummary.mockResolvedValue(mockSummary);
 
-      const result = await service.getWeightSummary("supervisor");
+      const result = await service.getWeightSummary("supervisor", "ay-1");
       expect(result.totalScore).toBe(75);
       expect(result.details).toHaveLength(1);
+      expect(result.ta03aCap).toBe(75);
+      expect(result.ta03bCap).toBe(25);
     });
   });
 
@@ -342,6 +365,7 @@ describe("metopenAssessmentAdmin.service", () => {
       await service.createMetopenCpmk({
         code: "cpmk 01",
         description: "Presentasi proposal tugas akhir",
+        academicYearId: "ay-1",
       });
 
       expect(repo.createMetopenCpmk).toHaveBeenCalledWith(

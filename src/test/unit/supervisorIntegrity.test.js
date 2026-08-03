@@ -90,7 +90,7 @@ describe("supervisorIntegrity", () => {
 
     expect(client.thesisSupervisors.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["old-p1"] } },
-      data: { status: "terminated" },
+      data: { status: "terminated", activeRoleKey: null },
     });
     expect(client.thesisSupervisors.update).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -55,6 +55,12 @@ export const ENV = {
   SIA_FETCH_TIMEOUT: toNum(process.env.SIA_FETCH_TIMEOUT, 10000), // ms
   SIA_CHUNK_SIZE: toNum(process.env.SIA_CHUNK_SIZE, 200),
   ENABLE_SIA_CRON: toBool(process.env.ENABLE_SIA_CRON),
+  // UAT/local: mock payload when real SIA (:4000) is unavailable.
+  // Production must set SIA_MOCK=false and point SIA_BASE_URL to the real service.
+  SIA_MOCK:
+    process.env.SIA_MOCK !== undefined
+      ? toBool(process.env.SIA_MOCK)
+      : String(process.env.NODE_ENV || "development").toLowerCase() !== "production",
 
   // ===============================
   // 🕒 CRON JOBS

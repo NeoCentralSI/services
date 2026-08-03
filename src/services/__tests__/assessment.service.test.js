@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const attendanceRepoMock = vi.hoisted(() => ({
+  findThesisAcademicYear: vi.fn(),
+  findAttendanceRecordForThesis: vi.fn(),
+}));
+const compositionMock = vi.hoisted(() => ({
+  getCapForRole: vi.fn(),
+  getCompositionForAcademicYear: vi.fn(),
+  resolveAcademicYearIdForThesis: vi.fn(),
+}));
+
 const prismaMock = {
   metopenAssessmentCriteria: { findMany: vi.fn() },
   // BR-20 v2.0: thesisSupervisors.findFirst dipakai oleh
@@ -31,6 +41,14 @@ vi.mock("../notification.service.js", () => ({
   createNotificationEventForUsers: vi.fn(),
 }));
 
+vi.mock("../../repositories/metopenAttendance.repository.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  findThesisAcademicYear: attendanceRepoMock.findThesisAcademicYear,
+  findAttendanceRecordForThesis: attendanceRepoMock.findAttendanceRecordForThesis,
+}));
+
+vi.mock("../metopenScoreComposition.service.js", () => compositionMock);
+
 const prisma = (await import("../../config/prisma.js")).default;
 const TA04_ISSUED_AT = new Date("2026-07-01T00:00:00.000Z");
 const {
@@ -51,7 +69,7 @@ const {
 function mockEligibleAttendance() {
   const attendanceImport = {
     id: "attendance-import-1",
-    academicYearId: null,
+    academicYearId: "ay-1",
     documentId: "document-1",
     uploadedByUserId: "koord-1",
     classCode: "JSI60143/SI/Kuliah/A",
@@ -104,6 +122,24 @@ describe("assessment.service — TA-03B active flow", () => {
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
+    attendanceRepoMock.findThesisAcademicYear.mockResolvedValue({
+      id: "thesis-period",
+      academicYearId: "ay-1",
+      ta04AssignmentAcademicYearId: null,
+    });
+    attendanceRepoMock.findAttendanceRecordForThesis.mockImplementation(() =>
+      prisma.metopenAttendanceRecord.findFirst(),
+    );
+    compositionMock.resolveAcademicYearIdForThesis.mockResolvedValue("ay-1");
+    compositionMock.getCompositionForAcademicYear.mockResolvedValue({
+      academicYearId: "ay-1",
+      ta03aCap: 75,
+      ta03bCap: 25,
+    });
+    compositionMock.getCapForRole.mockImplementation(async (role) => ({
+      cap: role === "supervisor" ? 75 : 25,
+      composition: { academicYearId: "ay-1", ta03aCap: 75, ta03bCap: 25 },
+    }));
     mockEligibleAttendance();
   });
 
@@ -279,7 +315,7 @@ describe("assessment.service — TA-03B active flow", () => {
       },
     ]);
 
-    const result = await getSupervisorScoringQueue("supervisor-1");
+    const result = await getSupervisorScoringQueue("supervisor-1", "ay-1");
 
     expect(result).toEqual([
       {
@@ -364,7 +400,7 @@ describe("assessment.service — TA-03B active flow", () => {
       },
     ]);
 
-    const result = await getSupervisorScoringHistory("supervisor-1");
+    const result = await getSupervisorScoringHistory("supervisor-1", "ay-1");
 
     expect(result).toEqual([
       {
@@ -421,7 +457,7 @@ describe("assessment.service — TA-03B active flow", () => {
       },
     ]);
 
-    const result = await getMetopenScoringQueue("lecturer-1");
+    const result = await getMetopenScoringQueue("lecturer-1", "ay-1");
 
     expect(prisma.thesis.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -505,7 +541,7 @@ describe("assessment.service — TA-03B active flow", () => {
       },
     ]);
 
-    const result = await getMetopenScoringHistory("lecturer-1");
+    const result = await getMetopenScoringHistory("lecturer-1", "ay-1");
 
     expect(prisma.thesis.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1020,7 +1056,7 @@ describe("assessment.service — TA-03B active flow", () => {
 
     const result = await getScoresByThesisForSupervisor("thesis-1", "lecturer-1");
 
-    expect(result).toBe(scoreRecord);
+    expect(result).toMatchObject(scoreRecord);
     expect(prisma.researchMethodScore.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { thesisId: "thesis-1" } }),
     );
@@ -1045,7 +1081,7 @@ describe("assessment.service — TA-03B active flow", () => {
     // keanggotaan pembimbing aktif tetap jadi gerbang; immutability tulis
     // (BR-21) ditegakkan terpisah di jalur submit/co-sign/publish.
     const result = await getScoresByThesisForSupervisor("thesis-1", "lecturer-1");
-    expect(result).toBe(scoreRecord);
+    expect(result).toMatchObject(scoreRecord);
   });
 
   it("blocks metopen score detail after another lecturer submitted TA-03B", async () => {

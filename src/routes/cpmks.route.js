@@ -17,7 +17,8 @@ const router = express.Router();
 
 // Middleware
 router.use(authGuard);
-router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN]));
+// Master CPMK akademik: eksklusif Sekretaris Departemen (KC-20260717-01).
+router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]));
 
 // CPMK Routes
 router.get("/", getAll);

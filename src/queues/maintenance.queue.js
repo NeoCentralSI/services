@@ -103,7 +103,13 @@ export async function scheduleDailyThesisStatus() {
 export async function scheduleAcademicYearSync() {
   const pattern = ENV.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *";
   const tz = ENV.ACADEMIC_YEAR_SYNC_TZ || "Asia/Jakarta";
-  const ok = await safeAdd("academic-year-sync", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  const ok = await safeAdd("academic-year-sync", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 5,
+    backoff: { type: "exponential", delay: 5000 },
+  });
   if (ok) console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
 }
 

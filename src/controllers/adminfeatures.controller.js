@@ -1,4 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel } from "../services/adminfeatures.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -56,8 +56,8 @@ export async function updateAcademicYearController(req, res, next) {
 	try {
 		const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
-		const { semester, year, startDate, endDate, isActive } = body;
-		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate, isActive });
+		const { semester, year, startDate, endDate } = body;
+		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate });
 		res.status(200).json({ success: true, academicYear: updated });
 	} catch (err) {
 		next(err);
@@ -78,7 +78,9 @@ export async function getAcademicYearsController(req, res, next) {
 
 export async function getActiveAcademicYearController(req, res, next) {
 	try {
-		const active = await getActiveAcademicYear();
+		// Prefer operational resolver (date window + isActive fallback) so Admin
+		// Master Data / Kuota Bimbingan stay aligned with lecturer quota cohort.
+		const active = await getOperationalAcademicYear();
 		res.status(200).json({ success: true, academicYear: active });
 	} catch (err) {
 		next(err);

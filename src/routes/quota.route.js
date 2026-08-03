@@ -10,10 +10,10 @@
  *   GET    /quota/science-groups          — List science groups
  *   GET    /quota/topics                  — List thesis topics
  *
- *   GET    /quota/config/default          — Get default quota (Kadep/Admin)
- *   POST   /quota/config/default          — Set default quota (Kadep/Admin)
- *   POST   /quota/config/lecturer/:lecturerId — Set per-lecturer quota (Kadep/Admin)
- *   DELETE /quota/config/lecturer/:quotaId    — Delete per-lecturer quota (Kadep/Admin)
+ *   GET    /quota/config/default          — Get default quota (KaDep/Sekdep/Admin)
+ *   POST   /quota/config/default          — Set default quota (Admin only)
+ *   POST   /quota/config/lecturer/:lecturerId — Set per-lecturer quota (Admin only)
+ *   DELETE /quota/config/lecturer/:quotaId    — Delete per-lecturer quota (Admin only)
  *
  *   PATCH  /quota/accepting-requests      — Toggle accepting requests (Lecturer own)
  *
@@ -56,33 +56,37 @@ router.patch(
   controller.toggleAcceptingRequests,
 );
 
-// ── Admin/Kadep config ──────────────────────────────────────────────
+// ── Quota config: management read, Admin mutation ───────────────────
 
-const adminRoles = [ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN];
+const quotaConfigReadRoles = [
+  ROLES.ADMIN,
+  ROLES.KETUA_DEPARTEMEN,
+  ROLES.SEKRETARIS_DEPARTEMEN,
+];
 
 router.get(
   '/config/default',
-  requireRoles(...adminRoles),
+  requireRoles(...quotaConfigReadRoles),
   controller.getDefaultQuota,
 );
 
 router.post(
   '/config/default',
-  requireRoles(...adminRoles),
+  requireRoles(ROLES.ADMIN),
   validate(validator.setDefaultQuotaSchema),
   controller.setDefaultQuota,
 );
 
 router.post(
   '/config/lecturer/:lecturerId',
-  requireRoles(...adminRoles),
+  requireRoles(ROLES.ADMIN),
   validate(validator.setLecturerQuotaSchema),
   controller.setLecturerQuota,
 );
 
 router.delete(
   '/config/lecturer/:quotaId',
-  requireRoles(...adminRoles),
+  requireRoles(ROLES.ADMIN),
   controller.deleteLecturerQuota,
 );
 

@@ -11,6 +11,16 @@ const { mockPrisma, mockSiaClient, mockSiaStore, mockMetopenService } = vi.hoist
       updateMany: vi.fn(),
       update: vi.fn(),
     },
+    academicYear: {
+      findMany: vi.fn(),
+    },
+    studentAcademicYearSnapshot: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      createMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
     cpl: {
       findMany: vi.fn(),
     },
@@ -67,6 +77,16 @@ describe("SIA Sync Job Service", () => {
     mockPrisma.student.findMany.mockResolvedValue([]);
     mockPrisma.student.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.student.update.mockResolvedValue({ id: "student-1" });
+    mockPrisma.academicYear.findMany.mockResolvedValue([{
+      id: "ay-active",
+      startDate: new Date("2026-01-01T00:00:00.000Z"),
+      endDate: new Date("2026-12-31T23:59:59.999Z"),
+    }]);
+    mockPrisma.studentAcademicYearSnapshot.findMany.mockResolvedValue([]);
+    mockPrisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue(null);
+    mockPrisma.studentAcademicYearSnapshot.createMany.mockResolvedValue({ count: 1 });
+    mockPrisma.studentAcademicYearSnapshot.create.mockResolvedValue({ id: "snapshot-1" });
+    mockPrisma.studentAcademicYearSnapshot.update.mockResolvedValue({ id: "snapshot-1" });
     mockPrisma.cpl.findMany.mockResolvedValue([]);
     mockPrisma.studentCplScore.findMany.mockResolvedValue([]);
     mockPrisma.studentCplScore.create.mockResolvedValue({});
@@ -134,6 +154,7 @@ describe("SIA Sync Job Service", () => {
 
       expect(mockMetopenService.syncBookingActivationForStudent).toHaveBeenCalledWith(
         "student-dimas",
+        "ay-active",
       );
     });
 

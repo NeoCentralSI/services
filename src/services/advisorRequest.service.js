@@ -4,7 +4,7 @@ import * as ta04BatchRepo from "../repositories/ta04Batch.repository.js";
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError, ForbiddenError } from "../utils/errors.js";
 import { ROLES } from "../constants/roles.js";
-import THESIS_STATUS, { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import {
   LECTURER_OVERQUOTA_REASON_MIN_LENGTH,
   RED_QUOTA_JUSTIFICATION_MIN_LENGTH,
@@ -28,6 +28,7 @@ import {
 } from "../constants/advisorRequestStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { createNotificationEventForUsers } from "./notification.service.js";
+import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 const OFFICIAL_SUPERVISOR_ROLES = new Set([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]);
 const PENDING_REVIEW_STATUSES = new Set(ADVISOR_REQUEST_PENDING_REVIEW_STATUSES);
@@ -423,6 +424,7 @@ function buildAdvisorAccessState(
   return {
     studentId: studentContext.id,
     thesisId: thesis?.id ?? null,
+    thesisAcademicYearId: thesis?.academicYearId ?? null,
     thesisTitle: thesis?.title ?? null,
     thesisStatus: thesis?.thesisStatus?.name ?? null,
     eligibleMetopen: eligibilityState?.eligibleMetopen ?? null,
@@ -519,13 +521,15 @@ function ensurePathCDualJustification(request) {
 }
 
 async function resolveAcademicYearIdOrThrow(academicYearId) {
-  if (academicYearId) return academicYearId;
-
-  const activeYear = await repo.findActiveAcademicYear();
+  const activeYear = await resolveOperationalAcademicYear();
   if (!activeYear) {
     throw new BadRequestError("Tidak ada tahun akademik aktif");
   }
-
+  if (academicYearId && academicYearId !== activeYear.id) {
+    throw new BadRequestError(
+      "Pengajuan pembimbing hanya dapat dibuat pada periode akademik operasional.",
+    );
+  }
   return activeYear.id;
 }
 
@@ -577,7 +581,11 @@ async function ensureNoBlockingRequestConflict(tx, studentId, requestId) {
 async function ensureOperationalSupervisorAssignment(tx, request, lecturerId) {
   let thesis = request.thesisId
     ? await repo.findThesisByIdWithClient(tx, request.thesisId)
-    : await repo.findThesisByStudentWithClient(tx, request.studentId);
+    : null;
+
+  if (thesis && thesis.academicYearId !== request.academicYearId) {
+    thesis = null;
+  }
 
   if (!thesis) {
     thesis = await repo.createThesisWithClient(tx, {
@@ -645,14 +653,17 @@ async function approveBookingInTransaction(tx, request, actorUserId, actorRole, 
       : request.routeType === ROUTE_TYPE_ESCALATED
         ? ROUTE_TYPE_ESCALATED
         : ROUTE_TYPE_NORMAL;
-  // BR-06 + handoff P0-02: flag eksplisit "Overquota Sah" — di-set saat
-  // KaDep accept Path C escalated (lecturerOverquotaReason ada → indicate
-  // dosen sebelumnya sudah forward overquota). Path B normal & Path A dept
-  // tidak masuk overquota sah.
+  // BR-06 + handoff P0-02: flag eksplisit "Overquota Sah".
+  // Canon v3.3: pada redirect KaDep, flag mengikuti kapasitas dosen target
+  // (boleh overquota baru atas kehendak KaDep). Override eksplisit lewat
+  // approvalMetadata.acceptedOverNormal jika diset.
   const isPathCApproval =
     preservedRouteType === ROUTE_TYPE_ESCALATED &&
     Boolean(request.lecturerOverquotaReason ?? null);
-  const acceptedOverNormal = isPathCApproval || Boolean(request.acceptedOverNormal);
+  const acceptedOverNormal =
+    approvalMetadata.acceptedOverNormal !== undefined
+      ? Boolean(approvalMetadata.acceptedOverNormal)
+      : isPathCApproval || Boolean(request.acceptedOverNormal);
 
   const updated = await repo.updateStatusWithClient(tx, request.id, {
     status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
@@ -867,12 +878,18 @@ export async function submitRequest(userId, data) {
         ? ROUTE_TYPE_ESCALATED
         : ROUTE_TYPE_NORMAL;
 
+    const reusableThesisId =
+      accessState.latestRequest?.status !== ADVISOR_REQUEST_STATUS.RELEASED
+      && accessState.thesisAcademicYearId === academicYearId
+        ? accessState.thesisId
+        : null;
+
     const request = await repo.createWithClient(tx, {
       studentId,
       lecturerId: cleanLecturerId,
       academicYearId,
       topicId: cleanTopicId,
-      thesisId: accessState.thesisId || null,
+      thesisId: reusableThesisId,
       proposedTitle: cleanProposedTitle,
       backgroundSummary: submission.backgroundSummary || null,
       problemStatement: submission.problemStatement || null,
@@ -1602,6 +1619,65 @@ export async function getRecommendations(requestId) {
 }
 
 /**
+ * KaDep assignable lecturers — seluruh dosen aktif terdaftar (lintas KBK),
+ * termasuk traffic light merah. Rekomendasi top-3 tetap di getRecommendations.
+ * Canon v3.3 §5.2.1 / FR-DEC-06.
+ */
+export async function getAssignableLecturers(requestId) {
+  const request = await repo.findById(requestId);
+  if (!request) throw new NotFoundError("Pengajuan tidak ditemukan");
+
+  const topicId = request.topicId;
+  const academicYearId = request.academicYearId ?? (await resolveAcademicYearIdOrThrow(null));
+  const lecturers = await repo.findAssignableLecturers(academicYearId, request.lecturerId);
+  if (lecturers.length === 0) {
+    return { lecturers: [] };
+  }
+
+  const quotaSnapshots = await getLecturerQuotaSnapshots({
+    academicYearId,
+    lecturerIds: lecturers.map((item) => item.lecturerId),
+  });
+  const quotaMap = new Map(quotaSnapshots.map((item) => [item.lecturerId, item]));
+
+  const mapped = lecturers
+    .map((q) => {
+      const quotaSnapshot = quotaMap.get(q.lecturerId);
+      const activeTheses = quotaSnapshot?.activeCount ?? 0;
+      const effectiveCount = quotaSnapshot?.currentCount ?? 0;
+      const remaining = quotaSnapshot?.normalAvailable ?? Math.max(0, q.quotaMax - effectiveCount);
+      const sameTopicCount =
+        q.lecturer.thesisSupervisors?.filter((ts) => ts.thesis?.thesisTopicId === topicId).length ||
+        0;
+      const trafficLight = quotaSnapshot?.trafficLight ?? "green";
+      const score = remaining * 3 + sameTopicCount * 2 + Math.max(0, 10 - activeTheses);
+
+      return {
+        lecturerId: q.lecturerId,
+        fullName: q.lecturer.user?.fullName,
+        identityNumber: q.lecturer.user?.identityNumber,
+        avatarUrl: q.lecturer.user?.avatarUrl,
+        scienceGroup: q.lecturer.scienceGroup,
+        quotaMax: quotaSnapshot?.quotaMax ?? q.quotaMax,
+        currentCount: effectiveCount,
+        remaining,
+        activeTheses,
+        bookingCount: quotaSnapshot?.bookingCount ?? 0,
+        sameTopicCount,
+        trafficLight,
+        score,
+      };
+    })
+    .sort((a, b) => {
+      const nameA = (a.fullName || "").localeCompare(b.fullName || "", "id");
+      if (nameA !== 0) return nameA;
+      return b.score - a.score;
+    });
+
+  return { lecturers: mapped };
+}
+
+/**
  * KaDep decides on an escalated request (override or redirect)
  */
 export async function decideByKadep(requestId, kadepUserId, { action, targetLecturerId, notes }) {
@@ -1695,6 +1771,14 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
       return updated;
     }, SERIALIZABLE_TX);
   } else if (action === "reject") {
+    // Canon v3.3 §5.2.1 / FR-DEC-06: Path C TA-01 overquota tidak boleh ditolak.
+    // KaDep wajib approve dosen pengaju atau redirect ke dosen alternatif.
+    if (request.requestType !== "ta_02") {
+      throw new BadRequestError(
+        "Pengajuan TA-01 di atas kuota normal tidak dapat ditolak. Setujui dosen pengaju atau tetapkan dosen alternatif.",
+      );
+    }
+
     const updated = await repo.executeTransaction(async (tx) => {
       await repo.lockAdvisorRequestRow(tx, requestId);
       const lockedRequest = await repo.findByIdWithClient(tx, requestId);
@@ -1746,20 +1830,22 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
         throw new BadRequestError("Status pengajuan sudah berubah. Muat ulang halaman lalu coba lagi.");
       }
 
-      ensurePathCDualJustification(lockedRequest);
+      if (lockedRequest.requestType !== "ta_02") {
+        ensurePathCDualJustification(lockedRequest);
+      }
       const targetLecturer = await repo.findLecturerForAssignment(cleanTargetLecturerId);
       if (!targetLecturer) throw new NotFoundError("Dosen tujuan tidak ditemukan");
+      if (targetLecturer.acceptingRequests === false) {
+        throw new BadRequestError("Dosen tujuan sedang tidak menerima pengajuan bimbingan.");
+      }
 
       const targetQuotaSnapshot = await getLockedQuotaSnapshot(
         tx,
         cleanTargetLecturerId,
         lockedRequest.academicYearId,
       );
-      if ((targetQuotaSnapshot?.normalAvailable ?? 0) <= 0) {
-        throw new BadRequestError(
-          "Dosen alternatif yang dipilih sudah tidak memiliki slot normal. Muat ulang rekomendasi lalu pilih dosen lain.",
-        );
-      }
+      // Canon v3.3: KaDep boleh menetapkan dosen tanpa Sisa Normal (overquota baru).
+      const targetIsOverquota = (targetQuotaSnapshot?.normalAvailable ?? 0) <= 0;
 
       await ensureNoBlockingRequestConflict(tx, lockedRequest.studentId, lockedRequest.id);
 
@@ -1770,6 +1856,7 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
         reviewedAt: now,
         kadepNotes: cleanNotes,
         lecturerApprovalNote: lockedRequest.lecturerApprovalNote ?? cleanNotes,
+        acceptedOverNormal: targetIsOverquota,
       });
     }, SERIALIZABLE_TX);
     await notifyAdvisorBookingApproved(updated, "kadep");
@@ -1782,121 +1869,15 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
 }
 
 /**
- * KaDep assigns advisor — creates ThesisSupervisors record.
- *
- * NOTE (canon v2.2 + handoff §6.2): jalur happy path SIMPTA tidak lagi memakai
- * fungsi ini secara independen. `decideByKadep` action='approve'/'override'/
- * 'redirect' sudah langsung menjalankan `approveBookingInTransaction` yang
- * meng-create supervisor assignment + mengubah status ke BOOKING_APPROVED
- * dalam satu transaksi. Fungsi ini dipertahankan untuk:
- *   - backward compat helper external (legacy admin tools)
- *   - kemungkinan re-assign manual saat data lama tertinggal status legacy
- * Status yang valid sebagai input: canonical BOOKING_APPROVED + legacy
- * (APPROVED/OVERRIDE_APPROVED/REDIRECTED) yang historis belum ditetapkan.
- * Setelah assignment, status diset ke ACTIVE_OFFICIAL (canon §5.2),
- * BUKAN 'assigned' (legacy).
+ * DEPRECATED (canon v3.3 / §5.8 / §5.10): jalur mandiri assign→active_official
+ * ditutup. Happy path = decideByKadep (booking_approved) → finalizeBatchTA04 →
+ * promosi otomatis ke active_official. Dipertahankan sebagai stub throw agar
+ * klien legacy mendapat pesan jelas (pola sama regenerateTitleApprovalLetter).
  */
-export async function assignAdvisor(requestId, kadepUserId) {
-  const request = await repo.findById(requestId);
-  if (!request) throw new NotFoundError("Pengajuan tidak ditemukan");
-
-  const validStatuses = [
-    ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
-    ADVISOR_REQUEST_STATUS.APPROVED,
-    ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED,
-    ADVISOR_REQUEST_STATUS.REDIRECTED,
-  ];
-  if (!validStatuses.includes(request.status)) {
-    throw new BadRequestError(
-      `Pengajuan harus berstatus booking_approved/approved/override_approved/redirected, status saat ini: ${request.status}`,
-    );
-  }
-
-  // Tentukan dosen tujuan: redirected_to bila ada, fallback ke lecturer_id.
-  const assignedLecturerId =
-    request.status === ADVISOR_REQUEST_STATUS.REDIRECTED && request.redirectedTo
-      ? request.redirectedTo
-      : request.lecturerId;
-
-  if (!request.academicYearId) {
-    throw new BadRequestError(
-      "Pengajuan tidak memiliki data tahun akademik. Pastikan mahasiswa terdaftar di periode aktif."
-    );
-  }
-
-  const thesisStatus = await repo.findThesisStatusByName(THESIS_STATUS.BIMBINGAN);
-
-  if (!thesisStatus) {
-    throw new BadRequestError(
-      "Konfigurasi status bimbingan belum lengkap. Hubungi administrator sistem."
-    );
-  }
-
-  // Prefer the thesisId stored on the request (accurate pivot); fallback to findFirst (legacy).
-  const existingThesis = request.thesisId
-    ? await repo.findThesisByStudent(request.studentId).then((t) => t?.id === request.thesisId ? t : null) || await repo.findThesisById(request.thesisId)
-    : await repo.findThesisByStudent(request.studentId);
-
-  const lecturerExists = await repo.findLecturerForAssignment(assignedLecturerId);
-  if (!lecturerExists) {
-    throw new BadRequestError(
-      `Dosen dengan ID ${assignedLecturerId} tidak ditemukan di database. Pastikan data dosen sudah tersinkronisasi.`
-    );
-  }
-
-  const result = await repo.executeAssignmentTransaction(async (tx) => {
-    let thesisId = existingThesis?.id ?? null;
-
-    if (!thesisId) {
-      const createdThesis = await tx.thesis.create({
-        data: {
-          studentId: request.studentId,
-          academicYearId: request.academicYearId,
-          thesisTopicId: request.topicId || null,
-          title: request.proposedTitle || "Judul belum ditentukan",
-          thesisStatusId: thesisStatus.id,
-          isProposal: true,
-        },
-        select: { id: true },
-      });
-      thesisId = createdThesis.id;
-    } else {
-      await tx.thesis.update({
-        where: { id: thesisId },
-        data: {
-          academicYearId: existingThesis.academicYearId ?? request.academicYearId,
-          thesisTopicId: existingThesis.thesisTopicId ?? request.topicId ?? null,
-          title: existingThesis.title ?? request.proposedTitle ?? "Judul belum ditentukan",
-          thesisStatusId: thesisStatus.id,
-          isProposal: true,
-        },
-      });
-    }
-
-    await createSupervisorAssignments(tx, thesisId, [
-      { lecturerId: assignedLecturerId, supervisorRole: "pembimbing_1" },
-    ], { requireP1: true });
-
-    await tx.thesisAdvisorRequest.update({
-      where: { id: requestId },
-      data: {
-        status: ADVISOR_REQUEST_STATUS.ACTIVE_OFFICIAL,
-        reviewedBy: kadepUserId,
-        reviewedAt: new Date(),
-      },
-    });
-
-    await syncLecturerQuotaCurrentCount(assignedLecturerId, request.academicYearId, { client: tx });
-
-    return { thesisId };
-  }, SERIALIZABLE_TX);
-
-  return {
-    message: "Pembimbing berhasil ditetapkan",
-    thesisId: result.thesisId,
-    assignedLecturerId,
-    studentId: request.studentId,
-  };
+export async function assignAdvisor(_requestId, _kadepUserId) {
+  throw new BadRequestError(
+    "Penetapan pembimbing mandiri sudah dinonaktifkan. Gunakan keputusan KaDep (setujui/alihkan) lalu finalisasi Formulir TA-04 batch; beban aktif dipromosikan otomatis setelah penilaian dan konfirmasi KRS Tugas Akhir.",
+  );
 }
 
 /**

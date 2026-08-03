@@ -6,23 +6,37 @@ import {
   deriveThesisCourseEnrollmentFromSiaStudent,
 } from "./metopenEligibility.service.js";
 import { syncBookingActivationForStudent } from "./metopen.service.js";
+import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
 
-async function syncBookingLifecycleForStudents(studentIds) {
+async function syncBookingLifecycleForStudents(studentIds, academicYearId) {
   const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
-  if (uniqueStudentIds.length === 0) return;
+  if (uniqueStudentIds.length === 0) {
+    return { attempted: 0, succeeded: 0 };
+  }
 
   const results = await Promise.allSettled(
-    uniqueStudentIds.map((studentId) => syncBookingActivationForStudent(studentId)),
+    uniqueStudentIds.map((studentId) =>
+      syncBookingActivationForStudent(studentId, academicYearId),
+    ),
   );
 
+  const failures = [];
   results.forEach((result, index) => {
     if (result.status === "rejected") {
+      failures.push(result.reason);
       console.warn(
         `Failed to sync advisor booking lifecycle for student ${uniqueStudentIds[index]}:`,
         result.reason?.message ?? result.reason,
       );
     }
   });
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      `Sinkronisasi lifecycle booking gagal untuk ${failures.length} mahasiswa.`,
+    );
+  }
+  return { attempted: uniqueStudentIds.length, succeeded: uniqueStudentIds.length };
 }
 
 /**
@@ -36,6 +50,8 @@ export async function runSiaSync() {
     updated: 0,
     skipped: 0,
     dbUpdated: 0,
+    periodSnapshotsCreated: 0,
+    bookingLifecycleSynced: 0,
     cplFetched: 0,
     cplCreated: 0,
     cplUpdated: 0,
@@ -78,6 +94,8 @@ export async function runSiaSync() {
     // Batch update database student academic fields
     const dbResult = await updateStudentAcademicBatch(stamped);
     summary.dbUpdated = dbResult.updated;
+    summary.periodSnapshotsCreated = dbResult.snapshotsCreated;
+    summary.bookingLifecycleSynced = dbResult.lifecycleSynced;
     console.log(`🗄️  Database: ${dbResult.updated} students updated`);
 
     // Batch upsert student CPL scores from same SIA payload
@@ -137,6 +155,12 @@ const parseGpa = (value) => {
 
 async function updateStudentAcademicBatch(stamped) {
   const startedAt = new Date();
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) {
+    throw new Error(
+      "Tidak ada periode akademik yang mencakup waktu sinkronisasi SIA. Snapshot periode dibatalkan.",
+    );
+  }
   // Prepare updates data
   const updates = stamped
     .map((entry) => ({
@@ -147,6 +171,7 @@ async function updateStudentAcademicBatch(stamped) {
       internshipCompleted: Boolean(entry.data?.internshipCompleted),
       kknCompleted: Boolean(entry.data?.kknCompleted),
       researchMethodCompleted: Boolean(entry.data?.researchMethodCompleted),
+      eligibleMetopen: deriveMetopenEligibilityFromSiaStudent(entry.data),
       currentSemester:
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
@@ -160,9 +185,11 @@ async function updateStudentAcademicBatch(stamped) {
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
   if (updates.length === 0) {
-    return { updated: 0 };
+    return { updated: 0, snapshotsCreated: 0, lifecycleSynced: 0 };
   }
 
+  let matchedStudentIds = [];
+  let batchResult = null;
   try {
     // Get all matching users in one query
     const nims = updates.map((u) => u.nim);
@@ -175,8 +202,9 @@ async function updateStudentAcademicBatch(stamped) {
     const nimToUserId = new Map(users.map((u) => [u.identityNumber, u.id]));
 
     // Batch update with transaction
-    const updatePromises = updates
-      .filter((u) => nimToUserId.has(u.nim))
+    const matchedUpdates = updates.filter((u) => nimToUserId.has(u.nim));
+    matchedStudentIds = matchedUpdates.map((u) => nimToUserId.get(u.nim));
+    const updatePromises = matchedUpdates
       .map((u) =>
         prisma.student.updateMany({
           where: { id: nimToUserId.get(u.nim) },
@@ -187,6 +215,12 @@ async function updateStudentAcademicBatch(stamped) {
             internshipCompleted: u.internshipCompleted,
             kknCompleted: u.kknCompleted,
             researchMethodCompleted: u.researchMethodCompleted,
+            eligibleMetopen:
+              typeof u.eligibleMetopen === "boolean" ? u.eligibleMetopen : undefined,
+            metopenEligibilitySource:
+              typeof u.eligibleMetopen === "boolean" ? "sia" : undefined,
+            metopenEligibilityUpdatedAt:
+              typeof u.eligibleMetopen === "boolean" ? startedAt : undefined,
             currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
             gpa: u.gpa,
             graduationPredicate: u.graduationPredicate,
@@ -197,27 +231,126 @@ async function updateStudentAcademicBatch(stamped) {
         })
       );
 
-    const results = await prisma.$transaction(updatePromises);
-    const totalUpdated = results.reduce((sum, r) => sum + r.count, 0);
-
-    await syncBookingLifecycleForStudents(
-      updates
-        .map((u) => nimToUserId.get(u.nim)),
+    const candidateSnapshotRows = matchedUpdates.flatMap((u) => {
+      const hasEligibility = typeof u.eligibleMetopen === "boolean";
+      const hasThesisCourse = typeof u.takingThesisCourse === "boolean";
+      if (!hasEligibility && !hasThesisCourse) return [];
+      return [{
+        studentId: nimToUserId.get(u.nim),
+        academicYearId: academicYear.id,
+        eligibleMetopen: hasEligibility ? u.eligibleMetopen : null,
+        researchMethodCompleted: hasEligibility
+          ? u.researchMethodCompleted
+          : null,
+        takingThesisCourse: hasThesisCourse ? u.takingThesisCourse : null,
+        eligibilitySource: hasEligibility ? "sia" : null,
+        eligibilityCapturedAt: hasEligibility ? startedAt : null,
+        thesisCourseSource: hasThesisCourse ? "sia" : null,
+        thesisCourseCapturedAt: hasThesisCourse ? startedAt : null,
+        capturedAt: startedAt,
+      }];
+    });
+    const existingSnapshots = candidateSnapshotRows.length > 0
+      ? await prisma.studentAcademicYearSnapshot.findMany({
+        where: {
+          academicYearId: academicYear.id,
+          studentId: {
+            in: candidateSnapshotRows.map((row) => row.studentId),
+          },
+        },
+        select: {
+          id: true,
+          studentId: true,
+          eligibleMetopen: true,
+          takingThesisCourse: true,
+        },
+      })
+      : [];
+    const existingSnapshotByStudent = new Map(
+      existingSnapshots.map((snapshot) => [snapshot.studentId, snapshot]),
     );
+    const snapshotRows = candidateSnapshotRows.filter(
+      (row) => !existingSnapshotByStudent.has(row.studentId),
+    );
+    const snapshotFillOperations = candidateSnapshotRows.flatMap((row) => {
+      const existing = existingSnapshotByStudent.get(row.studentId);
+      if (!existing) return [];
+      const data = {};
+      if (
+        existing.eligibleMetopen == null
+        && typeof row.eligibleMetopen === "boolean"
+      ) {
+        data.eligibleMetopen = row.eligibleMetopen;
+        data.researchMethodCompleted = row.researchMethodCompleted;
+        data.eligibilitySource = row.eligibilitySource;
+        data.eligibilityCapturedAt = row.eligibilityCapturedAt;
+      }
+      if (
+        existing.takingThesisCourse == null
+        && typeof row.takingThesisCourse === "boolean"
+      ) {
+        data.takingThesisCourse = row.takingThesisCourse;
+        data.thesisCourseSource = row.thesisCourseSource;
+        data.thesisCourseCapturedAt = row.thesisCourseCapturedAt;
+      }
+      if (Object.keys(data).length === 0) return [];
+      return [prisma.studentAcademicYearSnapshot.update({
+        where: { id: existing.id },
+        data,
+      })];
+    });
+    const transactionOperations = [...updatePromises];
+    if (snapshotRows.length > 0) {
+      transactionOperations.push(
+        prisma.studentAcademicYearSnapshot.createMany({
+          data: snapshotRows,
+          skipDuplicates: true,
+        }),
+      );
+    }
+    transactionOperations.push(...snapshotFillOperations);
 
-    return { updated: totalUpdated };
+    const results = await prisma.$transaction(transactionOperations);
+    const updateResults = results.slice(0, updatePromises.length);
+    const totalUpdated = updateResults.reduce((sum, r) => sum + r.count, 0);
+    const snapshotsCreated = snapshotRows.length > 0
+      ? results[updatePromises.length]?.count ?? 0
+      : 0;
+    batchResult = {
+      updated: totalUpdated,
+      snapshotsCreated,
+    };
   } catch (err) {
     console.error("❌ Failed to batch update student academic fields:", err.message);
     // Fallback to individual updates if batch fails
-    return await updateStudentAcademicIndividual(updates, startedAt);
+    return await updateStudentAcademicIndividual(
+      updates,
+      startedAt,
+      academicYear.id,
+    );
   }
+
+  const lifecycle = await syncBookingLifecycleForStudents(
+    matchedStudentIds,
+    academicYear.id,
+  );
+  return {
+    ...batchResult,
+    lifecycleSynced: lifecycle.succeeded,
+  };
 }
 
 /**
  * Fallback: Individual updates if batch update fails
  */
-async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) {
+async function updateStudentAcademicIndividual(
+  updates,
+  updatedAt = new Date(),
+  academicYearId,
+) {
   let updated = 0;
+  let snapshotsCreated = 0;
+  const updatedStudentIds = [];
   for (const {
     nim,
     sks,
@@ -226,6 +359,7 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
     internshipCompleted,
     kknCompleted,
     researchMethodCompleted,
+    eligibleMetopen,
     currentSemester,
     gpa,
     graduationPredicate,
@@ -238,30 +372,100 @@ async function updateStudentAcademicIndividual(updates, updatedAt = new Date()) 
       });
       if (!user) continue;
 
-      await prisma.student.update({
-        where: { id: user.id },
-        data: {
-          sksCompleted: sks,
-          mandatoryCoursesCompleted,
-          mkwuCompleted,
-          internshipCompleted,
-          kknCompleted,
-          researchMethodCompleted,
-          currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
-          gpa,
-          graduationPredicate,
-          takingThesisCourse,
-          thesisCourseEnrollmentSource: "sia",
-          thesisCourseEnrollmentUpdatedAt: updatedAt,
-        },
+      const created = await prisma.$transaction(async (tx) => {
+        await tx.student.update({
+          where: { id: user.id },
+          data: {
+            sksCompleted: sks,
+            mandatoryCoursesCompleted,
+            mkwuCompleted,
+            internshipCompleted,
+            kknCompleted,
+            researchMethodCompleted,
+            eligibleMetopen:
+              typeof eligibleMetopen === "boolean" ? eligibleMetopen : undefined,
+            metopenEligibilitySource:
+              typeof eligibleMetopen === "boolean" ? "sia" : undefined,
+            metopenEligibilityUpdatedAt:
+              typeof eligibleMetopen === "boolean" ? updatedAt : undefined,
+            currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
+            gpa,
+            graduationPredicate,
+            takingThesisCourse,
+            thesisCourseEnrollmentSource: "sia",
+            thesisCourseEnrollmentUpdatedAt: updatedAt,
+          },
+        });
+        const hasEligibility = typeof eligibleMetopen === "boolean";
+        const hasThesisCourse = typeof takingThesisCourse === "boolean";
+        if (!hasEligibility && !hasThesisCourse) {
+          return 0;
+        }
+        const existing = await tx.studentAcademicYearSnapshot.findUnique({
+          where: {
+            studentId_academicYearId: {
+              studentId: user.id,
+              academicYearId,
+            },
+          },
+        });
+        if (!existing) {
+          await tx.studentAcademicYearSnapshot.create({
+            data: {
+              studentId: user.id,
+              academicYearId,
+              eligibleMetopen: hasEligibility ? eligibleMetopen : null,
+              researchMethodCompleted: hasEligibility
+                ? researchMethodCompleted
+                : null,
+              takingThesisCourse: hasThesisCourse
+                ? takingThesisCourse
+                : null,
+              eligibilitySource: hasEligibility ? "sia" : null,
+              eligibilityCapturedAt: hasEligibility ? updatedAt : null,
+              thesisCourseSource: hasThesisCourse ? "sia" : null,
+              thesisCourseCapturedAt: hasThesisCourse ? updatedAt : null,
+              capturedAt: updatedAt,
+            },
+          });
+          return 1;
+        }
+        const fillData = {};
+        if (existing.eligibleMetopen == null && hasEligibility) {
+          fillData.eligibleMetopen = eligibleMetopen;
+          fillData.researchMethodCompleted = researchMethodCompleted;
+          fillData.eligibilitySource = "sia";
+          fillData.eligibilityCapturedAt = updatedAt;
+        }
+        if (existing.takingThesisCourse == null && hasThesisCourse) {
+          fillData.takingThesisCourse = takingThesisCourse;
+          fillData.thesisCourseSource = "sia";
+          fillData.thesisCourseCapturedAt = updatedAt;
+        }
+        if (Object.keys(fillData).length > 0) {
+          await tx.studentAcademicYearSnapshot.update({
+            where: { id: existing.id },
+            data: fillData,
+          });
+        }
+        return 0;
       });
-      await syncBookingLifecycleForStudents([user.id]);
+      snapshotsCreated += created;
+      updatedStudentIds.push(user.id);
       updated++;
     } catch (err) {
       console.warn(`⚠️  Failed to update student academic fields for NIM ${nim}:`, err.message);
     }
   }
-  return { updated };
+  const lifecycle = await syncBookingLifecycleForStudents(
+    updatedStudentIds,
+    academicYearId,
+  );
+  return {
+    updated,
+    snapshotsCreated,
+    lifecycleSynced: lifecycle.succeeded,
+  };
 }
 
 const normalizeName = (value) =>

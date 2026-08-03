@@ -23,6 +23,8 @@
     "verify:dsi-master": "node scripts/verify-dsi-master.js",
     "integrity:audit-supervisors": "node scripts/audit-supervisor-integrity.js",
     "integrity:repair-supervisors": "node scripts/repair-supervisor-integrity.js",
+    "academic-years:audit": "node scripts/repair-academic-year-integrity.mjs",
+    "academic-years:repair": "node scripts/repair-academic-year-integrity.mjs --apply",
     "seed:metopen-eligible": "node scripts/seed-metopen-eligible-students.js",
     "lint:prisma-delegates": "node scripts/lint-prisma-delegates.mjs",
     "worker": "node scripts/run-workers.js"

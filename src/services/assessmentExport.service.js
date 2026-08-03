@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 
-import { NotFoundError } from "../utils/errors.js";
+import { BadRequestError, NotFoundError } from "../utils/errors.js";
 import * as exportRepo from "../repositories/assessmentExport.repository.js";
 
 /**
@@ -203,14 +203,34 @@ function buildScoreIndex(scores) {
   return byStudent;
 }
 
-export async function exportMetopenScoresXlsx({ attendanceImportId = null } = {}) {
+export async function exportMetopenScoresXlsx({
+  attendanceImportId = null,
+  academicYearId = null,
+} = {}) {
+  const normalizedAcademicYearId = typeof academicYearId === "string"
+    ? academicYearId.trim()
+    : "";
+  if (!attendanceImportId && !normalizedAcademicYearId) {
+    throw new BadRequestError(
+      "academicYearId wajib diisi agar export nilai tidak mencampur data lintas periode.",
+    );
+  }
+
   const attendanceImport = attendanceImportId
     ? await exportRepo.findAttendanceImportForExport(attendanceImportId)
-    : await exportRepo.findLatestAttendanceImportForExport();
+    : await exportRepo.findLatestAttendanceImportForExport(normalizedAcademicYearId);
 
   if (!attendanceImport) {
     throw new NotFoundError(
       "Belum ada import presensi Metopel yang dapat dijadikan sumber export nilai TA-03.",
+    );
+  }
+  if (
+    normalizedAcademicYearId
+    && attendanceImport.academicYearId !== normalizedAcademicYearId
+  ) {
+    throw new BadRequestError(
+      "Import presensi yang dipilih tidak berasal dari periode akademik yang diminta.",
     );
   }
 
@@ -219,7 +239,10 @@ export async function exportMetopenScoresXlsx({ attendanceImportId = null } = {}
     ...new Set(records.map((record) => record.studentId).filter(Boolean)),
   ];
   const scores = studentIds.length > 0
-    ? await exportRepo.findResearchMethodScoresForStudentExport(studentIds)
+    ? await exportRepo.findResearchMethodScoresForStudentExport(
+      studentIds,
+      attendanceImport.academicYearId,
+    )
     : [];
 
   const scoreByStudentId = buildScoreIndex(scores);
@@ -232,6 +255,7 @@ export async function exportMetopenScoresXlsx({ attendanceImportId = null } = {}
     buffer,
     filename,
     attendanceImportId: attendanceImport.id,
+    academicYearId: attendanceImport.academicYearId,
     classCode: attendanceImport.classCode ?? null,
     totalRows: records.length,
   };

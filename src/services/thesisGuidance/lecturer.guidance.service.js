@@ -1572,7 +1572,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
 			if (targetActiveRecords.length > 0) {
 				await tx.thesisSupervisors.updateMany({
 					where: { id: { in: targetActiveRecords.map((record) => record.id) } },
-					data: { status: "terminated" },
+					data: { status: "terminated", activeRoleKey: null },
 				});
 			}
 

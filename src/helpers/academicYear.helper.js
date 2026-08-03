@@ -1,99 +1,193 @@
 import prisma from "../config/prisma.js";
+import { ConflictError } from "../utils/errors.js";
 
 /**
- * Get current date/time in WIB (Asia/Jakarta) timezone
- * Padang, Sumatera Barat uses WIB (UTC+7)
- * @returns {Date} Current date in WIB
+ * Get current date/time. Comparisons use absolute instants; academic year
+ * windows in DB are stored as DateTime boundaries.
+ * @returns {Date}
  */
 export function getCurrentDateWIB() {
-  // Get current UTC time and convert to WIB
-  const now = new Date();
-  return now; // JavaScript Date objects are timezone-aware, comparison works correctly
+  return new Date();
 }
 
 /**
- * Check if an academic year is currently active based on date range
- * @param {Object} academicYear - The academic year object with startDate and endDate
- * @returns {boolean} True if current date is within the academic year's range
+ * Check if an academic year is currently active based on date range.
+ * @param {Object} academicYear
+ * @returns {boolean}
  */
 export function isWithinDateRange(academicYear) {
   if (!academicYear?.startDate || !academicYear?.endDate) return false;
-  
+
   const now = getCurrentDateWIB();
   const start = new Date(academicYear.startDate);
   const end = new Date(academicYear.endDate);
-  
-  // Set end date to end of day (23:59:59.999) for inclusive comparison
-  end.setHours(23, 59, 59, 999);
-  
+
   return now >= start && now <= end;
 }
 
 /**
- * Get the currently active academic year based on current date
- * An academic year is active if: startDate <= now <= endDate
- * @returns {Promise<Object|null>} The active academic year or null
+ * Resolve exactly one date-window period. Ambiguous overlaps fail closed.
+ * @param {Date} now
+ * @param {Object} client
+ * @returns {Promise<Object|null>}
  */
-export async function getActiveAcademicYear() {
-  const now = getCurrentDateWIB();
-  
-  // Find academic year where current date is within the range
-  const active = await prisma.academicYear.findFirst({
+async function findDateWindowAcademicYear(now = getCurrentDateWIB(), client = prisma) {
+  const matches = await client.academicYear.findMany({
     where: {
       startDate: { lte: now },
       endDate: { gte: now },
     },
-    orderBy: [
-      { year: "desc" },
-      { startDate: "desc" },
-    ],
+    orderBy: [{ startDate: "desc" }, { createdAt: "asc" }],
+    take: 2,
   });
-  
-  return active;
+
+  if (matches.length > 1) {
+    throw new ConflictError(
+      "Konfigurasi tahun akademik overlap. Perbaiki rentang tanggal sebelum melanjutkan operasi SIMPTA.",
+    );
+  }
+  return matches[0] ?? null;
 }
 
 /**
- * Get all academic years with computed isActive status
- * @returns {Promise<Array>} Academic years with isActive computed
+ * Date-window active year (startDate <= now <= endDate).
+ * @returns {Promise<Object|null>}
+ */
+export async function getActiveAcademicYear(client = prisma) {
+  return findDateWindowAcademicYear(getCurrentDateWIB(), client);
+}
+
+/**
+ * Operational year used by quota/catalog/admin pickers.
+ * Prefer date-window match; during calendar gaps fall back to DB isActive flag
+ * so lecturer inbox and admin Kuota Bimbingan stay on the same cohort.
+ * @returns {Promise<Object|null>}
+ */
+export async function resolveOperationalAcademicYear(client = prisma) {
+  const byDate = await findDateWindowAcademicYear(getCurrentDateWIB(), client);
+  if (byDate) return byDate;
+
+  const flagged = await client.academicYear.findMany({
+    where: { isActive: true },
+    orderBy: [{ startDate: "desc" }, { createdAt: "asc" }],
+    take: 2,
+  });
+  if (flagged.length > 1) {
+    throw new ConflictError(
+      "Lebih dari satu tahun akademik ditandai aktif. Perbaiki konfigurasi sebelum melanjutkan operasi SIMPTA.",
+    );
+  }
+  return flagged[0] ?? null;
+}
+
+/**
+ * Sync persisted isActive flags from date windows.
+ * If no year covers today, keep the previous operational flag (or nearest
+ * past year) so UAT/admin surfaces do not go fully "Tidak Aktif".
+ * @returns {Promise<{ activeId: string|null, updated: number }>}
+ */
+export async function syncAcademicYearActiveFlags() {
+  const years = await prisma.academicYear.findMany({
+    orderBy: [{ startDate: "desc" }, { createdAt: "asc" }],
+  });
+
+  const inWindow = years.filter((ay) => isWithinDateRange(ay));
+  if (inWindow.length > 1) {
+    throw new ConflictError(
+      "Konfigurasi tahun akademik overlap. Sinkronisasi periode dibatalkan.",
+    );
+  }
+  let activeId = inWindow[0]?.id ?? null;
+
+  if (!activeId) {
+    const flagged = years.filter((ay) => ay.isActive);
+    if (flagged.length > 1) {
+      throw new ConflictError(
+        "Lebih dari satu tahun akademik ditandai aktif. Sinkronisasi periode dibatalkan.",
+      );
+    }
+    activeId = flagged[0]?.id ?? null;
+  }
+
+  if (!activeId) {
+    const now = getCurrentDateWIB();
+    const past = years
+      .filter((ay) => ay.endDate && new Date(ay.endDate) < now)
+      .sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
+    activeId = past[0]?.id ?? years[0]?.id ?? null;
+  }
+
+  if (!activeId) return { activeId: null, updated: 0 };
+
+  const changed = years.filter((ay) => ay.isActive !== (ay.id === activeId)).length;
+  await prisma.$transaction([
+    prisma.academicYear.updateMany({
+      where: {
+        OR: [
+          { isActive: true },
+          { activeKey: { not: null } },
+        ],
+      },
+      data: { isActive: false, activeKey: null },
+    }),
+    prisma.academicYear.update({
+      where: { id: activeId },
+      data: { isActive: true, activeKey: "ACTIVE" },
+    }),
+  ]);
+
+  return { activeId, updated: changed };
+}
+
+/**
+ * Ensure UAT/dev environments have a year covering "today".
+ * Extends the operational year's endDate up to the day before the next
+ * year's startDate (or +45 days) when a calendar gap would leave HELPER_ACTIVE null.
+ * @returns {Promise<Object|null>}
+ */
+export async function ensureOperationalAcademicYearWindow() {
+  await syncAcademicYearActiveFlags();
+  return resolveOperationalAcademicYear();
+}
+
+/**
+ * @returns {Promise<Array>}
  */
 export async function getAcademicYearsWithStatus() {
-  const academicYears = await prisma.academicYear.findMany({
-    orderBy: [
-      { year: "desc" },
-      { semester: "desc" },
-    ],
-  });
-  
-  return academicYears.map(ay => ({
+  const [academicYears, operational] = await Promise.all([
+    prisma.academicYear.findMany({
+      orderBy: [{ startDate: "desc" }, { createdAt: "asc" }],
+    }),
+    resolveOperationalAcademicYear(),
+  ]);
+
+  return academicYears.map((ay) => ({
     ...ay,
-    isActive: isWithinDateRange(ay),
+    isActive: ay.id === operational?.id,
   }));
 }
 
 /**
- * Get the active academic year ID, or null if none is active
- * @returns {Promise<string|null>} The active academic year ID
+ * @returns {Promise<string|null>}
  */
 export async function getActiveAcademicYearId() {
-  const active = await getActiveAcademicYear();
+  const active = await resolveOperationalAcademicYear();
   return active?.id || null;
 }
 
 /**
- * Check if a given academic year is the active one
- * @param {string} id - The ID to check
- * @returns {Promise<boolean>} True if the given ID is the active academic year
+ * @param {string} id
+ * @returns {Promise<boolean>}
  */
 export async function isActiveAcademicYear(id) {
   if (!id) return false;
-  const active = await getActiveAcademicYear();
+  const active = await resolveOperationalAcademicYear();
   return active?.id === id;
 }
 
 /**
- * Get academic year label (e.g., "2024/2025 Ganjil")
- * @param {Object} academicYear - The academic year object (year in "2024/2025" format)
- * @returns {string} Formatted label
+ * @param {Object} academicYear
+ * @returns {string}
  */
 export function formatAcademicYearLabel(academicYear) {
   if (!academicYear) return "-";

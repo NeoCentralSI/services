@@ -1,4 +1,5 @@
 import * as service from "../services/metopenAssessmentAdmin.service.js";
+import * as compositionService from "../services/metopenScoreComposition.service.js";
 
 const VALID_ROLES = ["default", "supervisor"];
 
@@ -12,7 +13,10 @@ function validateRoleQuery(role) {
 
 export async function listCriteria(req, res, next) {
   try {
-    const data = await service.listCriteria(req.query.role || null);
+    const data = await service.listCriteria(
+      req.query.role || null,
+      req.query.academicYearId,
+    );
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -96,7 +100,10 @@ export async function getCpmksWithRubrics(req, res, next) {
   try {
     const { role } = req.query;
     validateRoleQuery(role);
-    const data = await service.getCpmksWithRubrics(role);
+    const data = await service.getCpmksWithRubrics(
+      role,
+      req.query.academicYearId,
+    );
     res.json({
       success: true,
       message: "Berhasil mengambil CPMK Metode Penelitian beserta rubrik penilaian TA-03A dan TA-03B",
@@ -167,8 +174,13 @@ export async function getWeightSummary(req, res, next) {
   try {
     const { role } = req.query;
     validateRoleQuery(role);
-    const data = await service.getWeightSummary(role);
-    const globalTotal = await service.getTotalActiveScore();
+    const data = await service.getWeightSummary(
+      role,
+      req.query.academicYearId,
+    );
+    const globalTotal = await service.getTotalActiveScore(
+      req.query.academicYearId,
+    );
     res.json({
       success: true,
       message: "Berhasil mengambil ringkasan bobot penilaian Metode Penelitian untuk proposal, TA-03A, dan TA-03B",
@@ -192,6 +204,34 @@ export async function reorderRubrics(req, res, next) {
   try {
     await service.reorderRubrics(req.validated ?? req.body);
     res.json({ success: true, message: "Berhasil mengubah urutan rubrik Metode Penelitian" });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getScoreComposition(req, res, next) {
+  try {
+    const academicYearId = req.params.academicYearId;
+    const data = await compositionService.getCompositionForAcademicYear(academicYearId);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateScoreComposition(req, res, next) {
+  try {
+    const academicYearId = req.params.academicYearId;
+    const payload = req.validated ?? req.body;
+    const data = await compositionService.updateCompositionForAcademicYear(
+      academicYearId,
+      payload,
+    );
+    res.json({
+      success: true,
+      message: "Komposisi penilaian TA-03 berhasil disimpan",
+      data,
+    });
   } catch (error) {
     next(error);
   }

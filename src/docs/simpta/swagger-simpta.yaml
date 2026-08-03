@@ -203,6 +203,68 @@ paths:
         '200':
           description: Lecturer response stored
 
+  /advisorRequest/{id}/decide:
+    post:
+      tags: [AdvisorRequest]
+      summary: KaDep decides an escalated TA-01 or TA-02 advisor request
+      description: >-
+        Path C (escalated TA-01): KaDep may only approve the requesting lecturer
+        or redirect to an alternative lecturer — reject is not allowed.
+        TA-02 dept route: KaDep assigns/redirects within department policy.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, redirect, reject]
+                  description: reject is rejected by service for Path C escalated TA-01 (canon §5.2.1 v3.3).
+                notes:
+                  type: string
+                alternativeLecturerId:
+                  type: string
+                  format: uuid
+                  description: Required when action=redirect.
+      responses:
+        '200':
+          description: KaDep decision applied (booking_approved or redirected)
+        '400':
+          description: Invalid action for route type (e.g. Path C reject)
+
+  /advisorRequest/{id}/assign:
+    post:
+      tags: [AdvisorRequest]
+      summary: "[DEPRECATED] Legacy direct advisor assignment"
+      description: >-
+        Always returns 400. Legacy path that promoted booking to active_official
+        and skipped early TA-04 batch + automatic promotion. Use KaDep decide
+        (approve/redirect) then finalizeBatchTA04; active load promotes after
+        TA-03 final + SIA takingThesisCourse.
+      deprecated: true
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '400':
+          description: Always — endpoint permanently disabled
+
   /thesisGuidance/student/proposal/upload:
     post:
       tags: [Proposal]
@@ -313,16 +375,18 @@ paths:
   /metopen/kadep/title-reports/pending:
     get:
       tags: [Metopen]
-      summary: List pending title approvals for KaDep review
+      summary: Deprecated — always returns empty (manual TA-04 review removed; use batch finalize)
+      deprecated: true
       security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: Pending title approvals returned
+          description: Empty array (manual review queue retired)
 
   /metopen/kadep/thesis/{thesisId}/title-report/review:
     post:
       tags: [Metopen]
-      summary: Review title approval request as KaDep
+      summary: Deprecated — always 400 (manual TA-04 review removed; use batch finalize)
+      deprecated: true
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -345,8 +409,10 @@ paths:
                 notes:
                   type: string
       responses:
+        '400':
+          description: Always rejected — use batch TA-04 finalize instead
         '200':
-          description: Title report reviewed
+          description: Deprecated success response (no longer returned)
 
   /metopen/me/archive:
     get:
@@ -459,6 +525,13 @@ paths:
           schema:
             type: string
             enum: [TA-03A, TA-03B]
+        - in: query
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Periode pemilik CPMK, kriteria, dan komposisi nilai.
       responses:
         '200':
           description: Assessment criteria returned
@@ -523,6 +596,14 @@ paths:
       summary: List TA-03A queue for the authenticated supervisor
       description: Returns only active students with open thesis status, submitted final proposal, and no TA-03A score.
       security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Membatasi antrean ke thesis pada periode ini.
       responses:
         '200':
           description: TA-03A queue returned
@@ -647,12 +728,117 @@ paths:
         '200':
           description: TA-03A score stored
 
+  /assessment/metopen/attendance/latest:
+    get:
+      tags: [Assessment]
+      summary: Latest Metopel attendance import summary
+      description: Koordinator Matkul Metopen only (BR-19 + BR-28).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Latest import summary or null
+
+  /assessment/metopen/attendance/preview:
+    post:
+      tags: [Assessment]
+      summary: Dry-run preview of attendance upload (no writes)
+      description: >-
+        Koordinator-only. Returns rows that would be auto-zeroed permanently
+        before commit (canon §5.7.3 / F-4.2). Multipart xlsx, same shape as upload.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [academicYearId]
+              properties:
+                academicYearId:
+                  type: string
+                  format: uuid
+                file:
+                  type: string
+                  format: binary
+                files:
+                  type: array
+                  maxItems: 2
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: Preview summary returned
+
+  /assessment/metopen/attendance/upload:
+    post:
+      tags: [Assessment]
+      summary: Upload Metopel attendance xlsx (SIA export)
+      description: >-
+        Koordinator-only. Re-upload allowed for SIA corrections. Rows below 75%
+        may be auto-zeroed for non-finalized theses in scope (BR-28).
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [academicYearId]
+              properties:
+                academicYearId:
+                  type: string
+                  format: uuid
+                file:
+                  type: string
+                  format: binary
+                files:
+                  type: array
+                  maxItems: 2
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: Import committed
+
+  /assessment/metopen/attendance/eligibility/{thesisId}:
+    get:
+      tags: [Assessment]
+      summary: Attendance gate eligibility for a thesis
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: thesisId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Eligibility snapshot for TA-03 mutation gates
+
   /assessment/metopen/queue:
     get:
       tags: [Assessment]
       summary: List TA-03B queue for Koordinator Matkul Metopen
       description: Returns active students with open thesis status, submitted final proposal, and no TA-03B score. TA-03B may run in parallel with TA-03A.
       security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Membatasi antrean dan nilai ke thesis pada periode ini.
       responses:
         '200':
           description: TA-03B queue returned
@@ -695,6 +881,22 @@ paths:
                           type: integer
                           nullable: true
 
+  /assessment/metopen/monitoring:
+    get:
+      tags: [Assessment]
+      summary: Monitoring peserta, pembimbing, presensi, dan nilai Metopel per periode
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Snapshot monitoring yang seluruh komponennya berasal dari periode yang sama
+
   /assessment/metopen/scores/export:
     get:
       tags: [Assessment]
@@ -713,14 +915,22 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Periode presensi dan thesis yang diekspor.
+        - in: query
           name: attendanceImportId
           required: false
           schema:
             type: string
             format: uuid
           description: |
-            Override import presensi sumber export. Tanpa parameter ini service
-            memakai import terbaru (lihat `GET /assessment/metopen/attendance/latest`).
+            Override import presensi sumber export. Jika diisi, import wajib
+            berasal dari academicYearId yang sama. Tanpa parameter ini service
+            memakai import terbaru pada periode tersebut.
       responses:
         '200':
           description: Workbook xlsx
@@ -994,6 +1204,7 @@ paths:
     get:
       tags: [SupervisionQuota]
       summary: Get default supervision quota configuration
+      description: Read-only for Admin, KaDep, and Sekdep.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -1008,6 +1219,7 @@ paths:
     put:
       tags: [SupervisionQuota]
       summary: Set default supervision quota configuration
+      description: Admin only. Saves the default and propagates it to lecturer quota rows atomically.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -1024,6 +1236,10 @@ paths:
     get:
       tags: [SupervisionQuota]
       summary: List lecturer quotas for an academic year
+      description: >-
+        Read-only for Admin, KaDep, and Sekdep. Active, booking, pending KaDep,
+        normal availability, and valid-overquota totals come from the current
+        computed snapshot; legacy currentCount is not trusted as source of truth.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -1041,9 +1257,37 @@ paths:
           description: Lecturer quota list returned
 
   /supervision-quota/lecturers/{lecturerId}/{academicYearId}:
+    get:
+      tags: [SupervisionQuota]
+      summary: Get lecturer quota snapshot with metric drill-down rows
+      description: >-
+        Read-only for Admin, KaDep, and Sekdep. Returns the exact student rows
+        behind active load, booking, pending KaDep, and valid overquota. Path C
+        justification and reviewer notes are intentionally excluded; use the
+        dedicated KaDep request detail for decision context.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: lecturerId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Computed lecturer quota detail returned
+        '404':
+          description: Lecturer or academic year not found
     patch:
       tags: [SupervisionQuota]
       summary: Update lecturer-specific quota override
+      description: Admin only.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -1061,6 +1305,26 @@ paths:
       responses:
         '200':
           description: Lecturer quota updated
+
+  /supervision-quota/recalculate/{academicYearId}:
+    post:
+      tags: [SupervisionQuota]
+      summary: Refresh legacy quota counters from computed snapshots
+      description: >-
+        Admin only. Repairs legacy currentCount cache values; monitoring and
+        decision-time reads still use computed snapshots directly.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Legacy counters recalculated
+
   /thesis-supervisors/co-advisor:
     post:
       tags: [ThesisSupervisors]

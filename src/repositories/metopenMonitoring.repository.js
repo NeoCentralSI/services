@@ -57,34 +57,51 @@ const ATTENDANCE_IMPORT_SELECT = {
  *  - `student.status` boleh apa saja (mahasiswa drop/lulus tetap muncul di
  *    monitoring untuk transparansi historikal; UI bisa filter lebih lanjut)
  */
-export function findEligibleMetopenStudents(client = prisma) {
-  return client.student.findMany({
-    where: { eligibleMetopen: true },
-    select: {
-      id: true,
+export async function findEligibleMetopenStudents(academicYearId, client = prisma) {
+  const snapshots = await client.studentAcademicYearSnapshot.findMany({
+    where: {
+      academicYearId,
       eligibleMetopen: true,
-      metopenEligibilitySource: true,
-      metopenEligibilityUpdatedAt: true,
-      status: true,
-      enrollmentYear: true,
+    },
+    select: {
+      eligibleMetopen: true,
       researchMethodCompleted: true,
       takingThesisCourse: true,
-      user: {
+      eligibilitySource: true,
+      eligibilityCapturedAt: true,
+      student: {
         select: {
           id: true,
-          fullName: true,
-          identityNumber: true,
-          email: true,
-          avatarUrl: true,
+          status: true,
+          enrollmentYear: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              identityNumber: true,
+              email: true,
+              avatarUrl: true,
+            },
+          },
         },
       },
     },
-    orderBy: { user: { identityNumber: "asc" } },
+    orderBy: { student: { user: { identityNumber: "asc" } } },
   });
+
+  return snapshots.map((snapshot) => ({
+    ...snapshot.student,
+    eligibleMetopen: snapshot.eligibleMetopen,
+    researchMethodCompleted: snapshot.researchMethodCompleted,
+    takingThesisCourse: snapshot.takingThesisCourse,
+    metopenEligibilitySource: snapshot.eligibilitySource,
+    metopenEligibilityUpdatedAt: snapshot.eligibilityCapturedAt,
+  }));
 }
 
-export function findLatestAttendanceImportWithRecords(client = prisma) {
+export function findLatestAttendanceImportWithRecords(academicYearId, client = prisma) {
   return client.metopenAttendanceImport.findFirst({
+    where: { academicYearId },
     orderBy: { uploadedAt: "desc" },
     select: {
       ...ATTENDANCE_IMPORT_SELECT,
@@ -104,10 +121,17 @@ export function findLatestAttendanceImportWithRecords(client = prisma) {
  * Lebih sederhana dari window function di Prisma dan tetap performant untuk
  * <= 100 mahasiswa per kelas Metopen.
  */
-export function findAdvisorRequestsByStudentIds(studentIds, client = prisma) {
+export function findAdvisorRequestsByStudentIds(
+  studentIds,
+  academicYearId,
+  client = prisma,
+) {
   if (!Array.isArray(studentIds) || studentIds.length === 0) return [];
   return client.thesisAdvisorRequest.findMany({
-    where: { studentId: { in: studentIds } },
+    where: {
+      studentId: { in: studentIds },
+      academicYearId,
+    },
     select: {
       id: true,
       studentId: true,
@@ -157,12 +181,19 @@ export function findAdvisorRequestsByStudentIds(studentIds, client = prisma) {
  * studentIds. Filter `status = active` + role IN (Pembimbing 1, Pembimbing 2)
  * agar konsisten dengan canon §5.7.1 (P1 master + P2 cosign).
  */
-export function findActiveSupervisorsByStudentIds(studentIds, client = prisma) {
+export function findActiveSupervisorsByStudentIds(
+  studentIds,
+  academicYearId,
+  client = prisma,
+) {
   if (!Array.isArray(studentIds) || studentIds.length === 0) return [];
   return client.thesisSupervisors.findMany({
     where: {
       status: "active",
-      thesis: { studentId: { in: studentIds } },
+      thesis: {
+        studentId: { in: studentIds },
+        academicYearId,
+      },
       role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
     },
     select: {
@@ -194,10 +225,19 @@ export function findActiveSupervisorsByStudentIds(studentIds, client = prisma) {
  * studentIds. Service consumer akan dedupe via `buildScoreIndex` (mirror
  * logic `assessmentExport.service.buildScoreIndex`): finalize > recent.
  */
-export function findResearchMethodScoresByStudentIds(studentIds, client = prisma) {
+export function findResearchMethodScoresByStudentIds(
+  studentIds,
+  academicYearId,
+  client = prisma,
+) {
   if (!Array.isArray(studentIds) || studentIds.length === 0) return [];
   return client.researchMethodScore.findMany({
-    where: { thesis: { studentId: { in: studentIds } } },
+    where: {
+      thesis: {
+        studentId: { in: studentIds },
+        academicYearId,
+      },
+    },
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,
@@ -237,6 +277,19 @@ export function findResearchMethodScoresByStudentIds(studentIds, client = prisma
           },
         },
       },
+    },
+  });
+}
+
+export function findAcademicYearById(academicYearId, client = prisma) {
+  return client.academicYear.findUnique({
+    where: { id: academicYearId },
+    select: {
+      id: true,
+      year: true,
+      semester: true,
+      startDate: true,
+      endDate: true,
     },
   });
 }

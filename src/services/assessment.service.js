@@ -5,18 +5,23 @@ import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import { syncKadepProposalQueueByThesisId } from "./metopen.service.js";
 import { assertAttendanceEligibleForManualReview } from "./metopenAttendance.service.js";
 import { createNotificationEventForUsers } from "./notification.service.js";
+import {
+  getCapForRole,
+  getCompositionForAcademicYear,
+  resolveAcademicYearIdForThesis,
+} from "./metopenScoreComposition.service.js";
 
-const FORM_CONFIG = {
-  "TA-03A": { role: "supervisor", cap: 75 },
-  "TA-03B": { role: "default", cap: 25 },
+const FORM_ROLES = {
+  "TA-03A": "supervisor",
+  "TA-03B": "default",
 };
 
-function getFormConfig(formCode) {
-  const config = FORM_CONFIG[formCode];
-  if (!config) {
+function getFormRole(formCode) {
+  const role = FORM_ROLES[formCode];
+  if (!role) {
     throw new BadRequestError(`formCode tidak dikenal: ${formCode}. Gunakan 'TA-03A' atau 'TA-03B'.`);
   }
-  return config;
+  return role;
 }
 
 function normalizeScoreValue(value, criteriaName) {
@@ -30,10 +35,11 @@ function normalizeScoreValue(value, criteriaName) {
   return numeric;
 }
 
-async function getResearchMethodCriteriaByRole(role) {
+async function getResearchMethodCriteriaByRole(role, academicYearId) {
   return prisma.metopenAssessmentCriteria.findMany({
     where: {
       role,
+      metopenCpmk: { academicYearId },
     },
     select: {
       id: true,
@@ -53,9 +59,10 @@ async function getResearchMethodCriteriaByRole(role) {
   });
 }
 
-async function validateResearchMethodScores(formCode, scores) {
-  const { role, cap } = getFormConfig(formCode);
-  const criteria = await getResearchMethodCriteriaByRole(role);
+async function validateResearchMethodScores(formCode, scores, academicYearId) {
+  const role = getFormRole(formCode);
+  const { cap } = await getCapForRole(role, academicYearId);
+  const criteria = await getResearchMethodCriteriaByRole(role, academicYearId);
   if (criteria.length === 0) {
     throw new BadRequestError(`Rubrik ${formCode} belum dikonfigurasi`);
   }
@@ -437,15 +444,18 @@ function resolveSupervisorActionStatus(score, isP1) {
 
 /**
  * Get AssessmentCriteria for a given form code.
- * formCode "TA-03A" → supervisor-role criteria on MetopenCpmk (cap 75)
- * formCode "TA-03B" → default-role criteria on MetopenCpmk (cap 25)
+ * formCode "TA-03A" → supervisor-role criteria on MetopenCpmk
+ * formCode "TA-03B" → default-role criteria on MetopenCpmk
+ * Caps come from MetopenScoreComposition for the active/requested academic year.
  */
-export async function getCriteriaByFormCode(formCode) {
-  const { role: roleFilter } = getFormConfig(formCode);
+export async function getCriteriaByFormCode(formCode, academicYearId = null) {
+  const roleFilter = getFormRole(formCode);
+  const resolvedAcademicYearId = requireAcademicYearId(academicYearId);
 
   const criteria = await prisma.metopenAssessmentCriteria.findMany({
     where: {
       role: roleFilter,
+      metopenCpmk: { academicYearId: resolvedAcademicYearId },
     },
     include: {
       metopenCpmk: { select: { id: true, code: true, description: true } },
@@ -456,7 +466,18 @@ export async function getCriteriaByFormCode(formCode) {
     orderBy: { displayOrder: "asc" },
   });
 
-  return { formCode, criteria };
+  const composition = await getCompositionForAcademicYear(resolvedAcademicYearId);
+
+  const cap = roleFilter === "supervisor" ? composition.ta03aCap : composition.ta03bCap;
+
+  return {
+    formCode,
+    criteria,
+    cap,
+    ta03aCap: composition.ta03aCap,
+    ta03bCap: composition.ta03bCap,
+    academicYearId: composition.academicYearId,
+  };
 }
 
 // ============================================
@@ -487,7 +508,18 @@ export async function getCriteriaByFormCode(formCode) {
  *
  * Item dengan `score.isFinalized = true` keluar dari antrean (siklus selesai).
  */
-export async function getSupervisorScoringQueue(supervisorUserId) {
+function requireAcademicYearId(value) {
+  const academicYearId = typeof value === "string" ? value.trim() : "";
+  if (!academicYearId) {
+    throw new BadRequestError(
+      "academicYearId wajib diisi agar antrean penilaian tidak tercampur lintas periode.",
+    );
+  }
+  return academicYearId;
+}
+
+export async function getSupervisorScoringQueue(supervisorUserId, academicYearIdInput) {
+  const academicYearId = requireAcademicYearId(academicYearIdInput);
   const supervisedTheses = await prisma.thesisSupervisors.findMany({
     where: {
       lecturerId: supervisorUserId,
@@ -495,6 +527,7 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
       role: {
         name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] },
       },
+      thesis: { academicYearId },
     },
     include: {
       role: { select: { name: true } },
@@ -598,7 +631,8 @@ export async function getSupervisorScoringQueue(supervisorUserId) {
  * yang belum selesai; endpoint ini tetap mengembalikan skor yang sudah pernah
  * masuk agar pembimbing punya surface read-only setelah submit/finalisasi.
  */
-export async function getSupervisorScoringHistory(supervisorUserId) {
+export async function getSupervisorScoringHistory(supervisorUserId, academicYearIdInput) {
+  const academicYearId = requireAcademicYearId(academicYearIdInput);
   const supervisedTheses = await prisma.thesisSupervisors.findMany({
     where: {
       lecturerId: supervisorUserId,
@@ -606,6 +640,7 @@ export async function getSupervisorScoringHistory(supervisorUserId) {
       role: {
         name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] },
       },
+      thesis: { academicYearId },
     },
     include: {
       role: { select: { name: true } },
@@ -713,6 +748,8 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
     where: { id: thesisId },
     select: {
       id: true,
+      academicYearId: true,
+      ta04AssignmentAcademicYearId: true,
       finalProposalVersionId: true,
       ta04AssignmentIssuedAt: true,
       student: {
@@ -757,7 +794,12 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
     return attendanceGate.scoreRecord;
   }
 
-  const { totalScore, normalizedScores } = await validateResearchMethodScores("TA-03A", scores);
+  const academicYearId = await resolveAcademicYearIdForThesis(thesis);
+  const { totalScore, normalizedScores } = await validateResearchMethodScores(
+    "TA-03A",
+    scores,
+    academicYearId,
+  );
 
   const scoreRecord = await prisma.$transaction(async (tx) => {
     const existing = await tx.researchMethodScore.findUnique({ where: { thesisId } });
@@ -1009,9 +1051,10 @@ export async function coSignSupervisorScoreAndSync(thesisId, coSignerUserId, dat
  * - Early TA-04 assignment has been issued
  * - Student has an active proposal/thesis record in the current SIMPTA scope
  */
-export async function getMetopenScoringQueue(lecturerUserId) {
+export async function getMetopenScoringQueue(lecturerUserId, academicYearIdInput) {
   // Sengaja diabaikan; lihat rationale pada JSDoc di atas.
   void lecturerUserId;
+  const academicYearId = requireAcademicYearId(academicYearIdInput);
 
   const theses = await prisma.thesis.findMany({
     where: {
@@ -1031,6 +1074,7 @@ export async function getMetopenScoringQueue(lecturerUserId) {
       ],
       finalProposalVersionId: { not: null },
       ta04AssignmentIssuedAt: { not: null },
+      academicYearId,
       student: { status: "active" },
     },
     select: {
@@ -1083,10 +1127,12 @@ export async function getMetopenScoringQueue(lecturerUserId) {
  * tidak menampilkan proposal yang sudah punya `lecturerScore`; endpoint ini
  * menjadi daftar read-only untuk proposal yang sudah dinilai / auto-zero.
  */
-export async function getMetopenScoringHistory(lecturerUserId) {
+export async function getMetopenScoringHistory(lecturerUserId, academicYearIdInput) {
+  const academicYearId = requireAcademicYearId(academicYearIdInput);
   const theses = await prisma.thesis.findMany({
     where: {
       finalProposalVersionId: { not: null },
+      academicYearId,
       student: { status: "active" },
       researchMethodScores: {
         some: {
@@ -1171,6 +1217,8 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
     where: { id: thesisId },
     select: {
       id: true,
+      academicYearId: true,
+      ta04AssignmentAcademicYearId: true,
       finalProposalVersionId: true,
       ta04AssignmentIssuedAt: true,
       student: {
@@ -1204,7 +1252,12 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
     return attendanceGate.scoreRecord;
   }
 
-  const { totalScore, normalizedScores } = await validateResearchMethodScores("TA-03B", scores);
+  const academicYearId = await resolveAcademicYearIdForThesis(thesis);
+  const { totalScore, normalizedScores } = await validateResearchMethodScores(
+    "TA-03B",
+    scores,
+    academicYearId,
+  );
 
   const scoreRecord = await prisma.$transaction(async (tx) => {
     const existingScore = await tx.researchMethodScore.findUnique({
@@ -1397,6 +1450,15 @@ export async function publishFinalScore(thesisId, actorUserId) {
 }
 
 async function getScoreRecordWithDetails(thesisId) {
+  const thesis = await prisma.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      academicYearId: true,
+      ta04AssignmentAcademicYearId: true,
+    },
+  });
+
   const record = await prisma.researchMethodScore.findUnique({
     where: { thesisId },
     include: {
@@ -1442,7 +1504,37 @@ async function getScoreRecordWithDetails(thesisId) {
       },
     },
   });
-  return record;
+
+  let composition = { ta03aCap: 75, ta03bCap: 25, academicYearId: null };
+  try {
+    if (thesis) {
+      const academicYearId = await resolveAcademicYearIdForThesis(thesis);
+      composition = await getCompositionForAcademicYear(academicYearId);
+    }
+  } catch {
+    // keep defaults
+  }
+
+  if (!record) {
+    return {
+      thesisId,
+      supervisorScore: null,
+      lecturerScore: null,
+      finalScore: null,
+      isFinalized: false,
+      researchMethodScoreDetails: [],
+      ta03aCap: composition.ta03aCap,
+      ta03bCap: composition.ta03bCap,
+      academicYearId: composition.academicYearId,
+    };
+  }
+
+  return {
+    ...record,
+    ta03aCap: composition.ta03aCap,
+    ta03bCap: composition.ta03bCap,
+    academicYearId: composition.academicYearId,
+  };
 }
 
 /**

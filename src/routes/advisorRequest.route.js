@@ -46,12 +46,18 @@ router.get(
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
   controller.getRecommendations,
 );
+router.get(
+  "/:id/assignable-lecturers",
+  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
+  controller.getAssignableLecturers,
+);
 router.post(
   "/:id/decide",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
   validate(kadepDecideSchema),
   controller.decideByKadep,
 );
+// Deprecated: selalu 400 — lihat assignAdvisor() di service (canon §5.8/§5.10).
 router.post(
   "/:id/assign",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),

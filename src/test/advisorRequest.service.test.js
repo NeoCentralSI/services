@@ -11,6 +11,14 @@ vi.mock("../config/prisma.js", () => ({
   },
 }));
 
+vi.mock("../helpers/academicYear.helper.js", () => ({
+  resolveOperationalAcademicYear: vi.fn().mockResolvedValue({
+    id: "academic-year-1",
+    year: "2026/2027",
+    semester: "ganjil",
+  }),
+}));
+
 vi.mock("../utils/quotaSync.js", () => ({
   countActiveSupervisionsForYear: vi.fn(),
 }));
@@ -436,7 +444,7 @@ describe("advisorRequest.service", () => {
   });
 
   describe("assignAdvisor", () => {
-    it("should assign pembimbing 1 using roleId and thesisStatusId in one transaction", async () => {
+    it("should reject the deprecated direct assignment path before opening a transaction", async () => {
       repo.findById.mockResolvedValue({
         id: "request-1",
         status: "approved",
@@ -485,47 +493,13 @@ describe("advisorRequest.service", () => {
       repo.executeAssignmentTransaction.mockImplementation(async (callback) => callback(tx));
       repo.findTA04LetterData.mockResolvedValue([null, null, null]);
 
-      const result = await service.assignAdvisor("request-1", "kadep-1");
-
-      expect(tx.thesis.update).toHaveBeenCalledWith({
-        where: { id: "thesis-1" },
-        data: expect.objectContaining({
-          thesisStatusId: "status-bimbingan",
-          thesisTopicId: "topic-1",
-          academicYearId: "academic-year-1",
-        }),
-      });
-      expect(tx.thesisSupervisors.create).toHaveBeenCalledWith({
-        data: {
-          thesisId: "thesis-1",
-          lecturerId: "lecturer-1",
-          roleId: "role-p1",
-        },
-        select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true },
-      });
-      expect(syncLecturerQuotaCurrentCount).toHaveBeenCalledWith(
-        "lecturer-1",
-        "academic-year-1",
-        { client: tx },
+      await expect(service.assignAdvisor("request-1", "kadep-1")).rejects.toThrow(
+        /Penetapan pembimbing mandiri sudah dinonaktifkan/i,
       );
-      // Canon §5.2 + HANDOFF P0-03: status target = ACTIVE_OFFICIAL (canonical),
-      // BUKAN 'assigned' (legacy yang sudah di-deprecated di Migration B).
-      expect(tx.thesisAdvisorRequest.update).toHaveBeenCalledWith({
-        where: { id: "request-1" },
-        data: expect.objectContaining({
-          status: "active_official",
-          reviewedBy: "kadep-1",
-        }),
-      });
-      expect(result).toEqual(
-        expect.objectContaining({
-          thesisId: "thesis-1",
-          assignedLecturerId: "lecturer-1",
-        })
-      );
+      expect(repo.executeAssignmentTransaction).not.toHaveBeenCalled();
     });
 
-    it("should reject duplicate pembimbing 1 assignment", async () => {
+    it("should remain disabled even when legacy assignment fixtures contain duplicates", async () => {
       repo.findById.mockResolvedValue({
         id: "request-1",
         status: "approved",
@@ -579,9 +553,10 @@ describe("advisorRequest.service", () => {
       repo.executeAssignmentTransaction.mockImplementation(async (callback) => callback(tx));
 
       await expect(service.assignAdvisor("request-1", "kadep-1")).rejects.toThrow(
-        "Mahasiswa ini sudah memiliki Pembimbing 1"
+        /Penetapan pembimbing mandiri sudah dinonaktifkan/i,
       );
 
+      expect(repo.executeAssignmentTransaction).not.toHaveBeenCalled();
       expect(tx.thesisSupervisors.create).not.toHaveBeenCalled();
       expect(syncLecturerQuotaCurrentCount).not.toHaveBeenCalled();
       expect(tx.thesisAdvisorRequest.update).not.toHaveBeenCalled();

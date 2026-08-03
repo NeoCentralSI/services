@@ -22,7 +22,16 @@ import {
 	isSupervisorRole,
 	normalize,
 } from "../constants/roles.js";
-import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
+import {
+	getActiveAcademicYear,
+	resolveOperationalAcademicYear,
+	ensureOperationalAcademicYearWindow,
+} from "../helpers/academicYear.helper.js";
+import {
+	BadRequestError,
+	ConflictError,
+	NotFoundError,
+} from "../utils/errors.js";
 
 import {
 	getOrCreateRole,
@@ -455,112 +464,133 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 	};
 }
 
-// Create Academic Year (Admin)
-export async function createAcademicYear({ semester = "ganjil", year, startDate, endDate }) {
-	// Optional: basic date check
-	if (startDate && endDate) {
-		const s = new Date(startDate);
-		const e = new Date(endDate);
-		if (!isNaN(s) && !isNaN(e) && s > e) {
-			const err = new Error("startDate must be before endDate");
-			err.statusCode = 400;
-			throw err;
-		}
+const ACADEMIC_YEAR_FORMAT = /^\d{4}\/\d{4}$/;
+
+function normalizeAcademicYearPayload({ semester, year, startDate, endDate }) {
+	if (!ACADEMIC_YEAR_FORMAT.test(String(year ?? ""))) {
+		throw new BadRequestError("Format tahun ajaran harus YYYY/YYYY, contoh 2025/2026");
+	}
+	if (!["ganjil", "genap"].includes(semester)) {
+		throw new BadRequestError("Semester harus ganjil atau genap");
 	}
 
-	// Prevent duplicates by (semester, year) when year provided
-	if (typeof year === "string") {
-		const existing = await prisma.academicYear.findFirst({ where: { semester, year } });
-		if (existing) {
-			const err = new Error("Academic year already exists for this semester and year");
-			err.statusCode = 409;
-			throw err;
-		}
+	const parsedStart = new Date(startDate);
+	const parsedEnd = new Date(endDate);
+	if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+		throw new BadRequestError("Tanggal mulai dan selesai tahun akademik wajib valid");
+	}
+	if (parsedStart > parsedEnd) {
+		throw new BadRequestError("Tanggal selesai harus setelah atau sama dengan tanggal mulai");
 	}
 
-	const created = await prisma.academicYear.create({
-		data: {
-			semester,
-			year: typeof year === "string" ? year : null,
-			startDate: startDate ? new Date(startDate) : null,
-			endDate: endDate ? new Date(endDate) : null,
-		},
-	});
-	return created;
+	return {
+		semester,
+		year: String(year),
+		startDate: parsedStart,
+		endDate: parsedEnd,
+	};
 }
 
-export async function updateAcademicYear(id, { semester, year, startDate, endDate } = {}) {
-	if (!id) {
-		const err = new Error("Academic year id is required");
-		err.statusCode = 400;
-		throw err;
+async function assertAcademicYearDoesNotOverlap(client, { id = null, startDate, endDate }) {
+	const overlap = await client.academicYear.findFirst({
+		where: {
+			...(id ? { id: { not: id } } : {}),
+			startDate: { lte: endDate },
+			endDate: { gte: startDate },
+		},
+		select: { id: true, year: true, semester: true, startDate: true, endDate: true },
+	});
+	if (overlap) {
+		throw new ConflictError(
+			`Rentang tanggal overlap dengan ${overlap.year} ${overlap.semester}. ` +
+			"Setiap waktu hanya boleh dimiliki satu periode akademik.",
+		);
 	}
+}
 
-	if (startDate && endDate) {
-		const s = new Date(startDate);
-		const e = new Date(endDate);
-		if (!isNaN(s) && !isNaN(e) && s > e) {
-			const err = new Error("startDate must be before endDate");
-			err.statusCode = 400;
-			throw err;
+// Create Academic Year (Admin)
+export async function createAcademicYear(payload) {
+	const data = normalizeAcademicYearPayload(payload);
+
+	return prisma.$transaction(async (tx) => {
+		await assertAcademicYearDoesNotOverlap(tx, data);
+		const duplicate = await tx.academicYear.findUnique({
+			where: {
+				year_semester: {
+					year: data.year,
+					semester: data.semester,
+				},
+			},
+			select: { id: true },
+		});
+		if (duplicate) {
+			throw new ConflictError("Tahun akademik untuk semester tersebut sudah ada");
 		}
-	}
 
-	// Ensure exists
-	const existing = await prisma.academicYear.findUnique({ where: { id } });
-	if (!existing) {
-		const err = new Error("Academic year not found");
-		err.statusCode = 404;
-		throw err;
-	}
+		const created = await tx.academicYear.create({ data });
+		await tx.metopenScoreComposition.create({
+			data: {
+				academicYearId: created.id,
+				ta03aCap: 75,
+				ta03bCap: 25,
+			},
+		});
+		return created;
+	}, { isolationLevel: "Serializable" });
+}
 
-	// Check if academic year is currently active (based on date range)
-	// Only active academic years can be edited
-	const now = new Date();
-	const wibOffset = 7 * 60; // WIB = UTC+7
-	const nowWIB = new Date(now.getTime() + (wibOffset + now.getTimezoneOffset()) * 60 * 1000);
+export async function updateAcademicYear(id, patch = {}) {
+	if (!id) throw new BadRequestError("Academic year id wajib diisi");
 
-	let isCurrentlyActive = false;
-	if (existing.startDate && existing.endDate) {
-		const endDate = new Date(existing.endDate);
-		endDate.setHours(23, 59, 59, 999);
-		isCurrentlyActive = nowWIB >= existing.startDate && nowWIB <= endDate;
-	}
+	return prisma.$transaction(async (tx) => {
+		const existing = await tx.academicYear.findUnique({ where: { id } });
+		if (!existing) throw new NotFoundError("Tahun akademik tidak ditemukan");
 
-	if (!isCurrentlyActive) {
-		const err = new Error("Tahun ajaran yang tidak aktif tidak dapat diedit");
-		err.statusCode = 400;
-		throw err;
-	}
+		const merged = normalizeAcademicYearPayload({
+			semester: patch.semester ?? existing.semester,
+			year: patch.year ?? existing.year,
+			startDate: patch.startDate ?? existing.startDate,
+			endDate: patch.endDate ?? existing.endDate,
+		});
+		await assertAcademicYearDoesNotOverlap(tx, { id, ...merged });
 
-	// When both semester & year provided, prevent duplicates
-	if (semester && typeof year === "string") {
-		const dup = await prisma.academicYear.findFirst({ where: { semester, year, NOT: { id } } });
-		if (dup) {
-			const err = new Error("Another academic year with the same semester and year already exists");
-			err.statusCode = 409;
-			throw err;
+		const duplicate = await tx.academicYear.findFirst({
+			where: {
+				id: { not: id },
+				year: merged.year,
+				semester: merged.semester,
+			},
+			select: { id: true },
+		});
+		if (duplicate) {
+			throw new ConflictError("Tahun akademik untuk semester tersebut sudah ada");
 		}
-	}
 
-	const data = {};
-	if (semester) data.semester = semester;
-	if (typeof year === "string") data.year = year;
-	if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
-	if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
-
-	// Note: isActive is now computed automatically based on date range,
-	// so we no longer accept or update isActive field
-
-	const updated = await prisma.academicYear.update({ where: { id }, data });
-	return updated;
+		return tx.academicYear.update({
+			where: { id },
+			data: merged,
+		});
+	}, { isolationLevel: "Serializable" });
 }
 
 // Re-export getActiveAcademicYear from helper for API controller
-export { getActiveAcademicYear };
+export {
+	getActiveAcademicYear,
+	resolveOperationalAcademicYear,
+	ensureOperationalAcademicYearWindow,
+};
+
+/**
+ * Operational year for admin/UAT surfaces.
+ * Uses date window first, then DB flag fallback (same as quota catalog).
+ */
+export async function getOperationalAcademicYear() {
+	return resolveOperationalAcademicYear();
+}
 
 // Get all Academic Years with pagination
-// isActive is now computed based on current date being within startDate-endDate range
+// isActive is computed from date window (shared helper) so Admin Master Data
+// and Kuota Bimbingan agree with resolveOperationalAcademicYear.
 export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } = {}) {
 	const skip = (page - 1) * pageSize;
 	const take = pageSize;
@@ -574,7 +604,7 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 		}
 		: {};
 
-	const [academicYears, total] = await Promise.all([
+	const [academicYears, total, operational] = await Promise.all([
 		prisma.academicYear.findMany({
 			where,
 			skip,
@@ -582,24 +612,11 @@ export async function getAcademicYears({ page = 1, pageSize = 10, search = "" } 
 			orderBy: [{ year: "desc" }, { semester: "desc" }, { createdAt: "desc" }],
 		}),
 		prisma.academicYear.count({ where }),
+		resolveOperationalAcademicYear(),
 	]);
 
-	// Compute isActive based on current WIB date being within startDate-endDate range
-	const now = new Date();
-	// Convert to WIB (UTC+7)
-	const wibOffset = 7 * 60; // minutes
-	const nowWIB = new Date(now.getTime() + (wibOffset + now.getTimezoneOffset()) * 60 * 1000);
-
 	const academicYearsWithStatus = academicYears.map((ay) => {
-		let isActive = false;
-		if (ay.startDate && ay.endDate) {
-			const startDate = new Date(ay.startDate);
-			const endDate = new Date(ay.endDate);
-			// Set end date to end of day for inclusive comparison
-			endDate.setHours(23, 59, 59, 999);
-			isActive = nowWIB >= startDate && nowWIB <= endDate;
-		}
-		return { ...ay, isActive };
+		return { ...ay, isActive: ay.id === operational?.id };
 	});
 
 	return {
@@ -1220,21 +1237,20 @@ export async function importAcademicYearsExcel(rows) {
 			const startStr = clean(row["Tanggal Mulai"]);
 			const endStr = clean(row["Tanggal Selesai"]);
 
-			if (!year || !semester) throw new Error("Tahun dan Semester wajib diisi");
+			if (!year || !semester || !startStr || !endStr) {
+				throw new Error("Tahun, Semester, Tanggal Mulai, dan Tanggal Selesai wajib diisi");
+			}
 
-			const existing = await prisma.academicYear.findFirst({ where: { year, semester } });
-			const data = {
-				year,
-				semester,
-				startDate: startStr ? new Date(startStr) : null,
-				endDate: endStr ? new Date(endStr) : null
-			};
+			const existing = await prisma.academicYear.findUnique({
+				where: { year_semester: { year, semester } },
+			});
+			const data = { year, semester, startDate: startStr, endDate: endStr };
 
 			if (existing) {
-				await prisma.academicYear.update({ where: { id: existing.id }, data });
+				await updateAcademicYear(existing.id, data);
 				results.updated++;
 			} else {
-				await prisma.academicYear.create({ data });
+				await createAcademicYear(data);
 				results.success++;
 			}
 		} catch (err) {

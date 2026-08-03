@@ -6,6 +6,7 @@ import {
   ADVISOR_REQUEST_LEGACY_BOOKING_OR_ACTIVE_STATUSES,
   ADVISOR_REQUEST_PENDING_KADEP_STATUSES,
 } from "../constants/advisorRequestStatus.js";
+import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 const TRACKED_REQUEST_STATUSES = [
   ...ADVISOR_REQUEST_BOOKING_STATUSES,
@@ -23,10 +24,8 @@ export function getQuotaRepositoryClient(client) {
 }
 
 export async function findActiveAcademicYear(client = prisma) {
-  return client.academicYear.findFirst({
-    where: { isActive: true },
-    select: { id: true, year: true, semester: true },
-  });
+  const db = getQuotaRepositoryClient(client);
+  return resolveOperationalAcademicYear(db);
 }
 
 export async function findQuotaLecturerMetadata(client, academicYearId, lecturerIds = null) {

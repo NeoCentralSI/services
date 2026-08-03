@@ -36,9 +36,16 @@ function shouldIgnoreForQuota(thesis) {
   return isClosedThesisStatus(thesis?.thesisStatus?.name);
 }
 
-function getTrackedKey({ lecturerId, thesisId, studentId }) {
-  if (thesisId) return `thesis:${lecturerId}:${thesisId}`;
-  return `student:${lecturerId}:${studentId}`;
+/** Track both thesis-key and student-key so request (thesisId null) + supervisor row don't double-count. */
+function markTracked(trackedKeys, { lecturerId, thesisId, studentId }) {
+  if (thesisId) trackedKeys.add(`thesis:${lecturerId}:${thesisId}`);
+  if (studentId) trackedKeys.add(`student:${lecturerId}:${studentId}`);
+}
+
+function isAlreadyTracked(trackedKeys, { lecturerId, thesisId, studentId }) {
+  if (thesisId && trackedKeys.has(`thesis:${lecturerId}:${thesisId}`)) return true;
+  if (studentId && trackedKeys.has(`student:${lecturerId}:${studentId}`)) return true;
+  return false;
 }
 
 function getEffectiveRequestLecturerId(request) {
@@ -293,13 +300,11 @@ export async function getLecturerQuotaSnapshots({
     const bucket = classifyRequestBucket(request);
     if (!bucket) continue;
 
-    trackedKeys.add(
-      getTrackedKey({
-        lecturerId: effectiveLecturerId,
-        thesisId: request.thesisId ?? request.thesis?.id ?? null,
-        studentId: request.studentId,
-      }),
-    );
+    markTracked(trackedKeys, {
+      lecturerId: effectiveLecturerId,
+      thesisId: request.thesisId ?? request.thesis?.id ?? null,
+      studentId: request.studentId,
+    });
     pushEntry(snapshot, bucket, mapRequestEntry(request, bucket));
   }
 
@@ -309,16 +314,17 @@ export async function getLecturerQuotaSnapshots({
     const snapshot = snapshots.get(supervisor.lecturerId);
     if (!snapshot) continue;
 
-    const trackedKey = getTrackedKey({
+    const supervisorIdentity = {
       lecturerId: supervisor.lecturerId,
       thesisId: supervisor.thesis?.id ?? null,
       studentId: supervisor.thesis?.studentId ?? supervisor.thesis?.student?.id ?? null,
-    });
-    if (trackedKeys.has(trackedKey)) continue;
+    };
+    if (isAlreadyTracked(trackedKeys, supervisorIdentity)) continue;
 
     const bucket = classifySupervisorBucket(supervisor);
     if (!bucket) continue;
 
+    markTracked(trackedKeys, supervisorIdentity);
     pushEntry(snapshot, bucket, mapSupervisorEntry(supervisor, bucket));
   }
 

@@ -24,6 +24,7 @@
  */
 
 import * as repo from "../repositories/metopenMonitoring.repository.js";
+import { BadRequestError } from "../utils/errors.js";
 import { __test as exportInternals } from "./assessmentExport.service.js";
 import { ADVISOR_REQUEST_STATUS } from "../constants/advisorRequestStatus.js";
 import { ROLES } from "../constants/roles.js";
@@ -317,17 +318,29 @@ function serializeScore(score) {
  */
 export async function getMetopenMonitoring(options = {}) {
   const client = options.client ?? undefined;
+  const academicYearId = typeof options.academicYearId === "string"
+    ? options.academicYearId.trim()
+    : "";
+  if (!academicYearId) {
+    throw new BadRequestError(
+      "academicYearId wajib diisi agar monitoring tidak mencampur data lintas periode.",
+    );
+  }
+  const academicYear = await repo.findAcademicYearById(academicYearId, client);
+  if (!academicYear) {
+    throw new BadRequestError("Periode akademik monitoring tidak ditemukan.");
+  }
 
   const [students, attendanceImport] = await Promise.all([
-    repo.findEligibleMetopenStudents(client),
-    repo.findLatestAttendanceImportWithRecords(client),
+    repo.findEligibleMetopenStudents(academicYearId, client),
+    repo.findLatestAttendanceImportWithRecords(academicYearId, client),
   ]);
 
   const studentIds = students.map((s) => s.id);
   const [advisorRequests, supervisors, scores] = await Promise.all([
-    repo.findAdvisorRequestsByStudentIds(studentIds, client),
-    repo.findActiveSupervisorsByStudentIds(studentIds, client),
-    repo.findResearchMethodScoresByStudentIds(studentIds, client),
+    repo.findAdvisorRequestsByStudentIds(studentIds, academicYearId, client),
+    repo.findActiveSupervisorsByStudentIds(studentIds, academicYearId, client),
+    repo.findResearchMethodScoresByStudentIds(studentIds, academicYearId, client),
   ]);
 
   const advisorByStudent = indexLatestAdvisorRequest(advisorRequests);
@@ -385,6 +398,7 @@ export async function getMetopenMonitoring(options = {}) {
   const stats = buildSummaryStats(studentRows, unmatchedRecords);
 
   return {
+    academicYear,
     attendanceImport: attendanceImport
       ? {
           id: attendanceImport.id,

@@ -61,6 +61,7 @@ export const findStudentAdvisorAccessContext = async (userId) => {
         select: {
           id: true,
           title: true,
+          academicYearId: true,
           proposalStatus: true,
           ta04AssignmentIssuedAt: true,
           thesisStatus: {
@@ -683,48 +684,9 @@ export const getLecturerCatalog = async (academicYearId) => {
  * Find alternative lecturers in the same science group with available quota.
  * Like getLecturerCatalog, queries from Lecturer to include those without quota records.
  */
-export const findAlternativeLecturers = async (scienceGroupId, academicYearId, excludeLecturerId) => {
+const mapLecturersWithQuota = (lecturers, academicYearId) => {
   const DEFAULT_QUOTA_MAX = 8;
   const DEFAULT_SOFT_LIMIT = 6;
-
-  const lecturers = await prisma.lecturer.findMany({
-    where: {
-      ...(excludeLecturerId ? { id: { not: excludeLecturerId } } : {}),
-      scienceGroupId,
-      acceptingRequests: true,
-    },
-    include: {
-      user: {
-        select: { id: true, fullName: true, identityNumber: true, avatarUrl: true },
-      },
-      scienceGroup: { select: { id: true, name: true } },
-      supervisionQuotas: {
-        where: { academicYearId },
-        take: 1,
-      },
-      thesisSupervisors: {
-        where: {
-          status: "active",
-          thesis: {
-            academicYearId,
-            OR: [
-              { thesisStatus: { is: null } },
-              {
-                thesisStatus: {
-                  is: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } },
-                },
-              },
-            ],
-          },
-        },
-        select: {
-          thesis: {
-            select: { id: true, thesisTopicId: true },
-          },
-        },
-      },
-    },
-  });
 
   return lecturers
     .map((lecturer) => {
@@ -742,6 +704,68 @@ export const findAlternativeLecturers = async (scienceGroupId, academicYearId, e
       (a, b) =>
         (a.lecturer.thesisSupervisors?.length ?? 0) - (b.lecturer.thesisSupervisors?.length ?? 0),
     );
+};
+
+const lecturerAssignmentInclude = (academicYearId) => ({
+  user: {
+    select: { id: true, fullName: true, identityNumber: true, avatarUrl: true },
+  },
+  scienceGroup: { select: { id: true, name: true } },
+  supervisionQuotas: {
+    where: { academicYearId },
+    take: 1,
+  },
+  thesisSupervisors: {
+    where: {
+      status: "active",
+      thesis: {
+        academicYearId,
+        OR: [
+          { thesisStatus: { is: null } },
+          {
+            thesisStatus: {
+              is: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } },
+            },
+          },
+        ],
+      },
+    },
+    select: {
+      thesis: {
+        select: { id: true, thesisTopicId: true },
+      },
+    },
+  },
+});
+
+export const findAlternativeLecturers = async (scienceGroupId, academicYearId, excludeLecturerId) => {
+  const lecturers = await prisma.lecturer.findMany({
+    where: {
+      ...(excludeLecturerId ? { id: { not: excludeLecturerId } } : {}),
+      scienceGroupId,
+      acceptingRequests: true,
+    },
+    include: lecturerAssignmentInclude(academicYearId),
+  });
+
+  return mapLecturersWithQuota(lecturers, academicYearId);
+};
+
+/**
+ * All active lecturers accepting requests (cross-KBK), for KaDep assign/redirect.
+ * Canon v3.3 §5.2.1 — alternatif tidak terbatas rekomendasi KBK top-3.
+ */
+export const findAssignableLecturers = async (academicYearId, excludeLecturerId) => {
+  const lecturers = await prisma.lecturer.findMany({
+    where: {
+      ...(excludeLecturerId ? { id: { not: excludeLecturerId } } : {}),
+      acceptingRequests: true,
+    },
+    include: lecturerAssignmentInclude(academicYearId),
+    orderBy: { user: { fullName: "asc" } },
+  });
+
+  return mapLecturersWithQuota(lecturers, academicYearId);
 };
 
 
@@ -888,7 +912,11 @@ export const findThesisByStudent = async (studentId) => {
 export const findLecturerForAssignment = async (lecturerId) => {
   return prisma.lecturer.findUnique({
     where: { id: lecturerId },
-    select: { id: true, user: { select: { fullName: true } } },
+    select: {
+      id: true,
+      acceptingRequests: true,
+      user: { select: { fullName: true } },
+    },
   });
 };
 
@@ -1121,7 +1149,7 @@ export const terminateSupervisorAssignmentByLecturerAndThesis = async (
       lecturerId,
       status: "active",
     },
-    data: { status: "terminated" },
+    data: { status: "terminated", activeRoleKey: null },
   });
 };
 

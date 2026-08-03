@@ -49,10 +49,31 @@ async function ensureRole(name) {
 
 async function ensureAcademicYear() {
   const existing = await prisma.academicYear.findFirst({ where: { isActive: true } });
-  if (existing) return existing;
-  return prisma.academicYear.create({
+  if (existing) {
+    await prisma.metopenScoreComposition.upsert({
+      where: { academicYearId: existing.id },
+      create: {
+        id: randomUUID(),
+        academicYearId: existing.id,
+        ta03aCap: 75,
+        ta03bCap: 25,
+      },
+      update: {},
+    });
+    return existing;
+  }
+  const created = await prisma.academicYear.create({
     data: { semester: "genap", year: "2025/2026", isActive: true },
   });
+  await prisma.metopenScoreComposition.create({
+    data: {
+      id: randomUUID(),
+      academicYearId: created.id,
+      ta03aCap: 75,
+      ta03bCap: 25,
+    },
+  });
+  return created;
 }
 
 async function ensureScienceGroup(name) {
@@ -698,12 +719,6 @@ async function main() {
     fullName: "EDGE08 Dual Supervisor TA-03A Parsial",
     email: "edge08@dummy.ac.id",
   });
-  await createAdvisorRequest({
-    student: ec08,
-    lecturerId: drDoe.id,
-    status: "booking_approved",
-    routeType: "normal",
-  });
   const thesis08 = await createThesisFor({
     student: ec08,
     p1Id: drDoe.id,
@@ -711,6 +726,16 @@ async function main() {
     proposalStatus: "submitted",
     isProposal: true,
     ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
+  });
+  // thesisId wajib di-link (canon: request.thesis?.ta04AssignmentIssuedAt via FK
+  // thesisId, lihat metopenMonitoring.repository.js + .service.js hasEarlyTa04).
+  // Tanpa ini, badge fallback ke label generik meski TA-04 sudah terbit di thesis.
+  await createAdvisorRequest({
+    student: ec08,
+    lecturerId: drDoe.id,
+    status: "booking_approved",
+    routeType: "normal",
+    extra: { thesisId: thesis08.id },
   });
   const score08 = await prisma.researchMethodScore.create({
     data: {
@@ -860,10 +885,12 @@ async function main() {
     status: "active_official",
     routeType: "normal",
   });
+  // P2 = Wang (bukan Garcia): Garcia sengaja diisolasi untuk skenario kuota
+  // penuh Max=1 + 1 booking EC17 agar snapshot KaDep tidak membingungkan.
   const thesis14 = await createThesisFor({
     student: ec14,
     p1Id: drDoe.id,
-    p2Id: drGarcia.id,
+    p2Id: drWang.id,
     proposalStatus: "submitted",
     isProposal: false,
   });
@@ -876,7 +903,7 @@ async function main() {
       lecturerScore: 22,
       finalScore: null, // belum di-publish
       isFinalized: false,
-      coSignedByLecturerId: drGarcia.id,
+      coSignedByLecturerId: drWang.id,
       coSignedAt: new Date(),
     },
   });
@@ -978,19 +1005,24 @@ async function main() {
   const thesis16 = await createThesisFor({ student: ec16, p1Id: drDoe.id });
   // score auto-zero akan dibuat setelah attendance record, perlu attendanceRecordId
 
-  // EC17: Borderline eligible 75%
+  // EC17: Borderline eligible 75% — satu-satunya booking P1 Garcia (untuk
+  // UAT overquota: seed-uat-prep menurunkan quotaMax Garcia ke 1).
   const ec17 = await ensureStudent({
     nim: "2399000017",
     fullName: "EDGE17 Borderline 75",
     email: "edge17@dummy.ac.id",
   });
-  await createAdvisorRequest({
+  const req17 = await createAdvisorRequest({
     student: ec17,
     lecturerId: drGarcia.id,
     status: "booking_approved",
     routeType: "normal",
   });
-  await createThesisFor({ student: ec17, p1Id: drGarcia.id });
+  const thesis17 = await createThesisFor({ student: ec17, p1Id: drGarcia.id });
+  await prisma.thesisAdvisorRequest.update({
+    where: { id: req17.id },
+    data: { thesisId: thesis17.id },
+  });
 
   // EC18: Borderline ineligible 74.99% → akan auto-zero
   const ec18 = await ensureStudent({

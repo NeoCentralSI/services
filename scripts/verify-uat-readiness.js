@@ -4,6 +4,11 @@
  */
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import bcrypt from 'bcrypt';
+import {
+  getActiveAcademicYear,
+  isWithinDateRange,
+  resolveOperationalAcademicYear,
+} from '../src/helpers/academicYear.helper.js';
 
 const prisma = new PrismaClient();
 const jsonMode = process.argv.includes('--json');
@@ -159,7 +164,42 @@ async function verifyIndependentStates() {
   add('ta04:batch', Boolean(batch?.generatedAt), `current=${Boolean(batch?.generatedAt)}; version=${batch?.version ?? 'missing'}`);
 }
 
+async function verifyAcademicYearOperational() {
+  const byDate = await getActiveAcademicYear();
+  const operational = await resolveOperationalAcademicYear();
+  const afriyanti = await prisma.user.findFirst({
+    where: { email: 'sekdep_si@fti.unand.ac.id' },
+    include: { lecturer: true },
+  });
+  let bookingCount = null;
+  if (operational && afriyanti?.lecturer?.id) {
+    const { getLecturerQuotaSnapshot } = await import('../src/services/advisorQuota.service.js');
+    const snap = await getLecturerQuotaSnapshot(afriyanti.lecturer.id, operational.id);
+    bookingCount = snap?.bookingCount ?? 0;
+  }
+  add(
+    'academic-year:date-window',
+    Boolean(byDate && isWithinDateRange(byDate)),
+    byDate
+      ? `${byDate.year} ${byDate.semester} covers today (${byDate.startDate?.toISOString?.()} → ${byDate.endDate?.toISOString?.()})`
+      : 'no academic year covers today — jalankan node scripts/seed-uat-prep.js',
+  );
+  add(
+    'academic-year:operational',
+    Boolean(operational?.id),
+    operational ? `${operational.year} ${operational.semester} (${operational.id})` : 'missing',
+  );
+  add(
+    'quota:afriyanti-booking-aligned',
+    bookingCount === null || bookingCount >= 1,
+    bookingCount === null
+      ? 'Afriyanti lecturer/snapshot tidak tersedia'
+      : `Afriyanti bookingCount=${bookingCount} on operational year (admin Kuota Bimbingan harus sama)`,
+  );
+}
+
 async function main() {
+  await verifyAcademicYearOperational();
   await verifyAccounts();
   await verifyEdgeCases();
   await verifyTa03();

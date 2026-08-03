@@ -71,7 +71,7 @@ export const createMetopenCpmkSchema = z.object({
     .trim()
     .min(10, "Deskripsi CPMK minimal 10 karakter")
     .max(255, "Deskripsi CPMK maksimal 255 karakter"),
-  academicYearId: z.string().uuid("Tahun akademik tidak valid").optional(),
+  academicYearId: z.string().uuid("Tahun akademik tidak valid"),
 });
 
 export const updateMetopenCpmkSchema = z
@@ -95,4 +95,26 @@ export const updateMetopenCpmkSchema = z
   })
   .refine((payload) => payload.code !== undefined || payload.description !== undefined, {
     message: "Minimal satu field (kode atau deskripsi) harus diisi",
+  });
+
+export const academicYearIdParamSchema = z.object({
+  academicYearId: z.string().uuid("Tahun akademik tidak valid"),
+});
+
+export const updateScoreCompositionSchema = z
+  .object({
+    ta03aCap: z
+      .number({ required_error: "Batas TA-03A wajib diisi" })
+      .int("Batas TA-03A harus bilangan bulat")
+      .min(1, "Batas TA-03A minimal 1")
+      .max(99, "Batas TA-03A maksimal 99"),
+    ta03bCap: z
+      .number({ required_error: "Batas TA-03B wajib diisi" })
+      .int("Batas TA-03B harus bilangan bulat")
+      .min(1, "Batas TA-03B minimal 1")
+      .max(99, "Batas TA-03B maksimal 99"),
+  })
+  .refine((payload) => payload.ta03aCap + payload.ta03bCap === 100, {
+    message: "Jumlah TA-03A + TA-03B harus tepat 100",
+    path: ["ta03bCap"],
   });

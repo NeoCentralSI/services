@@ -1,11 +1,12 @@
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError } from "../utils/errors.js";
 import { getLecturerQuotaSnapshot, getLecturerQuotaSnapshots } from "./advisorQuota.service.js";
+import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 async function resolveActiveAcademicYearId(academicYearId) {
   if (academicYearId) return academicYearId;
 
-  const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
+  const activeYear = await resolveOperationalAcademicYear();
   if (!activeYear) throw new BadRequestError("Tidak ada tahun akademik aktif");
   return activeYear.id;
 }
@@ -64,6 +65,7 @@ export async function getLecturerQuotaDetail(lecturerId, academicYearId) {
     pendingKadepCount: snapshot.pendingKadepCount,
     normalAvailable: snapshot.normalAvailable,
     overquotaAmount: snapshot.overquotaAmount,
+    overquotaSahCount: snapshot.overquotaSahCount,
     quotaRecord: snapshot.quotaRecordId ? { id: snapshot.quotaRecordId } : null,
   };
 }
@@ -244,47 +246,29 @@ export async function checkQuotaAvailability(lecturerId, academicYearId) {
 // ============================================
 
 /**
- * Get quota monitoring summary for all lecturers in an academic year.
- * Uses stored currentCount (cache). Call syncAllQuotaCounts first for
- * up-to-date numbers; the controller/job should ensure sync runs
- * periodically or before displaying monitoring dashboards.
+ * Get the current computed quota monitoring snapshot for all lecturers.
+ * Never uses LecturerSupervisionQuota.currentCount as decision-time truth.
  */
 export async function getQuotaMonitoring(academicYearId) {
-  if (!academicYearId) {
-    const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-    if (!activeYear) throw new BadRequestError("Tidak ada tahun akademik aktif");
-    academicYearId = activeYear.id;
-  }
+  academicYearId = await resolveActiveAcademicYearId(academicYearId);
+  const snapshots = await getLecturerQuotaSnapshots({ academicYearId });
 
-  const quotas = await prisma.lecturerSupervisionQuota.findMany({
-    where: { academicYearId },
-    include: {
-      lecturer: {
-        include: {
-          user: { select: { fullName: true, identityNumber: true } },
-          scienceGroup: { select: { name: true } },
-        },
-      },
-    },
-    orderBy: { lecturer: { user: { fullName: "asc" } } },
-  });
-
-  return quotas.map((q) => {
-    const remaining = q.quotaMax - q.currentCount;
-    let trafficLight = "green";
-    if (q.currentCount >= q.quotaMax) trafficLight = "red";
-    else if (q.currentCount >= q.quotaSoftLimit) trafficLight = "yellow";
-
-    return {
-      id: q.id,
-      lecturerId: q.lecturerId,
-      fullName: q.lecturer?.user?.fullName,
-      scienceGroup: q.lecturer?.scienceGroup?.name,
-      quotaMax: q.quotaMax,
-      quotaSoftLimit: q.quotaSoftLimit,
-      currentCount: q.currentCount,
-      remaining,
-      trafficLight,
-    };
-  });
+  return snapshots.map((snapshot) => ({
+    id: snapshot.quotaRecordId,
+    lecturerId: snapshot.lecturerId,
+    fullName: snapshot.fullName,
+    identityNumber: snapshot.identityNumber,
+    scienceGroup: snapshot.scienceGroup?.name ?? null,
+    quotaMax: snapshot.quotaMax,
+    quotaSoftLimit: snapshot.quotaSoftLimit,
+    currentCount: snapshot.currentCount,
+    activeCount: snapshot.activeCount,
+    bookingCount: snapshot.bookingCount,
+    pendingKadepCount: snapshot.pendingKadepCount,
+    normalAvailable: snapshot.normalAvailable,
+    overquotaAmount: snapshot.overquotaAmount,
+    overquotaSahCount: snapshot.overquotaSahCount,
+    remaining: snapshot.normalAvailable,
+    trafficLight: snapshot.trafficLight,
+  }));
 }

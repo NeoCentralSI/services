@@ -172,8 +172,9 @@ export async function createSupervisorAssignments(client, thesisId, supervisors 
         thesisId,
         lecturerId: row.lecturerId,
         roleId: row.roleId,
+        activeRoleKey: `${thesisId}:${row.roleId}`,
       },
-      select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true },
+      select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true, activeRoleKey: true },
     });
     created.push(participant);
   }
@@ -200,7 +201,7 @@ export async function replaceSupervisorAssignments(client, thesisId, supervisors
   if (toTerminate.length > 0) {
     await client.thesisSupervisors.updateMany({
       where: { id: { in: toTerminate.map((row) => row.id) } },
-      data: { status: "terminated" },
+      data: { status: "terminated", activeRoleKey: null },
     });
   }
 
@@ -222,11 +223,18 @@ export async function replaceSupervisorAssignments(client, thesisId, supervisors
       orderBy: { updatedAt: "desc" },
     });
 
+    const activeRoleKey = `${thesisId}:${row.roleId}`;
     if (reusable) {
       const participant = await client.thesisSupervisors.update({
         where: { id: reusable.id },
-        data: { roleId: row.roleId, status: "active", seminarReady: false, defenceReady: false },
-        select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true },
+        data: {
+          roleId: row.roleId,
+          status: "active",
+          seminarReady: false,
+          defenceReady: false,
+          activeRoleKey,
+        },
+        select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true, activeRoleKey: true },
       });
       reactivated.push(participant);
     } else {
@@ -235,8 +243,9 @@ export async function replaceSupervisorAssignments(client, thesisId, supervisors
           thesisId,
           lecturerId: row.lecturerId,
           roleId: row.roleId,
+          activeRoleKey,
         },
-        select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true },
+        select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true, activeRoleKey: true },
       });
       created.push(participant);
     }

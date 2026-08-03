@@ -1,67 +1,73 @@
 import prisma from "../config/prisma.js";
-import { finalizeBatchTA04 } from "../services/advisorRequest.service.js";
+import {
+    formatAcademicYearLabel,
+    syncAcademicYearActiveFlags,
+} from "../helpers/academicYear.helper.js";
+import { ROLES } from "../constants/roles.js";
+import { createNotificationEventForUsers } from "../services/notification.service.js";
 
 export async function syncActiveAcademicYear() {
-    try {
-        const now = new Date();
-        // Convert to WIB
-        const wibOffset = 7 * 60;
-        const nowWIB = new Date(now.getTime() + (wibOffset + now.getTimezoneOffset()) * 60 * 1000);
+    const previousActive = await prisma.academicYear.findFirst({
+        where: { isActive: true },
+        orderBy: [{ startDate: "desc" }, { createdAt: "asc" }],
+    });
 
-        const academicYears = await prisma.academicYear.findMany();
+    const result = await syncAcademicYearActiveFlags();
+    const currentActive = result.activeId
+        ? await prisma.academicYear.findUnique({ where: { id: result.activeId } })
+        : null;
 
-        // Find which one SHOULD be active
-        const shouldBeActive = academicYears.find(ay => {
-            if (!ay.startDate || !ay.endDate) return false;
-            const endDate = new Date(ay.endDate);
-            endDate.setHours(23, 59, 59, 999);
-            return nowWIB >= new Date(ay.startDate) && nowWIB <= endDate;
+    if (!currentActive) {
+        throw new Error(
+            "Tidak ada tahun akademik operasional. Academic-year sync dibatalkan.",
+        );
+    }
+
+    const changed = previousActive?.id !== currentActive.id;
+    if (changed) {
+        console.log(
+            `[AcademicYear Sync] Active period: ${formatAcademicYearLabel(previousActive)} -> ${formatAcademicYearLabel(currentActive)}`,
+        );
+
+        const kadepRows = await prisma.userHasRole.findMany({
+            where: {
+                status: "active",
+                role: { name: ROLES.KETUA_DEPARTEMEN },
+            },
+            select: { userId: true },
         });
-
-        const currentActive = academicYears.filter(ay => ay.isActive);
-        const previousActive = currentActive.length === 1 ? currentActive[0] : null;
-
-        // If there is one that should be active and it's not the ONLY active one, sync it
-        if (shouldBeActive) {
-            // Are there multiple active ones, or is the current active one incorrect?
-            const needsSync = !shouldBeActive.isActive || currentActive.length !== 1 || currentActive[0].id !== shouldBeActive.id;
-
-            if (needsSync) {
-                console.log(`[AcademicYear Sync] Switching active academic year to: ${shouldBeActive.semester} ${shouldBeActive.year}`);
-
-                // Transaction: set all to inactive, then set the correct one to active
-                await prisma.$transaction([
-                    prisma.academicYear.updateMany({
-                        data: { isActive: false },
-                    }),
-                    prisma.academicYear.update({
-                        where: { id: shouldBeActive.id },
-                        data: { isActive: true },
-                    }),
-                ]);
-
-                // Finalize/refresh early TA-04 assignment batch for the previous Metopen
-                // academic year when the active semester rolls over.
-                if (previousActive && previousActive.id !== shouldBeActive.id) {
-                    try {
-                        const result = await finalizeBatchTA04(previousActive.id);
-                        const status = result.alreadyFinalized ? "already finalized" : "finalized";
-                        console.log(`[AcademicYear Sync] Early TA-04 batch ${status} for previous semester: ${previousActive.semester} ${previousActive.year}`);
-                    } catch (ta04Error) {
-                        console.error("[AcademicYear Sync] Failed finalizing previous semester TA-04 batch:", ta04Error.message);
-                    }
-                }
-            }
-        } else {
-            // Nothing should be active? Turn them all off if any are on
-            if (currentActive.length > 0) {
-                console.log(`[AcademicYear Sync] No academic year is currently active by date. Setting all to inactive.`);
-                await prisma.academicYear.updateMany({
-                    data: { isActive: false },
-                });
+        const kadepUserIds = kadepRows.map((row) => row.userId);
+        if (kadepUserIds.length > 0 && previousActive) {
+            try {
+                await createNotificationEventForUsers(
+                    kadepUserIds,
+                    {
+                        title: "Periode Akademik Berganti",
+                        message:
+                            `Periode aktif berubah ke ${formatAcademicYearLabel(currentActive)}. ` +
+                            `Tinjau dan finalisasi batch TA-04 ${formatAcademicYearLabel(previousActive)} secara manual bila masih ada cohort yang belum diterbitkan.`,
+                        type: "simpta_academic_year_changed",
+                        data: {
+                            previousAcademicYearId: previousActive.id,
+                            activeAcademicYearId: currentActive.id,
+                        },
+                    },
+                    { push: true },
+                );
+            } catch (notificationError) {
+                console.error(
+                    "[AcademicYear Sync] Period changed, but KaDep reminder failed:",
+                    notificationError?.message ?? notificationError,
+                );
             }
         }
-    } catch (error) {
-        console.error("[AcademicYear Sync] Failed:", error);
     }
+
+    return {
+        synced: true,
+        changed,
+        previousAcademicYearId: previousActive?.id ?? null,
+        activeAcademicYearId: currentActive.id,
+        updatedFlags: result.updated,
+    };
 }
