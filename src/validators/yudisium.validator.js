@@ -9,8 +9,7 @@ const dateStringOrNull = z
   .datetime({ offset: true, message: "Format tanggal tidak valid" })
   .nullable()
   .optional();
-
-const questionTypeEnum = z.enum(["short_answer", "paragraph", "single_choice", "multiple_choice", "date"]);
+const questionTypeEnum = z.enum(["short_answer", "paragraph", "single_choice", "multiple_choice", "number", "date"]);
 
 const optionSchema = z.union([
   z.string().min(1, "Opsi tidak boleh kosong"),
@@ -219,6 +218,8 @@ export const updateYudisiumRequirementSchema = z.object({
   isPublic: z.boolean().optional(),
 });
 
+
+
 // ============================================================
 // Exit Survey Form
 // ============================================================
@@ -247,6 +248,8 @@ export const updateExitSurveyFormSchema = z.object({
 // ============================================================
 
 export const createExitSurveyQuestionSchema = z.object({
+  exitSurveySessionId: z.string().optional().nullable(),
+  sessionId: z.string().optional().nullable(),
   question: z
     .string({ required_error: "Pertanyaan wajib diisi" })
     .min(1, "Pertanyaan tidak boleh kosong"),
@@ -258,6 +261,8 @@ export const createExitSurveyQuestionSchema = z.object({
 });
 
 export const updateExitSurveyQuestionSchema = z.object({
+  exitSurveySessionId: z.string().optional().nullable(),
+  sessionId: z.string().optional().nullable(),
   question: z.string().min(1, "Pertanyaan tidak boleh kosong").optional(),
   description: z.string().max(65535).optional().nullable(),
   questionType: questionTypeEnum.optional(),
@@ -278,6 +283,8 @@ export const submitStudentExitSurveySchema = z.object({
         optionId: z.string().uuid("optionId tidak valid").optional(),
         optionIds: z.array(z.string().uuid("optionIds tidak valid")).optional(),
         answerText: z.string().optional(),
+        answerNumber: z.number().optional(),
+        answerDate: z.string().optional(),
       })
     )
     .min(1, "Jawaban tidak boleh kosong"),
