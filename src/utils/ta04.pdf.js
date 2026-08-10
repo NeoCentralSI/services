@@ -1,17 +1,24 @@
+import { accessSync } from "fs";
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = join(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "guide",
-  "TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf",
-);
+const TEMPLATE_FILENAME = "TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf";
+// Prefer in-repo template (services/guide) so CI on the standalone services
+// checkout does not depend on the monorepo sibling `../guide`.
+const TEMPLATE_PATH = [
+  join(__dirname, "..", "..", "guide", TEMPLATE_FILENAME),
+  join(__dirname, "..", "..", "..", "guide", TEMPLATE_FILENAME),
+].find((candidate) => {
+  try {
+    accessSync(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+}) ?? join(__dirname, "..", "..", "guide", TEMPLATE_FILENAME);
 
 const ROWS_PER_FIRST_PAGE = 7;
 const ROWS_PER_CONTINUATION_PAGE = 10;
