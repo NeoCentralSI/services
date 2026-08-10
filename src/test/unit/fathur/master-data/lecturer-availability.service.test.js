@@ -1,21 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockRepository } = vi.hoisted(() => ({
-  mockRepository: {
-    findAvailabilitiesListTransaction: vi.fn(),
-    findById: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-    remove: vi.fn(),
-    findOverlapping: vi.fn(),
-    findExactDuplicate: vi.fn(),
-  },
-}));
+const { mockRepository } = vi.hoisted(() => {
+  const utcTodayCalendarStart = (date = new Date()) =>
+    new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
 
-vi.mock("../../../../repositories/lecturer-availability.repository.js", async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...actual, ...mockRepository };
+  return {
+    mockRepository: {
+      findAvailabilitiesListTransaction: vi.fn(),
+      findById: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      remove: vi.fn(),
+      findOverlapping: vi.fn(),
+      findExactDuplicate: vi.fn(),
+      // Pure helpers inlined so CI does not importOriginal the repository
+      // module (that pulls Prisma/env and breaks vitest module mocks).
+      utcTodayCalendarStart,
+      utcCalendarDate: (y, m, d) => new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0)),
+    },
+  };
 });
+
+vi.mock("../../../../repositories/lecturer-availability.repository.js", () => mockRepository);
 
 import {
   getAvailabilities,
