@@ -17,6 +17,8 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
     steps:
       - uses: actions/checkout@v4
 
