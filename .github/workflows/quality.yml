@@ -1,4 +1,4 @@
-name: Backend Quality Gate
+﻿name: Backend Quality Gate
 
 on:
   pull_request:
@@ -18,7 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      # Minimal required env for prisma validate + unit tests (no real services).
       DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
+      JWT_SECRET: ci-jwt-secret-for-tests-only
+      REFRESH_TOKEN_SECRET: ci-refresh-secret-for-tests-only
     steps:
       - uses: actions/checkout@v4
 

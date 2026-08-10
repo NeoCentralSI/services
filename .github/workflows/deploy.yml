@@ -1,6 +1,6 @@
-﻿# CI/CD – Backend (services)
+﻿# CI/CD - Backend (services)
 # Triggers on push to staging branch
-# Self-hosted runner on VM → build Docker image locally → deploy
+# Self-hosted runner on VM -> build Docker image locally -> deploy
 name: Deploy Backend
 
 on:
@@ -13,14 +13,16 @@ env:
   IMAGE_TAG: neocentral/services:latest
 
 jobs:
-  # Build & Deploy
   deploy:
     name: Build & Deploy
     runs-on: self-hosted
     timeout-minutes: 30
     env:
-      # Dummy URL for prisma validate during pre-deploy verify (no live DB needed).
+      # Dummy values only for pre-deploy verify (prisma validate + unit tests).
+      # Runtime container uses compose/.env on the VM, not these values.
       DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
+      JWT_SECRET: ci-jwt-secret-for-tests-only
+      REFRESH_TOKEN_SECRET: ci-refresh-secret-for-tests-only
 
     steps:
       - uses: actions/checkout@v4
