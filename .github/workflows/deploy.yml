@@ -62,10 +62,11 @@ jobs:
       - name: Run Prisma migrations
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
-          # Staging DB historically used db push and may lack `_prisma_migrations`.
-          # Prefer migrate deploy; fall back to schema sync so deploy is not blocked.
-          docker compose exec -T backend npx prisma migrate deploy \
-            || docker compose exec -T backend npx prisma db push
+          # Use project-local Prisma (v6) from node_modules. Plain `npx prisma`
+          # can pull Prisma 7 which rejects datasource url in schema.prisma.
+          # Staging historically used db push and may lack `_prisma_migrations`.
+          docker compose exec -T backend pnpm exec prisma migrate deploy \
+            || docker compose exec -T backend pnpm exec prisma db push
 
       - name: Cleanup old images
         run: docker image prune -f
