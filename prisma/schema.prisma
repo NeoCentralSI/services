@@ -978,7 +978,10 @@ model ThesisTopic {
 
 model ThesisStatus {
   id     String   @id @default(uuid())
-  name   String
+  /// Nama status bersifat unik: lookup master tidak boleh berisi duplikat
+  /// semantik (audit 2026-08-08 menemukan 9 baris legacy ganda, sudah dibersihkan
+  /// di migration 20260808145500_thesis_status_dedup_unique_name).
+  name   String   @unique
   thesis Thesis[]
 
   @@map("thesis_status")
