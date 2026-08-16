@@ -81,67 +81,65 @@ const notifyUsers = async (userIds, { title, message, data }) => {
 
 
 const PARTICIPANT_STATUS_PRIORITY = {
-
   registered: 0,
-
   eligible: 1,
-
   appointed: 2,
-
   finalized: 3,
-
   rejected: 4,
-
 };
 
-
+const areAllRelevantCplScoresValidated = (activeCpls = [], scores = []) => {
+  const activeCplIds = new Set((activeCpls || []).map((cpl) => cpl.id));
+  const relevantScores = (scores || []).filter((score) => activeCplIds.has(score.cplId));
+  return (
+    relevantScores.length > 0 &&
+    relevantScores.every((score) => score.status === "validated")
+  );
+};
 
 export async function recomputeParticipantEligibility(tx, participantId) {
+  const dbClient = (tx && tx.yudisiumParticipant && typeof tx.yudisiumParticipant.findUnique === "function") ? tx : prisma;
 
-  const p = (tx && tx.yudisiumParticipant && typeof tx.yudisiumParticipant.findUnique === "function")
-
-    ? await tx.yudisiumParticipant.findUnique({
-
-        where: { id: participantId },
-
-        select: { id: true, status: true, requirementVerifiedAt: true, cplValidatedAt: true, registeredAt: true }
-
-      })
-
-    : await participantRepo.findStatusById(participantId);
-
-
+  const p = await dbClient.yudisiumParticipant.findUnique({
+    where: { id: participantId },
+    select: { id: true, status: true, requirementVerifiedAt: true, cplValidatedAt: true, registeredAt: true, thesis: { select: { studentId: true } } }
+  });
 
   if (!p || p.registeredAt === null || ["appointed", "finalized", "rejected"].includes(p.status)) return p;
 
+  let cplValidatedAt = p.cplValidatedAt;
 
+  // Auto-sync cplValidatedAt if all relevant CPL scores are already validated for this student
+  if (cplValidatedAt === null && p.thesis?.studentId) {
+    const activeCpls = await participantRepo.findCplsActive(dbClient);
+    const allScores = await participantRepo.findStudentCplScores(p.thesis.studentId, dbClient);
+    if (areAllRelevantCplScoresValidated(activeCpls, allScores)) {
+      const latestValidation = allScores
+        .map(s => s.validatedAt ? new Date(s.validatedAt).getTime() : 0)
+        .reduce((max, cur) => Math.max(max, cur), 0);
+      cplValidatedAt = latestValidation > 0 ? new Date(latestValidation) : new Date();
 
-  const isBothComplete = p.requirementVerifiedAt !== null && p.cplValidatedAt !== null;
+      await dbClient.yudisiumParticipant.update({
+        where: { id: participantId },
+        data: { cplValidatedAt },
+      });
+    }
+  }
 
+  const isBothComplete = p.requirementVerifiedAt !== null && cplValidatedAt !== null;
   const targetStatus = isBothComplete ? "eligible" : "registered";
 
-
-
   if (p.status !== targetStatus) {
-
     if (tx && tx.yudisiumParticipant && typeof tx.yudisiumParticipant.update === "function") {
-
       return await tx.yudisiumParticipant.update({
-
         where: { id: participantId },
-
         data: { status: targetStatus }
-
       });
-
     }
-
     return await participantRepo.updateStatus(participantId, targetStatus);
-
   }
 
   return p;
-
 }
 
 
@@ -414,23 +412,7 @@ const syncYudisiumToOutlook = async ({ yudisium, appointedParticipants, organize
 
 
 
-const areAllRelevantCplScoresValidated = (activeCpls = [], scores = []) => {
 
-  const activeCplIds = new Set((activeCpls || []).map((cpl) => cpl.id));
-
-  const relevantScores = (scores || []).filter((score) => activeCplIds.has(score.cplId));
-
-
-
-  return (
-
-    relevantScores.length > 0 &&
-
-    relevantScores.every((score) => score.status === "validated")
-
-  );
-
-};
 
 
 
@@ -581,9 +563,8 @@ export const getParticipants = async (yudisiumId) => {
 
 
 export const getParticipantDetail = async (participantId, viewer = null) => {
-
+  await recomputeParticipantEligibility(null, participantId);
   const participant = await participantRepo.findDetailById(participantId);
-
   if (!participant) throwError("Peserta yudisium tidak ditemukan", 404);
 
   assertCanViewParticipant(participant, viewer);

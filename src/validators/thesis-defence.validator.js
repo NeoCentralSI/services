@@ -84,16 +84,13 @@ export const submitAssessmentSchema = z.object({
 // Finalization (Supervisor)
 // ============================================================
 
-export const finalizeDefenceSchema = z
-  .object({
-    recommendRevision: z.boolean({
-      required_error: "Pilihan rekomendasi revisi tidak valid.",
-      invalid_type_error: "Pilihan rekomendasi revisi tidak valid.",
-    }),
-  })
-  .strict({
-    message: "Pilihan rekomendasi revisi tidak valid.",
-  });
+export const finalizeDefenceSchema = z.object({
+  recommendRevision: z.boolean({
+    required_error: "Pilihan rekomendasi revisi tidak valid.",
+    invalid_type_error: "Pilihan rekomendasi revisi tidak valid.",
+  }),
+  status: z.enum(["passed", "passed_with_revision", "failed"]).optional(),
+});
 
 // ============================================================
 // Revisions

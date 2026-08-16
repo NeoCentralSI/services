@@ -716,6 +716,18 @@ describe("Integration: Yudisium Flow", () => {
 
   it("finalizes appointed participants, CPL scores, and student status when SK is uploaded", async () => {
 
+    await prisma.yudisium.update({
+
+      where: { id: yudisium.id },
+
+      data: {
+        registrationOpenDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+        registrationCloseDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        eventDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+
+    });
+
     const result = await coreService.updateYudisium(yudisium.id, {
 
       userId: coordinatorUser.id,
