@@ -19,17 +19,52 @@
  *                             TIDAK match student manapun di DB (anomali yang
  *                             perlu di-clarify Koordinator)
  *
+ * Roster dibangun fail-closed dari snapshot periode (KC-20260731-02). Karena
+ * roster kosong bukan berarti fitur rusak, payload membawa `roster` (sebab
+ * kosong yang dapat ditindaklanjuti, pola `ta03GateReason`) dan `stats.import`
+ * (angka sisi import) supaya satu response tidak saling membantah dengan
+ * `attendanceImport`.
+ *
  * Canon ref: §5.2 advisor lifecycle, §5.7 75:25, §5.7.4 4-bucket SIA template,
  * §5.7.3 BR-28 attendance gate.
  */
 
 import * as repo from "../repositories/metopenMonitoring.repository.js";
 import { BadRequestError } from "../utils/errors.js";
-import { __test as exportInternals } from "./assessmentExport.service.js";
 import { ADVISOR_REQUEST_STATUS } from "../constants/advisorRequestStatus.js";
 import { ROLES } from "../constants/roles.js";
+import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 
-const { BUCKETS, classifyDetail } = exportInternals;
+// 4 bucket template SIA (canon §5.7.4): Presentasi 20 + Proposal konten 40 +
+// Proposal struktur 25 + Kemampuan merespon 15 = 100. Pemetaan dipegang
+// monitoring sendiri agar kontrak tabel tidak bergantung pada internal
+// service export xlsx.
+const BUCKETS = Object.freeze({
+  PRESENTASI: "presentasi",
+  PROPOSAL_KONTEN: "proposalKonten",
+  PROPOSAL_STRUKTUR: "proposalStruktur",
+  KEMAMPUAN_RESPON: "kemampuanRespon",
+});
+
+// Struktur proposal (25) dinilai Koordinator (role `default`); tiga bucket
+// lain dinilai Pembimbing (role `supervisor`).
+const BUCKET_RESOLUTIONS = Object.freeze([
+  { bucket: BUCKETS.PRESENTASI, codeSubstring: "01", role: "supervisor" },
+  { bucket: BUCKETS.PROPOSAL_KONTEN, codeSubstring: "02", role: "supervisor" },
+  { bucket: BUCKETS.PROPOSAL_STRUKTUR, codeSubstring: "02", role: "default" },
+  { bucket: BUCKETS.KEMAMPUAN_RESPON, codeSubstring: "03", role: "supervisor" },
+]);
+
+function classifyDetail(detail) {
+  const cpmkCode = String(detail?.criteria?.metopenCpmk?.code ?? "");
+  const role = detail?.criteria?.role;
+  for (const matcher of BUCKET_RESOLUTIONS) {
+    if (role === matcher.role && cpmkCode.includes(matcher.codeSubstring)) {
+      return matcher.bucket;
+    }
+  }
+  return null;
+}
 
 // Mapping canonical status enum → label Indonesia + kategori UX.
 // "none" adalah pseudo-status untuk mahasiswa yang BELUM pernah submit
@@ -61,6 +96,16 @@ const ROUTE_LABEL = Object.freeze({
   normal: "Normal (TA-01)",
   escalated: "TA-01 di atas kuota normal",
   dept: "Departemen (TA-02)",
+});
+
+/**
+ * Kode sebab roster kosong. Analog `ta03GateReason` di `metopen.service.js`:
+ * boolean gate + alasan spesifik, bukan pesan generik di layer presentasi.
+ * Sebab "filter pengguna" tidak ada di sini karena filter dijalankan client.
+ */
+const ROSTER_EMPTY_REASON = Object.freeze({
+  SIA_SNAPSHOT_MISSING: "sia_snapshot_missing",
+  NO_ELIGIBLE_STUDENT: "no_eligible_student",
 });
 
 /**
@@ -161,9 +206,8 @@ function classifyScoreCompleteness(score) {
 }
 
 /**
- * Aggregasi nilai detail jadi 4 bucket sesuai template SIA. Reuse
- * `classifyDetail` dari `assessmentExport.service` agar mapping konsisten
- * dengan xlsx download (avoid drift).
+ * Aggregasi nilai detail jadi 4 bucket sesuai template SIA (canon §5.7.4),
+ * memakai mapping CPMK code + role yang sama dengan xlsx download.
  */
 function aggregateScoreBuckets(score) {
   const buckets = {
@@ -313,6 +357,216 @@ function serializeScore(score) {
 }
 
 /**
+ * Sebab roster kosong, mengikuti pola `ta03GateReason`: satu kode + satu
+ * kalimat yang menyebutkan tindakan berikutnya. Gate fail-closed terhadap
+ * snapshot periode tidak dilonggarkan; hanya sebabnya yang dibuat terbaca.
+ */
+function buildRosterState({ studentRows, snapshotCounts, academicYear }) {
+  const periodLabel = formatAcademicYearLabel(academicYear);
+  const snapshotTotal = snapshotCounts?.total ?? 0;
+  const snapshotEligible = snapshotCounts?.eligible ?? 0;
+  const isEmpty = studentRows.length === 0;
+
+  const reasonCode = !isEmpty
+    ? null
+    : snapshotTotal === 0
+      ? ROSTER_EMPTY_REASON.SIA_SNAPSHOT_MISSING
+      : ROSTER_EMPTY_REASON.NO_ELIGIBLE_STUDENT;
+
+  const reason =
+    reasonCode === ROSTER_EMPTY_REASON.SIA_SNAPSHOT_MISSING
+      ? `Belum ada snapshot kelayakan SIA untuk periode ${periodLabel}. Roster monitoring hanya dibangun dari snapshot periode ini, jadi tabel kosong bukan karena filter.`
+      : reasonCode === ROSTER_EMPTY_REASON.NO_ELIGIBLE_STUDENT
+        ? `Snapshot SIA periode ${periodLabel} sudah ada (${snapshotTotal} mahasiswa), tetapi tidak ada yang berstatus eligible kelas Metopel.`
+        : null;
+
+  const actionHint =
+    reasonCode === ROSTER_EMPTY_REASON.SIA_SNAPSHOT_MISSING
+      ? `Jalankan sinkronisasi data SIA untuk periode ${periodLabel}, lalu muat ulang monitoring.`
+      : reasonCode === ROSTER_EMPTY_REASON.NO_ELIGIBLE_STUDENT
+        ? "Periksa penanda kelayakan Metopel di sumber SIA; monitoring hanya menampilkan mahasiswa eligible."
+        : null;
+
+  return {
+    periodLabel,
+    isEmpty,
+    reasonCode,
+    reason,
+    actionHint,
+    snapshotTotal,
+    snapshotEligible,
+  };
+}
+
+/**
+ * Ambil token semester + tahun dari label bebas milik file SIA
+ * (mis. "Genap 2025/2026" atau "2025/2026 Ganjil"). `null` berarti label tidak
+ * memuat token itu sehingga tidak boleh dipakai menyimpulkan ketidakcocokan.
+ */
+function parsePeriodTokens(label) {
+  if (typeof label !== "string" || label.trim() === "") {
+    return { semester: null, year: null };
+  }
+  const normalized = label.toLowerCase();
+  const semester = normalized.includes("ganjil")
+    ? "ganjil"
+    : normalized.includes("genap")
+      ? "genap"
+      : null;
+  const yearMatch = normalized.match(/\d{4}\s*\/\s*\d{4}/);
+  return {
+    semester,
+    year: yearMatch ? yearMatch[0].replace(/\s+/g, "") : null,
+  };
+}
+
+/**
+ * Bandingkan label periode di file presensi dengan periode yang diminta.
+ * Import yang labelnya berasal dari semester lain WAJIB terbaca di response,
+ * bukan disembunyikan (SIMPTA-FUN-003c).
+ */
+function buildAttendanceImportPeriodScope(attendanceImport, academicYear, requestedAcademicYearId) {
+  const periodLabel = formatAcademicYearLabel(academicYear);
+  const sourceFileLabel = attendanceImport.semesterLabel ?? null;
+  const tokens = parsePeriodTokens(sourceFileLabel);
+  const expectedYear = String(academicYear?.year ?? "").replace(/\s+/g, "");
+
+  const attachedToRequestedPeriod = attendanceImport.academicYearId === requestedAcademicYearId;
+  const semesterMatches = tokens.semester == null ? null : tokens.semester === academicYear?.semester;
+  const yearMatches = tokens.year == null ? null : tokens.year === expectedYear;
+  const labelReadable = tokens.semester != null || tokens.year != null;
+  const labelMatches = !labelReadable ? null : semesterMatches !== false && yearMatches !== false;
+
+  const matchesRequestedPeriod = !attachedToRequestedPeriod ? false : labelMatches;
+  const mismatchReason = !attachedToRequestedPeriod
+    ? `Import presensi aktif terdaftar pada periode lain, bukan ${periodLabel}. Angka presensi di halaman ini tidak boleh dibaca sebagai data ${periodLabel}.`
+    : labelMatches === false
+      ? `Label periode di file presensi berbunyi "${sourceFileLabel}", berbeda dari periode yang dipantau (${periodLabel}). Pastikan file yang diunggah memang rekap kelas periode ini.`
+      : null;
+
+  return {
+    requestedAcademicYearId,
+    academicYearId: attendanceImport.academicYearId ?? null,
+    periodLabel,
+    sourceFileLabel,
+    attachedToRequestedPeriod,
+    matchesRequestedPeriod,
+    mismatchReason,
+  };
+}
+
+/**
+ * Hitung ulang komposisi baris import dari record yang SAMA dengan yang
+ * ditampilkan tabel (KC-20260711-01), sehingga Koordinator bisa merekonsiliasi:
+ *   totalRows       = matchedRows + unmatchedRows
+ *   totalRows       = eligibleRows + ineligibleRows
+ *   matchedRows     = matchedEligibleRows + matchedIneligibleRows
+ * `eligibleRows`/`ineligibleRows` mencakup baris unmatched — itulah sebabnya
+ * angkanya tidak berjumlah ke `matchedRows` (SIMPTA-FUN-039).
+ */
+function buildAttendanceRowBreakdown(records, reportedCounters) {
+  let matchedRows = 0;
+  let matchedEligibleRows = 0;
+  let matchedIneligibleRows = 0;
+  let unmatchedEligibleRows = 0;
+  let unmatchedIneligibleRows = 0;
+
+  for (const record of records) {
+    const isEligible = record.isEligible === true;
+    if (record.studentId != null) {
+      matchedRows += 1;
+      if (isEligible) matchedEligibleRows += 1;
+      else matchedIneligibleRows += 1;
+      continue;
+    }
+    if (isEligible) unmatchedEligibleRows += 1;
+    else unmatchedIneligibleRows += 1;
+  }
+
+  const totalRows = records.length;
+  const unmatchedRows = totalRows - matchedRows;
+  const eligibleRows = matchedEligibleRows + unmatchedEligibleRows;
+  const ineligibleRows = matchedIneligibleRows + unmatchedIneligibleRows;
+
+  const countersMatchRecords =
+    (reportedCounters?.totalRows ?? totalRows) === totalRows &&
+    (reportedCounters?.matchedRows ?? matchedRows) === matchedRows &&
+    (reportedCounters?.eligibleRows ?? eligibleRows) === eligibleRows &&
+    (reportedCounters?.ineligibleRows ?? ineligibleRows) === ineligibleRows;
+
+  return {
+    totalRows,
+    matchedRows,
+    unmatchedRows,
+    eligibleRows,
+    ineligibleRows,
+    matchedEligibleRows,
+    matchedIneligibleRows,
+    unmatchedEligibleRows,
+    unmatchedIneligibleRows,
+    countersMatchRecords,
+  };
+}
+
+function serializeAttendanceImport(attendanceImport, academicYear, requestedAcademicYearId) {
+  if (!attendanceImport) return null;
+  const records = attendanceImport.records ?? [];
+  return {
+    id: attendanceImport.id,
+    academicYearId: attendanceImport.academicYearId,
+    classCode: attendanceImport.classCode,
+    courseName: attendanceImport.courseName,
+    semesterLabel: attendanceImport.semesterLabel,
+    filterLabel: attendanceImport.filterLabel,
+    lecturerNames: attendanceImport.lecturerNames,
+    thresholdPercent: attendanceImport.thresholdPercent,
+    totalRows: attendanceImport.totalRows,
+    matchedRows: attendanceImport.matchedRows,
+    eligibleRows: attendanceImport.eligibleRows,
+    ineligibleRows: attendanceImport.ineligibleRows,
+    autoZeroedCount: attendanceImport.autoZeroedCount,
+    skippedFinalizedCount: attendanceImport.skippedFinalizedCount ?? 0,
+    uploadedAt: attendanceImport.uploadedAt,
+    rowBreakdown: buildAttendanceRowBreakdown(records, attendanceImport),
+    periodScope: buildAttendanceImportPeriodScope(
+      attendanceImport,
+      academicYear,
+      requestedAcademicYearId,
+    ),
+  };
+}
+
+/**
+ * Angka sisi import untuk `stats`, termasuk pemisahan baris cocok yang ADA di
+ * roster snapshot vs yang di LUAR roster. Tanpa ini `stats` bisa melaporkan 0
+ * sementara `attendanceImport` melaporkan 20 baris cocok di payload yang sama
+ * (SIMPTA-FUN-003a).
+ */
+function buildImportSummaryStats(serializedImport, records, rosterStudentIds) {
+  if (!serializedImport) return null;
+  const breakdown = serializedImport.rowBreakdown;
+  let matchedInRoster = 0;
+  for (const record of records) {
+    if (record.studentId != null && rosterStudentIds.has(record.studentId)) {
+      matchedInRoster += 1;
+    }
+  }
+  return {
+    totalRows: breakdown.totalRows,
+    matchedRows: breakdown.matchedRows,
+    unmatchedRows: breakdown.unmatchedRows,
+    eligibleRows: breakdown.eligibleRows,
+    ineligibleRows: breakdown.ineligibleRows,
+    matchedEligibleRows: breakdown.matchedEligibleRows,
+    matchedIneligibleRows: breakdown.matchedIneligibleRows,
+    autoZeroedCount: serializedImport.autoZeroedCount,
+    skippedFinalizedCount: serializedImport.skippedFinalizedCount,
+    matchedInRoster,
+    matchedOutsideRoster: breakdown.matchedRows - matchedInRoster,
+  };
+}
+
+/**
  * Build payload utama untuk Koordinator. Lihat module docstring di atas
  * untuk semantic field.
  */
@@ -331,9 +585,10 @@ export async function getMetopenMonitoring(options = {}) {
     throw new BadRequestError("Periode akademik monitoring tidak ditemukan.");
   }
 
-  const [students, attendanceImport] = await Promise.all([
+  const [students, attendanceImport, snapshotCounts] = await Promise.all([
     repo.findEligibleMetopenStudents(academicYearId, client),
     repo.findLatestAttendanceImportWithRecords(academicYearId, client),
+    repo.countStudentSnapshots(academicYearId, client),
   ]);
 
   const studentIds = students.map((s) => s.id);
@@ -394,36 +649,36 @@ export async function getMetopenMonitoring(options = {}) {
       score: serializeScore(null),
     }));
 
-  // Summary statistik untuk header UI (jumlah agregat).
-  const stats = buildSummaryStats(studentRows, unmatchedRecords);
+  const serializedImport = serializeAttendanceImport(
+    attendanceImport,
+    academicYear,
+    academicYearId,
+  );
+
+  // Summary statistik untuk header UI (jumlah agregat). `stats.import`
+  // membawa angka sisi import supaya tidak bertentangan dengan
+  // `attendanceImport` di payload yang sama.
+  const stats = buildSummaryStats(
+    studentRows,
+    unmatchedRecords,
+    buildImportSummaryStats(
+      serializedImport,
+      attendanceImport?.records ?? [],
+      new Set(studentIds),
+    ),
+  );
 
   return {
     academicYear,
-    attendanceImport: attendanceImport
-      ? {
-          id: attendanceImport.id,
-          academicYearId: attendanceImport.academicYearId,
-          classCode: attendanceImport.classCode,
-          courseName: attendanceImport.courseName,
-          semesterLabel: attendanceImport.semesterLabel,
-          filterLabel: attendanceImport.filterLabel,
-          lecturerNames: attendanceImport.lecturerNames,
-          thresholdPercent: attendanceImport.thresholdPercent,
-          totalRows: attendanceImport.totalRows,
-          matchedRows: attendanceImport.matchedRows,
-          eligibleRows: attendanceImport.eligibleRows,
-          ineligibleRows: attendanceImport.ineligibleRows,
-          autoZeroedCount: attendanceImport.autoZeroedCount,
-          uploadedAt: attendanceImport.uploadedAt,
-        }
-      : null,
+    attendanceImport: serializedImport,
+    roster: buildRosterState({ studentRows, snapshotCounts, academicYear }),
     stats,
     students: studentRows,
     unmatchedRecords,
   };
 }
 
-function buildSummaryStats(studentRows, unmatchedRecords) {
+function buildSummaryStats(studentRows, unmatchedRecords, importSummary = null) {
   const stats = {
     totalEligibleSia: studentRows.length,
     totalInImport: studentRows.filter((r) => r.isInImport).length,
@@ -431,6 +686,10 @@ function buildSummaryStats(studentRows, unmatchedRecords) {
     unmatchedInImport: unmatchedRecords.length,
     attendanceEligible: 0,
     attendanceIneligible: 0,
+    // Angka roster (di atas) dihitung dari snapshot periode; angka import
+    // (di bawah) dihitung dari file presensi aktif. Keduanya wajib hadir
+    // supaya sumber tiap angka jelas saat keduanya berbeda.
+    import: importSummary,
     advisorByCategory: {
       no_advisor: 0,
       pending_review: 0,
@@ -472,6 +731,15 @@ function buildSummaryStats(studentRows, unmatchedRecords) {
 export const __test = {
   ADVISOR_STATUS_DISPLAY,
   ROUTE_LABEL,
+  BUCKETS,
+  classifyDetail,
+  ROSTER_EMPTY_REASON,
+  buildRosterState,
+  parsePeriodTokens,
+  buildAttendanceImportPeriodScope,
+  buildAttendanceRowBreakdown,
+  buildImportSummaryStats,
+  serializeAttendanceImport,
   indexLatestAdvisorRequest,
   indexSupervisorsByStudent,
   indexLatestScoreByStudent,

@@ -5,7 +5,9 @@ import * as XLSX from "xlsx";
 
 import { BadRequestError, ForbiddenError } from "../utils/errors.js";
 import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { ROLES } from "../constants/roles.js";
 import * as repo from "../repositories/metopenAttendance.repository.js";
+import { createNotificationEventForUsers } from "./notification.service.js";
 
 export const METOPEN_ATTENDANCE_THRESHOLD = 0.75;
 export const METOPEN_ATTENDANCE_AUTO_ZERO_REASON =
@@ -519,6 +521,100 @@ export async function getAttendanceEligibilityForThesis(thesisId) {
   });
 }
 
+function formatAttendancePercentLabel(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const percent = value > 1 ? value : value * 100;
+  return `${Math.round(percent * 10) / 10}%`;
+}
+
+function buildAttendanceThresholdPhrase(attendancePercentage, thresholdPercent) {
+  const thresholdLabel = formatAttendancePercentLabel(thresholdPercent) ?? "75%";
+  const attendanceLabel = formatAttendancePercentLabel(attendancePercentage);
+  return attendanceLabel
+    ? `${attendanceLabel} (di bawah ambang ${thresholdLabel})`
+    : `di bawah ambang ${thresholdLabel}`;
+}
+
+function getAutoZeroSupervisorUserIds(targets) {
+  return (targets?.thesisSupervisors ?? [])
+    .filter((item) => [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2].includes(item.role?.name))
+    .map((item) => item.lecturer?.user?.id)
+    .filter(Boolean);
+}
+
+/**
+ * Notifikasi auto-zero BR-28 (audit SIMPTA-FUN-019). Auto-zero permanen dan
+ * menghapus rubrik, jadi mahasiswa, Pembimbing 1/2 aktif, dan aktor pemicu
+ * (Koordinator Matkul Metopen saat unggah presensi) wajib diberi tahu.
+ * Notifikasi bersifat final/informatif, bukan permintaan aksi, dan hanya
+ * dikirim untuk penerapan auto-zero yang benar-benar baru.
+ * Kegagalan notifikasi tidak boleh membatalkan auto-zero yang sudah tercatat.
+ */
+async function notifyAttendanceAutoZero(thesisId, actorUserId, { attendancePercentage, thresholdPercent, scoreRecord }) {
+  try {
+    const targets = await repo.findThesisAutoZeroNotificationTargets(thesisId);
+    if (!targets) return;
+
+    const studentUserId = targets.student?.user?.id ?? null;
+    const studentName = targets.student?.user?.fullName ?? "Mahasiswa";
+    const thesisTitle = targets.title ?? "proposal";
+    const reasonPhrase = buildAttendanceThresholdPhrase(attendancePercentage, thresholdPercent);
+    const baseData = {
+      thesisId,
+      scoreId: scoreRecord?.id ?? null,
+      attendancePercentage: attendancePercentage ?? null,
+      thresholdPercent: thresholdPercent ?? METOPEN_ATTENDANCE_THRESHOLD,
+    };
+
+    if (studentUserId) {
+      await createNotificationEventForUsers(
+        [studentUserId],
+        {
+          title: "Nilai TA-03 Otomatis 0 (Presensi Metopel)",
+          message: `Presensi kelas Metode Penelitian Anda ${reasonPhrase}. Nilai TA-03A dan TA-03B untuk "${thesisTitle}" ditetapkan 0 tanpa review proposal dan bersifat final.`,
+          type: "simpta_ta03_attendance_auto_zero",
+          data: { ...baseData, route: "/metopel" },
+        },
+        { push: true },
+      );
+    }
+
+    const supervisorUserIds = getAutoZeroSupervisorUserIds(targets);
+    if (supervisorUserIds.length > 0) {
+      await createNotificationEventForUsers(
+        supervisorUserIds,
+        {
+          title: "TA-03 Mahasiswa Otomatis 0 (Presensi Metopel)",
+          message: `Presensi kelas Metode Penelitian ${studentName} ${reasonPhrase}. Nilai TA-03A dan TA-03B untuk "${thesisTitle}" otomatis 0 dan bersifat final, sehingga tidak ada rubrik yang perlu diisi.`,
+          type: "simpta_ta03_attendance_auto_zero_notice",
+          data: { ...baseData, route: "/kelola/metopen/ta03a" },
+        },
+        { push: true },
+      );
+    }
+
+    const actorNeedsNotice =
+      Boolean(actorUserId) && actorUserId !== studentUserId && !supervisorUserIds.includes(actorUserId);
+    if (actorNeedsNotice) {
+      await createNotificationEventForUsers(
+        [actorUserId],
+        {
+          title: "Auto-zero TA-03 Diterapkan (Presensi Metopel)",
+          message: `Presensi kelas Metode Penelitian ${studentName} ${reasonPhrase}. Nilai TA-03A dan TA-03B untuk "${thesisTitle}" otomatis 0 dan bersifat final.`,
+          type: "simpta_ta03_attendance_auto_zero_notice",
+          data: { ...baseData, route: "/kelola/metopen/ta03b" },
+        },
+        { push: false },
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[metopenAttendance:auto_zero] gagal mengirim notifikasi:",
+      { thesisId, message: error?.message ?? error },
+    );
+  }
+}
+
 export async function applyAttendanceAutoZeroForThesis(thesisId, actorUserId, attendanceRecordId, options = {}) {
   const result = await repo.autoZeroResearchMethodScore({
     thesisId,
@@ -532,6 +628,17 @@ export async function applyAttendanceAutoZeroForThesis(thesisId, actorUserId, at
     throw new ForbiddenError(
       "Penilaian TA-03 sudah final sebelum presensi terbaru diproses. Nilai otomatis 0 tidak diterapkan pada nilai yang sudah final.",
     );
+  }
+
+  // Hanya penerapan baru yang menghasilkan notifikasi. Re-upload presensi
+  // koreksi SIA tidak boleh membanjiri penerima untuk peristiwa yang sama
+  // (audit SIMPTA-FUN-019 + idempotensi SIMPTA-FUN-018).
+  if (!result.skipped && !result.alreadyAutoZeroed) {
+    await notifyAttendanceAutoZero(thesisId, actorUserId, {
+      attendancePercentage: options.attendancePercentage ?? null,
+      thresholdPercent: options.thresholdPercent ?? METOPEN_ATTENDANCE_THRESHOLD,
+      scoreRecord: result.scoreRecord,
+    });
   }
 
   return result;
@@ -559,10 +666,15 @@ export async function reconcileAttendanceForThesis(thesisId, actorUserId = null)
   if (!record.isEligible) {
     const result = await applyAttendanceAutoZeroForThesis(thesisId, actor, record.id, {
       skipFinalized: true,
+      attendancePercentage: record.attendancePercentage,
+      thresholdPercent: attendanceImport.thresholdPercent,
     });
+    let applied = "auto_zeroed";
+    if (result.skipped) applied = "skipped_finalized";
+    else if (result.alreadyAutoZeroed) applied = "already_auto_zeroed";
     return {
       status: "ineligible",
-      applied: result.skipped ? "skipped_finalized" : "auto_zeroed",
+      applied,
       recordId: record.id,
       attendancePercentage: record.attendancePercentage,
     };
@@ -590,6 +702,14 @@ export async function reconcileAttendanceForThesis(thesisId, actorUserId = null)
   };
 }
 
+/**
+ * Gate BR-28 untuk keempat titik mutasi nilai TA-03 (submit P1, co-sign P2,
+ * submit Koordinator, publish final). Presensi <75% tetap memicu auto-zero,
+ * lalu permintaan penilaian manual ditolak dengan `ForbiddenError` sehingga
+ * error handler global membalas 403. Sebelumnya penolakan ini dibalas 200
+ * dengan badan sukses sehingga klien tidak bisa membedakannya dari
+ * keberhasilan (audit SIMPTA-FUN-018).
+ */
 export async function assertAttendanceEligibleForManualReview(thesisId, actorUserId) {
   const eligibility = await getAttendanceEligibilityForThesis(thesisId);
 
@@ -598,12 +718,22 @@ export async function assertAttendanceEligibleForManualReview(thesisId, actorUse
   }
 
   if (eligibility.status === "ineligible") {
-    const result = await applyAttendanceAutoZeroForThesis(
+    await applyAttendanceAutoZeroForThesis(
       thesisId,
       actorUserId,
       eligibility.record.id,
+      {
+        attendancePercentage: eligibility.attendancePercentage,
+        thresholdPercent: eligibility.thresholdPercent,
+      },
     );
-    return { allowed: false, eligibility, scoreRecord: result.scoreRecord };
+    const reasonPhrase = buildAttendanceThresholdPhrase(
+      eligibility.attendancePercentage,
+      eligibility.thresholdPercent,
+    );
+    throw new ForbiddenError(
+      `Presensi kelas Metode Penelitian mahasiswa ${reasonPhrase}. Nilai TA-03A dan TA-03B otomatis 0 dan bersifat final, sehingga penilaian manual tidak dapat diproses.`,
+    );
   }
 
   return { allowed: true, eligibility, scoreRecord: null };
@@ -779,7 +909,11 @@ export async function uploadMetopenAttendance(fileOrFiles, actorUserId, options 
       thesis.id,
       actorUserId,
       attendanceRecord.id,
-      { skipFinalized: true },
+      {
+        skipFinalized: true,
+        attendancePercentage: attendanceRecord.attendancePercentage,
+        thresholdPercent: METOPEN_ATTENDANCE_THRESHOLD,
+      },
     );
     if (result.skipped) {
       skippedFinalizedCount += 1;

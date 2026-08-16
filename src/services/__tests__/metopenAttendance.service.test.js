@@ -20,6 +20,11 @@ const repoMock = vi.hoisted(() => ({
   findThesisForAttendanceReconcile: vi.fn(),
   clearAttendanceAutoZeroForTheses: vi.fn(),
   autoZeroResearchMethodScore: vi.fn(),
+  findThesisAutoZeroNotificationTargets: vi.fn(),
+}));
+
+const notificationMock = vi.hoisted(() => ({
+  createNotificationEventForUsers: vi.fn(),
 }));
 
 vi.mock("fs/promises", () => ({
@@ -27,6 +32,8 @@ vi.mock("fs/promises", () => ({
 }));
 
 vi.mock("../../repositories/metopenAttendance.repository.js", () => repoMock);
+
+vi.mock("../notification.service.js", () => notificationMock);
 
 const attendanceService = await import("../metopenAttendance.service.js");
 const {
@@ -408,7 +415,19 @@ describe("reconcileAttendanceForThesis — upload-first catch-up", () => {
     repoMock.autoZeroResearchMethodScore.mockResolvedValue({
       skipped: false,
       blockedFinalized: false,
+      alreadyAutoZeroed: false,
       scoreRecord: { id: "score-1", finalScore: 0 },
+    });
+    repoMock.findThesisAutoZeroNotificationTargets.mockResolvedValue({
+      id: "thesis-upload-first",
+      title: "Proposal Edge16",
+      student: { user: { id: "user-student-16", fullName: "Edge16" } },
+      thesisSupervisors: [
+        {
+          role: { name: "Pembimbing 1" },
+          lecturer: { user: { id: "user-p1", fullName: "Dosen P1" } },
+        },
+      ],
     });
 
     const result = await reconcileAttendanceForThesis("thesis-upload-first", "student-user");
@@ -422,6 +441,49 @@ describe("reconcileAttendanceForThesis — upload-first catch-up", () => {
         skipFinalized: true,
       }),
     );
+    // SIMPTA-FUN-019: auto-zero baru wajib memberi tahu mahasiswa + pembimbing aktif.
+    expect(notificationMock.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["user-student-16"],
+      expect.objectContaining({ type: "simpta_ta03_attendance_auto_zero" }),
+      expect.anything(),
+    );
+    expect(notificationMock.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["user-p1"],
+      expect.objectContaining({ type: "simpta_ta03_attendance_auto_zero_notice" }),
+      expect.anything(),
+    );
+  });
+
+  it("reports already_auto_zeroed without re-notifying on repeated reconcile", async () => {
+    repoMock.findLatestAttendanceImport.mockResolvedValue(
+      attendanceImportFixture({ uploadedByUserId: "koord-1" }),
+    );
+    repoMock.findAttendanceRecordForThesis.mockResolvedValue({
+      id: "rec-ineligible",
+      studentId: "student-1",
+      identityNumber: "2399000016",
+      studentName: "Edge16",
+      attendancePercentage: 0.44,
+      isEligible: false,
+      presentCount: 4,
+      totalMeetings: 9,
+      import: attendanceImportFixture(),
+    });
+    repoMock.autoZeroResearchMethodScore.mockResolvedValue({
+      skipped: false,
+      blockedFinalized: false,
+      alreadyAutoZeroed: true,
+      scoreRecord: {
+        id: "score-1",
+        finalScore: 0,
+        attendanceAutoZeroedAt: new Date("2026-05-10T09:00:00.000Z"),
+      },
+    });
+
+    const result = await reconcileAttendanceForThesis("thesis-upload-first", "student-user");
+
+    expect(result.applied).toBe("already_auto_zeroed");
+    expect(notificationMock.createNotificationEventForUsers).not.toHaveBeenCalled();
   });
 
   it("no-ops when student is not in the latest import", async () => {

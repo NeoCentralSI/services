@@ -80,15 +80,39 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
   const db = getQuotaRepositoryClient(client);
   return db.thesisAdvisorRequest.findMany({
     where: {
-      ...(academicYearId ? { academicYearId } : {}),
-      ...(lecturerIds?.length
-        ? {
-            OR: [
-              { lecturerId: { in: lecturerIds } },
-              { redirectedTo: { in: lecturerIds } },
-            ],
-          }
-        : {}),
+      // Both clauses below are disjunctions, so they must live inside `AND`.
+      // Two sibling `OR` keys in one `where` would silently overwrite each
+      // other and drop a filter entirely.
+      AND: [
+        // Fetch a superset: the request's own period plus any request whose
+        // thesis lives in the requested period. The thesis period is the
+        // authoritative one and the caller narrows this down again with
+        // `requestBelongsToQuotaYear`. Filtering on `academicYearId` alone
+        // would drop a booking whose thesis has moved to the operational
+        // period, and then count it twice through the supervisor row
+        // (SIMPTA-FUN-006).
+        ...(academicYearId
+          ? [
+              {
+                OR: [
+                  { academicYearId },
+                  { thesis: { academicYearId } },
+                  { thesis: { activeAcademicYearId: academicYearId } },
+                ],
+              },
+            ]
+          : []),
+        ...(lecturerIds?.length
+          ? [
+              {
+                OR: [
+                  { lecturerId: { in: lecturerIds } },
+                  { redirectedTo: { in: lecturerIds } },
+                ],
+              },
+            ]
+          : []),
+      ],
       status: { in: TRACKED_REQUEST_STATUSES },
     },
     select: {
@@ -97,6 +121,7 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
       lecturerId: true,
       redirectedTo: true,
       academicYearId: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
       thesisId: true,
       status: true,
       routeType: true,
@@ -160,10 +185,19 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
           title: true,
           academicYearId: true,
           proposalStatus: true,
+          finalProposalVersionId: true,
           activeAcademicYearId: true,
           ta04AssignmentAcademicYearId: true,
           thesisStatus: { select: { name: true } },
           studentId: true,
+          academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          activeAcademicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          finalProposalVersion: { select: { version: true, submittedAsFinalAt: true } },
+          proposalVersions: {
+            where: { isLatest: true },
+            take: 1,
+            select: { version: true, isLatest: true, submittedAsFinalAt: true },
+          },
         },
       },
     },
@@ -201,10 +235,19 @@ export async function findTrackedSupervisorAssignments(client, academicYearId, l
           title: true,
           academicYearId: true,
           proposalStatus: true,
+          finalProposalVersionId: true,
           activeAcademicYearId: true,
           ta04AssignmentAcademicYearId: true,
           thesisStatus: { select: { name: true } },
           studentId: true,
+          academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          activeAcademicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          finalProposalVersion: { select: { version: true, submittedAsFinalAt: true } },
+          proposalVersions: {
+            where: { isLatest: true },
+            take: 1,
+            select: { version: true, isLatest: true, submittedAsFinalAt: true },
+          },
           student: {
             select: {
               id: true,
@@ -244,7 +287,9 @@ export async function ensureLecturerQuotaRow(client, lecturerId, academicYearId)
       quotaSoftLimit: defaultQuota?.quotaSoftLimit ?? 8,
       currentCount: 0,
     },
-    select: { id: true },
+    // `currentCount` is returned so callers can report what the cache held
+    // before a reconciliation overwrote it (SIMPTA-FUN-010).
+    select: { id: true, currentCount: true },
   });
 }
 

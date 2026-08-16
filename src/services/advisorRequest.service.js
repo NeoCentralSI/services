@@ -296,6 +296,21 @@ function isOfficialSupervisorContext(thesis) {
   return Boolean(thesis) && !CLOSED_THESIS_STATUSES.includes(thesis?.thesisStatus?.name);
 }
 
+function looksLikeSupervisorRoleLabel(value) {
+  const key = normalizeComparableTitle(value);
+  if (!key) return false;
+  return /^(pembimbing [12]|pembimbing (utama|pendamping)|dosen pembimbing( [12])?)$/.test(key);
+}
+
+function snapshotLooksLikeRoleLabels(value) {
+  if (!value) return false;
+  return String(value)
+    .split(/[,;/|]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .some((part) => looksLikeSupervisorRoleLabel(part));
+}
+
 function formatCompactSupervisorNames(supervisors = []) {
   const names = supervisors
     .filter(
@@ -312,8 +327,8 @@ function formatCompactSupervisorNames(supervisors = []) {
       };
       return order(a.role?.name) - order(b.role?.name);
     })
-    .map((supervisor) => supervisor.lecturer?.user?.fullName ?? "-")
-    .filter(Boolean);
+    .map((supervisor) => sanitizeOptionalText(supervisor.lecturer?.user?.fullName))
+    .filter((name) => name && !looksLikeSupervisorRoleLabel(name));
 
   return [...new Set(names)].join(", ");
 }
@@ -327,14 +342,21 @@ function mapSupervisors(thesis) {
         supervisor.status === ACTIVE_SUPERVISOR_STATUS &&
         OFFICIAL_SUPERVISOR_ROLES.has(supervisor.role?.name)
     )
-    .map((supervisor) => ({
-      id: supervisor.id,
-      lecturerId: supervisor.lecturerId,
-      name: supervisor.lecturer?.user?.fullName ?? "-",
-      email: supervisor.lecturer?.user?.email ?? null,
-      avatarUrl: supervisor.lecturer?.user?.avatarUrl ?? null,
-      role: supervisor.role?.name ?? null,
-    }));
+    .map((supervisor) => {
+      const liveName = sanitizeOptionalText(supervisor.lecturer?.user?.fullName);
+      return {
+        id: supervisor.id,
+        lecturerId: supervisor.lecturerId,
+        name: liveName && !looksLikeSupervisorRoleLabel(liveName) ? liveName : "-",
+        email: supervisor.lecturer?.user?.email ?? null,
+        avatarUrl: supervisor.lecturer?.user?.avatarUrl ?? null,
+        identityNumber: supervisor.lecturer?.user?.identityNumber ?? null,
+        scienceGroup: supervisor.lecturer?.scienceGroup ?? null,
+        expertise: supervisor.lecturer?.scienceGroup?.name ?? null,
+        assignedAt: supervisor.createdAt ?? null,
+        role: supervisor.role?.name ?? null,
+      };
+    });
 }
 
 function buildAdvisorAccessState(
@@ -432,6 +454,12 @@ function buildAdvisorAccessState(
     metopenEligibilitySource: eligibilityState?.source ?? null,
     metopenEligibilityUpdatedAt: eligibilityState?.updatedAt ?? null,
     metopenReadOnly: readOnly,
+    hasTakenMetopen: eligibilityState?.hasTakenMetopen === true,
+    takingThesisCourse:
+      typeof eligibilityState?.takingThesisCourse === "boolean"
+        ? eligibilityState.takingThesisCourse
+        : null,
+    isMetopenArchive: eligibilityState?.isMetopenArchive === true || readOnly,
     gateConfigured: false,
     gateOpen: hasMetopenAccess,
     gates: [],
@@ -761,6 +789,10 @@ export async function getLecturerCatalog(userId, academicYearId) {
   academicYearId = await resolveAcademicYearIdOrThrow(academicYearId);
 
   const quotas = await getLecturerQuotaSnapshots({ academicYearId });
+  const topicsByLecturer = await repo.findSupervisedTopicsByLecturerIds(
+    quotas.map((quota) => quota.lecturerId),
+    academicYearId,
+  );
 
   return quotas.map((quota) => ({
     lecturerId: quota.lecturerId,
@@ -774,11 +806,14 @@ export async function getLecturerCatalog(userId, academicYearId) {
     activeCount: quota.activeCount,
     normalAvailable: quota.normalAvailable,
     trafficLight: quota.trafficLight,
+    acceptingRequests: quota.acceptingRequests !== false,
     statusLabel:
-      quota.normalAvailable > 0
-        ? "Kuota normal tersedia"
-        : "Kuota normal penuh, pengajuan baru tetap bisa diajukan dengan validasi khusus",
-    supervisedTopics: [],
+      quota.acceptingRequests === false
+        ? "Dosen ini sedang tidak menerima pengajuan pembimbing"
+        : quota.normalAvailable > 0
+          ? "Kuota normal tersedia"
+          : "Kuota normal penuh, pengajuan baru tetap bisa diajukan dengan validasi khusus",
+    supervisedTopics: topicsByLecturer.get(quota.lecturerId) ?? [],
   }));
 }
 
@@ -1111,12 +1146,13 @@ export async function withdrawRequest(requestId, userId) {
     });
 
     if (lockedRequest.thesis?.id && BOOKING_STATUSES.has(oldStatus)) {
+      const assignedLecturerId = lockedRequest.redirectedTo ?? lockedRequest.lecturerId;
       await repo.terminateSupervisorAssignmentByLecturerAndThesis(
         tx,
         lockedRequest.thesis.id,
-        lockedRequest.lecturerId,
+        assignedLecturerId,
       );
-      await syncLecturerQuotaCurrentCount(lockedRequest.lecturerId, lockedRequest.academicYearId, {
+      await syncLecturerQuotaCurrentCount(assignedLecturerId, lockedRequest.academicYearId, {
         client: tx,
       });
     }
@@ -1142,18 +1178,53 @@ export async function withdrawRequest(requestId, userId) {
 // ============================================
 
 /**
+ * Stamp every queued request with the period it belongs to.
+ *
+ * The quota summary shipped alongside these lists is scoped to the operational
+ * period, while the queue itself may still hold requests filed in an earlier
+ * one. Without an explicit marker the two disagree silently and the decision
+ * buttons look equally safe for both (SIMPTA-FUN-004, SIMPTA-FUN-005).
+ * Out-of-period requests are kept visible on purpose: hiding them would strand
+ * students with no way to get a decision.
+ */
+function withPeriodContext(requests, operationalAcademicYearId) {
+  return (requests ?? []).map((request) => ({
+    ...request,
+    isCurrentPeriod: request.academicYearId === operationalAcademicYearId,
+    periodLabel: formatAcademicPeriodLabel(request.academicYear),
+  }));
+}
+
+function formatAcademicPeriodLabel(academicYear) {
+  if (!academicYear) return null;
+  const semester = academicYear.semester ? ` ${academicYear.semester}` : "";
+  return `${academicYear.year ?? "-"}${semester}`.trim();
+}
+
+/**
  * Get pending requests for a lecturer
  */
 export async function getDosenInbox(userId) {
-  const academicYearId = await resolveAcademicYearIdOrThrow();
+  const activeYear = await resolveOperationalAcademicYear();
+  if (!activeYear) {
+    throw new BadRequestError("Tidak ada tahun akademik aktif");
+  }
+  const academicYearId = activeYear.id;
   const [pendingRequests, quotaSummary] = await Promise.all([
     repo.findByLecturerId(userId),
     getLecturerQuotaSnapshot(userId, academicYearId, { includeEntries: true }),
   ]);
 
+  const stampedRequests = withPeriodContext(pendingRequests, academicYearId);
+
   return {
     summary: quotaSummary,
-    pendingRequests,
+    // The summary counts only the operational period, so state that period
+    // explicitly instead of letting the reader assume the list matches it.
+    academicYearId,
+    academicYearLabel: formatAcademicPeriodLabel(activeYear),
+    pendingRequests: stampedRequests,
+    outOfPeriodCount: stampedRequests.filter((request) => !request.isCurrentPeriod).length,
     activeOfficial: quotaSummary?.activeOfficialEntries ?? [],
     bookings: quotaSummary?.bookingEntries ?? [],
     pendingKadep: quotaSummary?.pendingKadepEntries ?? [],
@@ -1164,7 +1235,11 @@ export async function getDosenInbox(userId) {
  * Get responded/historical requests for a lecturer
  */
 export async function getDosenInboxHistory(userId) {
-  return repo.findRespondedByLecturerId(userId);
+  const [history, activeYear] = await Promise.all([
+    repo.findRespondedByLecturerId(userId),
+    resolveOperationalAcademicYear(),
+  ]);
+  return withPeriodContext(history, activeYear?.id ?? null);
 }
 
 async function hydrateAdvisorRequestForNotification(request) {
@@ -1483,6 +1558,8 @@ export async function respondByLecturer(
 
 /**
  * Lecturer marks a pending request as "under review" to lock withdrawal (FR-MHS-03).
+ * Lost-update guard: lock the row then only transition from `pending`. A concurrent
+ * accept that already wrote `booking_approved` must not be overwritten.
  */
 export async function markUnderReview(requestId, userId) {
   const request = await repo.findById(requestId);
@@ -1492,7 +1569,26 @@ export async function markUnderReview(requestId, userId) {
     throw new BadRequestError("Hanya pengajuan dengan status pending yang bisa ditandai sedang ditinjau");
   }
 
-  return repo.updateStatus(requestId, { status: ADVISOR_REQUEST_STATUS.UNDER_REVIEW });
+  return repo.executeTransaction(async (tx) => {
+    await repo.lockAdvisorRequestRow(tx, requestId);
+    const locked = await repo.findByIdWithClient(tx, requestId);
+    if (!locked) throw new NotFoundError("Pengajuan tidak ditemukan");
+    if (locked.status !== ADVISOR_REQUEST_STATUS.PENDING) {
+      throw new BadRequestError("Hanya pengajuan dengan status pending yang bisa ditandai sedang ditinjau");
+    }
+
+    const changed = await repo.updateStatusIfCurrent(
+      tx,
+      requestId,
+      ADVISOR_REQUEST_STATUS.PENDING,
+      { status: ADVISOR_REQUEST_STATUS.UNDER_REVIEW },
+    );
+    if (changed === 0) {
+      throw new BadRequestError("Hanya pengajuan dengan status pending yang bisa ditandai sedang ditinjau");
+    }
+
+    return repo.findByIdWithClient(tx, requestId);
+  }, SERIALIZABLE_TX);
 }
 
 // ============================================
@@ -1503,27 +1599,44 @@ export async function markUnderReview(requestId, userId) {
  * Get KaDep queue (escalated + pending assignment)
  */
 export async function getKadepQueue() {
-  const [escalated, pendingAssignment] = await Promise.all([
+  const [escalated, pendingAssignment, activeYear] = await Promise.all([
     repo.findEscalated(),
     repo.findPendingAssignment(),
+    resolveOperationalAcademicYear(),
   ]);
 
+  const operationalAcademicYearId = activeYear?.id ?? null;
+
   return {
+    academicYearId: operationalAcademicYearId,
+    academicYearLabel: formatAcademicPeriodLabel(activeYear),
     escalated: await Promise.all(
-      escalated.map(async (item) => {
+      withPeriodContext(escalated, operationalAcademicYearId).map(async (item) => {
         if (!item.lecturerId) {
           return {
             ...item,
             quotaSnapshot: null,
+            operationalQuotaSnapshot: null,
             quotaPreview: null,
           };
         }
 
+        const requestAcademicYearId = item.academicYearId ?? null;
         const quotaSnapshot = await getLecturerQuotaSnapshot(
           item.lecturerId,
-          item.academicYearId ?? null,
+          requestAcademicYearId,
           { includeEntries: true },
         );
+        // A request filed in a closed period is still decided today, so KaDep
+        // needs the load the lecturer actually carries right now next to the
+        // load recorded for the period of the request. Showing only one of the
+        // two made the same lecturer read green here and red there
+        // (SIMPTA-FUN-005).
+        const operationalQuotaSnapshot = item.isCurrentPeriod
+          ? quotaSnapshot
+          : await getLecturerQuotaSnapshot(item.lecturerId, operationalAcademicYearId, {
+              includeEntries: true,
+            });
         const projectedCount = (quotaSnapshot?.currentCount ?? 0) + 1;
         const projectedOverquotaAmount = Math.max(
           0,
@@ -1533,6 +1646,7 @@ export async function getKadepQueue() {
         return {
           ...item,
           quotaSnapshot,
+          operationalQuotaSnapshot,
           quotaPreview: {
             projectedCurrentCount: projectedCount,
             willBeOverquota: projectedOverquotaAmount > 0,
@@ -1541,7 +1655,7 @@ export async function getKadepQueue() {
         };
       }),
     ),
-    pendingAssignment,
+    pendingAssignment: withPeriodContext(pendingAssignment, operationalAcademicYearId),
   };
 }
 
@@ -1926,15 +2040,18 @@ export async function getRequestDetail(requestId, callerUserId) {
 function buildTa04Cohort(theses = [], topicBanSet = null) {
   const entries = theses.map((t) => {
     const currentSupervisorNames = formatCompactSupervisorNames(t.thesisSupervisors);
-    const supervisorNames = t.ta04AssignmentIssuedAt
-      ? (t.ta04AssignmentSupervisorNames || currentSupervisorNames)
-      : currentSupervisorNames;
+    const frozenNames = sanitizeOptionalText(t.ta04AssignmentSupervisorNames);
+    const supervisorNames =
+      t.ta04AssignmentIssuedAt && frozenNames && !snapshotLooksLikeRoleLabels(frozenNames)
+        ? frozenNames
+        : currentSupervisorNames;
     const resolvedTitle = resolveTa04DocumentTitle(t, topicBanSet);
     const frozenTitle = sanitizeOptionalText(t.ta04AssignmentTitle);
     // Refresh snapshot bila belum pernah issued ATAU snapshot lama berupa label topik.
     const needsAssignmentSnapshot =
       !t.ta04AssignmentIssuedAt ||
-      (Boolean(frozenTitle) && frozenTitle !== resolvedTitle);
+      (Boolean(frozenTitle) && frozenTitle !== resolvedTitle) ||
+      snapshotLooksLikeRoleLabels(frozenNames);
 
     return {
       thesisId: t.id,
@@ -1978,13 +2095,88 @@ function isBatchCurrentForCohort(batch, cohortHash, thesisIds = []) {
 }
 
 /**
+ * FR-TA04-08 / KC-20260727-02 / FUN-024: gerbang kelengkapan yang sama dengan
+ * getTitleApprovalDocumentForKadep. Sekdep memakai GET batch-ta04, jadi gerbang
+ * harus di sini, bukan hanya di UI KaDep.
+ */
+async function assertTa04BatchCompleteForDownload(academicYearId) {
+  const currentBatch = await ta04BatchRepo.findCurrentTa04BatchByAcademicYear(academicYearId);
+  if (!currentBatch?.document) {
+    throw new BadRequestError(
+      "Formulir TA-04 periode ini belum difinalisasi. Unduhan hanya tersedia setelah batch sinkron.",
+    );
+  }
+
+  const eligibleTheses = await repo.findThesesWithSupervisors(academicYearId);
+  const memberIds = new Set((currentBatch.members ?? []).map((member) => member.thesisId));
+  const missingCount = eligibleTheses.filter((item) => !memberIds.has(item.id)).length;
+  if (missingCount > 0) {
+    throw new BadRequestError(
+      `Formulir TA-04 periode ini belum diperbarui (${missingCount} mahasiswa belum masuk dokumen batch). Jalankan Perbarui Formulir TA-04 terlebih dahulu sebelum mengunduh.`,
+    );
+  }
+}
+
+async function callerMustUseKadepCompletenessGate(callerUserId) {
+  if (!callerUserId) return false;
+  const isKadepOrAdmin = await repo.hasAnyActiveRole(callerUserId, [
+    ROLES.KETUA_DEPARTEMEN,
+    ROLES.ADMIN,
+  ]);
+  if (isKadepOrAdmin) return false;
+  const isSekdep = await repo.hasAnyActiveRole(callerUserId, [ROLES.SEKRETARIS_DEPARTEMEN]);
+  return Boolean(isSekdep);
+}
+
+/**
+ * UQ-4 / FUN-008: satu-satunya penulis produksi ta04AssignmentIssuedAt.
+ * Hanya thesis yang sudah menjadi anggota batch yang sedang difinalisasi.
+ */
+async function writeTa04AssignmentIssuedAtForBatchMembers({
+  entries,
+  academicYearId,
+  generatedByUserId,
+  memberThesisIds,
+}) {
+  const allowed = new Set(memberThesisIds ?? []);
+  const snapshotEntries = (entries ?? []).filter(
+    (entry) => entry.needsAssignmentSnapshot && allowed.has(entry.thesisId),
+  );
+  if (snapshotEntries.length === 0) return 0;
+
+  const issuedAt = new Date();
+  await prisma.$transaction(
+    snapshotEntries.map((entry) =>
+      prisma.thesis.update({
+        where: { id: entry.thesisId },
+        data: {
+          ta04AssignmentIssuedAt: issuedAt,
+          ta04AssignmentIssuedByUserId: generatedByUserId,
+          ta04AssignmentTitle: entry.title,
+          ta04AssignmentSupervisorNames: entry.supervisorNames,
+          ta04AssignmentAcademicYearId: academicYearId,
+        },
+      }),
+    ),
+  );
+  return snapshotEntries.length;
+}
+
+/**
  * Generate Formulir TA-04 preview for an entire academic year.
  * TA-04 is an early official assignment batch for approved TA-01/TA-02
  * bookings; it does not promote advisor load to active official.
+ *
+ * @param {string} academicYearId
+ * @param {{ callerUserId?: string }} [options]
  */
-export async function generateBatchTA04(academicYearId) {
+export async function generateBatchTA04(academicYearId, { callerUserId } = {}) {
   const academicYear = await repo.findAcademicYearById(academicYearId);
   if (!academicYear) throw new NotFoundError("Tahun akademik tidak ditemukan");
+
+  if (await callerMustUseKadepCompletenessGate(callerUserId)) {
+    await assertTa04BatchCompleteForDownload(academicYearId);
+  }
 
   const theses = await repo.findThesesWithSupervisors(academicYearId);
 
@@ -2050,24 +2242,12 @@ export async function finalizeBatchTA04(academicYearId, generatedByUserId = null
   if (isBatchCurrentForCohort(currentBatch, cohortHash, thesisIds)) {
     const semesterName = academicYear.semester === "genap" ? "Genap" : "Ganjil";
     await repo.updateThesisDocuments(thesisIds, currentBatch.document.id);
-    const snapshotEntries = cohortEntries.filter((entry) => entry.needsAssignmentSnapshot);
-    if (snapshotEntries.length > 0) {
-      const issuedAt = new Date();
-      await prisma.$transaction(
-        snapshotEntries.map((entry) =>
-          prisma.thesis.update({
-            where: { id: entry.thesisId },
-            data: {
-              ta04AssignmentIssuedAt: issuedAt,
-              ta04AssignmentIssuedByUserId: generatedByUserId,
-              ta04AssignmentTitle: entry.title,
-              ta04AssignmentSupervisorNames: entry.supervisorNames,
-              ta04AssignmentAcademicYearId: academicYearId,
-            },
-          }),
-        ),
-      );
-    }
+    await writeTa04AssignmentIssuedAtForBatchMembers({
+      entries: cohortEntries,
+      academicYearId,
+      generatedByUserId,
+      memberThesisIds: (currentBatch.members ?? []).map((member) => member.thesisId),
+    });
     return {
       batchId: currentBatch.id,
       documentId: currentBatch.document.id,

@@ -1,4 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel } from "../services/adminfeatures.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -18,12 +18,22 @@ export async function importStudentsCsv(req, res, next) {
 }
 
 
+function auditActor(req) {
+	const forwarded = req.headers?.["x-forwarded-for"];
+	const ip = (typeof forwarded === "string" ? forwarded.split(",")[0] : null) || req.ip || null;
+	return {
+		actorUserId: req.user?.sub ?? null,
+		ipAddress: ip ? String(ip).slice(0, 45) : null,
+		userAgent: req.get?.("user-agent") ?? req.headers?.["user-agent"] ?? null,
+	};
+}
+
 export async function updateUserByAdmin(req, res, next) {
   try {
     const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
 		const { fullName, email, roles, identityNumber, identityType, isVerified, gender } = body;
-		const user = await adminUpdateUser(id, { fullName, email, roles, identityNumber, identityType, isVerified, gender });
+		const user = await adminUpdateUser(id, { fullName, email, roles, identityNumber, identityType, isVerified, gender }, auditActor(req));
 		res.status(200).json({ success: true, user });
 	} catch (err) {
 		next(err);
@@ -34,7 +44,7 @@ export async function createUserByAdminController(req, res, next) {
 	try {
 		const body = req.validated ?? req.body ?? {};
 		const { fullName, email, roles, identityNumber, identityType, gender } = body;
-		const result = await adminCreateUser({ fullName, email, roles, identityNumber, identityType, gender });
+		const result = await adminCreateUser({ fullName, email, roles, identityNumber, identityType, gender }, auditActor(req));
 		res.status(201).json({ success: true, user: result });
 	} catch (err) {
 		next(err);
@@ -45,7 +55,7 @@ export async function createAcademicYearController(req, res, next) {
 	try {
 		const body = req.validated ?? req.body ?? {};
 		const { semester, year, startDate, endDate } = body;
-		const ay = await createAcademicYear({ semester, year, startDate, endDate });
+		const ay = await createAcademicYear({ semester, year, startDate, endDate }, auditActor(req));
 		res.status(201).json({ success: true, academicYear: ay });
 	} catch (err) {
 		next(err);
@@ -57,8 +67,21 @@ export async function updateAcademicYearController(req, res, next) {
 		const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
 		const { semester, year, startDate, endDate } = body;
-		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate });
+		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate }, auditActor(req));
 		res.status(200).json({ success: true, academicYear: updated });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getAdminAuditLogsController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page, 10) || 1;
+		const pageSize = parseInt(req.query.pageSize, 10) || 20;
+		const action = req.query.action || null;
+		const entity = req.query.entity || null;
+		const result = await listAdminAuditLogs({ page, pageSize, action, entity });
+		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
 	}

@@ -15,13 +15,20 @@ import {
 function withRemaining(item) {
   return {
     ...item,
-    remaining: Math.max(0, (item.quotaMax ?? 0) - (item.currentCount ?? 0)),
+    remaining: item.remaining ?? Math.max(0, (item.quotaMax ?? 0) - (item.currentCount ?? 0)),
+  };
+}
+
+function viewerVisibility(req) {
+  return {
+    viewerUserId: req.user?.sub ?? null,
+    viewerRoles: req.userRoles ?? [],
   };
 }
 
 export async function browseLecturers(req, res, next) {
   try {
-    const data = await browseLecturerQuotas(req.query.academicYearId);
+    const data = await browseLecturerQuotas(req.query.academicYearId, viewerVisibility(req));
     res.status(200).json({ success: true, data: data.map(withRemaining) });
   } catch (error) {
     next(error);
@@ -30,7 +37,11 @@ export async function browseLecturers(req, res, next) {
 
 export async function getLecturerDetail(req, res, next) {
   try {
-    const data = await getLecturerQuotaDetail(req.params.lecturerId, req.query.academicYearId);
+    const data = await getLecturerQuotaDetail(
+      req.params.lecturerId,
+      req.query.academicYearId,
+      viewerVisibility(req),
+    );
     res.status(200).json({ success: true, data: withRemaining(data) });
   } catch (error) {
     next(error);
@@ -39,7 +50,11 @@ export async function getLecturerDetail(req, res, next) {
 
 export async function checkQuota(req, res, next) {
   try {
-    const data = await checkQuotaAvailability(req.params.lecturerId, req.query.academicYearId);
+    const data = await checkQuotaAvailability(
+      req.params.lecturerId,
+      req.query.academicYearId,
+      viewerVisibility(req),
+    );
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -117,7 +132,13 @@ export async function deleteLecturerQuota(req, res, next) {
 export async function getMonitoring(req, res, next) {
   try {
     const data = await getQuotaMonitoring(req.query.academicYearId);
-    res.status(200).json({ success: true, data: data.map(withRemaining) });
+    res.status(200).json({
+      success: true,
+      data: {
+        ...data,
+        lecturers: (data.lecturers ?? []).map(withRemaining),
+      },
+    });
   } catch (error) {
     next(error);
   }

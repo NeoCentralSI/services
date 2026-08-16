@@ -63,6 +63,8 @@ export async function listInformalLogsForStudent(userId) {
   const thesis = await studentRepo.getActiveThesisForStudent(userId);
   if (!thesis) return { thesisId: null, items: [] };
 
+  await assertTa04GuidanceAuthorized(thesis.id);
+
   const rows = await prisma.thesisStudentInformalLog.findMany({
     where: { thesisId: thesis.id, studentId: userId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],

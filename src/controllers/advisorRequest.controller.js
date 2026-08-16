@@ -183,7 +183,9 @@ export async function getRequestDetail(req, res, next) {
 export async function getBatchTA04(req, res, next) {
   try {
     const { academicYearId } = req.params;
-    const { pdfBuffer, fileName } = await service.generateBatchTA04(academicYearId);
+    const { pdfBuffer, fileName } = await service.generateBatchTA04(academicYearId, {
+      callerUserId: req.user.sub,
+    });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     res.send(pdfBuffer);

@@ -1,20 +1,14 @@
 /**
- * Integration Test IT-02: Topic Change (Ganti Topik) - Full Flow
+ * Integration Test IT-02: Topic Change (Ganti Topik) - Production model
  *
- * Tests the complete topic change workflow with REAL database:
- *   1. Student submits topic change request → new "Diajukan" thesis created
- *   2. All supervisors approve the request
- *   3. Kadep approves → prisma.$transaction() executes:
- *      - Old thesis → "Dibatalkan" + CANCELLED
- *      - New thesis → "Bimbingan" + ONGOING + startDate + deadlineDate
- *      - Supervisors moved from old → new thesis
- *      - Milestones auto-created from topic templates
+ * Production behavior (do not invent a new thesis):
+ *   1. Student submits topic change → ThesisChangeRequest stores newTitle/newTopicId/supportingDocumentId
+ *   2. Existing thesis status is unchanged at submit
+ *   3. All supervisors approve the request
+ *   4. Kadep approveRequest archives the old thesis (Dibatalkan), soft-deletes
+ *      guidances/milestones, and does NOT create a new thesis
  *
  * IMPORTANT: This hits the REAL database. Make sure .env points to TEST database.
- *
- * Usage:
- *   cd c:\Projects\Tugas Akhir\backend
- *   npx vitest run --config vitest.integration.config.js src/test/integration/topicChange.test.js
  */
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import prisma from "../../../config/prisma.js";
@@ -23,27 +17,27 @@ import {
   reviewRequestByLecturer,
   approveRequest,
 } from "../../../services/thesisChangeRequest.service.js";
-import { runCleanupIfEnabled } from "./cleanup.js";
 
-// ── Test Data References ──
-// We'll pick a real thesis from DB in beforeAll
 let testThesis = null;
 let testStudentUserId = null;
-let testSupervisors = []; // [{ lecturerId, userId }]
+let testSupervisors = [];
 let kadepUserId = null;
 let originalTopicId = null;
 let newTopicId = null;
+let originalTitle = null;
+let originalStatusId = null;
+let originalGuidanceStates = [];
+let originalMilestoneStates = [];
+let thesisCountBefore = 0;
 
-// Track created data for cleanup
 let createdRequestId = null;
-let newThesisId = null;
 let supportingDocumentId = null;
+let createdGuidanceId = null;
+let createdMilestoneId = null;
 
 describe("IT-02: Topic Change Full Flow", () => {
-  const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   beforeAll(async () => {
-    // 1. Find a thesis in "Bimbingan" status with at least 1 supervisor
-    testThesis = await prisma.thesis.findFirst({
+    const candidates = await prisma.thesis.findMany({
       where: {
         thesisStatus: { name: "Bimbingan" },
         thesisSupervisors: { some: {} },
@@ -61,9 +55,31 @@ describe("IT-02: Topic Change Full Flow", () => {
             role: { select: { name: true } },
           },
         },
-        thesisMilestones: { select: { id: true } },
+        thesisMilestones: { select: { id: true, status: true } },
+        thesisGuidances: { select: { id: true, status: true } },
       },
+      take: 30,
     });
+
+    for (const candidate of candidates) {
+      const studentThesisCount = await prisma.thesis.count({
+        where: { studentId: candidate.studentId },
+      });
+      const lookupMatch = await prisma.thesis.findFirst({
+        where: { student: { id: candidate.student.id } },
+        select: { id: true },
+      });
+      if (lookupMatch?.id === candidate.id && studentThesisCount === 1) {
+        testThesis = candidate;
+        break;
+      }
+      if (!testThesis && lookupMatch?.id === candidate.id) {
+        testThesis = candidate;
+      }
+    }
+    if (!testThesis) {
+      testThesis = candidates[0] || null;
+    }
 
     if (!testThesis) {
       console.warn("[IT-02] No active thesis found in 'Bimbingan' status. Skipping.");
@@ -72,6 +88,19 @@ describe("IT-02: Topic Change Full Flow", () => {
 
     testStudentUserId = testThesis.student.id;
     originalTopicId = testThesis.thesisTopicId;
+    originalTitle = testThesis.title;
+    originalStatusId = testThesis.thesisStatusId;
+    originalGuidanceStates = (testThesis.thesisGuidances || []).map((g) => ({
+      id: g.id,
+      status: g.status,
+    }));
+    originalMilestoneStates = (testThesis.thesisMilestones || []).map((m) => ({
+      id: m.id,
+      status: m.status,
+    }));
+    thesisCountBefore = await prisma.thesis.count({
+      where: { studentId: testStudentUserId },
+    });
 
     const staleRequests = await prisma.thesisChangeRequest.findMany({
       where: {
@@ -89,13 +118,6 @@ describe("IT-02: Topic Change Full Flow", () => {
         where: { id: { in: staleRequestIds } },
       });
     }
-    await prisma.thesis.deleteMany({
-      where: {
-        studentId: testStudentUserId,
-        title: { startsWith: "[IT-02 TEST]" },
-        thesisStatus: { name: "Diajukan" },
-      },
-    });
     await prisma.document.deleteMany({
       where: {
         userId: testStudentUserId,
@@ -103,17 +125,13 @@ describe("IT-02: Topic Change Full Flow", () => {
       },
     });
 
-    // Get supervisors with "Pembimbing 1"/"Pembimbing 2" roles
-    testSupervisors = testThesis.thesisSupervisors
-      .filter((s) => s.role.name === "Pembimbing 1" || s.role.name === "Pembimbing 2")
-      .map((s) => ({
-        lecturerId: s.lecturerId,
-        userId: s.lecturer.user.id,
-        role: s.role.name,
-        supervisorRecordId: s.id,
-      }));
+    testSupervisors = testThesis.thesisSupervisors.map((s) => ({
+      lecturerId: s.lecturerId,
+      userId: s.lecturer.user.id,
+      role: s.role?.name || "Pembimbing",
+      supervisorRecordId: s.id,
+    }));
 
-    // 2. Find Kadep user
     const kadep = await prisma.user.findFirst({
       where: {
         userHasRoles: { some: { role: { name: "Ketua Departemen" }, status: "active" } },
@@ -122,7 +140,6 @@ describe("IT-02: Topic Change Full Flow", () => {
     });
     kadepUserId = kadep?.id;
 
-    // 3. Find a different topic for the change
     const otherTopic = await prisma.thesisTopic.findFirst({
       where: originalTopicId ? { id: { not: originalTopicId } } : undefined,
     });
@@ -136,68 +153,70 @@ describe("IT-02: Topic Change Full Flow", () => {
   });
 
   afterAll(async () => {
-    await runCleanupIfEnabled("IT-02", async () => {
-      // Cleanup: Restore original state
-      try {
-        if (testThesis) {
-          // 1. Restore old thesis to Bimbingan status
-          const bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: "Bimbingan" } });
-          if (bimbinganStatus) {
-            await prisma.thesis.update({
-              where: { id: testThesis.id },
-              data: {
-                thesisStatusId: bimbinganStatus.id,
-                rating: testThesis.rating || "ONGOING",
-              },
-            });
-          }
-
-          // 2. Move supervisors back to old thesis (if they were moved)
-          if (newThesisId) {
-            await prisma.thesisSupervisors.updateMany({
-              where: { thesisId: newThesisId },
-              data: { thesisId: testThesis.id },
-            });
-          }
-
-          // 3. Delete the new thesis and its milestones
-          if (newThesisId) {
-            await prisma.thesisMilestone.deleteMany({ where: { thesisId: newThesisId } });
-            await prisma.thesis.delete({ where: { id: newThesisId } }).catch(() => {});
-          }
-
-          // 4. Delete change request and approvals
-          if (createdRequestId) {
-            await prisma.thesisChangeRequestApproval.deleteMany({ where: { requestId: createdRequestId } });
-            await prisma.thesisChangeRequest.delete({ where: { id: createdRequestId } }).catch(() => {});
-          }
-
-          // 5. Clean up notifications created during test
-          await prisma.notification.deleteMany({
-            where: {
-              createdAt: { gte: new Date(Date.now() - 60000) },
-              title: { contains: "Pergantian" },
-            },
-          });
-        }
-        console.log("[IT-02 cleanup] Restored original state.");
-      } catch (err) {
-        console.error("[IT-02 cleanup] Error:", err.message);
+    try {
+      if (createdRequestId) {
+        await prisma.thesisChangeRequestApproval.deleteMany({
+          where: { requestId: createdRequestId },
+        });
+        await prisma.thesisChangeRequest.delete({
+          where: { id: createdRequestId },
+        }).catch(() => {});
       }
-    });
+
+      if (createdGuidanceId) {
+        await prisma.thesisGuidance.delete({ where: { id: createdGuidanceId } }).catch(() => {});
+      }
+      if (createdMilestoneId) {
+        await prisma.thesisMilestone.delete({ where: { id: createdMilestoneId } }).catch(() => {});
+      }
+
+      if (testThesis && originalStatusId) {
+        await prisma.thesis.update({
+          where: { id: testThesis.id },
+          data: {
+            thesisStatusId: originalStatusId,
+            title: originalTitle,
+          },
+        });
+      }
+
+      for (const guidance of originalGuidanceStates) {
+        await prisma.thesisGuidance.update({
+          where: { id: guidance.id },
+          data: { status: guidance.status },
+        }).catch(() => {});
+      }
+      for (const milestone of originalMilestoneStates) {
+        await prisma.thesisMilestone.update({
+          where: { id: milestone.id },
+          data: { status: milestone.status },
+        }).catch(() => {});
+      }
+
+      if (supportingDocumentId) {
+        await prisma.document.delete({ where: { id: supportingDocumentId } }).catch(() => {});
+      }
+
+      await prisma.notification.deleteMany({
+        where: {
+          createdAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
+          title: { contains: "Pergantian" },
+        },
+      });
+
+      console.log("[IT-02 cleanup] Restored original state.");
+    } catch (err) {
+      console.error("[IT-02 cleanup] Error:", err.message);
+    }
     await prisma.$disconnect();
   });
 
-  it("should complete the full topic change flow: submit → supervisor approve → kadep approve", async () => {
-    // Guard: skip if no test data
+  it("should complete the full topic change flow: submit → supervisor approve → kadep archive", async () => {
     if (!testThesis || !newTopicId || !kadepUserId || testSupervisors.length === 0) {
       console.warn("[IT-02] Insufficient test data, skipping");
       return;
     }
 
-    // ═══════════════════════════════════════════════════════
-    // STEP 1: Student submits topic change request
-    // ═══════════════════════════════════════════════════════
     console.log("\n[STEP 1] Student submits topic change request...");
 
     const newTitle = `[IT-02 TEST] Judul Baru ${Date.now()}`;
@@ -211,9 +230,26 @@ describe("IT-02: Topic Change Full Flow", () => {
     });
     supportingDocumentId = supportingDocument.id;
 
+    const createdGuidance = await prisma.thesisGuidance.create({
+      data: {
+        thesisId: testThesis.id,
+        requestedDate: new Date(),
+        studentNotes: "[IT-02 TEST] guidance for archive assertion",
+      },
+    });
+    createdGuidanceId = createdGuidance.id;
+
+    const createdMilestone = await prisma.thesisMilestone.create({
+      data: {
+        thesisId: testThesis.id,
+        title: "[IT-02 TEST] milestone for archive assertion",
+      },
+    });
+    createdMilestoneId = createdMilestone.id;
+
     const submitResult = await submitRequest(testStudentUserId, {
       requestType: "topic",
-      reason: "Integration test - ganti topik",
+      reason: "Integration test - ganti topik sesuai minat penelitian",
       supportingDocumentId,
       newTitle,
       newTopicId,
@@ -222,22 +258,38 @@ describe("IT-02: Topic Change Full Flow", () => {
     expect(submitResult).toBeDefined();
     expect(submitResult.id).toBeDefined();
     createdRequestId = submitResult.id;
-    console.log("[STEP 1] ✅ Request created:", createdRequestId);
+    expect(submitResult.thesisId).toBe(testThesis.id);
 
-    // Verify: a new thesis with "Diajukan" status should exist
-    const diajukanStatus = await prisma.thesisStatus.findFirst({ where: { name: "Diajukan" } });
-    const proposedThesis = await prisma.thesis.findFirst({
+    const storedRequest = await prisma.thesisChangeRequest.findUnique({
+      where: { id: createdRequestId },
+    });
+    expect(storedRequest).not.toBeNull();
+    expect(storedRequest.newTitle).toBe(newTitle);
+    expect(storedRequest.newTopicId).toBe(newTopicId);
+    expect(storedRequest.supportingDocumentId).toBe(supportingDocumentId);
+    expect(storedRequest.status).toBe("pending");
+    console.log("[STEP 1] ✅ Request stored with newTitle/newTopicId/supportingDocumentId:", createdRequestId);
+
+    const thesisAfterSubmit = await prisma.thesis.findUnique({
+      where: { id: testThesis.id },
+      include: { thesisStatus: { select: { name: true } } },
+    });
+    expect(thesisAfterSubmit.thesisStatus.name).toBe(testThesis.thesisStatus.name);
+    expect(thesisAfterSubmit.title).toBe(originalTitle);
+    expect(thesisAfterSubmit.thesisStatusId).toBe(originalStatusId);
+
+    const inventedThesis = await prisma.thesis.findFirst({
       where: {
         studentId: testStudentUserId,
-        thesisStatusId: diajukanStatus.id,
         title: newTitle,
       },
     });
-    expect(proposedThesis).not.toBeNull();
-    newThesisId = proposedThesis.id;
-    console.log("[STEP 1] ✅ New thesis (Diajukan) created:", newThesisId);
+    expect(inventedThesis).toBeNull();
+    expect(
+      await prisma.thesis.count({ where: { studentId: testStudentUserId } })
+    ).toBe(thesisCountBefore);
+    console.log("[STEP 1] ✅ Old thesis unchanged; no new thesis created");
 
-    // Verify: approvals created for each supervisor
     const approvals = await prisma.thesisChangeRequestApproval.findMany({
       where: { requestId: createdRequestId },
     });
@@ -245,9 +297,6 @@ describe("IT-02: Topic Change Full Flow", () => {
     expect(approvals.every((a) => a.status === "pending")).toBe(true);
     console.log(`[STEP 1] ✅ ${approvals.length} supervisor approval(s) created (all pending)`);
 
-    // ═══════════════════════════════════════════════════════
-    // STEP 2: All supervisors approve
-    // ═══════════════════════════════════════════════════════
     console.log("\n[STEP 2] Supervisors approve the request...");
 
     for (const sup of testSupervisors) {
@@ -255,19 +304,14 @@ describe("IT-02: Topic Change Full Flow", () => {
       console.log(`[STEP 2] ✅ ${sup.role} (${sup.lecturerId}) approved`);
     }
 
-    // Verify: all approvals are now 'approved'
     const updatedApprovals = await prisma.thesisChangeRequestApproval.findMany({
       where: { requestId: createdRequestId },
     });
     expect(updatedApprovals.every((a) => a.status === "approved")).toBe(true);
     console.log("[STEP 2] ✅ All supervisor approvals confirmed");
 
-    // ═══════════════════════════════════════════════════════
-    // STEP 3: Kadep approves → $transaction executes
-    // ═══════════════════════════════════════════════════════
-    console.log("\n[STEP 3] Kadep approves the request (triggers $transaction)...");
+    console.log("\n[STEP 3] Kadep approves the request (archives old thesis)...");
 
-    // Find kadep's lecturer ID
     const kadepLecturer = await prisma.lecturer.findUnique({ where: { id: kadepUserId } });
     const reviewerId = kadepLecturer ? kadepUserId : kadepUserId;
 
@@ -276,73 +320,66 @@ describe("IT-02: Topic Change Full Flow", () => {
     expect(approveResult.status).toBe("approved");
     console.log("[STEP 3] ✅ Request approved by Kadep");
 
-    // ═══════════════════════════════════════════════════════
-    // STEP 4: Verify database state after transaction
-    // ═══════════════════════════════════════════════════════
-    console.log("\n[STEP 4] Verifying database state...");
+    console.log("\n[STEP 4] Verifying production archive model...");
 
-    // 4a. Old thesis should be "Dibatalkan" + CANCELLED
     const oldThesis = await prisma.thesis.findUnique({
       where: { id: testThesis.id },
       include: { thesisStatus: { select: { name: true } } },
     });
-    expect(oldThesis.thesisStatus.name).toBe("Dibatalkan");
-    expect(oldThesis.rating).toBe("CANCELLED");
-    console.log(`[STEP 4a] ✅ Old thesis: status=${oldThesis.thesisStatus.name}, rating=${oldThesis.rating}`);
+    expect(["Dibatalkan", "Gagal"]).toContain(oldThesis.thesisStatus.name);
+    if (oldThesis.thesisStatus.name === "Dibatalkan") {
+      expect(oldThesis.title).toBe(`${originalTitle} (Dibatalkan)`);
+    }
+    console.log(`[STEP 4a] ✅ Old thesis archived: status=${oldThesis.thesisStatus.name}`);
 
-    // 4b. New thesis should be "Bimbingan" + ONGOING + has startDate + deadlineDate
-    const newThesis = await prisma.thesis.findUnique({
-      where: { id: newThesisId },
-      include: { thesisStatus: { select: { name: true } } },
+    expect(
+      await prisma.thesis.count({ where: { studentId: testStudentUserId } })
+    ).toBe(thesisCountBefore);
+    const newThesisAfterApprove = await prisma.thesis.findFirst({
+      where: {
+        studentId: testStudentUserId,
+        title: newTitle,
+      },
     });
-    expect(newThesis.thesisStatus.name).toBe("Bimbingan");
-    expect(newThesis.rating).toBe("ONGOING");
-    expect(newThesis.startDate).not.toBeNull();
-    expect(newThesis.deadlineDate).not.toBeNull();
+    expect(newThesisAfterApprove).toBeNull();
+    console.log("[STEP 4b] ✅ No new thesis created after approve");
 
-    // Deadline should be ~1 year from now
-    const oneYearFromNow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    const deadlineDiff = Math.abs(newThesis.deadlineDate.getTime() - oneYearFromNow.getTime());
-    expect(deadlineDiff).toBeLessThan(60000); // Within 1 minute tolerance
-    console.log(`[STEP 4b] ✅ New thesis: status=${newThesis.thesisStatus.name}, rating=${newThesis.rating}`);
-    console.log(`[STEP 4b] ✅ Deadline set: ${newThesis.deadlineDate.toISOString()}`);
+    const archivedGuidance = await prisma.thesisGuidance.findUnique({
+      where: { id: createdGuidanceId },
+    });
+    const archivedMilestone = await prisma.thesisMilestone.findUnique({
+      where: { id: createdMilestoneId },
+    });
+    expect(archivedGuidance.status).toBe("deleted");
+    expect(archivedMilestone.status).toBe("deleted");
 
-    // 4c. Supervisors should be moved from old to new thesis
-    const oldThesisSupervisors = await prisma.thesisSupervisors.findMany({
+    for (const guidance of originalGuidanceStates) {
+      const row = await prisma.thesisGuidance.findUnique({ where: { id: guidance.id } });
+      expect(row.status).toBe("deleted");
+    }
+    for (const milestone of originalMilestoneStates) {
+      const row = await prisma.thesisMilestone.findUnique({ where: { id: milestone.id } });
+      expect(row.status).toBe("deleted");
+    }
+    console.log("[STEP 4c] ✅ Guidances and milestones soft-deleted");
+
+    const supervisorsStillOnOld = await prisma.thesisSupervisors.count({
       where: { thesisId: testThesis.id },
     });
-    const newThesisSupervisors = await prisma.thesisSupervisors.findMany({
-      where: { thesisId: newThesisId },
-      include: { role: { select: { name: true } } },
-    });
-    expect(oldThesisSupervisors.length).toBe(0);
-    expect(newThesisSupervisors.length).toBeGreaterThanOrEqual(testSupervisors.length);
-    console.log(`[STEP 4c] ✅ Supervisors moved: old=${oldThesisSupervisors.length}, new=${newThesisSupervisors.length}`);
+    expect(supervisorsStillOnOld).toBe(testSupervisors.length);
+    console.log("[STEP 4d] ✅ Supervisors were not moved to a new thesis");
 
-    // 4d. Check milestones were auto-created for new thesis (if topic has templates)
-    const milestoneTemplates = await prisma.thesisMilestoneTemplate.findMany({
-      where: { topicId: newTopicId, isActive: true },
-    });
-    if (milestoneTemplates.length > 0) {
-      const newMilestones = await prisma.thesisMilestone.findMany({
-        where: { thesisId: newThesisId },
-      });
-      expect(newMilestones.length).toBe(milestoneTemplates.length);
-      expect(newMilestones.every((m) => m.status === "not_started")).toBe(true);
-      console.log(`[STEP 4d] ✅ ${newMilestones.length} milestones auto-created from ${milestoneTemplates.length} templates`);
-    } else {
-      console.log("[STEP 4d] ⏩ No milestone templates for new topic, skipping milestone check");
-    }
-
-    // 4e. Verify the change request status
     const finalRequest = await prisma.thesisChangeRequest.findUnique({
       where: { id: createdRequestId },
     });
     expect(finalRequest.status).toBe("approved");
     expect(finalRequest.reviewedBy).toBe(reviewerId);
     expect(finalRequest.reviewedAt).not.toBeNull();
-    console.log("[STEP 4e] ✅ Change request final status: approved");
+    expect(finalRequest.newTitle).toBe(newTitle);
+    expect(finalRequest.newTopicId).toBe(newTopicId);
+    expect(finalRequest.supportingDocumentId).toBe(supportingDocumentId);
+    console.log("[STEP 4e] ✅ Change request final status: approved (fields still stored)");
 
-    console.log("\n[IT-02] ✅ FULL TOPIC CHANGE FLOW VERIFIED SUCCESSFULLY");
-  }, 60000); // 60s timeout
+    console.log("\n[IT-02] ✅ PRODUCTION TOPIC CHANGE FLOW VERIFIED");
+  }, 60000);
 });

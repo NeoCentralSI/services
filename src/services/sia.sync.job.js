@@ -2,10 +2,10 @@ import { fetchStudentsFull, hashStudent } from "./sia.client.js";
 import { saveStudents, saveSyncStatus, cleanupObsoleteStudents } from "./sia.store.js";
 import prisma from "../config/prisma.js";
 import {
-  deriveMetopenEligibilityFromSiaStudent,
-  deriveThesisCourseEnrollmentFromSiaStudent,
+  normalizeSiaObservation,
 } from "./metopenEligibility.service.js";
 import { syncBookingActivationForStudent } from "./metopen.service.js";
+import { buildRuntimeSnapshotObservationPatch } from "./studentPeriodSnapshot.service.js";
 import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
 
 async function syncBookingLifecycleForStudents(studentIds, academicYearId) {
@@ -163,15 +163,17 @@ async function updateStudentAcademicBatch(stamped) {
   }
   // Prepare updates data
   const updates = stamped
-    .map((entry) => ({
-      nim: entry.nim,
+    .map((entry) => {
+      const observation = normalizeSiaObservation(entry.data);
+      return {
+      nim: observation.nim || entry.nim,
       sks: Number(entry.data?.sksCompleted),
       mandatoryCoursesCompleted: Boolean(entry.data?.mandatoryCoursesCompleted),
       mkwuCompleted: Boolean(entry.data?.mkwuCompleted),
       internshipCompleted: Boolean(entry.data?.internshipCompleted),
       kknCompleted: Boolean(entry.data?.kknCompleted),
       researchMethodCompleted: Boolean(entry.data?.researchMethodCompleted),
-      eligibleMetopen: deriveMetopenEligibilityFromSiaStudent(entry.data),
+      eligibleMetopen: observation.eligibleMetopen,
       currentSemester:
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
@@ -180,8 +182,9 @@ async function updateStudentAcademicBatch(stamped) {
       graduationPredicate: entry.data?.graduationPredicate
         ? String(entry.data.graduationPredicate).trim()
         : null,
-      takingThesisCourse: deriveThesisCourseEnrollmentFromSiaStudent(entry.data),
-    }))
+      takingThesisCourse: observation.takingThesisCourse,
+    };
+    })
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
   if (updates.length === 0) {
@@ -275,24 +278,16 @@ async function updateStudentAcademicBatch(stamped) {
     const snapshotFillOperations = candidateSnapshotRows.flatMap((row) => {
       const existing = existingSnapshotByStudent.get(row.studentId);
       if (!existing) return [];
-      const data = {};
-      if (
-        existing.eligibleMetopen == null
-        && typeof row.eligibleMetopen === "boolean"
-      ) {
-        data.eligibleMetopen = row.eligibleMetopen;
-        data.researchMethodCompleted = row.researchMethodCompleted;
-        data.eligibilitySource = row.eligibilitySource;
-        data.eligibilityCapturedAt = row.eligibilityCapturedAt;
-      }
-      if (
-        existing.takingThesisCourse == null
-        && typeof row.takingThesisCourse === "boolean"
-      ) {
-        data.takingThesisCourse = row.takingThesisCourse;
-        data.thesisCourseSource = row.thesisCourseSource;
-        data.thesisCourseCapturedAt = row.thesisCourseCapturedAt;
-      }
+      const data = buildRuntimeSnapshotObservationPatch(existing, {
+        eligibleMetopen: row.eligibleMetopen,
+        researchMethodCompleted: row.researchMethodCompleted,
+        eligibilitySource: row.eligibilitySource,
+        eligibilityCapturedAt: row.eligibilityCapturedAt,
+        takingThesisCourse: row.takingThesisCourse,
+        thesisCourseSource: row.thesisCourseSource,
+        thesisCourseCapturedAt: row.thesisCourseCapturedAt,
+        capturedAt: row.capturedAt,
+      });
       if (Object.keys(data).length === 0) return [];
       return [prisma.studentAcademicYearSnapshot.update({
         where: { id: existing.id },
@@ -430,18 +425,16 @@ async function updateStudentAcademicIndividual(
           });
           return 1;
         }
-        const fillData = {};
-        if (existing.eligibleMetopen == null && hasEligibility) {
-          fillData.eligibleMetopen = eligibleMetopen;
-          fillData.researchMethodCompleted = researchMethodCompleted;
-          fillData.eligibilitySource = "sia";
-          fillData.eligibilityCapturedAt = updatedAt;
-        }
-        if (existing.takingThesisCourse == null && hasThesisCourse) {
-          fillData.takingThesisCourse = takingThesisCourse;
-          fillData.thesisCourseSource = "sia";
-          fillData.thesisCourseCapturedAt = updatedAt;
-        }
+        const fillData = buildRuntimeSnapshotObservationPatch(existing, {
+          eligibleMetopen: hasEligibility ? eligibleMetopen : null,
+          researchMethodCompleted: hasEligibility ? researchMethodCompleted : null,
+          eligibilitySource: hasEligibility ? "sia" : null,
+          eligibilityCapturedAt: hasEligibility ? updatedAt : null,
+          takingThesisCourse: hasThesisCourse ? takingThesisCourse : null,
+          thesisCourseSource: hasThesisCourse ? "sia" : null,
+          thesisCourseCapturedAt: hasThesisCourse ? updatedAt : null,
+          capturedAt: updatedAt,
+        });
         if (Object.keys(fillData).length > 0) {
           await tx.studentAcademicYearSnapshot.update({
             where: { id: existing.id },

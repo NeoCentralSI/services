@@ -5,6 +5,7 @@ import {
   scheduleAcademicEventDayReminder,
   scheduleAcademicEventHMinusOneReminder,
   scheduleAcademicYearSync,
+  scheduleQuotaCurrentCountSync,
   scheduleDailyInternshipStatus,
   scheduleDailyThesisReminder,
   scheduleDailyThesisStatus,
@@ -33,6 +34,7 @@ async function startServer() {
     const schedulers = [
       scheduleDailyThesisStatus,
       scheduleAcademicYearSync,
+      scheduleQuotaCurrentCountSync,
       scheduleSiaSync,
       scheduleGuidanceReminder,
       scheduleDailyThesisReminder,

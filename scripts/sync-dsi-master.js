@@ -8,6 +8,8 @@
  * - Hafzatin sengaja tetap tanpa KBK sampai ada keputusan resmi.
  *
  * Jalankan: node scripts/sync-dsi-master.js
+ * Hanya gabung KBK usang (tanpa upsert dosen/topik):
+ *   node scripts/sync-dsi-master.js --legacy-groups-only
  */
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -63,7 +65,7 @@ const TOPIC_MERGES = [
 
 // Mapping kategori lama hanya untuk merelokasi master yang tersisa setelah
 // topik transaksi lama dipindahkan. Ini tidak mengubah thesis/request.
-const LEGACY_GROUP_TARGETS = {
+export const LEGACY_GROUP_TARGETS = {
   "Sistem Informasi": "Sistem Enterprise",
   "KBK Sistem Informasi": "Sistem Enterprise",
   "Big Data & Analitika": "Rekayasa Data dan Business Intelligence",
@@ -230,10 +232,25 @@ export async function syncDsiMaster(client = getDefaultPrisma()) {
   });
 }
 
+/** Gabungkan nama KBK usang ke 4 nama resmi. Tidak mengubah NIP dosen atau topik. */
+export async function mergeLegacyScienceGroups(client = getDefaultPrisma()) {
+  return client.$transaction(async (tx) => {
+    const groups = await upsertGroups(tx);
+    const groupMerges = await mergeLegacyGroups(tx, groups);
+    return {
+      groups: CANONICAL_GROUPS,
+      groupMerges,
+    };
+  });
+}
+
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
   const client = getDefaultPrisma();
-  syncDsiMaster(client)
+  const run = process.argv.includes("--legacy-groups-only")
+    ? mergeLegacyScienceGroups(client)
+    : syncDsiMaster(client);
+  run
     .then((result) => console.log(JSON.stringify(result, null, 2)))
     .catch((error) => { console.error(error); process.exitCode = 1; })
     .finally(() => client.$disconnect());

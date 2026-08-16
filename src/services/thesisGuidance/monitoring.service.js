@@ -4,6 +4,18 @@ import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import { supervisorRoleDisplayName, isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
+import {
+  buildTa03Snapshot,
+  buildTa04Snapshot,
+  deriveSimptaThesisStatus,
+} from "../../utils/simptaThesisStatus.util.js";
+import {
+  ALL_PERIODS_LABEL,
+  MONITORING_SUMMARY_DEFINITION_LABEL,
+  SUPERVISOR_LOAD_DEFINITION_LABEL,
+  periodLabelFromAcademicYear,
+  uniqueThesisCountFromLoads,
+} from "../../utils/loadScope.util.js";
 
 function toTitleCaseName(str) {
   if (!str) return "";
@@ -68,11 +80,18 @@ export async function getMonitoringDashboard(academicYear) {
     getSupervisorWorkloads(academicYear),
   ]);
 
+  const uniqueThesisCount = uniqueThesisCountFromLoads(supervisorLoads.lecturers);
+  const periodLabel = supervisorLoads.periodLabel;
+
   return {
     summary: {
       ...progressStats,
       totalReadyForSeminar: readyForSeminar.length,
       totalAtRisk: atRiskStudents.length,
+      totalPostProposalTheses: uniqueThesisCount,
+      supervisorLoadThesisCount: uniqueThesisCount,
+      definitionLabel: MONITORING_SUMMARY_DEFINITION_LABEL,
+      periodLabel,
     },
     statusDistribution,
     ratingDistribution,
@@ -103,7 +122,10 @@ export async function getMonitoringDashboard(academicYear) {
  * Get lecturer supervision workload, grouped by lecturer.
  */
 export async function getSupervisorWorkloads(academicYear) {
-  const rows = await monitoringRepository.getSupervisorWorkloadRows(academicYear);
+  const [rows, academicYearRecord] = await Promise.all([
+    monitoringRepository.getSupervisorWorkloadRows(academicYear),
+    academicYear ? monitoringRepository.getAcademicYearById(academicYear) : Promise.resolve(null),
+  ]);
   const lecturerMap = new Map();
 
   rows.forEach((row) => {
@@ -134,7 +156,7 @@ export async function getSupervisorWorkloads(academicYear) {
     });
   });
 
-  return Array.from(lecturerMap.values())
+  const lecturers = Array.from(lecturerMap.values())
     .map((lecturer) => {
       const students = Array.from(lecturer.studentsByThesis.values())
         .filter((student) => student.name || student.nim)
@@ -153,6 +175,18 @@ export async function getSupervisorWorkloads(academicYear) {
       if (b.studentCount !== a.studentCount) return b.studentCount - a.studentCount;
       return (a.lecturerName || "").localeCompare(b.lecturerName || "");
     });
+
+  return {
+    definitionLabel: SUPERVISOR_LOAD_DEFINITION_LABEL,
+    periodLabel: academicYear
+      ? academicYearRecord
+        ? periodLabelFromAcademicYear(academicYearRecord)
+        : academicYear
+      : ALL_PERIODS_LABEL,
+    academicYearId: academicYear ?? null,
+    uniqueThesisCount: uniqueThesisCountFromLoads(lecturers),
+    lecturers,
+  };
 }
 
 /**
@@ -189,7 +223,9 @@ export async function getThesesList(filters) {
         nim: t.student?.user?.identityNumber,
         email: t.student?.user?.email,
       },
-      status: t.thesisStatus?.name,
+      status: deriveSimptaThesisStatus(t),
+      ta04: buildTa04Snapshot(t),
+      ta03: buildTa03Snapshot(t),
       topic: t.thesisTopic
         ? {
             id: t.thesisTopic.id,
@@ -406,7 +442,9 @@ export async function getThesisDetail(thesisId) {
   return {
     id: thesis.id,
     title: thesis.title,
-    status: thesis.thesisStatus?.name || null,
+    status: deriveSimptaThesisStatus(thesis),
+    ta04: buildTa04Snapshot(thesis),
+    ta03: buildTa03Snapshot(thesis),
     topic: thesis.thesisTopic?.name || null,
     academicYear: thesis.academicYear
       ? `${thesis.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${thesis.academicYear.year}`
@@ -725,7 +763,7 @@ export async function getProgressReportService(options = {}) {
       name: toTitleCaseName(t.student?.user?.fullName || "-"),
       title: t.title || "-",
       topic: t.thesisTopic?.name || "-",
-      status: t.thesisStatus?.name || "-",
+      status: deriveSimptaThesisStatus(t),
       rating: t.rating || "ONGOING",
       pembimbing1: toTitleCaseName(pembimbing1?.lecturer?.user?.fullName || "-"),
       pembimbing2: toTitleCaseName(pembimbing2?.lecturer?.user?.fullName || "-"),

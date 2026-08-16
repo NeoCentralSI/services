@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { ROLES } from "../constants/roles.js";
 
 const IMPORT_SUMMARY_SELECT = {
   id: true,
@@ -396,8 +397,15 @@ export function autoZeroResearchMethodScore({
       select: {
         id: true,
         thesisId: true,
+        supervisorScore: true,
+        lecturerScore: true,
+        finalScore: true,
         isFinalized: true,
+        finalizedBy: true,
+        finalizedAt: true,
+        attendanceRecordId: true,
         attendanceAutoZeroedAt: true,
+        attendanceAutoZeroReason: true,
       },
     });
 
@@ -406,6 +414,16 @@ export function autoZeroResearchMethodScore({
         return { skipped: true, scoreRecord: existing };
       }
       return { blockedFinalized: true, scoreRecord: existing };
+    }
+
+    // BR-21 + anti-pattern #20: auto-zero permanen tanpa jalur override.
+    // Koordinator boleh re-upload presensi untuk koreksi data SIA
+    // (anti-pattern #21), jadi fungsi ini bisa dipanggil ulang untuk thesis
+    // yang sama. Penerapan ulang harus idempoten: `attendanceAutoZeroedAt`,
+    // `finalizedAt`, dan `finalizedBy` dari auto-zero pertama tetap utuh
+    // sebagai jejak audit (audit SIMPTA-FUN-018).
+    if (existing?.attendanceAutoZeroedAt) {
+      return { skipped: false, blockedFinalized: false, alreadyAutoZeroed: true, scoreRecord: existing };
     }
 
     const now = new Date();
@@ -445,6 +463,40 @@ export function autoZeroResearchMethodScore({
       });
     }
 
-    return { skipped: false, blockedFinalized: false, scoreRecord };
+    return { skipped: false, blockedFinalized: false, alreadyAutoZeroed: false, scoreRecord };
+  });
+}
+
+/**
+ * Penerima notifikasi auto-zero BR-28: mahasiswa terdampak + Pembimbing 1 dan
+ * Pembimbing 2 yang aktif. Read-only; jalur tulis auto-zero tetap di
+ * `autoZeroResearchMethodScore`.
+ */
+export function findThesisAutoZeroNotificationTargets(thesisId, client = prisma) {
+  return client.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      title: true,
+      student: {
+        select: {
+          user: { select: { id: true, fullName: true, identityNumber: true } },
+        },
+      },
+      thesisSupervisors: {
+        where: {
+          status: "active",
+          role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+        },
+        select: {
+          role: { select: { name: true } },
+          lecturer: {
+            select: {
+              user: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+      },
+    },
   });
 }

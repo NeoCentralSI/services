@@ -11,12 +11,22 @@ export async function getDefaultQuota(req, res, next) {
   }
 }
 
+function auditActor(req) {
+  const forwarded = req.headers?.["x-forwarded-for"];
+  const ip = (typeof forwarded === "string" ? forwarded.split(",")[0] : null) || req.ip || null;
+  return {
+    actorUserId: req.user?.sub ?? null,
+    ipAddress: ip ? String(ip).slice(0, 45) : null,
+    userAgent: req.get?.("user-agent") ?? req.headers?.["user-agent"] ?? null,
+  };
+}
+
 /** PUT /supervision-quota/default/:academicYearId */
 export async function setDefaultQuota(req, res, next) {
   try {
     const { academicYearId } = req.params;
     const body = req.validated ?? req.body ?? {};
-    const result = await service.setDefaultQuota(academicYearId, body);
+    const result = await service.setDefaultQuota(academicYearId, body, auditActor(req));
     res.json({ success: true, ...result });
   } catch (err) {
     next(err);
@@ -51,7 +61,7 @@ export async function updateLecturerQuota(req, res, next) {
   try {
     const { lecturerId, academicYearId } = req.params;
     const body = req.validated ?? req.body ?? {};
-    const data = await service.updateLecturerQuota(lecturerId, academicYearId, body);
+    const data = await service.updateLecturerQuota(lecturerId, academicYearId, body, auditActor(req));
     res.json({ success: true, data });
   } catch (err) {
     next(err);

@@ -25,13 +25,13 @@ class BadRequestError extends Error {
  * Submit a thesis change request (by student)
  */
 export const submitRequest = async (userId, data) => {
-  const { requestType, reason } = data;
+  const { requestType, reason, newTitle, newTopicId, supportingDocumentId } = data;
 
   if (requestType !== 'topic') {
     throw new BadRequestError('Hanya pergantian topik yang diperbolehkan');
   }
 
-  // Get student's thesis
+  // Student.id is mapped to user_id, so it equals the authenticated user id.
   const thesis = await prisma.thesis.findFirst({
     where: {
       student: { id: userId },
@@ -65,6 +65,26 @@ export const submitRequest = async (userId, data) => {
     throw new BadRequestError('Anda sudah memiliki permintaan pergantian yang sedang menunggu persetujuan');
   }
 
+  if (newTopicId) {
+    const topic = await prisma.thesisTopic.findUnique({
+      where: { id: newTopicId },
+      select: { id: true },
+    });
+    if (!topic) {
+      throw new NotFoundError('Topik baru tidak ditemukan');
+    }
+  }
+
+  if (supportingDocumentId) {
+    const supportingDocument = await prisma.document.findUnique({
+      where: { id: supportingDocumentId },
+      select: { id: true },
+    });
+    if (!supportingDocument) {
+      throw new NotFoundError('Dokumen bukti pendukung tidak ditemukan');
+    }
+  }
+
   // Find supervisors (Pembimbing 1 & 2) — all ThesisSupervisors are supervisors
   const supervisors = thesis.thesisSupervisors
     .map(p => ({
@@ -72,11 +92,14 @@ export const submitRequest = async (userId, data) => {
       userId: p.lecturer.user.id
     }));
 
-  // Create the request with approvals
+  // Create the request with approvals; persist topic-change fields already on the schema
   const request = await thesisChangeRequestRepository.create({
     thesisId: thesis.id,
     requestType,
     reason,
+    newTitle: newTitle ?? null,
+    newTopicId: newTopicId ?? null,
+    supportingDocumentId: supportingDocumentId ?? null,
     approvals: {
       create: supervisors.map(s => ({
         lecturerId: s.lecturerId,

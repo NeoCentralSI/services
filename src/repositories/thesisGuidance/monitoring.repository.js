@@ -1,9 +1,16 @@
 import prisma from "../../config/prisma.js";
+import {
+  SIMPTA_THESIS_STATUS_INCLUDE,
+  SIMPTA_THESIS_STATUS_ORDER,
+  SIMPTA_THESIS_STATUS_SELECT,
+  buildSimptaThesisStatusWhere,
+  deriveSimptaThesisStatus,
+} from "../../utils/simptaThesisStatus.util.js";
 
 /**
  * Get all theses with progress summary for management monitoring
  * @param {Object} filters - Filter options
- * @param {string} filters.status - Filter by thesis status name
+ * @param {string} filters.status - Filter by derived SIMPTA status label
  * @param {string} filters.lecturerId - Filter by supervisor
  * @param {string} filters.topicId - Filter by thesis topic
  * @param {string} filters.academicYear - Filter by academic year
@@ -16,9 +23,12 @@ export async function getThesesOverview(filters = {}) {
 
   const where = {};
 
-  // Filter by thesis status
-  if (status) {
-    where.thesisStatus = { name: status };
+  // Filter by derived SIMPTA status label (SIMPTA-FUN-023: thesis_status_id is a
+  // legacy Modul TA lookup that the proposal flow never writes). Nested under AND
+  // so the fragment's own OR/NOT never collides with the search OR below.
+  const statusWhere = status ? buildSimptaThesisStatusWhere(status) : null;
+  if (statusWhere) {
+    where.AND = [statusWhere];
   }
 
   // Filter by supervisor
@@ -57,6 +67,9 @@ export async function getThesesOverview(filters = {}) {
         title: true,
         rating: true,
         createdAt: true,
+        // SIMPTA status derivation + TA-04/TA-03 monitoring fields, fetched in the
+        // same query so the Sekdep surface never fans out per-row requests.
+        ...SIMPTA_THESIS_STATUS_SELECT,
         student: {
           include: {
             user: {
@@ -69,7 +82,6 @@ export async function getThesesOverview(filters = {}) {
             },
           },
         },
-        thesisStatus: true,
         thesisTopic: {
           select: {
             id: true,
@@ -113,28 +125,27 @@ export async function getThesesOverview(filters = {}) {
 }
 
 /**
- * Get thesis status distribution summary
+ * Get thesis status distribution summary, keyed by derived SIMPTA status label.
+ *
+ * Counted with one `count` per label (6 total, run in parallel) instead of
+ * reading `thesis_status` — that lookup belongs to Modul TA and is never written
+ * by the proposal flow (SIMPTA-FUN-023).
  */
 export async function getStatusDistribution(academicYear) {
-  const where = academicYear ? { academicYearId: academicYear } : {};
+  const scope = academicYear ? { academicYearId: academicYear } : {};
 
-  const statuses = await prisma.thesisStatus.findMany({
-    include: {
-      _count: {
-        select: {
-          thesis: {
-            where,
-          },
-        },
-      },
-    },
-    orderBy: { name: "asc" },
-  });
+  const counts = await Promise.all(
+    SIMPTA_THESIS_STATUS_ORDER.map((label) =>
+      prisma.thesis.count({
+        where: { ...scope, AND: [buildSimptaThesisStatusWhere(label)] },
+      }),
+    ),
+  );
 
-  return statuses.map((s) => ({
-    id: s.id,
-    name: s.name,
-    count: s._count.thesis,
+  return SIMPTA_THESIS_STATUS_ORDER.map((label, index) => ({
+    id: label,
+    name: label,
+    count: counts[index],
   }));
 }
 
@@ -198,6 +209,7 @@ export async function getProgressStatistics(academicYear) {
   const theses = await prisma.thesis.findMany({
     where,
     select: {
+      isProposal: true,
       thesisMilestones: {
         select: {
           status: true,
@@ -234,6 +246,8 @@ export async function getProgressStatistics(academicYear) {
 
   return {
     totalActiveTheses: theses.length,
+    totalProposalTheses: theses.filter((t) => t.isProposal !== false).length,
+    totalPostProposalTheses: theses.filter((t) => t.isProposal === false).length,
     totalMilestones,
     completedMilestones,
     averageProgress: totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0,
@@ -272,7 +286,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
           },
         },
       },
-      thesisStatus: true,
+      ...SIMPTA_THESIS_STATUS_INCLUDE,
       thesisMilestones: {
         orderBy: { updatedAt: "desc" },
         take: 1,
@@ -309,7 +323,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
           name: t.student?.user?.fullName,
           nim: t.student?.user?.identityNumber,
         },
-        status: t.thesisStatus?.name,
+        status: deriveSimptaThesisStatus(t),
         lastActivity,
         daysSinceActivity,
         supervisors: t.thesisSupervisors.map((p) => ({
@@ -353,7 +367,7 @@ export async function getSlowStudents(limit = 10, academicYear) {
           },
         },
       },
-      thesisStatus: true,
+      ...SIMPTA_THESIS_STATUS_INCLUDE,
       thesisMilestones: {
         orderBy: { updatedAt: "desc" },
         take: 1,
@@ -388,7 +402,7 @@ export async function getSlowStudents(limit = 10, academicYear) {
         name: t.student?.user?.fullName,
         nim: t.student?.user?.identityNumber,
       },
-      status: t.thesisStatus?.name,
+      status: deriveSimptaThesisStatus(t),
       rating: t.rating,
       lastActivity,
       daysSinceActivity,
@@ -568,7 +582,7 @@ export async function getSupervisorWorkloadRows(academicYear) {
   };
 
   if (academicYear) {
-    Object.assign(thesisWhere, await buildAcademicYearFilter(academicYear));
+    thesisWhere.academicYearId = academicYear;
   }
 
   return prisma.thesisSupervisors.findMany({
@@ -673,6 +687,7 @@ export async function getThesisDetailById(thesisId) {
   return prisma.thesis.findUnique({
     where: { id: thesisId },
     include: {
+      ...SIMPTA_THESIS_STATUS_INCLUDE,
       student: {
         include: {
           user: {
@@ -686,7 +701,6 @@ export async function getThesisDetailById(thesisId) {
           },
         },
       },
-      thesisStatus: true,
       thesisTopic: true,
       academicYear: true,
       thesisSupervisors: {
@@ -756,6 +770,7 @@ export async function getThesesForReport(academicYearId) {
   const theses = await prisma.thesis.findMany({
     where,
     include: {
+      ...SIMPTA_THESIS_STATUS_INCLUDE,
       student: {
         include: {
           user: {
@@ -768,7 +783,6 @@ export async function getThesesForReport(academicYearId) {
           // studentStatus removed (now enum)
         },
       },
-      thesisStatus: true,
       thesisTopic: true,
       academicYear: true,
       thesisSupervisors: {

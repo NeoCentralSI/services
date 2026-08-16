@@ -24,7 +24,9 @@ const prismaMock = {
   documentType: { findFirst: vi.fn(), create: vi.fn() },
   document: { create: vi.fn() },
   user: { findMany: vi.fn() },
+  userHasRole: { findMany: vi.fn() },
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
 };
 
 prismaMock.$transaction.mockImplementation(async (callback) => callback(prismaMock));
@@ -49,8 +51,38 @@ vi.mock("../../repositories/metopenAttendance.repository.js", async (importOrigi
 
 vi.mock("../metopenScoreComposition.service.js", () => compositionMock);
 
+vi.mock("../../helpers/academicYear.helper.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    resolveOperationalAcademicYear: vi.fn(async () => ({ id: "ay-active" })),
+  };
+});
+
 const prisma = (await import("../../config/prisma.js")).default;
 const TA04_ISSUED_AT = new Date("2026-07-01T00:00:00.000Z");
+
+function isOtherPeriodYearFilter(value) {
+  return Boolean(value && typeof value === "object" && value.not);
+}
+
+function mockSupervisedTheses(selectedRows, otherPeriodRows = []) {
+  prisma.thesisSupervisors.findMany.mockImplementation(async (args) => {
+    if (isOtherPeriodYearFilter(args?.where?.thesis?.academicYearId)) {
+      return otherPeriodRows;
+    }
+    return selectedRows;
+  });
+}
+
+function mockMetopenTheses(selectedRows, otherPeriodRows = []) {
+  prisma.thesis.findMany.mockImplementation(async (args) => {
+    if (isOtherPeriodYearFilter(args?.where?.academicYearId)) {
+      return otherPeriodRows;
+    }
+    return selectedRows;
+  });
+}
 const {
   getSupervisorScoringQueue,
   getSupervisorScoringHistory,
@@ -113,6 +145,7 @@ describe("assessment.service — TA-03B active flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+    prisma.$queryRaw.mockResolvedValue([]);
     prisma.metopenAssessmentCriteria.findMany.mockResolvedValue([
       { id: "crit-1", name: "Kriteria 1", maxScore: 10, displayOrder: 1 },
       { id: "crit-2", name: "Kriteria 2", maxScore: 10, displayOrder: 2 },
@@ -121,6 +154,7 @@ describe("assessment.service — TA-03B active flow", () => {
     // Test yang butuh P2 wajib override mock ini ke return value object.
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([]);
+    prisma.userHasRole.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     attendanceRepoMock.findThesisAcademicYear.mockResolvedValue({
       id: "thesis-period",
@@ -147,7 +181,7 @@ describe("assessment.service — TA-03B active flow", () => {
     // BR-20 (canon §5.7.1): antrean TA-03A meliputi BAIK P1 (master pengisi)
     // MAUPUN P2 (co-sign konsensus). Filter wajib: thesis aktif, finalProposal
     // ada, status thesis terbuka, dan score belum isFinalized.
-    prisma.thesisSupervisors.findMany.mockResolvedValue([
+    mockSupervisedTheses([
       // P1 perlu input rubrik → MUNCUL dengan status p1_pending
       {
         role: { name: "Pembimbing 1" },
@@ -317,7 +351,7 @@ describe("assessment.service — TA-03B active flow", () => {
 
     const result = await getSupervisorScoringQueue("supervisor-1", "ay-1");
 
-    expect(result).toEqual([
+    expect(result.items).toEqual([
       {
         thesisId: "thesis-active",
         thesisTitle: "Optimasi SIMPTA",
@@ -331,6 +365,9 @@ describe("assessment.service — TA-03B active flow", () => {
         coSignedAt: null,
         attendanceAutoZeroedAt: null,
         attendanceAutoZeroReason: null,
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
       },
       {
         thesisId: "thesis-cosign-needed",
@@ -345,6 +382,100 @@ describe("assessment.service — TA-03B active flow", () => {
         coSignedAt: null,
         attendanceAutoZeroedAt: null,
         attendanceAutoZeroReason: null,
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
+      },
+    ]);
+    expect(result.emptyReason).toBeNull();
+    expect(result.otherPeriods).toEqual([]);
+    expect(result.blockedByGate).toEqual([
+      {
+        thesisId: "thesis-no-final",
+        thesisTitle: "Belum Final",
+        student: { id: "student-4", fullName: "No Final", identityNumber: "2211523004" },
+        ta03GateReason: "Proposal final belum disubmit. Penilaian belum dapat dibuka.",
+      },
+      {
+        thesisId: "thesis-no-ta04",
+        thesisTitle: "Belum TA-04 Awal",
+        student: { id: "student-7", fullName: "No TA04", identityNumber: "2211523007" },
+        ta03GateReason: "Penilaian menunggu penerbitan TA-04.",
+      },
+    ]);
+  });
+
+  it("explains empty TA-03A queue as waiting for TA-04, with per-student gate reason", async () => {
+    mockSupervisedTheses([
+      {
+        role: { name: "Pembimbing 1" },
+        thesis: {
+          id: "thesis-afriyanti",
+          title: "Proposal Afriyanti",
+          finalProposalVersionId: "proposal-version-a",
+          ta04AssignmentIssuedAt: null,
+          student: {
+            status: "active",
+            user: { id: "student-a", fullName: "Afriyanti", identityNumber: "2211523999" },
+          },
+          thesisStatus: { name: "Bimbingan" },
+          researchMethodScores: [],
+          thesisSupervisors: [],
+        },
+      },
+    ]);
+
+    const result = await getSupervisorScoringQueue("supervisor-1", "ay-1");
+
+    expect(result.items).toEqual([]);
+    expect(result.emptyReason).toBe("waiting_ta04");
+    expect(result.emptyReasonText).toContain("Penilaian menunggu penerbitan TA-04");
+    expect(result.otherPeriods).toEqual([]);
+    expect(result.blockedByGate).toEqual([
+      {
+        thesisId: "thesis-afriyanti",
+        thesisTitle: "Proposal Afriyanti",
+        student: { id: "student-a", fullName: "Afriyanti", identityNumber: "2211523999" },
+        ta03GateReason: "Penilaian menunggu penerbitan TA-04.",
+      },
+    ]);
+  });
+
+  it("surfaces TA-04+final theses on a non-active period as otherPeriods without mixing them into the selected-year queue", async () => {
+    mockSupervisedTheses([], [
+      {
+        thesis: {
+          id: "thesis-akram",
+          academicYearId: "tahun-2025-genap",
+          academicYear: { year: "2025/2026", semester: "genap" },
+          student: {
+            status: "active",
+            user: {
+              id: "student-akram",
+              fullName: "Akram Makruf Aidil",
+              identityNumber: "2211522035",
+            },
+          },
+          thesisStatus: null,
+        },
+      },
+    ]);
+
+    const result = await getSupervisorScoringQueue("supervisor-1", "ay-active");
+
+    expect(result.items).toEqual([]);
+    expect(result.emptyReason).toBe("none_in_scope");
+    expect(result.otherPeriods).toEqual([
+      {
+        academicYearId: "tahun-2025-genap",
+        periodLabel: "2025/2026 Genap",
+        students: [
+          {
+            fullName: "Akram Makruf Aidil",
+            identityNumber: "2211522035",
+            thesisId: "thesis-akram",
+          },
+        ],
       },
     ]);
   });
@@ -359,9 +490,12 @@ describe("assessment.service — TA-03B active flow", () => {
           id: "thesis-history",
           title: "Riwayat Proposal",
           finalProposalVersionId: "proposal-version-final",
+          ta04AssignmentIssuedAt: TA04_ISSUED_AT,
           student: {
+            status: "active",
             user: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
           },
+          thesisStatus: { name: "Bimbingan" },
           researchMethodScores: [
             {
               id: "score-history",
@@ -391,10 +525,73 @@ describe("assessment.service — TA-03B active flow", () => {
           id: "thesis-unscored",
           title: "Belum Dinilai",
           finalProposalVersionId: "proposal-version-2",
+          ta04AssignmentIssuedAt: TA04_ISSUED_AT,
           student: {
+            status: "active",
             user: { id: "student-2", fullName: "Belum Dinilai", identityNumber: "2211523002" },
           },
+          thesisStatus: { name: "Bimbingan" },
           researchMethodScores: [],
+          thesisSupervisors: [],
+        },
+      },
+      {
+        role: { name: "Pembimbing 1" },
+        thesis: {
+          id: "thesis-in-progress",
+          title: "Masih Antrean",
+          finalProposalVersionId: "proposal-version-3",
+          ta04AssignmentIssuedAt: TA04_ISSUED_AT,
+          student: {
+            status: "active",
+            user: { id: "student-3", fullName: "Masih Antrean", identityNumber: "2211523003" },
+          },
+          thesisStatus: { name: "Bimbingan" },
+          researchMethodScores: [
+            {
+              id: "score-partial",
+              supervisorScore: 70,
+              lecturerScore: null,
+              finalScore: null,
+              isFinalized: false,
+              finalizedAt: null,
+              coSignedAt: null,
+              coSignedByLecturerId: null,
+              coSignNote: null,
+              attendanceAutoZeroedAt: null,
+              attendanceAutoZeroReason: null,
+            },
+          ],
+          thesisSupervisors: [],
+        },
+      },
+      {
+        role: { name: "Pembimbing 1" },
+        thesis: {
+          id: "thesis-auto-zero",
+          title: "Auto Zero",
+          finalProposalVersionId: "proposal-version-4",
+          ta04AssignmentIssuedAt: TA04_ISSUED_AT,
+          student: {
+            status: "active",
+            user: { id: "student-4", fullName: "Auto Zero", identityNumber: "2211523004" },
+          },
+          thesisStatus: { name: "Bimbingan" },
+          researchMethodScores: [
+            {
+              id: "score-auto-zero",
+              supervisorScore: 0,
+              lecturerScore: 0,
+              finalScore: 0,
+              isFinalized: true,
+              finalizedAt,
+              coSignedAt: null,
+              coSignedByLecturerId: null,
+              coSignNote: null,
+              attendanceAutoZeroedAt: finalizedAt,
+              attendanceAutoZeroReason: "Presensi Metopel kurang dari 75%",
+            },
+          ],
           thesisSupervisors: [],
         },
       },
@@ -413,36 +610,66 @@ describe("assessment.service — TA-03B active flow", () => {
         supervisorScore: 70,
         lecturerScore: 20,
         finalScore: 90,
-        isFinalized: true,
-        finalizedAt,
         coSignedAt,
-        coSignNote: "Setuju",
         attendanceAutoZeroedAt: null,
         attendanceAutoZeroReason: null,
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
+        isFinalized: true,
+        finalizedAt,
+        coSignNote: "Setuju",
+      },
+      {
+        thesisId: "thesis-auto-zero",
+        thesisTitle: "Auto Zero",
+        student: { id: "student-4", fullName: "Auto Zero", identityNumber: "2211523004" },
+        actorRole: "P1",
+        actionStatus: "auto_zeroed",
+        partnerName: null,
+        supervisorScore: 0,
+        lecturerScore: 0,
+        finalScore: 0,
+        coSignedAt: null,
+        attendanceAutoZeroedAt: finalizedAt,
+        attendanceAutoZeroReason: "Presensi Metopel kurang dari 75%",
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
+        isFinalized: true,
+        finalizedAt,
+        coSignNote: null,
       },
     ]);
   });
 
   it("lists TA-03B queue from active theses without depending on MetopenClass enrollment", async () => {
-    prisma.thesis.findMany.mockResolvedValue([
+    mockMetopenTheses([
       {
         id: "thesis-1",
         title: "Optimasi SIMPTA",
         finalProposalVersionId: "proposal-version-1",
         ta04AssignmentIssuedAt: TA04_ISSUED_AT,
         student: {
+          status: "active",
           user: {
             id: "student-1",
             fullName: "Ilham",
             identityNumber: "2211523001",
           },
         },
+        thesisStatus: { name: "Bimbingan" },
         researchMethodScores: [
           {
             id: "score-1",
             supervisorScore: 68,
             lecturerScore: null,
             finalScore: null,
+            isFinalized: false,
+            finalizedAt: null,
+            coSignedAt: null,
+            attendanceAutoZeroedAt: null,
+            attendanceAutoZeroReason: null,
           },
         ],
         thesisSupervisors: [
@@ -459,24 +686,19 @@ describe("assessment.service — TA-03B active flow", () => {
 
     const result = await getMetopenScoringQueue("lecturer-1", "ay-1");
 
-    expect(prisma.thesis.findMany).toHaveBeenCalledWith(
+    const selectedCall = prisma.thesis.findMany.mock.calls.find(
+      (call) => call[0]?.where?.academicYearId === "ay-1",
+    );
+    expect(selectedCall[0]).toEqual(
       expect.objectContaining({
         where: expect.objectContaining({
-          finalProposalVersionId: { not: null },
-          ta04AssignmentIssuedAt: { not: null },
+          academicYearId: "ay-1",
           student: { status: "active" },
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              OR: expect.arrayContaining([
-                { researchMethodScores: { none: {} } },
-                { researchMethodScores: { some: { lecturerScore: null } } },
-              ]),
-            }),
-          ]),
         }),
       }),
     );
-    expect(result).toEqual([
+    expect(selectedCall[0].where.finalProposalVersionId).toBeUndefined();
+    expect(result.items).toEqual([
       {
         thesisId: "thesis-1",
         thesisTitle: "Optimasi SIMPTA",
@@ -488,6 +710,51 @@ describe("assessment.service — TA-03B active flow", () => {
         supervisorName: "Dr. Pembimbing",
         supervisorScore: 68,
         lecturerScore: null,
+        attendanceAutoZeroedAt: null,
+        attendanceAutoZeroReason: null,
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
+      },
+    ]);
+    expect(result.emptyReason).toBeNull();
+    expect(result.blockedByGate).toEqual([]);
+    expect(result.otherPeriods).toEqual([]);
+  });
+
+  it("surfaces TA-03B proposal theses on another period without mixing them into the selected-year queue", async () => {
+    mockMetopenTheses([], [
+      {
+        id: "thesis-akram",
+        academicYearId: "tahun-2025-genap",
+        academicYear: { year: "2025/2026", semester: "genap" },
+        student: {
+          status: "active",
+          user: {
+            id: "student-akram",
+            fullName: "Akram Makruf Aidil",
+            identityNumber: "2211522035",
+          },
+        },
+        thesisStatus: null,
+      },
+    ]);
+
+    const result = await getMetopenScoringQueue("lecturer-1", "ay-active");
+
+    expect(result.items).toEqual([]);
+    expect(result.emptyReason).toBe("none_in_scope");
+    expect(result.otherPeriods).toEqual([
+      {
+        academicYearId: "tahun-2025-genap",
+        periodLabel: "2025/2026 Genap",
+        students: [
+          {
+            fullName: "Akram Makruf Aidil",
+            identityNumber: "2211522035",
+            thesisId: "thesis-akram",
+          },
+        ],
       },
     ]);
   });
@@ -498,9 +765,13 @@ describe("assessment.service — TA-03B active flow", () => {
       {
         id: "thesis-scored",
         title: "Proposal Dinilai",
+        finalProposalVersionId: "proposal-version-1",
+        ta04AssignmentIssuedAt: TA04_ISSUED_AT,
         student: {
+          status: "active",
           user: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
         },
+        thesisStatus: { name: "Bimbingan" },
         researchMethodScores: [
           {
             id: "score-1",
@@ -521,9 +792,13 @@ describe("assessment.service — TA-03B active flow", () => {
       {
         id: "thesis-auto-zero",
         title: "Proposal Auto Zero",
+        finalProposalVersionId: "proposal-version-2",
+        ta04AssignmentIssuedAt: TA04_ISSUED_AT,
         student: {
+          status: "active",
           user: { id: "student-2", fullName: "Auto Zero", identityNumber: "2211523002" },
         },
+        thesisStatus: { name: "Bimbingan" },
         researchMethodScores: [
           {
             id: "score-2",
@@ -539,26 +814,49 @@ describe("assessment.service — TA-03B active flow", () => {
         ],
         thesisSupervisors: [],
       },
+      {
+        id: "thesis-predecessor",
+        title: "Dinilai Koordinator Lama",
+        finalProposalVersionId: "proposal-version-3",
+        ta04AssignmentIssuedAt: TA04_ISSUED_AT,
+        student: {
+          status: "active",
+          user: { id: "student-3", fullName: "Pendahulu", identityNumber: "2211523003" },
+        },
+        thesisStatus: { name: "Bimbingan" },
+        researchMethodScores: [
+          {
+            id: "score-3",
+            supervisorScore: 65,
+            lecturerScore: 18,
+            finalScore: 83,
+            isFinalized: true,
+            finalizedAt,
+            coSignedAt: null,
+            attendanceAutoZeroedAt: null,
+            attendanceAutoZeroReason: null,
+          },
+        ],
+        thesisSupervisors: [],
+      },
     ]);
 
-    const result = await getMetopenScoringHistory("lecturer-1", "ay-1");
+    const result = await getMetopenScoringHistory("lecturer-successor", "ay-1");
 
     expect(prisma.thesis.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          finalProposalVersionId: { not: null },
+          academicYearId: "ay-1",
           student: { status: "active" },
-          researchMethodScores: {
-            some: {
-              OR: [
-                { lecturerId: "lecturer-1", lecturerScore: { not: null } },
-                { attendanceAutoZeroedAt: { not: null } },
-              ],
-            },
-          },
         }),
       }),
     );
+    expect(prisma.thesis.findMany.mock.calls[0][0].where.researchMethodScores).toBeUndefined();
+    expect(result.map((item) => item.thesisId)).toEqual([
+      "thesis-scored",
+      "thesis-auto-zero",
+      "thesis-predecessor",
+    ]);
     expect(result).toEqual([
       {
         thesisId: "thesis-scored",
@@ -567,12 +865,15 @@ describe("assessment.service — TA-03B active flow", () => {
         supervisorName: "Dr. Pembimbing",
         supervisorScore: 70,
         lecturerScore: 20,
+        attendanceAutoZeroedAt: null,
+        attendanceAutoZeroReason: null,
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
         finalScore: 90,
         isFinalized: true,
         finalizedAt,
         coSignedAt: null,
-        attendanceAutoZeroedAt: null,
-        attendanceAutoZeroReason: null,
       },
       {
         thesisId: "thesis-auto-zero",
@@ -581,12 +882,32 @@ describe("assessment.service — TA-03B active flow", () => {
         supervisorName: null,
         supervisorScore: 0,
         lecturerScore: 0,
+        attendanceAutoZeroedAt: finalizedAt,
+        attendanceAutoZeroReason: "Presensi Metopel kurang dari 75%",
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
         finalScore: 0,
         isFinalized: true,
         finalizedAt,
         coSignedAt: null,
-        attendanceAutoZeroedAt: finalizedAt,
-        attendanceAutoZeroReason: "Presensi Metopel kurang dari 75%",
+      },
+      {
+        thesisId: "thesis-predecessor",
+        thesisTitle: "Dinilai Koordinator Lama",
+        student: { id: "student-3", fullName: "Pendahulu", identityNumber: "2211523003" },
+        supervisorName: null,
+        supervisorScore: 65,
+        lecturerScore: 18,
+        attendanceAutoZeroedAt: null,
+        attendanceAutoZeroReason: null,
+        periodClosedAt: null,
+        periodClosedReason: null,
+        ta03GateReason: null,
+        finalScore: 83,
+        isFinalized: true,
+        finalizedAt,
+        coSignedAt: null,
       },
     ]);
   });
@@ -594,6 +915,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("accepts TA-03B submission once TA-03A exists, without checking legacy class enrollment", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -642,11 +964,75 @@ describe("assessment.service — TA-03B active flow", () => {
       }),
     });
     expect(prisma.researchMethodScoreDetail.upsert).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(prisma.researchMethodScoreDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ assessmentRubricId: null }),
+        update: expect.objectContaining({ assessmentRubricId: null }),
+      }),
+    );
+  });
+
+  it("persists assessmentRubricId chosen during TA-03B validation", async () => {
+    prisma.metopenAssessmentCriteria.findMany.mockResolvedValue([
+      {
+        id: "crit-1",
+        name: "Kriteria 1",
+        maxScore: 10,
+        displayOrder: 1,
+        metopenAssessmentRubrics: [
+          { id: "rubric-1", minScore: 0, maxScore: 10, description: "Baik" },
+        ],
+      },
+      {
+        id: "crit-2",
+        name: "Kriteria 2",
+        maxScore: 10,
+        displayOrder: 2,
+        metopenAssessmentRubrics: [
+          { id: "rubric-2", minScore: 0, maxScore: 10, description: "Cukup" },
+        ],
+      },
+    ]);
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      academicYearId: "ay-active",
+      finalProposalVersionId: "proposal-version-1",
+      ta04AssignmentIssuedAt: TA04_ISSUED_AT,
+      student: { status: "active" },
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.researchMethodScore.findUnique.mockResolvedValue({
+      id: "score-1",
+      supervisorScore: 70,
+      lecturerId: null,
+      lecturerScore: null,
+      isFinalized: false,
+    });
+    prisma.researchMethodScore.update.mockResolvedValue({ id: "score-1", lecturerScore: 20 });
+    prisma.researchMethodScoreDetail.upsert.mockResolvedValue({});
+
+    await submitMetopenScore("thesis-1", "lecturer-1", {
+      scores: [
+        { criteriaId: "crit-1", score: 10, rubricId: "rubric-1" },
+        { criteriaId: "crit-2", score: 10, rubricId: "rubric-2" },
+      ],
+    });
+
+    expect(prisma.researchMethodScoreDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          assessmentCriteriaId: "crit-1",
+          assessmentRubricId: "rubric-1",
+        }),
+      }),
+    );
   });
 
   it("auto-finalizes TA-03 when TA-03A is submitted after TA-03B", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -698,6 +1084,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03A for inactive students even when the supervisor owns the thesis", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "dropout" },
@@ -722,6 +1109,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03A for closed thesis statuses", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -746,6 +1134,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03A when early TA-04 assignment has not been issued", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: null,
       student: { status: "active" },
@@ -771,6 +1160,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("accepts TA-03B before TA-03A because scoring is parallel", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -805,6 +1195,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03B when early TA-04 assignment has not been issued", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: null,
       student: { status: "active" },
@@ -823,6 +1214,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03A scoring when Metopel attendance has not been uploaded", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -849,9 +1241,10 @@ describe("assessment.service — TA-03B active flow", () => {
     expect(prisma.researchMethodScore.update).not.toHaveBeenCalled();
   });
 
-  it("auto-zeroes TA-03 when Metopel attendance is below 75 percent", async () => {
+  it("auto-zeroes TA-03 dan menolak submit TA-03B dengan 403 saat presensi Metopel <75%", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -890,11 +1283,15 @@ describe("assessment.service — TA-03B active flow", () => {
       attendanceRecordId: "attendance-record-low",
     });
 
-    const result = await submitMetopenScore("thesis-1", "lecturer-1", {
-      scores: [{ criteriaId: "crit-1", score: 10 }],
+    await expect(
+      submitMetopenScore("thesis-1", "lecturer-1", {
+        scores: [{ criteriaId: "crit-1", score: 10 }],
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringMatching(/66\.7%.*di bawah ambang 75%/),
     });
 
-    expect(result.finalScore).toBe(0);
     expect(prisma.researchMethodScore.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         thesisId: "thesis-1",
@@ -915,6 +1312,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03B overwrite by another Metopen lecturer", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -976,6 +1374,7 @@ describe("assessment.service — TA-03B active flow", () => {
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: null,
     });
 
@@ -989,6 +1388,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03B when proposal final has not been submitted yet", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: null,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1011,6 +1411,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks TA-03B for inactive students even when proposal final exists", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       student: { status: "dropout" },
       thesisStatus: { name: "Bimbingan" },
@@ -1027,6 +1428,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks supervisor score detail when lecturer is not an active thesis supervisor", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       thesisSupervisors: [],
     });
 
@@ -1046,6 +1448,7 @@ describe("assessment.service — TA-03B active flow", () => {
     };
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -1072,6 +1475,7 @@ describe("assessment.service — TA-03B active flow", () => {
     };
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       thesisSupervisors: [{ id: "participant-1" }],
     });
@@ -1087,6 +1491,7 @@ describe("assessment.service — TA-03B active flow", () => {
   it("blocks metopen score detail after another lecturer submitted TA-03B", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -1120,6 +1525,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
     ]);
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([]);
+    prisma.userHasRole.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -1128,6 +1534,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
     // Mock thesis pembimbing 1 (untuk submit guard)
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -1168,6 +1575,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
     // Test cosign endpoint yang menjalankan finalize karena P1+TA-03B sudah ada.
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1202,11 +1610,13 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       }),
     );
     expect(result.isFinalized).toBe(true);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
   });
 
   it("blocks co-sign when early TA-04 assignment has not been issued", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: null,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1225,6 +1635,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
   it("blocks co-sign when caller is not Pembimbing 2 active", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1240,6 +1651,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
   it("blocks co-sign when P1 has not submitted TA-03A yet", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1263,6 +1675,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
     ]);
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([]);
+    prisma.userHasRole.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
@@ -1270,6 +1683,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
   it("rejects TA-03A re-submit with 403 when score already finalized", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -1299,6 +1713,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
   it("rejects TA-03A re-submit even before finalization to prevent silent overwrite", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -1329,6 +1744,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
   it("rejects TA-03B re-submit with 403 when score already finalized", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -1356,6 +1772,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
   it("rejects TA-03B re-submit by the same Koordinator before finalization", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
@@ -1384,6 +1801,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
   it("rejects co-sign with 403 when score already finalized", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1418,13 +1836,15 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
     ]);
     prisma.thesisSupervisors.findFirst.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([]);
+    prisma.userHasRole.findMany.mockResolvedValue([]);
     prisma.researchMethodScoreDetail.deleteMany.mockResolvedValue({ count: 0 });
     mockEligibleAttendance();
   });
 
-  it("returns auto-zero scoreRecord saat co-sign P2 dan presensi <75%", async () => {
+  it("menolak co-sign P2 dengan 403 saat presensi <75% dan tetap menerapkan auto-zero", async () => {
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1466,17 +1886,27 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
     };
     prisma.researchMethodScore.create.mockResolvedValue(zeroedRecord);
 
-    const result = await coSignSupervisorScore("thesis-1", "supervisor-2", { note: "review" });
+    await expect(
+      coSignSupervisorScore("thesis-1", "supervisor-2", { note: "review" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringMatching(/di bawah ambang 75%/),
+    });
 
-    expect(result).toMatchObject(zeroedRecord);
-    expect(result._autoZeroed).toBe(true);
-    expect(result._autoZeroReason).toBeDefined();
+    expect(prisma.researchMethodScore.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        thesisId: "thesis-1",
+        finalScore: 0,
+        isFinalized: true,
+        attendanceAutoZeroedAt: expect.any(Date),
+      }),
+    });
     expect(prisma.researchMethodScore.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ coSignedByLecturerId: "supervisor-2" }) }),
     );
   });
 
-  it("returns auto-zero scoreRecord saat publishFinalScore dan presensi <75%", async () => {
+  it("menolak publishFinalScore dengan 403 saat presensi <75% dan tetap menerapkan auto-zero", async () => {
     prisma.researchMethodScore.findUnique.mockResolvedValueOnce({
       id: "score-1",
       thesisId: "thesis-1",
@@ -1487,6 +1917,7 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
+      academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
       thesisStatus: { name: "Bimbingan" },
@@ -1533,9 +1964,11 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
     };
     prisma.researchMethodScore.update.mockResolvedValue(zeroedRecord);
 
-    const result = await publishFinalScore("thesis-1", "lecturer-1");
+    await expect(publishFinalScore("thesis-1", "lecturer-1")).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringMatching(/di bawah ambang 75%/),
+    });
 
-    expect(result).toEqual(zeroedRecord);
     expect(prisma.researchMethodScore.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -1589,5 +2022,82 @@ describe("assessment.service — supervisor context", () => {
     const result = await getSupervisorContextForThesis("thesis-1", "lecturer-other");
 
     expect(result).toEqual({ role: null, hasP2: false });
+  });
+});
+
+describe("BR-29 scoring period gates", () => {
+  it("rejects TA-03A mutation when the score is period-closed", async () => {
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      academicYearId: "ay-active",
+      finalProposalVersionId: "proposal-version-1",
+      ta04AssignmentIssuedAt: TA04_ISSUED_AT,
+      student: { status: "active" },
+      thesisStatus: { name: "Bimbingan" },
+      thesisSupervisors: [
+        {
+          lecturerId: "supervisor-1",
+          status: "active",
+          role: { name: "Pembimbing 1" },
+        },
+      ],
+      researchMethodScores: [{ periodClosedAt: new Date("2026-08-16T00:00:00.000Z") }],
+    });
+
+    await expect(
+      submitSupervisorScore("thesis-1", "supervisor-1", {
+        scores: [{ criteriaId: "crit-1", score: 10 }],
+      }),
+    ).rejects.toThrow("Periode Metode Penelitian sudah ditutup");
+  });
+
+  it("rejects TA-03A mutation when thesis has no academic year", async () => {
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      academicYearId: null,
+      finalProposalVersionId: "proposal-version-1",
+      ta04AssignmentIssuedAt: TA04_ISSUED_AT,
+      student: { status: "active" },
+      thesisStatus: { name: "Bimbingan" },
+      thesisSupervisors: [
+        {
+          lecturerId: "supervisor-1",
+          status: "active",
+          role: { name: "Pembimbing 1" },
+        },
+      ],
+      researchMethodScores: [],
+    });
+
+    await expect(
+      submitSupervisorScore("thesis-1", "supervisor-1", {
+        scores: [{ criteriaId: "crit-1", score: 10 }],
+      }),
+    ).rejects.toThrow("tidak terikat tahun ajaran");
+  });
+
+  it("rejects TA-03A mutation on a non-operational academic year", async () => {
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      academicYearId: "ay-old",
+      finalProposalVersionId: "proposal-version-1",
+      ta04AssignmentIssuedAt: TA04_ISSUED_AT,
+      student: { status: "active" },
+      thesisStatus: { name: "Bimbingan" },
+      thesisSupervisors: [
+        {
+          lecturerId: "supervisor-1",
+          status: "active",
+          role: { name: "Pembimbing 1" },
+        },
+      ],
+      researchMethodScores: [],
+    });
+
+    await expect(
+      submitSupervisorScore("thesis-1", "supervisor-1", {
+        scores: [{ criteriaId: "crit-1", score: 10 }],
+      }),
+    ).rejects.toThrow("tahun ajaran operasional");
   });
 });

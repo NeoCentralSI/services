@@ -14,12 +14,14 @@ vi.mock("../advisorQuota.service.js", () => ({
   getLecturerQuotaSnapshot: vi.fn(),
   getLecturerQuotaSnapshots: vi.fn(),
   syncAllLecturerQuotaCurrentCounts: vi.fn(),
+  syncLecturerQuotaCurrentCount: vi.fn(),
 }));
 
 import * as repo from "../../repositories/supervisionQuota.repository.js";
 import {
   getLecturerQuotaSnapshot,
   getLecturerQuotaSnapshots,
+  syncLecturerQuotaCurrentCount,
 } from "../advisorQuota.service.js";
 import {
   getLecturerQuotaDetail,
@@ -140,6 +142,7 @@ describe("supervisionQuota.service", () => {
     });
     getLecturerQuotaSnapshot.mockResolvedValue(createSnapshot());
     getLecturerQuotaSnapshots.mockResolvedValue([createSnapshot()]);
+    syncLecturerQuotaCurrentCount.mockResolvedValue(3);
   });
 
   it("returns computed drill-down rows and only exposes monitoring-safe fields", async () => {
@@ -182,12 +185,13 @@ describe("supervisionQuota.service", () => {
           identityNumber: "19800101",
           email: "dosen@example.com",
         },
-        scienceGroup: { name: "Rekayasa Perangkat Lunak" },
+        scienceGroup: { id: "kbk-1", name: "Rekayasa Perangkat Lunak" },
         supervisionQuotas: [
           {
             id: "quota-1",
             quotaMax: 10,
             quotaSoftLimit: 8,
+            currentCount: 0,
             notes: "Override administratif",
           },
         ],
@@ -200,17 +204,20 @@ describe("supervisionQuota.service", () => {
       academicYearId: ACADEMIC_YEAR_ID,
       lecturerIds: ["lecturer-1"],
     });
-    expect(result[0]).toMatchObject({
+    expect(syncLecturerQuotaCurrentCount).toHaveBeenCalledWith("lecturer-1", ACADEMIC_YEAR_ID);
+    expect(result.lecturers[0]).toMatchObject({
       lecturerId: "lecturer-1",
       academicYearId: ACADEMIC_YEAR_ID,
       currentCount: 3,
+      cachedCurrentCount: 3,
+      currentCountDrift: 0,
       activeCount: 1,
       bookingCount: 2,
       pendingKadepCount: 1,
       normalAvailable: 7,
       overquotaSahCount: 1,
     });
-    expect(result[0]).not.toHaveProperty("activeOfficialEntries");
+    expect(result.lecturers[0]).not.toHaveProperty("activeOfficialEntries");
   });
 
   it("rejects detail requests for lecturers outside the resolved snapshot", async () => {

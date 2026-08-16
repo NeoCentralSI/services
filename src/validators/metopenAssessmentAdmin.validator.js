@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "./common.validator.js";
 
 const assessmentRoleSchema = z.enum(["default", "supervisor"]);
 
@@ -71,7 +72,7 @@ export const createMetopenCpmkSchema = z.object({
     .trim()
     .min(10, "Deskripsi CPMK minimal 10 karakter")
     .max(255, "Deskripsi CPMK maksimal 255 karakter"),
-  academicYearId: z.string().uuid("Tahun akademik tidak valid"),
+  academicYearId: academicYearIdSchema,
 });
 
 export const updateMetopenCpmkSchema = z
@@ -98,7 +99,7 @@ export const updateMetopenCpmkSchema = z
   });
 
 export const academicYearIdParamSchema = z.object({
-  academicYearId: z.string().uuid("Tahun akademik tidak valid"),
+  academicYearId: academicYearIdSchema,
 });
 
 export const updateScoreCompositionSchema = z

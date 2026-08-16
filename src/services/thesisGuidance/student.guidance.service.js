@@ -19,6 +19,7 @@ import {
 import prisma from "../../config/prisma.js";
 import { sendFcmToUsers } from "../../services/push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
+import { assertTa04GuidanceAuthorized, deriveGuidancePhaseFromThesis } from "../ta04Authorization.service.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { formatDateTimeJakarta } from "../../utils/date.util.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
@@ -31,6 +32,7 @@ import {
   ROLE_CATEGORY,
 } from "../../constants/roles.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
+import { ForbiddenError } from "../../utils/errors.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
@@ -51,32 +53,11 @@ function participantRoleName(participant) {
 async function ensureThesisAcademicYear(thesis) {
   if (thesis.academicYearId) return thesis;
 
-  // First, try to use the active academic year
-  let current = await getActiveAcademicYear();
-
-  // Fallback to date-based lookup if no active year is set
-  if (!current) {
-    const now = new Date();
-    current = await prisma.academicYear.findFirst({
-      where: {
-        OR: [
-          { AND: [{ startDate: { lte: now } }, { endDate: { gte: now } }] },
-          { startDate: { lte: now } },
-          { endDate: { gte: now } },
-        ],
-      },
-      orderBy: [{ year: "desc" }, { startDate: "desc" }],
-    });
-  }
-
-  if (current) {
-    await prisma.thesis.update({
-      where: { id: thesis.id },
-      data: { academicYearId: current.id },
-    });
-    return { ...thesis, academicYearId: current.id };
-  }
-  return thesis;
+  // BR-29 / canon §5.7.5: jangan menempelkan thesis Metopel ke tahun berjalan
+  // hanya karena academicYearId kosong. Itu memindahkan ember periode.
+  throw new ForbiddenError(
+    "Thesis ini tidak terikat tahun ajaran. Bimbingan dan penilaian ditolak sampai data diperbaiki Admin.",
+  );
 }
 
 function addMinutes(date, minutes = 0) {
@@ -297,17 +278,14 @@ export async function requestGuidanceService(
     documentUrl = null,
   } = options;
 
-  // DEBUG: Log received options
-  console.log(
-    "[requestGuidanceService] options received:",
-    JSON.stringify(options, null, 2),
-  );
-  console.log("[requestGuidanceService] milestoneIds:", milestoneIds);
-  console.log("[requestGuidanceService] milestoneId:", milestoneId);
-
   let { student, thesis } = await getActiveThesisOrThrow(userId);
   ensureThesisActive(thesis);
   thesis = await ensureThesisAcademicYear(thesis);
+
+  const phase = deriveGuidancePhaseFromThesis(thesis);
+  if (phase === "proposal") {
+    await assertTa04GuidanceAuthorized(thesis.id);
+  }
 
   // Get student name for notifications - convert to Title Case
   const studentUser = await prisma.user.findUnique({ where: { id: userId } });
@@ -420,6 +398,7 @@ export async function requestGuidanceService(
     supervisorFeedback: "",
     documentUrl: documentUrl || null, // Link dokumen yang akan dibahas
     duration: duration || 60,
+    phase,
     status: "requested",
   };
   // Link milestones through junction table
@@ -461,9 +440,6 @@ export async function requestGuidanceService(
     );
     const supUserId = selectedSupervisor?.lecturer?.user?.id;
     if (supUserId) {
-      console.log(
-        `[Guidance] Sending FCM requested -> supervisor=${supUserId} guidanceId=${created.id}`,
-      );
       // Schema baru: gunakan requestedDate
       const data = {
         type: "thesis-guidance:requested",
@@ -582,7 +558,10 @@ export async function requestGuidanceService(
     supervisorId: created.supervisorId || null,
     supervisorName: sup?.lecturer?.user?.fullName || null,
     notes: created.studentNotes || null,
+    studentNotes: created.studentNotes || null,
     supervisorFeedback: created.supervisorFeedback || null,
+    phase,
+    thesisId: thesis.id,
   };
 
   // Audit log: guidance requested

@@ -1,5 +1,10 @@
 import prisma from "../config/prisma.js";
 import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
+import { buildRuntimeSnapshotObservationPatch } from "./studentPeriodSnapshot.service.js";
+import {
+  studentHasOfficialMetopenArchive,
+  studentHasTakenMetopen,
+} from "../helpers/metopenArchive.helper.js";
 
 const METOPEN_COURSE_HINTS = ["metodologi penelitian", "metode penelitian"];
 const THESIS_COURSE_HINTS = ["tugas akhir", "skripsi"];
@@ -41,6 +46,18 @@ export function deriveThesisCourseEnrollmentFromSiaStudent(student = null) {
     const name = String(course?.name ?? "").toLowerCase();
     return THESIS_COURSE_HINTS.some((hint) => name.includes(hint));
   });
+}
+
+export function normalizeSiaObservation(raw = {}) {
+  return {
+    nim: String(raw?.nim ?? "").trim(),
+    name: raw?.name ? String(raw.name).trim() : null,
+    eligibleMetopen: deriveMetopenEligibilityFromSiaStudent(raw),
+    takingThesisCourse: deriveThesisCourseEnrollmentFromSiaStudent(raw),
+    currentSemesterCourses: Array.isArray(raw?.currentSemesterCourses)
+      ? raw.currentSemesterCourses
+      : undefined,
+  };
 }
 
 export async function getStudentMetopenEligibilityContext(userId, { client = prisma } = {}) {
@@ -97,15 +114,37 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
       canAccessTugasAkhir: false,
       thesisCourseEnrollmentSource: null,
       thesisCourseEnrollmentUpdatedAt: null,
+      hasTakenMetopen: false,
+      isMetopenArchive: false,
     };
   }
 
   const thesis = findLatestThesis(student);
-  const readOnly = thesis?.proposalStatus === "accepted";
   const eligibleMetopen =
     typeof student.eligibleMetopen === "boolean" ? student.eligibleMetopen : null;
-  const takingThesisCourse =
+  const takingFromStudent =
     typeof student.takingThesisCourse === "boolean" ? student.takingThesisCourse : null;
+
+  const [activeYear, hasTakenMetopen, isOfficialArchive] = await Promise.all([
+    getActiveAcademicYear(client),
+    studentHasTakenMetopen(student.id, { client }),
+    studentHasOfficialMetopenArchive(student.id, { client }),
+  ]);
+  const snapshot = activeYear
+    ? await client.studentAcademicYearSnapshot.findUnique({
+      where: {
+        studentId_academicYearId: {
+          studentId: student.id,
+          academicYearId: activeYear.id,
+        },
+      },
+      select: { takingThesisCourse: true },
+    })
+    : null;
+  const takingFromSnapshot =
+    typeof snapshot?.takingThesisCourse === "boolean" ? snapshot.takingThesisCourse : null;
+  const takingThesisCourse = takingFromSnapshot ?? takingFromStudent;
+  const readOnly = isOfficialArchive;
 
   return {
     studentId: student.id,
@@ -123,6 +162,8 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
     canAccessTugasAkhir: takingThesisCourse === true,
     thesisCourseEnrollmentSource: student.thesisCourseEnrollmentSource ?? null,
     thesisCourseEnrollmentUpdatedAt: student.thesisCourseEnrollmentUpdatedAt ?? null,
+    hasTakenMetopen,
+    isMetopenArchive: readOnly,
   };
 }
 
@@ -132,7 +173,7 @@ export async function setStudentMetopenEligibility(
   { client = prisma } = {},
 ) {
   const hasEligibilityValue = typeof eligibleMetopen === "boolean";
-  return client.student.update({
+  const updatedStudent = await client.student.update({
     where: { id: studentId },
     data: {
       eligibleMetopen: hasEligibilityValue ? eligibleMetopen : null,
@@ -144,8 +185,26 @@ export async function setStudentMetopenEligibility(
       eligibleMetopen: true,
       metopenEligibilitySource: true,
       metopenEligibilityUpdatedAt: true,
+      researchMethodCompleted: true,
+      takingThesisCourse: true,
     },
   });
+
+  if (hasEligibilityValue) {
+    await stampObservationOnActiveYear(
+      studentId,
+      {
+        eligibleMetopen,
+        researchMethodCompleted: updatedStudent.researchMethodCompleted,
+        takingThesisCourse: undefined,
+        source,
+        updatedAt,
+      },
+      { client },
+    );
+  }
+
+  return updatedStudent;
 }
 
 export async function setStudentThesisCourseEnrollment(
@@ -170,75 +229,121 @@ export async function setStudentThesisCourseEnrollment(
   });
 
   if (hasEnrollmentValue) {
-    const [academicYear, studentAcademicState] = await Promise.all([
-      getActiveAcademicYear(),
-      client.student.findUnique({
-        where: { id: studentId },
-        select: {
-          eligibleMetopen: true,
-          metopenEligibilitySource: true,
-          metopenEligibilityUpdatedAt: true,
-          researchMethodCompleted: true,
-        },
-      }),
-    ]);
-    if (
-      academicYear
-      && typeof studentAcademicState?.eligibleMetopen === "boolean"
-    ) {
-      const existing = await client.studentAcademicYearSnapshot.findUnique({
-        where: {
-          studentId_academicYearId: {
-            studentId,
-            academicYearId: academicYear.id,
-          },
-        },
-      });
-      const normalizedSource = source === "devtools" ? "devtools" : "sia";
-      if (!existing) {
-        await client.studentAcademicYearSnapshot.create({
-          data: {
-            studentId,
-            academicYearId: academicYear.id,
-            eligibleMetopen: studentAcademicState.eligibleMetopen,
-            researchMethodCompleted: studentAcademicState.researchMethodCompleted,
-            takingThesisCourse,
-            eligibilitySource:
-              studentAcademicState.metopenEligibilitySource ?? normalizedSource,
-            eligibilityCapturedAt:
-              studentAcademicState.metopenEligibilityUpdatedAt ?? updatedAt,
-            thesisCourseSource: normalizedSource,
-            thesisCourseCapturedAt: updatedAt,
-            capturedAt: updatedAt,
-          },
-        });
-      } else {
-        const fillData = {};
-        if (existing.eligibleMetopen == null) {
-          fillData.eligibleMetopen = studentAcademicState.eligibleMetopen;
-          fillData.researchMethodCompleted = studentAcademicState.researchMethodCompleted;
-          fillData.eligibilitySource =
-            studentAcademicState.metopenEligibilitySource ?? normalizedSource;
-          fillData.eligibilityCapturedAt =
-            studentAcademicState.metopenEligibilityUpdatedAt ?? updatedAt;
-        }
-        if (existing.takingThesisCourse == null) {
-          fillData.takingThesisCourse = takingThesisCourse;
-          fillData.thesisCourseSource = normalizedSource;
-          fillData.thesisCourseCapturedAt = updatedAt;
-        }
-        if (Object.keys(fillData).length > 0) {
-          await client.studentAcademicYearSnapshot.update({
-            where: { id: existing.id },
-            data: fillData,
-          });
-        }
-      }
-    }
+    await stampObservationOnActiveYear(
+      studentId,
+      {
+        eligibleMetopen: undefined,
+        takingThesisCourse,
+        source,
+        updatedAt,
+      },
+      { client },
+    );
 
+    const academicYear = await getActiveAcademicYear();
     const { syncBookingActivationForStudent } = await import("./metopen.service.js");
     await syncBookingActivationForStudent(studentId, academicYear?.id ?? null);
   }
 
   return updatedStudent;
+}
+
+/**
+ * Tempel observasi ke ember tahun ajaran aktif hari ini.
+ * SIA tidak mengirim academicYearId; first-write eligible, KRS selalu ditimpa.
+ */
+async function stampObservationOnActiveYear(
+  studentId,
+  {
+    eligibleMetopen,
+    researchMethodCompleted = null,
+    takingThesisCourse,
+    source,
+    updatedAt = new Date(),
+  },
+  { client = prisma } = {},
+) {
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) return null;
+  const normalizedSource = source === "devtools" ? "devtools" : "sia";
+  const existing = await client.studentAcademicYearSnapshot.findUnique({
+    where: {
+      studentId_academicYearId: {
+        studentId,
+        academicYearId: academicYear.id,
+      },
+    },
+  });
+  const observation = {
+    eligibleMetopen,
+    researchMethodCompleted,
+    eligibilitySource: normalizedSource,
+    eligibilityCapturedAt: updatedAt,
+    takingThesisCourse,
+    thesisCourseSource: normalizedSource,
+    thesisCourseCapturedAt: updatedAt,
+    capturedAt: updatedAt,
+  };
+
+  if (!existing) {
+    const hasEligibility = typeof eligibleMetopen === "boolean";
+    const hasThesisCourse = typeof takingThesisCourse === "boolean";
+    if (!hasEligibility && !hasThesisCourse) return academicYear;
+    await client.studentAcademicYearSnapshot.create({
+      data: {
+        studentId,
+        academicYearId: academicYear.id,
+        eligibleMetopen: hasEligibility ? eligibleMetopen : null,
+        researchMethodCompleted: hasEligibility ? researchMethodCompleted : null,
+        takingThesisCourse: hasThesisCourse ? takingThesisCourse : null,
+        eligibilitySource: hasEligibility ? normalizedSource : null,
+        eligibilityCapturedAt: hasEligibility ? updatedAt : null,
+        thesisCourseSource: hasThesisCourse ? normalizedSource : null,
+        thesisCourseCapturedAt: hasThesisCourse ? updatedAt : null,
+        capturedAt: updatedAt,
+      },
+    });
+    return academicYear;
+  }
+
+  const fillData = buildRuntimeSnapshotObservationPatch(existing, observation);
+  if (Object.keys(fillData).length > 0) {
+    await client.studentAcademicYearSnapshot.update({
+      where: { id: existing.id },
+      data: fillData,
+    });
+  }
+  return academicYear;
+}
+
+/**
+ * Satu colokan observasi akademik: SIA nyata, SIA_MOCK, atau toggle DevTools.
+ * Tidak menulis balik flag SIA. Tempel ke tahun ajaran aktif.
+ */
+export async function applyObservation(
+  {
+    studentId,
+    eligibleMetopen,
+    takingThesisCourse,
+    source,
+    updatedAt = new Date(),
+  },
+  { client = prisma } = {},
+) {
+  let student = null;
+  if (eligibleMetopen !== undefined) {
+    student = await setStudentMetopenEligibility(
+      studentId,
+      { eligibleMetopen, source, updatedAt },
+      { client },
+    );
+  }
+  if (takingThesisCourse !== undefined) {
+    student = await setStudentThesisCourseEnrollment(
+      studentId,
+      { takingThesisCourse, source, updatedAt },
+      { client },
+    );
+  }
+  return student;
 }

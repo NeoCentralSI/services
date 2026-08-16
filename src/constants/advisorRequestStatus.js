@@ -18,10 +18,12 @@
  *   active_official adalah status positif setelah promosi otomatis beban aktif:
  *   TA-03 final non-auto-zero + snapshot KRS TA true.
  *
- *   released  : booking TA-04 awal hangus karena gagal Metopen/auto-zero atau
- *               snapshot KRS TA pertama tidak mengonfirmasi mengambil MK TA.
+ *   released  : booking TA-04 awal hangus karena gagal Metopen/auto-zero,
+ *               tutup periode Metopel (BR-29), atau snapshot KRS TA tidak
+ *               mengonfirmasi mengambil MK TA.
  *   canceled  : mahasiswa tarik diri sebelum dosen merespon
- *   closed    : ditutup final oleh sistem (mis. ditolak permanen dan tidak revisi-able)
+ *   closed    : ditutup sistem (pra-booking saat periode Metopel ditutup, atau
+ *               ditolak permanen dan tidak revisi-able). Bukan cabut mahasiswa.
  *
  * --- LEGACY (jangan dipakai untuk write baru) ---
  * `escalated`, `approved`, `rejected`, `override_approved`, `redirected`,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "./common.validator.js";
 
 const importCellSchema = z.union([z.string(), z.number(), z.date(), z.null()]).optional();
 
@@ -28,7 +29,7 @@ export const createThesisSchema = z.object({
 export const updateThesisSchema = z.object({
     title: z.string().nullable().optional(),
     thesisTopicId: z.string().uuid().nullable().optional(),
-    academicYearId: z.string().uuid().nullable().optional(),
+    academicYearId: academicYearIdSchema.nullable().optional(),
     startDate: z.string().datetime({ offset: true }).nullable().optional().or(z.date().nullable().optional()),
     rating: z.enum(["ONGOING", "SLOW", "AT_RISK", "FAILED", "CANCELLED"]).optional(),
     pembimbing1: z.string().uuid().optional(),

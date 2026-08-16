@@ -72,18 +72,21 @@ export const findStudentAdvisorAccessContext = async (userId) => {
               id: true,
               lecturerId: true,
               status: true,
+              createdAt: true,
               role: {
                 select: { id: true, name: true },
               },
               lecturer: {
                 select: {
                   id: true,
+                  scienceGroup: { select: { id: true, name: true } },
                   user: {
                     select: {
                       id: true,
                       fullName: true,
                       email: true,
                       avatarUrl: true,
+                      identityNumber: true,
                     },
                   },
                 },
@@ -264,11 +267,11 @@ export const findById = async (id) => {
         include: {
           user: { select: { id: true, fullName: true, identityNumber: true, avatarUrl: true } },
           scienceGroup: { select: { id: true, name: true } },
-          supervisionQuotas: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
-            select: { quotaMax: true, quotaSoftLimit: true, currentCount: true },
-          },
+          // No `supervisionQuotas` here on purpose: the row is period-agnostic
+          // and carries a cached `currentCount`, so it used to ship a second,
+          // often stale set of load numbers next to the recomputed
+          // `quotaSnapshot` in the same payload (SIMPTA-FUN-009). Callers that
+          // need quota must use `getLecturerQuotaSnapshot`.
         },
       },
       topic: true,
@@ -321,6 +324,7 @@ export const findByLecturerId = async (lecturerId) => {
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -345,6 +349,7 @@ export const findRespondedByLecturerId = async (lecturerId) => {
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
     },
     orderBy: { updatedAt: "desc" },
     take: 50,
@@ -369,14 +374,13 @@ export const findEscalated = async () => {
         include: {
           user: { select: { id: true, fullName: true, identityNumber: true } },
           scienceGroup: { select: { id: true, name: true } },
-          supervisionQuotas: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
-            select: { quotaMax: true, quotaSoftLimit: true, currentCount: true },
-          },
+          // See `findById`: quota for the decision card comes from
+          // `getLecturerQuotaSnapshot`, never from this cached row
+          // (SIMPTA-FUN-009).
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -409,6 +413,7 @@ export const findPendingAssignment = async () => {
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
       redirectTarget: {
         include: {
           user: { select: { id: true, fullName: true } },
@@ -681,6 +686,46 @@ export const getLecturerCatalog = async (academicYearId) => {
 };
 
 /**
+ * Distinct thesis-topic names currently supervised by each lecturer (FUN-016).
+ * Empty array when the lecturer has no active topic-linked assignment.
+ */
+export const findSupervisedTopicsByLecturerIds = async (lecturerIds = [], academicYearId) => {
+  const uniqueIds = [...new Set((lecturerIds ?? []).filter(Boolean))];
+  const byLecturer = new Map(uniqueIds.map((id) => [id, []]));
+  if (uniqueIds.length === 0 || !academicYearId) return byLecturer;
+
+  const rows = await prisma.thesisSupervisors.findMany({
+    where: {
+      lecturerId: { in: uniqueIds },
+      status: "active",
+      role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+      thesis: {
+        OR: [{ academicYearId }, { activeAcademicYearId: academicYearId }],
+        thesisTopicId: { not: null },
+      },
+    },
+    select: {
+      lecturerId: true,
+      thesis: {
+        select: {
+          thesisTopic: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  for (const row of rows) {
+    const topicName = row.thesis?.thesisTopic?.name?.trim();
+    if (!topicName) continue;
+    const list = byLecturer.get(row.lecturerId);
+    if (!list) continue;
+    if (!list.includes(topicName)) list.push(topicName);
+  }
+
+  return byLecturer;
+};
+
+/**
  * Find alternative lecturers in the same science group with available quota.
  * Like getLecturerCatalog, queries from Lecturer to include those without quota records.
  */
@@ -930,7 +975,7 @@ export const hasAnyActiveRole = async (userId, roleNames) => {
       status: "active",
       role: { name: { in: roleNames } },
     },
-    select: { id: true },
+    select: { userId: true, roleId: true },
   });
 };
 
@@ -985,11 +1030,11 @@ export const findByIdWithClient = async (client, id) => {
         include: {
           user: { select: { id: true, fullName: true, identityNumber: true, avatarUrl: true } },
           scienceGroup: { select: { id: true, name: true } },
-          supervisionQuotas: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
-            select: { quotaMax: true, quotaSoftLimit: true, currentCount: true },
-          },
+          // No `supervisionQuotas` here on purpose: the row is period-agnostic
+          // and carries a cached `currentCount`, so it used to ship a second,
+          // often stale set of load numbers next to the recomputed
+          // `quotaSnapshot` in the same payload (SIMPTA-FUN-009). Callers that
+          // need quota must use `getLecturerQuotaSnapshot`.
         },
       },
       topic: true,
@@ -1200,6 +1245,14 @@ export const updateStatusWithClient = async (client, id, data) => {
       },
     },
   });
+};
+
+export const updateStatusIfCurrent = async (client, id, expectedStatus, data) => {
+  const result = await client.thesisAdvisorRequest.updateMany({
+    where: { id, status: expectedStatus },
+    data,
+  });
+  return result.count;
 };
 
 export const createAuditLogWithClient = async (client, data) => {

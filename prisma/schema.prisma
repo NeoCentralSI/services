@@ -250,9 +250,10 @@ model AcademicYear {
   @@map("academic_years")
 }
 
-/// Snapshot KRS Tugas Akhir pertama yang berhasil diterima dari sumber akademik
-/// untuk setiap mahasiswa dan tahun akademik. Record ini immutable dan menjadi
-/// satu-satunya input lifecycle booking -> active_official/released.
+/// Snapshot observasi akademik per mahasiswa dan tahun ajaran aktif saat observasi.
+/// `eligibleMetopen` first-write-wins per periode. `takingThesisCourse` ditimpa
+/// setiap observasi SIA/devtools (KC-20260814-02). SIA tidak mengirim
+/// academicYearId; baris menempel ke ember kalender yang sedang aktif.
 model StudentAcademicYearSnapshot {
   id                   String                         @id @default(uuid()) @db.VarChar(191)
   studentId            String                         @map("student_id") @db.VarChar(191)
@@ -2462,6 +2463,9 @@ model ResearchMethodScore {
   attendanceRecordId       String?   @map("attendance_record_id") @db.VarChar(191)
   attendanceAutoZeroedAt   DateTime? @map("attendance_auto_zeroed_at")
   attendanceAutoZeroReason String?   @map("attendance_auto_zero_reason") @db.Text
+  // BR-29 (canon v3.4 §5.7.5): tutup periode Metopel. Terpisah dari auto-zero presensi.
+  periodClosedAt           DateTime? @map("period_closed_at")
+  periodClosedReason       String?   @map("period_closed_reason") @db.VarChar(64)
   // BR-20 (canon §5.7.1): TA-03A konsensus P1 master + P2 co-sign.
   // P1 mengisi rubrik utuh (supervisorScore + supervisorId di atas);
   // P2 melakukan co-sign sebagai persetujuan tanpa modifikasi nilai.
@@ -2488,6 +2492,7 @@ model ResearchMethodScore {
   @@index([coSignedByLecturerId])
   @@index([finalizedBy])
   @@index([attendanceRecordId])
+  @@index([periodClosedAt])
   @@map("research_method_scores")
 }
 
@@ -2762,9 +2767,11 @@ enum AssessmentAppliesTo {
 /// === ACTIVE STATES (canon-aligned) ===
 /// pending, under_review, pending_kadep, booking_approved, active_official,
 /// released, revision_requested, rejected_by_dosen, rejected_by_kadep, redirected,
-/// withdrawn, canceled.
+/// withdrawn, canceled, closed.
+/// `closed` kanonis untuk pra-booking yang ditutup sistem saat periode Metopel
+/// berakhir (BR-29 / canon §5.7.5). Bukan cabut mahasiswa (`canceled`).
 /// === LEGACY (deprecated, read-only untuk backward compat) ===
-/// approved, rejected, override_approved, assigned, closed, escalated.
+/// approved, rejected, override_approved, assigned, escalated.
 /// Service layer baru WAJIB pakai canonical states; legacy hanya untuk read
 /// historical rows. Backfill di migration B sudah konversi rows aktif ke
 /// canonical state. Sumber: HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-03.
@@ -2782,9 +2789,8 @@ enum ThesisAdvisorRequestStatus {
   redirected
   withdrawn
   canceled
-  // === LEGACY (deprecated — JANGAN ditulis service baru) ===
-  /// @deprecated Use `booking_approved` instead. Sumber: canon §5.2 + handoff §5 P0-03.
   closed
+  // === LEGACY (deprecated — JANGAN ditulis service baru) ===
   /// @deprecated Use `pending_kadep` + `routeType=escalated` instead.
   escalated
   /// @deprecated Use `booking_approved` instead.

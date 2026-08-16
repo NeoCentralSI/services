@@ -22,12 +22,12 @@ import {
 } from "../controllers/thesisGuidance/lecturer.guidance.controller.js";
 import monitoringRouter from "./thesisGuidance/monitoring.route.js";
 import * as monitoringController from "../controllers/thesisGuidance/monitoring.controller.js";
-import prisma from "../config/prisma.js";
 import * as studentRepo from "../repositories/thesisGuidance/student.guidance.repository.js";
 import * as lecturerRepo from "../repositories/thesisGuidance/lecturer.guidance.repository.js";
 import {
   submitSessionSummaryService,
   markSessionCompleteService,
+  requestGuidanceService,
 } from "../services/thesisGuidance/student.guidance.service.js";
 import {
   getMyStudentsService,
@@ -87,70 +87,32 @@ router.get("/student/guidance", requireAnyRole([ROLES.MAHASISWA]), async (req, r
 
 router.post("/student/guidance/request", requireAnyRole([ROLES.MAHASISWA]), parseGuidanceRequestForm, async (req, res, next) => {
   try {
-    const thesis = await studentRepo.getActiveThesisForStudent(req.user.sub);
-    if (!thesis) throw new NotFoundError("Tugas Akhir tidak ditemukan");
-
-    const supervisors = await studentRepo.getSupervisorsForThesis(thesis.id);
-    const supervisorId = req.body.supervisorId || supervisors[0]?.lecturerId;
-    if (!supervisorId) throw new BadRequestError("Belum memiliki dosen pembimbing");
-
-    const defaultPhase =
-      thesis.proposalStatus === "accepted" || thesis.isProposal === false ? "thesis" : "proposal";
-    const rawPhase = req.body.phase;
-    const phase = ["proposal", "thesis"].includes(rawPhase) ? rawPhase : defaultPhase;
-
-    if (phase === "proposal") {
-      await assertTa04GuidanceAuthorized(thesis.id);
-    }
-
-    const rawMilestoneIds = req.body.milestoneIds || req.body['milestoneIds[]'];
+    const rawMilestoneIds = req.body.milestoneIds || req.body["milestoneIds[]"];
     const milestoneIds = Array.isArray(rawMilestoneIds)
       ? rawMilestoneIds
       : rawMilestoneIds
         ? [rawMilestoneIds]
         : [];
-
-    const guidance = await prisma.$transaction(async (tx) => {
-      const created = await tx.thesisGuidance.create({
-        data: {
-          thesisId: thesis.id,
-          supervisorId,
-          requestedDate: new Date(req.body.guidanceDate),
-          duration: parseInt(req.body.duration) || 60,
-          studentNotes: req.body.studentNotes || null,
-          documentUrl: req.body.documentUrl || null,
-          phase,
-          status: "requested",
-        },
-        include: {
-          supervisor: { include: { user: { select: { id: true, fullName: true } } } },
-          milestones: { include: { milestone: { select: { id: true, title: true } } } },
-        },
-      });
-
-      if (milestoneIds.length > 0) {
-        await tx.thesisGuidanceMilestone.createMany({
-          data: milestoneIds.map((mid) => ({
-            guidanceId: created.id,
-            milestoneId: mid,
-          })),
-          skipDuplicates: true,
-        });
-        // Reload milestones relation after insert
-        const withMilestones = await tx.thesisGuidance.findUnique({
-          where: { id: created.id },
-          include: {
-            supervisor: { include: { user: { select: { id: true, fullName: true } } } },
-            milestones: { include: { milestone: { select: { id: true, title: true } } } },
-          },
-        });
-        return withMilestones;
-      }
-
-      return created;
+    const duration = Number.parseInt(req.body.duration, 10) || 60;
+    const result = await requestGuidanceService(
+      req.user.sub,
+      new Date(req.body.guidanceDate),
+      req.body.studentNotes || "",
+      req.file || null,
+      req.body.supervisorId || null,
+      {
+        duration,
+        milestoneIds,
+        documentUrl: req.body.documentUrl || null,
+      },
+    );
+    const guidance = result.guidance?.id
+      ? await studentRepo.getGuidanceByIdForStudent(result.guidance.id, req.user.sub)
+      : null;
+    res.json({
+      success: true,
+      guidance: guidance ? mapGuidanceItem(guidance) : result.guidance,
     });
-
-    res.json({ success: true, guidance: mapGuidanceItem(guidance) });
   } catch (err) { next(err); }
 });
 

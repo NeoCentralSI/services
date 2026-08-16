@@ -23,7 +23,8 @@ const { mockRepo, mockPrisma, mockNotif, mockPush, mockRoles } = vi.hoisted(() =
     thesisChangeRequest: { update: vi.fn() },
     thesisSupervisors: { updateMany: vi.fn() },
     thesisMilestoneTemplate: { findMany: vi.fn() },
-    thesisMilestone: { createMany: vi.fn() },
+    thesisMilestone: { createMany: vi.fn(), updateMany: vi.fn() },
+    thesisGuidance: { updateMany: vi.fn() },
     academicYear: { findFirst: vi.fn() },
     user: { findMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
@@ -39,6 +40,7 @@ const { mockRepo, mockPrisma, mockNotif, mockPush, mockRoles } = vi.hoisted(() =
       KETUA_DEPARTEMEN: "ketua_departemen",
     },
     SUPERVISOR_ROLES: ["pembimbing_1", "pembimbing_2"],
+    supervisorRoleDisplayName: (name) => name,
   },
 }));
 
@@ -107,21 +109,21 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
 
   // ─── Submit Request ───────────────────────────────────────
   describe("submitRequest", () => {
-    it("creates a topic change request with new title, topic, and reason", async () => {
+    it("creates a topic change request and persists newTitle, newTopicId, supportingDocumentId", async () => {
       mockPrisma.thesisTopic.findUnique.mockResolvedValue({ id: "topic-new", name: "ML" });
       mockPrisma.thesis.findFirst.mockResolvedValue(THESIS);
       mockRepo.findPendingByThesisId.mockResolvedValue(null);
-      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-diajukan", name: "Diajukan" });
-      mockPrisma.academicYear.findFirst.mockResolvedValue({ id: "ay-1" });
-      mockPrisma.thesis.create.mockResolvedValue({ id: "thesis-new" });
       mockRepo.create.mockResolvedValue({
         id: "req-new",
         thesisId: "thesis-1",
         requestType: "topic",
         status: "pending",
+        newTitle: "New Thesis Title",
+        newTopicId: "topic-new",
+        supportingDocumentId: SUPPORTING_DOC_ID,
         thesis: THESIS,
       });
-      mockPrisma.user.findMany.mockResolvedValue([]); // no kadep for notification
+      mockPrisma.user.findMany.mockResolvedValue([]);
 
       const result = await submitRequest(STUDENT_ID, {
         requestType: "topic",
@@ -132,24 +134,20 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       });
 
       expect(result).toHaveProperty("id");
-      expect(mockRepo.create).toHaveBeenCalled();
+      expect(mockPrisma.thesis.create).not.toHaveBeenCalled();
+      expect(mockRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+        thesisId: "thesis-1",
+        requestType: "topic",
+        reason: "Ganti topik",
+        newTitle: "New Thesis Title",
+        newTopicId: "topic-new",
+        supportingDocumentId: SUPPORTING_DOC_ID,
+      }));
       expect(mockPrisma.thesis.findFirst).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({
-          studentId: STUDENT_ID,
-          thesisStatus: { name: "Bimbingan" },
+          student: { id: STUDENT_ID },
         }),
       }));
-    });
-
-    it("rejects (400) if required fields (newTitle, newTopicId) are missing", async () => {
-      await expect(
-        submitRequest(STUDENT_ID, {
-          requestType: "topic",
-          reason: "Ganti topik",
-          newTitle: null,
-          newTopicId: null,
-        })
-      ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it("rejects (404) if new topic doesn't exist", async () => {
@@ -164,6 +162,23 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
           supportingDocumentId: SUPPORTING_DOC_ID,
           newTitle: "New Title",
           newTopicId: "nonexistent",
+        })
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("rejects (404) if supporting document doesn't exist", async () => {
+      mockPrisma.thesis.findFirst.mockResolvedValue(THESIS);
+      mockRepo.findPendingByThesisId.mockResolvedValue(null);
+      mockPrisma.thesisTopic.findUnique.mockResolvedValue({ id: "topic-new", name: "ML" });
+      mockPrisma.document.findUnique.mockResolvedValue(null);
+
+      await expect(
+        submitRequest(STUDENT_ID, {
+          requestType: "topic",
+          reason: "Ganti",
+          supportingDocumentId: SUPPORTING_DOC_ID,
+          newTitle: "New Title",
+          newTopicId: "topic-new",
         })
       ).rejects.toMatchObject({ statusCode: 404 });
     });
@@ -184,13 +199,10 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("sends notification to pembimbing saat ini (tier 1)", async () => {
+    it("sends notification to current supervisors", async () => {
       mockPrisma.thesisTopic.findUnique.mockResolvedValue({ id: "topic-new", name: "ML" });
       mockPrisma.thesis.findFirst.mockResolvedValue(THESIS);
       mockRepo.findPendingByThesisId.mockResolvedValue(null);
-      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-diajukan" });
-      mockPrisma.academicYear.findFirst.mockResolvedValue({ id: "ay-1" });
-      mockPrisma.thesis.create.mockResolvedValue({ id: "thesis-new" });
       mockRepo.create.mockResolvedValue({
         id: "req-new",
         thesisId: "thesis-1",
@@ -209,52 +221,55 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       });
 
       expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledWith(
-        ["lec-1", "lec-2"],
+        ["user-dosen-1", "user-dosen-2"],
         expect.objectContaining({ type: "THESIS_CHANGE_REQUEST" })
       );
     });
   });
 
-  // ─── Approve by Kadep (Transaction) ──────────────────────
+  // ─── Approve by Kadep (archive old thesis) ────────────────
   describe("approveRequest (Kadep)", () => {
-    it("approves with $transaction: archives old TA, activates new TA, moves supervisors, creates milestones", async () => {
+    it("archives the old thesis as Dibatalkan and soft-deletes guidances/milestones", async () => {
       mockRepo.findById.mockResolvedValue(PENDING_REQUEST);
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        const tx = {
-          thesisChangeRequest: { update: vi.fn().mockResolvedValue({ ...PENDING_REQUEST, status: "approved", thesis: THESIS }) },
-          thesisStatus: {
-            findFirst: vi.fn().mockImplementation((q) => {
-              const w = q?.where || {};
-              if (w.name === "Dibatalkan") return Promise.resolve({ id: "status-dibatalkan", name: "Dibatalkan" });
-              if (w.name === "Diajukan") return Promise.resolve({ id: "status-diajukan", name: "Diajukan" });
-              if (w.name === "Bimbingan") return Promise.resolve({ id: "status-bimbingan", name: "Bimbingan" });
-              return Promise.resolve(null);
-            }),
-            create: vi.fn(),
-          },
-          thesis: {
-            update: vi.fn().mockResolvedValue({}),
-            findFirst: vi.fn().mockResolvedValue({ id: "thesis-new", thesisTopicId: "topic-new" }),
-          },
-          academicYear: { findFirst: vi.fn().mockResolvedValue(null) },
-          thesisSupervisors: { updateMany: vi.fn().mockResolvedValue({}) },
-          thesisMilestoneTemplate: { findMany: vi.fn().mockResolvedValue([]) },
-          thesisMilestone: { createMany: vi.fn().mockResolvedValue({}) },
-        };
-        return cb(tx);
-      });
+      mockRepo.update.mockResolvedValue({ ...PENDING_REQUEST, status: "approved" });
+      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-dibatalkan", name: "Dibatalkan" });
+      mockPrisma.thesis.update.mockResolvedValue({});
+      mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.thesisMilestone.updateMany.mockResolvedValue({ count: 1 });
 
       const result = await approveRequest("req-1", "kadep-1", "Disetujui");
 
-      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockPrisma.thesis.create).not.toHaveBeenCalled();
+      expect(mockRepo.update).toHaveBeenCalledWith("req-1", expect.objectContaining({
+        status: "approved",
+        reviewedBy: "kadep-1",
+        reviewNotes: "Disetujui",
+      }));
+      expect(mockPrisma.thesis.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: "thesis-1" },
+        data: expect.objectContaining({
+          thesisStatusId: "status-dibatalkan",
+          title: "Old Thesis (Dibatalkan)",
+        }),
+      }));
+      expect(mockPrisma.thesisGuidance.updateMany).toHaveBeenCalledWith({
+        where: { thesisId: "thesis-1" },
+        data: { status: "deleted" },
+      });
+      expect(mockPrisma.thesisMilestone.updateMany).toHaveBeenCalledWith({
+        where: { thesisId: "thesis-1" },
+        data: { status: "deleted" },
+      });
+      expect(result.status).toBe("approved");
     });
 
-    it("rejects (403) if not all supervisors have approved", async () => {
+    it("rejects (400) if not all supervisors have approved", async () => {
       mockRepo.findById.mockResolvedValue({
         ...PENDING_REQUEST,
         approvals: [
           { lecturerId: "lec-1", status: "approved" },
-          { lecturerId: "lec-2", status: "pending" }, // not yet approved
+          { lecturerId: "lec-2", status: "pending" },
         ],
       });
 
@@ -282,60 +297,28 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       });
     });
 
-    it("sets 1-year deadline and Bimbingan status on new thesis", async () => {
+    it("does not activate a new thesis or move supervisors", async () => {
       mockRepo.findById.mockResolvedValue(PENDING_REQUEST);
-      const txThesisUpdate = vi.fn().mockResolvedValue({});
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        const tx = {
-          thesisChangeRequest: { update: vi.fn().mockResolvedValue({ ...PENDING_REQUEST, status: "approved", thesis: THESIS }) },
-          thesisStatus: {
-            findFirst: vi.fn()
-              .mockResolvedValueOnce({ id: "status-dibatalkan" })
-              .mockResolvedValueOnce({ id: "status-diajukan" })
-              .mockResolvedValueOnce({ id: "status-bimbingan" }),
-          },
-          thesis: {
-            update: txThesisUpdate,
-            findFirst: vi.fn().mockResolvedValue({ id: "thesis-new", thesisTopicId: "topic-new" }),
-          },
-          academicYear: { findFirst: vi.fn().mockResolvedValue(null) },
-          thesisSupervisors: { updateMany: vi.fn().mockResolvedValue({}) },
-          thesisMilestoneTemplate: { findMany: vi.fn().mockResolvedValue([]) },
-          thesisMilestone: { createMany: vi.fn().mockResolvedValue({}) },
-        };
-        return cb(tx);
-      });
+      mockRepo.update.mockResolvedValue({ ...PENDING_REQUEST, status: "approved" });
+      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-dibatalkan", name: "Dibatalkan" });
+      mockPrisma.thesis.update.mockResolvedValue({});
+      mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.thesisMilestone.updateMany.mockResolvedValue({ count: 0 });
 
       await approveRequest("req-1", "kadep-1");
 
-      // Verify that thesis.update was called with deadline 1 year
-      const updateCalls = txThesisUpdate.mock.calls;
-      const activateCall = updateCalls.find((c) => c[0]?.data?.deadlineDate);
-      expect(activateCall).toBeDefined();
+      expect(mockPrisma.thesisSupervisors.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.thesis.create).not.toHaveBeenCalled();
+      expect(mockPrisma.thesisMilestone.createMany).not.toHaveBeenCalled();
     });
 
-    it("sends notification to supervisors after approval", async () => {
+    it("sends notification to student after approval", async () => {
       mockRepo.findById.mockResolvedValue(PENDING_REQUEST);
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        const tx = {
-          thesisChangeRequest: { update: vi.fn().mockResolvedValue({ ...PENDING_REQUEST, status: "approved", thesis: THESIS }) },
-          thesisStatus: {
-            findFirst: vi.fn().mockImplementation((q) => {
-              const n = q?.where?.name;
-              if (n === "Dibatalkan") return Promise.resolve({ id: "sd" });
-              if (n === "Diajukan") return Promise.resolve({ id: "sd2" });
-              if (n === "Bimbingan") return Promise.resolve({ id: "s" });
-              return Promise.resolve(null);
-            }),
-          },
-          thesis: { update: vi.fn(), findFirst: vi.fn().mockResolvedValue({ id: "tn", thesisTopicId: "tp" }) },
-          academicYear: { findFirst: vi.fn().mockResolvedValue(null) },
-          thesisSupervisors: { updateMany: vi.fn() },
-          thesisMilestoneTemplate: { findMany: vi.fn().mockResolvedValue([]) },
-          thesisMilestone: { createMany: vi.fn() },
-        };
-        return cb(tx);
-      });
+      mockRepo.update.mockResolvedValue({ ...PENDING_REQUEST, status: "approved", thesis: THESIS });
+      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-dibatalkan", name: "Dibatalkan" });
+      mockPrisma.thesis.update.mockResolvedValue({});
+      mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.thesisMilestone.updateMany.mockResolvedValue({ count: 0 });
 
       await approveRequest("req-1", "kadep-1");
 

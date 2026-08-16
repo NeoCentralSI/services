@@ -354,4 +354,45 @@ describe("advisorQuota.service", () => {
       }),
     );
   });
+
+  it("exposes proposal status, version, and period marker on supervised student entries", async () => {
+    repo.findTrackedAdvisorRequests.mockResolvedValue([
+      {
+        ...createRequest({
+          id: "req-proposal-1",
+          studentId: "student-proposal",
+          thesisId: "thesis-proposal",
+          status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
+          proposalStatus: "submitted",
+        }),
+        academicYear: { id: "ay-1", year: "2026/2027", semester: "ganjil", isActive: true },
+        thesis: {
+          id: "thesis-proposal",
+          title: "Judul Proposal",
+          proposalStatus: "submitted",
+          academicYearId: "ay-1",
+          finalProposalVersionId: "ver-2",
+          thesisStatus: { name: "Metopel" },
+          studentId: "student-proposal",
+          academicYear: { id: "ay-1", year: "2026/2027", semester: "ganjil", isActive: true },
+          finalProposalVersion: { version: 2, submittedAsFinalAt: new Date("2026-08-01T00:00:00Z") },
+          proposalVersions: [{ version: 2, isLatest: true, submittedAsFinalAt: new Date("2026-08-01T00:00:00Z") }],
+        },
+      },
+    ]);
+
+    const snapshot = await getLecturerQuotaSnapshot("lecturer-1", "ay-1", { includeEntries: true });
+
+    expect(snapshot.bookingEntries[0]).toEqual(
+      expect.objectContaining({
+        requestId: "req-proposal-1",
+        proposalStatus: "submitted",
+        proposalVersion: 2,
+        hasFinalProposal: true,
+        academicYearId: "ay-1",
+        academicYearLabel: "2026/2027 ganjil",
+        isCurrentPeriod: true,
+      }),
+    );
+  });
 });

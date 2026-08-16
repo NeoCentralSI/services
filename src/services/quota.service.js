@@ -1,7 +1,67 @@
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError } from "../utils/errors.js";
 import { getLecturerQuotaSnapshot, getLecturerQuotaSnapshots } from "./advisorQuota.service.js";
+import { getDefaultQuota as getSupervisionDefaultQuota } from "./supervisionQuota.service.js";
 import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
+import { ADMIN_ROLES, DEPARTMENT_ROLES, normalize } from "../constants/roles.js";
+import {
+  QUOTA_LOAD_DEFINITION_LABEL,
+  aggregateKbkLoads,
+  periodLabelFromAcademicYear,
+} from "../utils/loadScope.util.js";
+
+function hasAnyRole(roleNames = [], expected = []) {
+  const actual = new Set((roleNames ?? []).map((name) => normalize(name)));
+  return expected.some((roleName) => actual.has(normalize(roleName)));
+}
+
+/**
+ * Full six figures for Admin/KaDep/Sekdep/GKM, or a dosen viewing themselves.
+ * Internal callers (no viewer context) also get the complete snapshot so
+ * downstream sanitizers (P2 catalog) can pick mahasiswa-safe fields.
+ * Peer dosen see the same surface as mahasiswa (canon §7.3 / SIMPTA-FUN-034).
+ */
+export function canSeeFullSixQuotaFigures({ viewerUserId, viewerRoles } = {}, targetLecturerId) {
+  if (viewerUserId == null && (!viewerRoles || viewerRoles.length === 0)) {
+    return true;
+  }
+  if (hasAnyRole(viewerRoles, [...ADMIN_ROLES, ...DEPARTMENT_ROLES])) {
+    return true;
+  }
+  return Boolean(viewerUserId && targetLecturerId && viewerUserId === targetLecturerId);
+}
+
+function serializeQuotaSnapshot(snapshot, { includeSensitive = true } = {}) {
+  const base = {
+    lecturerId: snapshot.lecturerId,
+    fullName: snapshot.fullName,
+    identityNumber: snapshot.identityNumber,
+    email: snapshot.email,
+    avatarUrl: snapshot.avatarUrl,
+    scienceGroup: snapshot.scienceGroup,
+    quotaMax: snapshot.quotaMax,
+    quotaSoftLimit: snapshot.quotaSoftLimit,
+    activeCount: snapshot.activeCount,
+    normalAvailable: snapshot.normalAvailable,
+    remaining: snapshot.normalAvailable,
+    activeTheses: snapshot.activeCount,
+    trafficLight: snapshot.trafficLight,
+    acceptingRequests: snapshot.acceptingRequests,
+  };
+
+  if (!includeSensitive) {
+    return base;
+  }
+
+  return {
+    ...base,
+    currentCount: snapshot.currentCount,
+    bookingCount: snapshot.bookingCount,
+    pendingKadepCount: snapshot.pendingKadepCount,
+    overquotaAmount: snapshot.overquotaAmount,
+    overquotaSahCount: snapshot.overquotaSahCount,
+  };
+}
 
 async function resolveActiveAcademicYearId(academicYearId) {
   if (academicYearId) return academicYearId;
@@ -19,53 +79,29 @@ async function resolveActiveAcademicYearId(academicYearId) {
  * Browse all lecturer quotas for a given academic year.
  * Returns lecturers with their traffic-light quota status.
  */
-export async function browseLecturerQuotas(academicYearId) {
+export async function browseLecturerQuotas(academicYearId, visibility = {}) {
   academicYearId = await resolveActiveAcademicYearId(academicYearId);
 
   const snapshots = await getLecturerQuotaSnapshots({ academicYearId });
-  return snapshots.map((snapshot) => ({
-    lecturerId: snapshot.lecturerId,
-    fullName: snapshot.fullName,
-    identityNumber: snapshot.identityNumber,
-    email: snapshot.email,
-    avatarUrl: snapshot.avatarUrl,
-    scienceGroup: snapshot.scienceGroup,
-    quotaMax: snapshot.quotaMax,
-    quotaSoftLimit: snapshot.quotaSoftLimit,
-    currentCount: snapshot.currentCount,
-    activeCount: snapshot.activeCount,
-    bookingCount: snapshot.bookingCount,
-    pendingKadepCount: snapshot.pendingKadepCount,
-    normalAvailable: snapshot.normalAvailable,
-    overquotaAmount: snapshot.overquotaAmount,
-    activeTheses: snapshot.activeCount,
-    trafficLight: snapshot.trafficLight,
-    acceptingRequests: snapshot.acceptingRequests,
-  }));
+  return snapshots.map((snapshot) =>
+    serializeQuotaSnapshot(snapshot, {
+      includeSensitive: canSeeFullSixQuotaFigures(visibility, snapshot.lecturerId),
+    }),
+  );
 }
 
 /**
  * Get quota details for a specific lecturer.
  */
-export async function getLecturerQuotaDetail(lecturerId, academicYearId) {
+export async function getLecturerQuotaDetail(lecturerId, academicYearId, visibility = {}) {
   academicYearId = await resolveActiveAcademicYearId(academicYearId);
   const snapshot = await getLecturerQuotaSnapshot(lecturerId, academicYearId, { includeEntries: true });
   if (!snapshot) throw new NotFoundError("Dosen tidak ditemukan");
 
   return {
-    lecturerId: snapshot.lecturerId,
-    fullName: snapshot.fullName,
-    scienceGroup: snapshot.scienceGroup,
-    acceptingRequests: snapshot.acceptingRequests,
-    quotaMax: snapshot.quotaMax,
-    quotaSoftLimit: snapshot.quotaSoftLimit,
-    currentCount: snapshot.currentCount,
-    activeCount: snapshot.activeCount,
-    bookingCount: snapshot.bookingCount,
-    pendingKadepCount: snapshot.pendingKadepCount,
-    normalAvailable: snapshot.normalAvailable,
-    overquotaAmount: snapshot.overquotaAmount,
-    overquotaSahCount: snapshot.overquotaSahCount,
+    ...serializeQuotaSnapshot(snapshot, {
+      includeSensitive: canSeeFullSixQuotaFigures(visibility, snapshot.lecturerId),
+    }),
     quotaRecord: snapshot.quotaRecordId ? { id: snapshot.quotaRecordId } : null,
   };
 }
@@ -88,6 +124,7 @@ export async function checkLecturerQuota(lecturerId, academicYearId) {
     pendingKadepCount: snapshot.pendingKadepCount,
     normalAvailable: snapshot.normalAvailable,
     overquotaAmount: snapshot.overquotaAmount,
+    overquotaSahCount: snapshot.overquotaSahCount,
     trafficLight: snapshot.trafficLight,
   };
 }
@@ -114,11 +151,8 @@ export async function getTopics() {
 export async function getDefaultQuotaConfig(academicYearId) {
   academicYearId = await resolveActiveAcademicYearId(academicYearId);
   if (!academicYearId) throw new BadRequestError("academicYearId wajib diisi");
-
-  const config = await prisma.supervisionQuotaDefault.findUnique({
-    where: { academicYearId },
-  });
-  return { academicYearId, config: config ?? null };
+  // Same payload as GET /supervision-quota/default/:id (SIMPTA-FUN-021).
+  return getSupervisionDefaultQuota(academicYearId);
 }
 
 /**
@@ -210,16 +244,22 @@ export async function toggleLecturerAcceptingRequests(lecturerId, acceptingReque
   });
 }
 
-export async function checkQuotaAvailability(lecturerId, academicYearId) {
+export async function checkQuotaAvailability(lecturerId, academicYearId, visibility = {}) {
+  // Compute traffic light from the full snapshot, then sanitize the payload
+  // for peer viewers (canon §7.3). Internal callers (empty visibility) still
+  // receive complete figures so sanitizers downstream can pick fields.
   const detail = await getLecturerQuotaDetail(lecturerId, academicYearId);
+  const currentCount = detail.currentCount ?? 0;
 
   let trafficLight = "green";
-  if (detail.currentCount >= detail.quotaMax) trafficLight = "red";
-  else if (detail.currentCount >= detail.quotaSoftLimit) trafficLight = "yellow";
+  if (currentCount >= detail.quotaMax) trafficLight = "red";
+  else if (currentCount >= detail.quotaSoftLimit) trafficLight = "yellow";
 
-  const remaining = Math.max(0, detail.quotaMax - detail.currentCount);
+  const remaining = Math.max(0, detail.quotaMax - currentCount);
   const isAcceptingRequests = detail.acceptingRequests !== false;
-  const allowed = isAcceptingRequests && trafficLight !== "red";
+  // Red quota is informational for KaDep P2 (overquota sah). Only a closed
+  // intake flag blocks the check endpoint.
+  const allowed = isAcceptingRequests;
 
   let reason = null;
   if (!isAcceptingRequests) {
@@ -228,17 +268,22 @@ export async function checkQuotaAvailability(lecturerId, academicYearId) {
     reason = "Kuota pembimbing penuh.";
   }
 
-  return {
+  const payload = {
     lecturerId: detail.lecturerId,
     quotaMax: detail.quotaMax,
     quotaSoftLimit: detail.quotaSoftLimit,
-    currentCount: detail.currentCount,
-    remaining,
     trafficLight,
     acceptingRequests: detail.acceptingRequests,
     allowed,
     reason,
   };
+
+  if (canSeeFullSixQuotaFigures(visibility, detail.lecturerId)) {
+    payload.currentCount = currentCount;
+    payload.remaining = remaining;
+  }
+
+  return payload;
 }
 
 // ============================================
@@ -251,13 +296,20 @@ export async function checkQuotaAvailability(lecturerId, academicYearId) {
  */
 export async function getQuotaMonitoring(academicYearId) {
   academicYearId = await resolveActiveAcademicYearId(academicYearId);
-  const snapshots = await getLecturerQuotaSnapshots({ academicYearId });
+  const [snapshots, academicYear] = await Promise.all([
+    getLecturerQuotaSnapshots({ academicYearId }),
+    prisma.academicYear.findUnique({
+      where: { id: academicYearId },
+      select: { id: true, year: true, semester: true },
+    }),
+  ]);
 
-  return snapshots.map((snapshot) => ({
+  const lecturers = snapshots.map((snapshot) => ({
     id: snapshot.quotaRecordId,
     lecturerId: snapshot.lecturerId,
     fullName: snapshot.fullName,
     identityNumber: snapshot.identityNumber,
+    scienceGroupId: snapshot.scienceGroup?.id ?? null,
     scienceGroup: snapshot.scienceGroup?.name ?? null,
     quotaMax: snapshot.quotaMax,
     quotaSoftLimit: snapshot.quotaSoftLimit,
@@ -271,4 +323,12 @@ export async function getQuotaMonitoring(academicYearId) {
     remaining: snapshot.normalAvailable,
     trafficLight: snapshot.trafficLight,
   }));
+
+  return {
+    definitionLabel: QUOTA_LOAD_DEFINITION_LABEL,
+    periodLabel: periodLabelFromAcademicYear(academicYear),
+    academicYearId,
+    lecturers,
+    kbkLoads: aggregateKbkLoads(lecturers),
+  };
 }

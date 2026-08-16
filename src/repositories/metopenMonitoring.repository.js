@@ -46,6 +46,7 @@ const ATTENDANCE_IMPORT_SELECT = {
   eligibleRows: true,
   ineligibleRows: true,
   autoZeroedCount: true,
+  skippedFinalizedCount: true,
   uploadedAt: true,
 };
 
@@ -97,6 +98,23 @@ export async function findEligibleMetopenStudents(academicYearId, client = prism
     metopenEligibilitySource: snapshot.eligibilitySource,
     metopenEligibilityUpdatedAt: snapshot.eligibilityCapturedAt,
   }));
+}
+
+/**
+ * Hitung snapshot SIA periode ini: total baris dan baris eligible Metopel.
+ *
+ * Dipakai service untuk membedakan "snapshot periode belum ada" dari "snapshot
+ * ada tetapi tidak ada mahasiswa eligible". Gate fail-closed terhadap snapshot
+ * (KC-20260731-02) tidak berubah; angka ini hanya membuat sebabnya terbaca.
+ */
+export async function countStudentSnapshots(academicYearId, client = prisma) {
+  const [total, eligible] = await Promise.all([
+    client.studentAcademicYearSnapshot.count({ where: { academicYearId } }),
+    client.studentAcademicYearSnapshot.count({
+      where: { academicYearId, eligibleMetopen: true },
+    }),
+  ]);
+  return { total, eligible };
 }
 
 export function findLatestAttendanceImportWithRecords(academicYearId, client = prisma) {
