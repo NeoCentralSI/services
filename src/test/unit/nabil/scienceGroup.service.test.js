@@ -13,8 +13,10 @@ const { mockPrisma } = vi.hoisted(() => ({
       update: vi.fn(),
       delete: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
-    lecturer: { findFirst: vi.fn() },
+    lecturer: { count: vi.fn() },
+    thesisTopic: { count: vi.fn() },
   },
 }));
 
@@ -32,7 +34,13 @@ const GROUP = { id: "sg-1", name: "Artificial Intelligence" };
 
 // ══════════════════════════════════════════════════════════════
 describe("Module 19: Kelola Kelompok Keilmuan", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPrisma.scienceGroup.findFirst.mockResolvedValue(null);
+    mockPrisma.scienceGroup.findUnique.mockResolvedValue(GROUP);
+    mockPrisma.lecturer.count.mockResolvedValue(0);
+    mockPrisma.thesisTopic.count.mockResolvedValue(0);
+  });
 
   // ─── Get Science Groups ───────────────────────────────────
   describe("getScienceGroups", () => {
@@ -63,6 +71,22 @@ describe("Module 19: Kelola Kelompok Keilmuan", () => {
     it("rejects (400) if name is empty string", async () => {
       await expect(createScienceGroup({ name: "" })).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    it("rejects (400) if name repeats the KBK prefix", async () => {
+      await expect(createScienceGroup({ name: "KBK Sistem Enterprise" })).rejects.toMatchObject({
+        statusCode: 400,
+      });
+      expect(mockPrisma.scienceGroup.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects (409) if the name is already taken", async () => {
+      mockPrisma.scienceGroup.findFirst.mockResolvedValue(GROUP);
+
+      await expect(createScienceGroup({ name: GROUP.name })).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      expect(mockPrisma.scienceGroup.create).not.toHaveBeenCalled();
+    });
   });
 
   // ─── Update Science Group ────────────────────────────────
@@ -78,15 +102,22 @@ describe("Module 19: Kelola Kelompok Keilmuan", () => {
     it("rejects (400) if name is missing", async () => {
       await expect(updateScienceGroup("sg-1", {})).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    it("rejects (404) if the science group does not exist", async () => {
+      mockPrisma.scienceGroup.findUnique.mockResolvedValue(null);
+
+      await expect(updateScienceGroup("sg-missing", { name: "Updated" })).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
   });
 
   // ─── Delete Science Group ────────────────────────────────
   describe("deleteScienceGroup", () => {
-    it("deletes science group with no lecturer references", async () => {
-      mockPrisma.lecturer.findFirst.mockResolvedValue(null);
+    it("deletes science group with no lecturer or topic references", async () => {
       mockPrisma.scienceGroup.delete.mockResolvedValue(GROUP);
 
-      const result = await deleteScienceGroup("sg-1");
+      await deleteScienceGroup("sg-1");
 
       expect(mockPrisma.scienceGroup.delete).toHaveBeenCalledWith({
         where: { id: "sg-1" },
@@ -94,11 +125,21 @@ describe("Module 19: Kelola Kelompok Keilmuan", () => {
     });
 
     it("rejects (400) if science group is assigned to lecturers", async () => {
-      mockPrisma.lecturer.findFirst.mockResolvedValue({ id: "lec-1" });
+      mockPrisma.lecturer.count.mockResolvedValue(1);
 
       await expect(deleteScienceGroup("sg-1")).rejects.toMatchObject({
         statusCode: 400,
       });
+      expect(mockPrisma.scienceGroup.delete).not.toHaveBeenCalled();
+    });
+
+    it("rejects (400) if science group is still referenced by topics", async () => {
+      mockPrisma.thesisTopic.count.mockResolvedValue(2);
+
+      await expect(deleteScienceGroup("sg-1")).rejects.toMatchObject({
+        statusCode: 400,
+      });
+      expect(mockPrisma.scienceGroup.delete).not.toHaveBeenCalled();
     });
   });
 });

@@ -8,11 +8,30 @@ vi.mock("../config/prisma.js", () => ({
     thesisSupervisors: {
       count: vi.fn(),
     },
+    // Metopel history/archive probes (metopenArchive.helper.js) run on every
+    // access-state resolve; without them the eligibility state throws.
+    researchMethodScore: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    thesis: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    thesisAdvisorRequest: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    studentAcademicYearSnapshot: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 
 vi.mock("../helpers/academicYear.helper.js", () => ({
   resolveOperationalAcademicYear: vi.fn().mockResolvedValue({
+    id: "academic-year-1",
+    year: "2026/2027",
+    semester: "ganjil",
+  }),
+  getActiveAcademicYear: vi.fn().mockResolvedValue({
     id: "academic-year-1",
     year: "2026/2027",
     semester: "ganjil",
