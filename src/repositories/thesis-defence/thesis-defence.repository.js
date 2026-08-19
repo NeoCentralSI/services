@@ -9,6 +9,7 @@ const defenceListInclude = {
     select: {
       id: true,
       title: true,
+      studentId: true,
       student: {
         select: {
           id: true,
@@ -28,15 +29,20 @@ const defenceListInclude = {
   },
   room: { select: { id: true, name: true } },
   examiners: { orderBy: { order: "asc" } },
-  documents: {
+  requirementDocuments: {
     include: {
-      verifier: { select: { fullName: true } },
+      requirement: { select: { id: true, name: true, displayOrder: true } },
+      verifier: { select: { id: true, fullName: true } },
     },
+    orderBy: { requirement: { displayOrder: "asc" } },
   },
   resultFinalizer: {
     select: {
       lecturer: {
         select: { user: { select: { fullName: true } } },
+      },
+      role: {
+        select: { name: true },
       },
     },
   },
@@ -112,20 +118,20 @@ export async function findDefencesPaginated({ where = {}, skip = 0, take = 10 } 
     prisma.thesisDefence.count({ where }),
   ]);
 
-  const enriched = await Promise.all(data.map(async (d) => ({ 
-    ...d, 
-    examiners: await enrichExaminers(d.examiners) 
+  const enriched = await Promise.all(data.map(async (d) => ({
+    ...d,
+    examiners: await enrichExaminers(d.examiners)
   })));
 
   return { data: enriched, total };
 }
 
 export async function findDefencesForAssignment({ search } = {}) {
-  const where = { 
-    status: { 
-      in: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision", "failed", "cancelled"] 
-    }, 
-    ...whereSearch(search) 
+  const where = {
+    status: {
+      in: ["verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision", "failed", "cancelled"]
+    },
+    ...whereSearch(search)
   };
   const data = await prisma.thesisDefence.findMany({
     where,
@@ -266,19 +272,17 @@ export async function createThesisDefence(thesisId) {
 }
 
 export async function deleteDefence(id) {
+  // requirementDocuments and examinerAssessmentDetails cascade-delete via schema onDelete: Cascade.
+  // We only need to explicitly delete examiners (which cascade their own assessment details and revisions).
   return prisma.$transaction(async (tx) => {
-    await tx.thesisDefenceDocument.deleteMany({ where: { thesisDefenceId: id } });
     await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
     await tx.thesisDefenceSupervisorAssessmentDetail.deleteMany({ where: { thesisDefenceId: id } });
-    await tx.thesisDefenceRevision.deleteMany({
-      where: { defenceExaminer: { thesisDefenceId: id } },
-    });
     return tx.thesisDefence.delete({ where: { id } });
   });
 }
 
 export async function createArchive(data) {
-  const { thesisId, date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
+  const { thesisId, date, roomId, status, examinerLecturerIds, finalScore, grade } = data;
   return prisma.$transaction(async (tx) => {
     const defence = await tx.thesisDefence.create({
       data: {
@@ -288,21 +292,22 @@ export async function createArchive(data) {
         status,
         finalScore,
         grade,
-        registeredAt: null, // Mark as archive
+        registeredAt: null, // Mark as archive (no registeredAt = archive record)
         resultFinalizedAt: new Date(),
       },
     });
 
     if (examinerLecturerIds && examinerLecturerIds.length > 0) {
+      const now = new Date();
       await tx.thesisDefenceExaminer.createMany({
         data: examinerLecturerIds.map((lecturerId, index) => ({
           thesisDefenceId: defence.id,
           lecturerId,
-          assignedBy: userId,
+          assignedBy: null, // Archive records have no fabricated assigning lecturer
           order: index + 1,
           availabilityStatus: "available",
-          assignedAt: new Date(),
-          respondedAt: new Date(),
+          assignedAt: now,
+          respondedAt: now,
         })),
       });
     }
@@ -312,7 +317,7 @@ export async function createArchive(data) {
 }
 
 export async function updateArchive(id, data) {
-  const { date, roomId, status, examinerLecturerIds, userId, finalScore, grade } = data;
+  const { date, roomId, status, examinerLecturerIds, finalScore, grade } = data;
   return prisma.$transaction(async (tx) => {
     await tx.thesisDefence.update({
       where: { id },
@@ -326,18 +331,19 @@ export async function updateArchive(id, data) {
     });
 
     if (examinerLecturerIds) {
-      // Refresh examiners to ensure all have assignedBy and correct order
+      // Refresh examiners — cascade deletes their assessment details and revisions.
       await tx.thesisDefenceExaminer.deleteMany({ where: { thesisDefenceId: id } });
       if (examinerLecturerIds.length > 0) {
+        const now = new Date();
         await tx.thesisDefenceExaminer.createMany({
           data: examinerLecturerIds.map((lecturerId, index) => ({
             thesisDefenceId: id,
             lecturerId,
-            assignedBy: userId,
+            assignedBy: null, // Archive records have no fabricated assigning lecturer
             order: index + 1,
             availabilityStatus: "available",
-            assignedAt: new Date(),
-            respondedAt: new Date(),
+            assignedAt: now,
+            respondedAt: now,
           })),
         });
       }
@@ -543,7 +549,7 @@ export async function findDefenceSupervisorAssessmentDetails(defenceId) {
           name: true,
           maxScore: true,
           displayOrder: true,
-          cpmk: { select: { id: true, code: true, description: true } },
+          thesisCpmk: { select: { id: true, code: true, description: true } },
           assessmentRubrics: {
             select: { id: true, minScore: true, maxScore: true, description: true },
             orderBy: { displayOrder: "asc" },
@@ -596,17 +602,31 @@ export async function finalizeDefenceResult({
   grade,
   resultFinalizedBy,
 }) {
-  return prisma.thesisDefence.update({
-    where: { id: defenceId },
-    data: {
-      status,
-      examinerAverageScore,
-      supervisorScore,
-      finalScore,
-      grade,
-      resultFinalizedAt: new Date(),
-      resultFinalizedBy,
-    },
+  return prisma.$transaction(async (tx) => {
+    const finalized = await tx.thesisDefence.update({
+      where: { id: defenceId },
+      data: {
+        status,
+        examinerAverageScore,
+        supervisorScore,
+        finalScore,
+        grade,
+        resultFinalizedAt: new Date(),
+        resultFinalizedBy,
+      },
+      include: {
+        thesis: { select: { id: true } },
+      },
+    });
+
+    if (status === "failed" && finalized.thesis?.id) {
+      await tx.thesisSupervisors.updateMany({
+        where: { thesisId: finalized.thesis.id },
+        data: { defenceReady: false },
+      });
+    }
+
+    return finalized;
   });
 }
 
@@ -674,16 +694,12 @@ export async function getStudentThesisWithDefenceInfo(studentId) {
           resultFinalizedAt: true,
           cancelledReason: true,
           room: { select: { id: true, name: true } },
-          documents: {
-            select: {
-              thesisDefenceId: true,
-              documentTypeId: true,
-              documentId: true,
-              status: true,
-              submittedAt: true,
-              verifiedAt: true,
-              notes: true,
+          requirementDocuments: {
+            include: {
+              requirement: { select: { id: true, name: true, displayOrder: true } },
+              verifier: { select: { id: true, fullName: true } },
             },
+            orderBy: { requirement: { displayOrder: "asc" } },
           },
           examiners: {
             select: {
@@ -806,16 +822,12 @@ export async function findStudentDefenceDetail(defenceId) {
         },
         orderBy: { order: "asc" },
       },
-      documents: {
-        select: {
-          thesisDefenceId: true,
-          documentTypeId: true,
-          documentId: true,
-          status: true,
-          submittedAt: true,
-          verifiedAt: true,
-          notes: true,
+      requirementDocuments: {
+        include: {
+          requirement: { select: { id: true, name: true, displayOrder: true } },
+          verifier: { select: { id: true, fullName: true } },
         },
+        orderBy: { requirement: { displayOrder: "asc" } },
       },
     },
   });

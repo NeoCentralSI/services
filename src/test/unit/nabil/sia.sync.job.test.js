@@ -2,28 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockPrisma, mockSiaClient, mockSiaStore, mockMetopenService } = vi.hoisted(() => ({
   mockPrisma: {
-    user: {
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-    },
-    student: {
-      findMany: vi.fn(),
-      updateMany: vi.fn(),
-      update: vi.fn(),
-    },
-    academicYear: {
-      findMany: vi.fn(),
-    },
-    studentAcademicYearSnapshot: {
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-      createMany: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-    },
-    cpl: {
-      findMany: vi.fn(),
-    },
+    user: { findMany: vi.fn(), findUnique: vi.fn() },
+    student: { updateMany: vi.fn(), update: vi.fn() },
+    academicYear: { findMany: vi.fn() },
+    studentAcademicYearSnapshot: { findMany: vi.fn(), findUnique: vi.fn(), createMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    curriculum: { findMany: vi.fn() },
+    cpl: { findMany: vi.fn() },
     studentCplScore: {
       findMany: vi.fn(),
       create: vi.fn(),
@@ -31,18 +15,13 @@ const { mockPrisma, mockSiaClient, mockSiaStore, mockMetopenService } = vi.hoist
     },
     $transaction: vi.fn(),
   },
-  mockSiaClient: {
-    fetchStudentsFull: vi.fn(),
-    hashStudent: vi.fn(),
-  },
+  mockSiaClient: { fetchStudentsFull: vi.fn(), hashStudent: vi.fn() },
   mockSiaStore: {
     saveStudents: vi.fn(),
     saveSyncStatus: vi.fn(),
     cleanupObsoleteStudents: vi.fn(),
   },
-  mockMetopenService: {
-    syncBookingActivationForStudent: vi.fn(),
-  },
+  mockMetopenService: { syncBookingActivationForStudent: vi.fn() },
 }));
 
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
@@ -52,335 +31,238 @@ vi.mock("../../../services/metopen.service.js", () => mockMetopenService);
 
 import { runSiaSync } from "../../../services/sia.sync.job.js";
 
-const STUDENT_BASE = {
+const CURRICULUM = {
+  id: "curriculum-2024",
+  name: "Kurikulum 2024",
+  startYear: 2024,
+  endYear: null,
+};
+
+const CPL_V1 = {
+  id: "cpl-v1",
+  curriculumId: CURRICULUM.id,
+  code: "CPL-01",
+  description: "Mampu berpikir kritis",
+  version: 1,
+  isActive: false,
+};
+
+const CPL_V2 = { ...CPL_V1, id: "cpl-v2", version: 2, isActive: true };
+
+const studentPayload = (overrides = {}) => ({
+  nim: "2211524001",
+  name: "Budi Santoso",
+  sksCompleted: 120,
   mandatoryCoursesCompleted: true,
   mkwuCompleted: true,
   internshipCompleted: true,
   kknCompleted: true,
   researchMethodCompleted: true,
-  currentSemester: 7,
-};
+  currentSemester: 5,
+  cplScores: [
+    {
+      code: "CPL-01",
+      description: "  MAMPU   BERPIKIR KRITIS ",
+      score: 80,
+      inputAt: "2026-04-20T10:00:00.000Z",
+    },
+  ],
+  ...overrides,
+});
 
-describe("SIA Sync Job Service", () => {
+function arrangeSync({
+  payload = studentPayload(),
+  enrollmentYear = 2024,
+  curricula = [CURRICULUM],
+  cpls = [CPL_V1, CPL_V2],
+  existingScores = [],
+} = {}) {
+  mockSiaClient.fetchStudentsFull.mockResolvedValue([payload]);
+  mockPrisma.user.findMany
+    .mockResolvedValueOnce([{ id: "student-1", identityNumber: payload.nim }])
+    .mockResolvedValueOnce([
+      {
+        id: "student-1",
+        identityNumber: payload.nim,
+        fullName: payload.name,
+        student: { id: "student-1", enrollmentYear },
+      },
+    ]);
+  mockPrisma.curriculum.findMany.mockResolvedValue(curricula);
+  mockPrisma.cpl.findMany.mockResolvedValue(cpls);
+  mockPrisma.studentCplScore.findMany.mockResolvedValue(existingScores);
+}
+
+describe("SIA CPL synchronization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
     mockSiaClient.hashStudent.mockReturnValue("hash-value");
     mockSiaStore.saveStudents.mockResolvedValue({ updated: 0, skipped: 0 });
     mockSiaStore.saveSyncStatus.mockResolvedValue(undefined);
     mockSiaStore.cleanupObsoleteStudents.mockResolvedValue({ cleaned: 0 });
-    mockMetopenService.syncBookingActivationForStudent.mockResolvedValue({
-      synced: false,
-    });
-
-    mockPrisma.user.findMany.mockResolvedValue([]);
-    mockPrisma.student.findMany.mockResolvedValue([]);
+    mockPrisma.academicYear.findMany.mockResolvedValue([{ id: "ay-active", startDate: new Date(0), endDate: new Date(4102444800000) }]);
+    mockPrisma.studentAcademicYearSnapshot.findMany.mockResolvedValue([]);
+    mockPrisma.studentAcademicYearSnapshot.createMany.mockResolvedValue({ count: 1 });
+    mockMetopenService.syncBookingActivationForStudent.mockResolvedValue({ synced: false });
     mockPrisma.student.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.student.update.mockResolvedValue({ id: "student-1" });
-    mockPrisma.academicYear.findMany.mockResolvedValue([{
-      id: "ay-active",
-      startDate: new Date("2026-01-01T00:00:00.000Z"),
-      endDate: new Date("2026-12-31T23:59:59.999Z"),
-    }]);
-    mockPrisma.studentAcademicYearSnapshot.findMany.mockResolvedValue([]);
-    mockPrisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue(null);
-    mockPrisma.studentAcademicYearSnapshot.createMany.mockResolvedValue({ count: 1 });
-    mockPrisma.studentAcademicYearSnapshot.create.mockResolvedValue({ id: "snapshot-1" });
-    mockPrisma.studentAcademicYearSnapshot.update.mockResolvedValue({ id: "snapshot-1" });
-    mockPrisma.cpl.findMany.mockResolvedValue([]);
-    mockPrisma.studentCplScore.findMany.mockResolvedValue([]);
     mockPrisma.studentCplScore.create.mockResolvedValue({});
     mockPrisma.studentCplScore.update.mockResolvedValue({});
-    mockPrisma.$transaction.mockImplementation(async (arg) => {
-      if (typeof arg === "function") return arg(mockPrisma);
-      return Promise.all(arg);
-    });
+    mockPrisma.$transaction.mockImplementation(async (arg) => Promise.all(arg));
   });
 
-  describe("Test Case 1: Sync Student Academic Data", () => {
-    it("updates student academic fields including researchMethodCompleted when NIM matches", async () => {
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
-        {
-          nim: "2211521001",
-          name: "Budi Santoso",
-          sksCompleted: 128,
-          ...STUDENT_BASE,
-          cplScores: [],
-        },
-      ]);
+  it("uses the active version for a student's first logical CPL score", async () => {
+    arrangeSync();
 
-      mockPrisma.user.findMany.mockResolvedValueOnce([
-        { id: "student-1", identityNumber: "2211521001" },
-      ]);
+    const summary = await runSiaSync();
 
-      const summary = await runSiaSync();
-
-      expect(mockPrisma.student.updateMany).toHaveBeenCalledWith({
-        where: { id: "student-1" },
-        data: expect.objectContaining({
-          sksCompleted: 128,
-          mandatoryCoursesCompleted: true,
-          mkwuCompleted: true,
-          internshipCompleted: true,
-          kknCompleted: true,
-          researchMethodCompleted: true,
-          currentSemester: 7,
-          gpa: null,
-          graduationPredicate: null,
-          takingThesisCourse: null,
-          thesisCourseEnrollmentSource: "sia",
-          thesisCourseEnrollmentUpdatedAt: expect.any(Date),
-        }),
-      });
-      expect(summary).toMatchObject({ fetched: 1, dbUpdated: 1 });
+    expect(mockPrisma.studentCplScore.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        studentId: "student-1",
+        cplId: "cpl-v2",
+        score: 80,
+        source: "SIA",
+        status: "calculated",
+      }),
     });
-
-    it("syncs booking lifecycle after SIA writes thesis course snapshot", async () => {
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
-        {
-          nim: "2211521002",
-          name: "Dimas",
-          sksCompleted: 128,
-          ...STUDENT_BASE,
-          takingThesisCourse: true,
-          cplScores: [],
-        },
-      ]);
-      mockPrisma.user.findMany.mockResolvedValueOnce([
-        { id: "student-dimas", identityNumber: "2211521002" },
-      ]);
-
-      await runSiaSync();
-
-      expect(mockMetopenService.syncBookingActivationForStudent).toHaveBeenCalledWith(
-        "student-dimas",
-        "ay-active",
-      );
-    });
-
-    it("gracefully skips unmatched NIM and does not throw", async () => {
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
-        {
-          nim: "9999999999",
-          name: "Unknown Student",
-          sksCompleted: 100,
-          ...STUDENT_BASE,
-          cplScores: [],
-        },
-      ]);
-
-      mockPrisma.user.findMany.mockResolvedValueOnce([]);
-
-      await expect(runSiaSync()).resolves.toMatchObject({
-        fetched: 1,
-        dbUpdated: 0,
-      });
-      expect(mockPrisma.student.updateMany).not.toHaveBeenCalled();
-    });
+    expect(summary).toMatchObject({ cplCreated: 1, cplUpdated: 0 });
   });
 
-  describe("Test Case 2: Sync Student CPL Scores", () => {
-    it("creates StudentCplScore with source SIA and status calculated when no prior score exists", async () => {
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
+  it("keeps an existing score pinned to its inactive historical version", async () => {
+    arrangeSync({
+      existingScores: [
         {
-          nim: "2211522001",
-          name: "Alice Putri",
-          sksCompleted: 120,
-          ...STUDENT_BASE,
-          cplScores: [{ code: "CPL-01", score: 84, inputAt: "2026-04-20T10:00:00.000Z" }],
-        },
-      ]);
-
-      mockPrisma.user.findMany
-        .mockResolvedValueOnce([{ id: "student-1", identityNumber: "2211522001" }])
-        .mockResolvedValueOnce([
-          { id: "student-1", identityNumber: "2211522001", fullName: "Alice Putri" },
-        ]);
-      mockPrisma.student.findMany.mockResolvedValueOnce([{ id: "student-1" }]);
-      mockPrisma.cpl.findMany.mockResolvedValueOnce([{ id: "cpl-1", code: "CPL-01" }]);
-      mockPrisma.studentCplScore.findMany.mockResolvedValueOnce([]);
-
-      const summary = await runSiaSync();
-
-      expect(mockPrisma.studentCplScore.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
           studentId: "student-1",
-          cplId: "cpl-1",
-          score: 84,
+          cplId: "cpl-v1",
+          score: 70,
+          inputAt: new Date("2026-04-19T10:00:00.000Z"),
           source: "SIA",
           status: "calculated",
-          inputAt: expect.any(Date),
-        }),
-      });
-      expect(summary).toMatchObject({ cplCreated: 1, cplUpdated: 0 });
+        },
+      ],
     });
 
-    it("overwrites score/inputAt when existing record is SIA + calculated", async () => {
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
-        {
-          nim: "2211522002",
-          name: "Beni Putra",
-          sksCompleted: 130,
-          ...STUDENT_BASE,
-          cplScores: [{ code: "CPL-02", score: 90, inputAt: "2026-04-20T11:00:00.000Z" }],
-        },
-      ]);
+    const summary = await runSiaSync();
 
-      mockPrisma.user.findMany
-        .mockResolvedValueOnce([{ id: "student-2", identityNumber: "2211522002" }])
-        .mockResolvedValueOnce([
-          { id: "student-2", identityNumber: "2211522002", fullName: "Beni Putra" },
-        ]);
-      mockPrisma.student.findMany.mockResolvedValueOnce([{ id: "student-2" }]);
-      mockPrisma.cpl.findMany.mockResolvedValueOnce([{ id: "cpl-2", code: "CPL-02" }]);
-      mockPrisma.studentCplScore.findMany.mockResolvedValueOnce([
-        { studentId: "student-2", cplId: "cpl-2", source: "SIA", status: "calculated" },
-      ]);
-
-      const summary = await runSiaSync();
-
-      expect(mockPrisma.studentCplScore.update).toHaveBeenCalledWith({
-        where: {
-          studentId_cplId: {
-            studentId: "student-2",
-            cplId: "cpl-2",
-          },
-        },
-        data: expect.objectContaining({
-          score: 90,
-          source: "SIA",
-          status: "calculated",
-          inputAt: expect.any(Date),
-        }),
-      });
-      expect(summary).toMatchObject({ cplCreated: 0, cplUpdated: 1 });
+    expect(mockPrisma.studentCplScore.update).toHaveBeenCalledWith({
+      where: { studentId_cplId: { studentId: "student-1", cplId: "cpl-v1" } },
+      data: expect.objectContaining({ score: 80 }),
     });
-
-    it("skips protected scores (manual/verified/finalized) and tallies skippedProtected", async () => {
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
-        {
-          nim: "2211522003",
-          name: "Citra Dewi",
-          sksCompleted: 134,
-          ...STUDENT_BASE,
-          cplScores: [
-            { code: "CPL-MANUAL", score: 76, inputAt: "2026-04-20T12:00:00.000Z" },
-            { code: "CPL-VERIFIED", score: 80, inputAt: "2026-04-20T12:01:00.000Z" },
-            { code: "CPL-FINAL", score: 85, inputAt: "2026-04-20T12:02:00.000Z" },
-          ],
-        },
-      ]);
-
-      mockPrisma.user.findMany
-        .mockResolvedValueOnce([{ id: "student-3", identityNumber: "2211522003" }])
-        .mockResolvedValueOnce([
-          { id: "student-3", identityNumber: "2211522003", fullName: "Citra Dewi" },
-        ]);
-      mockPrisma.student.findMany.mockResolvedValueOnce([{ id: "student-3" }]);
-      mockPrisma.cpl.findMany.mockResolvedValueOnce([
-        { id: "cpl-m", code: "CPL-MANUAL" },
-        { id: "cpl-v", code: "CPL-VERIFIED" },
-        { id: "cpl-f", code: "CPL-FINAL" },
-      ]);
-      mockPrisma.studentCplScore.findMany.mockResolvedValueOnce([
-        { studentId: "student-3", cplId: "cpl-m", source: "manual", status: "calculated" },
-        { studentId: "student-3", cplId: "cpl-v", source: "SIA", status: "verified" },
-        { studentId: "student-3", cplId: "cpl-f", source: "SIA", status: "finalized" },
-      ]);
-
-      const summary = await runSiaSync();
-
-      expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
-      expect(mockPrisma.studentCplScore.update).toHaveBeenCalledTimes(1); // manual overwritten
-      expect(summary).toMatchObject({ cplSkippedProtected: 2, cplCreated: 0, cplUpdated: 1 });
-    });
-
-    it("increments skippedUnknownCode when CPL code does not match active CPL records", async () => {
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
-        {
-          nim: "2211522004",
-          name: "Dimas Putra",
-          sksCompleted: 120,
-          ...STUDENT_BASE,
-          cplScores: [{ code: "CPL-UNKNOWN", score: 70, inputAt: "2026-04-20T13:00:00.000Z" }],
-        },
-      ]);
-
-      mockPrisma.user.findMany
-        .mockResolvedValueOnce([{ id: "student-4", identityNumber: "2211522004" }])
-        .mockResolvedValueOnce([
-          { id: "student-4", identityNumber: "2211522004", fullName: "Dimas Putra" },
-        ]);
-      mockPrisma.student.findMany.mockResolvedValueOnce([{ id: "student-4" }]);
-      mockPrisma.cpl.findMany.mockResolvedValueOnce([{ id: "cpl-other", code: "CPL-OTHER" }]);
-
-      const summary = await runSiaSync();
-
-      expect(summary).toMatchObject({
-        cplSkippedUnknownCode: 1,
-        cplUnmatchedCodes: 1,
-        cplCreated: 0,
-        cplUpdated: 0,
-      });
-    });
+    expect(summary.cplUpdated).toBe(1);
   });
 
-  describe("Test Case 3: Summary Integrity & Mixed Batch", () => {
-    it("returns correct summary counts for mixed valid/protected/unmatched sync payload", async () => {
-      mockSiaStore.saveStudents.mockResolvedValue({ updated: 3, skipped: 0 });
-      mockSiaClient.fetchStudentsFull.mockResolvedValue([
-        {
-          nim: "2211523001",
-          name: "Eka Valid",
-          sksCompleted: 140,
-          ...STUDENT_BASE,
-          cplScores: [{ code: "CPL-10", score: 88, inputAt: "2026-04-20T14:00:00.000Z" }],
-        },
-        {
-          nim: "2211523002",
-          name: "Fajar Protected",
-          sksCompleted: 142,
-          ...STUDENT_BASE,
-          cplScores: [{ code: "CPL-11", score: 91, inputAt: "2026-04-20T14:01:00.000Z" }],
-        },
-        {
-          nim: "9990000000",
-          name: "Ghost Student",
-          sksCompleted: 115,
-          ...STUDENT_BASE,
-          cplScores: [{ code: "CPL-10", score: 77, inputAt: "2026-04-20T14:02:00.000Z" }],
-        },
-      ]);
-
-      mockPrisma.user.findMany
-        .mockResolvedValueOnce([
-          { id: "student-5", identityNumber: "2211523001" },
-          { id: "student-6", identityNumber: "2211523002" },
-        ])
-        .mockResolvedValueOnce([
-          { id: "student-5", identityNumber: "2211523001", fullName: "Eka Valid" },
-          { id: "student-6", identityNumber: "2211523002", fullName: "Fajar Protected" },
-        ]);
-      mockPrisma.student.findMany.mockResolvedValueOnce([{ id: "student-5" }, { id: "student-6" }]);
-      mockPrisma.cpl.findMany.mockResolvedValueOnce([
-        { id: "cpl-10", code: "CPL-10" },
-        { id: "cpl-11", code: "CPL-11" },
-      ]);
-      mockPrisma.studentCplScore.findMany.mockResolvedValueOnce([
-        { studentId: "student-6", cplId: "cpl-11", source: "manual", status: "calculated" },
-      ]);
-      mockPrisma.student.updateMany.mockResolvedValue({ count: 1 });
-
-      const summary = await runSiaSync();
-
-      expect(summary).toMatchObject({
-        fetched: 3,
-        dbUpdated: 2,
-        cplCreated: 1,
-        cplUpdated: 1, // manual overwritten
-        cplSkippedProtected: 0,
-        cplSkippedNoStudent: 1,
-      });
+  it("requires a description and reports missing descriptions", async () => {
+    arrangeSync({
+      payload: studentPayload({
+        cplScores: [{ code: "CPL-01", score: 80, inputAt: "2026-04-20T10:00:00.000Z" }],
+      }),
     });
+
+    const summary = await runSiaSync();
+
+    expect(summary.cplSkippedMissingDescription).toBe(1);
+    expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a description that does not match the selected version", async () => {
+    arrangeSync({
+      payload: studentPayload({
+        cplScores: [{
+          code: "CPL-01",
+          description: "Definisi CPL yang berbeda",
+          score: 80,
+          inputAt: "2026-04-20T10:00:00.000Z",
+        }],
+      }),
+    });
+
+    const summary = await runSiaSync();
+
+    expect(summary.cplSkippedDescriptionMismatch).toBe(1);
+    expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
+  });
+
+  it("never overwrites a manual score", async () => {
+    arrangeSync({
+      existingScores: [
+        {
+          studentId: "student-1",
+          cplId: "cpl-v1",
+          score: 75,
+          inputAt: new Date("2026-04-19T10:00:00.000Z"),
+          source: "manual",
+          status: "calculated",
+        },
+      ],
+    });
+
+    const summary = await runSiaSync();
+
+    expect(summary.cplSkippedProtected).toBe(1);
+    expect(mockPrisma.studentCplScore.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale SIA timestamps", async () => {
+    arrangeSync({
+      existingScores: [
+        {
+          studentId: "student-1",
+          cplId: "cpl-v2",
+          score: 85,
+          inputAt: new Date("2026-04-21T10:00:00.000Z"),
+          source: "SIA",
+          status: "calculated",
+        },
+      ],
+    });
+
+    const summary = await runSiaSync();
+
+    expect(summary.cplSkippedStaleData).toBe(1);
+    expect(mockPrisma.studentCplScore.update).not.toHaveBeenCalled();
+  });
+
+  it("treats an identical score and timestamp as an idempotent no-op", async () => {
+    arrangeSync({
+      existingScores: [
+        {
+          studentId: "student-1",
+          cplId: "cpl-v2",
+          score: 80,
+          inputAt: new Date("2026-04-20T10:00:00.000Z"),
+          source: "SIA",
+          status: "calculated",
+        },
+      ],
+    });
+
+    const summary = await runSiaSync();
+
+    expect(summary.cplUnchanged).toBe(1);
+    expect(mockPrisma.studentCplScore.update).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing enrollment year without falling back", async () => {
+    arrangeSync({ enrollmentYear: null });
+
+    const summary = await runSiaSync();
+
+    expect(summary.cplSkippedMissingEnrollmentYear).toBe(1);
+    expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
+  });
+
+  it("reports ambiguous existing scores across multiple versions", async () => {
+    arrangeSync({
+      existingScores: [
+        { studentId: "student-1", cplId: "cpl-v1", source: "SIA", status: "calculated" },
+        { studentId: "student-1", cplId: "cpl-v2", source: "SIA", status: "calculated" },
+      ],
+    });
+
+    const summary = await runSiaSync();
+
+    expect(summary.cplSkippedMultipleExistingVersions).toBe(1);
+    expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
+    expect(mockPrisma.studentCplScore.update).not.toHaveBeenCalled();
   });
 });

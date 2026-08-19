@@ -88,10 +88,10 @@ const ensureRubricMutationAllowed = async (criteriaId) => {
 
 export const updateSeminarMinimumScore = async (academicYearId, minimumScore) => {
     const activeId = await resolveAcademicYearId(academicYearId);
-    
+
     const hasData = await repository.hasAnyAssessmentDataForAcademicYear(activeId);
     if (hasData) {
-        throw new ValidationError("Skor minimum tidak dapat diubah karena sudah ada data penilaian sidang/seminar pada tahun ajaran ini");
+        throw new ValidationError("Skor minimum tidak dapat diubah karena sudah ada data penilaian seminar pada tahun ajaran ini");
     }
 
     return await repository.updateSeminarMinimumScore(activeId, minimumScore);
@@ -100,7 +100,7 @@ export const updateSeminarMinimumScore = async (academicYearId, minimumScore) =>
 export const getCpmksWithRubrics = async ({ academicYearId } = {}) => {
     const effectiveAcademicYearId = await resolveAcademicYearId(academicYearId);
     const cpmks = await repository.findConfiguredSeminarCpmks(effectiveAcademicYearId);
-    
+
     return await mapCpmkTreeWithLocks(cpmks);
 };
 
@@ -130,7 +130,7 @@ export const updateCriteria = async (criteriaId, data) => {
     ensureCriteriaExists(criteria);
 
     const hasAssessmentDetails = await criteriaHasAssessmentDetails(criteriaId);
-    if (hasAssessmentDetails) {
+    if (hasAssessmentDetails && data.maxScore !== undefined) {
         throw new ValidationError("Kriteria tidak dapat diubah karena sudah memiliki detail penilaian turunan");
     }
 
@@ -203,18 +203,18 @@ export const updateRubric = async (id, data) => {
     const rubric = await repository.findRubricById(id);
     if (!rubric) throw new NotFoundError("Rubrik tidak ditemukan");
 
-    await ensureRubricMutationAllowed(rubric.thesisSeminarAssessmentCriteria.id);
+    await ensureRubricMutationAllowed(rubric.assessmentCriteria.id);
 
     const newMinScore = data.minScore !== undefined ? data.minScore : rubric.minScore;
     const newMaxScore = data.maxScore !== undefined ? data.maxScore : rubric.maxScore;
 
     validateRange(newMinScore, newMaxScore);
 
-    if (newMaxScore > rubric.thesisSeminarAssessmentCriteria.maxScore) {
-        throw new ValidationError(`Skor maksimal rubrik (${newMaxScore}) melebihi bobot maksimal kriteria (${rubric.thesisSeminarAssessmentCriteria.maxScore})`);
+    if (newMaxScore > rubric.assessmentCriteria.maxScore) {
+        throw new ValidationError(`Skor maksimal rubrik (${newMaxScore}) melebihi bobot maksimal kriteria (${rubric.assessmentCriteria.maxScore})`);
     }
 
-    const existingRubrics = await repository.findRubricsByCriteria(rubric.thesisSeminarAssessmentCriteria.id, id);
+    const existingRubrics = await repository.findRubricsByCriteria(rubric.assessmentCriteria.id, id);
     if (hasOverlapRange(existingRubrics, newMinScore, newMaxScore)) {
         throw new ValidationError("Rentang skor tidak boleh tumpang tindih dengan rubrik yang sudah ada");
     }
@@ -226,17 +226,38 @@ export const deleteRubric = async (id) => {
     const rubric = await repository.findRubricById(id);
     if (!rubric) throw new NotFoundError("Rubrik tidak ditemukan");
 
-    await ensureRubricMutationAllowed(rubric.thesisSeminarAssessmentCriteria.id);
+    await ensureRubricMutationAllowed(rubric.assessmentCriteria.id);
 
     await repository.removeRubric(id);
     return { success: true };
 };
 
 export const reorderCriteria = async (data) => {
+    const criteriaList = await repository.findSeminarCriteriaByCpmk(data.thesisCpmkId);
+    if (criteriaList.length !== data.orderedIds.length ||
+        !data.orderedIds.every((id) => criteriaList.some((criteria) => criteria.id === id))) {
+        throw new ValidationError("Urutan kriteria tidak sesuai dengan CPMK");
+    }
+
+    const inUse = await Promise.all(criteriaList.map((criteria) => criteriaHasAssessmentDetails(criteria.id)));
+    if (inUse.some(Boolean)) {
+        throw new ValidationError("Urutan kriteria tidak dapat diubah karena sudah memiliki detail penilaian");
+    }
+
     return await repository.reorderCriteria(data.thesisCpmkId, data.orderedIds);
 };
 
 export const reorderRubrics = async (data) => {
+    const criteria = await repository.findCriteriaById(data.criteriaId);
+    ensureCriteriaExists(criteria);
+    await ensureRubricMutationAllowed(data.criteriaId);
+
+    const rubrics = await repository.findRubricsByCriteria(data.criteriaId);
+    if (rubrics.length !== data.orderedIds.length ||
+        !data.orderedIds.every((id) => rubrics.some((rubric) => rubric.id === id))) {
+        throw new ValidationError("Urutan rubrik tidak sesuai dengan kriteria");
+    }
+
     return await repository.reorderRubrics(data.criteriaId, data.orderedIds);
 };
 

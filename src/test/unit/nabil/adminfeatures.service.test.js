@@ -231,7 +231,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
     it("returns paginated student list", async () => {
       mockPrisma.user.findMany.mockResolvedValue([{
         ...USER,
-        student: { id: "s1", status: "aktif", enrollmentYear: 2021, skscompleted: 100, thesis: [] },
+        student: { id: "s1", status: "aktif", enrollmentYear: 2021, sksCompleted: 100, thesis: [] },
       }]);
       mockPrisma.user.count.mockResolvedValue(1);
 
@@ -247,7 +247,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
           id: "s1",
           status: "active",
           enrollmentYear: 2021,
-          skscompleted: 120,
+          sksCompleted: 120,
           thesis: [{
             id: "thesis-1",
             title: "AI Research",
@@ -292,7 +292,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
           id: "s1",
           status: "aktif",
           enrollmentYear: 2021,
-          skscompleted: 100,
+          sksCompleted: 100,
           thesis: [{
             id: "thesis-1",
             title: "AI Research",
@@ -333,14 +333,14 @@ describe("Module 15: Data Master Mahasiswa", () => {
 
   describe("adminUpdateStudent", () => {
     it("updates student status and SKS", async () => {
-      mockPrisma.student.update.mockResolvedValue({ id: "user-1", status: "active", skscompleted: 120 });
+      mockPrisma.student.update.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 120 });
 
       const result = await adminUpdateStudent("user-1", { status: "active", skscompleted: 120 });
 
       expect(result).toHaveProperty("status", "active");
       expect(mockPrisma.student.update).toHaveBeenCalledWith({
         where: { id: "user-1" },
-        data: expect.objectContaining({ status: "active", skscompleted: 120 }),
+        data: expect.objectContaining({ status: "active", sksCompleted: 120 }),
       });
     });
   });

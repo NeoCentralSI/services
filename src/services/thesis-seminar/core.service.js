@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import * as examinerService from "./examiner.service.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,12 +50,18 @@ function parseStatusFilter(status) {
   const database = [...new Set(requested.map((item) => (item === "ongoing" ? "scheduled" : item)))];
   return { requested, database };
 }
+async function getCurrentRequirementTotal() {
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) return 0;
+  return (await docRepo.findRequirementsByAcademicYear(academicYear.id)).length;
+}
+
 
 // ==================== LIST ====================
 
 export async function getSeminarList({ page, pageSize, search, view, status, user }) {
   if (view === "assignment") return getAssignmentList({ search });
-  if (view === "archive") return getArchiveList({ search, page, pageSize });
+  if (view === "archive") return getArchiveList({ search, page, pageSize, status });
   if (view === "verification") return getAdminList({ search, status });
   if (view === "supervised_students" && user.lecturerId) {
     const data = await coreRepo.findSeminarsBySupervisor({ lecturerId: user.lecturerId, search });
@@ -68,11 +75,11 @@ export async function getSeminarList({ page, pageSize, search, view, status, use
 }
 
 async function mapLecturerSeminarList(data, lecturerId, primaryRole) {
-  const docTypes = await docRepo.getSeminarDocumentTypes();
+  const currentRequirementTotal = await getCurrentRequirementTotal();
   return data.map((s) => {
     const myExaminer = s.examiners.find((e) => e.lecturerId === lecturerId);
     const mySupervisor = s.thesis?.thesisSupervisors?.find((ts) => ts.lecturerId === lecturerId);
-    
+
     return {
       id: s.id, thesisId: s.thesis?.id || null,
       studentName: s.thesis?.student?.user?.fullName || "-", studentNim: s.thesis?.student?.user?.identityNumber || "-",
@@ -89,11 +96,13 @@ async function mapLecturerSeminarList(data, lecturerId, primaryRole) {
         availabilityStatus: e.availabilityStatus,
       })),
       audienceCount: s._count?.audiences || 0,
-      documentSummary: { 
-        total: docTypes.length, 
-        submitted: s.documents.filter((d) => d.status === "submitted").length, 
-        approved: s.documents.filter((d) => d.status === "approved").length, 
-        declined: s.documents.filter((d) => d.status === "declined").length 
+      documentSummary: {
+        total: s.status === "registered"
+          ? currentRequirementTotal
+          : s.requirementDocuments.length,
+        submitted: s.requirementDocuments.filter((d) => d.status === "submitted").length,
+        approved: s.requirementDocuments.filter((d) => d.status === "approved").length,
+        declined: s.requirementDocuments.filter((d) => d.status === "declined").length
       },
       // Lecturer specific
       myRole: mySupervisor?.role?.name || (myExaminer ? "Penguji" : "-"),
@@ -116,7 +125,7 @@ async function getAdminList({ search, status }) {
         : {}),
   };
   const { data } = await coreRepo.findSeminarsPaginated({ where, skip: 0, take: 500 });
-  const docTypes = await docRepo.getSeminarDocumentTypes();
+  const currentRequirementTotal = await getCurrentRequirementTotal();
   const mapped = data.map((s) => ({
     id: s.id, thesisId: s.thesis?.id || null,
     studentName: s.thesis?.student?.user?.fullName || "-", studentNim: s.thesis?.student?.user?.identityNumber || "-",
@@ -133,7 +142,9 @@ async function getAdminList({ search, status }) {
       availabilityStatus: e.availabilityStatus,
     })),
     audienceCount: s._count?.audiences || 0,
-    documentSummary: { total: docTypes.length, submitted: s.documents.filter((d) => d.status === "submitted").length, approved: s.documents.filter((d) => d.status === "approved").length, declined: s.documents.filter((d) => d.status === "declined").length },
+    documentSummary: { total: s.status === "registered"
+          ? currentRequirementTotal
+          : s.requirementDocuments.length, submitted: s.requirementDocuments.filter((d) => d.status === "submitted").length, approved: s.requirementDocuments.filter((d) => d.status === "approved").length, declined: s.requirementDocuments.filter((d) => d.status === "declined").length },
   }));
   const filtered = statusFilter.requested.length > 0
     ? mapped.filter((item) => statusFilter.requested.includes(item.status))
@@ -152,7 +163,7 @@ async function getAssignmentList({ search }) {
   const mapped = data.map((s) => {
     const active = (s.examiners || []).filter((e) => ["available", "pending"].includes(e.availabilityStatus));
     const rejected = (s.examiners || []).filter((e) => e.availabilityStatus === "unavailable");
-    
+
     const isConcluded = ["passed", "passed_with_revision", "failed", "cancelled"].includes(s.status);
     const assignmentStatus = isConcluded ? "finished" : getAssignmentStatus(active, (s.examiners || []).length);
 
@@ -179,7 +190,7 @@ async function getArchiveList({ search, page, pageSize, status }) {
     ? statusFilter.database.filter((item) => RESULT_STATUSES.includes(item))
     : RESULT_STATUSES;
   const where = { status: { in: archiveStatuses }, ...buildSearchWhere(search) };
-  const { data, total } = await coreRepo.findSeminarsPaginated({ where, skip, take: pageSize });
+  const { data, total } = await coreRepo.findArchiveSeminarsPaginated({ where, skip, take: pageSize });
   return {
     seminars: data.map((s) => ({
       id: s.id, thesisId: s.thesisId, thesisTitle: s.thesis?.title || "-",
@@ -195,10 +206,67 @@ async function getArchiveList({ search, page, pageSize, status }) {
 // ==================== DETAIL ====================
 
 export async function getSeminarDetail(seminarId) {
+  const archiveCandidate = await coreRepo.findArchiveSeminarById(seminarId);
+  if (!archiveCandidate) throwError("Seminar tidak ditemukan.", 404);
+
+  if (archiveCandidate.registeredAt === null) {
+    const audiences = await audienceRepo.findAudiencesBySeminarId(seminarId);
+    return {
+      id: archiveCandidate.id,
+      isArchive: true,
+      status: archiveCandidate.status,
+      registeredAt: null,
+      date: archiveCandidate.date,
+      startTime: archiveCandidate.startTime,
+      endTime: archiveCandidate.endTime,
+      meetingLink: archiveCandidate.meetingLink,
+      finalScore: archiveCandidate.finalScore,
+      grade: mapScoreToGrade(archiveCandidate.finalScore),
+      resultFinalizedAt: archiveCandidate.resultFinalizedAt,
+      cancelledReason: archiveCandidate.cancelledReason,
+      revisionFinalizedAt: archiveCandidate.revisionFinalizedAt,
+      revisionFinalizedBy: archiveCandidate.revisionFinalizedBy,
+      scheduledAt: archiveCandidate.scheduledAt,
+      invitationLetterNo: archiveCandidate.invitationLetterNo,
+      room: archiveCandidate.room,
+      thesis: { id: archiveCandidate.thesis?.id, title: archiveCandidate.thesis?.title },
+      student: {
+        id: archiveCandidate.thesis?.student?.id || null,
+        name: archiveCandidate.thesis?.student?.user?.fullName || "-",
+        nim: archiveCandidate.thesis?.student?.user?.identityNumber || "-",
+      },
+      supervisors: (archiveCandidate.thesis?.thesisSupervisors || []).map((supervisor) => ({
+        lecturerId: supervisor.lecturerId,
+        name: supervisor.lecturer?.user?.fullName || "-",
+        role: supervisor.role?.name || "-",
+      })),
+      documents: [],
+      documentTypes: [],
+      examiners: (archiveCandidate.examiners || []).map((examiner) => ({
+        id: examiner.id,
+        lecturerId: examiner.lecturerId,
+        lecturerName: examiner.lecturerName || "-",
+        order: examiner.order,
+        availabilityStatus: examiner.availabilityStatus,
+      })),
+      audiences: audiences.map((audience) => ({
+        studentName: audience.student?.user?.fullName || "-",
+        nim: audience.student?.user?.identityNumber || "-",
+        registeredAt: audience.registeredAt,
+        approvedAt: audience.approvedAt,
+        approvedByName: audience.supervisor?.lecturer?.user?.fullName || null,
+      })),
+    };
+  }
+
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  const docTypes = await docRepo.getSeminarDocumentTypes();
+
   const docs = await docRepo.findSeminarDocuments(seminarId);
+  const academicYear = seminar.status === "registered" ? await getActiveAcademicYear() : null;
+  const requirements = seminar.status === "registered" && academicYear
+    ? await docRepo.findRequirementsByAcademicYear(academicYear.id)
+    : docs.map((document) => document.requirement);
   const audiences = await audienceRepo.findAudiencesBySeminarId(seminarId);
   const active = (seminar.examiners || []).filter((e) => ["available", "pending"].includes(e.availabilityStatus));
   return {
@@ -214,8 +282,8 @@ export async function getSeminarDetail(seminarId) {
     thesis: { id: seminar.thesis?.id, title: seminar.thesis?.title },
     student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
     supervisors: (seminar.thesis?.thesisSupervisors || []).map((ts) => ({ lecturerId: ts.lecturerId, name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
-    documents: docs.map((d) => ({ documentTypeId: d.documentTypeId, documentId: d.documentId, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes, verifiedBy: d.verifier?.fullName || null, fileName: d.document?.fileName || null, filePath: d.document?.filePath || null })),
-    documentTypes: docTypes.map((dt) => ({ id: dt.id, name: dt.name })),
+    documents: docs.map((d) => ({ requirementId: d.thesisSeminarRequirementId, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes, verifiedBy: d.verifier?.fullName || null, fileName: d.fileName, filePath: d.filePath })),
+    documentTypes: requirements.map((requirement) => ({ id: requirement.id, name: requirement.name })),
     examiners: active.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus })),
     audiences: audiences.map((a) => ({ studentName: a.student?.user?.fullName || "-", nim: a.student?.user?.identityNumber || "-", registeredAt: a.registeredAt, approvedAt: a.approvedAt, approvedByName: a.supervisor?.lecturer?.user?.fullName || null })),
   };
@@ -291,11 +359,11 @@ export async function finalizeSchedule(seminarId, adminId) {
   try {
     const studentUserId = seminar.thesis?.student?.id;
     const studentName = seminar.thesis?.student?.user?.fullName || "Mahasiswa";
-    
+
     // Collect participant IDs for notifications
     const supervisorUserIds = (seminar.thesis?.thesisSupervisors || []).map((s) => s.lecturerId).filter(Boolean);
     const examinerUserIds = (seminar.examiners || []).map((e) => e.lecturerId).filter(Boolean);
-    
+
     // Notify ALL students in the system as requested
     const allStudents = await prisma.student.findMany({
       select: { id: true }
@@ -365,9 +433,10 @@ export async function cancelSeminar(seminarId, { cancelledReason }) {
 
 // ==================== ARCHIVE CRUD ====================
 
-export async function createArchive(body, userId) {
+export async function createArchive(body) {
+
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status seminar hasil tidak valid", 400);
-  const [thesis, room, existing] = await Promise.all([coreRepo.findThesisById(body.thesisId), coreRepo.findRoomById(body.roomId), coreRepo.findSeminarByThesisId(body.thesisId)]);
+  const [thesis, room] = await Promise.all([coreRepo.findThesisById(body.thesisId), coreRepo.findRoomById(body.roomId)]);
   if (!thesis) throwError("Tugas Akhir tidak ditemukan", 404);
   if (!room) throwError("Ruangan tidak ditemukan", 404);
 
@@ -378,11 +447,11 @@ export async function createArchive(body, userId) {
     throwError("Mahasiswa ini sudah lulus seminar hasil.", 409);
   }
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
-  const created = await coreRepo.createSeminarWithExaminers({ thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByUserId: userId });
-  return coreRepo.findSeminarById(created.id);
+  const created = await coreRepo.createSeminarWithExaminers({ thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByLecturerId: null });
+  return coreRepo.findArchiveSeminarById(created.id);
 }
 
-export async function updateArchive(seminarId, body, userId) {
+export async function updateArchive(seminarId, body) {
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status seminar hasil tidak valid", 400);
   const seminar = await coreRepo.findSeminarBasicById(seminarId);
   if (!seminar) throwError("Data seminar hasil tidak ditemukan", 404);
@@ -398,8 +467,8 @@ export async function updateArchive(seminarId, body, userId) {
     throwError("Tugas Akhir ini sudah memiliki data seminar hasil lain dengan status Lulus", 409);
   }
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
-  await coreRepo.updateSeminarWithExaminers({ seminarId, thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByUserId: userId });
-  return coreRepo.findSeminarById(seminarId);
+  await coreRepo.updateSeminarWithExaminers({ seminarId, thesisId: body.thesisId, roomId: body.roomId, date: body.date, status: body.status, examinerLecturerIds: [...new Set(body.examinerLecturerIds)], assignedByLecturerId: null });
+  return coreRepo.findArchiveSeminarById(seminarId);
 }
 
 export async function deleteArchive(seminarId) {
@@ -415,13 +484,26 @@ export async function deleteArchive(seminarId) {
 async function validateExaminers(thesisId, ids) {
   const unique = [...new Set(ids || [])];
   if (unique.length < 1) throwError("Minimal 1 dosen penguji harus dipilih", 400);
-  const sups = await coreRepo.findSupervisorsByThesisId(thesisId);
+  const [sups, eligibleExaminers] = await Promise.all([
+    coreRepo.findSupervisorsByThesisId(thesisId),
+    coreRepo.findEligibleExaminerLecturers(unique),
+  ]);
+  if (eligibleExaminers.length !== unique.length) {
+    throwError("Satu atau lebih dosen penguji tidak valid atau tidak memiliki role Penguji aktif", 400);
+  }
   if (unique.some((id) => sups.some((s) => s.lecturerId === id))) throwError("Dosen pembimbing tidak boleh menjadi dosen penguji", 400);
 }
 
 // ==================== OPTIONS ====================
 
-export const getThesisOptions = () => coreRepo.findThesesForOptions();
+export async function getThesisOptions() {
+  const theses = await coreRepo.findThesesForOptions();
+  return theses.map((thesis) => ({
+    ...thesis,
+    hasSeminarResult: (thesis.thesisSeminars || []).length > 0,
+    seminarResultId: thesis.thesisSeminars?.[0]?.id || null,
+  }));
+}
 export const getLecturerOptions = () => coreRepo.findLecturersForOptions();
 export const getStudentOptions = () => coreRepo.findStudentsForOptions();
 export const getRoomOptions = () => coreRepo.findAllRooms();
@@ -458,19 +540,19 @@ export async function exportArchive() {
       .map((sup) => sup.lecturer?.user?.fullName)
       .filter(Boolean)
       .join(", ");
-    
+
     const exams = (s.examiners || [])
       .map((e) => e.lecturerName)
       .filter(Boolean)
       .join("; ");
-    
+
     let hasil = "-";
     if (s.status === "passed") hasil = "Lulus";
     else if (s.status === "passed_with_revision") hasil = "Lulus dengan Revisi";
     else if (s.status === "failed") hasil = "Tidak Lulus";
     else if (s.status === "cancelled") hasil = "Dibatalkan";
 
-    const waktu = s.startTime && s.endTime 
+    const waktu = s.startTime && s.endTime
       ? `${formatTime(s.startTime)} - ${formatTime(s.endTime)}`
       : "-";
 
@@ -495,7 +577,93 @@ export async function exportArchive() {
   return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 }
 
-export async function importArchive(fileBuffer, userId) {
+function normalizeArchiveImportText(value) {
+  return String(value ?? "").trim();
+}
+
+function parseArchiveImportDate(value) {
+  if (value === null || value === undefined || value === "" || value === "-") {
+    throw new Error('Kolom "Tanggal" wajib diisi.');
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`Kolom "Tanggal" tidak valid: "${value}".`);
+    }
+    const parsed = new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86400000));
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(`Kolom "Tanggal" tidak valid: "${value}".`);
+    }
+    return parsed;
+  }
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new Error('Kolom "Tanggal" tidak valid.');
+    return value;
+  }
+
+  const text = normalizeArchiveImportText(value);
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)?.map((part, index, parts) => (
+    index === 1 ? parts[3] : index === 2 ? parts[2] : index === 3 ? parts[1] : part
+  ));
+
+  if (!match) {
+    throw new Error(`Kolom "Tanggal" tidak valid: "${text}". Gunakan format YYYY-MM-DD atau DD/MM/YYYY.`);
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new Error(`Kolom "Tanggal" tidak valid: "${text}".`);
+  }
+  return parsed;
+}
+
+function parseArchiveImportStatus(value) {
+  const text = normalizeArchiveImportText(value).toLowerCase();
+  const statuses = {
+    "lulus": "passed",
+    "lulus dengan revisi": "passed_with_revision",
+    "gagal": "failed",
+    "dibatalkan": "cancelled",
+    "batal": "cancelled",
+  };
+  if (!text) throw new Error('Kolom "Hasil" wajib diisi.');
+  if (!statuses[text]) {
+    throw new Error(`Kolom "Hasil" tidak valid: "${value}". Gunakan Lulus, Lulus dengan Revisi, Gagal, atau Dibatalkan.`);
+  }
+  return statuses[text];
+}
+
+function findUniqueArchiveImportOption(items, value, getName, columnName) {
+  const requested = normalizeArchiveImportText(value);
+  if (!requested || requested === "-") throw new Error(`Kolom "${columnName}" wajib diisi.`);
+  const normalized = requested.toLowerCase();
+  const exact = items.filter((item) => normalizeArchiveImportText(getName(item)).toLowerCase() === normalized);
+  if (exact.length === 1) return exact[0];
+  const partial = items.filter((item) => normalizeArchiveImportText(getName(item)).toLowerCase().includes(normalized));
+  if (partial.length === 1) return partial[0];
+  if (exact.length > 1 || partial.length > 1) {
+    throw new Error(`Kolom "${columnName}" ambigu: "${requested}" cocok dengan lebih dari satu data.`);
+  }
+  throw new Error(`Kolom "${columnName}" tidak ditemukan: "${requested}".`);
+}
+
+function getArchiveImportErrorMessage(error) {
+  if (error?.code === "P2002") return "Data seminar atau dosen penguji duplikat.";
+  if (error?.code === "P2003") return "Relasi TA, ruangan, atau dosen penguji tidak lagi tersedia.";
+  if (error?.code === "P2011") return "Ada kolom wajib yang belum terisi pada data seminar.";
+  if (error?.code === "P2025") return "Data referensi tidak ditemukan saat penyimpanan.";
+  if (error instanceof Error && !error.name?.startsWith("Prisma") && !error.message.toLowerCase().includes("prisma")) {
+    return error.message;
+  }
+  return "Data gagal disimpan karena tidak sesuai dengan struktur seminar terbaru.";
+}
+
+export async function importArchive(fileBuffer) {
   const wb = xlsx.read(fileBuffer, { type: "buffer" });
   const rows = xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
   const results = { total: rows.length, successCount: 0, failed: 0, failedRows: [] };
@@ -510,68 +678,59 @@ export async function importArchive(fileBuffer, userId) {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
-      const nim = String(row["NIM"] || "").trim();
-      if (!nim) throw new Error("NIM kosong");
+      const nim = normalizeArchiveImportText(row["NIM"]);
+      if (!nim) throw new Error('Kolom "NIM" wajib diisi.');
 
-      const student = students.find(s => s.user.identityNumber === nim);
-      if (!student) throw new Error(`NIM ${nim} tidak ditemukan`);
+      const student = students.find((item) => normalizeArchiveImportText(item.user.identityNumber) === nim);
+      if (!student) throw new Error(`Kolom "NIM" tidak ditemukan: "${nim}".`);
 
-      const thesis = theses.find(t => t.student?.user?.identityNumber === nim);
-      if (!thesis) throw new Error(`TA untuk ${nim} tidak ditemukan`);
+      const thesis = theses.find((item) => normalizeArchiveImportText(item.student?.user?.identityNumber) === nim);
+      if (!thesis) throw new Error(`Data TA untuk NIM "${nim}" tidak ditemukan.`);
 
-      const hasPassed = thesis.thesisSeminars.some(s => ["passed", "passed_with_revision"].includes(s.status));
-      if (hasPassed) throw new Error("Sudah lulus seminar hasil");
+      const hasPassed = (thesis.thesisSeminars || []).some((seminar) => ["passed", "passed_with_revision"].includes(seminar.status));
+      if (hasPassed) throw new Error(`NIM "${nim}" sudah memiliki seminar dengan hasil lulus.`);
 
-      const ruangan = String(row["Ruangan"] || "").trim();
-      let roomId = null;
-      if (ruangan && ruangan !== "-") {
-        const room = rooms.find(r => r.name.toLowerCase().includes(ruangan.toLowerCase()));
-        if (!room) throw new Error(`Ruangan "${ruangan}" tidak ditemukan`);
-        roomId = room.id;
+      const room = findUniqueArchiveImportOption(rooms, row["Ruangan"], (item) => item.name, "Ruangan");
+      const status = parseArchiveImportStatus(row["Hasil"]);
+      const date = parseArchiveImportDate(row["Tanggal"]);
+
+      const examinerNames = [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]]
+        .map(normalizeArchiveImportText)
+        .filter((value) => value && value !== "-" && !value.toLowerCase().includes("opsional"));
+      if (examinerNames.length < 1) throw new Error('Kolom "Dosen Penguji 1" wajib diisi.');
+
+      const examinerLecturerIds = examinerNames.map((name, index) => {
+        try {
+          return findUniqueArchiveImportOption(lecturers, name, (item) => item.user.fullName, `Dosen Penguji ${index + 1}`).id;
+        } catch (error) {
+          if (error.message.includes("tidak ditemukan")) {
+            throw new Error(`${error.message.slice(0, -1)} atau tidak memiliki role Penguji aktif.`);
+          }
+          throw error;
+        }
+      });
+      if (new Set(examinerLecturerIds).size !== examinerLecturerIds.length) {
+        throw new Error("Dosen penguji yang sama tidak boleh dipilih lebih dari sekali.");
       }
-
-      const hasilStr = String(row["Hasil"] || "").trim().toLowerCase();
-      let status = "failed";
-      if (hasilStr.includes("dengan revisi")) status = "passed_with_revision";
-      else if (hasilStr.includes("lulus")) status = "passed";
-
-      const tgl = String(row["Tanggal"] || "").trim();
-      let date = null;
-      if (tgl && tgl !== "-") {
-        const p = new Date(tgl);
-        if (!isNaN(p.getTime())) date = p.toISOString();
-      }
-
-      const examinerColumns = [row["Dosen Penguji 1"], row["Dosen Penguji 2"], row["Dosen Penguji 3"]]
-        .map((v) => String(v || "").trim())
-        .filter((v) => v && v !== "-" && !v.includes("Opsional"));
-      
-      const examinerLecturerIds = [];
-      for (const name of examinerColumns) {
-        const lec = lecturers.find(l => l.user.fullName.toLowerCase().includes(name.toLowerCase()));
-        if (lec) examinerLecturerIds.push(lec.id);
-        else throw new Error(`Dosen "${name}" tidak ditemukan`);
-      }
-
-      if (examinerLecturerIds.length < 1) throw new Error("Minimal 1 Dosen Penguji");
 
       await coreRepo.createSeminarWithExaminers({
         thesisId: thesis.id,
         date,
-        roomId,
+        roomId: room.id,
         status,
         examinerLecturerIds,
-        assignedByUserId: userId,
+        assignedByLecturerId: null,
       });
 
       results.successCount++;
-    } catch (err) {
+    } catch (error) {
       results.failed++;
-      results.failedRows.push({ row: i + 2, error: err.message.includes("prisma") ? "Format data tidak valid." : err.message });
+      results.failedRows.push({ row: i + 2, error: getArchiveImportErrorMessage(error) });
     }
   }
   return results;
 }
+
 export async function generateInvitationLetter(seminarId, nomorSurat) {
   const seminar = await prisma.thesisSeminar.findUnique({
     where: { id: seminarId },
@@ -593,7 +752,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   });
 
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  
+
   // Persist invitation letter number if provided
   if (nomorSurat) {
     await prisma.thesisSeminar.update({
@@ -623,7 +782,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
     const year = d.getFullYear();
     return `${day} ${month} ${year}`;
   }
-  
+
   function getIndoDay(dateObj) {
     if (!dateObj) return '-';
     const d = new Date(dateObj);
@@ -813,7 +972,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   <ol class="recipient-list">
     ${lecturersList.map(name => `<li>${name}</li>`).join('')}
   </ol>
-  
+
   <p style="margin-top: 15px;">Di<br/>Tempat.</p>
 
   <p style="margin-top: 20px;">Sesuai dengan persetujuan Pembimbing Tugas Akhir Mahasiswa:</p>
@@ -886,8 +1045,8 @@ export async function generateAssessmentResultPdf(seminarId) {
 
   // Fetch all examiners with their assessments
   const finalizationData = await examinerService.getFinalizationData(seminarId, { role: 'admin' });
-  
-  const { seminar: semDetail, examiners, criteriaGroups } = finalizationData;
+
+  const { seminar: semDetail, examiners, criteriaGroups, minimumPassingScore } = finalizationData;
   const isFinalized = !!semDetail.resultFinalizedAt;
 
   if (!isFinalized) {
@@ -896,13 +1055,13 @@ export async function generateAssessmentResultPdf(seminarId) {
 
   // Helpers for formatting
   const indonesianMonths = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-  
+
   function formatIndoDate(dateObj) {
     if (!dateObj) return '-';
     const d = new Date(dateObj);
     return `${d.getDate()} ${indonesianMonths[d.getMonth()]} ${d.getFullYear()}`;
   }
-  
+
   function getIndoDay(dateObj) {
     if (!dateObj) return '-';
     const d = new Date(dateObj);
@@ -932,7 +1091,7 @@ export async function generateAssessmentResultPdf(seminarId) {
   const studentName = student?.fullName || '-';
   const studentNim = student?.identityNumber || '-';
   const thesisTitle = seminar.thesis?.title || '-';
-  
+
   const seminarDay = getIndoDay(seminar.date);
   const seminarDateFormatted = formatIndoDate(seminar.date);
   const seminarTime = `${formatTime(seminar.startTime)} - ${formatTime(seminar.endTime)}`;
@@ -947,7 +1106,7 @@ export async function generateAssessmentResultPdf(seminarId) {
   // Signature Block
   const supervisor1 = seminar.thesis?.thesisSupervisors?.find(s => s.role?.name === "Pembimbing 1");
   const dospemName = supervisor1?.lecturer?.user?.fullName || '-';
-  
+
   const html = `<!DOCTYPE html>
 <html lang="id">
 <head>
@@ -963,11 +1122,11 @@ export async function generateAssessmentResultPdf(seminarId) {
     .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
     .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
     .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
-    
+
     .doc-title-table { width: 100%; border: 1.5px solid #000; border-collapse: collapse; margin-bottom: 20px; }
     .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; text-align: center; vertical-align: middle; }
     .doc-title-table td.doc-no { width: 100px; font-size: 14pt; letter-spacing: 1px; }
-    
+
     .section-title { font-weight: bold; margin: 15px 0 8px 0; }
     .identity-table { width: 100%; margin-left: 20px; border-collapse: collapse; }
     .identity-table td { vertical-align: top; padding: 2px 4px; }
@@ -979,11 +1138,11 @@ export async function generateAssessmentResultPdf(seminarId) {
     .assessment-table th { background-color: #f3f4f6; text-align: center; font-weight: bold; }
     .assessment-table .bg-gray { background-color: #f3f4f6; }
     .text-center { text-align: center; }
-    
+
     .decision-list { list-style: none; padding: 0; margin-left: 25px; }
     .decision-list li { margin-bottom: 6px; display: flex; align-items: center; }
     .checkbox { width: 14px; height: 14px; border: 1px solid #000; display: inline-block; margin-right: 10px; position: relative; text-align: center; line-height: 14px; font-weight: bold; }
-    
+
     .signature-grid { width: 100%; margin-top: 25px; border-collapse: collapse; }
     .signature-grid td { vertical-align: top; padding-top: 10px; }
     .sig-label { width: 40px; text-align: center; }
@@ -1103,7 +1262,7 @@ export async function generateAssessmentResultPdf(seminarId) {
       </tr>
     </tbody>
   </table>
-  <p style="font-size: 8pt; margin-top: 4px;">Keterangan: nilai rata-rata &le; 55 dinyatakan tidak lulus</p>
+  <p style="font-size: 8pt; margin-top: 4px;">Keterangan: nilai rata-rata di bawah ${minimumPassingScore} dinyatakan tidak lulus</p>
 
   <div class="section-title" style="margin-top: 20px;">C. Keputusan Seminar Hasil</div>
   <p style="margin-left: 20px;">Berdasarkan hasil seminar, mahasiswa dinyatakan:</p>

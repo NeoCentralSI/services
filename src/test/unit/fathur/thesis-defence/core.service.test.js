@@ -13,6 +13,7 @@ const { mockPrisma, mockXlsx } = vi.hoisted(() => ({
     student: { findMany: vi.fn().mockResolvedValue([]) },
     user: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
     lecturer: { findMany: vi.fn().mockResolvedValue([]) },
+    academicYear: { findMany: vi.fn().mockResolvedValue([{ id: "ay-1", startDate: new Date(0), endDate: new Date(4102444800000) }]) },
   },
   mockXlsx: {
     read: vi.fn().mockReturnValue({
@@ -58,7 +59,7 @@ describe('Thesis Defence Core Service', () => {
     vi.clearAllMocks();
     mockPrisma.student.findMany.mockResolvedValue([]);
     mockPrisma.user.findMany.mockResolvedValue([]);
-    docRepo.getDefenceDocumentTypes.mockResolvedValue([]);
+    docRepo.findRequirementsByAcademicYear.mockResolvedValue([]);
   });
 
   describe('Archive Management', () => {
@@ -99,10 +100,10 @@ describe('Thesis Defence Core Service', () => {
 
       it('should throw error if examiner is also a supervisor', async () => {
         coreRepo.getThesisOptions.mockResolvedValue([
-          { 
-            id: mockThesisId, 
-            thesisDefences: [], 
-            thesisSupervisors: [{ lecturerId: 'lec-1' }] 
+          {
+            id: mockThesisId,
+            thesisDefences: [],
+            thesisSupervisors: [{ lecturerId: 'lec-1' }]
           }
         ]);
 
@@ -127,7 +128,7 @@ describe('Thesis Defence Core Service', () => {
 
         coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, registeredAt: null, thesisId: mockThesisId });
         coreRepo.getThesisOptions.mockResolvedValue([{ id: mockThesisId, thesisSupervisors: [] }]);
-        
+
         await coreService.updateArchive(mockDefenceId, payload, mockUserId);
 
         expect(coreRepo.updateArchive).toHaveBeenCalledWith(mockDefenceId, expect.objectContaining({
@@ -163,9 +164,9 @@ describe('Thesis Defence Core Service', () => {
           examiners: [{ order: 1, lecturerName: 'L1', revisionNotes: 'Notes' }]
         };
         coreRepo.findDefenceById.mockResolvedValue(mockDefence);
-        
+
         const res = await coreService.getDefenceDetail(mockDefenceId, { studentId: 'st-1' });
-        
+
         expect(res.id).toBe(mockDefenceId);
         expect(res.examinerNotes).toHaveLength(1);
         expect(res.examinerNotes[0].lecturerName).toBe('L1');
@@ -256,7 +257,7 @@ describe('Thesis Defence Core Service', () => {
       const expectedRecipients = ['student-1', 'lec-sup-1', 'lec-exam-1'];
       const notificationService = await import('../../../../services/notification.service.js');
       const pushService = await import('../../../../services/push.service.js');
-      
+
       expect(notificationService.createNotificationsForUsers).toHaveBeenCalledWith(
         expect.arrayContaining(expectedRecipients),
         expect.any(Object)
@@ -265,7 +266,7 @@ describe('Thesis Defence Core Service', () => {
         expect.arrayContaining(expectedRecipients),
         expect.any(Object)
       );
-      
+
       // Ensure it's exactly the right length (no broadcast to all students)
       const callArgs = vi.mocked(notificationService.createNotificationsForUsers).mock.calls[0][0];
       expect(callArgs.length).toBe(expectedRecipients.length);
@@ -277,9 +278,9 @@ describe('Thesis Defence Core Service', () => {
       coreRepo.findDefenceBasicById.mockResolvedValue({ id: mockDefenceId, status: 'scheduled', thesisId: mockThesisId });
       coreRepo.updateDefence.mockResolvedValue({ status: 'cancelled' });
       mockPrisma.thesisSupervisors.updateMany.mockResolvedValue({ count: 1 });
-      
+
       const res = await coreService.cancelDefence(mockDefenceId, { cancelledReason: 'Reson' });
-      
+
       expect(res.status).toBe('cancelled');
       expect(mockPrisma.thesisSupervisors.updateMany).toHaveBeenCalledWith(expect.objectContaining({
         where: { thesisId: mockThesisId },
@@ -305,9 +306,9 @@ describe('Thesis Defence Core Service', () => {
       mockPrisma.thesisDefence.findUnique.mockResolvedValue({ id: mockDefenceId, date: new Date(), startTime: new Date(), thesis: { title: 'T', student: { user: { fullName: 'S' } } }, examiners: [] });
       mockPrisma.lecturer.findMany.mockResolvedValue([]);
       mockPrisma.user.findFirst.mockResolvedValue({ fullName: 'Kadep', identityNumber: '123' });
-      
+
       const res = await coreService.generateInvitationLetter(mockDefenceId, 'REF/123');
-      
+
       expect(res).toBeDefined();
       expect(mockPrisma.thesisDefence.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: mockDefenceId },

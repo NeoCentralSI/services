@@ -38,6 +38,9 @@ const NOW = new Date("2026-06-01T00:00:00.000Z");
 describe("Thesis CPMK Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
+    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
+    mockPrisma.thesisDefenceSupervisorAssessmentDetail.count.mockResolvedValue(0);
   });
 
   describe("getAllThesisCpmks", () => {
@@ -134,6 +137,20 @@ describe("Thesis CPMK Service", () => {
       expect(result).toEqual({ id: "1", code: "C1" });
     });
 
+    it("should normalize code and description before creating", async () => {
+      mockPrisma.thesisCpmk.findFirst.mockResolvedValue(null);
+      mockPrisma.thesisCpmk.create.mockResolvedValue({ id: "1", code: "CPMK-01" });
+
+      await createThesisCpmk({ academicYearId: "ay-1", code: " cpmk-01 ", description: " Description " });
+
+      expect(mockPrisma.thesisCpmk.findFirst).toHaveBeenCalledWith({
+        where: { code: "CPMK-01", academicYearId: "ay-1" },
+      });
+      expect(mockPrisma.thesisCpmk.create).toHaveBeenCalledWith({
+        data: { academicYearId: "ay-1", code: "CPMK-01", description: "Description" },
+      });
+    });
+
     it("should throw error if code already exists", async () => {
       mockPrisma.thesisCpmk.findFirst.mockResolvedValue({ id: "existing" });
 
@@ -159,6 +176,39 @@ describe("Thesis CPMK Service", () => {
         data: { description: "New Desc" },
       });
       expect(result).toEqual({ id: "1", code: "C1", description: "New Desc" });
+    });
+
+    it("should allow description changes when assessment details exist", async () => {
+      mockPrisma.thesisCpmk.findUnique.mockResolvedValue({
+        id: "1",
+        academicYearId: "ay-1",
+        code: "C1",
+      });
+      mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
+      mockPrisma.thesisCpmk.update.mockResolvedValue({ id: "1", code: "C1", description: "New Desc" });
+
+      await updateThesisCpmk("1", { description: " New Desc " });
+
+      expect(mockPrisma.thesisSeminarExaminerAssessmentDetail.count).not.toHaveBeenCalled();
+      expect(mockPrisma.thesisCpmk.update).toHaveBeenCalledWith({
+        where: { id: "1" },
+        data: { description: "New Desc" },
+      });
+    });
+
+    it("should reject code changes when assessment details exist", async () => {
+      mockPrisma.thesisCpmk.findUnique.mockResolvedValue({
+        id: "1",
+        academicYearId: "ay-1",
+        code: "C1",
+      });
+      mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
+
+      await expect(updateThesisCpmk("1", { code: "C2" })).rejects.toThrow(
+        "Kode CPMK tidak dapat diubah karena sudah digunakan dalam penilaian",
+      );
+      expect(mockPrisma.thesisCpmk.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.thesisCpmk.update).not.toHaveBeenCalled();
     });
 
     it("should update successfully if new code is unique", async () => {

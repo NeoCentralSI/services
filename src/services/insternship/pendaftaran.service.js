@@ -90,7 +90,7 @@ async function notifyAfterSignature(signedEntity, type) {
 /**
  * Get and format internship proposals for a specific student.
  * After consolidation, uses `internships` instead of `members`, and flat letter fields.
- * @param {string} studentId 
+ * @param {string} studentId
  * @param {string} [academicYearId]
  * @returns {Promise<Array>}
  */
@@ -198,26 +198,26 @@ export async function getEligibleStudents() {
         id: s.id,
         fullName: s.user.fullName,
         identityNumber: s.user.identityNumber,
-        skscompleted: s.skscompleted
+        skscompleted: s.sksCompleted
     }));
 }
 
 /**
  * Submit an internship proposal.
- * @param {Object} data 
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function submitProposal(data) {
-    const { 
-        coordinatorId, 
-        proposalDocumentId, 
-        targetCompanyId, 
-        companyName, 
-        companyAddress, 
+    const {
+        coordinatorId,
+        proposalDocumentId,
+        targetCompanyId,
+        companyName,
+        companyAddress,
         companyReason,
         proposedStartDate,
         proposedEndDate,
-        memberIds = [] 
+        memberIds = []
     } = data;
     const normalizedMemberIds = [...new Set(memberIds.filter(id => id && id !== coordinatorId))];
 
@@ -325,21 +325,21 @@ export async function submitProposal(data) {
 
 /**
  * Update an internship proposal (for re-submission after rejection).
- * @param {string} proposalId 
- * @param {Object} data 
+ * @param {string} proposalId
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function updateProposal(proposalId, data) {
-    const { 
-        coordinatorId, 
-        proposalDocumentId, 
-        targetCompanyId, 
-        companyName, 
-        companyAddress, 
+    const {
+        coordinatorId,
+        proposalDocumentId,
+        targetCompanyId,
+        companyName,
+        companyAddress,
         companyReason,
         proposedStartDate,
         proposedEndDate,
-        memberIds = [] 
+        memberIds = []
     } = data;
     const normalizedMemberIds = [...new Set(memberIds.filter(id => id && id !== coordinatorId))];
 
@@ -437,7 +437,7 @@ export async function updateProposal(proposalId, data) {
 /**
  * Get full detail of an internship proposal.
  * After consolidation, letter data is flat fields on the proposal.
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<Object>}
  */
 export async function getProposalDetail(id) {
@@ -464,8 +464,8 @@ export async function getProposalDetail(id) {
 /**
  * Delete an internship proposal.
  * Only rejected proposals can be deleted by the coordinator.
- * @param {string} proposalId 
- * @param {string} coordinatorId 
+ * @param {string} proposalId
+ * @param {string} coordinatorId
  * @returns {Promise<Object>}
  */
 export async function deleteProposal(proposalId, coordinatorId) {
@@ -494,9 +494,9 @@ export async function deleteProposal(proposalId, coordinatorId) {
 /**
  * Respond to an internship proposal invitation.
  * After consolidation, member status is on the Internship record.
- * @param {string} studentId 
- * @param {string} proposalId 
- * @param {string} response 
+ * @param {string} studentId
+ * @param {string} proposalId
+ * @param {string} response
  * @returns {Promise<Object>}
  */
 export async function respondToInvitation(studentId, proposalId, response) {
@@ -547,9 +547,9 @@ export async function respondToInvitation(studentId, proposalId, response) {
  * Submit a company response letter for a proposal.
  * After consolidation, updates companyResponseDocId on the proposal
  * and internship statuses.
- * @param {string} proposalId 
- * @param {string} documentId 
- * @param {string} studentId 
+ * @param {string} proposalId
+ * @param {string} documentId
+ * @param {string} studentId
  * @param {string[]} acceptedMemberIds
  * @returns {Promise<Object>}
  */
@@ -621,8 +621,8 @@ export async function submitCompanyResponse(proposalId, documentId, studentId, a
 
 /**
  * Calculate working days between two dates, excluding holidays and weekends.
- * @param {string} startDate 
- * @param {string} endDate 
+ * @param {string} startDate
+ * @param {string} endDate
  * @returns {Promise<number>}
  */
 export async function calculateWorkingDays(startDate, endDate) {
@@ -852,7 +852,7 @@ export async function deleteTemplate(name) {
 
 /**
  * Generate a PDF preview for a template with dummy data.
- * @param {string} name 
+ * @param {string} name
  * @returns {Promise<string>} Path to the generated PDF
  */
 export async function generatePreview(name) {
@@ -903,8 +903,8 @@ export async function generatePreview(name) {
 
 /**
  * Respond to an internship proposal.
- * @param {string} id 
- * @param {'APPROVED_PROPOSAL' | 'REJECTED_PROPOSAL'} status 
+ * @param {string} id
+ * @param {'APPROVED_PROPOSAL' | 'REJECTED_PROPOSAL'} status
  * @param {string} [notes]
  * @returns {Promise<Object>}
  */
@@ -1007,7 +1007,7 @@ export async function respondToProposal(id, status, notes) {
 
 /**
  * Service to create a new company.
- * @param {Object} data 
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function createCompany(data) {
@@ -1021,8 +1021,8 @@ export async function createCompany(data) {
 
 /**
  * Service to update a company.
- * @param {string} id 
- * @param {Object} data 
+ * @param {string} id
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function updateCompany(id, data) {
@@ -1037,7 +1037,7 @@ export async function updateCompany(id, data) {
 
 /**
  * Service to delete a company.
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<Object>}
  */
 export async function deleteCompany(id) {
@@ -1046,7 +1046,7 @@ export async function deleteCompany(id) {
 
 /**
  * Get detailed info of a proposal for Assignment Letter management.
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<Object>}
  */
 export async function getAssignmentLetterDetail(id) {
@@ -1092,7 +1092,7 @@ export async function getAssignmentLetterDetail(id) {
 
 /**
  * Get detailed info of a proposal for SP management.
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<Object>}
  */
 export async function getProposalLetterDetail(id) {
@@ -1131,10 +1131,10 @@ export async function getProposalLetterDetail(id) {
 
 /**
  * Verify company response and update related statuses.
- * @param {string} proposalId 
+ * @param {string} proposalId
  * @param {string} status - 'APPROVED_PROPOSAL', 'REJECTED_PROPOSAL', or 'REJECTED_BY_COMPANY'
- * @param {string} [notes] 
- * @param {string[]} [acceptedMemberIds] 
+ * @param {string} [notes]
+ * @param {string[]} [acceptedMemberIds]
  */
 export async function verifyCompanyResponse(proposalId, status, notes, acceptedMemberIds) {
     const proposal = await registrationRepository.findCompanyResponseById(proposalId);

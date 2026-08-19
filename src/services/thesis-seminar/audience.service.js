@@ -88,7 +88,7 @@ export async function addAudience(seminarId, body, user) {
   const supervisors = await coreRepo.findSupervisorsByThesisId(seminar.thesisId);
   const supervisorId = supervisors?.[0]?.id || null;
 
-  await audienceRepo.createAudience({ seminarId, studentId, supervisorId, seminarDate: seminar.date });
+  await audienceRepo.createAudience({ seminarId, thesisId: seminar.thesisId, studentId, supervisorId, seminarDate: seminar.date });
   return { success: true };
 }
 
@@ -108,7 +108,7 @@ async function registerAsAudience(seminarId, studentId, seminar) {
   const existing = await audienceRepo.findAudienceRegistration(seminarId, studentId);
   if (existing) throwError("Anda sudah terdaftar sebagai peserta seminar ini.", 409);
 
-  await audienceRepo.createAudienceRegistration(seminarId, studentId);
+  await audienceRepo.createAudienceRegistration(seminarId, seminar.thesisId, studentId);
 
   // Calendar sync (background/fire-and-forget style to avoid blocking the response)
   syncAudienceToOutlook(seminarId, studentId).catch(err =>
@@ -306,7 +306,7 @@ export async function importAudiences(seminarId, file) {
 
       const existing = await audienceRepo.findAudienceByKey(seminarId, student.id);
       if (existing) { results.failed++; results.failedRows.push({ row: i + 2, error: `Mahasiswa ${rawName} sudah terdaftar sebagai audience` }); continue; }
-      await audienceRepo.createAudience({ seminarId, studentId: student.id, supervisorId, seminarDate: seminar.date });
+      await audienceRepo.createAudience({ seminarId, thesisId: seminar.thesisId, studentId: student.id, supervisorId, seminarDate: seminar.date });
       results.successCount++;
     } catch (err) {
       results.failed++;
@@ -342,7 +342,7 @@ export async function exportAudiencesPdf(seminarId) {
   const seminar = await coreRepo.findSeminarById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
 
-  const rows = await audienceRepo.findAudiencesBySeminarId(seminarId);
+  const rows = (await audienceRepo.findAudiencesBySeminarId(seminarId)).filter((row) => row.approvedAt);
 
   // Fetch Ketua Departemen
   const ketuaDept = await prisma.user.findFirst({
@@ -401,10 +401,10 @@ export async function exportAudiencesPdf(seminarId) {
     .header-text h4 { margin: 0; font-size: 11pt; font-weight: normal; text-transform: uppercase; }
     .header-text h2 { margin: 1px 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
     .header-text p { margin: 1px 0; font-size: 9pt; font-weight: normal; }
-    
+
     .title { text-align: center; font-size: 12pt; font-weight: bold; text-decoration: underline; margin: 15px 0 5px 0; text-transform: uppercase; }
     .subtitle { text-align: center; font-size: 11pt; font-weight: normal; margin-bottom: 20px; }
-    
+
     .info-table { width: 100%; margin-bottom: 20px; }
     .info-table td { padding: 2px 0; vertical-align: top; }
     .info-label { width: 140px; }
@@ -414,7 +414,7 @@ export async function exportAudiencesPdf(seminarId) {
     .data-table th, .data-table td { border: 1px solid #000; padding: 6px 8px; font-size: 10pt; }
     .data-table th { background-color: #f2f2f2; font-weight: bold; text-align: center; }
     .text-center { text-align: center; }
-    
+
     .footer-container { margin-top: 40px; width: 100%; }
     .signature-wrapper { width: 100%; border-collapse: collapse; }
     .signature-block { width: 50%; vertical-align: top; padding-top: 10px; }
@@ -487,7 +487,7 @@ export async function exportAudiencesPdf(seminarId) {
         </tr>
       `).join('') : `
         <tr>
-          <td colspan="3" class="text-center">Belum ada data audience</td>
+          <td colspan="3" class="text-center">Belum ada peserta dengan kehadiran yang disetujui</td>
         </tr>
       `}
     </tbody>

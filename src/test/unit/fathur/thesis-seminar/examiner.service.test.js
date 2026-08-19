@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockExaminerRepo, mockCoreRepo, mockPrisma, mockStatusUtil } = vi.hoisted(() => ({
+const { mockExaminerRepo, mockCoreRepo, mockPrisma, mockStatusUtil, mockAcademicYear } = vi.hoisted(() => ({
   mockExaminerRepo: {
     findEligibleExaminers: vi.fn(),
     findActiveExaminersBySeminar: vi.fn(),
@@ -10,6 +10,7 @@ const { mockExaminerRepo, mockCoreRepo, mockPrisma, mockStatusUtil } = vi.hoiste
     saveExaminerAssessment: vi.fn(),
     findActiveExaminersWithAssessments: vi.fn(),
     findSeminarAssessmentCpmks: vi.fn().mockResolvedValue([]),
+    findSeminarMinimumScore: vi.fn(),
   },
   mockCoreRepo: {
     findSeminarById: vi.fn(),
@@ -28,6 +29,7 @@ const { mockExaminerRepo, mockCoreRepo, mockPrisma, mockStatusUtil } = vi.hoiste
     userHasRole: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
   },
   mockStatusUtil: { computeEffectiveStatus: vi.fn() },
+  mockAcademicYear: { getActiveAcademicYear: vi.fn() },
 }));
 
 mockPrisma.$transaction = vi.fn(async (cb) => cb(mockPrisma));
@@ -35,20 +37,41 @@ vi.mock("../../../../repositories/thesis-seminar/examiner.repository.js", () => 
 vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../../utils/seminarStatus.util.js", () => mockStatusUtil);
+vi.mock("../../../../helpers/academicYear.helper.js", () => mockAcademicYear);
 vi.mock("../../../../services/notification.service.js", () => ({ createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }) }));
 vi.mock("../../../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }) }));
 
-import { 
+import {
   getEligibleExaminers, assignExaminers, respondExaminerAssignment,
   getExaminerAssessment, submitExaminerAssessment, finalizeSeminar, getFinalizationData
 } from "../../../../services/thesis-seminar/examiner.service.js";
+
+const assessmentCpmks = [
+  {
+    id: "cpmk-1",
+    code: "CPMK-01",
+    description: "Kemampuan seminar",
+    thesisSeminarAssessmentCriterias: [
+      {
+        id: "criterion-1",
+        name: "Presentasi",
+        maxScore: 100,
+        displayOrder: 1,
+        assessmentRubrics: [],
+      },
+    ],
+  },
+];
 
 describe("Thesis Seminar Examiner Service (Full Suite)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStatusUtil.computeEffectiveStatus.mockImplementation((s) => s);
     mockPrisma.userHasRole.findMany.mockResolvedValue([]);
-    mockExaminerRepo.findSeminarAssessmentCpmks.mockResolvedValue([]);
+    mockExaminerRepo.findSeminarAssessmentCpmks.mockResolvedValue(assessmentCpmks);
+    mockExaminerRepo.findSeminarMinimumScore.mockResolvedValue(55);
+    mockAcademicYear.getActiveAcademicYear.mockResolvedValue({ id: "ay-current" });
+    mockCoreRepo.findUserIdsByRole.mockResolvedValue([]);
   });
 
   describe("Assignment Flow", () => {
@@ -66,7 +89,7 @@ describe("Thesis Seminar Examiner Service (Full Suite)", () => {
 
     it("assigns examiners and notifies them", async () => {
       mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1", status: "verified", thesis: { student: { id: "u1" } } });
-      mockPrisma.thesisSeminarExaminer.findMany.mockResolvedValue([]); 
+      mockPrisma.thesisSeminarExaminer.findMany.mockResolvedValue([]);
       mockPrisma.lecturer.findMany.mockResolvedValue([{ id: "l1", user: { id: "u1" } }]);
       mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", fullName: "S" });
       mockExaminerRepo.findActiveExaminersBySeminar.mockResolvedValue([{ id: "ex1", availabilityStatus: "pending" }]);
@@ -90,6 +113,9 @@ describe("Thesis Seminar Examiner Service (Full Suite)", () => {
       mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup1" });
       const res = await getExaminerAssessment("s1", { id: "u1", lecturerId: "l1" });
       expect(res.seminar).toBeDefined();
+      expect(res.criteriaGroups[0].criteria[0].id).toBe("criterion-1");
+      expect(res.minimumPassingScore).toBe(55);
+      expect(mockExaminerRepo.findSeminarAssessmentCpmks).toHaveBeenCalledWith("ay-current");
     });
 
     it("submits assessment successfully", async () => {
@@ -97,14 +123,14 @@ describe("Thesis Seminar Examiner Service (Full Suite)", () => {
       mockStatusUtil.computeEffectiveStatus.mockReturnValue("ongoing");
       mockExaminerRepo.findLatestExaminerBySeminarAndLecturer.mockResolvedValue({ id: "ex1", availabilityStatus: "available" });
       mockExaminerRepo.saveExaminerAssessment.mockResolvedValue({ id: "ex1", assessmentScore: 85 });
-      const res = await submitExaminerAssessment("s1", { scores: [], revisionNotes: "G", isDraft: false }, "l1");
+      const res = await submitExaminerAssessment("s1", { scores: [{ assessmentCriteriaId: "criterion-1", score: 85 }], revisionNotes: "G", isDraft: false }, "l1");
       expect(res.examinerId).toBe("ex1");
     });
   });
 
   describe("Finalization Workflow", () => {
     it("returns finalization data for supervisor with finalizer names", async () => {
-      mockCoreRepo.findSeminarById.mockResolvedValue({ 
+      mockCoreRepo.findSeminarById.mockResolvedValue({
         id: "s1",
         resultFinalizer: { lecturer: { user: { fullName: "Finalizer Result" } } },
         revisionFinalizer: { lecturer: { user: { fullName: "Finalizer Revision" } } }
@@ -127,7 +153,7 @@ describe("Thesis Seminar Examiner Service (Full Suite)", () => {
       ]);
       mockCoreRepo.updateSeminar.mockResolvedValue({ id: "s1", status: "passed" });
       const res = await finalizeSeminar("s1", "sup1", { targetStatus: "passed" });
-      
+
       expect(mockCoreRepo.updateSeminar).toHaveBeenCalledWith("s1", expect.objectContaining({
         status: "passed",
         resultFinalizedBy: "membership1"

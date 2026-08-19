@@ -9,6 +9,7 @@ const {
   mockLecturerRepo,
   mockPrisma,
   mockStatusUtil,
+  mockAcademicYear,
 } = vi.hoisted(() => ({
   mockCoreRepo: {
     getStudentThesisWithSeminarInfo: vi.fn(),
@@ -22,6 +23,7 @@ const {
     findSeminarSupervisorRole: vi.fn(),
   },
   mockDocRepo: {
+    findRequirementsByAcademicYear: vi.fn(),
     getSeminarDocumentTypes: vi.fn(),
     findSeminarDocuments: vi.fn(),
   },
@@ -42,6 +44,10 @@ const {
   mockStatusUtil: {
     computeEffectiveStatus: vi.fn((s) => s),
   },
+  mockAcademicYear: {
+    getActiveAcademicYear: vi.fn(),
+    formatAcademicYearLabel: vi.fn(() => "Ganjil 2026"),
+  },
 }));
 
 vi.mock("../../../../repositories/thesisGuidance/student.guidance.repository.js", () => ({
@@ -52,6 +58,7 @@ vi.mock("../../../../repositories/thesis-seminar/doc.repository.js", () => mockD
 vi.mock("../../../../repositories/thesis-seminar/revision.repository.js", () => mockRevisionRepo);
 vi.mock("../../../../repositories/thesis-seminar/audience.repository.js", () => mockAudienceRepo);
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../../../helpers/academicYear.helper.js", () => mockAcademicYear);
 vi.mock("xlsx", () => ({}));
 vi.mock("../../../../utils/seminarStatus.util.js", () => mockStatusUtil);
 
@@ -72,6 +79,7 @@ const makeStudent = (id = "student-1") => ({
 const makeThesis = (id = "thesis-1") => ({
   id,
   title: "Test Thesis Title",
+  academicYearId: "ay-1",
   thesisGuidances: Array(8).fill({}),
   thesisSupervisors: [
     { lecturerId: "lec-1", seminarReady: true, lecturer: { user: { fullName: "Dosen 1" } }, role: { name: "Pembimbing 1" } },
@@ -87,7 +95,7 @@ const makeSeminar = (overrides = {}) => ({
   startTime: null,
   endTime: null,
   examiners: [],
-  documents: [],
+  requirementDocuments: [],
   ...overrides,
 });
 
@@ -96,6 +104,10 @@ describe("Student Seminar Service — Overview Milestones", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLecturerRepo.getStudentByUserId.mockResolvedValue(makeStudent());
+    mockAcademicYear.getActiveAcademicYear.mockResolvedValue({ id: "ay-current", semester: "ganjil", year: "2026" });
+    mockDocRepo.findRequirementsByAcademicYear.mockResolvedValue([
+      { id: "req-1", academicYearId: "ay-1", name: "Laporan", description: null, displayOrder: 1 },
+    ]);
   });
 
   it("stage 0: checklist not met", async () => {

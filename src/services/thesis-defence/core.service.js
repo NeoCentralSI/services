@@ -8,6 +8,7 @@ import * as docRepo from "../../repositories/thesis-defence/doc.repository.js";
 import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import * as examinerService from "./examiner.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -88,7 +89,7 @@ async function getArchiveList({ search, page, pageSize, status }) {
   const archiveStatuses = statusFilter.database.length > 0
     ? statusFilter.database.filter((item) => RESULT_STATUSES.includes(item))
     : RESULT_STATUSES;
-  
+
   const where = { status: { in: archiveStatuses }, ...buildSearchWhere(search) };
   const { data, total } = await coreRepo.findDefencesPaginated({ where, skip, take: pageSize });
 
@@ -122,7 +123,7 @@ async function getArchiveList({ search, page, pageSize, status }) {
 async function getAdminList({ search, status }) {
   const statusFilter = parseStatusFilter(status);
   const where = { ...buildSearchWhere(search), registeredAt: { not: null } };
-  
+
   if (statusFilter.database.length === 1) {
     where.status = statusFilter.database[0];
   } else if (statusFilter.database.length > 1) {
@@ -130,8 +131,9 @@ async function getAdminList({ search, status }) {
   }
 
   const data = await coreRepo.findAllDefences({ search, status: where.status });
-  const docTypes = await docRepo.getDefenceDocumentTypes();
-  
+  const academicYear = await getActiveAcademicYear();
+  const requirements = academicYear ? await docRepo.findRequirementsByAcademicYear(academicYear.id) : [];
+
   const mapped = data.map((d) => ({
     id: d.id,
     thesisId: d.thesisId,
@@ -156,10 +158,10 @@ async function getAdminList({ search, status }) {
       availabilityStatus: e.availabilityStatus,
     })),
     documentSummary: {
-      total: docTypes.length,
-      submitted: (d.documents || []).filter((doc) => doc.status === "submitted").length,
-      approved: (d.documents || []).filter((doc) => doc.status === "approved").length,
-      declined: (d.documents || []).filter((doc) => doc.status === "declined").length,
+      total: requirements.length,
+      submitted: (d.requirementDocuments || []).filter((doc) => doc.status === "submitted").length,
+      approved: (d.requirementDocuments || []).filter((doc) => doc.status === "approved").length,
+      declined: (d.requirementDocuments || []).filter((doc) => doc.status === "declined").length,
     },
   }));
 
@@ -171,8 +173,8 @@ async function getAdminList({ search, status }) {
     const pa = STATUS_PRIORITY[a.status] ?? 99;
     const pb = STATUS_PRIORITY[b.status] ?? 99;
     if (pa !== pb) return pa - pb;
-    
-    return (a.registeredAt ? new Date(a.registeredAt).getTime() : 0) - 
+
+    return (a.registeredAt ? new Date(a.registeredAt).getTime() : 0) -
            (b.registeredAt ? new Date(b.registeredAt).getTime() : 0);
   });
 
@@ -180,7 +182,8 @@ async function getAdminList({ search, status }) {
 }
 
 async function mapLecturerDefenceList(data, lecturerId, role) {
-  const docTypes = await docRepo.getDefenceDocumentTypes();
+  const academicYear = await getActiveAcademicYear();
+  const requirements = academicYear ? await docRepo.findRequirementsByAcademicYear(academicYear.id) : [];
   return data.map((d) => {
     const myExaminer = (d.examiners || []).find((e) => e.lecturerId === lecturerId);
     const mySupervisor = (d.thesis?.thesisSupervisors || []).find((ts) => ts.lecturerId === lecturerId);
@@ -209,10 +212,10 @@ async function mapLecturerDefenceList(data, lecturerId, role) {
         availabilityStatus: e.availabilityStatus,
       })),
       documentSummary: {
-        total: docTypes.length,
-        submitted: (d.documents || []).filter((doc) => doc.status === "submitted").length,
-        approved: (d.documents || []).filter((doc) => doc.status === "approved").length,
-        declined: (d.documents || []).filter((doc) => doc.status === "declined").length,
+        total: requirements.length,
+        submitted: (d.requirementDocuments || []).filter((doc) => doc.status === "submitted").length,
+        approved: (d.requirementDocuments || []).filter((doc) => doc.status === "approved").length,
+        declined: (d.requirementDocuments || []).filter((doc) => doc.status === "declined").length,
       },
       // Lecturer specific
       myRole: mySupervisor?.role?.name || (myExaminer ? "Penguji" : "-"),
@@ -231,7 +234,7 @@ async function getAssignmentList({ search }) {
   const mapped = data.map((d) => {
     const active = (d.examiners || []).filter((e) => ["available", "pending"].includes(e.availabilityStatus));
     const rejected = (d.examiners || []).filter((e) => e.availabilityStatus === "unavailable");
-    
+
     const isConcluded = ["passed", "passed_with_revision", "failed", "cancelled"].includes(d.status);
     const assignmentStatus = isConcluded ? "finished" : getAssignmentStatus(active, (d.examiners || []).length);
 
@@ -290,24 +293,20 @@ export async function getDefenceDetail(defenceId, user = {}) {
     role: ts.role?.name || "-",
   }));
 
-  const documents = await Promise.all(
-    (defence.documents || []).map(async (d) => {
-      const withFile = await docRepo.findDefenceDocumentWithFile(defence.id, d.documentTypeId);
-      return {
-        documentTypeId: d.documentTypeId,
-        documentId: d.documentId,
-        status: d.status,
-        submittedAt: d.submittedAt,
-        verifiedAt: d.verifiedAt,
-        notes: d.notes,
-        verifiedBy: d.verifier?.fullName || null,
-        fileName: withFile?.document?.fileName || null,
-        filePath: withFile?.document?.filePath || null,
-      };
-    })
-  );
+  // Map requirementDocuments to a display-compatible shape.
+  // Full document subsystem migration is pending (Phase F1/F2).
+  const documents = (defence.requirementDocuments || []).map((d) => ({
+    requirementId: d.thesisDefenceRequirementId,
+    requirementName: d.requirement?.name || "-",
+    status: d.status,
+    submittedAt: d.submittedAt,
+    verifiedAt: d.verifiedAt,
+    notes: d.notes,
+    verifiedBy: d.verifier?.fullName || null,
+    fileName: d.fileName || null,
+    filePath: d.filePath || null,
+  }));
 
-  const docTypes = await docRepo.getDefenceDocumentTypes();
   const effectiveStatus = computeEffectiveDefenceStatus(
     defence.status,
     defence.date,
@@ -335,10 +334,26 @@ export async function getDefenceDetail(defenceId, user = {}) {
     activeExaminers.every((e) => !!e.assessmentSubmittedAt && e.assessmentScore !== null);
   const supervisorAssessmentSubmitted = defence.supervisorScore !== null;
 
+  const academicYear = await getActiveAcademicYear();
+  const activeRequirements = academicYear ? await docRepo.findRequirementsByAcademicYear(academicYear.id) : [];
+  const historicalRequirements = (defence.requirementDocuments || [])
+    .map((doc) => doc.requirement)
+    .filter(Boolean);
+  const requirements = defence.status === "registered" || historicalRequirements.length === 0
+    ? activeRequirements
+    : historicalRequirements;
+
+  const documentTypes = requirements.map((req) => ({
+    id: req.id,
+    name: req.name,
+    description: req.description || null,
+  }));
+
   return {
     id: defence.id,
     status: effectiveStatus,
     registeredAt: defence.registeredAt,
+    isArchive: defence.registeredAt === null,
     date: defence.date,
     startTime: defence.startTime,
     endTime: defence.endTime,
@@ -357,7 +372,7 @@ export async function getDefenceDetail(defenceId, user = {}) {
     },
     supervisors,
     documents,
-    documentTypes: docTypes.map((dt) => ({ id: dt.id, name: dt.name })),
+    documentTypes,
     examiners: (defence.examiners || [])
       .filter((e) => e.availabilityStatus === "available" || e.availabilityStatus === "pending")
       .map((e) => ({
@@ -597,7 +612,7 @@ export async function cancelDefence(defenceId, { cancelledReason }) {
 
 export async function createArchive(body, userId) {
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status sidang tidak valid", 400);
-  
+
   // Validate if thesis exists
   const theses = await coreRepo.getThesisOptions();
   const thesis = theses.find(t => t.id === body.thesisId);
@@ -610,36 +625,36 @@ export async function createArchive(body, userId) {
   }
 
   await validateExaminers(body.thesisId, body.examinerLecturerIds);
-  
+
   const finalScore = body.finalScore !== undefined ? body.finalScore : null;
   const grade = body.grade || (finalScore !== null ? mapScoreToGrade(finalScore) : null);
 
-  const created = await coreRepo.createArchive({ 
-    ...body, 
+  const created = await coreRepo.createArchive({
+    ...body,
     finalScore,
     grade,
-    userId 
+    userId
   });
   return coreRepo.findDefenceById(created.id);
 }
 
 export async function updateArchive(defenceId, body, userId) {
   if (!RESULT_STATUSES.includes(body.status)) throwError("Status sidang tidak valid", 400);
-  
+
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Data sidang tidak ditemukan", 404);
   if (defence.registeredAt !== null) throwError("Data sidang aktif tidak dapat diubah melalui fitur arsip", 403);
 
   await validateExaminers(defence.thesisId, body.examinerLecturerIds);
-  
+
   const finalScore = body.finalScore !== undefined ? body.finalScore : null;
   const grade = body.grade || (finalScore !== null ? mapScoreToGrade(finalScore) : null);
 
-  await coreRepo.updateArchive(defenceId, { 
-    ...body, 
+  await coreRepo.updateArchive(defenceId, {
+    ...body,
     finalScore,
     grade,
-    userId 
+    userId
   });
   return coreRepo.findDefenceById(defenceId);
 }
@@ -648,7 +663,7 @@ export async function deleteArchive(defenceId) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Data sidang tidak ditemukan", 404);
   if (defence.registeredAt !== null) throwError("Data sidang aktif tidak dapat dihapus melalui fitur arsip", 403);
-  
+
   await coreRepo.deleteDefence(defenceId);
   return { success: true };
 }
@@ -656,7 +671,7 @@ export async function deleteArchive(defenceId) {
 async function validateExaminers(thesisId, ids) {
   const unique = [...new Set(ids || [])];
   if (unique.length < 1) throwError("Minimal 1 dosen penguji harus dipilih", 400);
-  
+
   // In a real app, we'd fetch supervisors for this thesis and check them
   // For now, let's assume coreRepo has a way or just check from the options
   const theses = await coreRepo.getThesisOptions();
@@ -745,19 +760,19 @@ export async function exportArchive() {
       .map((s) => s.lecturer?.user?.fullName)
       .filter(Boolean)
       .join(", ");
-    
+
     const examiners = (d.examiners || [])
       .map((e) => e.lecturerName)
       .filter(Boolean)
       .join("; ");
-    
+
     let hasil = "-";
     if (d.status === "passed") hasil = "Lulus";
     else if (d.status === "passed_with_revision") hasil = "Lulus dengan Revisi";
     else if (d.status === "failed") hasil = "Tidak Lulus";
     else if (d.status === "cancelled") hasil = "Dibatalkan";
 
-    const waktu = d.startTime && d.endTime 
+    const waktu = d.startTime && d.endTime
       ? `${formatTime(d.startTime)} - ${formatTime(d.endTime)}`
       : "-";
 
@@ -866,7 +881,9 @@ export async function importArchive(fileBuffer, userId) {
       results.successCount++;
     } catch (err) {
       results.failed++;
-      results.failedRows.push({ row: i + 2, error: err.message.includes("prisma") ? "Format data tidak valid." : err.message });
+      const isKnownError = err.statusCode || (typeof err.message === "string" && !err.message.match(/prisma|constraint|foreign|unique|p\d{4}/i));
+      const safeMessage = isKnownError ? err.message : "Format data tidak valid atau terdapat konflik data.";
+      results.failedRows.push({ row: i + 2, error: safeMessage });
     }
   }
   return results;
@@ -878,7 +895,7 @@ export async function generateAssessmentResultPdf(defenceId) {
 
   const finalizationData = await examinerService.getFinalizationData(defenceId, { role: "admin" });
   const { defence: defDetail, examiners, supervisorAssessment } = finalizationData;
-  
+
   if (!defDetail.resultFinalizedAt) {
     throwError("Hasil penilaian hanya dapat diunduh setelah hasil sidang difinalisasi.", 400);
   }
@@ -939,7 +956,7 @@ export async function generateAssessmentResultPdf(defenceId) {
   // Examiners data
   const examinerScores = examiners.map(e => e.assessmentScore).filter(s => s !== null);
   const averageExaminerScore = examinerScores.length > 0 ? (examinerScores.reduce((a, b) => a + b, 0) / examinerScores.length) : 0;
-  
+
   // Unique groups for examiners to build the recap table
   const uniqueExaminerGroups = [];
   const seenGroups = new Set();
@@ -983,11 +1000,11 @@ export async function generateAssessmentResultPdf(defenceId) {
     .header-text h4 { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; }
     .header-text h2 { margin: 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
     .header-text p { margin: 1px 0; font-size: 8.5pt; }
-    
+
     .doc-title-table { width: 100%; border: 1.5px solid #000; border-collapse: collapse; margin-bottom: 20px; }
     .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; text-align: center; vertical-align: middle; }
     .doc-title-table td.doc-no { width: 100px; font-size: 14pt; letter-spacing: 1px; }
-    
+
     .section-title { font-weight: bold; margin: 12px 0 6px 0; font-size: 10.5pt; }
     .identity-table { width: 100%; margin-left: 15px; border-collapse: collapse; }
     .identity-table td { vertical-align: top; padding: 1px 4px; }
@@ -999,7 +1016,7 @@ export async function generateAssessmentResultPdf(defenceId) {
     .assessment-table th { background-color: #d1d5db; text-align: center; font-weight: bold; }
     .assessment-table .bg-gray { background-color: #d1d5db; }
     .text-center { text-align: center; }
-    
+
     .checkbox-container { margin: 15px 0 15px 40px; }
     .checkbox-item { margin-bottom: 8px; display: flex; align-items: center; }
     .box { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; margin-right: 10px; text-align: center; line-height: 10px; font-size: 10pt; font-weight: bold; }
@@ -1106,7 +1123,7 @@ export async function generateAssessmentResultPdf(defenceId) {
   </table>
 
   <div style="page-break-before: always;"></div>
-  
+
   <table class="header-table">
     <tr>
       <td class="logo-cell">${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}</td>
@@ -1259,7 +1276,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
     const year = d.getFullYear();
     return `${day} ${month} ${year}`;
   }
-  
+
   function getIndoDay(dateObj) {
     if (!dateObj) return '-';
     const d = new Date(dateObj);
@@ -1442,7 +1459,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
   <ol class="recipient-list">
     ${lecturersList.map(name => `<li>${name}</li>`).join('')}
   </ol>
-  
+
   <p style="margin-top: 15px;">Di<br/>Tempat.</p>
 
   <p style="margin-top: 20px;">Sesuai dengan persetujuan Pembimbing Tugas Akhir Mahasiswa:</p>

@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil } = vi.hoisted(() => ({
+const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil, mockAcademicYear } = vi.hoisted(() => ({
   mockPrisma: {
     thesisSeminar: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     user: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
     student: { findMany: vi.fn(), findUnique: vi.fn() },
     thesisSupervisors: { updateMany: vi.fn(), findMany: vi.fn() },
-    documentType: { findMany: vi.fn().mockResolvedValue([]) },
-    thesisSeminarDocument: { findMany: vi.fn().mockResolvedValue([]) },
+    thesisSeminarRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+    thesisSeminarRequirementDocument: { findMany: vi.fn().mockResolvedValue([]) },
     thesisSeminarAudience: { findMany: vi.fn().mockResolvedValue([]) },
     lecturer: { findMany: vi.fn().mockResolvedValue([]) },
   },
@@ -38,6 +38,9 @@ const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil } = vi.hoisted(() => 
     findAllSeminarResultsForExport: vi.fn(),
     findSeminarSupervisorRole: vi.fn(),
     findSeminarsPaginated: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    findArchiveSeminarsPaginated: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    findArchiveSeminarById: vi.fn(),
+    findEligibleExaminerLecturers: vi.fn(),
     countSeminars: vi.fn().mockResolvedValue(0),
     getAllAnnouncedSeminarsForBoard: vi.fn(),
   },
@@ -46,18 +49,20 @@ const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil } = vi.hoisted(() => 
       SheetNames: ['Sheet1'],
       Sheets: { Sheet1: {} }
     }),
-    utils: { 
-      sheet_to_json: vi.fn().mockReturnValue([]), 
-      json_to_sheet: vi.fn().mockReturnValue({}), 
-      book_new: vi.fn().mockReturnValue({}), 
-      book_append_sheet: vi.fn() 
+    utils: {
+      sheet_to_json: vi.fn().mockReturnValue([]),
+      json_to_sheet: vi.fn().mockReturnValue({}),
+      book_new: vi.fn().mockReturnValue({}),
+      book_append_sheet: vi.fn()
     },
     write: vi.fn().mockReturnValue(Buffer.from('')),
   },
   mockStatusUtil: { computeEffectiveStatus: vi.fn() },
+  mockAcademicYear: { getActiveAcademicYear: vi.fn() },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
+vi.mock("../../../../helpers/academicYear.helper.js", () => mockAcademicYear);
 vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
 vi.mock("xlsx", () => mockXlsx);
 vi.mock("../../../../utils/seminarStatus.util.js", () => mockStatusUtil);
@@ -74,6 +79,8 @@ describe("Thesis Seminar Core Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStatusUtil.computeEffectiveStatus.mockImplementation((s) => s);
+    mockAcademicYear.getActiveAcademicYear.mockResolvedValue({ id: "ay-current" });
+    mockCoreRepo.findEligibleExaminerLecturers.mockResolvedValue([{ id: "l1" }]);
   });
 
   describe("Announcements", () => {
@@ -117,7 +124,22 @@ describe("Thesis Seminar Core Service", () => {
       expect(res).toBeDefined();
     });
 
+    it("uses the revised archive query for paginated archive data", async () => {
+      mockCoreRepo.findArchiveSeminarsPaginated.mockResolvedValue({ data: [], total: 0 });
+      const res = await coreService.getSeminarList({
+        page: 1,
+        pageSize: 10,
+        search: "",
+        view: "archive",
+        status: "passed,failed",
+        user: { role: "Admin" },
+      });
+      expect(res.meta).toEqual({ page: 1, pageSize: 10, total: 0, totalPages: 0 });
+      expect(mockCoreRepo.findArchiveSeminarsPaginated).toHaveBeenCalledOnce();
+    });
+
     it("returns seminar detail correctly", async () => {
+      mockCoreRepo.findArchiveSeminarById.mockResolvedValue({ id: "s1", registeredAt: new Date() });
       mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1", examiners: [] });
       const res = await coreService.getSeminarDetail("s1");
       expect(res.id).toBeDefined();
@@ -131,9 +153,12 @@ describe("Thesis Seminar Core Service", () => {
       mockPrisma.thesisSeminar.findFirst.mockResolvedValue(null);
       mockCoreRepo.findSupervisorsByThesisId.mockResolvedValue([]);
       mockCoreRepo.createSeminarWithExaminers.mockResolvedValue({ id: "s1" });
-      mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1" });
-      const res = await coreService.createArchive({ thesisId: "t1", roomId: "r1", status: "passed", examinerLecturerIds: ["l1"], date: "2026-01-01" }, "u1");
+      mockCoreRepo.findArchiveSeminarById.mockResolvedValue({ id: "s1" });
+      const res = await coreService.createArchive({ thesisId: "t1", roomId: "r1", status: "failed", examinerLecturerIds: ["l1"], date: "2026-01-01" });
       expect(res.id).toBeDefined();
+      expect(mockCoreRepo.createSeminarWithExaminers).toHaveBeenCalledWith(
+        expect.objectContaining({ assignedByLecturerId: null, status: "failed" })
+      );
     });
 
     it("updates manual archive data", async () => {
@@ -142,8 +167,8 @@ describe("Thesis Seminar Core Service", () => {
       mockCoreRepo.findRoomById.mockResolvedValue({ id: "r1" });
       mockCoreRepo.findSupervisorsByThesisId.mockResolvedValue([]);
       mockCoreRepo.updateSeminarWithExaminers.mockResolvedValue({});
-      mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1" });
-      const res = await coreService.updateArchive("s1", { thesisId: "t1", roomId: "r1", status: "passed", examinerLecturerIds: ["l1"] }, "u1");
+      mockCoreRepo.findArchiveSeminarById.mockResolvedValue({ id: "s1" });
+      const res = await coreService.updateArchive("s1", { thesisId: "t1", roomId: "r1", status: "passed", examinerLecturerIds: ["l1"], date: "2026-01-01" });
       expect(res.id).toBeDefined();
     });
 
@@ -206,17 +231,39 @@ describe("Thesis Seminar Core Service", () => {
       expect(mockXlsx.write).toHaveBeenCalled();
     });
 
-    it("processes excel rows during import", async () => {
+    it("processes Excel date serials during import", async () => {
       mockXlsx.utils.sheet_to_json.mockReturnValue([
-        { NIM: '123', Hasil: 'Lulus', Tanggal: '2023-01-01', 'Dosen Penguji 1': 'Lec A' }
+        { NIM: '123', Hasil: 'Lulus', Tanggal: 46232, Ruangan: 'Ruang Seminar', 'Dosen Penguji 1': 'Lec A' }
       ]);
-      mockCoreRepo.findAllRooms.mockResolvedValue([]);
+      mockCoreRepo.findAllRooms.mockResolvedValue([{ id: 'room-1', name: 'Ruang Seminar' }]);
       mockCoreRepo.findLecturersForOptions.mockResolvedValue([{ user: { fullName: 'Lec A' }, id: 'lec-a' }]);
       mockCoreRepo.findStudentsForOptions.mockResolvedValue([{ user: { identityNumber: '123' }, id: 'stud-1' }]);
       mockCoreRepo.findThesesForOptions.mockResolvedValue([{ student: { user: { identityNumber: '123' } }, id: 't1', thesisSeminars: [] }]);
 
-      const result = await coreService.importArchive(Buffer.from(''), 'u1');
+      const result = await coreService.importArchive(Buffer.from(''));
       expect(result.successCount).toBe(1);
+      expect(mockCoreRepo.createSeminarWithExaminers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          date: new Date('2026-07-29T00:00:00.000Z'),
+          roomId: 'room-1',
+          status: 'passed',
+        })
+      );
+    });
+
+    it("returns a column-specific message for invalid import values", async () => {
+      mockXlsx.utils.sheet_to_json.mockReturnValue([
+        { NIM: '123', Hasil: 'Tidak diketahui', Tanggal: '2026-07-29', Ruangan: 'Ruang Seminar', 'Dosen Penguji 1': 'Lec A' }
+      ]);
+      mockCoreRepo.findAllRooms.mockResolvedValue([{ id: 'room-1', name: 'Ruang Seminar' }]);
+      mockCoreRepo.findLecturersForOptions.mockResolvedValue([{ user: { fullName: 'Lec A' }, id: 'lec-a' }]);
+      mockCoreRepo.findStudentsForOptions.mockResolvedValue([{ user: { identityNumber: '123' }, id: 'stud-1' }]);
+      mockCoreRepo.findThesesForOptions.mockResolvedValue([{ student: { user: { identityNumber: '123' } }, id: 't1', thesisSeminars: [] }]);
+
+      const result = await coreService.importArchive(Buffer.from(''));
+      expect(result.successCount).toBe(0);
+      expect(result.failedRows[0].error).toContain('Kolom "Hasil" tidak valid: "Tidak diketahui"');
+      expect(mockCoreRepo.createSeminarWithExaminers).not.toHaveBeenCalled();
     });
   });
 

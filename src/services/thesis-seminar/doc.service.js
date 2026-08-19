@@ -1,27 +1,16 @@
 import path from "path";
+import { createHash } from "crypto";
 import { mkdir, writeFile, unlink } from "fs/promises";
-import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
 import prisma from "../../config/prisma.js";
 import { ENV } from "../../config/env.js";
+import { getActiveAcademicYear, formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
 
 const MIN_BIMBINGAN = ENV.SEMINAR_MIN_BIMBINGAN;
 const MIN_KEHADIRAN = ENV.SEMINAR_MIN_KEHADIRAN;
-
-// ============================================================
-// CONSTANTS
-// ============================================================
-
-const DOC_TYPE_CONFIG = {
-  "Laporan Tugas Akhir": { accept: [".pdf"], label: "Laporan Tugas Akhir (PDF)" },
-  "Slide Presentasi": { accept: [".pdf"], label: "Slide Presentasi (PDF)" },
-  "Draft Jurnal TEKNOSI": { accept: [".pdf"], label: "Draft Jurnal TEKNOSI (PDF)" },
-};
-
-// ============================================================
-// HELPERS
-// ============================================================
+const MAX_FILE_SIZE_BYTES = ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB * 1024 * 1024;
+const ACCEPTED_EXTENSIONS = [".pdf"];
 
 function throwError(message, statusCode) {
   const err = new Error(message);
@@ -29,12 +18,92 @@ function throwError(message, statusCode) {
   throw err;
 }
 
-function validateFileExtension(file, documentTypeName) {
-  const config = DOC_TYPE_CONFIG[documentTypeName];
-  if (!config) throwError(`Tipe dokumen "${documentTypeName}" tidak valid.`, 400);
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (!config.accept.includes(ext)) {
-    throwError(`File untuk ${config.label} harus berformat ${config.accept.join(" atau ").toUpperCase()}.`, 400);
+function mapDocument(document) {
+  if (!document) return null;
+  return {
+    thesisSeminarId: document.thesisSeminarId,
+    requirementId: document.thesisSeminarRequirementId,
+    status: document.status,
+    filePath: document.filePath,
+    fileName: document.fileName,
+    mimeType: document.mimeType,
+    fileSize: document.fileSize,
+    submittedAt: document.submittedAt,
+    verifiedAt: document.verifiedAt,
+    verifiedBy: document.verifier?.fullName || null,
+    notes: document.notes,
+  };
+}
+
+function mapRequirement(requirement, document = null) {
+  return {
+    id: requirement.id,
+    name: requirement.name,
+    description: requirement.description || null,
+    displayOrder: requirement.displayOrder,
+    document: mapDocument(document),
+  };
+}
+
+function uploadConfig() {
+  return {
+    accept: ACCEPTED_EXTENSIONS,
+    maxFileSizeBytes: MAX_FILE_SIZE_BYTES,
+    maxFileSizeMb: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB,
+  };
+}
+
+function validateFile(file) {
+  if (!file?.buffer) throwError("Pilih file dokumen yang akan diunggah.", 400);
+
+  const originalName = Buffer.from(file.originalname || "", "latin1").toString("utf8");
+  const extension = path.extname(originalName).toLowerCase();
+  if (!ACCEPTED_EXTENSIONS.includes(extension)) {
+    throwError("Format dokumen tidak didukung. Gunakan file PDF.", 400);
+  }
+  if (file.mimetype !== "application/pdf") {
+    throwError("Isi file tidak dikenali sebagai dokumen PDF yang valid.", 400);
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES || file.buffer.length > MAX_FILE_SIZE_BYTES) {
+    throwError(`Ukuran file maksimal ${ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB} MB.`, 400);
+  }
+  if (file.buffer.subarray(0, 5).toString("ascii") !== "%PDF-") {
+    throwError("File yang dipilih bukan dokumen PDF yang valid.", 400);
+  }
+
+  return { ...file, originalname: originalName };
+}
+
+async function safeUnlink(relativePath) {
+  if (!relativePath) return;
+  const uploadsRoot = path.resolve(process.cwd(), "uploads");
+  const target = path.resolve(process.cwd(), relativePath);
+  if (target !== uploadsRoot && !target.startsWith(`${uploadsRoot}${path.sep}`)) return;
+  try {
+    await unlink(target);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn("Gagal menghapus file dokumen seminar lama:", error.message);
+    }
+  }
+}
+
+async function validateRegistrationChecklist(thesis) {
+  const [student, completedGuidances, seminarAttendance, supervisors] = await Promise.all([
+    prisma.student.findUnique({ where: { id: thesis.studentId } }),
+    prisma.thesisGuidance.count({ where: { thesisId: thesis.id, status: "completed" } }),
+    coreRepo.countSeminarAttendance(thesis.studentId),
+    prisma.thesisSupervisors.findMany({ where: { thesisId: thesis.id } }),
+  ]);
+  const allSupervisorsReady = supervisors.length > 0 && supervisors.every((item) => item.seminarReady);
+
+  if (
+    completedGuidances < MIN_BIMBINGAN ||
+    seminarAttendance < MIN_KEHADIRAN ||
+    !student?.researchMethodCompleted ||
+    !allSupervisorsReady
+  ) {
+    throwError("Lengkapi seluruh checklist persyaratan sebelum mengunggah dokumen seminar.", 403);
   }
 }
 
@@ -42,255 +111,279 @@ async function getOrCreateSeminar(thesis) {
   const existing = thesis.thesisSeminars?.[0];
   if (existing && !["failed", "cancelled"].includes(existing.status)) return existing;
 
-  // Verify requirements before auto-registration
-  const student = await prisma.student.findUnique({ where: { id: thesis.studentId } });
-  const completedGuidances = await prisma.thesisGuidance.count({ where: { thesisId: thesis.id, status: "completed" } });
-  const seminarAttendance = await coreRepo.countSeminarAttendance(thesis.studentId);
-  const supervisors = await prisma.thesisSupervisors.findMany({ where: { thesisId: thesis.id } });
-  const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.seminarReady);
-
-  if (completedGuidances < MIN_BIMBINGAN || seminarAttendance < MIN_KEHADIRAN || !student?.researchMethodCompleted || !allSupervisorsReady) {
-    throwError("Anda belum memenuhi persyaratan pendaftaran seminar hasil.", 403);
-  }
-
+  await validateRegistrationChecklist(thesis);
   const created = await coreRepo.createThesisSeminar(thesis.id);
   return { id: created.id, status: created.status };
 }
 
-// ============================================================
-// PUBLIC: Document Types
-// ============================================================
+export async function getRequirementsForOverview(_thesis, currentSeminar) {
+  const documents = currentSeminar?.requirementDocuments || [];
+  const documentMap = new Map(documents.map((item) => [item.thesisSeminarRequirementId, item]));
 
-export async function getDocumentTypes() {
-  const types = await docRepo.ensureSeminarDocumentTypes();
-  return Object.entries(types).map(([name, dt]) => ({
-    id: dt.id,
-    name: dt.name,
-    accept: DOC_TYPE_CONFIG[name]?.accept || [],
-    label: DOC_TYPE_CONFIG[name]?.label || name,
-  }));
+  // Locked attempts retain the documents/requirements that were actually submitted for that attempt.
+  if (currentSeminar && currentSeminar.status !== "registered") {
+    const historicalRequirements = documents
+      .map((document) => document.requirement)
+      .filter(Boolean);
+    return {
+      requirements: historicalRequirements.map((requirement) =>
+        mapRequirement(requirement, documentMap.get(requirement.id))
+      ),
+      requirementConfiguration: { isConfigured: true, message: null },
+      uploadConfig: uploadConfig(),
+    };
+  }
+
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) {
+    return {
+      requirements: [],
+      requirementConfiguration: {
+        isConfigured: false,
+        message: "Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.",
+      },
+      uploadConfig: uploadConfig(),
+    };
+  }
+
+  const requirements = await docRepo.findRequirementsByAcademicYear(academicYear.id);
+  if (requirements.length === 0) {
+    return {
+      requirements: [],
+      requirementConfiguration: {
+        isConfigured: false,
+        message: `Syarat dokumen seminar untuk ${formatAcademicYearLabel(academicYear)} belum dikonfigurasi.`,
+      },
+      uploadConfig: uploadConfig(),
+    };
+  }
+
+  return {
+    requirements: requirements.map((requirement) =>
+      mapRequirement(requirement, documentMap.get(requirement.id))
+    ),
+    requirementConfiguration: { isConfigured: true, message: null },
+    uploadConfig: uploadConfig(),
+  };
 }
 
-// ============================================================
-// PUBLIC: Get Documents
-// ============================================================
+
+export async function getDocumentTypes(studentId) {
+  const thesis = await coreRepo.getThesisWithSeminar(studentId);
+  if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
+  const requirements = await docRepo.findRequirementsByAcademicYear(academicYear.id);
+  return requirements.map((item) => ({
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    displayOrder: item.displayOrder,
+    label: item.name,
+    accept: ACCEPTED_EXTENSIONS,
+    maxFileSizeBytes: MAX_FILE_SIZE_BYTES,
+  }));
+}
 
 export async function getDocuments(seminarId) {
   const seminar = await coreRepo.findSeminarBasicById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  const docs = await docRepo.findSeminarDocuments(seminarId);
+
+  const documents = await docRepo.findSeminarDocuments(seminarId);
+  const academicYear = seminar.status === "registered" ? await getActiveAcademicYear() : null;
+  if (seminar.status === "registered" && !academicYear) {
+    throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
+  }
+  const requirements = seminar.status === "registered"
+    ? await docRepo.findRequirementsByAcademicYear(academicYear.id)
+    : documents.map((item) => item.requirement);
+  const documentMap = new Map(documents.map((item) => [item.thesisSeminarRequirementId, item]));
+
   return {
     seminarId,
-    documents: docs.map((d) => ({
-      thesisSeminarId: d.thesisSeminarId,
-      documentTypeId: d.documentTypeId,
-      documentId: d.documentId,
-      status: d.status,
-      submittedAt: d.submittedAt,
-      verifiedAt: d.verifiedAt,
-      notes: d.notes,
-      verifiedBy: d.verifier?.fullName || null,
-      fileName: d.document?.fileName || null,
-      filePath: d.document?.filePath || null,
-    })),
+    requirements: requirements.map((requirement) =>
+      mapRequirement(requirement, documentMap.get(requirement.id))
+    ),
+    uploadConfig: uploadConfig(),
   };
 }
 
-// ============================================================
-// PUBLIC: Upload Document
-// ============================================================
+export async function uploadDocument(seminarId, studentId, file, requirementId) {
+  const normalizedFile = validateFile(file);
+  if (!requirementId) throwError("Pilih jenis syarat dokumen yang akan diunggah.", 400);
 
-export async function uploadDocument(seminarId, studentId, file, docTypeName) {
-  if (!file || !file.buffer) throwError("File tidak ditemukan.", 400);
-  const originalName = Buffer.from(file.originalname, "latin1").toString("utf8");
-  const normalizedFile = { ...file, originalname: originalName };
+  const thesis = await coreRepo.getThesisWithSeminar(studentId);
+  if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
 
-  const docType = await docRepo.getOrCreateDocumentType(docTypeName);
-  validateFileExtension(normalizedFile, docTypeName);
+  const requirement = await docRepo.findRequirementForAcademicYear(requirementId, academicYear.id);
+  if (!requirement) {
+    throwError("Syarat dokumen tidak ditemukan pada tahun akademik yang sedang berjalan.", 400);
+  }
 
-  // If seminarId provided, use it; otherwise resolve from student
-  let targetSeminarId = seminarId;
-  let thesisId;
+  const configuredRequirements = await docRepo.findRequirementsByAcademicYear(academicYear.id);
+  if (configuredRequirements.length === 0) {
+    throwError(`Syarat dokumen seminar untuk ${formatAcademicYearLabel(academicYear)} belum dikonfigurasi.`, 400);
+  }
 
-  if (!targetSeminarId || targetSeminarId === "active") {
-    const thesis = await coreRepo.getThesisWithSeminar(studentId);
-    if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
-    thesisId = thesis.id;
-    const seminar = await getOrCreateSeminar(thesis);
-    if (seminar.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
-    targetSeminarId = seminar.id;
+  let seminar;
+  if (!seminarId || seminarId === "active") {
+    seminar = await getOrCreateSeminar(thesis);
   } else {
-    const seminar = await coreRepo.findSeminarBasicById(targetSeminarId);
+    seminar = await coreRepo.findSeminarBasicById(seminarId);
     if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-    if (seminar.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
-    thesisId = seminar.thesisId;
+    if (seminar.thesis.studentId !== studentId) {
+      throwError("Anda tidak memiliki akses untuk mengubah dokumen seminar ini.", 403);
+    }
+  }
+  if (seminar.status !== "registered") {
+    throwError("Dokumen seminar sudah dikunci dan tidak dapat diubah.", 403);
   }
 
-  const existing = await docRepo.findSeminarDocument(targetSeminarId, docType.id);
+  const existing = await docRepo.findSeminarDocument(seminar.id, requirementId);
   if (existing?.status === "approved") {
-    throwError("Dokumen ini sudah diverifikasi dan tidak dapat diubah.", 403);
+    throwError("Dokumen ini sudah disetujui dan tidak dapat diunggah ulang.", 403);
   }
 
-  // Save file to disk
-  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesisId, "seminar", targetSeminarId);
+  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesis.id, "seminar", seminar.id);
   await mkdir(uploadsRoot, { recursive: true });
-
-  // Delete old file if re-uploading
-  if (existing) {
-    try {
-      const oldDoc = await docRepo.findDocumentById(existing.documentId);
-      if (oldDoc?.filePath) await unlink(path.join(process.cwd(), oldDoc.filePath));
-      await docRepo.deleteDocument(existing.documentId);
-    } catch (e) { console.warn("Could not delete old seminar document:", e.message); }
-  }
-
-  const ext = path.extname(originalName).toLowerCase();
-  const safeName = `${docTypeName.replace(/\s+/g, "-").toLowerCase()}${ext}`;
-  const filePath = path.join(uploadsRoot, safeName);
-  await writeFile(filePath, file.buffer);
-  const relPath = path.relative(process.cwd(), filePath).replace(/\\/g, "/");
-
-  const doc = await docRepo.createDocument({
-    userId: studentId,
-    documentTypeId: docType.id,
-    filePath: relPath,
-    fileName: originalName,
-  });
+  const storedName = `requirement-${requirementId}-${Date.now()}.pdf`;
+  const absolutePath = path.join(uploadsRoot, storedName);
+  const relativePath = path.relative(process.cwd(), absolutePath).replace(/\\/g, "/");
+  await writeFile(absolutePath, normalizedFile.buffer);
 
   const now = new Date();
-  if (existing) {
-    await docRepo.updateSeminarDocument(targetSeminarId, docType.id, {
-      documentId: doc.id, submittedAt: now, status: "submitted",
-      notes: null, verifiedBy: null, verifiedAt: null,
+  let saved;
+  try {
+    saved = await docRepo.upsertSeminarDocument(seminar.id, requirementId, {
+      filePath: relativePath,
+      fileName: normalizedFile.originalname,
+      mimeType: normalizedFile.mimetype,
+      fileSize: normalizedFile.buffer.length,
+      fileHash: createHash("sha256").update(normalizedFile.buffer).digest("hex"),
+      submittedAt: now,
+      status: "submitted",
+      notes: null,
+      verifiedBy: null,
+      verifiedAt: null,
     });
-  } else {
-    await docRepo.createSeminarDocument({
-      thesisSeminarId: targetSeminarId, documentTypeId: docType.id,
-      documentId: doc.id, submittedAt: now, status: "submitted",
-    });
+  } catch (error) {
+    await safeUnlink(relativePath);
+    throw error;
   }
+  if (existing?.filePath && existing.filePath !== relativePath) await safeUnlink(existing.filePath);
 
-  // Notify Admins
   try {
     const adminIds = await coreRepo.findUserIdsByRole("Admin");
     if (adminIds.length > 0) {
-      const student = await prisma.user.findUnique({ where: { id: studentId }, select: { fullName: true } });
-      const studentName = student?.fullName || "Mahasiswa";
+      const studentName = thesis.student?.user?.fullName || "Mahasiswa";
       const title = "Dokumen Seminar Hasil Baru";
-      const message = `${studentName} telah mengunggah dokumen "${docTypeName}".`;
-
+      const message = `${studentName} telah mengunggah dokumen \"${requirement.name}\".`;
       await Promise.all([
-        import("../notification.service.js").then(m => m.createNotificationsForUsers(adminIds, { title, message })),
-        import("../push.service.js").then(m => m.sendFcmToUsers(adminIds, { title, body: message, data: { seminarId: targetSeminarId, type: "seminar_doc_upload" } }))
+        import("../notification.service.js").then((module) =>
+          module.createNotificationsForUsers(adminIds, { title, message })
+        ),
+        import("../push.service.js").then((module) =>
+          module.sendFcmToUsers(adminIds, {
+            title,
+            body: message,
+            data: { seminarId: seminar.id, type: "seminar_doc_upload" },
+          })
+        ),
       ]);
     }
-  } catch (err) {
-    console.error("[FCM/Notification Error] Failed to notify admins on seminar doc upload:", err.message);
+  } catch (error) {
+    console.error("[Notification Error] Gagal mengirim notifikasi upload dokumen seminar:", error.message);
   }
 
-  return { documentTypeId: docType.id, documentId: doc.id, fileName: originalName, filePath: relPath, status: "submitted", submittedAt: now };
+  return mapDocument(saved);
 }
 
-// ============================================================
-// PUBLIC: View Document
-// ============================================================
-
-export async function viewDocument(seminarId, docTypeId) {
-  const semDoc = await docRepo.findSeminarDocument(seminarId, docTypeId);
-  if (!semDoc) throwError("Dokumen belum diupload.", 404);
-
-  const doc = await docRepo.findDocumentById(semDoc.documentId);
-  if (!doc) throwError("File dokumen tidak ditemukan.", 404);
-
-  return {
-    documentTypeId: semDoc.documentTypeId,
-    documentId: semDoc.documentId,
-    status: semDoc.status,
-    submittedAt: semDoc.submittedAt,
-    verifiedAt: semDoc.verifiedAt,
-    notes: semDoc.notes,
-    fileName: doc.fileName,
-    filePath: doc.filePath,
-  };
+export async function viewDocument(seminarId, requirementId) {
+  const document = await docRepo.findSeminarDocument(seminarId, requirementId);
+  if (!document) throwError("Dokumen belum diunggah.", 404);
+  return mapDocument(document);
 }
 
-// ============================================================
-// PUBLIC: Verify Document (Admin approve/decline)
-// ============================================================
+async function verifyWithRetry(payload) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await docRepo.verifyRequirementDocumentAtomic(payload);
+    } catch (error) {
+      const retryable = error?.code === "P2034" || /deadlock|serialization/i.test(error?.message || "");
+      if (!retryable || attempt === maxAttempts) throw error;
+    }
+  }
+}
 
-export async function verifyDocument(seminarId, docTypeId, { action, notes, userId }) {
-  if (!["approve", "decline"].includes(action)) throwError('Action harus "approve" atau "decline".', 400);
+export async function verifyDocument(seminarId, requirementId, { action, notes, userId }) {
+  if (!["approve", "decline"].includes(action)) {
+    throwError('Aksi verifikasi harus "approve" atau "decline".', 400);
+  }
+  if (action === "decline" && !String(notes || "").trim()) {
+    throwError("Catatan wajib diisi saat dokumen ditolak.", 400);
+  }
 
-  const seminar = await coreRepo.findSeminarBasicById(seminarId);
-  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
-  if (seminar.status !== "registered") throwError("Verifikasi dokumen hanya dapat dilakukan saat seminar berstatus 'registered'.", 400);
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
 
-  const docWithFile = await docRepo.findDocumentWithFile(seminarId, docTypeId);
-  if (!docWithFile) throwError("Dokumen tidak ditemukan untuk di-verifikasi.", 404);
+  const result = await verifyWithRetry({
+    academicYearId: academicYear.id,
+    thesisSeminarId: seminarId,
+    requirementId,
+    status: action === "approve" ? "approved" : "declined",
+    notes: String(notes || "").trim() || null,
+    verifiedBy: userId,
+  });
+  if (result.kind === "seminar_not_found") throwError("Seminar tidak ditemukan.", 404);
+  if (result.kind === "seminar_locked") {
+    throwError("Verifikasi dokumen hanya dapat dilakukan saat pendaftaran masih berlangsung.", 400);
+  }
+  if (result.kind === "requirement_not_found") {
+    throwError("Syarat dokumen tidak ditemukan pada tahun akademik yang sedang berjalan.", 400);
+  }
+  if (result.kind === "document_not_found") throwError("Dokumen belum diunggah.", 404);
 
-  const docTypes = await docRepo.getSeminarDocumentTypes();
-  const docType = docTypes.find(dt => dt.id === docTypeId);
-  const docTypeName = docType ? docType.name : "Dokumen Persyaratan";
-
-  const newStatus = action === "approve" ? "approved" : "declined";
-  await docRepo.updateDocumentStatus(seminarId, docTypeId, { status: newStatus, notes: notes || null, verifiedBy: userId });
-
-  const thesis = await coreRepo.findThesisById(seminar.thesisId);
-
-  // 1. Notify student about this specific document status
   try {
-    if (thesis?.studentId) {
-      const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
-      const statusText = action === "approve" ? "disetujui" : "ditolak";
-      const message = `Dokumen "${docTypeName}" untuk seminar hasil Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${notes}` : ""}`;
+    const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
+    const statusText = action === "approve" ? "disetujui" : "ditolak";
+    const message = `Dokumen \"${result.requirement.name}\" untuk seminar hasil Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${String(notes).trim()}` : ""}`;
+    const notificationJobs = [
+      import("../notification.service.js").then((module) =>
+        module.createNotificationsForUsers([result.studentUserId], { title, message })
+      ),
+      import("../push.service.js").then((module) =>
+        module.sendFcmToUsers([result.studentUserId], {
+          title,
+          body: message,
+          data: { seminarId, type: "seminar_doc_verified" },
+        })
+      ),
+    ];
 
-      await Promise.all([
-        import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
-        import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { seminarId, type: "seminar_doc_verified" } }))
-      ]);
-    }
-  } catch (err) {
-    console.error("[Notification Error] Failed to notify student on doc verification:", err.message);
-  }
-
-  // 2. Auto-transition to 'verified' when all docs approved
-  let seminarTransitioned = false;
-  if (action === "approve") {
-    const allDocs = await docRepo.countDocumentsByStatus(seminarId);
-    // Important: we use the updated count including the current action
-    const approvedCount = allDocs.filter((d) => d.documentTypeId === docTypeId ? true : d.status === "approved").length;
-
-    if (approvedCount >= docTypes.length) {
-      await coreRepo.updateSeminar(seminarId, { status: "verified", verifiedAt: new Date() });
-      seminarTransitioned = true;
-
-      // 2a. Notify student that seminar is now verified
-      try {
-        const student = await prisma.user.findUnique({ where: { id: thesis.studentId }, select: { fullName: true } });
-        const studentName = student?.fullName || "Mahasiswa";
-
-        const title = "Seminar Hasil Terverifikasi";
-        const message = "Seluruh dokumen persyaratan seminar hasil Anda telah diverifikasi. Menunggu penetapan penguji.";
-        await Promise.all([
-          import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
-          import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { seminarId, type: "seminar_verified" } }))
-        ]);
-
-        // 2b. Notify Ketua Departemen
-        const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
-        if (kadepIds.length > 0) {
-          const kadepTitle = "Penetapan Penguji Seminar Hasil";
-          const kadepMsg = `Mahasiswa ${studentName} telah melewati verifikasi dokumen seminar hasil. Mohon untuk melakukan penetapan dosen penguji.`;
-          await Promise.all([
-            import("../notification.service.js").then(m => m.createNotificationsForUsers(kadepIds, { title: kadepTitle, message: kadepMsg })),
-            import("../push.service.js").then(m => m.sendFcmToUsers(kadepIds, { title: kadepTitle, body: kadepMsg, data: { seminarId, type: "seminar_need_examiner" } }))
-          ]);
-        }
-      } catch (err) {
-        console.error("[Notification Error] Failed to notify student/kadep on seminar verification:", err.message);
+    if (result.seminarTransitioned) {
+      const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
+      if (kadepIds.length > 0) {
+        const kadepTitle = "Penetapan Penguji Seminar Hasil";
+        const kadepMessage = "Pendaftaran seminar hasil telah terverifikasi dan siap untuk penetapan dosen penguji.";
+        notificationJobs.push(
+          import("../notification.service.js").then((module) =>
+            module.createNotificationsForUsers(kadepIds, { title: kadepTitle, message: kadepMessage })
+          )
+        );
       }
     }
+    await Promise.all(notificationJobs);
+  } catch (error) {
+    console.error("[Notification Error] Gagal mengirim notifikasi verifikasi dokumen:", error.message);
   }
 
-  return { documentTypeId: docTypeId, status: newStatus, seminarTransitioned, newSeminarStatus: seminarTransitioned ? "verified" : seminar.status };
+  return {
+    requirementId,
+    status: result.document.status,
+    seminarTransitioned: result.seminarTransitioned,
+    newSeminarStatus: result.newSeminarStatus,
+  };
 }

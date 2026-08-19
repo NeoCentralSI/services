@@ -17,6 +17,7 @@ const {
     findDefenceSupervisorAssessmentDetails: vi.fn(),
   },
   mockDocRepo: {
+    findRequirementsByAcademicYear: vi.fn().mockResolvedValue([]),
     getDefenceDocumentTypes: vi.fn(),
   },
   mockExaminerRepo: {
@@ -29,6 +30,8 @@ const {
     lecturer: { findMany: vi.fn() },
     document: { findMany: vi.fn() },
     thesis: { findFirst: vi.fn() },
+    academicYear: { findMany: vi.fn().mockResolvedValue([{ id: "ay-1", startDate: new Date(0), endDate: new Date(4102444800000) }]) },
+    thesisDefenceRequirement: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockStatusUtil: {
     computeEffectiveDefenceStatus: vi.fn((s) => s),
@@ -54,7 +57,7 @@ import {
 // ── helpers ───────────────────────────────────────────────────
 const makeStudent = (id = "student-1") => ({
   id,
-  skscompleted: 144,
+  sksCompleted: 144,
   user: { fullName: "Test Student", identityNumber: "123456" },
 });
 
@@ -89,7 +92,7 @@ describe("Student Defence Service — Overview Milestones", () => {
 
   it("stage 0: checklist not met (SKS insufficient)", async () => {
     const student = makeStudent();
-    student.skscompleted = 100;
+    student.sksCompleted = 100;
     mockLecturerRepo.getStudentByUserId.mockResolvedValue(student);
     mockCoreRepo.getStudentThesisWithDefenceInfo.mockResolvedValue(makeThesis());
 
@@ -179,7 +182,7 @@ describe("Student Defence Service — Overview Milestones", () => {
 
     const result = await getOverview("user-1");
 
-    expect(result.defence).toBeNull(); 
+    expect(result.defence).toBeNull();
     expect(result.milestones.find(m => m.id === 'documents').checked).toBe(false);
   });
 
@@ -231,8 +234,8 @@ describe("Student Defence Service — Logic & History", () => {
   });
 
   it("getAssessmentView calculates average score correctly", async () => {
-    const detail = makeDefence({ 
-      status: "passed", 
+    const detail = makeDefence({
+      status: "passed",
       thesis: { studentId: "student-1", thesisSupervisors: [] },
       examinerAverageScore: 80,
       supervisorScore: 85,

@@ -232,7 +232,7 @@ export async function adminUpdateUser(id, payload = {}, actor = {}) {
 		const existingStudent = await findStudentByUserId(id);
 		if (!existingStudent) {
 			const enrollmentYear = deriveEnrollmentYearFromNIM(latest?.identityNumber || identityNumber);
-			await createStudentForUser({ userId: id, enrollmentYear, skscompleted: 0 });
+			await createStudentForUser({ userId: id, enrollmentYear, sksCompleted: 0 });
 		}
 	}
 
@@ -321,7 +321,7 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		const existingStudent = await prisma.student.findUnique({ where: { id: user.id } });
 		if (!existingStudent) {
 			const enrollmentYear = identityNumber ? deriveEnrollmentYearFromNIM(identityNumber) : null;
-			await createStudentForUser({ userId: user.id, status: "active", enrollmentYear, skscompleted: 0 });
+			await createStudentForUser({ userId: user.id, status: "active", enrollmentYear, sksCompleted: 0 });
 		}
 	}
 
@@ -499,7 +499,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 		return {
 			id: u.id,
 			enrollmentYear: e.enrollmentYear ?? null,
-			skscompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
+			sksCompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
 		};
 	});
 	await prisma.student.createMany({ data: studentData, skipDuplicates: true });
@@ -1094,7 +1094,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 			? {
 				id: user.student.id,
 				enrollmentYear: user.student.enrollmentYear,
-				sksCompleted: user.student.skscompleted,
+				sksCompleted: user.student.sksCompleted,
 				gpa: user.student.gpa,
 				graduationPredicate: user.student.graduationPredicate,
 				mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
@@ -1158,8 +1158,8 @@ export async function importStudentsExcel(rows) {
 				});
 				await prisma.student.upsert({
 					where: { id: existingUser.id },
-					create: { id: existingUser.id, enrollmentYear, skscompleted: sks, status: "active" },
-					update: { enrollmentYear, skscompleted: sks }
+					create: { id: existingUser.id, enrollmentYear, sksCompleted: sks, status: "active" },
+					update: { enrollmentYear, sksCompleted: sks }
 				});
 				results.updated++;
 			} else {
@@ -1178,7 +1178,7 @@ export async function importStudentsExcel(rows) {
 				});
 				await upsertUserRole(user.id, studentRole.id, "active");
 				await prisma.student.create({
-					data: { id: user.id, enrollmentYear, skscompleted: sks, status: "active" }
+					data: { id: user.id, enrollmentYear, sksCompleted: sks, status: "active" }
 				});
 				results.success++;
 
@@ -1300,7 +1300,7 @@ export async function importUsersExcel(rows) {
 			if (identityType === "NIM") {
 				await prisma.student.upsert({
 					where: { id: user.id },
-					create: { id: user.id, enrollmentYear: deriveEnrollmentYearFromNIM(identityNumber), status: "active", skscompleted: 0 },
+					create: { id: user.id, enrollmentYear: deriveEnrollmentYearFromNIM(identityNumber), status: "active", sksCompleted: 0 },
 					update: {}
 				});
 			} else if (identityType === "NIP") {
@@ -1618,7 +1618,7 @@ export async function getStudentDetail(userId) {
 		createdAt: user.createdAt,
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
-			sksCompleted: user.student.skscompleted,
+			sksCompleted: user.student.sksCompleted,
 			gpa: user.student.gpa,
 			graduationPredicate: user.student.graduationPredicate,
 			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
@@ -1643,7 +1643,7 @@ export async function getStudentDetail(userId) {
 			source: row.source,
 			status: row.status,
 			inputAt: row.inputAt,
-			verifiedAt: row.verifiedAt,
+			verifiedAt: row.validatedAt,
 			finalizedAt: row.finalizedAt,
 		})),
 		theses,
@@ -1813,7 +1813,8 @@ export async function adminUpdateStudent(id, data) {
 	const updateData = {};
 
 	if (data.status !== undefined) updateData.status = data.status;
-	if (data.skscompleted !== undefined) updateData.skscompleted = parseInt(data.skscompleted);
+	const rawSksCompleted = data.sksCompleted ?? data.skscompleted;
+	if (rawSksCompleted !== undefined) updateData.sksCompleted = parseInt(rawSksCompleted);
 	if (data.enrollmentYear !== undefined) updateData.enrollmentYear = parseInt(data.enrollmentYear);
 	if (data.currentSemester !== undefined) updateData.currentSemester = data.currentSemester === "" ? null : parseInt(data.currentSemester);
 	if (data.gpa !== undefined) updateData.gpa = normalizeGpa(data.gpa);
