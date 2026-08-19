@@ -1419,7 +1419,7 @@ model ThesisSeminarRequirement {
 
   requirementDocuments ThesisSeminarRequirementDocument[]
 
-  code       String? @db.VarChar(255)
+  code       String  @db.VarChar(255)
   isRequired Boolean @default(true) @map("is_required")
   isActive   Boolean @default(true) @map("is_active")
 
@@ -1707,7 +1707,7 @@ model ThesisDefenceRequirement {
 
   requirementDocuments ThesisDefenceRequirementDocument[]
 
-  code       String? @db.VarChar(255)
+  code       String  @db.VarChar(255)
   isRequired Boolean @default(true) @map("is_required")
   isActive   Boolean @default(true) @map("is_active")
 
