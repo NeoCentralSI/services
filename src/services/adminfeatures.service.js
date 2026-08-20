@@ -1117,7 +1117,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 							where: {
 								thesisStatus: {
 									name: {
-										notIn: ["Selesai", "Dibatalkan", "Gagal", "selesai", "dibatalkan", "gagal"],
+										notIn: ["Selesai", "Dibatalkan", "Gagal", "Lulus", "Drop Out", "selesai", "dibatalkan", "gagal", "lulus", "drop out"],
 									},
 								},
 							},
