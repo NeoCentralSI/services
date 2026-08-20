@@ -5,7 +5,7 @@
  *              Module 9: Transfer Mahasiswa Bimbingan
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-vi.mock("../../../../services/ta04Authorization.service.js", () => ({
+vi.mock("../../../services/ta04Authorization.service.js", () => ({
   assertTa04GuidanceAuthorized: vi.fn().mockResolvedValue(true)
 }));
 
@@ -606,100 +606,15 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
-});
-
-// ══════════════════════════════════════════════════════════════
-// Module 3c: Pending Approval List
-// ══════════════════════════════════════════════════════════════
-describe("Module 3c: Pending Approval List", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  describe("getPendingApprovalService", () => {
-    it("returns paginated list of guidances pending summary approval", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findGuidancesPendingApproval.mockResolvedValue({
-        total: 1, page: 1, pageSize: 10,
-        rows: [{
-          id: "guid-3", approvedDate: new Date(), summarySubmittedAt: new Date(),
-          sessionSummary: "Test summary", actionItems: "Revisi",
-          thesis: { student: { user: { fullName: "Budi", identityNumber: "123" } } },
-          milestones: [{ milestone: { title: "Bab 1" } }],
-        }],
-      });
-
-      const result = await getPendingApprovalService("user-dosen-1");
-
-      expect(result.total).toBe(1);
-      expect(result.guidances).toHaveLength(1);
-      expect(result.guidances[0]).toHaveProperty("studentName", "Budi");
-    });
-
-    it("rejects (404) if lecturer not found", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(null);
-
-      await expect(getPendingApprovalService("user-unknown")).rejects.toMatchObject({ statusCode: 404 });
-    });
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// Approve Thesis Proposal
-// ══════════════════════════════════════════════════════════════
-describe("Approve Thesis Proposal", () => {
-  beforeEach(() => vi.clearAllMocks());
 
   describe("approveThesisProposalService", () => {
-    it("approves proposal and sets status to active", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", thesisStatus: { name: "Diajukan" },
-        thesisSupervisors: [{ lecturerId: "lec-1", role: { name: "pembimbing_1" } }],
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-      });
-      mockPrisma.thesis.update = vi.fn().mockResolvedValue({
-        id: "thesis-1", thesisStatusId: null, startDate: new Date(),
-        thesisStatus: null,
-      });
-
-      const result = await approveThesisProposalService("user-dosen-1", "thesis-1");
-
-      expect(result).toHaveProperty("message");
-      expect(result.thesis).toHaveProperty("id", "thesis-1");
-    });
-
-    it("rejects (400) if thesis status is not 'Diajukan'", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", thesisStatus: { name: "Bimbingan" },
-        thesisSupervisors: [{ lecturerId: "lec-1" }],
-        student: { user: { id: "user-mhs-1" } },
-      });
-
+    it("rejects (403) because proposal approval is handled via TA-03 scoring", async () => {
       await expect(
         approveThesisProposalService("user-dosen-1", "thesis-1")
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects (403) if lecturer is not a supervisor", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", thesisStatus: { name: "Diajukan" },
-        thesisSupervisors: [], // not a supervisor
-        student: { user: { id: "user-mhs-1" } },
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining("Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing"),
       });
-
-      await expect(
-        approveThesisProposalService("user-dosen-1", "thesis-1")
-      ).rejects.toMatchObject({ statusCode: 403 });
-    });
-
-    it("rejects (404) if thesis not found", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue(null);
-
-      await expect(
-        approveThesisProposalService("user-dosen-1", "nonexistent")
-      ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
 });

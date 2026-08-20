@@ -125,8 +125,6 @@ describe("SIA Sync Job Service", () => {
           kknCompleted: true,
           researchMethodCompleted: true,
           currentSemester: 7,
-          gpa: null,
-          graduationPredicate: null,
           takingThesisCourse: null,
           thesisCourseEnrollmentSource: "sia",
           thesisCourseEnrollmentUpdatedAt: expect.any(Date),
