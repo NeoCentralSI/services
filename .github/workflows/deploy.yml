@@ -1,11 +1,10 @@
-﻿# CI/CD - Backend (services)
+# CI/CD - Backend (services)
 # Triggers on push to staging branch
 # Self-hosted runner on VM -> build Docker image locally -> deploy
 name: Deploy Backend
 
+# Deployment disabled because server is offline. Use workflow_dispatch if manually needed.
 on:
-  push:
-    branches: [staging]
   workflow_dispatch:
 
 env:

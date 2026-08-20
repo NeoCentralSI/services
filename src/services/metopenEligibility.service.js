@@ -144,6 +144,16 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
   const takingFromSnapshot =
     typeof snapshot?.takingThesisCourse === "boolean" ? snapshot.takingThesisCourse : null;
   const takingThesisCourse = takingFromSnapshot ?? takingFromStudent;
+  const hasThesisRecord = Boolean(thesis);
+  const isThesisCompleted =
+    thesis?.thesisStatus?.name === "Lulus" ||
+    thesis?.thesisStatus?.name === "Selesai" ||
+    thesis?.isProposal === false;
+  const canAccessTugasAkhir =
+    takingThesisCourse === true ||
+    hasThesisRecord ||
+    isThesisCompleted ||
+    student.status === "graduated";
   const readOnly = isOfficialArchive;
 
   return {
@@ -159,7 +169,9 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
     updatedAt: student.metopenEligibilityUpdatedAt ?? null,
     takingThesisCourse,
     hasThesisCourseStatus: takingThesisCourse !== null,
-    canAccessTugasAkhir: takingThesisCourse === true,
+    canAccessTugasAkhir,
+    hasThesisRecord,
+    hasThesisPassed: isThesisCompleted,
     thesisCourseEnrollmentSource: student.thesisCourseEnrollmentSource ?? null,
     thesisCourseEnrollmentUpdatedAt: student.thesisCourseEnrollmentUpdatedAt ?? null,
     hasTakenMetopen,

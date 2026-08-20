@@ -1216,6 +1216,8 @@ export async function checkEligibility(userId) {
     takingThesisCourse: eligibility.takingThesisCourse,
     hasThesisCourseStatus: eligibility.hasThesisCourseStatus,
     canAccessTugasAkhir: eligibility.canAccessTugasAkhir,
+    hasThesisRecord: eligibility.hasThesisRecord,
+    hasThesisPassed: eligibility.hasThesisPassed,
     thesisCourseSource: eligibility.thesisCourseEnrollmentSource,
     thesisCourseUpdatedAt: eligibility.thesisCourseEnrollmentUpdatedAt,
   };
