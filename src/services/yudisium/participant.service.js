@@ -1388,7 +1388,7 @@ const buildLearningCertificatePdf = async ({
       <p>dengan capaian:</p>
       <div class="metric-list">
         <div>IPK: <strong>${escapeHtml(formatGpa(student.gpa))}</strong></div>
-        <div>Total SKS Lulus: <strong>${escapeHtml(student.skscompleted ?? "-")} SKS</strong></div>
+        <div>Total SKS Lulus: <strong>${escapeHtml(student.sksCompleted ?? "-")} SKS</strong></div>
         <div>Lama Studi: <strong>${escapeHtml(formatStudyDuration(student.enrollmentYear, signatureDate))}</strong></div>
         <div>Predikat: <strong>${escapeHtml(student.graduationPredicate || "-")}</strong></div>
       </div>

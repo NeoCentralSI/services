@@ -188,8 +188,7 @@ async function seedStudents(students, userIdMap) {
       status: normalizeStudentStatus(student.status),
       enrollmentYear: student.enrollmentYear ?? null,
       sksCompleted: Number(student.skscompleted ?? 0),
-      gpa: student.gpa ?? null,
-      graduationPredicate: asNullableString(student.graduationPredicate),
+
       mandatoryCoursesCompleted: asBoolean(student.mandatoryCoursesCompleted),
       mkwuCompleted: asBoolean(student.mkwuCompleted),
       internshipCompleted: asBoolean(student.internshipCompleted),

@@ -107,7 +107,10 @@ export async function getStudentsController(req, res, next) {
 		const page = parseInt(req.query.page) || 1;
 		const pageSize = parseInt(req.query.pageSize) || 10;
 		const search = req.query.search || "";
-		const result = await getStudents({ page, pageSize, search });
+		const enrollmentYear = req.query.enrollmentYear || req.query.enrollmentYearFilter || undefined;
+		const sortBy = req.query.sortBy || undefined;
+		const sortOrder = req.query.sortOrder || "desc";
+		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -395,7 +398,7 @@ export async function importLecturersExcelController(req, res, next) {
 
 export async function importUsersExcelController(req, res, next) {
 	try {
-		const { rows } = req.body || {};
+		const rows = Array.isArray(req.body) ? req.body : (req.body?.rows || []);
 		const result = await importUsersExcel(rows);
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {

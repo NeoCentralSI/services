@@ -66,7 +66,7 @@ function buildDefenceMilestones(allChecklistMet, currentDefence) {
 }
 
 async function buildOverviewWithoutThesis(student) {
-  const sks = student.skscompleted ?? 0;
+  const sks = student.sksCompleted ?? 0;
   const checklist = {
     lulusSeminar: { met: false, label: "Lulus Seminar Hasil", seminarStatus: null },
     sks: {
@@ -110,7 +110,7 @@ export async function getOverview(userId) {
   const thesis = await coreRepo.getStudentThesisWithDefenceInfo(student.id);
   if (!thesis) return buildOverviewWithoutThesis(student);
 
-  const sks = student.skscompleted ?? 0;
+  const sks = student.sksCompleted ?? 0;
 
   const passedSeminar = thesis.thesisSeminars?.[0] || null;
   const seminarStatus = passedSeminar?.status ?? null;

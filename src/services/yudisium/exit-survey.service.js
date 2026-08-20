@@ -66,7 +66,7 @@ const hasMetAcademicRequirements = (student, thesis) => {
     !!latestDefence?.revisionFinalizedAt && !!latestDefence?.revisionFinalizedBy;
 
   return (
-    (student?.skscompleted ?? 0) >= REQUIRED_SKS &&
+    (student?.sksCompleted ?? 0) >= REQUIRED_SKS &&
     (!needsRevision || revisionFinalized) &&
     !!student?.mandatoryCoursesCompleted &&
     !!student?.mkwuCompleted &&

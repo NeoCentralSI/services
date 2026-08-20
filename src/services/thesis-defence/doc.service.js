@@ -50,7 +50,7 @@ async function getOrCreateDefence(thesis) {
 
   const student = await prisma.student.findUnique({ 
     where: { id: thesis.studentId },
-    select: { skscompleted: true }
+    select: { sksCompleted: true }
   });
   
   const passedSeminar = thesis.thesisSeminars?.[0] || null;
@@ -72,7 +72,7 @@ async function getOrCreateDefence(thesis) {
   const supervisors = thesis.thesisSupervisors || [];
   const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.defenceReady);
 
-  if (!passedSeminar || !seminarRevisionMet || (student?.skscompleted || 0) < 142 || !allSupervisorsReady) {
+  if (!passedSeminar || !seminarRevisionMet || (student?.sksCompleted || 0) < 142 || !allSupervisorsReady) {
     throwError("Anda belum memenuhi persyaratan pendaftaran sidang tugas akhir.", 403);
   }
 

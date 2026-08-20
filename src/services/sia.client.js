@@ -32,7 +32,7 @@ export async function fetchStudentsFull(retries = 3) {
         kknCompleted: true,
         currentSemester: 8,
         currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 6 },
+          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
           { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
         ],
       },
@@ -117,6 +117,7 @@ export async function fetchStudentsFull(retries = 3) {
         kknCompleted: true,
         currentSemester: 8,
         currentSemesterCourses: [
+          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
           { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
         ],
       },
@@ -202,7 +203,7 @@ export async function fetchStudentsFull(retries = 3) {
         kknCompleted: true,
         currentSemester: 8,
         currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 6 },
+          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
           { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
         ],
       },
@@ -217,7 +218,7 @@ export async function fetchStudentsFull(retries = 3) {
         kknCompleted: true,
         currentSemester: 8,
         currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 6 },
+          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
           { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
         ],
       },
@@ -232,7 +233,7 @@ export async function fetchStudentsFull(retries = 3) {
         kknCompleted: true,
         currentSemester: 8,
         currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 6 },
+          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
           { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
         ],
       },
@@ -247,7 +248,7 @@ export async function fetchStudentsFull(retries = 3) {
         kknCompleted: true,
         currentSemester: 8,
         currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 6 },
+          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
           { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
         ],
       },

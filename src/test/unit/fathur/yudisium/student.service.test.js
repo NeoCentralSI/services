@@ -53,7 +53,7 @@ import * as service from "../../../../services/yudisium/student.service.js";
 
 const makeStudent = (overrides = {}) => ({
   id: "student-1",
-  skscompleted: 150,
+  sksCompleted: 150,
   mandatoryCoursesCompleted: true,
   mkwuCompleted: true,
   internshipCompleted: true,

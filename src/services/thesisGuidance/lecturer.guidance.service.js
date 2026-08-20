@@ -974,7 +974,7 @@ export async function approveThesisProposalService(userId, thesisId) {
  * Get eligible lecturers for student transfer (have active "Pembimbing 1" role)
  */
 export async function getEligibleTransferLecturersService(userId) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const lecturers = await findEligibleTransferLecturers(lecturer.id);
@@ -985,7 +985,7 @@ export async function getEligibleTransferLecturersService(userId) {
  * Request student transfer to another lecturer
  */
 export async function requestStudentTransferService(userId, { thesisIds, targetLecturerId, reason }) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1106,7 +1106,7 @@ export async function requestStudentTransferService(userId, { thesisIds, targetL
  * Reads compact payload from notification and enriches with student details from DB
  */
 export async function getIncomingTransferRequestsService(userId) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1182,7 +1182,7 @@ export async function getIncomingTransferRequestsService(userId) {
  * and notifies kadep + source that target has approved.
  */
 export async function approveTransferRequestService(userId, notificationId) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1269,7 +1269,7 @@ export async function approveTransferRequestService(userId, notificationId) {
  * Marks target notification read, updates kadep notifications to st=target_rejected, notifies source.
  */
 export async function rejectTransferRequestService(userId, notificationId, { reason } = {}) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1342,7 +1342,7 @@ export async function rejectTransferRequestService(userId, notificationId, { rea
  * Get pending transfer requests for Kadep review
  */
 export async function getKadepPendingTransfersService(userId) {
-	throwSupervisorTransferRemoved();
+
 	const notifications = await findPendingKadepTransferNotifications(userId);
 	const transfers = [];
 
@@ -1422,7 +1422,7 @@ export async function getKadepPendingTransfersService(userId) {
  * Get ALL kadep transfer notifications (for history view with pagination)
  */
 export async function getKadepAllTransfersService(userId, { page = 1, pageSize = 10, search = "", status = "" } = {}) {
-	throwSupervisorTransferRemoved();
+
 	const { notifications, total } = await findAllKadepTransferNotifications(userId, { page, pageSize, search });
 	const transfers = [];
 
@@ -1505,7 +1505,7 @@ export async function getKadepAllTransfersService(userId, { page = 1, pageSize =
  * Only allowed if target lecturer has already approved (tgtApproved=true)
  */
 export async function kadepApproveTransferService(userId, notificationId) {
-	throwSupervisorTransferRemoved();
+
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");
@@ -1689,7 +1689,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
  * Kadep rejects a transfer request
  */
 export async function kadepRejectTransferService(userId, notificationId, { reason } = {}) {
-	throwSupervisorTransferRemoved();
+
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");
@@ -1779,3 +1779,4 @@ export async function kadepRejectTransferService(userId, notificationId, { reaso
 
 	return { message: "Transfer request ditolak oleh Kadep" };
 }
+

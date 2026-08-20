@@ -54,7 +54,7 @@ import {
 // ── helpers ───────────────────────────────────────────────────
 const makeStudent = (id = "student-1") => ({
   id,
-  skscompleted: 144,
+  sksCompleted: 144,
   user: { fullName: "Test Student", identityNumber: "123456" },
 });
 
@@ -89,7 +89,7 @@ describe("Student Defence Service — Overview Milestones", () => {
 
   it("stage 0: checklist not met (SKS insufficient)", async () => {
     const student = makeStudent();
-    student.skscompleted = 100;
+    student.sksCompleted = 100;
     mockLecturerRepo.getStudentByUserId.mockResolvedValue(student);
     mockCoreRepo.getStudentThesisWithDefenceInfo.mockResolvedValue(makeThesis());
 

@@ -195,7 +195,7 @@ export async function adminUpdateUser(id, payload = {}) {
 		const existingStudent = await findStudentByUserId(id);
 		if (!existingStudent) {
 			const enrollmentYear = deriveEnrollmentYearFromNIM(latest?.identityNumber || identityNumber);
-			await createStudentForUser({ userId: id, enrollmentYear, skscompleted: 0 });
+			await createStudentForUser({ userId: id, enrollmentYear, sksCompleted: 0 });
 		}
 	}
 
@@ -283,7 +283,7 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		const existingStudent = await prisma.student.findUnique({ where: { id: user.id } });
 		if (!existingStudent) {
 			const enrollmentYear = identityNumber ? deriveEnrollmentYearFromNIM(identityNumber) : null;
-			await createStudentForUser({ userId: user.id, status: "active", enrollmentYear, skscompleted: 0 });
+			await createStudentForUser({ userId: user.id, status: "active", enrollmentYear, sksCompleted: 0 });
 		}
 	}
 
@@ -317,6 +317,159 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 
 	return { id: user.id, email: user.email, roles: uniqueRoles };
 }
+export function normalizeStudentStatus(val) {
+	const s = String(val || "").trim().toLowerCase();
+	const valid = ["active", "bss", "lulus", "mengundurkan_diri", "dropout"];
+	if (valid.includes(s)) return s;
+	if (s === "aktif" || s === "active") return "active";
+	if (s === "lulus" || s === "lulusan") return "lulus";
+	if (s === "cuti" || s === "bss") return "bss";
+	if (s === "dropout" || s === "drop out" || s === "do" || s === "keluar") return "dropout";
+	if (s === "mengundurkan diri" || s === "undur diri" || s === "mengundurkan_diri") return "mengundurkan_diri";
+	return "active";
+}
+
+export function normalizeRoleInputName(name) {
+	const raw = String(name || "").trim();
+	const lower = raw.toLowerCase();
+	if (lower === "mahasiswa" || lower === "mhs" || lower === "student") return [ROLES.MAHASISWA];
+	if (lower === "dosen" || lower === "lecturer") return [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI];
+	if (lower === "dosen pembimbing" || lower === "pembimbing") return [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2];
+	if (lower === "dosen penguji" || lower === "penguji") return [ROLES.PENGUJI];
+	if (lower === "pembimbing 1" || lower === "pembimbing1") return [ROLES.PEMBIMBING_1];
+	if (lower === "pembimbing 2" || lower === "pembimbing2") return [ROLES.PEMBIMBING_2];
+	if (lower === "ketua departemen" || lower === "kadep") return [ROLES.KETUA_DEPARTEMEN];
+	if (lower === "sekretaris departemen" || lower === "sekdep") return [ROLES.SEKRETARIS_DEPARTEMEN];
+	if (lower === "gkm") return [ROLES.GKM];
+	if (lower === "admin") return [ROLES.ADMIN];
+	if (lower === "koordinator matkul metopen" || lower === "koordinator metopen") return [ROLES.KOORDINATOR_METOPEN];
+	if (lower === "koordinator yudisium") return [ROLES.KOORDINATOR_YUDISIUM];
+	if (lower === "tim pengelola cpl" || lower === "pengelola cpl") return [ROLES.TIM_PENGELOLA_CPL];
+	return [raw];
+}
+
+export async function processImportUserRows(rows) {
+	const results = { success: 0, updated: 0, failed: 0, errors: [] };
+
+	for (let i = 0; i < rows.length; i++) {
+		const row = rows[i];
+		const rowNum = i + 2;
+		try {
+			const email = clean(row.email).toLowerCase();
+			const fullName = clean(row.fullName);
+			const identityNumber = clean(row.identityNumber);
+			const rolesStr = clean(row.role);
+			const rawStudentStatus = clean(row.studentStatus);
+			let identityType = clean(row.identityType).toUpperCase();
+
+			if (!email) throw new Error("Email wajib diisi");
+
+			// Parse multiple comma or semicolon separated roles
+			const roleNames = rolesStr
+				? rolesStr.split(/[,;]/).flatMap((s) => normalizeRoleInputName(s.trim())).filter(Boolean)
+				: [];
+
+			// Auto derive identityType if missing
+			if (!identityType || identityType === "OTHER") {
+				if (roleNames.some((r) => isStudentRole(r)) || (/^\d{6,12}$/.test(identityNumber) && !roleNames.some(isLecturerRole))) {
+					identityType = "NIM";
+				} else if (roleNames.some((r) => isLecturerRole(r)) || /^\d{16,18}$/.test(identityNumber)) {
+					identityType = "NIP";
+				} else if (identityNumber) {
+					identityType = identityNumber.length <= 12 ? "NIM" : "NIP";
+				} else {
+					identityType = "OTHER";
+				}
+			}
+
+			// If roles is empty, provide sensible default
+			if (roleNames.length === 0) {
+				if (identityType === "NIM") roleNames.push(ROLES.MAHASISWA);
+				else if (identityType === "NIP") roleNames.push(ROLES.DOSEN);
+			}
+
+			const existingUser = await findUserByEmailOrIdentity(email, identityNumber);
+			let user;
+			if (existingUser) {
+				user = await prisma.user.update({
+					where: { id: existingUser.id },
+					data: {
+						fullName: fullName || existingUser.fullName,
+						identityNumber: identityNumber || existingUser.identityNumber,
+						identityType: identityType || existingUser.identityType,
+					},
+				});
+				results.updated++;
+			} else {
+				const plainPassword = generatePassword(12);
+				const hash = await bcrypt.hash(plainPassword, 10);
+				user = await prisma.user.create({
+					data: {
+						fullName: fullName || "",
+						email,
+						password: hash,
+						identityNumber: identityNumber || null,
+						identityType,
+						isVerified: true,
+					},
+				});
+				results.success++;
+			}
+
+			// Sync roles (support multiple roles)
+			for (const rn of roleNames) {
+				const role = await getOrCreateRole(rn);
+				await upsertUserRole(user.id, role.id, "active");
+			}
+
+			// Handle Student / Lecturer profile record
+			const hasStudent = roleNames.some((r) => isStudentRole(r)) || identityType === "NIM";
+			const hasLecturer = roleNames.some((r) => isLecturerRole(r)) || identityType === "NIP";
+
+			if (hasStudent) {
+				const studentStatus = normalizeStudentStatus(rawStudentStatus);
+				const enrollmentYear = identityNumber ? deriveEnrollmentYearFromNIM(identityNumber) : null;
+				await prisma.student.upsert({
+					where: { id: user.id },
+					create: {
+						id: user.id,
+						enrollmentYear,
+						status: studentStatus,
+						sksCompleted: 0,
+					},
+					update: {
+						status: studentStatus,
+						...(enrollmentYear ? { enrollmentYear } : {}),
+					},
+				});
+			}
+
+			if (hasLecturer) {
+				await prisma.lecturer.upsert({
+					where: { id: user.id },
+					create: { id: user.id, acceptingRequests: true },
+					update: {},
+				});
+			}
+		} catch (err) {
+			results.failed++;
+			results.errors.push(`Baris ${rowNum}: ${err.message}`);
+		}
+	}
+
+	return {
+		created: results.success,
+		updated: results.updated,
+		failed: results.failed,
+		errors: results.errors,
+		summary: {
+			created: results.success,
+			updated: results.updated,
+			failed: results.failed,
+		},
+	};
+}
+
 export async function importStudentsCsvFromUpload(fileBuffer) {
 	if (!fileBuffer || !fileBuffer.length) {
 		const err = new Error("CSV file is required");
@@ -351,117 +504,19 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 					norm[nk] = data[k];
 				}
 				out.push({
-					nim: clean(norm.nim || ""),
-					nama: clean(norm.nama || norm.name || ""),
+					identityNumber: clean(norm.nim || norm.nip || norm.identity_number || norm.identitas || norm["nim/nip"] || ""),
+					fullName: clean(norm.nama || norm.name || norm.fullname || norm["nama lengkap"] || ""),
 					email: clean(norm.email || "").toLowerCase(),
-					sks_completed: clean(norm.sks_completed || norm["sks_completed"] || norm.sks || ""),
+					role: clean(norm.role || norm.roles || norm.peran || ""),
+					studentStatus: clean(norm.student_status || norm.status || norm["status mahasiswa"] || norm["status_mahasiswa"] || ""),
+					identityType: clean(norm.identity_type || norm.tipe_identitas || norm["tipe identitas"] || ""),
 				});
 			})
 			.on("end", () => resolve(out))
 			.on("error", (err) => reject(err));
 	});
 
-	// Pre-process rows: normalize, filter invalid, and de-duplicate within file by email and NIM
-	const cleanRows = [];
-	const seenEmails = new Set();
-	const seenNims = new Set();
-	let skippedInvalid = 0;
-	let skippedDuplicatesInFile = 0;
-	for (const r of rows) {
-		const nim = String(r.nim || "").trim();
-		const email = String(r.email || "").trim().toLowerCase();
-		if (!nim || !email) {
-			skippedInvalid++;
-			continue;
-		}
-		// dedupe by email first; also guard against duplicate nim in the same file
-		if (seenEmails.has(email) || seenNims.has(nim)) {
-			skippedDuplicatesInFile++;
-			continue;
-		}
-		seenEmails.add(email);
-		seenNims.add(nim);
-		const sksCompletedVal = Number.parseInt(String(r.sks_completed || "").trim(), 10);
-		cleanRows.push({
-			nim,
-			nama: String(r.nama || "").trim(),
-			email,
-			sksCompleted: Number.isFinite(sksCompletedVal) && sksCompletedVal >= 0 ? sksCompletedVal : 0,
-		});
-	}
-
-	if (cleanRows.length === 0) {
-		return { created: 0, updated: 0, skipped: skippedInvalid + skippedDuplicatesInFile, failed: 0 };
-	}
-
-	// Fetch existing users by email and by identityNumber (NIM) in 2 queries for efficiency
-	const emails = cleanRows.map((r) => r.email);
-	const nims = cleanRows.map((r) => r.nim);
-
-	const [existingByEmail, existingByNim] = await Promise.all([
-		prisma.user.findMany({ where: { email: { in: emails } }, select: { email: true } }),
-		prisma.user.findMany({ where: { identityNumber: { in: nims } }, select: { identityNumber: true } }),
-	]);
-
-	const existingEmailSet = new Set(existingByEmail.map((u) => u.email).filter(Boolean));
-	const existingNimSet = new Set(existingByNim.map((u) => u.identityNumber));
-
-	const rowsToCreate = cleanRows.filter((r) => !existingEmailSet.has(r.email) && !existingNimSet.has(r.nim));
-	const skippedExisting = cleanRows.length - rowsToCreate.length;
-
-	if (rowsToCreate.length === 0) {
-		return { created: 0, updated: 0, skipped: skippedInvalid + skippedDuplicatesInFile + skippedExisting, failed: 0 };
-	}
-
-	// Create users in bulk
-	const userData = rowsToCreate.map((r) => ({
-		fullName: r.nama || "",
-		email: r.email,
-		password: null,
-		identityNumber: r.nim,
-		identityType: "NIM",
-		isVerified: false,
-	}));
-
-	await prisma.user.createMany({ data: userData, skipDuplicates: true });
-
-	// Re-fetch created users to get their IDs
-	const createdUsers = await prisma.user.findMany({
-		where: { email: { in: rowsToCreate.map((r) => r.email) } },
-		select: { id: true, email: true, identityNumber: true },
-	});
-
-	// Map email -> userId and NIM -> (sksCompleted, enrollmentYear)
-	const userIdByEmail = new Map(createdUsers.map((u) => [u.email, u.id]));
-	const enrollmentByEmail = new Map(rowsToCreate.map((r) => [r.email, {
-		enrollmentYear: deriveEnrollmentYearFromNIM(r.nim),
-		sksCompleted: r.sksCompleted,
-	}]));
-
-	// Ensure role 'Mahasiswa'
-	const studentRole = await getOrCreateRole(ROLES.MAHASISWA);
-
-	const userRoleData = createdUsers.map((u) => ({ userId: u.id, roleId: studentRole.id, status: "active" }));
-	// Use createMany with skipDuplicates to avoid constraint errors if re-run
-	await prisma.userHasRole.createMany({ data: userRoleData, skipDuplicates: true });
-
-	// Build students data and bulk insert
-	const studentData = createdUsers.map((u) => {
-		const e = enrollmentByEmail.get(u.email) || {};
-		return {
-			id: u.id,
-			enrollmentYear: e.enrollmentYear ?? null,
-			skscompleted: Number.isInteger(e.sksCompleted) && e.sksCompleted >= 0 ? e.sksCompleted : 0,
-		};
-	});
-	await prisma.student.createMany({ data: studentData, skipDuplicates: true });
-
-	return {
-		created: createdUsers.length,
-		updated: 0,
-		skipped: skippedInvalid + skippedDuplicatesInFile + skippedExisting,
-		failed: 0,
-	};
+	return processImportUserRows(rows);
 }
 
 const ACADEMIC_YEAR_FORMAT = /^\d{4}\/\d{4}$/;
@@ -884,7 +939,11 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 			where,
 			skip,
 			take,
-			orderBy: { createdAt: "desc" },
+			orderBy: [
+				{ identityType: "desc" },
+				{ identityNumber: "desc" },
+				{ createdAt: "desc" },
+			],
 			include: {
 				userHasRoles: {
 					include: {
@@ -920,7 +979,7 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 }
 
 // Get all Students with detailed information
-export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined } = {}) {
+export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined, sortBy = undefined, sortOrder = "desc" } = {}) {
 	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;
 	const take = pageSize > 0 ? pageSize : undefined;
 
@@ -942,12 +1001,23 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 			: {}),
 	};
 
+	let orderBy = [];
+	if (sortBy === "identityNumber" || sortBy === "nim") {
+		orderBy.push({ identityNumber: sortOrder });
+	} else if (sortBy === "fullName" || sortBy === "name") {
+		orderBy.push({ fullName: sortOrder });
+	} else if (sortBy === "createdAt") {
+		orderBy.push({ identityNumber: sortOrder }, { createdAt: sortOrder });
+	} else {
+		orderBy.push({ identityNumber: "desc" }, { createdAt: "desc" });
+	}
+
 	const [students, total] = await Promise.all([
 		prisma.user.findMany({
 			where,
 			skip,
 			take,
-			orderBy: { createdAt: "desc" },
+			orderBy,
 			include: {
 				student: {
 					include: {
@@ -1001,7 +1071,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 			? {
 				id: user.student.id,
 				enrollmentYear: user.student.enrollmentYear,
-				sksCompleted: user.student.skscompleted,
+				sksCompleted: user.student.sksCompleted,
 				gpa: user.student.gpa,
 				graduationPredicate: user.student.graduationPredicate,
 				mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
@@ -1065,8 +1135,8 @@ export async function importStudentsExcel(rows) {
 				});
 				await prisma.student.upsert({
 					where: { id: existingUser.id },
-					create: { id: existingUser.id, enrollmentYear, skscompleted: sks, status: "active" },
-					update: { enrollmentYear, skscompleted: sks }
+					create: { id: existingUser.id, enrollmentYear, sksCompleted: sks, status: "active" },
+					update: { enrollmentYear, sksCompleted: sks }
 				});
 				results.updated++;
 			} else {
@@ -1085,7 +1155,7 @@ export async function importStudentsExcel(rows) {
 				});
 				await upsertUserRole(user.id, studentRole.id, "active");
 				await prisma.student.create({
-					data: { id: user.id, enrollmentYear, skscompleted: sks, status: "active" }
+					data: { id: user.id, enrollmentYear, sksCompleted: sks, status: "active" }
 				});
 				results.success++;
 
@@ -1163,66 +1233,20 @@ export async function importLecturersExcel(rows) {
 }
 
 export async function importUsersExcel(rows) {
-	const results = { success: 0, updated: 0, failed: 0, errors: [] };
-
-	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i];
-		const rowNum = i + 2;
-		try {
-			const email = clean(row["Email"]).toLowerCase();
-			const fullName = clean(row["Nama Lengkap"]);
-			const identityNumber = clean(row["NIM/NIP"]);
-			const identityType = clean(row["Tipe Identitas"]).toUpperCase() || "OTHER";
-			const rolesStr = clean(row["Role"]);
-
-			if (!email) throw new Error("Email wajib diisi");
-
-			const existingUser = await prisma.user.findUnique({ where: { email } });
-			let user;
-			if (existingUser) {
-				user = await prisma.user.update({
-					where: { id: existingUser.id },
-					data: { fullName, identityNumber, identityType }
-				});
-				results.updated++;
-			} else {
-				const plainPassword = generatePassword(12);
-				const hash = await bcrypt.hash(plainPassword, 10);
-				user = await prisma.user.create({
-					data: { fullName, email, password: hash, identityNumber, identityType, isVerified: true }
-				});
-				results.success++;
-			}
-
-			// Sync Roles
-			if (rolesStr) {
-				const roleNames = rolesStr.split(";").map(s => s.trim());
-				for (const rn of roleNames) {
-					const role = await getOrCreateRole(rn);
-					await upsertUserRole(user.id, role.id, "active");
-				}
-			}
-
-			// Ensure Student/Lecturer records
-			if (identityType === "NIM") {
-				await prisma.student.upsert({
-					where: { id: user.id },
-					create: { id: user.id, enrollmentYear: deriveEnrollmentYearFromNIM(identityNumber), status: "active", skscompleted: 0 },
-					update: {}
-				});
-			} else if (identityType === "NIP") {
-				await prisma.lecturer.upsert({
-					where: { id: user.id },
-					create: { id: user.id },
-					update: {}
-				});
-			}
-		} catch (err) {
-			results.failed++;
-			results.errors.push(`Baris ${rowNum}: ${err.message}`);
-		}
+	if (!Array.isArray(rows) || rows.length === 0) {
+		return { success: 0, updated: 0, failed: 0, errors: ["Data baris Excel kosong"] };
 	}
-	return results;
+
+	const normalizedRows = rows.map((row) => ({
+		email: clean(row["Email"] || row["email"] || "").toLowerCase(),
+		fullName: clean(row["Nama Lengkap"] || row["Nama"] || row["fullName"] || row["nama"] || ""),
+		identityNumber: clean(row["NIM/NIP"] || row["NIM"] || row["NIP"] || row["identityNumber"] || row["identity_number"] || row["Nomor Identitas"] || ""),
+		identityType: clean(row["Tipe Identitas"] || row["identityType"] || row["identity_type"] || ""),
+		role: clean(row["Role"] || row["role"] || row["roles"] || row["Peran"] || ""),
+		studentStatus: clean(row["Status Mahasiswa"] || row["Status"] || row["student_status"] || row["status"] || row["status_mahasiswa"] || ""),
+	}));
+
+	return processImportUserRows(normalizedRows);
 }
 
 export async function importAcademicYearsExcel(rows) {
@@ -1523,7 +1547,7 @@ export async function getStudentDetail(userId) {
 		createdAt: user.createdAt,
 		student: {
 			enrollmentYear: user.student.enrollmentYear,
-			sksCompleted: user.student.skscompleted,
+			sksCompleted: user.student.sksCompleted,
 			gpa: user.student.gpa,
 			graduationPredicate: user.student.graduationPredicate,
 			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
@@ -1717,15 +1741,10 @@ export async function adminUpdateStudent(id, data) {
 	const updateData = {};
 
 	if (data.status !== undefined) updateData.status = data.status;
-	if (data.skscompleted !== undefined) updateData.skscompleted = parseInt(data.skscompleted);
+	if (data.sksCompleted !== undefined) updateData.sksCompleted = parseInt(data.sksCompleted);
 	if (data.enrollmentYear !== undefined) updateData.enrollmentYear = parseInt(data.enrollmentYear);
 	if (data.currentSemester !== undefined) updateData.currentSemester = data.currentSemester === "" ? null : parseInt(data.currentSemester);
-	if (data.gpa !== undefined) updateData.gpa = normalizeGpa(data.gpa);
-	if (data.graduationPredicate !== undefined) {
-		updateData.graduationPredicate = data.graduationPredicate
-			? String(data.graduationPredicate).trim()
-			: null;
-	}
+
 
 	if (data.mandatoryCoursesCompleted !== undefined) updateData.mandatoryCoursesCompleted = !!data.mandatoryCoursesCompleted;
 	if (data.mkwuCompleted !== undefined) updateData.mkwuCompleted = !!data.mkwuCompleted;

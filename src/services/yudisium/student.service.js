@@ -89,7 +89,7 @@ const hasMetAcademicRequirements = (student, thesis) => {
     !!latestDefence?.revisionFinalizedAt && !!latestDefence?.revisionFinalizedBy;
 
   return (
-    (student?.skscompleted ?? 0) >= REQUIRED_SKS &&
+    (student?.sksCompleted ?? 0) >= REQUIRED_SKS &&
     hasPassedDefence &&
     (!needsRevision || revisionFinalized) &&
     !!student?.mandatoryCoursesCompleted &&
@@ -116,7 +116,7 @@ export const findStudentContext = async (userId) => {
     where: { id: userId },
     select: {
       id: true,
-      skscompleted: true,
+      sksCompleted: true,
       mandatoryCoursesCompleted: true,
       mkwuCompleted: true,
       internshipCompleted: true,
@@ -284,8 +284,8 @@ export const getOverview = async (userId) => {
   const checklist = {
     sks: {
       label: `Menyelesaikan ${REQUIRED_SKS} SKS`,
-      met: (student.skscompleted ?? 0) >= REQUIRED_SKS,
-      current: student.skscompleted ?? 0,
+      met: (student.sksCompleted ?? 0) >= REQUIRED_SKS,
+      current: student.sksCompleted ?? 0,
       required: REQUIRED_SKS,
     },
     lulusSidang: {

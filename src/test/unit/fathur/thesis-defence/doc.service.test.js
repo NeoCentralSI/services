@@ -82,7 +82,7 @@ describe("Defence Document Service (Full Alignment)", () => {
         thesisSeminars: [{ id: "sem1", status: "passed" }],
         thesisSupervisors: [{ defenceReady: true }]
       });
-      mockPrisma.student.findUnique.mockResolvedValue({ skscompleted: 144 });
+      mockPrisma.student.findUnique.mockResolvedValue({ sksCompleted: 144 });
       mockCoreRepo.createThesisDefence.mockResolvedValue({ id: "d1", status: "registered" });
       mockDocRepo.ensureDefenceDocumentTypes.mockResolvedValue({ "Laporan Tugas Akhir": { id: "dt1" } });
       mockDocRepo.createDocument.mockResolvedValue({ id: "f1" });
@@ -96,7 +96,7 @@ describe("Defence Document Service (Full Alignment)", () => {
         id: "t1", studentId: "st1", 
         thesisSeminars: [], // No passed seminar
       });
-      mockPrisma.student.findUnique.mockResolvedValue({ skscompleted: 120 });
+      mockPrisma.student.findUnique.mockResolvedValue({ sksCompleted: 120 });
 
       await expect(uploadDocument(null, "u1", { originalname: "t.pdf", buffer: Buffer.from("t") }, "Laporan Tugas Akhir"))
         .rejects.toThrow("Anda belum memenuhi persyaratan pendaftaran sidang tugas akhir.");

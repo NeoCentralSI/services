@@ -214,7 +214,7 @@ export async function setStudentThesisCourseEnrollment(
         });
       } else {
         const fillData = {};
-        if (existing.eligibleMetopen == null) {
+        if (existing.eligibleMetopen !== studentAcademicState.eligibleMetopen) {
           fillData.eligibleMetopen = studentAcademicState.eligibleMetopen;
           fillData.researchMethodCompleted = studentAcademicState.researchMethodCompleted;
           fillData.eligibilitySource =
@@ -222,7 +222,7 @@ export async function setStudentThesisCourseEnrollment(
           fillData.eligibilityCapturedAt =
             studentAcademicState.metopenEligibilityUpdatedAt ?? updatedAt;
         }
-        if (existing.takingThesisCourse == null) {
+        if (existing.takingThesisCourse !== takingThesisCourse) {
           fillData.takingThesisCourse = takingThesisCourse;
           fillData.thesisCourseSource = normalizedSource;
           fillData.thesisCourseCapturedAt = updatedAt;

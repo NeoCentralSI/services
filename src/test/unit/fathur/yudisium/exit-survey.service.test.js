@@ -52,7 +52,7 @@ const makeYudisiumContext = (overrides = {}) => ({
 
 const makeStudentContext = (overrides = {}) => ({
   id: "student-1",
-  skscompleted: 150,
+  sksCompleted: 150,
   mandatoryCoursesCompleted: true,
   mkwuCompleted: true,
   internshipCompleted: true,
@@ -587,7 +587,7 @@ describe("Unit Test: Exit Survey Service", () => {
 
     it("should block submission until academic requirements are met", async () => {
       studentService.findStudentContext.mockResolvedValue({
-        student: makeStudentContext({ skscompleted: 120 }),
+        student: makeStudentContext({ sksCompleted: 120 }),
         currentYudisium: makeYudisiumContext(),
         thesis: makeThesisContext(),
       });

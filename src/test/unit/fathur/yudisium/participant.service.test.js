@@ -906,7 +906,7 @@ describe("Unit Test: Yudisium Participant Service", () => {
           student: {
             id: "student-1",
             enrollmentYear: 2021,
-            skscompleted: 147,
+            sksCompleted: 147,
             gpa: 3.382,
             graduationPredicate: "Sangat Memuaskan",
             user: { fullName: "Firhan Hadi Yoza", identityNumber: "1811522016" },
