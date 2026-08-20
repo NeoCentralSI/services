@@ -70,6 +70,11 @@ export const ENV = {
   // Thesis status cron controls
   THESIS_STATUS_CRON: process.env.THESIS_STATUS_CRON || "30 2 * * *", // 02:30 every day
   THESIS_STATUS_TZ: process.env.THESIS_STATUS_TZ || "Asia/Jakarta", // WIB (UTC+7)
+  ACADEMIC_YEAR_SYNC_CRON: process.env.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *",
+  ACADEMIC_YEAR_SYNC_TZ: process.env.ACADEMIC_YEAR_SYNC_TZ || "Asia/Jakarta",
+  // Absolute currentCount overwrite (not increment). After academic-year sync.
+  QUOTA_SYNC_CRON: process.env.QUOTA_SYNC_CRON || "15 1 * * *",
+  QUOTA_SYNC_TZ: process.env.QUOTA_SYNC_TZ || "Asia/Jakarta",
   // Guidance reminder cron controls
   GUIDANCE_REMINDER_CRON: process.env.GUIDANCE_REMINDER_CRON || "0 7 * * *", // 07:00 every day
   GUIDANCE_REMINDER_TZ: process.env.GUIDANCE_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)

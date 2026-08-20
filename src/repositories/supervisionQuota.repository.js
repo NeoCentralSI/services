@@ -3,7 +3,7 @@ import prisma from "../config/prisma.js";
 export async function findAcademicYearById(academicYearId) {
   return prisma.academicYear.findUnique({
     where: { id: academicYearId },
-    select: { id: true },
+    select: { id: true, year: true, semester: true, isActive: true },
   });
 }
 
@@ -132,7 +132,7 @@ export async function getLecturerQuotas(academicYearId, search) {
         },
       },
       scienceGroup: {
-        select: { name: true },
+        select: { id: true, name: true },
       },
       supervisionQuotas: {
         where: { academicYearId },
@@ -172,6 +172,9 @@ export async function getLecturerQuotaRecord(lecturerId, academicYearId) {
       academicYearId: true,
       quotaMax: true,
       quotaSoftLimit: true,
+      // Needed to expose cache drift against the recomputed count
+      // (SIMPTA-FUN-010).
+      currentCount: true,
       notes: true,
     },
   });

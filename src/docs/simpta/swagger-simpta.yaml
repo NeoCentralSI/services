@@ -6,7 +6,8 @@ paths:
       description: >-
         Includes ta04AssignmentIssued so clients can close booking-withdraw
         actions immediately after the TA-04 assignment is issued, including
-        data-repair cases where the active P1 relation is missing.
+        data-repair cases where the active P1 relation is missing. Supervisors
+        include identityNumber, expertise (KBK), and assignedAt when present.
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -47,6 +48,11 @@ paths:
     get:
       tags: [AdvisorRequest]
       summary: Browse lecturer advisor catalog with quota traffic light
+      description: >-
+        Student catalog hides Booking/Pending KaDep/Overquota Sah. Each item
+        includes acceptingRequests and supervisedTopics from live assignments.
+        Lecturers who closed acceptance remain visible but must not be submitted
+        to (except TA-02 department route without a target lecturer).
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
@@ -233,15 +239,40 @@ paths:
                   description: reject is rejected by service for Path C escalated TA-01 (canon §5.2.1 v3.3).
                 notes:
                   type: string
-                alternativeLecturerId:
+                targetLecturerId:
                   type: string
                   format: uuid
-                  description: Required when action=redirect.
+                  description: Required when action=redirect. Legacy alias alternativeLecturerId is not read.
       responses:
         '200':
           description: KaDep decision applied (booking_approved or redirected)
         '400':
           description: Invalid action for route type (e.g. Path C reject)
+
+  /advisorRequest/batch-ta04/{academicYearId}:
+    get:
+      tags: [AdvisorRequest]
+      summary: Download Formulir TA-04 cohort PDF for an academic year
+      description: >-
+        KaDep may generate a live preview even when the stored batch is partial
+        (used before finalize/update). Sekdep uses the same completeness gate as
+        GET /metopen/kadep/thesis/{thesisId}/title-report/document
+        (KC-20260727-02 / FUN-024): download is rejected until every eligible
+        cohort member is in the current batch. Sekdep cannot finalize.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: academicYearId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PDF buffer
+        '400':
+          description: Batch incomplete or not yet finalized
+        '403':
+          description: Role not allowed
 
   /advisorRequest/{id}/assign:
     post:
@@ -639,6 +670,50 @@ paths:
                         supervisorScore:
                           type: integer
                           nullable: true
+                  meta:
+                    type: object
+                    description: FUN-029 — alasan antrean kosong dan thesis tertahan gerbang TA-04/proposal, tanpa memasukkan mereka ke data siap dinilai.
+                    properties:
+                      emptyReason:
+                        type: string
+                        nullable: true
+                        enum: [waiting_ta04, waiting_final_proposal, all_in_history, none_in_scope]
+                      emptyReasonText:
+                        type: string
+                        nullable: true
+                      blockedByGate:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            thesisId:
+                              type: string
+                            thesisTitle:
+                              type: string
+                              nullable: true
+                            ta03GateReason:
+                              type: string
+                      otherPeriods:
+                        type: array
+                        description: Thesis proposal milik pembimbing di tahun ajaran lain. Tidak dicampur ke data antrean (KC-20260731-02, KC-20260814-07).
+                        items:
+                          type: object
+                          properties:
+                            academicYearId:
+                              type: string
+                            periodLabel:
+                              type: string
+                            students:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  fullName:
+                                    type: string
+                                  identityNumber:
+                                    type: string
+                                  thesisId:
+                                    type: string
 
   /assessment/supervisor/{thesisId}/score:
     get:
@@ -727,6 +802,10 @@ paths:
       responses:
         '200':
           description: TA-03A score stored
+        '403':
+          description: >-
+            Rejected. Score already final (BR-21) or Metopel attendance is below
+            75% so TA-03A/TA-03B were auto-zeroed permanently (BR-28, canon §5.7.3).
 
   /assessment/metopen/attendance/latest:
     get:
@@ -880,11 +959,76 @@ paths:
                         lecturerScore:
                           type: integer
                           nullable: true
+                  meta:
+                    type: object
+                    description: FUN-029 — alasan antrean kosong dan thesis tertahan gerbang TA-04/proposal. Riwayat TA-03B berbasis peran Koordinator, bukan lecturerId.
+                    properties:
+                      emptyReason:
+                        type: string
+                        nullable: true
+                        enum: [waiting_ta04, waiting_final_proposal, all_in_history, none_in_scope]
+                      emptyReasonText:
+                        type: string
+                        nullable: true
+                      blockedByGate:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            thesisId:
+                              type: string
+                            thesisTitle:
+                              type: string
+                              nullable: true
+                            ta03GateReason:
+                              type: string
+                      otherPeriods:
+                        type: array
+                        description: Thesis proposal di tahun ajaran lain. Tidak dicampur ke data antrean (KC-20260731-02, KC-20260814-07).
+                        items:
+                          type: object
+                          properties:
+                            academicYearId:
+                              type: string
+                            periodLabel:
+                              type: string
+                            students:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  fullName:
+                                    type: string
+                                  identityNumber:
+                                    type: string
+                                  thesisId:
+                                    type: string
 
   /assessment/metopen/monitoring:
     get:
       tags: [Assessment]
       summary: Monitoring peserta, pembimbing, presensi, dan nilai Metopel per periode
+      description: |
+        Hanya Koordinator Matkul Metopen. Roster `students[]` dibangun
+        fail-closed dari `StudentAcademicYearSnapshot` periode yang diminta
+        (KC-20260731-02).
+
+        Karena roster kosong bukan berarti fitur gagal, response membawa:
+        - `roster`: `isEmpty`, `reasonCode`
+          (`sia_snapshot_missing` | `no_eligible_student`), `reason`,
+          `actionHint`, `snapshotTotal`, `snapshotEligible`.
+        - `stats.import`: angka sisi file presensi (`totalRows`,
+          `matchedRows`, `unmatchedRows`, `eligibleRows`, `ineligibleRows`,
+          `autoZeroedCount`) plus `matchedInRoster` / `matchedOutsideRoster`
+          sehingga `stats` tidak melaporkan 0 saat `attendanceImport`
+          melaporkan baris cocok.
+        - `attendanceImport.rowBreakdown`: komposisi baris yang dihitung ulang
+          dari record yang sama dengan tabel; `totalRows = matchedRows +
+          unmatchedRows = eligibleRows + ineligibleRows`, dengan subset
+          `matchedEligibleRows` / `matchedIneligibleRows`.
+        - `attendanceImport.periodScope`: `matchesRequestedPeriod` +
+          `mismatchReason` bila label periode di file berbeda dari periode
+          yang dipantau.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
@@ -902,16 +1046,29 @@ paths:
       tags: [Assessment]
       summary: Download nilai TA-03A + TA-03B kelas Metopel dalam format Template SIA (xlsx)
       description: |
-        Hanya Koordinator Matkul Metopen. Menghasilkan workbook xlsx mengikuti
-        layout template SIA (4 kolom skor: Presentasi 20, Proposal konten 40,
-        Proposal struktur 25, Kemampuan merespon 15). Sumber data:
-        `MetopenAttendanceImport` (default: terbaru) untuk daftar peserta, lalu
-        bucketed dari `ResearchMethodScoreDetail` per mahasiswa via mapping
-        CPMK code + role.
+        Hanya Koordinator Matkul Metopen. Menghasilkan workbook xlsx yang mirror
+        layout template SIA (7 kolom: No, NIM, Nama, + 4 kolom skor Presentasi,
+        Proposal konten, Proposal struktur, Kemampuan merespon). Tidak ada kolom
+        tambahan di luar template; keterangan per baris ditulis sebagai cell
+        comment pada kolom Nama (canon §5.7.4).
 
-        BR-28 (canon v2.2 §5.7.x): Mahasiswa dengan presensi <75% yang sudah
-        di-auto-zero tetap ditulis sebagai 0 di semua kolom skor, dengan note
-        di kolom Keterangan; mahasiswa yang belum dinilai dikosongkan.
+        Daftar peserta adalah union peserta `MetopenAttendanceImport` (default:
+        terbaru) dan mahasiswa yang punya `ResearchMethodScore` pada periode
+        yang sama, sehingga nilai final imutabel (BR-21) tidak pernah hilang
+        walau mahasiswanya tidak ada di berkas presensi. Peserta presensi yang
+        belum dinilai tetap ditampilkan.
+
+        Bobot baris header dan identitas kriteria per kolom dibaca dari
+        konfigurasi rubrik periode (`metopen_cpmks` + `metopen_assessment_criterias`)
+        karena komposisi TA-03 konfigurabel (canon v3.3 §5.7); default canon
+        20/40/25/15 hanya dipakai sebagai fallback kalau konfigurasi belum ada.
+
+        Sel kosong vs `0`: komponen yang belum dinilai ditulis sebagai sel
+        kosong karena `0` adalah nilai sah di template SIA. Pembedanya adalah
+        keberadaan baris `ResearchMethodScoreDetail` dan penanda submit per
+        peran (`supervisorScore`/`lecturerScore`), bukan besar angkanya.
+        Auto-zero presensi <75% (BR-28, canon §5.7.3) tetap ditulis `0` di
+        semua kolom skor karena itu nilai sah hasil aturan presensi.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
@@ -1031,6 +1188,10 @@ paths:
       responses:
         '200':
           description: TA-03B score stored
+        '403':
+          description: >-
+            Rejected. Score already final (BR-21) or Metopel attendance is below
+            75% so TA-03A/TA-03B were auto-zeroed permanently (BR-28, canon §5.7.3).
 
   /assessment/metopen/{thesisId}/publish:
     post:
@@ -1049,6 +1210,11 @@ paths:
       responses:
         '200':
           description: TA-03 score finalized when it was not already finalized
+        '403':
+          description: >-
+            Rejected. Score already published (BR-21), actor is not the TA-03B
+            author, or Metopel attendance is below 75% so the score was
+            auto-zeroed permanently (BR-28, canon §5.7.3).
 
   /rubric-metopen/criteria:
     get:
@@ -1204,7 +1370,11 @@ paths:
     get:
       tags: [SupervisionQuota]
       summary: Get default supervision quota configuration
-      description: Read-only for Admin, KaDep, and Sekdep.
+      description: >-
+        Read-only for Admin, KaDep, and Sekdep. Missing stored config returns
+        hardcoded 10/8 with isFallback=true and source=hardcoded_fallback.
+        A stored row returns isFallback=false and source=stored. Same payload
+        as GET /quota/config/default.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -1240,6 +1410,9 @@ paths:
         Read-only for Admin, KaDep, and Sekdep. Active, booking, pending KaDep,
         normal availability, and valid-overquota totals come from the current
         computed snapshot; legacy currentCount is not trusted as source of truth.
+        Response envelope includes definitionLabel, periodLabel, lecturers, and
+        kbkLoads (per-KBK totals plus mean ± 1 SD outliers). This is SIMPTA
+        proposal-phase quota load, not post-proposal supervisor-loads.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -1254,7 +1427,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Lecturer quota list returned
+          description: Labeled lecturer quota list with KBK aggregation
 
   /supervision-quota/lecturers/{lecturerId}/{academicYearId}:
     get:
@@ -1433,3 +1606,164 @@ paths:
       responses:
         '200':
           description: Evaluation history returned
+
+  /sia/snapshots/coverage:
+    get:
+      tags: [SIA]
+      summary: Kelengkapan snapshot akademik per periode (Admin)
+      description: >-
+        Melaporkan berapa mahasiswa yang sudah punya
+        StudentAcademicYearSnapshot untuk satu periode, berapa yang masih bisa
+        dibentuk dari observasi terakhir di tabel students, dan apakah periode
+        tersebut sudah lengkap. Tanpa academicYearId memakai periode operasional.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Coverage returned
+        '403':
+          description: Admin only
+        '404':
+          description: Periode tidak ditemukan
+
+  /quota/browse:
+    get:
+      tags: [Quota]
+      summary: Browse lecturer quota snapshots
+      description: >-
+        Admin, KaDep, Sekdep, and GKM receive all six quota figures, including
+        overquotaSahCount. A dosen viewing themselves also receives the six
+        figures. A dosen viewing a peer receives mahasiswa-level fields only
+        (traffic light, Sisa Normal, Beban Aktif); Booking, Pending KaDep, and
+        Overquota are omitted (canon §7.3). Internal callers without a viewer
+        still receive the complete snapshot.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lecturer quota snapshots for the requested period
+
+  /quota/check/{lecturerId}:
+    get:
+      tags: [Quota]
+      summary: Check whether a lecturer can still accept a supervision slot
+      description: >-
+        Same gate used to reject Pembimbing 2 assignment. Returns allowed,
+        currentCount, quotaMax, remaining, and reason. Not visibility-filtered.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: lecturerId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quota availability for the lecturer
+
+  /quota/config/default:
+    get:
+      tags: [Quota]
+      summary: Get default quota configuration (Admin alias)
+      description: Delegates to GET /supervision-quota/default/{academicYearId}.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: academicYearId
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Labeled default quota (isFallback + source)
+
+  /sia/snapshots/backfill:
+    post:
+      tags: [SIA]
+      summary: Backfill snapshot akademik satu periode (Admin)
+      description: >-
+        Idempoten dan additive. Tanpa apply=true bersifat dry-run dan tidak
+        menulis satu baris pun. Saat apply=true hanya menambah baris snapshot
+        yang belum ada atau mengisi kolom yang masih null; nilai non-null tidak
+        pernah ditimpa, baris tidak pernah dihapus, dan tabel students tidak
+        disentuh.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                academicYearId:
+                  type: string
+                apply:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Rencana (dry-run) atau hasil backfill
+        '403':
+          description: Admin only
+        '404':
+          description: Periode tidak ditemukan
+
+  /sia/sync:
+    post:
+      tags: [SIA]
+      summary: Jalankan sinkronisasi observasi SIA (Admin)
+      description: >-
+        Mengambil observasi akademik SIA (atau SIA_MOCK) dan menempelkannya ke
+        tahun ajaran aktif. eligibleMetopen first-write-wins per periode;
+        takingThesisCourse selalu ditimpa. Tidak menulis balik flag SIA.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Sync summary returned
+        '403':
+          description: Admin only
+
+  /sia/metopen-operations:
+    get:
+      tags: [SIA]
+      summary: Daftar menunggu KRS TA, eksepsi SIA, dan thesis rusak
+      description: >-
+        Admin dan Koordinator Metopen. Menunggu KRS = lulus Metopel tetapi
+        snapshot KRS TA tahun aktif belum true. Eksepsi = gagal Metopel + KRS TA
+        true (bukan arsip). Thesis tanpa academicYearId dilaporkan terpisah.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Operations payload returned
+        '403':
+          description: Admin or Koordinator Metopen only
+
+  /sia/waiting-krs/{requestId}/release:
+    post:
+      tags: [SIA]
+      summary: Lepas manual booking yang menunggu KRS TA (Admin)
+      description: >-
+        Hanya untuk mahasiswa yang sudah lulus Metopel dan masih
+        booking_approved menunggu konfirmasi KRS. Bukan jalur otomatis.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking dilepas
+        '400':
+          description: Bukan antrean menunggu KRS
+        '403':
+          description: Admin only
+        '404':
+          description: Request tidak ditemukan

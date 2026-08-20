@@ -6,11 +6,20 @@
  *   2. Supervisor approves the guidance request
  *   3. Student marks session complete with summary
  *
+ * Prasyarat bimbingan proposal (KC-20260710-01 / KC-20260709-03): booking
+ * pembimbing disetujui (ThesisAdvisorRequest booking_approved + P1 aktif) DAN
+ * penugasan resmi TA-04 sudah terbit (`ta04AssignmentIssuedAt`). Fixture di
+ * bawah menyiapkan/mencari keadaan itu apa adanya dan memverifikasinya lewat
+ * `getTa04GuidanceAuthorization` yang sama dengan yang dipakai produksi —
+ * gate tidak boleh di-mock atau dilewati.
+ *
  * Usage:
  *   pnpm test:integration:nabil
  */
 import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 import prisma from "../../../config/prisma.js";
+import { ROLES } from "../../../constants/roles.js";
+import { getTa04GuidanceAuthorization } from "../../../services/ta04Authorization.service.js";
 import { requestGuidanceService, markSessionCompleteService } from "../../../services/thesisGuidance/student.guidance.service.js";
 import { approveGuidanceService } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
 import { runCleanupIfEnabled } from "./cleanup.js";
@@ -25,35 +34,154 @@ vi.mock("../../../services/outlook-calendar.service.js", () => ({
   deleteCalendarEvent: vi.fn().mockResolvedValue(true),
 }));
 
+const STUDENT_NOTES_MARKER = "IT Test Guidance Notes";
+const INACTIVE_THESIS_STATUSES = ["Dibatalkan", "Gagal"];
+
+const THESIS_INCLUDE = {
+  student: { include: { user: { select: { id: true, fullName: true } } } },
+  thesisStatus: { select: { name: true } },
+  thesisSupervisors: {
+    where: { status: "active" },
+    include: {
+      role: { select: { name: true } },
+      lecturer: { include: { user: { select: { id: true, fullName: true } } } },
+    },
+  },
+};
+
+// Booking sudah disetujui + P1 aktif, tetapi belum tentu TA-04 terbit.
+const BOOKED_THESIS_WHERE = {
+  advisorRequests: { some: { status: "booking_approved" } },
+  thesisSupervisors: {
+    some: { status: "active", role: { name: ROLES.PEMBIMBING_1 } },
+  },
+  NOT: { thesisStatus: { name: { in: INACTIVE_THESIS_STATUSES } } },
+  // Guard "satu pengajuan aktif" di requestGuidanceService akan menolak thesis
+  // yang masih punya antrean bimbingan milik data lain.
+  thesisGuidances: { none: { status: "requested" } },
+};
+
+function findActiveP1(thesis) {
+  return (thesis?.thesisSupervisors ?? []).find(
+    (supervisor) =>
+      supervisor.role?.name === ROLES.PEMBIMBING_1 && supervisor.lecturer?.user?.id,
+  );
+}
+
+/**
+ * Sama persis dengan `getActiveThesisForStudent` di repository mahasiswa:
+ * requestGuidanceService selalu memakai thesis itu, bukan thesis pilihan test.
+ */
+async function resolvesToActiveThesis(thesis) {
+  const active = await prisma.thesis.findFirst({
+    where: { studentId: thesis.studentId },
+    orderBy: [{ startDate: "desc" }, { id: "desc" }],
+    select: { id: true },
+  });
+  return active?.id === thesis.id;
+}
+
+async function pickUsableThesis(where) {
+  const candidates = await prisma.thesis.findMany({
+    where,
+    include: THESIS_INCLUDE,
+    orderBy: { updatedAt: "desc" },
+    take: 25,
+  });
+  for (const candidate of candidates) {
+    if (!findActiveP1(candidate)) continue;
+    if (!candidate.student?.user?.id) continue;
+    if (!(await resolvesToActiveThesis(candidate))) continue;
+    return candidate;
+  }
+  return null;
+}
+
 describe("IT-04: Guidance Request & Approval Flow", () => {
-  const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   let testThesis = null;
   let testStudentUserId = null;
   let testSupervisorUserId = null;
   let testSupervisorLecturerId = null;
   let createdGuidanceId = null;
+  let gateAuthorization = null;
+  // Diisi hanya bila fixture yang menerbitkan TA-04, agar bisa dikembalikan.
+  let issuedTa04ByFixture = null;
 
   beforeAll(async () => {
-    // Find an active thesis in "Bimbingan" with at least one supervisor
-    testThesis = await prisma.thesis.findFirst({
-      where: {
-        thesisStatus: { name: "Bimbingan" },
-        thesisSupervisors: { some: {} },
-      },
-      include: {
-        student: { include: { user: true } },
-        thesisSupervisors: {
-          include: { lecturer: { include: { user: true } } },
-        },
-      },
+    // Sisa run sebelumnya boleh menghalangi guard "satu pengajuan aktif".
+    await prisma.thesisGuidance.deleteMany({
+      where: { studentNotes: STUDENT_NOTES_MARKER },
     });
 
-    if (testThesis) {
-      testStudentUserId = testThesis.student.userId || testThesis.student.user.id;
-      const sup = testThesis.thesisSupervisors[0];
-      testSupervisorUserId = sup.lecturer.userId || sup.lecturer.user.id;
-      testSupervisorLecturerId = sup.lecturerId;
+    // 1. Utamakan thesis yang gerbangnya memang sudah terbuka di database.
+    testThesis = await pickUsableThesis({
+      ...BOOKED_THESIS_WHERE,
+      ta04AssignmentIssuedAt: { not: null },
+    });
+
+    // 2. Kalau belum ada, siapkan prasyarat terakhir alur kanonis: KaDep
+    //    menerbitkan penugasan TA-04 untuk booking yang sudah disetujui.
+    if (!testThesis) {
+      const bookedThesis = await pickUsableThesis({
+        ...BOOKED_THESIS_WHERE,
+        ta04AssignmentIssuedAt: null,
+      });
+      const kadep = await prisma.user.findFirst({
+        where: {
+          userHasRoles: {
+            some: { role: { name: ROLES.KETUA_DEPARTEMEN }, status: "active" },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (bookedThesis && kadep) {
+        const supervisorNames = bookedThesis.thesisSupervisors
+          .filter((supervisor) =>
+            [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2].includes(supervisor.role?.name),
+          )
+          .map((supervisor) => supervisor.lecturer?.user?.fullName)
+          .filter(Boolean)
+          .join(", ");
+
+        issuedTa04ByFixture = {
+          thesisId: bookedThesis.id,
+          previous: {
+            ta04AssignmentIssuedAt: bookedThesis.ta04AssignmentIssuedAt,
+            ta04AssignmentIssuedByUserId: bookedThesis.ta04AssignmentIssuedByUserId,
+            ta04AssignmentTitle: bookedThesis.ta04AssignmentTitle,
+            ta04AssignmentSupervisorNames: bookedThesis.ta04AssignmentSupervisorNames,
+            ta04AssignmentAcademicYearId: bookedThesis.ta04AssignmentAcademicYearId,
+          },
+        };
+
+        await prisma.thesis.update({
+          where: { id: bookedThesis.id },
+          data: {
+            ta04AssignmentIssuedAt: new Date(),
+            ta04AssignmentIssuedByUserId: kadep.id,
+            ta04AssignmentTitle: bookedThesis.title,
+            ta04AssignmentSupervisorNames: supervisorNames || null,
+            ta04AssignmentAcademicYearId: bookedThesis.academicYearId,
+          },
+        });
+
+        testThesis = await prisma.thesis.findUnique({
+          where: { id: bookedThesis.id },
+          include: THESIS_INCLUDE,
+        });
+      }
     }
+
+    if (!testThesis) return;
+
+    const p1 = findActiveP1(testThesis);
+    testStudentUserId = testThesis.student.user.id;
+    testSupervisorUserId = p1.lecturer.user.id;
+    testSupervisorLecturerId = p1.lecturerId;
+
+    // Verifikasi gerbang lewat service produksi (bukan mock, bukan asumsi).
+    gateAuthorization = await getTa04GuidanceAuthorization(testThesis.id);
   });
 
   afterAll(async () => {
@@ -62,30 +190,42 @@ describe("IT-04: Guidance Request & Approval Flow", () => {
       if (createdGuidanceId) {
         await prisma.thesisGuidance.delete({ where: { id: createdGuidanceId } }).catch(() => {});
       }
+      // Kembalikan penugasan TA-04 kalau fixture yang menerbitkannya.
+      if (issuedTa04ByFixture) {
+        await prisma.thesis
+          .update({
+            where: { id: issuedTa04ByFixture.thesisId },
+            data: issuedTa04ByFixture.previous,
+          })
+          .catch(() => {});
+      }
     });
     await prisma.$disconnect();
   });
 
-  it("should complete the guidance flow: request → approve → complete", async () => {
-    // Skip if no test data available
-    if (!testThesis) {
-      console.warn("[IT-04] Insufficient test data, skipping");
-      return;
-    }
+  it("requires an approved booking and an issued TA-04 assignment before guidance starts", () => {
+    expect(
+      testThesis,
+      "Tidak ada thesis dengan booking disetujui + P1 aktif yang bisa dipakai fixture",
+    ).not.toBeNull();
 
-    await prisma.thesisGuidance.deleteMany({
-      where: {
-        thesisId: testThesis.id,
-        studentNotes: "IT Test Guidance Notes",
-      },
+    expect(gateAuthorization).toMatchObject({
+      hasBookedSupervisor: true,
+      ta04Issued: true,
+      hasOfficialSupervisor: true,
+      guidanceGateOpen: true,
     });
+    expect(gateAuthorization.guidanceGateReason).toBeNull();
+    expect(testThesis.ta04AssignmentIssuedAt).not.toBeNull();
+  });
 
+  it("should complete the guidance flow: request → approve → complete", async () => {
     // 1. Student Requests Guidance
     const futureDate = new Date(Date.now() + 86400000).toISOString(); // 1 day from now
     const requestResult = await requestGuidanceService(
       testStudentUserId,
       futureDate,
-      "IT Test Guidance Notes",
+      STUDENT_NOTES_MARKER,
       null, // file
       testSupervisorLecturerId,
       { duration: 60 }

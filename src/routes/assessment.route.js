@@ -71,11 +71,20 @@ router.get(
   requireAnyRole(SUPERVISOR_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getSupervisorScoringQueue(
+      const result = await getSupervisorScoringQueue(
         req.user.sub,
         req.query?.academicYearId,
       );
-      res.json({ success: true, data });
+      res.json({
+        success: true,
+        data: result.items,
+        meta: {
+          emptyReason: result.emptyReason,
+          emptyReasonText: result.emptyReasonText,
+          blockedByGate: result.blockedByGate,
+          otherPeriods: result.otherPeriods ?? [],
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -200,11 +209,20 @@ router.get(
   requireAnyRole(KOORDINATOR_METOPEN_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getMetopenScoringQueue(
+      const result = await getMetopenScoringQueue(
         req.user.sub,
         req.query?.academicYearId,
       );
-      res.json({ success: true, data });
+      res.json({
+        success: true,
+        data: result.items,
+        meta: {
+          emptyReason: result.emptyReason,
+          emptyReasonText: result.emptyReasonText,
+          blockedByGate: result.blockedByGate,
+          otherPeriods: result.otherPeriods ?? [],
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -300,10 +318,12 @@ router.get(
 /**
  * GET /assessment/metopen/scores/export
  * Download nilai TA-03A + TA-03B kelas Metopel dalam format Template SIA (xlsx).
- * Mengisi nilai berdasarkan ResearchMethodScore aktif untuk setiap mahasiswa di
- * attendance import yang dirujuk (default: import terbaru). Auto-zero mahasiswa
- * <75% tetap ditulis sebagai 0 + note kolom keterangan.
- * BR-28 (canon v2.2 §5.7.x).
+ * Daftar peserta = union peserta attendance import yang dirujuk (default: import
+ * terbaru) + mahasiswa yang punya ResearchMethodScore pada periode itu, supaya
+ * nilai final yang imutabel (BR-21) tidak pernah hilang dari berkas SIA.
+ * Komponen yang belum dinilai ditulis sebagai sel kosong; auto-zero presensi
+ * <75% tetap 0 di semua kolom dengan keterangan sebagai cell comment.
+ * BR-28 (canon §5.7.3) + canon §5.7.4.
  *
  * Penting: route ini WAJIB di-mount SEBELUM `/metopen/:thesisId/score` agar
  * literal segment "scores" tidak tertangkap oleh path parameter `:thesisId`.

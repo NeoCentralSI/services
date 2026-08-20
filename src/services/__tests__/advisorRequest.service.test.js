@@ -44,6 +44,7 @@ vi.mock("../../repositories/advisorRequest.repository.js", () => ({
   findTopicByIdWithClient: vi.fn(),
   findAllTopicsWithScienceGroup: vi.fn(),
   findAllTopicsWithScienceGroupWithClient: vi.fn(),
+  findSupervisedTopicsByLecturerIds: vi.fn(async () => new Map()),
   findLecturerForValidationWithClient: vi.fn(),
   findLecturerForAssignment: vi.fn(),
   createWithClient: vi.fn(),

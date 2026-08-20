@@ -21,6 +21,7 @@ const repoMock = {
   findActiveSupervisorsByStudentIds: vi.fn(),
   findResearchMethodScoresByStudentIds: vi.fn(),
   findAcademicYearById: vi.fn(),
+  countStudentSnapshots: vi.fn(),
 };
 
 vi.mock("../../repositories/metopenMonitoring.repository.js", () => repoMock);
@@ -143,6 +144,7 @@ beforeEach(() => {
     startDate: new Date("2026-01-13T00:00:00.000Z"),
     endDate: new Date("2026-07-31T23:59:59.999Z"),
   });
+  repoMock.countStudentSnapshots.mockResolvedValue({ total: 3, eligible: 3 });
 });
 
 describe("metopenMonitoring.service — getMetopenMonitoring", () => {
@@ -635,5 +637,242 @@ describe("metopenMonitoring.service — getMetopenMonitoring", () => {
     expect(out.stats.scoreByCompleteness.auto_zero).toBe(1);
     expect(out.stats.scoreByCompleteness.complete_pending).toBe(1);
     expect(out.stats.scoreByCompleteness.none).toBe(2);
+  });
+});
+
+/**
+ * SIMPTA-FUN-003: roster kosong wajib membawa sebab yang spesifik (pola
+ * `ta03GateReason`), dan `stats` tidak boleh melaporkan 0 sementara
+ * `attendanceImport` melaporkan baris cocok di payload yang sama.
+ */
+describe("metopenMonitoring.service — sebab roster kosong (pola ta03GateReason)", () => {
+  function mockEmptyEnrichment() {
+    repoMock.findAdvisorRequestsByStudentIds.mockResolvedValue([]);
+    repoMock.findActiveSupervisorsByStudentIds.mockResolvedValue([]);
+    repoMock.findResearchMethodScoresByStudentIds.mockResolvedValue([]);
+  }
+
+  it("snapshot SIA periode belum ada → reasonCode 'sia_snapshot_missing' + arahan sinkronisasi", async () => {
+    repoMock.findEligibleMetopenStudents.mockResolvedValue([]);
+    repoMock.findLatestAttendanceImportWithRecords.mockResolvedValue(null);
+    repoMock.countStudentSnapshots.mockResolvedValue({ total: 0, eligible: 0 });
+    mockEmptyEnrichment();
+
+    const out = await getMetopenMonitoring();
+    expect(out.roster.isEmpty).toBe(true);
+    expect(out.roster.reasonCode).toBe(__test.ROSTER_EMPTY_REASON.SIA_SNAPSHOT_MISSING);
+    expect(out.roster.reason).toContain("snapshot kelayakan SIA");
+    expect(out.roster.reason).toContain("2025/2026 Genap");
+    expect(out.roster.actionHint).toContain("sinkronisasi data SIA");
+    expect(out.roster.snapshotTotal).toBe(0);
+  });
+
+  it("snapshot ada tetapi tidak ada yang eligible → reasonCode 'no_eligible_student'", async () => {
+    repoMock.findEligibleMetopenStudents.mockResolvedValue([]);
+    repoMock.findLatestAttendanceImportWithRecords.mockResolvedValue(null);
+    repoMock.countStudentSnapshots.mockResolvedValue({ total: 12, eligible: 0 });
+    mockEmptyEnrichment();
+
+    const out = await getMetopenMonitoring();
+    expect(out.roster.reasonCode).toBe(__test.ROSTER_EMPTY_REASON.NO_ELIGIBLE_STUDENT);
+    expect(out.roster.reason).toContain("12 mahasiswa");
+    expect(out.roster.actionHint).toContain("kelayakan Metopel");
+    expect(out.roster.snapshotTotal).toBe(12);
+  });
+
+  it("roster terisi → tidak ada sebab kosong yang dilaporkan", async () => {
+    repoMock.findEligibleMetopenStudents.mockResolvedValue([studentFixture({ id: "stu-1" })]);
+    repoMock.findLatestAttendanceImportWithRecords.mockResolvedValue(null);
+    repoMock.countStudentSnapshots.mockResolvedValue({ total: 4, eligible: 1 });
+    mockEmptyEnrichment();
+
+    const out = await getMetopenMonitoring();
+    expect(out.roster.isEmpty).toBe(false);
+    expect(out.roster.reasonCode).toBeNull();
+    expect(out.roster.reason).toBeNull();
+    expect(out.roster.actionHint).toBeNull();
+  });
+
+  it("roster kosong + import punya baris cocok → stats.import melaporkan angka import, bukan 0", async () => {
+    repoMock.findEligibleMetopenStudents.mockResolvedValue([]);
+    repoMock.countStudentSnapshots.mockResolvedValue({ total: 0, eligible: 0 });
+    repoMock.findLatestAttendanceImportWithRecords.mockResolvedValue({
+      id: "import-1",
+      academicYearId: "ay-1",
+      semesterLabel: "Genap 2025/2026",
+      thresholdPercent: 0.75,
+      totalRows: 3,
+      matchedRows: 2,
+      eligibleRows: 2,
+      ineligibleRows: 1,
+      autoZeroedCount: 1,
+      skippedFinalizedCount: 0,
+      uploadedAt: new Date("2026-05-01"),
+      records: [
+        attendanceRecordFixture({ studentId: "stu-outside-1", identityNumber: "2399000101" }),
+        attendanceRecordFixture({
+          studentId: "stu-outside-2",
+          identityNumber: "2399000102",
+          attendancePercentage: 0.5,
+          isEligible: false,
+        }),
+        attendanceRecordFixture({ studentId: null, identityNumber: "9999900099" }),
+      ],
+    });
+    mockEmptyEnrichment();
+
+    const out = await getMetopenMonitoring();
+    expect(out.stats.totalEligibleSia).toBe(0);
+    expect(out.stats.totalInImport).toBe(0);
+    expect(out.stats.import).not.toBeNull();
+    expect(out.stats.import.totalRows).toBe(3);
+    expect(out.stats.import.matchedRows).toBe(2);
+    expect(out.stats.import.matchedInRoster).toBe(0);
+    // Inilah angka yang menjelaskan kontradiksi: baris cocok yang ada di file
+    // presensi tetapi mahasiswanya tidak ada di roster snapshot periode ini.
+    expect(out.stats.import.matchedOutsideRoster).toBe(2);
+    expect(out.stats.import.autoZeroedCount).toBe(1);
+  });
+
+  it("roster terisi sebagian → matchedInRoster + matchedOutsideRoster = matchedRows", async () => {
+    const stu = studentFixture({ id: "stu-1", nim: "2399000001" });
+    repoMock.findEligibleMetopenStudents.mockResolvedValue([stu]);
+    repoMock.countStudentSnapshots.mockResolvedValue({ total: 1, eligible: 1 });
+    repoMock.findLatestAttendanceImportWithRecords.mockResolvedValue({
+      id: "import-1",
+      academicYearId: "ay-1",
+      semesterLabel: "Genap 2025/2026",
+      thresholdPercent: 0.75,
+      uploadedAt: new Date("2026-05-01"),
+      records: [
+        attendanceRecordFixture({ studentId: "stu-1", identityNumber: "2399000001" }),
+        attendanceRecordFixture({ studentId: "stu-outside", identityNumber: "2399000102" }),
+      ],
+    });
+    mockEmptyEnrichment();
+
+    const out = await getMetopenMonitoring();
+    expect(out.stats.totalInImport).toBe(1);
+    expect(out.stats.import.matchedInRoster).toBe(1);
+    expect(out.stats.import.matchedOutsideRoster).toBe(1);
+    expect(out.stats.import.matchedInRoster + out.stats.import.matchedOutsideRoster).toBe(
+      out.stats.import.matchedRows,
+    );
+  });
+
+  it("tanpa import presensi → stats.import null (tidak ada angka tanpa sumber)", async () => {
+    repoMock.findEligibleMetopenStudents.mockResolvedValue([studentFixture({ id: "stu-1" })]);
+    repoMock.findLatestAttendanceImportWithRecords.mockResolvedValue(null);
+    mockEmptyEnrichment();
+
+    const out = await getMetopenMonitoring();
+    expect(out.attendanceImport).toBeNull();
+    expect(out.stats.import).toBeNull();
+  });
+});
+
+/**
+ * SIMPTA-FUN-039: tiga angka ringkasan impor harus dapat direkonsiliasi.
+ * `eligibleRows`/`ineligibleRows` dihitung atas SELURUH baris file, sehingga
+ * tidak berjumlah ke `matchedRows` — subset matched dibawa terpisah.
+ */
+describe("metopenMonitoring.service — rekonsiliasi angka import presensi", () => {
+  const records = [
+    attendanceRecordFixture({ studentId: "stu-1", identityNumber: "1", isEligible: true }),
+    attendanceRecordFixture({ studentId: "stu-2", identityNumber: "2", isEligible: true }),
+    attendanceRecordFixture({ studentId: "stu-3", identityNumber: "3", isEligible: false }),
+    attendanceRecordFixture({ studentId: null, identityNumber: "4", isEligible: true }),
+  ];
+
+  it("identitas jumlah: total = matched + unmatched = eligible + ineligible", () => {
+    const breakdown = __test.buildAttendanceRowBreakdown(records, {
+      totalRows: 4,
+      matchedRows: 3,
+      eligibleRows: 3,
+      ineligibleRows: 1,
+    });
+    expect(breakdown.totalRows).toBe(4);
+    expect(breakdown.matchedRows + breakdown.unmatchedRows).toBe(breakdown.totalRows);
+    expect(breakdown.eligibleRows + breakdown.ineligibleRows).toBe(breakdown.totalRows);
+    expect(breakdown.matchedEligibleRows + breakdown.matchedIneligibleRows).toBe(
+      breakdown.matchedRows,
+    );
+    expect(breakdown.matchedEligibleRows).toBe(2);
+    expect(breakdown.matchedIneligibleRows).toBe(1);
+    expect(breakdown.unmatchedEligibleRows).toBe(1);
+    expect(breakdown.countersMatchRecords).toBe(true);
+  });
+
+  it("counter import yang tidak cocok dengan record ditandai countersMatchRecords=false", () => {
+    const breakdown = __test.buildAttendanceRowBreakdown(records, {
+      totalRows: 40,
+      matchedRows: 3,
+      eligibleRows: 3,
+      ineligibleRows: 1,
+    });
+    expect(breakdown.countersMatchRecords).toBe(false);
+  });
+
+  it("label periode file berbeda dari periode yang diminta → mismatch terbaca", () => {
+    const scope = __test.buildAttendanceImportPeriodScope(
+      { academicYearId: "ay-1", semesterLabel: "Genap 2025/2026" },
+      { id: "ay-1", year: "2026/2027", semester: "ganjil" },
+      "ay-1",
+    );
+    expect(scope.attachedToRequestedPeriod).toBe(true);
+    expect(scope.matchesRequestedPeriod).toBe(false);
+    expect(scope.mismatchReason).toContain("Genap 2025/2026");
+    expect(scope.mismatchReason).toContain("2026/2027 Ganjil");
+  });
+
+  it("label periode file sama dengan periode yang diminta → tanpa peringatan", () => {
+    const scope = __test.buildAttendanceImportPeriodScope(
+      { academicYearId: "ay-1", semesterLabel: "Genap 2025/2026" },
+      { id: "ay-1", year: "2025/2026", semester: "genap" },
+      "ay-1",
+    );
+    expect(scope.matchesRequestedPeriod).toBe(true);
+    expect(scope.mismatchReason).toBeNull();
+  });
+
+  it("label periode tidak terbaca → matchesRequestedPeriod null (tidak menuduh mismatch)", () => {
+    const scope = __test.buildAttendanceImportPeriodScope(
+      { academicYearId: "ay-1", semesterLabel: null },
+      { id: "ay-1", year: "2025/2026", semester: "genap" },
+      "ay-1",
+    );
+    expect(scope.matchesRequestedPeriod).toBeNull();
+    expect(scope.mismatchReason).toBeNull();
+  });
+
+  it("payload monitoring membawa rowBreakdown + periodScope pada attendanceImport", async () => {
+    repoMock.findEligibleMetopenStudents.mockResolvedValue([]);
+    repoMock.countStudentSnapshots.mockResolvedValue({ total: 0, eligible: 0 });
+    repoMock.findLatestAttendanceImportWithRecords.mockResolvedValue({
+      id: "import-1",
+      academicYearId: "ay-1",
+      semesterLabel: "Ganjil 2026/2027",
+      thresholdPercent: 0.75,
+      totalRows: 4,
+      matchedRows: 3,
+      eligibleRows: 3,
+      ineligibleRows: 1,
+      autoZeroedCount: 1,
+      skippedFinalizedCount: 2,
+      uploadedAt: new Date("2026-05-01"),
+      records,
+    });
+    repoMock.findAdvisorRequestsByStudentIds.mockResolvedValue([]);
+    repoMock.findActiveSupervisorsByStudentIds.mockResolvedValue([]);
+    repoMock.findResearchMethodScoresByStudentIds.mockResolvedValue([]);
+
+    const out = await getMetopenMonitoring();
+    expect(out.attendanceImport.rowBreakdown.unmatchedRows).toBe(1);
+    expect(out.attendanceImport.rowBreakdown.matchedIneligibleRows).toBe(1);
+    expect(out.attendanceImport.skippedFinalizedCount).toBe(2);
+    // Periode yang diminta genap 2025/2026, label file ganjil 2026/2027.
+    expect(out.attendanceImport.periodScope.matchesRequestedPeriod).toBe(false);
+    expect(out.stats.import.unmatchedRows).toBe(1);
+    expect(out.stats.unmatchedInImport).toBe(1);
   });
 });

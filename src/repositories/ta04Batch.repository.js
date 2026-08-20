@@ -133,7 +133,12 @@ export const createTa04BatchWithDocument = async ({
       data: { titleApprovalDocumentId: document.id },
     });
 
-    const membersNeedingSnapshot = members.filter((member) => member.needsAssignmentSnapshot);
+    // UQ-4 / FUN-008: ta04AssignmentIssuedAt hanya boleh terisi untuk anggota
+    // batch yang baru saja dibuat di transaksi ini. Jangan menulis baris orphan.
+    const memberThesisIds = new Set((batch.members ?? []).map((member) => member.thesisId));
+    const membersNeedingSnapshot = members.filter(
+      (member) => member.needsAssignmentSnapshot && memberThesisIds.has(member.thesisId),
+    );
     for (const member of membersNeedingSnapshot) {
       await tx.thesis.update({
         where: { id: member.thesisId },

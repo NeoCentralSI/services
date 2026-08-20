@@ -125,12 +125,52 @@ function finalizeSnapshot(snapshot, includeEntries) {
   return next;
 }
 
-function mapRequestEntry(request, bucket) {
+function formatPeriodLabel(academicYear) {
+  if (!academicYear) return null;
+  const semester = academicYear.semester ? ` ${academicYear.semester}` : "";
+  return `${academicYear.year ?? "-"}${semester}`.trim();
+}
+
+function resolveProposalVersionInfo(thesis) {
+  const latest = thesis?.proposalVersions?.[0] ?? null;
+  const finalVersion = thesis?.finalProposalVersion ?? null;
+  return {
+    proposalStatus: thesis?.proposalStatus ?? null,
+    proposalVersion: finalVersion?.version ?? latest?.version ?? null,
+    hasFinalProposal: Boolean(thesis?.finalProposalVersionId),
+  };
+}
+
+function resolveEntryPeriod(source, operationalAcademicYearId) {
+  const thesis = source?.thesis ?? null;
+  const chargedYear =
+    thesis?.activeAcademicYear ??
+    thesis?.academicYear ??
+    source?.academicYear ??
+    null;
+  const chargedYearId =
+    thesis?.activeAcademicYearId ??
+    thesis?.academicYearId ??
+    source?.academicYearId ??
+    chargedYear?.id ??
+    null;
+  return {
+    academicYearId: chargedYearId,
+    academicYearLabel: formatPeriodLabel(chargedYear),
+    isCurrentPeriod: chargedYearId
+      ? chargedYearId === operationalAcademicYearId
+      : true,
+  };
+}
+
+function mapRequestEntry(request, bucket, operationalAcademicYearId) {
   const effectiveLecturerId = getEffectiveRequestLecturerId(request);
   // Resolve justifikasi canon-aligned: prefer studentJustification (canon
   // §5.2.1 v2.1), fallback ke justificationText legacy (handoff P0-05).
   const resolvedStudentJustification =
     request.studentJustification ?? request.justificationText ?? null;
+  const proposalInfo = resolveProposalVersionInfo(request.thesis);
+  const period = resolveEntryPeriod(request, operationalAcademicYearId);
 
   return {
     id: request.id,
@@ -168,12 +208,19 @@ function mapRequestEntry(request, bucket) {
     updatedAt: request.updatedAt ?? null,
     lecturerRespondedAt: request.lecturerRespondedAt ?? null,
     reviewedAt: request.reviewedAt ?? null,
-    proposalStatus: request.thesis?.proposalStatus ?? null,
+    proposalStatus: proposalInfo.proposalStatus,
+    proposalVersion: proposalInfo.proposalVersion,
+    hasFinalProposal: proposalInfo.hasFinalProposal,
     thesisStatus: request.thesis?.thesisStatus?.name ?? null,
+    academicYearId: period.academicYearId,
+    academicYearLabel: period.academicYearLabel,
+    isCurrentPeriod: period.isCurrentPeriod,
   };
 }
 
-function mapSupervisorEntry(supervisor, bucket) {
+function mapSupervisorEntry(supervisor, bucket, operationalAcademicYearId) {
+  const proposalInfo = resolveProposalVersionInfo(supervisor.thesis);
+  const period = resolveEntryPeriod(supervisor, operationalAcademicYearId);
   return {
     id: `supervisor:${supervisor.id}`,
     source: "supervisor",
@@ -200,8 +247,13 @@ function mapSupervisorEntry(supervisor, bucket) {
     updatedAt: supervisor.updatedAt ?? null,
     lecturerRespondedAt: null,
     reviewedAt: null,
-    proposalStatus: supervisor.thesis?.proposalStatus ?? null,
+    proposalStatus: proposalInfo.proposalStatus,
+    proposalVersion: proposalInfo.proposalVersion,
+    hasFinalProposal: proposalInfo.hasFinalProposal,
     thesisStatus: supervisor.thesis?.thesisStatus?.name ?? null,
+    academicYearId: period.academicYearId,
+    academicYearLabel: period.academicYearLabel,
+    isCurrentPeriod: period.isCurrentPeriod,
   };
 }
 
@@ -234,13 +286,32 @@ function classifySupervisorBucket(supervisor) {
   return isOfficialAccepted(thesis) ? "active" : "booking";
 }
 
-function supervisorBelongsToQuotaYear(supervisor, academicYearId) {
-  if (!academicYearId) return true;
-  const thesis = supervisor.thesis ?? null;
+function thesisBelongsToQuotaYear(thesis, academicYearId) {
   if (isOfficialAccepted(thesis)) {
     return (thesis.activeAcademicYearId ?? thesis.academicYearId) === academicYearId;
   }
   return thesis?.academicYearId === academicYearId;
+}
+
+function supervisorBelongsToQuotaYear(supervisor, academicYearId) {
+  if (!academicYearId) return true;
+  return thesisBelongsToQuotaYear(supervisor.thesis ?? null, academicYearId);
+}
+
+/**
+ * A booking consumes exactly one slot, in exactly one period (canon §7.3).
+ *
+ * Once a request has materialized into a thesis, the thesis period decides
+ * which period the slot belongs to; the request's own period only applies to
+ * reservations that have no thesis yet. Without this, a request created in an
+ * earlier period and the supervisor row of its thesis in the operational
+ * period are counted as two separate bookings (SIMPTA-FUN-006).
+ */
+function requestBelongsToQuotaYear(request, academicYearId) {
+  if (!academicYearId) return true;
+  const thesis = request.thesis ?? null;
+  if (!thesis) return request.academicYearId === academicYearId;
+  return thesisBelongsToQuotaYear(thesis, academicYearId);
 }
 
 function pushEntry(snapshot, bucket, entry) {
@@ -293,6 +364,8 @@ export async function getLecturerQuotaSnapshots({
   const trackedKeys = new Set();
 
   for (const request of trackedRequests) {
+    if (!requestBelongsToQuotaYear(request, resolvedAcademicYearId)) continue;
+
     const effectiveLecturerId = getEffectiveRequestLecturerId(request);
     const snapshot = snapshots.get(effectiveLecturerId);
     if (!snapshot) continue;
@@ -305,7 +378,7 @@ export async function getLecturerQuotaSnapshots({
       thesisId: request.thesisId ?? request.thesis?.id ?? null,
       studentId: request.studentId,
     });
-    pushEntry(snapshot, bucket, mapRequestEntry(request, bucket));
+    pushEntry(snapshot, bucket, mapRequestEntry(request, bucket, resolvedAcademicYearId));
   }
 
   for (const supervisor of trackedSupervisors) {
@@ -325,7 +398,7 @@ export async function getLecturerQuotaSnapshots({
     if (!bucket) continue;
 
     markTracked(trackedKeys, supervisorIdentity);
-    pushEntry(snapshot, bucket, mapSupervisorEntry(supervisor, bucket));
+    pushEntry(snapshot, bucket, mapSupervisorEntry(supervisor, bucket, resolvedAcademicYearId));
   }
 
   return [...snapshots.values()].map((snapshot) => finalizeSnapshot(snapshot, includeEntries));
@@ -378,16 +451,25 @@ export async function syncAllLecturerQuotaCurrentCounts(academicYearId, { client
 
   for (const snapshot of snapshots) {
     if (!snapshot.lecturerId) continue;
-    await repo.ensureLecturerQuotaRow(client, snapshot.lecturerId, academicYearId);
+    const existing = await repo.ensureLecturerQuotaRow(
+      client,
+      snapshot.lecturerId,
+      academicYearId,
+    );
     await repo.updateLecturerQuotaCurrentCount(
       client,
       snapshot.lecturerId,
       academicYearId,
       snapshot.currentCount,
     );
+    const previousCount = existing?.currentCount ?? 0;
     results.push({
       lecturerId: snapshot.lecturerId,
+      fullName: snapshot.fullName,
+      previousCount,
       currentCount: snapshot.currentCount,
+      // Non-zero means the cache had drifted and this run repaired it.
+      drift: snapshot.currentCount - previousCount,
       activeCount: snapshot.activeCount,
       bookingCount: snapshot.bookingCount,
       pendingKadepCount: snapshot.pendingKadepCount,

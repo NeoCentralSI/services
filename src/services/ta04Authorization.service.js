@@ -25,6 +25,19 @@ export async function getTa04GuidanceAuthorization(thesisId) {
   };
 }
 
+/**
+ * Logbook phase is derived from the thesis, never from the client body.
+ * A Metopel thesis (`isProposal !== false` and proposal not accepted) stays
+ * `proposal` so `phase=thesis` cannot skip the TA-04 gate.
+ */
+export function deriveGuidancePhaseFromThesis(thesis) {
+  if (!thesis) return "proposal";
+  if (thesis.proposalStatus === "accepted" || thesis.isProposal === false) {
+    return "thesis";
+  }
+  return "proposal";
+}
+
 export async function assertTa04GuidanceAuthorized(thesisId) {
   const authorization = await getTa04GuidanceAuthorization(thesisId);
   if (!authorization.guidanceGateOpen) {

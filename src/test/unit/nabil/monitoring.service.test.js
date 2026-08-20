@@ -123,7 +123,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toHaveProperty("atRiskStudents");
       expect(result).toHaveProperty("slowStudents");
       expect(result).toHaveProperty("readyForSeminar");
-      expect(result.supervisorLoads).toEqual([
+      expect(result.supervisorLoads.lecturers).toEqual([
         {
           lecturerId: "l1",
           lecturerName: "Dr. Andi",
@@ -142,6 +142,9 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
           ],
         },
       ]);
+      expect(result.supervisorLoads.uniqueThesisCount).toBe(1);
+      expect(result.supervisorLoads.definitionLabel).toMatch(/pasca-proposal/);
+      expect(result.summary.supervisorLoadThesisCount).toBe(1);
       expect(mockRepo.getProgressStatistics).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getBatchDistribution).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getGuidanceTrend).toHaveBeenCalledWith(ACADEMIC_YEAR);

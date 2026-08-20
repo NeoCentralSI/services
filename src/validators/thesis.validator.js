@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "./common.validator.js";
 
 export const createThesisSchema = z.object({
   studentId: z.string().uuid("Mahasiswa wajib dipilih"),
   title: z.string().min(10, "Judul minimal 10 karakter").max(500, "Judul maksimal 500 karakter"),
   thesisTopicId: z.string().uuid().nullable().optional(),
   thesisStatusId: z.string().uuid().nullable().optional(),
-  academicYearId: z.string().uuid().nullable().optional(),
+  academicYearId: academicYearIdSchema.nullable().optional(),
   supervisors: z.array(
     z.object({
       lecturerId: z.string().uuid(),

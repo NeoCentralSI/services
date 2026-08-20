@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "../common.validator.js";
 
 export const createThesisCpmkSchema = z.object({
-  academicYearId: z.string().uuid("ID Tahun Ajaran tidak valid"),
+  academicYearId: academicYearIdSchema,
   code: z.string().min(1, "Kode CPMK wajib diisi").max(255),
   description: z.string().min(1, "Deskripsi CPMK wajib diisi"),
 });

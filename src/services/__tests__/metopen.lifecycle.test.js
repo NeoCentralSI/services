@@ -9,7 +9,7 @@ const { prismaMock, txMock, quotaService } = vi.hoisted(() => {
   };
   const prisma = {
     studentAcademicYearSnapshot: { findUnique: vi.fn() },
-    thesisAdvisorRequest: { findMany: vi.fn() },
+    thesisAdvisorRequest: { findMany: vi.fn(), findUnique: vi.fn() },
     thesisStatus: { findFirst: vi.fn() },
     $transaction: vi.fn(async (callback) => callback(tx)),
   };
@@ -28,7 +28,7 @@ vi.mock("../../helpers/academicYear.helper.js", () => ({
   getActiveAcademicYear: vi.fn().mockResolvedValue({ id: "ay-active" }),
 }));
 
-const { syncBookingActivationForStudent } = await import("../metopen.service.js");
+const { syncBookingActivationForStudent, releaseWaitingKrsBookingByAdmin, resolveLifecycleScoreDecision } = await import("../metopen.service.js");
 
 function bookingRequest(overrides = {}) {
   return {
@@ -66,6 +66,45 @@ function bookingRequest(overrides = {}) {
     ...overrides,
   };
 }
+
+describe("resolveLifecycleScoreDecision", () => {
+  const passed = { isFinalized: true, attendanceAutoZeroedAt: null, periodClosedAt: null };
+
+  it("promotes only a passing finalized score with KRS TA true", () => {
+    expect(resolveLifecycleScoreDecision(passed, true)).toEqual({
+      action: "promote",
+      reason: "ta03_final_and_krs_ta_confirmed",
+    });
+  });
+
+  it("waits when a passing score has KRS TA that is not true", () => {
+    expect(resolveLifecycleScoreDecision(passed, false)).toEqual({
+      action: "skip",
+      reason: "waiting_krs_ta_confirmation",
+    });
+    expect(resolveLifecycleScoreDecision(passed, null)).toEqual({
+      action: "skip",
+      reason: "waiting_krs_ta_confirmation",
+    });
+  });
+
+  it("releases auto-zero and period-closed scores even if KRS TA is true", () => {
+    expect(resolveLifecycleScoreDecision({
+      ...passed,
+      attendanceAutoZeroedAt: new Date("2026-07-01T00:00:00.000Z"),
+    }, true)).toEqual({
+      action: "release",
+      reason: "metopen_auto_zeroed",
+    });
+    expect(resolveLifecycleScoreDecision({
+      ...passed,
+      periodClosedAt: new Date("2026-08-16T00:00:00.000Z"),
+    }, true)).toEqual({
+      action: "release",
+      reason: "metopen_period_closed",
+    });
+  });
+});
 
 describe("metopen.service — syncBookingActivationForStudent", () => {
   beforeEach(() => {
@@ -116,7 +155,7 @@ describe("metopen.service — syncBookingActivationForStudent", () => {
     );
   });
 
-  it("releases booking when TA-03 finalized but KRS TA is not true", async () => {
+  it("waits when TA-03 finalized as a pass but KRS TA is not true", async () => {
     prismaMock.studentAcademicYearSnapshot.findUnique.mockResolvedValue({
       takingThesisCourse: false,
       thesisCourseSource: "sia",
@@ -128,28 +167,9 @@ describe("metopen.service — syncBookingActivationForStudent", () => {
 
     const result = await syncBookingActivationForStudent("student-1", "ay-active");
 
-    expect(result).toMatchObject({ synced: true, promoted: 0, released: 1 });
-    expect(txMock.thesisAdvisorRequest.update).toHaveBeenCalledWith({
-      where: { id: "request-1" },
-      data: expect.objectContaining({
-        status: "released",
-        releasedAt: expect.any(Date),
-        releaseReason: "thesis_course_not_confirmed",
-        releasedAcademicYearId: "ay-active",
-      }),
-    });
-    expect(txMock.thesisSupervisors.updateMany).toHaveBeenCalledWith({
-      where: {
-        thesisId: "thesis-1",
-        status: "active",
-      },
-      data: { status: "released", activeRoleKey: null },
-    });
-    expect(quotaService.syncLecturerQuotaCurrentCount).toHaveBeenCalledWith(
-      "lecturer-1",
-      "ay-metopen",
-      { client: txMock },
-    );
+    expect(result).toMatchObject({ synced: false, promoted: 0, released: 0, skipped: 1 });
+    expect(txMock.thesisAdvisorRequest.update).not.toHaveBeenCalled();
+    expect(txMock.thesisSupervisors.updateMany).not.toHaveBeenCalled();
   });
 
   it("skips lifecycle decision before active academic year changes", async () => {
@@ -200,5 +220,89 @@ describe("metopen.service — syncBookingActivationForStudent", () => {
       reason: "thesis_course_snapshot_missing",
     });
     expect(txMock.thesisSupervisors.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("releases period-closed scores instead of promoting them", async () => {
+    prismaMock.thesisAdvisorRequest.findMany.mockResolvedValue([
+      bookingRequest({
+        thesis: {
+          ...bookingRequest().thesis,
+          researchMethodScores: [
+            {
+              id: "score-1",
+              isFinalized: true,
+              attendanceAutoZeroedAt: null,
+              periodClosedAt: new Date("2026-08-16T00:00:00.000Z"),
+            },
+          ],
+        },
+      }),
+    ]);
+
+    const result = await syncBookingActivationForStudent("student-1", "ay-active");
+
+    expect(result).toMatchObject({ synced: true, promoted: 0, released: 1 });
+    expect(txMock.thesisAdvisorRequest.update).toHaveBeenCalledWith({
+      where: { id: "request-1" },
+      data: expect.objectContaining({
+        status: "released",
+        releaseReason: "metopen_period_closed",
+      }),
+    });
+  });
+});
+
+describe("releaseWaitingKrsBookingByAdmin", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (callback) => callback(txMock));
+  });
+
+  it("releases a passed booking that is still waiting for KRS TA", async () => {
+    prismaMock.thesisAdvisorRequest.findUnique.mockResolvedValue(bookingRequest({
+      thesis: {
+        ...bookingRequest().thesis,
+        researchMethodScores: [
+          {
+            id: "score-1",
+            isFinalized: true,
+            attendanceAutoZeroedAt: null,
+            periodClosedAt: null,
+          },
+        ],
+      },
+    }));
+
+    const result = await releaseWaitingKrsBookingByAdmin("request-1", "admin-1");
+
+    expect(result.releaseReason).toBe("thesis_course_not_confirmed");
+    expect(txMock.thesisAdvisorRequest.update).toHaveBeenCalledWith({
+      where: { id: "request-1" },
+      data: expect.objectContaining({
+        status: "released",
+        releaseReason: "thesis_course_not_confirmed",
+      }),
+    });
+  });
+
+  it("rejects release when the score is not a passing wait-KRS case", async () => {
+    prismaMock.thesisAdvisorRequest.findUnique.mockResolvedValue(bookingRequest({
+      thesis: {
+        ...bookingRequest().thesis,
+        researchMethodScores: [
+          {
+            id: "score-1",
+            isFinalized: true,
+            attendanceAutoZeroedAt: new Date("2026-07-01T00:00:00.000Z"),
+            periodClosedAt: null,
+          },
+        ],
+      },
+    }));
+
+    await expect(releaseWaitingKrsBookingByAdmin("request-1", "admin-1")).rejects.toThrow(
+      /menunggu konfirmasi KRS TA/,
+    );
+    expect(txMock.thesisAdvisorRequest.update).not.toHaveBeenCalled();
   });
 });

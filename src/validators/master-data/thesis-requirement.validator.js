@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "../common.validator.js";
 
 export const createRequirementSchema = z.object({
-  academicYearId: z.string().uuid("ID Tahun Ajaran tidak valid"),
+  academicYearId: academicYearIdSchema,
   code: z.string().optional(),
   name: z.string().min(1, "Nama persyaratan tidak boleh kosong"),
   description: z.string().optional(),
@@ -17,6 +18,6 @@ export const reorderRequirementsSchema = z.object({
 });
 
 export const copyTemplateSchema = z.object({
-  sourceAcademicYearId: z.string().uuid("ID Tahun Ajaran Sumber tidak valid"),
-  targetAcademicYearId: z.string().uuid("ID Tahun Ajaran Tujuan tidak valid"),
+  sourceAcademicYearId: academicYearIdSchema,
+  targetAcademicYearId: academicYearIdSchema,
 });

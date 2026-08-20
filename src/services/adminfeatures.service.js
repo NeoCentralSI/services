@@ -22,6 +22,7 @@ import {
 	isSupervisorRole,
 	normalize,
 } from "../constants/roles.js";
+import { USER_CREDENTIAL_OMIT } from "../constants/userFields.js";
 import {
 	getActiveAcademicYear,
 	resolveOperationalAcademicYear,
@@ -32,6 +33,14 @@ import {
 	ConflictError,
 	NotFoundError,
 } from "../utils/errors.js";
+import {
+	logAudit,
+	listAdminAuditLogs,
+	AUDIT_ACTIONS,
+	ENTITY_TYPES,
+} from "./auditLog.service.js";
+
+export { listAdminAuditLogs };
 
 import {
 	getOrCreateRole,
@@ -71,7 +80,15 @@ function normalizeGpa(value) {
 	return Math.round(parsed * 100) / 100;
 }
 
-export async function adminUpdateUser(id, payload = {}) {
+function roleAuditSignature(roles = []) {
+	return roles
+		.map((role) => `${normalize(role?.name || role || "")}:${role?.status || "active"}`)
+		.filter((item) => item.startsWith(":") === false && item !== ":active")
+		.sort()
+		.join("|");
+}
+
+export async function adminUpdateUser(id, payload = {}, actor = {}) {
 	if (!id) {
 		const err = new Error("User id is required");
 		err.statusCode = 400;
@@ -182,6 +199,26 @@ export async function adminUpdateUser(id, payload = {}) {
 		if (rolesToRemove.length > 0) {
 			await deleteUserRolesByIds(id, rolesToRemove);
 		}
+
+		const updatedRoles = await getUserRolesWithIds(id);
+		const oldSignature = roleAuditSignature(existing.map((ur) => ({ name: ur.role?.name, status: ur.status })));
+		const newSignature = roleAuditSignature(updatedRoles.map((ur) => ({ name: ur.role?.name, status: ur.status })));
+		if (oldSignature !== newSignature) {
+			await logAudit({
+				actorUserId: actor.actorUserId ?? null,
+				action: AUDIT_ACTIONS.USER_ROLES_UPDATED,
+				entityType: ENTITY_TYPES.USER,
+				entityId: id,
+				oldValues: {
+					roles: existing.map((ur) => ({ name: ur.role?.name ?? null, status: ur.status ?? null })),
+				},
+				newValues: {
+					roles: updatedRoles.map((ur) => ({ name: ur.role?.name ?? null, status: ur.status ?? null })),
+				},
+				ipAddress: actor.ipAddress ?? null,
+				userAgent: actor.userAgent ?? null,
+			});
+		}
 	}
 
 	// Ensure Student/Lecturer records when relevant
@@ -210,6 +247,7 @@ export async function adminUpdateUser(id, payload = {}) {
 	// Return user with roles for client convenience
 	const result = await prisma.user.findUnique({
 		where: { id },
+		omit: USER_CREDENTIAL_OMIT,
 		include: {
 			userHasRoles: { include: { role: true } },
 			student: true,
@@ -220,7 +258,7 @@ export async function adminUpdateUser(id, payload = {}) {
 }
 
 // Admin - Create user and assign roles, plus invite email
-export async function adminCreateUser({ fullName, email, roles = [], identityNumber, identityType, gender }) {
+export async function adminCreateUser({ fullName, email, roles = [], identityNumber, identityType, gender }, actor = {}) {
 	// Validate
 	if (!email) {
 		const err = new Error("Email is required");
@@ -314,6 +352,16 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 	} catch (e) {
 		console.error("âœ‰ï¸ Failed to send verification email:", e?.message || e);
 	}
+
+	await logAudit({
+		actorUserId: actor.actorUserId ?? null,
+		action: AUDIT_ACTIONS.USER_CREATED,
+		entityType: ENTITY_TYPES.USER,
+		entityId: user.id,
+		newValues: { email: user.email, roles: uniqueRoles },
+		ipAddress: actor.ipAddress ?? null,
+		userAgent: actor.userAgent ?? null,
+	});
 
 	return { id: user.id, email: user.email, roles: uniqueRoles };
 }
@@ -564,10 +612,10 @@ async function assertAcademicYearDoesNotOverlap(client, { id = null, startDate, 
 }
 
 // Create Academic Year (Admin)
-export async function createAcademicYear(payload) {
+export async function createAcademicYear(payload, actor = {}) {
 	const data = normalizeAcademicYearPayload(payload);
 
-	return prisma.$transaction(async (tx) => {
+	const created = await prisma.$transaction(async (tx) => {
 		await assertAcademicYearDoesNotOverlap(tx, data);
 		const duplicate = await tx.academicYear.findUnique({
 			where: {
@@ -582,22 +630,39 @@ export async function createAcademicYear(payload) {
 			throw new ConflictError("Tahun akademik untuk semester tersebut sudah ada");
 		}
 
-		const created = await tx.academicYear.create({ data });
+		const row = await tx.academicYear.create({ data });
 		await tx.metopenScoreComposition.create({
 			data: {
-				academicYearId: created.id,
+				academicYearId: row.id,
 				ta03aCap: 75,
 				ta03bCap: 25,
 			},
 		});
-		return created;
+		return row;
 	}, { isolationLevel: "Serializable" });
+
+	await logAudit({
+		actorUserId: actor.actorUserId ?? null,
+		action: AUDIT_ACTIONS.ACADEMIC_YEAR_CREATED,
+		entityType: ENTITY_TYPES.ACADEMIC_YEAR,
+		entityId: created.id,
+		newValues: {
+			year: created.year,
+			semester: created.semester,
+			startDate: created.startDate,
+			endDate: created.endDate,
+		},
+		ipAddress: actor.ipAddress ?? null,
+		userAgent: actor.userAgent ?? null,
+	});
+
+	return created;
 }
 
-export async function updateAcademicYear(id, patch = {}) {
+export async function updateAcademicYear(id, patch = {}, actor = {}) {
 	if (!id) throw new BadRequestError("Academic year id wajib diisi");
 
-	return prisma.$transaction(async (tx) => {
+	const updated = await prisma.$transaction(async (tx) => {
 		const existing = await tx.academicYear.findUnique({ where: { id } });
 		if (!existing) throw new NotFoundError("Tahun akademik tidak ditemukan");
 
@@ -621,11 +686,37 @@ export async function updateAcademicYear(id, patch = {}) {
 			throw new ConflictError("Tahun akademik untuk semester tersebut sudah ada");
 		}
 
-		return tx.academicYear.update({
+		const row = await tx.academicYear.update({
 			where: { id },
 			data: merged,
 		});
+		return { existing, row };
 	}, { isolationLevel: "Serializable" });
+
+	await logAudit({
+		actorUserId: actor.actorUserId ?? null,
+		action: AUDIT_ACTIONS.ACADEMIC_YEAR_UPDATED,
+		entityType: ENTITY_TYPES.ACADEMIC_YEAR,
+		entityId: id,
+		oldValues: {
+			year: updated.existing.year,
+			semester: updated.existing.semester,
+			startDate: updated.existing.startDate,
+			endDate: updated.existing.endDate,
+			isActive: updated.existing.isActive,
+		},
+		newValues: {
+			year: updated.row.year,
+			semester: updated.row.semester,
+			startDate: updated.row.startDate,
+			endDate: updated.row.endDate,
+			isActive: updated.row.isActive,
+		},
+		ipAddress: actor.ipAddress ?? null,
+		userAgent: actor.userAgent ?? null,
+	});
+
+	return updated.row;
 }
 
 // Re-export getActiveAcademicYear from helper for API controller
@@ -938,12 +1029,12 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 		prisma.user.findMany({
 			where,
 			skip,
-			take,
 			orderBy: [
 				{ identityType: "desc" },
 				{ identityNumber: "desc" },
 				{ createdAt: "desc" },
 			],
+			omit: USER_CREDENTIAL_OMIT,
 			include: {
 				userHasRoles: {
 					include: {
@@ -1018,6 +1109,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 			skip,
 			take,
 			orderBy,
+			omit: USER_CREDENTIAL_OMIT,
 			include: {
 				student: {
 					include: {
@@ -1314,6 +1406,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "", scien
 			skip,
 			take,
 			orderBy: { createdAt: "desc" },
+			omit: USER_CREDENTIAL_OMIT,
 			include: {
 				lecturer: {
 					include: {
@@ -1389,6 +1482,7 @@ export async function getStudentDetail(userId) {
 
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
+		omit: USER_CREDENTIAL_OMIT,
 		include: {
 			student: {
 				include: {
@@ -1589,6 +1683,7 @@ export async function getLecturerDetail(userId) {
 
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
+		omit: USER_CREDENTIAL_OMIT,
 		include: {
 			lecturer: {
 				include: {
@@ -1759,12 +1854,12 @@ export async function adminUpdateStudent(id, data) {
 }
 
 const thesisInclude = {
-	student: { include: { user: true } },
+	student: { include: { user: { omit: USER_CREDENTIAL_OMIT } } },
 	thesisStatus: true,
 	academicYear: true,
 	thesisSupervisors: {
 		include: {
-			lecturer: { include: { user: true } },
+			lecturer: { include: { user: { omit: USER_CREDENTIAL_OMIT } } },
 			role: true,
 		},
 	},
@@ -1905,14 +2000,14 @@ export async function getAvailableStudents() {
 		where: {
 			thesis: { none: { rating: "ONGOING" } },
 		},
-		include: { user: true },
+		include: { user: { omit: USER_CREDENTIAL_OMIT } },
 		orderBy: { user: { fullName: "asc" } },
 	});
 }
 
 export async function getAllLecturersForDropdown() {
 	return prisma.lecturer.findMany({
-		include: { user: true, scienceGroup: true },
+		include: { user: { omit: USER_CREDENTIAL_OMIT }, scienceGroup: true },
 		orderBy: { user: { fullName: "asc" } },
 	});
 }

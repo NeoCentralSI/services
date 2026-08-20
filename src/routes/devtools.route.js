@@ -23,6 +23,8 @@ import {
   setStudentThesisCourseEnrollment,
 } from "../services/metopenEligibility.service.js";
 import { syncLecturerQuotaCurrentCount } from "../services/advisorQuota.service.js";
+import { closeUnfinishedMetopenForYear, assertDevtoolsMetopenPeriodCloseAllowed } from "../services/metopenPeriodClose.service.js";
+import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 
 const router = express.Router();
 
@@ -763,6 +765,10 @@ router.get("/thesis/:studentId", async (req, res, next) => {
         rating: true,
         createdAt: true,
         updatedAt: true,
+        academicYearId: true,
+        academicYear: {
+          select: { id: true, year: true, semester: true, isActive: true },
+        },
         thesisStatus: { select: { name: true } },
         thesisSupervisors: {
           select: {
@@ -780,6 +786,8 @@ router.get("/thesis/:studentId", async (req, res, next) => {
       status: t.thesisStatus?.name ?? t.rating,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
+      academicYearId: t.academicYearId,
+      academicYearLabel: t.academicYear ? formatAcademicYearLabel(t.academicYear) : null,
       supervisors: t.thesisSupervisors.map((s) => ({
         role: s.role,
         lecturer: s.lecturer,
@@ -1060,6 +1068,112 @@ router.get("/users", async (req, res, next) => {
     }));
 
     res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /devtools/academic-years — list years for period-close scenario
+router.get("/academic-years", async (_req, res, next) => {
+  try {
+    const years = await prisma.academicYear.findMany({
+      orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        year: true,
+        semester: true,
+        isActive: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+    res.json({
+      success: true,
+      data: years.map((year) => ({
+        ...year,
+        label: formatAcademicYearLabel(year),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /devtools/thesis/:id/academic-year — bind a thesis to a year for scenario tests
+router.patch("/thesis/:id/academic-year", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const academicYearId = typeof req.body?.academicYearId === "string"
+      ? req.body.academicYearId.trim()
+      : "";
+    if (!academicYearId) throw new BadRequestError("academicYearId wajib diisi.");
+
+    const [thesis, year] = await Promise.all([
+      prisma.thesis.findUnique({ where: { id }, select: { id: true, title: true } }),
+      prisma.academicYear.findUnique({ where: { id: academicYearId } }),
+    ]);
+    if (!thesis) throw new NotFoundError("Thesis tidak ditemukan");
+    if (!year) throw new NotFoundError("Tahun ajaran tidak ditemukan");
+
+    const updated = await prisma.thesis.update({
+      where: { id },
+      data: { academicYearId },
+      select: {
+        id: true,
+        title: true,
+        academicYearId: true,
+        academicYear: {
+          select: { id: true, year: true, semester: true, isActive: true },
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        ...updated,
+        academicYearLabel: formatAcademicYearLabel(updated.academicYear),
+      },
+      message: `Thesis diikat ke ${formatAcademicYearLabel(year)} untuk merakit skenario. Ini bukan perbaikan data operasional.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /devtools/scenarios/close-metopen-period — same production closer as year-sync
+router.post("/scenarios/close-metopen-period", async (req, res, next) => {
+  try {
+    const closedAcademicYearId = typeof req.body?.closedAcademicYearId === "string"
+      ? req.body.closedAcademicYearId.trim()
+      : "";
+    const dryRun = req.body?.dryRun !== false && req.body?.dryRun !== "false";
+    const force = req.body?.force === true || req.body?.force === "true";
+    if (!closedAcademicYearId) {
+      throw new BadRequestError("closedAcademicYearId wajib diisi.");
+    }
+
+    const year = await prisma.academicYear.findUnique({
+      where: { id: closedAcademicYearId },
+      select: { id: true, isActive: true },
+    });
+    if (!year) throw new NotFoundError("Tahun ajaran tidak ditemukan.");
+    assertDevtoolsMetopenPeriodCloseAllowed({
+      isActive: year.isActive,
+      dryRun: Boolean(dryRun),
+      force,
+    });
+
+    const data = await closeUnfinishedMetopenForYear(closedAcademicYearId, {
+      dryRun: Boolean(dryRun),
+    });
+    res.json({
+      success: true,
+      data,
+      message: data.dryRun
+        ? `Dry-run tutup periode ${data.yearLabel} selesai.`
+        : `Periode ${data.yearLabel} ditutup.`,
+    });
   } catch (err) {
     next(err);
   }

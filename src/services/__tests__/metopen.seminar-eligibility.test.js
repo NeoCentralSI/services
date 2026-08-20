@@ -8,8 +8,10 @@ vi.mock("../../config/prisma.js", () => ({
   default: {
     student: { findUnique: vi.fn() },
     academicYear: { findMany: vi.fn() },
+    studentAcademicYearSnapshot: { findUnique: vi.fn() },
     researchMethodScore: { findFirst: vi.fn() },
-    thesis: { findUnique: vi.fn(), update: vi.fn() },
+    thesis: { findUnique: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
+    thesisAdvisorRequest: { findFirst: vi.fn() },
     thesisSupervisors: { count: vi.fn(), findMany: vi.fn() },
     thesisMilestone: { findMany: vi.fn() },
   },
@@ -31,6 +33,10 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       takingThesisCourse: true,
     });
     prisma.academicYear.findMany.mockResolvedValue([]);
+    prisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue(null);
+    prisma.researchMethodScore.findFirst.mockResolvedValue(null);
+    prisma.thesis.findFirst.mockResolvedValue(null);
+    prisma.thesisAdvisorRequest.findFirst.mockResolvedValue(null);
   });
 
   function setupThesis(overrides = {}) {
@@ -171,16 +177,17 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     expect(result.reason).toContain("penilaian Metopel");
   });
 
-  it("keeps Metopen active until title approval is actually accepted", async () => {
+  it("keeps Metopen operational after proposal accepted until KRS TA archive applies", async () => {
     prisma.student.findUnique.mockResolvedValue({
       id: "student-1",
       eligibleMetopen: true,
       metopenEligibilitySource: "sia",
       metopenEligibilityUpdatedAt: "2026-04-23T10:00:00.000Z",
+      takingThesisCourse: false,
       thesis: [
         {
           id: "thesis-1",
-          proposalStatus: "submitted",
+          proposalStatus: "accepted",
           thesisStatus: { name: "Bimbingan" },
         },
       ],
@@ -194,12 +201,13 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     expect(result.source).toBe("sia");
   });
 
-  it("marks Metopen as archive only after TA-04 approval has been accepted", async () => {
+  it("marks Metopen as archive only after official promotion to active TA", async () => {
     prisma.student.findUnique.mockResolvedValue({
       id: "student-1",
       eligibleMetopen: true,
       metopenEligibilitySource: "sia",
       metopenEligibilityUpdatedAt: "2026-04-23T10:00:00.000Z",
+      takingThesisCourse: true,
       thesis: [
         {
           id: "thesis-1",
@@ -208,12 +216,63 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
         },
       ],
     });
+    prisma.academicYear.findMany.mockResolvedValue([
+      {
+        id: "ay-active",
+        startDate: new Date("2020-01-01T00:00:00.000Z"),
+        endDate: new Date("2030-01-01T00:00:00.000Z"),
+      },
+    ]);
+    prisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue({
+      takingThesisCourse: true,
+    });
+    prisma.researchMethodScore.findFirst.mockResolvedValue({ id: "score-1" });
+    prisma.thesisAdvisorRequest.findFirst.mockResolvedValue({ id: "req-official" });
+    prisma.thesis.findFirst.mockResolvedValue({ id: "thesis-1" });
 
     const result = await checkEligibility("user-1");
 
     expect(result.canAccess).toBe(true);
     expect(result.canSubmit).toBe(false);
     expect(result.readOnly).toBe(true);
+    expect(result.isMetopenArchive).toBe(true);
+  });
+
+  it("does not archive a failed or released Metopel cycle just because SIA KRS TA is true", async () => {
+    prisma.student.findUnique.mockResolvedValue({
+      id: "student-1",
+      eligibleMetopen: true,
+      metopenEligibilitySource: "sia",
+      metopenEligibilityUpdatedAt: "2026-04-23T10:00:00.000Z",
+      takingThesisCourse: true,
+      thesis: [
+        {
+          id: "thesis-1",
+          proposalStatus: null,
+          thesisStatus: { name: "Diajukan" },
+        },
+      ],
+    });
+    prisma.academicYear.findMany.mockResolvedValue([
+      {
+        id: "ay-active",
+        startDate: new Date("2020-01-01T00:00:00.000Z"),
+        endDate: new Date("2030-01-01T00:00:00.000Z"),
+      },
+    ]);
+    prisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue({
+      takingThesisCourse: true,
+    });
+    prisma.researchMethodScore.findFirst.mockResolvedValue({ id: "score-1" });
+    prisma.thesisAdvisorRequest.findFirst.mockResolvedValue(null);
+    prisma.thesis.findFirst.mockResolvedValue(null);
+
+    const result = await checkEligibility("user-1");
+
+    expect(result.hasTakenMetopen).toBe(true);
+    expect(result.readOnly).toBe(false);
+    expect(result.isMetopenArchive).toBe(false);
+    expect(result.canSubmit).toBe(true);
   });
 
   it("does not let stale legacy milestones block KaDep queue submission when TA-03 scores already exist", async () => {

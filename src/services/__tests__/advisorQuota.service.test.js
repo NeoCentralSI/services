@@ -47,6 +47,11 @@ function createRequest({
   thesisId,
   status,
   academicYearId = "ay-1",
+  // Once a request has a thesis, the thesis period decides which quota period
+  // the slot belongs to (SIMPTA-FUN-006). The repository always selects both
+  // thesis period columns, so fixtures must carry them too.
+  thesisAcademicYearId = "ay-1",
+  thesisActiveAcademicYearId = null,
   proposalStatus = null,
   thesisStatusName = "Metopel",
   thesisTitle,
@@ -92,6 +97,8 @@ function createRequest({
           id: thesisId,
           title: thesisTitle ?? `Thesis ${thesisId}`,
           proposalStatus,
+          academicYearId: thesisAcademicYearId,
+          activeAcademicYearId: thesisActiveAcademicYearId,
           thesisStatus: { name: thesisStatusName },
           studentId,
         }
@@ -222,6 +229,8 @@ describe("advisorQuota.service", () => {
           proposalStatus: "accepted",
         }),
       ),
+      // Request filed in an earlier period, thesis already charged to the
+      // operational one — the slot follows the thesis, so it still counts here.
       createRequest({
         id: "req-booking-old",
         studentId: "student-old",
@@ -243,6 +252,24 @@ describe("advisorQuota.service", () => {
     expect(snapshot.currentCount).toBe(11);
     expect(snapshot.normalAvailable).toBe(0);
     expect(snapshot.overquotaAmount).toBe(1);
+  });
+
+  it("charges the slot to the thesis period, not the request period", async () => {
+    repo.findTrackedAdvisorRequests.mockResolvedValue([
+      createRequest({
+        id: "req-thesis-moved",
+        studentId: "student-moved",
+        thesisId: "thesis-moved",
+        status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
+        academicYearId: "ay-1",
+        thesisAcademicYearId: "ay-next",
+      }),
+    ]);
+
+    const snapshot = await getLecturerQuotaSnapshot("lecturer-1", "ay-1");
+
+    expect(snapshot.bookingCount).toBe(0);
+    expect(snapshot.currentCount).toBe(0);
   });
 
   it("deduplicates supervisor fallback rows and syncs currentCount from actual active+booking load", async () => {
@@ -351,6 +378,47 @@ describe("advisorQuota.service", () => {
         requestId: "req-redirected-1",
         lecturerId: "lecturer-2",
         requestStatus: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
+      }),
+    );
+  });
+
+  it("exposes proposal status, version, and period marker on supervised student entries", async () => {
+    repo.findTrackedAdvisorRequests.mockResolvedValue([
+      {
+        ...createRequest({
+          id: "req-proposal-1",
+          studentId: "student-proposal",
+          thesisId: "thesis-proposal",
+          status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
+          proposalStatus: "submitted",
+        }),
+        academicYear: { id: "ay-1", year: "2026/2027", semester: "ganjil", isActive: true },
+        thesis: {
+          id: "thesis-proposal",
+          title: "Judul Proposal",
+          proposalStatus: "submitted",
+          academicYearId: "ay-1",
+          finalProposalVersionId: "ver-2",
+          thesisStatus: { name: "Metopel" },
+          studentId: "student-proposal",
+          academicYear: { id: "ay-1", year: "2026/2027", semester: "ganjil", isActive: true },
+          finalProposalVersion: { version: 2, submittedAsFinalAt: new Date("2026-08-01T00:00:00Z") },
+          proposalVersions: [{ version: 2, isLatest: true, submittedAsFinalAt: new Date("2026-08-01T00:00:00Z") }],
+        },
+      },
+    ]);
+
+    const snapshot = await getLecturerQuotaSnapshot("lecturer-1", "ay-1", { includeEntries: true });
+
+    expect(snapshot.bookingEntries[0]).toEqual(
+      expect.objectContaining({
+        requestId: "req-proposal-1",
+        proposalStatus: "submitted",
+        proposalVersion: 2,
+        hasFinalProposal: true,
+        academicYearId: "ay-1",
+        academicYearLabel: "2026/2027 ganjil",
+        isCurrentPeriod: true,
       }),
     );
   });
