@@ -55,6 +55,9 @@ model User {
 
   internshipSupLetterSigned InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
 
+  replacementRequestsMade     SupervisorReplacementRequest[] @relation("ReplacementRequestedBy")
+  replacementRequestsApproved SupervisorReplacementRequest[] @relation("ReplacementApprovedBy")
+
   @@map("users")
 }
 
@@ -178,6 +181,9 @@ model Lecturer {
   advisorRequestDrafts               ThesisAdvisorRequestDraft[]
 
   internshipSupervisorLetters InternshipSupervisorLetter[]
+
+  replacementRequestsAsOld      SupervisorReplacementRequest[] @relation("ReplacementOldSupervisor")
+  replacementRequestsAsNew      SupervisorReplacementRequest[] @relation("ReplacementNewSupervisor")
 
   @@index([scienceGroupId], map: "lecturers_science_group_id_fkey")
   @@map("lecturers")
@@ -1954,7 +1960,12 @@ model InternshipSupervisorLetter {
   signedBy     User?     @relation("InternshipSupLetterSigner", fields: [signedById], references: [id])
   signedAsRole UserRole? @relation("InternshipSupLetterRole", fields: [signedAsRoleId], references: [id])
 
-  internships Internship[]
+  status           SupervisorLetterStatus @default(ACTIVE)
+  supersededAt     DateTime?              @map("superseded_at")
+  supersededReason String?                @map("superseded_reason") @db.Text
+
+  internships         Internship[]
+  replacementRequests SupervisorReplacementRequest[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1971,6 +1982,8 @@ model Internship {
   supervisorId         String?                @map("supervisor_id")
   fieldSupervisorName  String?                @map("field_supervisor_name")
   fieldSupervisorEmail String?                @map("field_supervisor_email")
+  fieldSupervisorPhone String?                @map("field_supervisor_phone")
+  fieldSupervisorNip   String?                @map("field_supervisor_nip")
   unitSection          String?                @map("unit_section")
   actualStartDate      DateTime?              @map("actual_start_date") @db.Date
   actualEndDate        DateTime?              @map("actual_end_date") @db.Date
@@ -2000,10 +2013,12 @@ model Internship {
   logbooks               InternshipLogbook[]
   guidanceSessions       InternshipGuidanceSession[]
   seminars               InternshipSeminar[]
+  replacementRequests    SupervisorReplacementRequest[]
 
   // Assessment fields (merged from InternshipAssessment)
   lecturerAssessmentStatus    InternshipAssessmentStatus? @map("lecturer_assessment_status")
   fieldAssessmentStatus       InternshipAssessmentStatus? @map("field_assessment_status")
+  fieldAssessmentNotes        String?                     @map("field_assessment_notes") @db.Text
   fieldAssessmentDocId        String?                     @map("field_assessment_doc_id")
   completionCertificateDocId  String?                     @map("completion_certificate_doc_id")
   completionCertificateStatus InternshipReportStatus?     @map("completion_certificate_status")
@@ -2181,6 +2196,7 @@ model InternshipSeminar {
   seminarDate           DateTime                    @map("seminar_date") @db.Date
   startTime             DateTime                    @map("start_time") @db.Time(0)
   endTime               DateTime                    @map("end_time") @db.Time(0)
+  linkMeeting           String?                     @map("link_meeting")
   moderatorStudentId    String                      @map("moderator_student_id")
   status                InternshipSeminarStatus     @default(REQUESTED)
   approvedBy            String?                     @map("approved_by")
@@ -2239,15 +2255,18 @@ model InternshipCpmk {
 model InternshipAssessmentRubric {
   id                     String                    @id @default(uuid())
   cpmkId                 String                    @map("cpmk_id")
+  levelName              String                    @map("level_name")
   rubricLevelDescription String                    @map("rubric_level_description") @db.Text
   minScore               Float                     @map("min_score")
   maxScore               Float                     @map("max_score")
   createdAt              DateTime                  @default(now()) @map("created_at")
   updatedAt              DateTime                  @default(now()) @updatedAt @map("updated_at")
   cpmk                   InternshipCpmk            @relation(fields: [cpmkId], references: [id], onDelete: Cascade)
-  lecturerScores         InternshipLecturerScore[]
-  fieldScores            InternshipFieldScore[]
+  internshipLecturerScores InternshipLecturerScore[]
+  internshipFieldScores    InternshipFieldScore[]
 
+  @@unique([cpmkId, minScore])
+  @@unique([cpmkId, maxScore])
   @@index([cpmkId], map: "internship_assessment_rubrics_cpmk_id_fkey")
   @@map("internship_assessment_rubrics")
 }
@@ -2924,6 +2943,7 @@ enum InternshipSeminarStatus {
   APPROVED
   REJECTED
   COMPLETED
+  FAILED
 }
 
 enum InternshipSeminarAudienceStatus {
@@ -2947,6 +2967,46 @@ enum InternshipReportStatus {
   SUBMITTED
   APPROVED
   REVISION_NEEDED
+}
+
+enum SupervisorLetterStatus {
+  ACTIVE
+  SUPERSEDED
+}
+
+enum ReplacementRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model SupervisorReplacementRequest {
+  id              String                   @id @default(uuid())
+  letterId        String                   @map("letter_id")
+  internshipId    String                   @map("internship_id")
+  oldSupervisorId String                   @map("old_supervisor_id")
+  newSupervisorId String                   @map("new_supervisor_id")
+  reason          String                   @db.Text
+  status          ReplacementRequestStatus @default(PENDING)
+  requestedById   String                   @map("requested_by_id")
+  approvedById    String?                  @map("approved_by_id")
+  requestedAt     DateTime                 @default(now()) @map("requested_at")
+  resolvedAt      DateTime?                @map("resolved_at")
+  rejectionNotes  String?                  @map("rejection_notes") @db.Text
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  letter        InternshipSupervisorLetter @relation(fields: [letterId], references: [id])
+  internship    Internship                 @relation(fields: [internshipId], references: [id])
+  oldSupervisor Lecturer                   @relation("ReplacementOldSupervisor", fields: [oldSupervisorId], references: [id])
+  newSupervisor Lecturer                   @relation("ReplacementNewSupervisor", fields: [newSupervisorId], references: [id])
+  requestedBy   User                       @relation("ReplacementRequestedBy", fields: [requestedById], references: [id])
+  approvedBy    User?                      @relation("ReplacementApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([letterId])
+  @@index([internshipId])
+  @@index([status])
+  @@map("supervisor_replacement_requests")
 }
 
 model InternshipHoliday {
