@@ -32,6 +32,24 @@ export async function getAssessmentForLecturer(lecturerId, internshipId) {
 }
 
 /**
+ * Map a numeric score to a letter grade.
+ * Pure function — no database dependency.
+ * @param {number} finalNumericScore
+ * @returns {string} Grade letter (A, A-, B+, B, B-, C+, C, D, E)
+ */
+export function mapScoreToGrade(finalNumericScore) {
+    if (finalNumericScore >= 80) return "A";
+    if (finalNumericScore >= 75) return "A-";
+    if (finalNumericScore >= 70) return "B+";
+    if (finalNumericScore >= 65) return "B";
+    if (finalNumericScore >= 60) return "B-";
+    if (finalNumericScore >= 55) return "C+";
+    if (finalNumericScore >= 50) return "C";
+    if (finalNumericScore >= 45) return "D";
+    return "E";
+}
+
+/**
  * Calculate final numeric score and grade based on all scores (Lecturer + Field).
  */
 export async function calculateFinalResults(internshipId) {
@@ -64,15 +82,7 @@ export async function calculateFinalResults(internshipId) {
 
     
     // Grade Mapping (Standard)
-    let finalGrade = "E";
-    if (finalNumericScore >= 80) finalGrade = "A";
-    else if (finalNumericScore >= 75) finalGrade = "A-";
-    else if (finalNumericScore >= 70) finalGrade = "B+";
-    else if (finalNumericScore >= 65) finalGrade = "B";
-    else if (finalNumericScore >= 60) finalGrade = "B-";
-    else if (finalNumericScore >= 55) finalGrade = "C+";
-    else if (finalNumericScore >= 50) finalGrade = "C";
-    else if (finalNumericScore >= 45) finalGrade = "D";
+    const finalGrade = mapScoreToGrade(finalNumericScore);
 
     return {
         finalNumericScore: parseFloat(finalNumericScore.toFixed(2)),
