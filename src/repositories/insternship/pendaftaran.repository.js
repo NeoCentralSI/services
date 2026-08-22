@@ -91,14 +91,14 @@ export async function getAllCompanies() {
 }
 
 /**
- * Get all eligible students for internship (sksCompleted >= 90).
+ * Get all eligible students for internship (skscompleted >= 90).
  * After consolidation, checks internship records instead of proposal memberships.
  * @returns {Promise<Array>}
  */
 export async function getEligibleStudents() {
     return prisma.student.findMany({
         where: {
-            sksCompleted: { gte: 90 },
+            skscompleted: { gte: 90 },
             // Filter out students who already have an active/non-repeatable internship state.
             // FAILED and rejected states are intentionally not blocked so students can register again.
             internships: {

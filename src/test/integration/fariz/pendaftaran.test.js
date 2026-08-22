@@ -105,7 +105,7 @@ describe("Internship Pendaftaran Integration Test", () => {
 
   it("should successfully approve the proposal as Sekdep", async () => {
     const payload = {
-      response: "APPROVED_PROPOSAL",
+      response: "APPROVED_BY_SEKDEP",
       notes: "Proposal disetujui."
     };
 
@@ -117,7 +117,7 @@ describe("Internship Pendaftaran Integration Test", () => {
     expect(response.status).toBe(200);
 
     const updated = await prisma.internshipProposal.findUnique({ where: { id: testProposal.id } });
-    expect(updated.status).toBe("APPROVED_PROPOSAL");
+    expect(updated.status).toBe("APPROVED_BY_SEKDEP");
   });
 
   it("should generate proposal letter as Admin and approve/sign as Kadep", async () => {

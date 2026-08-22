@@ -198,7 +198,7 @@ export async function getEligibleStudents() {
         id: s.id,
         fullName: s.user.fullName,
         identityNumber: s.user.identityNumber,
-        sksCompleted: s.sksCompleted
+        skscompleted: s.skscompleted
     }));
 }
 

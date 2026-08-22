@@ -125,21 +125,21 @@ async function seedAcademicYears() {
   const academicYears = [
     {
       semester: "ganjil",
-      year: 2024,
+      year: "2024",
       startDate: new Date("2024-08-01"),
       endDate: new Date("2025-01-31"),
       isActive: false,
     },
     {
       semester: "genap",
-      year: 2024,
+      year: "2024",
       startDate: new Date("2025-02-01"),
       endDate: new Date("2025-07-31"),
       isActive: false,
     },
     {
       semester: "ganjil",
-      year: 2025,
+      year: "2025",
       startDate: new Date("2025-08-01"),
       endDate: new Date("2026-01-31"),
       isActive: true, // Current active academic year (Start August 2025)
@@ -433,7 +433,7 @@ async function seedUsers(roleMap) {
             id: user.id,
             status: "active",
             enrollmentYear: userData.enrollmentYear || 2022,
-            skscompleted: userData.sksCompleted,
+            sksCompleted: userData.sksCompleted,
           },
         });
         console.log(`    🎓 Created Student record (SKS: ${userData.sksCompleted})`);
@@ -553,7 +553,7 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
         data: {
           thesisId: thesis.id,
           lecturerId: pembimbing1User.id,
-          supervisorRole: 'pembimbing_1',
+          roleId: roleMap.get(ROLES.PEMBIMBING_1).id,
         },
       });
       console.log(`    📌 Pembimbing 1: ${pembimbing1User.fullName}`);
@@ -564,7 +564,7 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
           data: {
             thesisId: thesis.id,
             lecturerId: pembimbing2User.id,
-            supervisorRole: 'pembimbing_2',
+            roleId: roleMap.get(ROLES.PEMBIMBING_2).id,
           },
         });
         console.log(`    📌 Pembimbing 2: ${pembimbing2User.fullName}`);

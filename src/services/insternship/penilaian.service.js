@@ -80,8 +80,6 @@ export async function calculateFinalResults(internshipId) {
         finalNumericScore += (s.score * s.chosenRubric.cpmk.weight / 100);
     });
 
-    
-    // Grade Mapping (Standard)
     const finalGrade = mapScoreToGrade(finalNumericScore);
 
     return {
