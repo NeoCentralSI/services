@@ -23,6 +23,7 @@ model User {
   oauthId                    String?             @map("oauth_id")
   oauthRefreshToken          String?             @map("oauth_refresh_token") @db.Text
   avatarUrl                  String?
+  gender Boolean?
   createdAt                  DateTime            @default(now())
   updatedAt                  DateTime            @updatedAt
   documents                  Document[]          @relation("UploadedDocuments")
