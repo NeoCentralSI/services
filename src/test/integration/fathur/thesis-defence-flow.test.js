@@ -80,7 +80,7 @@ describe("Integration: Thesis Defence Flow (Registration to Finalization)", () =
       if (requirements.length === 0) {
         requirements = await Promise.all([1, 2].map((index) =>
           prisma.thesisDefenceRequirement.create({
-            data: { academicYearId: academicYear.id, code: "DEF-INT-" + ts + "-" + index, name: "Defence Requirement " + index, displayOrder: index },
+            data: { academicYearId: academicYear.id, name: "Defence Requirement " + index, displayOrder: index },
           })
         ));
         createdRequirementIds = requirements.map((requirement) => requirement.id);

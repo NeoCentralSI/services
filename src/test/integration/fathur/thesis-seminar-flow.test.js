@@ -37,7 +37,7 @@ describe("Integration: Thesis Seminar Flow (Registration to Scheduling)", () => 
         createdAcademicYear = true;
       }
       requirements = await prisma.thesisSeminarRequirement.findMany({
-        where: { academicYearId: academicYear.id, isActive: true },
+        where: { academicYearId: academicYear.id },
         orderBy: { displayOrder: "asc" },
       });
       if (requirements.length === 0) {

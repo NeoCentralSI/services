@@ -7,8 +7,7 @@ async function findEffectiveAcademicYear() {
     const now = new Date();
     const candidates = await prisma.academicYear.findMany({
         where: {
-            startDate: { not: null, lte: now },
-            endDate: { not: null },
+            startDate: { lte: now },
         },
         orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
     });
