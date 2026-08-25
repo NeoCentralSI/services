@@ -1,0 +1,52 @@
+[
+  {
+    "id": "39e5c8a1-76c2-43e3-9229-059b0bc3e08d",
+    "name": "Bussines Intelligent",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "lecturerId": null,
+    "description": "Topik Tugas Akhir: Bussines Intelligent",
+    "isPublished": true,
+    "createdAt": "2026-08-20T11:59:18.426Z",
+    "updatedAt": "2026-08-20T11:59:18.426Z"
+  },
+  {
+    "id": "8331404e-6505-4010-9b2e-99bc61671d2b",
+    "name": "Machine Learning",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "lecturerId": null,
+    "description": "Topik Tugas Akhir: Machine Learning",
+    "isPublished": true,
+    "createdAt": "2026-08-20T11:59:18.455Z",
+    "updatedAt": "2026-08-20T11:59:18.455Z"
+  },
+  {
+    "id": "a3851181-ae63-448b-b58b-6ab004b9b9fc",
+    "name": "Sistem Pendukung Keputusan",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "lecturerId": null,
+    "description": "Topik Tugas Akhir: Sistem Pendukung Keputusan",
+    "isPublished": true,
+    "createdAt": "2026-08-20T11:59:18.404Z",
+    "updatedAt": "2026-08-20T11:59:18.404Z"
+  },
+  {
+    "id": "a8433765-b2a1-4b8b-9e6e-df79efab4d1b",
+    "name": "Enterprise System",
+    "scienceGroupId": "0504c57b-cb2d-436c-baed-8f113a6efc7c",
+    "lecturerId": null,
+    "description": "Topik Tugas Akhir: Enterprise System",
+    "isPublished": true,
+    "createdAt": "2026-08-20T11:59:18.472Z",
+    "updatedAt": "2026-08-20T11:59:18.472Z"
+  },
+  {
+    "id": "fd6d7d84-7d6c-4ce0-8629-8d04ceec05f5",
+    "name": "Pengembangan Sistem",
+    "scienceGroupId": "9889d201-d6ff-44eb-b8f6-1de0a6ac866a",
+    "lecturerId": null,
+    "description": "Topik Tugas Akhir: Pengembangan Sistem",
+    "isPublished": true,
+    "createdAt": "2026-08-20T11:59:18.439Z",
+    "updatedAt": "2026-08-20T11:59:18.439Z"
+  }
+]

@@ -335,7 +335,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
     it("updates student status and SKS", async () => {
       mockPrisma.student.update.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 120 });
 
-      const result = await adminUpdateStudent("user-1", { status: "active", skscompleted: 120 });
+      const result = await adminUpdateStudent("user-1", { status: "active", sksCompleted: 120 });
 
       expect(result).toHaveProperty("status", "active");
       expect(mockPrisma.student.update).toHaveBeenCalledWith({

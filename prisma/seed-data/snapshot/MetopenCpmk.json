@@ -1,0 +1,66 @@
+[
+  {
+    "id": "0a6cd5a7-e448-495c-a896-0fff23dcfa94",
+    "academicYearId": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "code": "CPMK-2",
+    "description": "Kemampuan merancang metodologi penelitian dan kelayakan solusi (BAB 3)",
+    "createdAt": "2026-08-20T12:59:26.333Z",
+    "updatedAt": "2026-08-20T12:59:26.333Z"
+  },
+  {
+    "id": "301f9abe-47a5-4aab-9652-89dabf827cc7",
+    "academicYearId": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "code": "CPMK-3",
+    "description": "Kemampuan presentasi, argumentasi ilmiah, dan kedisiplinan naskah",
+    "createdAt": "2026-08-20T12:59:26.347Z",
+    "updatedAt": "2026-08-20T12:59:26.347Z"
+  },
+  {
+    "id": "39c4a678-85d6-4cf9-b760-778ec5a5182b",
+    "academicYearId": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "code": "CPMK-1",
+    "description": "Kemampuan mengidentifikasi dan merumuskan masalah penelitian (BAB 1 & BAB 2)",
+    "createdAt": "2026-08-20T12:59:26.305Z",
+    "updatedAt": "2026-08-20T12:59:26.305Z"
+  },
+  {
+    "id": "435c2806-14e3-423a-a5f7-177c045e5330",
+    "academicYearId": "8d8ecd52-5191-47b3-bd8c-6fdb2cb6b1fa",
+    "code": "CPMK-3",
+    "description": "Kemampuan presentasi, argumentasi ilmiah, dan kedisiplinan naskah",
+    "createdAt": "2026-08-20T12:59:37.730Z",
+    "updatedAt": "2026-08-20T12:59:37.730Z"
+  },
+  {
+    "id": "5a2b13b2-b6ac-4a88-bd5b-ee077a8a4d5a",
+    "academicYearId": "8d8ecd52-5191-47b3-bd8c-6fdb2cb6b1fa",
+    "code": "CPMK-2",
+    "description": "Kemampuan merancang metodologi penelitian dan kelayakan solusi (BAB 3)",
+    "createdAt": "2026-08-20T12:59:37.724Z",
+    "updatedAt": "2026-08-20T12:59:37.724Z"
+  },
+  {
+    "id": "7b57f94c-5025-4a5f-868e-9bc076fefe16",
+    "academicYearId": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "code": "CPMK-E2E-2",
+    "description": "Deskripsi CPMK 2",
+    "createdAt": "2026-08-20T12:54:03.869Z",
+    "updatedAt": "2026-08-20T12:54:03.869Z"
+  },
+  {
+    "id": "8d1ef832-c4e9-401e-9525-ed78544b1a27",
+    "academicYearId": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "code": "CPMK-E2E-1",
+    "description": "Deskripsi CPMK 1",
+    "createdAt": "2026-08-20T12:54:03.816Z",
+    "updatedAt": "2026-08-20T12:54:03.816Z"
+  },
+  {
+    "id": "92d37bd8-789d-4564-864c-e5369d5dca5a",
+    "academicYearId": "8d8ecd52-5191-47b3-bd8c-6fdb2cb6b1fa",
+    "code": "CPMK-1",
+    "description": "Kemampuan mengidentifikasi dan merumuskan masalah penelitian (BAB 1 & BAB 2)",
+    "createdAt": "2026-08-20T12:59:37.715Z",
+    "updatedAt": "2026-08-20T12:59:37.715Z"
+  }
+]

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import app from "../../../../app.js";
-import prisma from "../../../../config/prisma.js";
+import app from "../../../app.js";
+import prisma from "../../../config/prisma.js";
 import { createOngoingInternship, getUserByEmailOrThrow, makeAuthToken } from "./test-utils.js";
 
 describe("Internship Bimbingan Integration Test", () => {
@@ -39,7 +39,7 @@ describe("Internship Bimbingan Integration Test", () => {
 
   it("should create guidance questions and criteria as Sekdep", async () => {
     const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
-    
+
     // Create Question
     const questionPayload = {
       questionText: "What are your accomplishments this week?",

@@ -3,8 +3,8 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import path from "path";
-import app from "../../../../app.js";
-import prisma from "../../../../config/prisma.js";
+import app from "../../../app.js";
+import prisma from "../../../config/prisma.js";
 import { ENV } from "../../../config/env.js";
 import { createOngoingInternship } from "./test-utils.js";
 
@@ -22,7 +22,7 @@ describe("Internship Penunjukan Pembimbing Integration Test", () => {
     ];
 
     for (const role of roles) {
-      const user = await prisma.user.findFirst({ 
+      const user = await prisma.user.findFirst({
         where: { email: role.email },
         include: { student: true, lecturer: true }
       });

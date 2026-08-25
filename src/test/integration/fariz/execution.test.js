@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
-import app from "../../../../app.js";
-import prisma from "../../../../config/prisma.js";
-import { ENV } from "../../../../config/env.js";
+import app from "../../../app.js";
+import prisma from "../../../config/prisma.js";
+import { ENV } from "../../../config/env.js";
 
 describe("Internship Execution Integration Test", () => {
   let tokens = {};
@@ -15,7 +15,7 @@ describe("Internship Execution Integration Test", () => {
 
   beforeAll(async () => {
     console.log("🔍 [SETUP] Initializing test data...");
-    
+
     // 1. Get All Required Users
     const roles = [
       { key: 'student', email: "fariz_2211523034@fti.unand.ac.id" },
@@ -26,7 +26,7 @@ describe("Internship Execution Integration Test", () => {
     ];
 
     for (const role of roles) {
-      const user = await prisma.user.findFirst({ 
+      const user = await prisma.user.findFirst({
         where: { email: role.email },
         include: { lecturer: true, student: true }
       });
@@ -34,7 +34,7 @@ describe("Internship Execution Integration Test", () => {
       users[role.key] = user;
       tokens[role.key] = jwt.sign({ sub: user.id, email: user.email, roles: [role.key] }, ENV.JWT_SECRET);
     }
-    
+
     // CLEANUP/RESET PREVIOUS TEST DATA
     await prisma.internship.updateMany({
       where: { studentId: users.student.student.id },
@@ -51,7 +51,7 @@ describe("Internship Execution Integration Test", () => {
       where: { studentId: users.student.student.id },
       orderBy: { createdAt: 'desc' }
     });
-    
+
     if (!internship) throw new Error("No internship found. Run registration.test.js first.");
     testInternship = internship;
 

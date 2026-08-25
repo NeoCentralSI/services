@@ -3,9 +3,9 @@ import jwt from "jsonwebtoken";
 import path from "path";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import app from "../../../../app.js";
+import app from "../../../app.js";
 import { ENV } from "../../../config/env.js";
-import prisma from "../../../../config/prisma.js";
+import prisma from "../../../config/prisma.js";
 
 describe("Internship Pendaftaran Integration Test", () => {
   let tokens = {};
@@ -95,7 +95,7 @@ describe("Internship Pendaftaran Integration Test", () => {
       .send(payload);
 
     expect(response.status).toBe(201);
-    
+
     testProposal = await prisma.internshipProposal.findFirst({
       where: { coordinatorId: users.student.id },
       include: { targetCompany: true }
@@ -105,7 +105,7 @@ describe("Internship Pendaftaran Integration Test", () => {
 
   it("should successfully approve the proposal as Sekdep", async () => {
     const payload = {
-      response: "APPROVED_PROPOSAL",
+      response: "APPROVED_BY_SEKDEP",
       notes: "Proposal disetujui."
     };
 
@@ -115,9 +115,9 @@ describe("Internship Pendaftaran Integration Test", () => {
       .send(payload);
 
     expect(response.status).toBe(200);
-    
+
     const updated = await prisma.internshipProposal.findUnique({ where: { id: testProposal.id } });
-    expect(updated.status).toBe("APPROVED_PROPOSAL");
+    expect(updated.status).toBe("APPROVED_BY_SEKDEP");
   });
 
   it("should generate proposal letter as Admin and approve/sign as Kadep", async () => {

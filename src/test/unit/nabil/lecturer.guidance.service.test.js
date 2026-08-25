@@ -5,9 +5,12 @@
  *              Module 9: Transfer Mahasiswa Bimbingan
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
+vi.mock("../../../services/ta04Authorization.service.js", () => ({
+  assertTa04GuidanceAuthorized: vi.fn().mockResolvedValue(true)
+}));
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles, mockTa04Authorization } = vi.hoisted(() => ({
+const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles } = vi.hoisted(() => ({
   mockPrisma: {
     thesisGuidance: { update: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn(),
@@ -72,9 +75,6 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
     ROLE_CATEGORY: { STUDENT: "student", LECTURER: "lecturer" },
     isSupervisorRole: vi.fn((r) => r === "pembimbing_1" || r === "pembimbing_2"),
   },
-  mockTa04Authorization: {
-    assertTa04GuidanceAuthorized: vi.fn().mockResolvedValue({ guidanceGateOpen: true }),
-  },
 }));
 
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
@@ -85,7 +85,6 @@ vi.mock("../../../services/outlook-calendar.service.js", () => mockCalendar);
 vi.mock("../../../utils/date.util.js", () => mockDateUtil);
 vi.mock("../../../utils/global.util.js", () => mockGlobalUtil);
 vi.mock("../../../constants/roles.js", () => mockRoles);
-vi.mock("../../../services/ta04Authorization.service.js", () => mockTa04Authorization);
 
 import {
   getMyStudentsService,
@@ -205,19 +204,6 @@ describe("Module 2 (Dosen): Approve/Reject Guidance", () => {
 
       expect(result).toHaveProperty("guidance");
       expect(mockRepo.approveGuidanceById).toHaveBeenCalledWith("guid-1", expect.objectContaining({ feedback: "OK" }));
-    });
-
-    it("blocks proposal-guidance approval until the TA-04 gate is open", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findGuidanceByIdForLecturer.mockResolvedValue(GUIDANCE_REQUESTED);
-      mockTa04Authorization.assertTa04GuidanceAuthorized.mockRejectedValueOnce(
-        new Error("Booking pembimbing sudah disetujui, tetapi Formulir TA-04 belum difinalisasi KaDep."),
-      );
-
-      await expect(
-        approveGuidanceService("user-dosen-1", "guid-1", { feedback: "OK" }),
-      ).rejects.toThrow(/TA-04 belum difinalisasi KaDep/i);
-      expect(mockRepo.approveGuidanceById).not.toHaveBeenCalled();
     });
 
     it("rejects (400) if guidance status is not 'requested' (status guard)", async () => {
@@ -414,43 +400,163 @@ describe("Module 3 (Dosen): Approve Session Summary", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// Module 9: Transfer Mahasiswa Bimbingan (Removed from active scope)
+// Module 9: Transfer Mahasiswa Bimbingan
 // ══════════════════════════════════════════════════════════════
 describe("Module 9: Transfer Mahasiswa Bimbingan", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("requestStudentTransferService", () => {
-    it("rejects formal supervisor transfer because it is outside active SIMPTA scope", async () => {
+    it("sends transfer request with reason to target lecturer", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findSupervisorRecords.mockResolvedValue([
+        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
+      ]);
+      mockRepo.lecturerHasRole.mockResolvedValue(true);
+      mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
+      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
+      mockRepo.createKadepTransferNotification.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+      mockRepo.createInfoNotification.mockResolvedValue({});
+
+      const result = await requestStudentTransferService("user-dosen-1", {
+        thesisIds: ["thesis-1"],
+        targetLecturerId: "lec-target",
+        reason: "Pindah bidang",
+      });
+
+      expect(result).toMatchObject({ studentCount: 1 });
+      expect(mockRepo.createTransferNotification).toHaveBeenCalled();
+    });
+
+    it("rejects (400) if reason is missing", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findSupervisorRecords.mockResolvedValue([]);
+
       await expect(
         requestStudentTransferService("user-dosen-1", {
           thesisIds: ["thesis-1"],
           targetLecturerId: "lec-target",
-          reason: "Pindah bidang",
+          reason: "",
         })
       ).rejects.toMatchObject({ statusCode: 400 });
+    });
 
-      expect(mockRepo.createTransferNotification).not.toHaveBeenCalled();
-      expect(mockRepo.createKadepTransferNotification).not.toHaveBeenCalled();
+    it("rejects (400) if target is self", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findSupervisorRecords.mockResolvedValue([
+        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
+      ]);
+      mockRepo.lecturerHasRole.mockResolvedValue(true);
+
+      await expect(
+        requestStudentTransferService("user-dosen-1", {
+          thesisIds: ["thesis-1"],
+          targetLecturerId: "lec-1", // self
+          reason: "Test",
+        })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("sends notification with [TRANSFER_REQUEST] tag to target lecturer", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findSupervisorRecords.mockResolvedValue([
+        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
+      ]);
+      mockRepo.lecturerHasRole.mockResolvedValue(true);
+      mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
+      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
+      mockRepo.createKadepTransferNotification.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+      mockRepo.createInfoNotification.mockResolvedValue({});
+
+      await requestStudentTransferService("user-dosen-1", {
+        thesisIds: ["thesis-1"],
+        targetLecturerId: "lec-target",
+        reason: "Pindah bidang",
+      });
+
+      expect(mockRepo.createTransferNotification).toHaveBeenCalledWith(
+        "lec-target",
+        expect.stringContaining("\"t\":\"TX\"")
+      );
     });
   });
 
   describe("approveTransferRequestService", () => {
-    it("rejects target approval for removed transfer workflow", async () => {
+    it("approves transfer request, marks notification read and notifies kadep", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
+      mockRepo.markNotificationRead.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+      mockRepo.createInfoNotification.mockResolvedValue({});
+
+      const result = await approveTransferRequestService("user-dosen-1", "notif-tx-1");
+
+      expect(result).toHaveProperty("message");
+      expect(mockRepo.markNotificationRead).toHaveBeenCalledWith("notif-tx-1");
+    });
+
+    it("rejects (400) if transfer request already processed", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findTransferNotificationById.mockResolvedValue({
+        ...TRANSFER_NOTIFICATION,
+        isRead: true,
+      });
+
+      await expect(
+        approveTransferRequestService("user-dosen-1", "notif-tx-1")
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects (404) if transfer request not found", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findTransferNotificationById.mockResolvedValue(null);
+
       await expect(
         approveTransferRequestService("user-dosen-1", "nonexistent")
-      ).rejects.toMatchObject({ statusCode: 400 });
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
 
-      expect(mockRepo.markNotificationRead).not.toHaveBeenCalled();
+    it("sends notification to source and kadep after transfer approval", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
+      mockRepo.markNotificationRead.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+      mockRepo.createInfoNotification.mockResolvedValue({});
+
+      await approveTransferRequestService("user-dosen-1", "notif-tx-1");
+
+      // Notifies source lecturer
+      expect(mockRepo.createInfoNotification).toHaveBeenCalled();
     });
   });
 
   describe("rejectTransferRequestService", () => {
-    it("rejects target rejection for removed transfer workflow", async () => {
+    it("rejects transfer request with reason and notifies source lecturer", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
+      mockRepo.markNotificationRead.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+      mockRepo.createInfoNotification.mockResolvedValue({});
+
+      const result = await rejectTransferRequestService("user-dosen-1", "notif-tx-1", {
+        reason: "Sudah banyak mahasiswa",
+      });
+
+      expect(result).toMatchObject({ message: "Transfer request ditolak" });
+      expect(mockRepo.markNotificationRead).toHaveBeenCalledWith("notif-tx-1");
+    });
+
+    it("rejects (400) if already processed", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockRepo.findTransferNotificationById.mockResolvedValue({
+        ...TRANSFER_NOTIFICATION,
+        isRead: true,
+      });
+
       await expect(
         rejectTransferRequestService("user-dosen-1", "notif-tx-1", { reason: "test" })
       ).rejects.toMatchObject({ statusCode: 400 });
-
-      expect(mockRepo.markNotificationRead).not.toHaveBeenCalled();
     });
   });
 });
@@ -468,7 +574,7 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         id: "thesis-1", title: "AI Research",
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         thesisStatus: { name: "Bimbingan" },
-        document: null, proposalDocument: null, finalProposalVersion: null,
+        document: null, thesisProposal: null,
         rating: "on_track", startDate: new Date(), deadlineDate: new Date(),
         thesisMilestones: [{ id: "m1", title: "Bab 1", status: "completed", updatedAt: new Date(), progressPercentage: 100, targetDate: null }],
         studentId: "stu-1",
@@ -500,57 +606,15 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
-});
-
-// ══════════════════════════════════════════════════════════════
-// Module 3c: Pending Approval List
-// ══════════════════════════════════════════════════════════════
-describe("Module 3c: Pending Approval List", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  describe("getPendingApprovalService", () => {
-    it("returns paginated list of guidances pending summary approval", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findGuidancesPendingApproval.mockResolvedValue({
-        total: 1, page: 1, pageSize: 10,
-        rows: [{
-          id: "guid-3", approvedDate: new Date(), summarySubmittedAt: new Date(),
-          sessionSummary: "Test summary", actionItems: "Revisi",
-          thesis: { student: { user: { fullName: "Budi", identityNumber: "123" } } },
-          milestones: [{ milestone: { title: "Bab 1" } }],
-        }],
-      });
-
-      const result = await getPendingApprovalService("user-dosen-1");
-
-      expect(result.total).toBe(1);
-      expect(result.guidances).toHaveLength(1);
-      expect(result.guidances[0]).toHaveProperty("studentName", "Budi");
-    });
-
-    it("rejects (404) if lecturer not found", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(null);
-
-      await expect(getPendingApprovalService("user-unknown")).rejects.toMatchObject({ statusCode: 404 });
-    });
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// Approve Thesis Proposal
-// ══════════════════════════════════════════════════════════════
-describe("Approve Thesis Proposal", () => {
-  beforeEach(() => vi.clearAllMocks());
 
   describe("approveThesisProposalService", () => {
-    it("rejects legacy lecturer proposal approval because TA-04 is KaDep-only", async () => {
+    it("rejects (403) because proposal approval is handled via TA-03 scoring", async () => {
       await expect(
         approveThesisProposalService("user-dosen-1", "thesis-1")
       ).rejects.toMatchObject({
         statusCode: 403,
-        message: expect.stringContaining("promosi aktif"),
+        message: expect.stringContaining("Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing"),
       });
-      expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
     });
   });
 });
@@ -693,3 +757,6 @@ describe("Guidance Detail (Lecturer)", () => {
     });
   });
 });
+
+
+

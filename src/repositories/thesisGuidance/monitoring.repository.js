@@ -155,7 +155,7 @@ export async function getStatusDistribution(academicYear) {
 export async function getRatingDistribution(academicYear) {
   const where = {
     thesisStatus: {
-      name: { notIn: ["Selesai", "Gagal"] },
+      name: { notIn: ["Selesai", "Gagal", "Lulus", "Drop Out", "Dibatalkan"] },
     },
   };
 
@@ -197,7 +197,7 @@ export async function getProgressStatistics(academicYear) {
   // Build where clause
   const where = {
     thesisStatus: {
-      name: { notIn: ["Selesai", "Gagal"] },
+      name: { notIn: ["Selesai", "Gagal", "Lulus", "Drop Out", "Dibatalkan"] },
     },
   };
 
@@ -265,7 +265,7 @@ export async function getAtRiskStudents(limit = 10, academicYear) {
 
   const where = {
     thesisStatus: {
-      name: { notIn: ["Selesai", "Gagal", "Acc Seminar"] },
+      name: { notIn: ["Selesai", "Gagal", "Lulus", "Drop Out", "Dibatalkan", "Acc Seminar"] },
     },
   };
 
@@ -346,7 +346,7 @@ export async function getSlowStudents(limit = 10, academicYear) {
   const where = {
     rating: "SLOW",
     thesisStatus: {
-      name: { notIn: ["Selesai", "Gagal", "Acc Seminar"] },
+      name: { notIn: ["Selesai", "Gagal", "Lulus", "Drop Out", "Dibatalkan", "Acc Seminar"] },
     },
   };
 
@@ -577,7 +577,7 @@ export async function getSupervisorWorkloadRows(academicYear) {
   const thesisWhere = {
     isProposal: false,
     thesisStatus: {
-      name: { notIn: ["Selesai", "Gagal", "Dibatalkan"] },
+      name: { notIn: ["Selesai", "Gagal", "Dibatalkan", "Lulus", "Drop Out"] },
     },
   };
 

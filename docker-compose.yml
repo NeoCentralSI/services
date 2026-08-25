@@ -6,36 +6,28 @@
 # ─────────────────────────────────────────────────────────────────
 services:
 
-  # ── App ────────────────────────────────────────────────────────
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: neocentral-app
-    image: neocentral-backend:latest
+
+
+  # ── DB (MariaDB) ───────────────────────────────────────────────
+  db:
+    image: mariadb:10.11
+    container_name: neocentral-db
     restart: unless-stopped
-    env_file: .env
     environment:
-      NODE_ENV: production
-      REDIS_URL: redis://redis:6379
-      GOTENBERG_URL: http://gotenberg:3000
+      MARIADB_ROOT_PASSWORD: password
+      MARIADB_DATABASE: tka_db
     ports:
-      - "3000:3000"
+      - "3306:3306"
     volumes:
-      - uploads:/app/uploads
-    depends_on:
-      redis:
-        condition: service_healthy
-      gotenberg:
-        condition: service_started
+      - db-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - neocentral-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 40s
 
   # ── Redis ──────────────────────────────────────────────────────
   redis:
@@ -74,6 +66,7 @@ services:
 volumes:
   uploads:
   redis-data:
+  db-data:
 
 networks:
   neocentral-net:

@@ -13,7 +13,10 @@ const importThesisRowSchema = z.object({
     "Tanggal Mulai": importCellSchema,
     "Judul Tugas Akhir": importCellSchema,
     "Rating": importCellSchema,
-}).strict();
+    "No": importCellSchema,
+    "Nama Mahasiswa": importCellSchema,
+    "Nama": importCellSchema,
+}).passthrough();
 
 export const createThesisSchema = z.object({
     studentId: z.string().uuid(),

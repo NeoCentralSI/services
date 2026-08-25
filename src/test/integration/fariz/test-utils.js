@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import { ENV } from "../../../config/env.js";
-import prisma from "../../../../config/prisma.js";
+import prisma from "../../../config/prisma.js";
 
 export function makeAuthToken(user, claims = {}) {
   return jwt.sign({ sub: user.id, email: user.email, ...claims }, ENV.JWT_SECRET);

@@ -9,7 +9,7 @@ export async function getLecturerByUserId(userId) {
 
 // List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
 export async function findMyStudents(lecturerId, roles, { scope = "active" } = {}) {
-	const CLOSED_STATUS_NAMES = ["Gagal", "Failed", "failed", "Selesai"];
+	const CLOSED_STATUS_NAMES = ["Gagal", "Failed", "failed", "Selesai", "Lulus"];
 	// scope 'archive' => hanya thesis yang sudah selesai/ditutup (arsip pembimbing);
 	// scope 'active' (default) => kebalikannya (tetap berjalan + tanpa status).
 	const archiveFilter = { thesisStatus: { name: { in: CLOSED_STATUS_NAMES } } };

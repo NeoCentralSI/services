@@ -1,25 +1,12 @@
 # ─────────────────────────────────────────────────────────────────
 # Production Docker Compose – NeoCentral Full Stack
-# Deploy to: /www/wwwroot/neocentral/docker-compose.yml
-#
-# Images are built locally by self-hosted GitHub Actions runner.
-# No container registry needed.
-#
-# Routing: Cloudflare → Panel (Nginx) → Docker containers
-#   Panel reverse proxy:
-#     neocentral.dev       → http://127.0.0.1:8080
-#     api.neocentral.dev   → http://127.0.0.1:3000
-#
-# Usage:
-#   docker compose up -d
-#   docker compose logs -f
 # ─────────────────────────────────────────────────────────────────
 
 services:
 
   # ── Backend API ────────────────────────────────────────────────
   backend:
-    image: neocentral/services:latest
+    image: neocentral-backend:latest
     container_name: neocentral-backend
     restart: unless-stopped
     ports:
@@ -27,21 +14,18 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
-      SIMPTA_SCHEMA_STRICT: "true"
+      DATABASE_URL: mysql://root:password@db:3306/tka_db
       REDIS_URL: redis://redis:6379
       GOTENBERG_URL: http://gotenberg:3000
-      SIA_BASE_URL: http://sia:4000
     volumes:
       - uploads:/app/uploads
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
       gotenberg:
         condition: service_started
-      sia:
-        condition: service_healthy
     networks:
       - neocentral-net
     healthcheck:
@@ -51,51 +35,26 @@ services:
       retries: 5
       start_period: 40s
 
-  # ── Backend DB migrator ───────────────────────────────────────
-  backend-migrator:
-    image: neocentral/services-migrate:latest
-    profiles:
-      - tools
-    env_file: .env
-    environment:
-      NODE_ENV: production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - neocentral-net
-
-  # ── Frontend (Nginx SPA) ───────────────────────────────────────
-  frontend:
-    image: neocentral/website:latest
-    container_name: neocentral-frontend
+  # ── DB (MariaDB) ───────────────────────────────────────────────
+  db:
+    image: mariadb:10.11
+    container_name: neocentral-db
     restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: password
+      MARIADB_DATABASE: tka_db
     ports:
-      - "8080:80"
+      - "3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - neocentral-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/"]
-      interval: 30s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  # ── SIA (Dummy Academic System) ────────────────────────────────
-  sia:
-    image: neocentral/dummy-sia:latest
-    container_name: neocentral-sia
-    restart: unless-stopped
-    environment:
-      PORT: 4000
-      API_TOKEN: ${SIA_API_TOKEN}
-    networks:
-      - neocentral-net
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
 
   # ── Redis ──────────────────────────────────────────────────────
   redis:
@@ -129,6 +88,7 @@ services:
 volumes:
   uploads:
   redis-data:
+  db-data:
 
 networks:
   neocentral-net:

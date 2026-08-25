@@ -1,0 +1,32 @@
+[
+  {
+    "id": "273057f5-98e5-405d-9cc9-61ab1c004dad",
+    "studentId": "7e5f625d-4fad-4a6c-9d9f-65e11eea8a45",
+    "academicYearId": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "eligibleMetopen": true,
+    "researchMethodCompleted": null,
+    "takingThesisCourse": null,
+    "eligibilitySource": "sia",
+    "eligibilityCapturedAt": "2026-08-20T12:54:44.732Z",
+    "thesisCourseSource": null,
+    "thesisCourseCapturedAt": null,
+    "capturedAt": "2026-08-20T12:54:44.732Z",
+    "createdAt": "2026-08-20T12:54:44.733Z",
+    "updatedAt": "2026-08-20T12:54:44.733Z"
+  },
+  {
+    "id": "7741fbac-ac49-480d-9e2b-c99f3495f677",
+    "studentId": "4bebfca9-e5ff-41c4-ab63-59681c0c1ef3",
+    "academicYearId": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "eligibleMetopen": true,
+    "researchMethodCompleted": null,
+    "takingThesisCourse": null,
+    "eligibilitySource": "sia",
+    "eligibilityCapturedAt": "2026-08-20T12:54:31.276Z",
+    "thesisCourseSource": null,
+    "thesisCourseCapturedAt": null,
+    "capturedAt": "2026-08-20T12:54:31.276Z",
+    "createdAt": "2026-08-20T12:54:31.278Z",
+    "updatedAt": "2026-08-20T12:54:31.278Z"
+  }
+]

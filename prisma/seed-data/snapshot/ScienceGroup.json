@@ -1,0 +1,26 @@
+[
+  {
+    "id": "0504c57b-cb2d-436c-baed-8f113a6efc7c",
+    "name": "System Enterprise",
+    "createdAt": "2026-08-20T11:59:18.348Z",
+    "updatedAt": "2026-08-20T11:59:18.348Z"
+  },
+  {
+    "id": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "name": "Rekayasa Data dan Business Intelligent",
+    "createdAt": "2026-08-20T11:59:18.388Z",
+    "updatedAt": "2026-08-20T11:59:18.388Z"
+  },
+  {
+    "id": "72535ef3-f622-42f0-940c-a29edf2e8e0b",
+    "name": "Tata Kelola dan Infrastruktur Teknologi Informasi",
+    "createdAt": "2026-08-20T11:59:18.326Z",
+    "updatedAt": "2026-08-20T11:59:18.326Z"
+  },
+  {
+    "id": "9889d201-d6ff-44eb-b8f6-1de0a6ac866a",
+    "name": "System Development",
+    "createdAt": "2026-08-20T11:59:18.363Z",
+    "updatedAt": "2026-08-20T11:59:18.363Z"
+  }
+]

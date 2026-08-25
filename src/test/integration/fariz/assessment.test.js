@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
-import app from "../../../../app.js";
-import prisma from "../../../../config/prisma.js";
-import { ENV } from "../../../../config/env.js";
+import app from "../../../app.js";
+import prisma from "../../../config/prisma.js";
+import { ENV } from "../../../config/env.js";
 
 describe("Internship Assessment Integration Test", () => {
   let tokens = {};
@@ -15,7 +15,7 @@ describe("Internship Assessment Integration Test", () => {
 
   beforeAll(async () => {
     console.log("🔍 [SETUP] Initializing assessment test data...");
-    
+
     const roles = [
       { key: 'student', email: "fariz_2211523034@fti.unand.ac.id" },
       { key: 'sekdep', email: "sekdep_si@fti.unand.ac.id" },
@@ -23,7 +23,7 @@ describe("Internship Assessment Integration Test", () => {
     ];
 
     for (const role of roles) {
-      const user = await prisma.user.findFirst({ 
+      const user = await prisma.user.findFirst({
         where: { email: role.email },
         include: { lecturer: true, student: true }
       });
@@ -115,13 +115,13 @@ describe("Internship Assessment Integration Test", () => {
       console.log("❌ [STEP 1] Error Details:", JSON.stringify(response.body, null, 2));
     }
     expect(response.status).toBe(200);
-    
+
     // System should automatically create the token
     const tokenRecord = await prisma.fieldAssessmentToken.findFirst({
       where: { internshipId: testInternship.id, isUsed: false },
       orderBy: { createdAt: 'desc' }
     });
-    
+
     expect(tokenRecord).not.toBeNull();
     fieldToken = tokenRecord.token;
     console.log(`✅ [STEP 1] Token auto-generated: ${fieldToken}`);
@@ -130,7 +130,7 @@ describe("Internship Assessment Integration Test", () => {
   // --- STEP 2: FIELD SUPERVISOR SUBMIT ASSESSMENT ---
   it("STEP 2: Field Supervisor should successfully submit assessment", async () => {
     console.log("🚀 [STEP 2] Submitting Field Assessment...");
-    
+
     const scores = fieldCpmks.map(cpmk => ({
       chosenRubricId: cpmk.rubrics[0].id,
       score: 85
@@ -147,7 +147,7 @@ describe("Internship Assessment Integration Test", () => {
 
     if (response.status !== 200) console.log("❌ [STEP 2] Error:", JSON.stringify(response.body, null, 2));
     expect(response.status).toBe(200);
-    
+
     const updated = await prisma.internship.findUnique({ where: { id: testInternship.id } });
     expect(updated.fieldAssessmentStatus).toBe('COMPLETED');
     console.log("✅ [STEP 2] Field Assessment Submitted.");
@@ -156,7 +156,7 @@ describe("Internship Assessment Integration Test", () => {
   // --- STEP 3: LECTURER SUBMIT ASSESSMENT ---
   it("STEP 3: Lecturer should successfully submit assessment", async () => {
     console.log("🚀 [STEP 3] Submitting Lecturer Assessment...");
-    
+
     const scores = lecturerCpmks.map(cpmk => ({
       chosenRubricId: cpmk.rubrics[0].id,
       score: 90
@@ -169,7 +169,7 @@ describe("Internship Assessment Integration Test", () => {
 
     if (response.status !== 200) console.log("❌ [STEP 3] Error:", JSON.stringify(response.body, null, 2));
     expect(response.status).toBe(200);
-    
+
     const updated = await prisma.internship.findUnique({ where: { id: testInternship.id } });
     expect(updated.lecturerAssessmentStatus).toBe('COMPLETED');
     console.log(`✅ [STEP 3] Lecturer Assessment Submitted. Final Score: ${updated.finalNumericScore}`);

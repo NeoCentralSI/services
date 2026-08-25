@@ -6,7 +6,7 @@ import {
 } from "./metopenEligibility.service.js";
 import { syncBookingActivationForStudent } from "./metopen.service.js";
 import { buildRuntimeSnapshotObservationPatch } from "./studentPeriodSnapshot.service.js";
-import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
+import { getActiveAcademicYear, resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 async function syncBookingLifecycleForStudents(studentIds, academicYearId) {
   const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
@@ -181,7 +181,7 @@ const parseGpa = (value) => {
 
 async function updateStudentAcademicBatch(stamped) {
   const startedAt = new Date();
-  const academicYear = await getActiveAcademicYear();
+  const academicYear = await resolveOperationalAcademicYear();
   if (!academicYear) {
     throw new Error(
       "Tidak ada periode akademik yang mencakup waktu sinkronisasi SIA. Snapshot periode dibatalkan.",
@@ -251,8 +251,6 @@ async function updateStudentAcademicBatch(stamped) {
             metopenEligibilityUpdatedAt:
               typeof u.eligibleMetopen === "boolean" ? startedAt : undefined,
             currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
-            gpa: u.gpa,
-            graduationPredicate: u.graduationPredicate,
             takingThesisCourse: u.takingThesisCourse,
             thesisCourseEnrollmentSource: "sia",
             thesisCourseEnrollmentUpdatedAt: startedAt,

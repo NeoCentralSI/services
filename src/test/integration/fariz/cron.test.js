@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import prisma from "../../../../config/prisma.js";
+import prisma from "../../../config/prisma.js";
 import { updateAllInternshipDeadlineStatuses } from "../../../services/insternship/internshipStatus.service.js";
 import { ensureActiveAcademicYear, ensureCompany } from "./test-utils.js";
 
@@ -11,7 +11,7 @@ describe("Internship Cron Job Integration Test", () => {
 
   beforeAll(async () => {
     console.log("🔍 [SETUP] Initializing internship cron test data...");
-    
+
     // Find a student
     testStudent = await prisma.student.findFirst({
       include: { user: true }
@@ -87,7 +87,7 @@ describe("Internship Cron Job Integration Test", () => {
     const internship = await createTestInternship(recentlyEnded);
 
     const result = await updateAllInternshipDeadlineStatuses();
-    
+
     const updated = await prisma.internship.findUnique({ where: { id: internship.id } });
     expect(updated.status).toBe('ONGOING');
     console.log(`✅ [SCENARIO 1] Status remains ONGOING (Processed: ${result.processed})`);
@@ -102,7 +102,7 @@ describe("Internship Cron Job Integration Test", () => {
     const internship = await createTestInternship(longAgo, false);
 
     const result = await updateAllInternshipDeadlineStatuses();
-    
+
     const updated = await prisma.internship.findUnique({ where: { id: internship.id } });
     expect(updated.status).toBe('FAILED');
     console.log(`✅ [SCENARIO 2] Status changed to FAILED due to reporting deadline.`);
@@ -118,7 +118,7 @@ describe("Internship Cron Job Integration Test", () => {
     const internship = await createTestInternship(veryLongAgo, true);
 
     const result = await updateAllInternshipDeadlineStatuses();
-    
+
     const updated = await prisma.internship.findUnique({ where: { id: internship.id } });
     expect(updated.status).toBe('FAILED');
     console.log(`✅ [SCENARIO 3] Status changed to FAILED due to seminar deadline.`);
@@ -139,7 +139,7 @@ describe("Internship Cron Job Integration Test", () => {
     });
 
     await updateAllInternshipDeadlineStatuses();
-    
+
     const updated = await prisma.internship.findUnique({ where: { id: internship.id } });
     expect(updated.status).toBe('COMPLETED');
     console.log(`✅ [SCENARIO 4] COMPLETED status remained unchanged.`);

@@ -9,24 +9,9 @@
 import { PrismaClient } from "../src/generated/prisma/index.js";
 import bcrypt from "bcrypt";
 import { syncDsiMaster } from "./sync-dsi-master.js";
+import { ROLES } from "../src/constants/roles.js";
 
 const prisma = new PrismaClient();
-
-// ============================================================
-// CONSTANTS - Role names sesuai dengan constants/roles.js
-// ============================================================
-const ROLES = {
-  KETUA_DEPARTEMEN: "Ketua Departemen",
-  SEKRETARIS_DEPARTEMEN: "Sekretaris Departemen",
-  PEMBIMBING_1: "Pembimbing 1",
-  PEMBIMBING_2: "Pembimbing 2",
-  ADMIN: "Admin",
-  PENGUJI: "Penguji",
-  MAHASISWA: "Mahasiswa",
-  GKM: "GKM",
-  KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
-  DOSEN_METOPEN: "Dosen Metodologi Penelitian",
-};
 
 const DEFAULT_PASSWORD = "password123";
 
@@ -52,6 +37,14 @@ async function seedRoles() {
   console.log("\n" + "=".repeat(60));
   console.log("📋 STEP 1: Seeding Roles...");
   console.log("=".repeat(60));
+  // Hapus alias Metopen lama hanya ketika belum pernah diberikan kepada user.
+  await prisma.userRole.deleteMany({
+    where: {
+      name: { in: ["Dosen Metodologi Penelitian", "Dosen Pengampu Metopel"] },
+      userHasRoles: { none: {} },
+    },
+  });
+
 
   const roleNames = Object.values(ROLES);
   const roleMap = new Map();
@@ -209,7 +202,7 @@ async function seedUsers(roleMap) {
       fullName: "Afriyanti Dwi Kartika, M.T",
       identityType: "NIP",
       identityNumber: "198904212019032024",
-      roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+      roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
@@ -217,7 +210,7 @@ async function seedUsers(roleMap) {
       fullName: "Husnil Kamil, MT",
       identityType: "NIP",
       identityNumber: "198201182008121002",
-      roles: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+      roles: [ROLES.KOORDINATOR_METOPEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
@@ -233,7 +226,7 @@ async function seedUsers(roleMap) {
       fullName: "Ullya Mega Wahyuni, M.Kom",
       identityType: "NIP",
       identityNumber: "199011032019032008",
-      roles: [ROLES.GKM, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
+      roles: [ROLES.GKM, ROLES.TIM_PENGELOLA_CPL, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {

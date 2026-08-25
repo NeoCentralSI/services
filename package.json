@@ -33,6 +33,8 @@
     "snapshots:audit": "node scripts/backfill-student-period-snapshots.mjs",
     "snapshots:backfill": "node scripts/backfill-student-period-snapshots.mjs --apply",
     "seed:metopen-eligible": "node scripts/seed-metopen-eligible-students.js",
+    "export:snapshot": "node scripts/export-snapshot.mjs",
+    "seed:snapshot": "node scripts/seed-from-snapshot.mjs",
     "lint:prisma-delegates": "node scripts/lint-prisma-delegates.mjs",
     "worker": "node scripts/run-workers.js"
   },

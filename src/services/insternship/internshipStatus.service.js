@@ -4,11 +4,11 @@ import { sendFcmToUsers } from "../push.service.js";
 
 const FAILING_FINAL_GRADES = new Set(["D", "E"]);
 
-function isFailingFinalGrade(finalGrade) {
+export function isFailingFinalGrade(finalGrade) {
     return FAILING_FINAL_GRADES.has(String(finalGrade || "").trim().toUpperCase());
 }
 
-function hasCompletionRequirements(internship) {
+export function hasCompletionRequirements(internship) {
     const isLecturerAssessmentDone = internship.lecturerAssessmentStatus === 'COMPLETED';
     const isFieldAssessmentDone = internship.fieldAssessmentStatus === 'COMPLETED';
     const isSeminarDone = internship.seminars.length > 0;

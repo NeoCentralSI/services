@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
-import app from "../../../../app.js";
-import prisma from "../../../../config/prisma.js";
-import { ENV } from "../../../../config/env.js";
+import app from "../../../app.js";
+import prisma from "../../../config/prisma.js";
+import { ENV } from "../../../config/env.js";
 
 describe("Internship Finalization Integration Test", () => {
   let tokens = {};
@@ -16,7 +16,7 @@ describe("Internship Finalization Integration Test", () => {
 
   beforeAll(async () => {
     console.log("🔍 [SETUP] Initializing finalization test data...");
-    
+
     const roles = [
       { key: 'student', email: "fariz_2211523034@fti.unand.ac.id" },
       { key: 'sekdep', email: "sekdep_si@fti.unand.ac.id" },
@@ -24,7 +24,7 @@ describe("Internship Finalization Integration Test", () => {
     ];
 
     for (const role of roles) {
-      const user = await prisma.user.findFirst({ 
+      const user = await prisma.user.findFirst({
         where: { email: role.email },
         include: { lecturer: true, student: true }
       });
@@ -44,11 +44,11 @@ describe("Internship Finalization Integration Test", () => {
     });
 
     if (!testInternship) {
-        // Try finding by user ID just in case they are swapped
-        testInternship = await prisma.internship.findFirst({
-            where: { studentId: users.student.id },
-            orderBy: { createdAt: 'desc' }
-        });
+      // Try finding by user ID just in case they are swapped
+      testInternship = await prisma.internship.findFirst({
+        where: { studentId: users.student.id },
+        orderBy: { createdAt: 'desc' }
+      });
     }
 
     if (!testInternship) throw new Error("No internship found for the test student.");
@@ -85,7 +85,7 @@ describe("Internship Finalization Integration Test", () => {
 
     // Find another student for moderator
     const modUser = await prisma.user.findFirst({
-      where: { 
+      where: {
         student: { isNot: null },
         id: { not: users.student.id }
       },
@@ -152,7 +152,7 @@ describe("Internship Finalization Integration Test", () => {
   // --- STEP 4: STUDENT UPLOAD FINAL DOCUMENTS ---
   it("STEP 4: Student should successfully upload final documents", async () => {
     console.log("🚀 [STEP 4] Uploading Final Documents...");
-    
+
     // 1. Logbook Document (KP-002)
     const res1 = await request(app)
       .post("/insternship/activity/logbook-doc")
@@ -183,7 +183,7 @@ describe("Internship Finalization Integration Test", () => {
   // --- STEP 5: SEKDEP VERIFY LOGBOOK & RECEIPT ---
   it("STEP 5: Sekdep should successfully verify logbook and receipt", async () => {
     console.log("🚀 [STEP 5] Sekdep Verifying Documents...");
-    
+
     // Verify Logbook
     const res1 = await request(app)
       .put(`/insternship/sekdep/internships/${testInternship.id}/verify-document`)
@@ -207,7 +207,7 @@ describe("Internship Finalization Integration Test", () => {
     const updated = await prisma.internship.findUnique({
       where: { id: testInternship.id }
     });
-    
+
     console.log(`📊 Final Status: ${updated.status}`);
     expect(updated.status).toBe('COMPLETED');
     console.log("🎊 CONGRATULATIONS! Internship E2E Workflow PASSED.");
