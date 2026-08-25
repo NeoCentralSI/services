@@ -23,6 +23,7 @@ const toCplResponse = (item) => ({
     code: item.code,
     description: item.description,
     minimalScore: item.minimalScore,
+    version: item.version,
     isActive: item.isActive,
     hasRelatedScores:
         item.hasRelatedScores !== undefined
@@ -57,6 +58,8 @@ const normalizeStatus = (status) => {
 
 const computeResult = (score, minimalScore) => (score >= minimalScore ? "Lulus" : "Tidak Lulus");
 
+const normalizeCplCode = (value) => String(value || "").trim().toUpperCase();
+
 const toCplStudentScoreResponse = (item) => ({
     cplId: item.cplId,
     studentId: item.studentId,
@@ -71,6 +74,7 @@ const toCplStudentScoreResponse = (item) => ({
               code: item.cpl.code,
               description: item.cpl.description,
               minimalScore: item.cpl.minimalScore,
+              version: item.cpl.version,
               isActive: item.cpl.isActive,
               curriculumId: item.cpl.curriculumId,
               curriculumName: item.cpl.curriculum?.name,
@@ -84,18 +88,18 @@ const toCplStudentScoreResponse = (item) => ({
               email: item.student.user?.email,
           }
         : null,
-    inputBy: item.inputUser
+    inputBy: item.inputLecturer
         ? {
-              id: item.inputUser.id,
-              fullName: item.inputUser.fullName,
-              identityNumber: item.inputUser.identityNumber,
+              id: item.inputLecturer.id,
+              fullName: item.inputLecturer.user?.fullName,
+              identityNumber: item.inputLecturer.user?.identityNumber,
           }
         : null,
-    validatedBy: item.validator
+    validatedBy: item.validatorLecturer
         ? {
-              id: item.validator.id,
-              fullName: item.validator.fullName,
-              identityNumber: item.validator.identityNumber,
+              id: item.validatorLecturer.id,
+              fullName: item.validatorLecturer.user?.fullName,
+              identityNumber: item.validatorLecturer.user?.identityNumber,
           }
         : null,
     validatedAt: item.validatedAt,
@@ -121,23 +125,41 @@ export const getCplById = async (id) => {
 };
 
 export const createCpl = async (data) => {
+    const code = normalizeCplCode(data.code);
     const newIsActive = data.isActive !== false;
-    if (newIsActive && data.code && data.curriculumId) {
-        const existing = await repository.findActiveByCodeAndCurriculum(data.code, data.curriculumId);
+    if (newIsActive && code && data.curriculumId) {
+        const existing = await repository.findActiveByCodeAndCurriculum(code, data.curriculumId);
         if (existing) {
             throw new ValidationError(
-                `Tidak dapat membuat CPL. Versi aktif dengan kode "${data.code}" sudah ada di kurikulum ini`
+                `Tidak dapat membuat CPL. Versi aktif dengan kode "${code}" sudah ada di kurikulum ini. Buat versi baru sebagai tidak aktif terlebih dahulu.`
             );
         }
     }
 
-    const created = await repository.create({
-        curriculumId: data.curriculumId,
-        code: data.code,
-        description: data.description,
-        minimalScore: data.minimalScore,
-        isActive: data.isActive !== undefined ? data.isActive : true,
-    });
+    const latestVersion = await repository.findLatestVersionByCodeAndCurriculum(
+        code,
+        data.curriculumId
+    );
+    const version = (latestVersion?.version || 0) + 1;
+
+    let created;
+    try {
+        created = await repository.create({
+            curriculumId: data.curriculumId,
+            code,
+            description: data.description.trim(),
+            minimalScore: data.minimalScore,
+            version,
+            isActive: data.isActive !== undefined ? data.isActive : true,
+        });
+    } catch (error) {
+        if (error?.code === "P2002") {
+            throw new ValidationError(
+                `Versi CPL "${code}" berubah saat diproses. Silakan ulangi pembuatan versi.`
+            );
+        }
+        throw error;
+    }
 
     const createdWithRelations = await repository.findById(created.id);
     return toCplResponse(createdWithRelations);
@@ -156,26 +178,27 @@ export const updateCpl = async (id, data) => {
         );
     }
 
-    const updateData = {};
-
-    if (data.curriculumId !== undefined) updateData.curriculumId = data.curriculumId;
-
-    if (data.code !== undefined || data.curriculumId !== undefined) {
-        const codeToCheck = data.code !== undefined ? data.code : existing.code;
-        const curriculumIdToCheck = data.curriculumId !== undefined ? data.curriculumId : existing.curriculumId;
-        
-        if (existing.isActive && codeToCheck && curriculumIdToCheck) {
-            const activeDuplicate = await repository.findActiveByCodeAndCurriculum(codeToCheck, curriculumIdToCheck, id);
-            if (activeDuplicate) {
-                throw new ValidationError(
-                    `Tidak dapat mengubah. Versi aktif dengan kode "${codeToCheck}" sudah ada di kurikulum ini`
-                );
-            }
-        }
-        if (data.code !== undefined) updateData.code = data.code;
+    if (
+        data.curriculumId !== undefined &&
+        data.curriculumId !== existing.curriculumId
+    ) {
+        throw new ValidationError(
+            "Kurikulum merupakan identitas versi CPL dan tidak dapat diubah. Hapus lalu buat ulang CPL jika belum digunakan."
+        );
     }
 
-    if (data.description !== undefined) updateData.description = data.description;
+    if (
+        data.code !== undefined &&
+        normalizeCplCode(data.code) !== existing.code
+    ) {
+        throw new ValidationError(
+            "Kode merupakan identitas versi CPL dan tidak dapat diubah. Hapus lalu buat ulang CPL jika belum digunakan."
+        );
+    }
+
+    const updateData = {};
+
+    if (data.description !== undefined) updateData.description = data.description.trim();
     if (data.minimalScore !== undefined) updateData.minimalScore = data.minimalScore;
 
     if (Object.keys(updateData).length === 0) {
@@ -254,7 +277,11 @@ export const getCplStudentOptions = async (cplId, search = "") => {
         throw new NotFoundError("Data CPL tidak ditemukan");
     }
 
-    const rows = await repository.findStudentsNotInCpl(cplId, search);
+    const rows = await repository.findStudentsNotInLogicalCpl(
+        cpl.curriculumId,
+        cpl.code,
+        search
+    );
     return rows.map((row) => ({
         id: row.id,
         fullName: row.user?.fullName,
@@ -269,9 +296,15 @@ export const createCplStudentScore = async (cplId, payload, actorUserId) => {
         throw new NotFoundError("Data CPL tidak ditemukan");
     }
 
-    const existing = await repository.findStudentScoreByCplAndStudent(cplId, payload.studentId);
-    if (existing) {
-        throw new ValidationError("Mahasiswa sudah memiliki nilai pada CPL ini");
+    const existingLogicalScores = await repository.findStudentScoresByLogicalCpl(
+        payload.studentId,
+        cpl.curriculumId,
+        cpl.code
+    );
+    if (existingLogicalScores.length > 0) {
+        throw new ValidationError(
+            `Mahasiswa sudah memiliki nilai ${cpl.code} pada versi lain atau versi ini`
+        );
     }
 
     const student = await repository.findStudentById(payload.studentId);
@@ -382,9 +415,16 @@ export const importCplStudentScores = async (cplId, rows = [], actorUserId) => {
             continue;
         }
 
-        const existing = await repository.findStudentScoreByCplAndStudent(cplId, student.id);
-        if (existing) {
-            failedRows.push({ row: rowNumber, message: `Nilai untuk NIM ${nim} sudah ada di CPL ini` });
+        const existingLogicalScores = await repository.findStudentScoresByLogicalCpl(
+            student.id,
+            cpl.curriculumId,
+            cpl.code
+        );
+        if (existingLogicalScores.length > 0) {
+            failedRows.push({
+                row: rowNumber,
+                message: `Nilai ${cpl.code} untuk NIM ${nim} sudah ada pada versi lain atau versi ini`,
+            });
             continue;
         }
 
@@ -422,6 +462,8 @@ const formatExportRows = (rows = []) => {
         return {
             No: index + 1,
             "Kode CPL": row.cpl?.code ?? "-",
+            "Versi CPL": row.cpl?.version ?? "-",
+            Kurikulum: row.cpl?.curriculum?.name ?? "-",
             "Deskripsi CPL": row.cpl?.description ?? "-",
             "Nama Mahasiswa": row.student?.user?.fullName ?? "-",
             NIM: row.student?.user?.identityNumber ?? "-",
@@ -430,13 +472,24 @@ const formatExportRows = (rows = []) => {
             Hasil: result,
             Sumber: row.source === "SIA" ? "SIA" : "Manual",
             Status: statusLabels[row.status] || row.status,
-            "Input Oleh": row.inputUser?.fullName ?? "-",
-            "Tervalidasi Oleh": row.validator?.fullName ?? "-",
+            "Input Oleh": row.inputLecturer?.user?.fullName ?? "-",
+            "Tervalidasi Oleh": row.validatorLecturer?.user?.fullName ?? "-",
             "Tanggal Validasi": row.validatedAt,
             "Tanggal Finalisasi": row.finalizedAt,
         };
     });
 };
+
+const sanitizeFilenameSegment = (value, fallback) => {
+    const sanitized = String(value || "")
+        .normalize("NFKD")
+        .replace(/[^A-Za-z0-9 _-]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    return sanitized || fallback;
+};
+
+const getExportDate = () => new Date().toISOString().slice(0, 10);
 
 export const buildCplStudentScoresExportWorkbookBuffer = async (cplId) => {
     const cpl = await repository.findById(cplId);
@@ -450,9 +503,10 @@ export const buildCplStudentScoresExportWorkbookBuffer = async (cplId) => {
     const worksheet = xlsx.utils.json_to_sheet(formatted);
     xlsx.utils.book_append_sheet(workbook, worksheet, "Nilai CPL");
 
-    const safeCode = (cpl.code || "CPL").replace(/[^A-Za-z0-9_-]/g, "_");
+    const curriculumName = sanitizeFilenameSegment(cpl.curriculum?.name, "Kurikulum");
+    const cplCode = sanitizeFilenameSegment(cpl.code, "CPL");
     return {
-        filename: `nilai-cpl-${safeCode}.xlsx`,
+        filename: `Nilai CPL - ${curriculumName} - ${cplCode} - Versi ${cpl.version} - ${getExportDate()}.xlsx`,
         buffer: xlsx.write(workbook, { type: "buffer", bookType: "xlsx" }),
     };
 };
@@ -465,7 +519,7 @@ export const buildAllCplScoresExportWorkbookBuffer = async () => {
     xlsx.utils.book_append_sheet(workbook, worksheet, "Semua Nilai CPL");
 
     return {
-        filename: "nilai-cpl-semua.xlsx",
+        filename: `Rekap Nilai CPL - Semua Mahasiswa - ${getExportDate()}.xlsx`,
         buffer: xlsx.write(workbook, { type: "buffer", bookType: "xlsx" }),
     };
 };

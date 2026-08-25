@@ -2,6 +2,7 @@ import * as examinerRepo from "../../repositories/thesis-seminar/examiner.reposi
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
 import * as revisionService from "./revision.service.js";
 import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import prisma from "../../config/prisma.js";
 
 // ============================================================
@@ -394,9 +395,50 @@ export async function respondExaminerAssignment(seminarId, examinerId, payload, 
   return { examinerId, availabilityStatus: status, seminarTransitioned };
 }
 
+async function resolveAssessmentConfiguration(seminar) {
+  const requirementAcademicYearIds = [
+    ...new Set(
+      (seminar.requirementDocuments || [])
+        .map((document) => document.requirement?.academicYearId)
+        .filter(Boolean)
+    ),
+  ];
+
+  if (requirementAcademicYearIds.length > 1) {
+    throwError("Konfigurasi tahun akademik pada dokumen seminar tidak konsisten. Hubungi Admin.", 409);
+  }
+
+  let academicYearId = requirementAcademicYearIds[0] || null;
+  if (!academicYearId) {
+    academicYearId = (await getActiveAcademicYear())?.id || null;
+  }
+  if (!academicYearId) {
+    throwError("Tahun akademik untuk penilaian seminar belum tersedia. Hubungi Admin.", 400);
+  }
+
+  const [cpmks, minimumPassingScore] = await Promise.all([
+    examinerRepo.findSeminarAssessmentCpmks(academicYearId),
+    examinerRepo.findSeminarMinimumScore(academicYearId),
+  ]);
+  const criteriaCount = cpmks.reduce(
+    (total, cpmk) => total + (cpmk.thesisSeminarAssessmentCriterias || []).length,
+    0
+  );
+
+  if (criteriaCount === 0) {
+    throwError("Rubrik penilaian seminar untuk tahun akademik ini belum dikonfigurasi.", 400);
+  }
+  if (minimumPassingScore === null) {
+    throwError("Nilai minimum kelulusan seminar untuk tahun akademik ini belum dikonfigurasi.", 400);
+  }
+
+  return { academicYearId, cpmks, minimumPassingScore: Number(minimumPassingScore) };
+}
+
 // ============================================================
 // PUBLIC: Get Assessment Form (Examiner)
 // ============================================================
+
 
 export async function getExaminerAssessment(seminarId, user) {
   const seminar = await coreRepo.findSeminarById(seminarId);
@@ -413,13 +455,13 @@ export async function getExaminerAssessment(seminarId, user) {
     select: { role: { select: { name: true } } },
   });
   const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
-  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) || 
+  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) ||
                    userRoles.some((r) => adminRoleNames.includes(String(r.role?.name || "").toLowerCase()));
   const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
-  
+
   const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
   const isSupervisor = supervisorRelation ? !!resolveSupervisorMembership(supervisorRelation) : false;
-  
+
   const isStudent = user.studentId && seminar.thesis?.student?.id === user.studentId;
 
   const isFinalized = ["passed", "passed_with_revision", "failed"].includes(effectiveStatus) || seminar.resultFinalizedAt;
@@ -436,14 +478,14 @@ export async function getExaminerAssessment(seminarId, user) {
 
   const examiner = user.lecturerId ? await examinerRepo.findLatestExaminerBySeminarAndLecturer(seminarId, user.lecturerId) : null;
 
-  const cpmks = await examinerRepo.findSeminarAssessmentCpmks();
+  const { cpmks, minimumPassingScore } = await resolveAssessmentConfiguration(seminar);
   const existingScoreMap = new Map(
     examiner ? (examiner.thesisSeminarExaminerAssessmentDetails || []).map((item) => [item.assessmentCriteriaId, item.score]) : []
   );
 
   const criteriaGroups = cpmks.map((cpmk) => ({
     id: cpmk.id, code: cpmk.code, description: cpmk.description,
-    criteria: (cpmk.assessmentCriterias || []).map((c) => ({
+    criteria: (cpmk.thesisSeminarAssessmentCriterias || []).map((c) => ({
       id: c.id, name: c.name || "-", maxScore: c.maxScore || 0,
       score: existingScoreMap.get(c.id) ?? null,
       rubrics: (c.assessmentRubrics || []).map((r) => ({ id: r.id, minScore: r.minScore, maxScore: r.maxScore, description: r.description })),
@@ -465,6 +507,7 @@ export async function getExaminerAssessment(seminarId, user) {
       assessmentSubmittedAt: examiner.assessmentSubmittedAt,
     } : null,
     criteriaGroups,
+    minimumPassingScore,
   };
 }
 
@@ -484,8 +527,8 @@ export async function submitExaminerAssessment(seminarId, { scores, revisionNote
   if (examiner.assessmentSubmittedAt) throwError("Penilaian sudah disubmit sebelumnya dan tidak dapat diubah.", 400);
 
   // Validate criteria
-  const cpmks = await examinerRepo.findSeminarAssessmentCpmks();
-  const activeCriteria = cpmks.flatMap((c) => c.assessmentCriterias || []);
+  const { cpmks } = await resolveAssessmentConfiguration(seminar);
+  const activeCriteria = cpmks.flatMap((c) => c.thesisSeminarAssessmentCriterias || []);
   const criteriaMap = new Map(activeCriteria.map((item) => [item.id, item]));
 
   if (!isDraft && (scores || []).length !== activeCriteria.length) {
@@ -526,14 +569,14 @@ export async function getFinalizationData(seminarId, user) {
     });
   }
   const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
-  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) || 
+  const isAdmin = adminRoleNames.includes(String(user.role || "").toLowerCase()) ||
                    userRoles.some((r) => adminRoleNames.includes(String(r.role?.name || "").toLowerCase()));
   const isExaminer = user.lecturerId && (seminar.examiners || []).some((e) => e.lecturerId === user.lecturerId);
-  
+
   const supervisorRelation = user.lecturerId ? await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId) : null;
   const mySupervisor = supervisorRelation ? resolveSupervisorMembership(supervisorRelation) : null;
   const isSupervisor = !!mySupervisor;
-  
+
   const isStudent = user.studentId && seminar.thesis?.student?.id === user.studentId;
 
   const isFinalized = ["passed", "passed_with_revision", "failed"].includes(effectiveStatus) || seminar.resultFinalizedAt;
@@ -553,14 +596,14 @@ export async function getFinalizationData(seminarId, user) {
 
   const avgScore = allSubmitted ? examiners.reduce((s, e) => s + (e.assessmentScore || 0), 0) / examiners.length : null;
 
-  const cpmks = await examinerRepo.findSeminarAssessmentCpmks();
+  const { cpmks, minimumPassingScore } = await resolveAssessmentConfiguration(seminar);
   const criteriaGroups = cpmks.map((cpmk) => {
-    const criteria = (cpmk.assessmentCriterias || []).map((c) => ({
+    const criteria = (cpmk.thesisSeminarAssessmentCriterias || []).map((c) => ({
       id: c.id, name: c.name || "-", maxScore: c.maxScore || 0,
     }));
     return {
-      id: cpmk.id, 
-      code: cpmk.code, 
+      id: cpmk.id,
+      code: cpmk.code,
       description: cpmk.description,
       name: cpmk.description || cpmk.code,
       maxScore: criteria.reduce((sum, c) => sum + c.maxScore, 0),
@@ -579,38 +622,39 @@ export async function getFinalizationData(seminarId, user) {
       studentNim: seminar.thesis?.student?.user?.identityNumber || "-",
       thesisTitle: seminar.thesis?.title || "-",
     },
-    supervisor: { 
-      roleName: mySupervisor?.role?.name || "Pembimbing", 
-      canFinalize: isSupervisor && effectiveStatus === "ongoing" && !seminar.resultFinalizedAt 
+    supervisor: {
+      roleName: mySupervisor?.role?.name || "Pembimbing",
+      canFinalize: isSupervisor && effectiveStatus === "ongoing" && !seminar.resultFinalizedAt
     },
     examiners: examiners.map((item) => {
       const detailsByGroup = {};
       (item.thesisSeminarExaminerAssessmentDetails || []).forEach((d) => {
-        const cpmk = d.criteria?.cpmk;
+        const cpmk = d.criteria?.thesisCpmk;
         if (!cpmk) return;
         if (!detailsByGroup[cpmk.id]) detailsByGroup[cpmk.id] = { id: cpmk.id, code: cpmk.code, description: cpmk.description, criteria: [] };
         detailsByGroup[cpmk.id].criteria.push({ id: d.criteria.id, name: d.criteria.name, maxScore: d.criteria.maxScore, score: d.score, displayOrder: d.criteria.displayOrder });
       });
       Object.values(detailsByGroup).forEach((g) => g.criteria.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)));
-      
+
       const isSubmitted = !!item.assessmentSubmittedAt;
       const showScores = isFinalized || isSupervisor || (isExaminer && item.lecturerId === user.lecturerId);
 
       return {
         id: item.id, lecturerId: item.lecturerId,
         lecturerName: (seminar.examiners || []).find((x) => x.lecturerId === item.lecturerId)?.lecturerName || "-",
-        order: item.order, 
-        assessmentScore: showScores ? item.assessmentScore : null, 
+        order: item.order,
+        assessmentScore: showScores ? item.assessmentScore : null,
         revisionNotes: showScores ? item.revisionNotes : null,
         assessmentSubmittedAt: item.assessmentSubmittedAt,
         isDraft: !isSubmitted && item.assessmentScore !== null,
         assessmentDetails: showScores ? Object.values(detailsByGroup).sort((a, b) => (a.code || "").localeCompare(b.code || "")) : [],
       };
     }),
-    allExaminerSubmitted: allSubmitted, 
+    allExaminerSubmitted: allSubmitted,
     averageScore: (isSupervisor || isFinalized) ? avgScore : null,
     recommendationUnlocked: allSubmitted,
     criteriaGroups,
+    minimumPassingScore,
   };
 }
 
@@ -637,10 +681,11 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
   if (!allSubmitted) throwError("Penetapan hasil dikunci sampai seluruh penguji submit nilai.", 400);
 
   const avgScore = examiners.reduce((s, e) => s + (e.assessmentScore || 0), 0) / examiners.length;
+  const { minimumPassingScore } = await resolveAssessmentConfiguration(seminar);
 
   // Determine status based on business rules
   let targetStatus = "passed";
-  if (avgScore < 55) {
+  if (avgScore < minimumPassingScore) {
     targetStatus = "failed";
   } else if (recommendRevision) {
     targetStatus = "passed_with_revision";
@@ -669,10 +714,10 @@ export async function finalizeSeminar(seminarId, lecturerId, payload) {
     }
   }
 
-  return { 
-    seminarId: finalized.id, 
-    status: finalized.status, 
-    finalScore: finalized.finalScore, 
-    resultFinalizedAt: finalized.resultFinalizedAt 
+  return {
+    seminarId: finalized.id,
+    status: finalized.status,
+    finalScore: finalized.finalScore,
+    resultFinalizedAt: finalized.resultFinalizedAt
   };
 }

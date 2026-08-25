@@ -89,6 +89,9 @@ export async function createRevision(seminarId, body, studentId) {
   const seminar = await coreRepo.findSeminarBasicById(seminarId);
   if (!seminar) throwError("Seminar tidak ditemukan.", 404);
   if (seminar.status !== "passed_with_revision") throwError("Revisi hanya tersedia untuk seminar berstatus lulus dengan revisi.", 400);
+  if (seminar.thesis?.studentId !== studentId) {
+    throwError("Anda tidak memiliki akses untuk menambahkan revisi pada seminar ini.", 403);
+  }
 
   // Validate examiner belongs to this seminar
   const examiner = await prisma.thesisSeminarExaminer.findFirst({
@@ -102,9 +105,9 @@ export async function createRevision(seminarId, body, studentId) {
     revisionAction: body.revisionAction,
   });
 
-  return { 
-    id: revision.id, 
-    seminarExaminerId: revision.seminarExaminerId, 
+  return {
+    id: revision.id,
+    seminarExaminerId: revision.seminarExaminerId,
     description: revision.description,
     revisionAction: revision.revisionAction
   };
@@ -125,6 +128,10 @@ export async function updateRevision(seminarId, revisionId, body, user) {
   }
 
   const { action } = body;
+  if (["save_action", "submit", "cancel_submit"].includes(action) && seminar.thesis?.studentId !== user.studentId) {
+    throwError("Anda tidak memiliki akses untuk mengubah revisi ini.", 403);
+  }
+
 
   if (seminar.revisionFinalizedAt && !["unapprove", "unfinalize"].includes(action)) {
     throwError("Revisi sudah difinalisasi dan tidak dapat diubah.", 400);
@@ -165,7 +172,7 @@ async function submitRevision(revision, user, seminar) {
   if (!revision.revisionAction) throwError("Isi perbaikan terlebih dahulu sebelum mengajukan.", 400);
 
   const updated = await revisionRepo.updateRevision(revision.id, { studentSubmittedAt: new Date() });
-  
+
   // Notify supervisors (User IDs)
   const supervisorUserIds = (seminar.thesis?.thesisSupervisors || [])
     .map(s => s.lecturer?.user?.id)
@@ -175,7 +182,7 @@ async function submitRevision(revision, user, seminar) {
     const studentName = seminar.thesis?.student?.user?.fullName || "Mahasiswa";
     const title = "Pengajuan Perbaikan Revisi";
     const message = `${studentName} telah mengajukan perbaikan untuk revisi dari Penguji ${revision.seminarExaminer?.order}.`;
-    
+
     import("../notification.service.js").then(m => m.createNotificationsForUsers(supervisorUserIds, { title, message }));
   }
 
@@ -254,10 +261,9 @@ export async function finalizeRevisions(seminarId, lecturerId) {
   if (seminar.revisionFinalizedBy) throwError("Revisi seminar sudah difinalisasi sebelumnya.", 400);
 
   const revisions = await revisionRepo.findRevisionsBySeminarId(seminarId);
-  const relevantRevisions = revisions.filter((item) => item.studentSubmittedAt || isRevisionFinished(item));
-  if (relevantRevisions.length === 0) throwError("Tidak ada item revisi yang diajukan mahasiswa untuk difinalisasi.", 400);
+  if (revisions.length === 0) throwError("Tidak ada item revisi untuk difinalisasi.", 400);
+  const unfinished = revisions.filter((item) => !isRevisionFinished(item));
 
-  const unfinished = relevantRevisions.filter((item) => !isRevisionFinished(item));
   if (unfinished.length > 0) throwError("Masih ada item revisi yang belum disetujui.", 400);
 
   const finalized = await coreRepo.updateSeminar(seminarId, {

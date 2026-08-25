@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockNotification } = vi.hoisted(() => ({
+const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockNotification, mockPdf } = vi.hoisted(() => ({
   mockPrisma: {
     thesisSeminar: { findUnique: vi.fn() },
     thesisSeminarAudience: { create: vi.fn() },
@@ -35,16 +35,17 @@ const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockN
   },
   mockXlsx: {
     read: vi.fn(),
-    utils: { 
-      sheet_to_json: vi.fn().mockReturnValue([]), 
-      json_to_sheet: vi.fn().mockReturnValue({}), 
-      book_new: vi.fn().mockReturnValue({}), 
-      book_append_sheet: vi.fn() 
+    utils: {
+      sheet_to_json: vi.fn().mockReturnValue([]),
+      json_to_sheet: vi.fn().mockReturnValue({}),
+      book_new: vi.fn().mockReturnValue({}),
+      book_append_sheet: vi.fn()
     },
     write: vi.fn(),
   },
   mockOutlook: { hasCalendarAccess: vi.fn(), createCalendarEvent: vi.fn() },
   mockNotification: { createNotificationService: vi.fn() },
+  mockPdf: { convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
@@ -53,7 +54,7 @@ vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", 
 vi.mock("../../../../services/outlook-calendar.service.js", () => mockOutlook);
 vi.mock("../../../../services/notification.service.js", () => mockNotification);
 vi.mock("xlsx", () => mockXlsx);
-vi.mock("../../../../utils/pdf.util.js", () => ({ convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) }));
+vi.mock("../../../../utils/pdf.util.js", () => mockPdf);
 
 import {
   getAudiences, addAudience, updateAudience, removeAudience,
@@ -69,7 +70,7 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
   describe("getAudiences", () => {
     it("returns mapped list of audiences", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1" });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1" });
       mockAudienceRepo.findAudiencesBySeminarId.mockResolvedValue([
         { studentId: "st1", student: { user: { fullName: "A", identityNumber: "1" } }, supervisor: { lecturer: { user: { fullName: "S" } } } }
       ]);
@@ -80,7 +81,7 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
   describe("addAudience", () => {
     it("allows student self-registration", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1" });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1" });
       mockPrisma.thesisSeminar.findUnique.mockResolvedValue({ status: "scheduled", thesis: { student: { id: "owner" } } });
       mockAudienceRepo.findAudienceRegistration.mockResolvedValue(null);
       mockPrisma.student.findUnique.mockResolvedValue({ id: "st1", user: { id: "u1" } });
@@ -88,16 +89,19 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
       const res = await addAudience("s1", {}, { studentId: "st1" });
       expect(res.message).toContain("Berhasil");
+      expect(mockAudienceRepo.createAudienceRegistration).toHaveBeenCalledWith("s1", "t1", "st1");
     });
 
     it("allows admin to add audience manually for archive", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", registeredAt: null });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1", registeredAt: null });
       mockAudienceRepo.findAudienceByKey.mockResolvedValue(null);
       mockCoreRepo.findThesisById.mockResolvedValue({ studentId: "owner" });
       mockCoreRepo.findSupervisorsByThesisId.mockResolvedValue([{ id: "sup1" }]);
 
       await addAudience("s1", { studentId: "st1" }, { role: "admin" });
-      expect(mockAudienceRepo.createAudience).toHaveBeenCalled();
+      expect(mockAudienceRepo.createAudience).toHaveBeenCalledWith(
+        expect.objectContaining({ seminarId: "s1", thesisId: "t1", studentId: "st1" })
+      );
     });
   });
 
@@ -145,7 +149,7 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
   describe("Import/Export", () => {
     it("imports from excel successfully", async () => {
-      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", registeredAt: null });
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({ id: "s1", thesisId: "t1", registeredAt: null });
       mockXlsx.read.mockReturnValue({ SheetNames: ["S"], Sheets: { "S": {} } });
       mockXlsx.utils.sheet_to_json.mockReturnValue([{ "Nama Mahasiswa": "A", "NIM": "1" }]);
       mockCoreRepo.findStudentByNameOrNim.mockResolvedValue({ id: "st1" });
@@ -154,6 +158,9 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
 
       const res = await importAudiences("s1", { buffer: Buffer.from("test") });
       expect(res.successCount).toBe(1);
+      expect(mockAudienceRepo.createAudience).toHaveBeenCalledWith(
+        expect.objectContaining({ seminarId: "s1", thesisId: "t1", studentId: "st1" })
+      );
     });
 
     it("exports to excel successfully", async () => {
@@ -164,12 +171,26 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
       expect(res).toBeDefined();
     });
 
-    it("exports to PDF successfully", async () => {
+    it("only renders supervisor-approved audiences in the PDF", async () => {
       mockCoreRepo.findSeminarById.mockResolvedValue({ id: "s1", thesis: { thesisSupervisors: [] } });
-      mockAudienceRepo.findAudiencesBySeminarId.mockResolvedValue([]);
+      mockAudienceRepo.findAudiencesBySeminarId.mockResolvedValue([
+        {
+          approvedAt: new Date(),
+          student: { user: { fullName: "Mahasiswa Disetujui", identityNumber: "111" } },
+        },
+        {
+          approvedAt: null,
+          student: { user: { fullName: "Mahasiswa Belum Disetujui", identityNumber: "222" } },
+        },
+      ]);
       mockPrisma.user.findFirst.mockResolvedValue({ fullName: "Kadep" });
+
       const res = await exportAudiencesPdf("s1");
-      expect(res).toBeDefined();
+      const html = mockPdf.convertHtmlToPdf.mock.calls[0][0];
+
+      expect(res).toEqual(Buffer.from("fake-pdf"));
+      expect(html).toContain("Mahasiswa Disetujui");
+      expect(html).not.toContain("Mahasiswa Belum Disetujui");
     });
   });
 });

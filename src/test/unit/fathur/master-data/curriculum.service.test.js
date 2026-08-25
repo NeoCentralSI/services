@@ -4,10 +4,17 @@ const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     curriculum: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+      count: vi.fn(),
+    },
+    cpl: {
+      deleteMany: vi.fn(),
+    },
+    studentCplScore: {
       count: vi.fn(),
     },
     $transaction: vi.fn(),
@@ -47,6 +54,7 @@ const CURRICULUM_2 = {
 describe("Curriculum Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.curriculum.findFirst.mockResolvedValue(null);
   });
 
   describe("getAll", () => {
@@ -94,7 +102,14 @@ describe("Curriculum Service", () => {
 
       expect(mockPrisma.curriculum.findUnique).toHaveBeenCalledWith({
         where: { id: CURRICULUM_1.id },
-        include: { _count: { select: { cpls: true } } },
+        include: {
+          _count: { select: { cpls: true } },
+          cpls: {
+            select: {
+              _count: { select: { studentCplScores: true } },
+            },
+          },
+        },
       });
       expect(result).toMatchObject({
         id: CURRICULUM_1.id,
@@ -138,6 +153,95 @@ describe("Curriculum Service", () => {
       expect(result.id).toBe("curriculum-new");
       expect(result.cplCount).toBe(0);
     });
+
+    it("trims the curriculum name before creating", async () => {
+      mockPrisma.curriculum.create.mockResolvedValue({ id: "curriculum-new" });
+      mockPrisma.curriculum.findUnique.mockResolvedValue({
+        id: "curriculum-new",
+        name: "Kurikulum Baru",
+        startYear: 2026,
+        endYear: null,
+        _count: { cpls: 0 },
+      });
+
+      await create({
+        name: "  Kurikulum Baru  ",
+        startYear: 2026,
+        endYear: null,
+      });
+
+      expect(mockPrisma.curriculum.create).toHaveBeenCalledWith({
+        data: {
+          name: "Kurikulum Baru",
+          startYear: 2026,
+          endYear: null,
+        },
+      });
+    });
+
+    it("rejects an invalid year range", async () => {
+      await expect(
+        create({
+          name: "Kurikulum Tidak Valid",
+          startYear: 2026,
+          endYear: 2025,
+        })
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Tahun akhir tidak boleh kurang dari tahun mulai",
+      });
+      expect(mockPrisma.curriculum.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects an overlapping closed year range", async () => {
+      mockPrisma.curriculum.findFirst.mockResolvedValue({ id: "curriculum-existing" });
+
+      await expect(
+        create({
+          name: "Kurikulum Tumpang Tindih",
+          startYear: 2021,
+          endYear: 2026,
+        })
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Rentang tahun kurikulum bertumpang tindih dengan kurikulum lain",
+      });
+      expect(mockPrisma.curriculum.findFirst).toHaveBeenCalledWith({
+        where: {
+          startYear: { lte: 2026 },
+          OR: [
+            { endYear: null },
+            { endYear: { gte: 2021 } },
+          ],
+        },
+        select: { id: true },
+      });
+      expect(mockPrisma.curriculum.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects an overlapping open-ended year range", async () => {
+      mockPrisma.curriculum.findFirst.mockResolvedValue({ id: "curriculum-existing" });
+
+      await expect(
+        create({
+          name: "Kurikulum Aktif Tumpang Tindih",
+          startYear: 2026,
+          endYear: null,
+        })
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Rentang tahun kurikulum bertumpang tindih dengan kurikulum lain",
+      });
+      expect(mockPrisma.curriculum.findFirst).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { endYear: null },
+            { endYear: { gte: 2026 } },
+          ],
+        },
+        select: { id: true },
+      });
+    });
   });
 
   describe("update", () => {
@@ -166,12 +270,101 @@ describe("Curriculum Service", () => {
       expect(result.endYear).toBe(2027);
     });
 
+    it("allows renaming a curriculum that already has student CPL scores", async () => {
+      const curriculumWithScores = {
+        ...CURRICULUM_1,
+        cpls: [{ _count: { studentCplScores: 1 } }],
+        _count: { cpls: 1 },
+      };
+      mockPrisma.curriculum.findUnique
+        .mockResolvedValueOnce(curriculumWithScores)
+        .mockResolvedValueOnce({
+          ...curriculumWithScores,
+          name: "Kurikulum OBE",
+        });
+      mockPrisma.curriculum.update.mockResolvedValue({
+        ...curriculumWithScores,
+        name: "Kurikulum OBE",
+      });
+
+      await expect(
+        update(CURRICULUM_1.id, { name: "Kurikulum OBE" })
+      ).resolves.toMatchObject({ name: "Kurikulum OBE", hasRelatedScores: true });
+      expect(mockPrisma.curriculum.update).toHaveBeenCalledWith({
+        where: { id: CURRICULUM_1.id },
+        data: { name: "Kurikulum OBE" },
+      });
+      expect(mockPrisma.curriculum.findFirst).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [{ startYear: 2020 }],
+      [{ endYear: 2027 }],
+      [{ endYear: null }],
+    ])("rejects year-range changes after student CPL scores exist", async (payload) => {
+      mockPrisma.curriculum.findUnique.mockResolvedValue({
+        ...CURRICULUM_1,
+        cpls: [{ _count: { studentCplScores: 1 } }],
+        _count: { cpls: 1 },
+      });
+
+      await expect(update(CURRICULUM_1.id, payload)).rejects.toMatchObject({
+        statusCode: 400,
+        message:
+          "Tahun berlaku kurikulum tidak dapat diubah karena CPL terkait sudah memiliki nilai mahasiswa",
+      });
+      expect(mockPrisma.curriculum.update).not.toHaveBeenCalled();
+      expect(mockPrisma.curriculum.findFirst).not.toHaveBeenCalled();
+    });
+
     it("throws NotFoundError if updating non-existent curriculum", async () => {
       mockPrisma.curriculum.findUnique.mockResolvedValue(null);
 
       await expect(update("non-existent", { name: "test" })).rejects.toMatchObject({
         statusCode: 404,
       });
+    });
+
+    it("rejects a partial update that makes the persisted year range invalid", async () => {
+      mockPrisma.curriculum.findUnique.mockResolvedValue({
+        ...CURRICULUM_1,
+        _count: { cpls: 2 },
+      });
+
+      await expect(update(CURRICULUM_1.id, { startYear: 2027 })).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Tahun akhir tidak boleh kurang dari tahun mulai",
+      });
+      expect(mockPrisma.curriculum.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects an update that overlaps another curriculum year range", async () => {
+      mockPrisma.curriculum.findUnique.mockResolvedValue({
+        ...CURRICULUM_1,
+        _count: { cpls: 2 },
+      });
+      mockPrisma.curriculum.findFirst.mockResolvedValue({ id: CURRICULUM_2.id });
+
+      await expect(
+        update(CURRICULUM_1.id, {
+          startYear: CURRICULUM_2.startYear,
+          endYear: CURRICULUM_2.endYear,
+        })
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Rentang tahun kurikulum bertumpang tindih dengan kurikulum lain",
+      });
+      expect(mockPrisma.curriculum.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: { not: CURRICULUM_1.id },
+          OR: [
+            { endYear: null },
+            { endYear: { gte: CURRICULUM_2.startYear } },
+          ],
+        },
+        select: { id: true },
+      });
+      expect(mockPrisma.curriculum.update).not.toHaveBeenCalled();
     });
   });
 
@@ -181,25 +374,47 @@ describe("Curriculum Service", () => {
         ...CURRICULUM_2,
         _count: { cpls: 0 },
       });
-      mockPrisma.curriculum.delete.mockResolvedValue(CURRICULUM_2);
+      mockPrisma.studentCplScore.count.mockResolvedValue(0);
+      mockPrisma.cpl.deleteMany.mockReturnValue({ operation: "delete-cpls" });
+      mockPrisma.curriculum.delete.mockReturnValue({ operation: "delete-curriculum" });
+      mockPrisma.$transaction.mockResolvedValue([{ count: 0 }, CURRICULUM_2]);
 
       await remove(CURRICULUM_2.id);
 
-      expect(mockPrisma.curriculum.delete).toHaveBeenCalledWith({
-        where: { id: CURRICULUM_2.id },
+      expect(mockPrisma.cpl.deleteMany).toHaveBeenCalledWith({
+        where: { curriculumId: CURRICULUM_2.id },
       });
     });
 
-    it("throws ValidationError if trying to delete curriculum with CPLs", async () => {
+    it("deletes curriculum and its CPLs when none have student scores", async () => {
       mockPrisma.curriculum.findUnique.mockResolvedValue({
         ...CURRICULUM_1,
         _count: { cpls: 5 },
       });
+      mockPrisma.studentCplScore.count.mockResolvedValue(0);
+      mockPrisma.cpl.deleteMany.mockReturnValue({ operation: "delete-cpls" });
+      mockPrisma.curriculum.delete.mockReturnValue({ operation: "delete-curriculum" });
+      mockPrisma.$transaction.mockResolvedValue([{ count: 5 }, CURRICULUM_1]);
+
+      await expect(remove(CURRICULUM_1.id)).resolves.toEqual(CURRICULUM_1);
+      expect(mockPrisma.cpl.deleteMany).toHaveBeenCalledWith({
+        where: { curriculumId: CURRICULUM_1.id },
+      });
+    });
+
+    it("throws ValidationError when a related CPL has student scores", async () => {
+      mockPrisma.curriculum.findUnique.mockResolvedValue({
+        ...CURRICULUM_1,
+        _count: { cpls: 5 },
+      });
+      mockPrisma.studentCplScore.count.mockResolvedValue(1);
 
       await expect(remove(CURRICULUM_1.id)).rejects.toMatchObject({
         statusCode: 400,
+        message: "Tidak dapat menghapus kurikulum karena CPL terkait sudah memiliki nilai mahasiswa",
       });
       expect(mockPrisma.curriculum.delete).not.toHaveBeenCalled();
+      expect(mockPrisma.cpl.deleteMany).not.toHaveBeenCalled();
     });
 
     it("throws NotFoundError if deleting non-existent curriculum", async () => {

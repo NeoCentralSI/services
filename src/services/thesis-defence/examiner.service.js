@@ -3,6 +3,7 @@ import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repo
 import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import prisma from "../../config/prisma.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 
 // ============================================================
 // HELPERS
@@ -22,10 +23,34 @@ function resolveSupervisorMembership(supervisorRelation) {
   return supervisorRelation;
 }
 
+function parseAndValidateScore(scoreInput, maxScore, criterionName) {
+  if (
+    scoreInput === null ||
+    scoreInput === undefined ||
+    typeof scoreInput === "boolean" ||
+    (typeof scoreInput === "string" && scoreInput.trim() === "") ||
+    Array.isArray(scoreInput) ||
+    (typeof scoreInput === "object" && scoreInput !== null)
+  ) {
+    throwError(`Nilai untuk '${criterionName || "kriteria"}' tidak valid.`, 400);
+  }
+
+  const num = Number(scoreInput);
+  if (!Number.isFinite(num)) {
+    throwError(`Nilai untuk '${criterionName || "kriteria"}' tidak valid.`, 400);
+  }
+
+  if (num < 0 || num > maxScore) {
+    throwError(`Nilai untuk '${criterionName || "kriteria"}' harus 0-${maxScore}.`, 400);
+  }
+
+  return num;
+}
+
 function groupAssessmentDetailsByCpmk(details = []) {
   const byGroup = {};
   details.forEach((item) => {
-    const cpmk = item.criteria?.cpmk;
+    const cpmk = item.criteria?.thesisCpmk;
     if (!cpmk) return;
     const groupKey = cpmk.code || cpmk.id;
     if (!byGroup[groupKey]) {
@@ -51,6 +76,53 @@ function groupAssessmentDetailsByCpmk(details = []) {
   return Object.values(byGroup).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
 }
 
+export async function resolveDefenceAssessmentConfiguration(defenceId) {
+  const defence = await prisma.thesisDefence.findUnique({
+    where: { id: defenceId },
+    select: {
+      id: true,
+      requirementDocuments: {
+        select: {
+          requirement: {
+            select: { academicYearId: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+
+  const requirementAcademicYearIds = Array.from(
+    new Set(
+      (defence.requirementDocuments || [])
+        .map((doc) => doc.requirement?.academicYearId)
+        .filter(Boolean)
+    )
+  );
+
+  if (requirementAcademicYearIds.length > 1) {
+    throwError("Terdapat ketidakcocokan tahun akademik pada dokumen persyaratan sidang.", 409);
+  }
+
+  let academicYearId = requirementAcademicYearIds[0] || null;
+  if (!academicYearId) {
+    const activeAy = await getActiveAcademicYear();
+    academicYearId = activeAy?.id || null;
+  }
+
+  if (!academicYearId) {
+    throwError("Tahun akademik untuk penilaian sidang belum tersedia. Hubungi Admin.", 400);
+  }
+
+  const minimumPassingScore = await examinerRepo.findDefenceMinimumScore(academicYearId);
+  if (minimumPassingScore === null || minimumPassingScore === undefined) {
+    throwError("Nilai minimum kelulusan sidang untuk tahun akademik ini belum dikonfigurasi.", 400);
+  }
+
+  return { academicYearId, minimumPassingScore: Number(minimumPassingScore) };
+}
+
 // ============================================================
 // PUBLIC: Eligible Examiners
 // ============================================================
@@ -63,7 +135,6 @@ export async function getEligibleExaminers(defenceId) {
   const lecturerIds = lecturers.map((l) => l.id);
   if (lecturerIds.length === 0) return [];
 
-  // Find examiners from the student's passed Thesis Seminar for continuity
   let previousExaminerIds = [];
   const currentThesis = await prisma.thesis.findUnique({
     where: { id: defence.thesisId },
@@ -76,7 +147,7 @@ export async function getEligibleExaminers(defenceId) {
         status: { in: ['passed', 'passed_with_revision'] },
       },
       include: { examiners: { select: { lecturerId: true } } },
-      orderBy: { date: 'desc' }, // Latest passed seminar
+      orderBy: { date: 'desc' },
     });
     if (passedSeminar) {
       passedSeminar.examiners.forEach((e) => {
@@ -98,13 +169,18 @@ export async function getEligibleExaminers(defenceId) {
         lecturerId: { in: lecturerIds },
         availabilityStatus: { in: ["pending", "available"] },
         seminar: {
+          status: { in: ["scheduled", "verified"] },
           date: { gte: now, lte: oneMonthLater },
-          status: { notIn: ["cancelled"] },
         },
       },
       include: {
         seminar: {
-          include: { thesis: { include: { student: { include: { user: true } } } } },
+          select: {
+            date: true,
+            startTime: true,
+            endTime: true,
+            thesis: { select: { student: { select: { user: { select: { fullName: true } } } } } },
+          },
         },
       },
     }),
@@ -113,29 +189,36 @@ export async function getEligibleExaminers(defenceId) {
         lecturerId: { in: lecturerIds },
         availabilityStatus: { in: ["pending", "available"] },
         defence: {
+          status: { in: ["scheduled", "verified", "examiner_assigned"] },
           date: { gte: now, lte: oneMonthLater },
-          status: { notIn: ["cancelled"] },
         },
       },
       include: {
         defence: {
-          include: { thesis: { include: { student: { include: { user: true } } } } },
+          select: {
+            date: true,
+            startTime: true,
+            endTime: true,
+            thesis: { select: { student: { select: { user: { select: { fullName: true } } } } } },
+          },
         },
       },
     }),
   ]);
 
   const DAY_LABELS = {
-    monday: "Senin",
-    tuesday: "Selasa",
-    wednesday: "Rabu",
-    thursday: "Kamis",
-    friday: "Jumat",
+    MONDAY: "Senin",
+    TUESDAY: "Selasa",
+    WEDNESDAY: "Rabu",
+    THURSDAY: "Kamis",
+    FRIDAY: "Jumat",
+    SATURDAY: "Sabtu",
+    SUNDAY: "Minggu",
   };
 
-  const formatTimeHHMM = (value) => {
-    if (!value) return null;
-    const d = new Date(value);
+  const formatTimeHHMM = (isoString) => {
+    if (!isoString) return "--:--";
+    const d = new Date(isoString);
     return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
   };
 
@@ -276,7 +359,6 @@ export async function assignExaminers(defenceId, examinerIds, assignedByUserId) 
     }
   });
 
-  // Notifications for newly added examiners
   try {
     const studentName = defence.thesis?.student?.user?.fullName || "Mahasiswa";
     const studentUserId = defence.thesis?.studentId;
@@ -298,20 +380,19 @@ export async function assignExaminers(defenceId, examinerIds, assignedByUserId) 
 
     if (addedExaminerIds.length > 0 && studentUserId) {
       const title = "Penetapan Penguji Sidang TA";
-      const message = "Dosen penguji untuk sidang TA Anda telah ditetapkan. Menunggu konfirmasi kesediaan dari penguji.";
+      const message = `Penguji sidang tugas akhir Anda telah ditetapkan oleh Ketua Departemen.`;
       await Promise.all([
         import("../notification.service.js").then((m) => m.createNotificationsForUsers([studentUserId], { title, message })),
         import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_examiner_assigned_student" } })),
       ]);
     }
   } catch (err) {
-    console.error("[Notification Error] Failed to notify stakeholders on defence examiner assignment:", err.message);
+    console.error("[Notification Error] Failed to notify on examiner assignment:", err.message);
   }
 
-  // Auto-transition if all assigned examiners are available
   const activeExaminers = await examinerRepo.findActiveExaminersByDefence(defenceId);
   const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
-  
+
   if (defence.status !== "scheduled") {
     const targetStatus = allAvailable ? "examiner_assigned" : "verified";
     if (defence.status !== targetStatus) await coreRepo.updateDefenceStatus(defenceId, targetStatus);
@@ -337,18 +418,16 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
 
   await examinerRepo.updateExaminerAvailability(examinerId, status, unavailableReasons);
 
-  // Auto-transition if all assigned examiners are available
   const activeExaminers = await examinerRepo.findActiveExaminersByDefence(examiner.thesisDefenceId);
   const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
   let defenceTransitioned = false;
-  
+
   const defence = await coreRepo.findDefenceBasicById(examiner.thesisDefenceId);
   if (allAvailable && defence && defence.status !== "scheduled") {
     await coreRepo.updateDefenceStatus(examiner.thesisDefenceId, "examiner_assigned");
     defenceTransitioned = true;
   }
 
-  // Notifications
   try {
     const thesis = await prisma.thesis.findUnique({
       where: { id: defence.thesisId },
@@ -369,7 +448,6 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
     });
     const lecturerName = lecturerRecord?.user?.fullName || "Dosen Penguji";
 
-    // 1. Notify Kadep if unavailable (needs reassignment)
     if (status === "unavailable") {
       const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
       if (kadepIds.length > 0) {
@@ -382,7 +460,6 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
       }
     }
 
-    // 2. Notify Student, Admin, and Supervisors if all confirmed (ready for scheduling)
     if (defenceTransitioned) {
       const title = "Penguji Sidang TA Lengkap";
       const message = `Seluruh penguji untuk sidang TA ${studentName} telah bersedia hadir. Menunggu penetapan jadwal oleh Admin.`;
@@ -390,7 +467,7 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
       if (studentUserId) {
         await Promise.all([
           import("../notification.service.js").then((m) => m.createNotificationsForUsers([studentUserId], { title, message })),
-          import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_all_examiners_available" } })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_all_examiners_available_student" } })),
         ]);
       }
 
@@ -423,6 +500,9 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
 export async function getAssessment(defenceId, user) {
   const defence = await coreRepo.findDefenceById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian penilaian tidak tersedia untuk data arsip sidang.", 400);
+  }
 
   const effectiveStatus = computeEffectiveDefenceStatus(
     defence.status,
@@ -439,29 +519,61 @@ export async function getAssessment(defenceId, user) {
     );
   }
 
-  const examiner = await examinerRepo.findLatestExaminerByDefenceAndLecturer(
-    defenceId,
-    user.lecturerId
-  );
-  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(
-    defenceId,
-    user.lecturerId
-  );
+  const isFinalized =
+    ["passed", "passed_with_revision", "failed"].includes(effectiveStatus) ||
+    !!defence.resultFinalizedAt;
+
+  const examiner = user.lecturerId
+    ? await examinerRepo.findLatestExaminerByDefenceAndLecturer(defenceId, user.lecturerId)
+    : null;
+  const supervisorRelation = user.lecturerId
+    ? await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId)
+    : null;
   const mySupervisor = resolveSupervisorMembership(supervisorRelation);
 
   const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
-  const isAdmin = user.roles?.some(r => adminRoleNames.includes(r.toLowerCase())) || 
-                  adminRoleNames.includes(String(user.role || "").toLowerCase());
+  const isAdmin =
+    user.roles?.some((r) => adminRoleNames.includes(String(r.name || r).toLowerCase())) ||
+    adminRoleNames.includes(String(user.role || "").toLowerCase());
   const isExaminer = !!examiner && examiner.availabilityStatus === "available";
   const isSupervisor = !!mySupervisor;
-  const isStudent = user.studentId && defence.thesis?.studentId === user.studentId;
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
+
+  if (!isFinalized && isStudent) {
+    throwError("Penilaian sidang belum selesai dan belum difinalisasi.", 403);
+  }
 
   if (!isExaminer && !isSupervisor && !isAdmin && !isStudent) {
     throwError("Anda tidak memiliki akses ke form penilaian ini.", 403);
   }
 
-  const assessorRole = isExaminer ? "examiner" : isSupervisor ? "supervisor" : "examiner";
-  const cpmks = await examinerRepo.findDefenceAssessmentCpmks(assessorRole);
+  const { academicYearId, minimumPassingScore } = await resolveDefenceAssessmentConfiguration(defenceId);
+
+  const assessorRole = isExaminer ? "examiner" : isSupervisor ? "supervisor" : "viewer";
+
+  if (assessorRole === "viewer") {
+    return {
+      defence: {
+        id: defence.id,
+        status: effectiveStatus,
+        studentName: defence.thesis?.student?.user?.fullName || "-",
+        studentNim: defence.thesis?.student?.user?.identityNumber || "-",
+        thesisTitle: defence.thesis?.title || "-",
+        date: defence.date,
+        startTime: defence.startTime,
+        endTime: defence.endTime,
+        room: defence.room ? { id: defence.room.id, name: defence.room.name } : null,
+      },
+      assessorRole: "viewer",
+      examiner: null,
+      supervisor: null,
+      criteriaGroups: [],
+      minimumPassingScore,
+    };
+  }
+
+  const cpmks = await examinerRepo.findDefenceAssessmentCpmks(academicYearId, assessorRole);
 
   let existingScoreMap = new Map();
   if (assessorRole === "examiner") {
@@ -538,6 +650,7 @@ export async function getAssessment(defenceId, user) {
           }
         : null,
     criteriaGroups,
+    minimumPassingScore,
   };
 }
 
@@ -568,12 +681,18 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
   if (!isExaminer && !isSupervisor) throwError("Anda bukan penilai aktif pada sidang ini.", 403);
 
   const role = isExaminer ? "examiner" : "supervisor";
-  const cpmks = await examinerRepo.findDefenceAssessmentCpmks(role);
+  const { academicYearId } = await resolveDefenceAssessmentConfiguration(defenceId);
+  const cpmks = await examinerRepo.findDefenceAssessmentCpmks(academicYearId, role);
   const activeCriteria = cpmks.flatMap((cpmk) => cpmk.assessmentCriterias || []);
-  const criteriaMap = new Map(activeCriteria.map((item) => [item.id, item]));
+  if (activeCriteria.length === 0) {
+    throwError("Rubrik penilaian sidang untuk tahun akademik ini belum dikonfigurasi.", 400);
+  }
 
+  const criteriaMap = new Map(activeCriteria.map((item) => [item.id, item]));
   const incoming = payload.scores || [];
-  if (incoming.length !== activeCriteria.length) {
+  const isDraft = !!payload.isDraft;
+
+  if (!isDraft && incoming.length !== activeCriteria.length) {
     throwError("Semua kriteria aktif harus diisi sebelum submit.", 400);
   }
 
@@ -583,11 +702,9 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
     if (!criterion) throwError("Terdapat kriteria yang tidak valid.", 400);
     if (seen.has(item.assessmentCriteriaId)) throwError("Duplikasi kriteria pada payload penilaian.", 400);
     seen.add(item.assessmentCriteriaId);
-    const max = criterion.maxScore || 0;
-    if (item.score < 0 || item.score > max) {
-      throwError(`Nilai untuk '${criterion.name || "kriteria"}' harus 0-${max}.`, 400);
-    }
-    return { assessmentCriteriaId: item.assessmentCriteriaId, score: item.score };
+
+    const scoreNum = parseAndValidateScore(item.score, criterion.maxScore || 0, criterion.name);
+    return { assessmentCriteriaId: item.assessmentCriteriaId, score: scoreNum };
   });
 
   if (role === "examiner") {
@@ -598,7 +715,7 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
       examinerId: examiner.id,
       scores: normalizedScores,
       revisionNotes: payload.revisionNotes,
-      isDraft: !!payload.isDraft,
+      isDraft,
     });
     return {
       assessorRole: "examiner",
@@ -608,21 +725,21 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
     };
   }
 
-  if (defence.supervisorAssessmentSubmittedAt && !payload.isDraft) {
-    throwError("Penilaian pembimbing sudah disubmit sebelumnya dan tidak dapat diubah.", 400);
+  if (defence.supervisorAssessmentSubmittedAt) {
+    throwError("Penilaian pembimbing sudah disubmit dan tidak dapat diubah.", 400);
   }
 
   const updated = await coreRepo.saveDefenceSupervisorAssessment({
     defenceId,
     scores: normalizedScores,
     supervisorNotes: payload.supervisorNotes,
-    isDraft: !!payload.isDraft,
+    isDraft,
   });
   return {
     assessorRole: "supervisor",
     defenceId: updated.id,
     assessmentScore: updated.supervisorScore,
-    assessmentSubmittedAt: updated.updatedAt,
+    assessmentSubmittedAt: updated.supervisorAssessmentSubmittedAt,
   };
 }
 
@@ -633,18 +750,22 @@ export async function submitAssessment(defenceId, payload, lecturerId) {
 export async function getFinalizationData(defenceId, user) {
   const defence = await coreRepo.findDefenceById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian penilaian tidak tersedia untuk data arsip sidang.", 400);
+  }
 
-  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId);
+  const { minimumPassingScore } = await resolveDefenceAssessmentConfiguration(defenceId);
+
+  const supervisorRelation = user.lecturerId ? await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId) : null;
   const mySupervisor = resolveSupervisorMembership(supervisorRelation);
 
-  // Check Permissions
   const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
-  const isAdmin = user.roles?.some(r => adminRoleNames.includes(r.toLowerCase())) || 
+  const isAdmin = user.roles?.some(r => adminRoleNames.includes(String(r.name || r).toLowerCase())) ||
                   adminRoleNames.includes(String(user.role || "").toLowerCase());
-  
-  const isStudent = user.studentId && defence.thesis?.studentId === user.studentId;
-  const isExaminer =
-    user.lecturerId && (defence.examiners || []).some((ex) => ex.lecturerId === user.lecturerId);
+
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
+  const isExaminer = user.lecturerId && (defence.examiners || []).some((ex) => ex.lecturerId === user.lecturerId);
   const isSupervisor = !!mySupervisor;
 
   if (!isAdmin && !isStudent && !isExaminer && !isSupervisor) {
@@ -676,6 +797,25 @@ export async function getFinalizationData(defenceId, user) {
     ? (examinerAverageScore || 0) + (defence.supervisorScore || 0)
     : null;
 
+  const isFinalized = ["passed", "passed_with_revision", "failed"].includes(effectiveStatus);
+
+  const primarySupervisor =
+    (defence.thesis?.thesisSupervisors || []).find(
+      (ts) => ts.role?.name?.toLowerCase().includes("1") || ts.role?.name?.toLowerCase().includes("utama")
+    ) || defence.thesis?.thesisSupervisors?.[0];
+
+  const supervisorName =
+    defence.resultFinalizer?.lecturer?.user?.fullName ||
+    mySupervisor?.lecturer?.user?.fullName ||
+    primarySupervisor?.lecturer?.user?.fullName ||
+    "-";
+
+  const supervisorRoleName =
+    defence.resultFinalizer?.role?.name ||
+    mySupervisor?.role?.name ||
+    primarySupervisor?.role?.name ||
+    "Pembimbing";
+
   return {
     defence: {
       id: defence.id,
@@ -694,24 +834,27 @@ export async function getFinalizationData(defenceId, user) {
       thesisTitle: defence.thesis?.title || "-",
     },
     supervisor: {
-      roleName: mySupervisor?.role?.name || "Pembimbing",
-      name: mySupervisor?.lecturer?.user?.fullName || "-",
+      roleName: supervisorRoleName,
+      name: supervisorName,
       canFinalize:
         isSupervisor && effectiveStatus === "ongoing" && !defence.resultFinalizedAt,
     },
     examiners: examiners.map((item) => {
       const isSubmitted = !!item.assessmentSubmittedAt;
+      const canSeeDetails = isFinalized || isAdmin || isSupervisor || item.lecturerId === user.lecturerId;
       return {
         id: item.id,
         lecturerId: item.lecturerId,
         lecturerName:
           (defence.examiners || []).find((x) => x.lecturerId === item.lecturerId)?.lecturerName || "-",
         order: item.order,
-        assessmentScore: item.assessmentScore,
-        revisionNotes: item.revisionNotes,
+        assessmentScore: canSeeDetails ? item.assessmentScore : null,
+        revisionNotes: canSeeDetails ? item.revisionNotes : null,
         assessmentSubmittedAt: item.assessmentSubmittedAt,
         isDraft: !isSubmitted && item.assessmentScore !== null,
-        assessmentDetails: groupAssessmentDetailsByCpmk(item.thesisDefenceExaminerAssessmentDetails || []),
+        assessmentDetails: canSeeDetails
+          ? groupAssessmentDetailsByCpmk(item.thesisDefenceExaminerAssessmentDetails || [])
+          : [],
       };
     }),
     supervisorAssessment: {
@@ -723,6 +866,7 @@ export async function getFinalizationData(defenceId, user) {
     allExaminerSubmitted,
     supervisorAssessmentSubmitted,
     recommendationUnlocked,
+    minimumPassingScore,
   };
 }
 
@@ -749,6 +893,8 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
     throwError("Penetapan hasil hanya dapat dilakukan saat sidang berstatus sedang berlangsung.", 400);
   }
 
+  const { minimumPassingScore } = await resolveDefenceAssessmentConfiguration(defenceId);
+
   const examiners = await examinerRepo.findActiveExaminersWithAssessments(defenceId);
   const allExaminerSubmitted =
     examiners.length >= 2 &&
@@ -756,7 +902,7 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
   if (!allExaminerSubmitted) {
     throwError("Penetapan hasil dikunci sampai seluruh penguji submit nilai.", 400);
   }
-  if (defence.supervisorScore === null) {
+  if (defence.supervisorScore === null || !defence.supervisorAssessmentSubmittedAt) {
     throwError("Penetapan hasil dikunci sampai pembimbing submit penilaian.", 400);
   }
 
@@ -766,9 +912,8 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
   const finalScore = examinerAverageScore + supervisorScore;
   const finalGrade = mapScoreToGrade(finalScore);
 
-  // Determine status based on business rules
   let targetStatus = "passed";
-  if (finalScore < 55) {
+  if (finalScore < minimumPassingScore) {
     targetStatus = "failed";
   } else if (payload.recommendRevision) {
     targetStatus = "passed_with_revision";
@@ -784,13 +929,12 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
     resultFinalizedBy: mySupervisor.id,
   });
 
-  if (payload.status === "failed") {
-    const thesisId = defence.thesis?.id;
-    if (thesisId) {
-      await prisma.thesisSupervisors.updateMany({
-        where: { thesisId },
-        data: { defenceReady: false },
-      });
+  if (targetStatus === "passed_with_revision") {
+    try {
+      const { initiateRevisionItems } = await import("./revision.service.js");
+      await initiateRevisionItems(defenceId);
+    } catch (err) {
+      console.error("[Revision Init Error] Failed to auto-generate revision items:", err.message);
     }
   }
 
@@ -802,5 +946,6 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
     finalScore: finalized.finalScore,
     grade: finalized.grade,
     resultFinalizedAt: finalized.resultFinalizedAt,
+    minimumPassingScore,
   };
 }

@@ -60,6 +60,19 @@ export async function runSiaSync() {
     cplSkippedUnknownCode: 0,
     cplUnmatchedCodes: 0,
     cplSkippedProtected: 0,
+    cplUnchanged: 0,
+    cplSkippedMissingEnrollmentYear: 0,
+    cplSkippedNoCurriculum: 0,
+    cplSkippedAmbiguousCurriculum: 0,
+    cplSkippedMissingDescription: 0,
+    cplSkippedDescriptionMismatch: 0,
+    cplSkippedNoActiveVersion: 0,
+    cplSkippedAmbiguousActiveVersion: 0,
+    cplSkippedMultipleExistingVersions: 0,
+    cplSkippedInvalidScore: 0,
+    cplSkippedInvalidTimestamp: 0,
+    cplSkippedStaleData: 0,
+    cplSkippedTimestampConflict: 0,
     cleaned: 0,
     error: "",
     durationMs: 0,
@@ -67,7 +80,7 @@ export async function runSiaSync() {
 
   try {
     console.log("🔄 Starting SIA sync...");
-    
+
     // Fetch with retry logic
     const data = await fetchStudentsFull(3);
     summary.fetched = Array.isArray(data) ? data.length : 0;
@@ -108,9 +121,22 @@ export async function runSiaSync() {
     summary.cplSkippedUnknownCode = cplResult.skippedUnknownCode;
     summary.cplUnmatchedCodes = cplResult.unmatchedCodes;
     summary.cplSkippedProtected = cplResult.skippedProtected;
+    summary.cplUnchanged = cplResult.unchanged;
+    summary.cplSkippedMissingEnrollmentYear = cplResult.skippedMissingEnrollmentYear;
+    summary.cplSkippedNoCurriculum = cplResult.skippedNoCurriculum;
+    summary.cplSkippedAmbiguousCurriculum = cplResult.skippedAmbiguousCurriculum;
+    summary.cplSkippedMissingDescription = cplResult.skippedMissingDescription;
+    summary.cplSkippedDescriptionMismatch = cplResult.skippedDescriptionMismatch;
+    summary.cplSkippedNoActiveVersion = cplResult.skippedNoActiveVersion;
+    summary.cplSkippedAmbiguousActiveVersion = cplResult.skippedAmbiguousActiveVersion;
+    summary.cplSkippedMultipleExistingVersions = cplResult.skippedMultipleExistingVersions;
+    summary.cplSkippedInvalidScore = cplResult.skippedInvalidScore;
+    summary.cplSkippedInvalidTimestamp = cplResult.skippedInvalidTimestamp;
+    summary.cplSkippedStaleData = cplResult.skippedStaleData;
+    summary.cplSkippedTimestampConflict = cplResult.skippedTimestampConflict;
     if (cplResult.fetched > 0) {
       console.log(
-        `📊 CPL scores: fetched=${cplResult.fetched}, created=${cplResult.created}, updated=${cplResult.updated}, noStudent=${cplResult.skippedNoStudent}, nameMismatch=${cplResult.skippedNameMismatch}, unmatchedCode=${cplResult.unmatchedCodes}, protected=${cplResult.skippedProtected}`
+        `📊 CPL scores: fetched=${cplResult.fetched}, created=${cplResult.created}, updated=${cplResult.updated}, unchanged=${cplResult.unchanged}, noStudent=${cplResult.skippedNoStudent}, noCurriculum=${cplResult.skippedNoCurriculum}, unmatchedCode=${cplResult.unmatchedCodes}, descriptionMismatch=${cplResult.skippedDescriptionMismatch}, protected=${cplResult.skippedProtected}`
       );
     }
 
@@ -461,19 +487,48 @@ async function updateStudentAcademicIndividual(
 
 const normalizeName = (value) =>
   String(value || "")
+    .normalize("NFKC")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
 
 const normalizeCode = (value) =>
   String(value || "")
+    .normalize("NFKC")
     .trim()
     .toUpperCase();
 
+const normalizeDescription = normalizeName;
+
 const parseInputAt = (value) => {
-  const parsed = value ? new Date(value) : new Date();
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
+
+const emptyCplResult = (fetched = 0) => ({
+  fetched,
+  created: 0,
+  updated: 0,
+  unchanged: 0,
+  skippedNoStudent: 0,
+  skippedNameMismatch: 0,
+  skippedMissingEnrollmentYear: 0,
+  skippedNoCurriculum: 0,
+  skippedAmbiguousCurriculum: 0,
+  skippedMissingDescription: 0,
+  skippedUnknownCode: 0,
+  unmatchedCodes: 0,
+  skippedDescriptionMismatch: 0,
+  skippedNoActiveVersion: 0,
+  skippedAmbiguousActiveVersion: 0,
+  skippedMultipleExistingVersions: 0,
+  skippedInvalidScore: 0,
+  skippedInvalidTimestamp: 0,
+  skippedStaleData: 0,
+  skippedTimestampConflict: 0,
+  skippedProtected: 0,
+});
 
 /**
  * Batch upsert student CPL scores from SIA payload.
@@ -495,180 +550,209 @@ async function updateStudentCplScoresBatch(stamped) {
     }
   }
 
-  if (rawRows.length === 0) {
-    return {
-      fetched: 0,
-      created: 0,
-      updated: 0,
-      skippedNoStudent: 0,
-      skippedNameMismatch: 0,
-      skippedUnknownCode: 0,
-      unmatchedCodes: 0,
-      skippedProtected: 0,
-    };
-  }
+  if (rawRows.length === 0) return emptyCplResult();
+
+  const result = emptyCplResult(rawRows.length);
 
   const nims = [...new Set(rawRows.map((item) => item.nim).filter(Boolean))];
   const users = await prisma.user.findMany({
     where: { identityNumber: { in: nims } },
-    select: { id: true, identityNumber: true, fullName: true },
+    select: {
+      id: true,
+      identityNumber: true,
+      fullName: true,
+      student: { select: { id: true, enrollmentYear: true } },
+    },
   });
-
-  const studentIds = users.map((user) => user.id);
-  const students = await prisma.student.findMany({
-    where: { id: { in: studentIds } },
-    select: { id: true },
-  });
-  const existingStudentIdSet = new Set(students.map((student) => student.id));
 
   const nimToUser = new Map(
     users
-      .filter((user) => existingStudentIdSet.has(user.id))
+      .filter((user) => user.student)
       .map((user) => [user.identityNumber, user])
   );
 
-  const cpls = await prisma.cpl.findMany({
-    where: { isActive: true, code: { not: null } },
-    select: { id: true, code: true },
+  const curricula = await prisma.curriculum.findMany({
+    select: { id: true, name: true, startYear: true, endYear: true },
   });
-  const codeToCplId = new Map(cpls.map((cpl) => [normalizeCode(cpl.code), cpl.id]));
 
-  let skippedNoStudent = 0;
-  let skippedNameMismatch = 0;
-  let skippedUnknownCode = 0;
+  const cpls = await prisma.cpl.findMany({
+    select: {
+      id: true,
+      curriculumId: true,
+      code: true,
+      description: true,
+      version: true,
+      isActive: true,
+    },
+  });
 
-  const candidates = [];
+  const cplById = new Map(cpls.map((cpl) => [cpl.id, cpl]));
+  const cplsByCurriculumAndCode = new Map();
+  for (const cpl of cpls) {
+    const key = `${cpl.curriculumId}::${normalizeCode(cpl.code)}`;
+    const versions = cplsByCurriculumAndCode.get(key) || [];
+    versions.push(cpl);
+    cplsByCurriculumAndCode.set(key, versions);
+  }
+
+  const studentIds = [...new Set(users.filter((user) => user.student).map((user) => user.id))];
+  const cplIds = cpls.map((cpl) => cpl.id);
+  const existingScores = studentIds.length && cplIds.length
+    ? await prisma.studentCplScore.findMany({
+        where: { studentId: { in: studentIds }, cplId: { in: cplIds } },
+        select: {
+          studentId: true,
+          cplId: true,
+          score: true,
+          inputAt: true,
+          source: true,
+          status: true,
+        },
+      })
+    : [];
+
+  const scoresByStudentLogicalCpl = new Map();
+  for (const score of existingScores) {
+    const cpl = cplById.get(score.cplId);
+    if (!cpl) continue;
+    const key = `${score.studentId}::${cpl.curriculumId}::${normalizeCode(cpl.code)}`;
+    const scores = scoresByStudentLogicalCpl.get(key) || [];
+    scores.push(score);
+    scoresByStudentLogicalCpl.set(key, scores);
+  }
+
+  const writes = [];
   for (const item of rawRows) {
     const user = nimToUser.get(item.nim);
     if (!user) {
-      skippedNoStudent += 1;
+      result.skippedNoStudent += 1;
       continue;
     }
 
     const incomingName = normalizeName(item.name);
     const dbName = normalizeName(user.fullName);
     if (incomingName && dbName && incomingName !== dbName) {
-      skippedNameMismatch += 1;
+      result.skippedNameMismatch += 1;
       continue;
     }
 
+    const enrollmentYear = user.student?.enrollmentYear;
+    if (!Number.isInteger(enrollmentYear)) {
+      result.skippedMissingEnrollmentYear += 1;
+      continue;
+    }
+
+    const matchingCurricula = curricula.filter(
+      (curriculum) =>
+        curriculum.startYear <= enrollmentYear &&
+        (curriculum.endYear === null || curriculum.endYear >= enrollmentYear)
+    );
+    if (matchingCurricula.length === 0) {
+      result.skippedNoCurriculum += 1;
+      continue;
+    }
+    if (matchingCurricula.length > 1) {
+      result.skippedAmbiguousCurriculum += 1;
+      continue;
+    }
+
+    const curriculum = matchingCurricula[0];
     const cplCode = normalizeCode(item.row?.code);
-    const cplId = codeToCplId.get(cplCode);
-    if (!cplId) {
-      skippedUnknownCode += 1;
+    const versions = cplsByCurriculumAndCode.get(`${curriculum.id}::${cplCode}`) || [];
+    if (!cplCode || versions.length === 0) {
+      result.skippedUnknownCode += 1;
+      result.unmatchedCodes += 1;
+      continue;
+    }
+
+    const incomingDescription = normalizeDescription(item.row?.description);
+    if (!incomingDescription) {
+      result.skippedMissingDescription += 1;
       continue;
     }
 
     const parsedScore = Number(item.row?.score);
-    if (!Number.isFinite(parsedScore)) {
+    if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > 100) {
+      result.skippedInvalidScore += 1;
       continue;
     }
 
-    candidates.push({
-      studentId: user.id,
-      cplId,
-      score: Math.round(parsedScore),
-      inputAt: parseInputAt(item.row?.inputAt),
-    });
-  }
-
-  if (candidates.length === 0) {
-    return {
-      fetched: rawRows.length,
-      created: 0,
-      updated: 0,
-      skippedNoStudent,
-      skippedNameMismatch,
-      skippedUnknownCode,
-      unmatchedCodes: skippedUnknownCode,
-      skippedProtected: 0,
-    };
-  }
-
-  // Deduplicate by studentId+cplId; keep latest inputAt.
-  const dedupedMap = new Map();
-  for (const candidate of candidates) {
-    const key = `${candidate.studentId}::${candidate.cplId}`;
-    const existing = dedupedMap.get(key);
-    if (!existing || candidate.inputAt > existing.inputAt) {
-      dedupedMap.set(key, candidate);
+    const inputAt = parseInputAt(item.row?.inputAt);
+    if (!inputAt) {
+      result.skippedInvalidTimestamp += 1;
+      continue;
     }
-  }
-  const deduped = [...dedupedMap.values()];
 
-  const targetStudentIds = [...new Set(deduped.map((item) => item.studentId))];
-  const targetCplIds = [...new Set(deduped.map((item) => item.cplId))];
-  const existingScores = await prisma.studentCplScore.findMany({
-    where: {
-      studentId: { in: targetStudentIds },
-      cplId: { in: targetCplIds },
-    },
-    select: { studentId: true, cplId: true, source: true, status: true },
-  });
+    const logicalKey = `${user.id}::${curriculum.id}::${cplCode}`;
+    const logicalScores = scoresByStudentLogicalCpl.get(logicalKey) || [];
+    if (logicalScores.length > 1) {
+      result.skippedMultipleExistingVersions += 1;
+      continue;
+    }
 
-  const existingScoreMap = new Map(
-    existingScores.map((row) => [`${row.studentId}::${row.cplId}`, row])
-  );
+    let selectedCpl;
+    let existing;
+    if (logicalScores.length === 1) {
+      existing = logicalScores[0];
+      selectedCpl = cplById.get(existing.cplId);
+    } else {
+      const activeVersions = versions.filter((version) => version.isActive);
+      if (activeVersions.length === 0) {
+        result.skippedNoActiveVersion += 1;
+        continue;
+      }
+      if (activeVersions.length > 1) {
+        result.skippedAmbiguousActiveVersion += 1;
+        continue;
+      }
+      selectedCpl = activeVersions[0];
+    }
 
-  let skippedProtected = 0;
-  let created = 0;
-  let updated = 0;
-  const writes = [];
-  for (const item of deduped) {
-    const key = `${item.studentId}::${item.cplId}`;
-    const existing = existingScoreMap.get(key);
+    if (normalizeDescription(selectedCpl.description) !== incomingDescription) {
+      result.skippedDescriptionMismatch += 1;
+      continue;
+    }
 
     if (!existing) {
-      created += 1;
+      result.created += 1;
       writes.push({
         type: "create",
-        studentId: item.studentId,
-        cplId: item.cplId,
-        score: item.score,
-        inputAt: item.inputAt,
+        studentId: user.id,
+        cplId: selectedCpl.id,
+        score: parsedScore,
+        inputAt,
       });
       continue;
     }
 
-    const isProtected =
-      existing.status === "verified" ||
-      existing.status === "finalized";
-    if (isProtected) {
-      skippedProtected += 1;
+    if (existing.source !== "SIA" || existing.status !== "calculated") {
+      result.skippedProtected += 1;
       continue;
     }
 
-    const canOverwrite = 
-      (existing.source === "SIA" && existing.status === "calculated") || 
-      existing.source === "manual";
-    if (!canOverwrite) {
-      skippedProtected += 1;
+    const storedInputAt = existing.inputAt ? new Date(existing.inputAt) : null;
+    if (storedInputAt && inputAt < storedInputAt) {
+      result.skippedStaleData += 1;
       continue;
     }
 
+    if (storedInputAt && inputAt.getTime() === storedInputAt.getTime()) {
+      if (Number(existing.score) === parsedScore) result.unchanged += 1;
+      else result.skippedTimestampConflict += 1;
+      continue;
+    }
 
-    updated += 1;
+    result.updated += 1;
     writes.push({
       type: "update",
-      studentId: item.studentId,
-      cplId: item.cplId,
-      score: item.score,
-      inputAt: item.inputAt,
+      studentId: user.id,
+      cplId: selectedCpl.id,
+      score: parsedScore,
+      inputAt,
     });
   }
 
-  if (writes.length === 0) {
-    return {
-      fetched: rawRows.length,
-      created,
-      updated: 0,
-      skippedNoStudent,
-      skippedNameMismatch,
-      skippedUnknownCode,
-      unmatchedCodes: skippedUnknownCode,
-      skippedProtected,
-    };
-  }
+  if (writes.length === 0) return result;
 
   const chunkSize = 200;
   for (let i = 0; i < writes.length; i += chunkSize) {
@@ -704,14 +788,5 @@ async function updateStudentCplScoresBatch(stamped) {
     );
   }
 
-  return {
-    fetched: rawRows.length,
-    created,
-    updated,
-    skippedNoStudent,
-    skippedNameMismatch,
-    skippedUnknownCode,
-    unmatchedCodes: skippedUnknownCode,
-    skippedProtected,
-  };
+  return result;
 }

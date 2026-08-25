@@ -3,10 +3,10 @@ import { z } from "zod";
 export const createCriteriaSchema = z.object({
     cpmkId: z.string({ required_error: "CPMK wajib dipilih" }).uuid("CPMK tidak valid"),
     name: z
-        .string()
+        .string({ required_error: "Nama kriteria wajib diisi" })
         .trim()
-        .max(255, "Nama maksimal 255 karakter")
-        .optional(),
+        .min(1, "Nama kriteria wajib diisi")
+        .max(255, "Nama maksimal 255 karakter"),
     maxScore: z
         .number({ required_error: "Skor maksimal wajib diisi" })
         .int("Skor harus berupa bilangan bulat")
@@ -18,6 +18,7 @@ export const updateCriteriaSchema = z.object({
     name: z
         .string()
         .trim()
+        .min(1, "Nama kriteria wajib diisi")
         .max(255, "Nama maksimal 255 karakter")
         .optional(),
     maxScore: z
@@ -31,6 +32,7 @@ export const updateCriteriaSchema = z.object({
 export const createRubricSchema = z.object({
     description: z
         .string({ required_error: "Deskripsi wajib diisi" })
+        .trim()
         .min(1, "Deskripsi tidak boleh kosong")
         .max(1000, "Deskripsi maksimal 1000 karakter"),
     minScore: z
@@ -46,6 +48,7 @@ export const createRubricSchema = z.object({
 export const updateRubricSchema = z.object({
     description: z
         .string()
+        .trim()
         .min(1, "Deskripsi tidak boleh kosong")
         .max(1000, "Deskripsi maksimal 1000 karakter")
         .optional(),

@@ -408,6 +408,7 @@ export async function processImportUserRows(rows) {
 			const identityNumber = clean(row.identityNumber);
 			const rolesStr = clean(row.role);
 			const rawStudentStatus = clean(row.studentStatus);
+			const rawSksCompleted = clean(row.sksCompleted);
 			let identityType = clean(row.identityType).toUpperCase();
 
 			if (!email) throw new Error("Email wajib diisi");
@@ -433,7 +434,9 @@ export async function processImportUserRows(rows) {
 			// If roles is empty, provide sensible default
 			if (roleNames.length === 0) {
 				if (identityType === "NIM") roleNames.push(ROLES.MAHASISWA);
-				else if (identityType === "NIP") roleNames.push(ROLES.DOSEN);
+				else if (identityType === "NIP") {
+					roleNames.push(ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI);
+				}
 			}
 
 			const existingUser = await findUserByEmailOrIdentity(email, identityNumber);
@@ -477,17 +480,23 @@ export async function processImportUserRows(rows) {
 			if (hasStudent) {
 				const studentStatus = normalizeStudentStatus(rawStudentStatus);
 				const enrollmentYear = identityNumber ? deriveEnrollmentYearFromNIM(identityNumber) : null;
+				const parsedSksCompleted = Number.parseInt(rawSksCompleted, 10);
+				const sksCompleted =
+					Number.isInteger(parsedSksCompleted) && parsedSksCompleted >= 0
+						? parsedSksCompleted
+						: 0;
 				await prisma.student.upsert({
 					where: { id: user.id },
 					create: {
 						id: user.id,
 						enrollmentYear,
 						status: studentStatus,
-						sksCompleted: 0,
+						sksCompleted,
 					},
 					update: {
 						status: studentStatus,
 						...(enrollmentYear ? { enrollmentYear } : {}),
+						...(rawSksCompleted ? { sksCompleted } : {}),
 					},
 				});
 			}
@@ -557,6 +566,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 					email: clean(norm.email || "").toLowerCase(),
 					role: clean(norm.role || norm.roles || norm.peran || ""),
 					studentStatus: clean(norm.student_status || norm.status || norm["status mahasiswa"] || norm["status_mahasiswa"] || ""),
+					sksCompleted: clean(norm.sks_completed || norm["sks completed"] || norm.sks || ""),
 					identityType: clean(norm.identity_type || norm.tipe_identitas || norm["tipe identitas"] || ""),
 				});
 			})
@@ -1029,6 +1039,7 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 		prisma.user.findMany({
 			where,
 			skip,
+			take,
 			orderBy: [
 				{ identityType: "desc" },
 				{ identityNumber: "desc" },
@@ -1336,6 +1347,7 @@ export async function importUsersExcel(rows) {
 		identityType: clean(row["Tipe Identitas"] || row["identityType"] || row["identity_type"] || ""),
 		role: clean(row["Role"] || row["role"] || row["roles"] || row["Peran"] || ""),
 		studentStatus: clean(row["Status Mahasiswa"] || row["Status"] || row["student_status"] || row["status"] || row["status_mahasiswa"] || ""),
+		sksCompleted: clean(row["SKS"] || row["SKS Completed"] || row["sksCompleted"] || row["sks_completed"] || ""),
 	}));
 
 	return processImportUserRows(normalizedRows);
@@ -1666,7 +1678,7 @@ export async function getStudentDetail(userId) {
 			source: row.source,
 			status: row.status,
 			inputAt: row.inputAt,
-			verifiedAt: row.verifiedAt,
+			verifiedAt: row.validatedAt,
 			finalizedAt: row.finalizedAt,
 		})),
 		theses,
@@ -1836,9 +1848,16 @@ export async function adminUpdateStudent(id, data) {
 	const updateData = {};
 
 	if (data.status !== undefined) updateData.status = data.status;
-	if (data.sksCompleted !== undefined) updateData.sksCompleted = parseInt(data.sksCompleted);
+	const rawSksCompleted = data.sksCompleted ?? data.skscompleted;
+	if (rawSksCompleted !== undefined) updateData.sksCompleted = parseInt(rawSksCompleted);
 	if (data.enrollmentYear !== undefined) updateData.enrollmentYear = parseInt(data.enrollmentYear);
 	if (data.currentSemester !== undefined) updateData.currentSemester = data.currentSemester === "" ? null : parseInt(data.currentSemester);
+	if (data.gpa !== undefined) updateData.gpa = normalizeGpa(data.gpa);
+	if (data.graduationPredicate !== undefined) {
+		updateData.graduationPredicate = data.graduationPredicate
+			? String(data.graduationPredicate).trim()
+			: null;
+	}
 
 
 	if (data.mandatoryCoursesCompleted !== undefined) updateData.mandatoryCoursesCompleted = !!data.mandatoryCoursesCompleted;

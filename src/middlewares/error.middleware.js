@@ -3,27 +3,33 @@ import generated from "../generated/prisma/index.js";
 const { Prisma } = generated;
 
 function mapPrismaError(err) {
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    const e = new Error("Ukuran file melebihi batas maksimal yang diperbolehkan.");
+    e.statusCode = 400;
+    e.code = err.code;
+    return e;
+  }
   if (err?.statusCode) {
     return err;
   }
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2000") {
-      const e = new Error("Input terlalu panjang untuk kolom database");
+      const e = new Error("Data yang dimasukkan terlalu panjang.");
       e.statusCode = 400;
       e.code = err.code;
       return e;
     }
 
     if (err.code === "P2002") {
-      const e = new Error("Data sudah ada (melanggar unique constraint)");
+      const e = new Error("Data yang sama sudah tersimpan.");
       e.statusCode = 409;
       e.code = err.code;
       return e;
     }
 
     if (err.code === "P2003") {
-      const e = new Error("Referensi data tidak valid");
+      const e = new Error("Data referensi yang dipilih tidak ditemukan atau sudah tidak berlaku.");
       e.statusCode = 400;
       e.code = err.code;
       return e;
@@ -39,7 +45,7 @@ function mapPrismaError(err) {
     }
 
     if (err.code === "P2025") {
-      const e = new Error("Data tidak ditemukan");
+      const e = new Error("Data yang diminta tidak ditemukan.");
       e.statusCode = 404;
       e.code = err.code;
       return e;
@@ -48,8 +54,8 @@ function mapPrismaError(err) {
 
   if (err instanceof Prisma.PrismaClientValidationError) {
     console.error("PrismaClientValidationError Details:", err.message);
-    const e = new Error("Input tidak valid: " + err.message);
-    e.statusCode = 400;
+    const e = new Error("Data permintaan tidak sesuai dengan konfigurasi sistem.");
+    e.statusCode = 500;
     return e;
   }
 
@@ -113,10 +119,13 @@ export default function errorHandler(err, req, res, next) {
   }
 
   // Bentuk respons standar JSON
+  const publicMessage = statusCode >= 500
+    ? (mappedErr !== err ? mappedErr.message : "Terjadi kesalahan pada sistem. Silakan coba lagi.")
+    : message;
   const payload = {
     success: false,
     status: statusCode,
-    message,
+    message: publicMessage || "Permintaan tidak dapat diproses.",
     timestamp: new Date().toISOString(),
     path: req.originalUrl,
   };

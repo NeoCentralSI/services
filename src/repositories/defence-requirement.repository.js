@@ -3,7 +3,7 @@ import prisma from "../config/prisma.js";
 export const findAll = async ({ academicYearId } = {}) => {
     const where = {};
     if (academicYearId) where.academicYearId = academicYearId;
-    
+
     const records = await prisma.thesisDefenceRequirement.findMany({
         where,
         orderBy: { displayOrder: "asc" },
@@ -24,7 +24,7 @@ export const findAll = async ({ academicYearId } = {}) => {
 };
 
 export const findById = async (id) => {
-    const record = await prisma.thesisDefenceRequirement.findUnique({ 
+    const record = await prisma.thesisDefenceRequirement.findUnique({
         where: { id },
         include: {
             _count: {
@@ -53,6 +53,15 @@ export const remove = async (id) => {
     return await prisma.thesisDefenceRequirement.delete({ where: { id } });
 };
 
+export const reorder = async (orderedIds) => {
+    return await prisma.$transaction(
+        orderedIds.map((id, index) => prisma.thesisDefenceRequirement.update({
+            where: { id },
+            data: { displayOrder: index + 1 },
+        }))
+    );
+};
+
 export const copyTemplate = async (sourceAcademicYearId, targetAcademicYearId) => {
     return await prisma.$transaction(async (tx) => {
         const sourceRequirements = await tx.thesisDefenceRequirement.findMany({
@@ -78,11 +87,8 @@ export const copyTemplate = async (sourceAcademicYearId, targetAcademicYearId) =
 
         const newRequirements = sourceRequirements.map((req) => ({
             academicYearId: targetAcademicYearId,
-            code: req.code,
             name: req.name,
             description: req.description,
-            isRequired: req.isRequired,
-            isActive: req.isActive,
             displayOrder: req.displayOrder,
         }));
 
@@ -90,6 +96,9 @@ export const copyTemplate = async (sourceAcademicYearId, targetAcademicYearId) =
             data: newRequirements,
         });
 
-        return newRequirements;
+        return await tx.thesisDefenceRequirement.findMany({
+            where: { academicYearId: targetAcademicYearId },
+            orderBy: { displayOrder: "asc" },
+        });
     });
 };

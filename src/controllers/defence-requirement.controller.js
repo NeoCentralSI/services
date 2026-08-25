@@ -38,8 +38,8 @@ export const remove = async (req, res, next) => {
 
 export const reorder = async (req, res, next) => {
     try {
-        const { orderedIds } = req.validated || req.body;
-        await service.reorder(orderedIds);
+        const { academicYearId, orderedIds } = req.validated || req.body;
+        await service.reorder(academicYearId, orderedIds);
         res.json({ success: true, message: "Urutan berhasil diperbarui" });
     } catch (err) { next(err); }
 };

@@ -58,9 +58,10 @@ export const formHasRelatedYudisiums = async (id) => {
 };
 
 export const formHasLinkedResponses = async (id) => {
-  const count = await prisma.studentExitSurveyResponse.count({
+  const count = await prisma.yudisiumParticipant.count({
     where: {
-      yudisium: { exitSurveyFormId: id },
+      exitSurveyFormId: id,
+      exitSurveySubmittedAt: { not: null },
     },
   });
   return count > 0;
@@ -163,38 +164,128 @@ export const removeQuestion = async (id) => {
 };
 
 // ============================================================
-// STUDENT RESPONSE
+// STUDENT RESPONSE (YudisiumParticipant & ExitSurveyAnswer)
 // ============================================================
 
 export const findResponseByYudisiumThesis = async (yudisiumId, thesisId, withAnswers = false) => {
-  return await prisma.studentExitSurveyResponse.findFirst({
-    where: { yudisiumId, thesisId },
+  return await prisma.yudisiumParticipant.findFirst({
+    where: {
+      yudisiumId,
+      thesisId,
+      exitSurveySubmittedAt: { not: null },
+    },
     ...(withAnswers
-      ? { include: { answers: true } }
-      : { select: { id: true, submittedAt: true } }),
+      ? {
+          include: {
+            exitSurveyAnswers: {
+              include: {
+                option: true,
+                question: true,
+                selectedOptions: { include: { option: true } },
+              },
+            },
+          },
+        }
+      : { select: { id: true, exitSurveySubmittedAt: true } }),
   });
 };
 
-export const createResponseWithAnswers = async ({ yudisiumId, thesisId, answers }) => {
+export const saveStudentExitSurveyAnswers = async ({
+  yudisiumId,
+  thesisId,
+  exitSurveyFormId,
+  answerRows,
+  selectedOptionRows,
+}) => {
   return await prisma.$transaction(async (tx) => {
-    const response = await tx.studentExitSurveyResponse.create({
-      data: { yudisiumId, thesisId, submittedAt: new Date() },
+    const now = new Date();
+    const existing = await tx.yudisiumParticipant.findFirst({
+      where: { yudisiumId, thesisId },
     });
 
-    if (answers.length > 0) {
-      await tx.studentExitSurveyAnswer.createMany({
-        data: answers.map((a) => ({
-          studentExitSurveyResponseId: response.id,
-          exitSurveyQuestionId: a.exitSurveyQuestionId,
-          exitSurveyOptionId: a.exitSurveyOptionId,
-          answerText: a.answerText,
-        })),
+    let participant;
+    if (existing) {
+      participant = await tx.yudisiumParticipant.update({
+        where: { id: existing.id },
+        data: {
+          exitSurveyFormId,
+          exitSurveySubmittedAt: now,
+        },
+      });
+    } else {
+      participant = await tx.yudisiumParticipant.create({
+        data: {
+          yudisiumId,
+          thesisId,
+          exitSurveyFormId,
+          exitSurveySubmittedAt: now,
+          registeredAt: null,
+          status: "registered",
+        },
       });
     }
 
-    return await tx.studentExitSurveyResponse.findUnique({
-      where: { id: response.id },
-      include: { answers: true },
+    if (answerRows.length > 0) {
+      for (const answer of answerRows) {
+        await tx.yudisiumParticipantExitSurveyAnswer.upsert({
+          where: {
+            yudisiumParticipantId_exitSurveyFormId_exitSurveyQuestionId: {
+              yudisiumParticipantId: participant.id,
+              exitSurveyFormId,
+              exitSurveyQuestionId: answer.exitSurveyQuestionId,
+            },
+          },
+          create: {
+            yudisiumParticipantId: participant.id,
+            exitSurveyFormId,
+            exitSurveyQuestionId: answer.exitSurveyQuestionId,
+            exitSurveyOptionId: answer.exitSurveyOptionId || null,
+            answerText: answer.answerText || null,
+            answerNumber: answer.answerNumber !== undefined ? answer.answerNumber : null,
+            answerDate: answer.answerDate || null,
+          },
+          update: {
+            exitSurveyOptionId: answer.exitSurveyOptionId || null,
+            answerText: answer.answerText || null,
+            answerNumber: answer.answerNumber !== undefined ? answer.answerNumber : null,
+            answerDate: answer.answerDate || null,
+          },
+        });
+      }
+    }
+
+    if (selectedOptionRows && selectedOptionRows.length > 0) {
+      for (const opt of selectedOptionRows) {
+        await tx.yudisiumParticipantExitSurveySelectedOption.upsert({
+          where: {
+            yudisiumParticipantId_exitSurveyQuestionId_exitSurveyOptionId: {
+              yudisiumParticipantId: participant.id,
+              exitSurveyQuestionId: opt.exitSurveyQuestionId,
+              exitSurveyOptionId: opt.exitSurveyOptionId,
+            },
+          },
+          create: {
+            yudisiumParticipantId: participant.id,
+            exitSurveyFormId,
+            exitSurveyQuestionId: opt.exitSurveyQuestionId,
+            exitSurveyOptionId: opt.exitSurveyOptionId,
+          },
+          update: {},
+        });
+      }
+    }
+
+    return await tx.yudisiumParticipant.findUnique({
+      where: { id: participant.id },
+      include: {
+        exitSurveyAnswers: {
+          include: {
+            option: true,
+            question: true,
+            selectedOptions: { include: { option: true } },
+          },
+        },
+      },
     });
   });
 };

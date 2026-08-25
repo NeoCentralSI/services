@@ -1,6 +1,6 @@
 /**
  * Exit Survey Service.
- * 
+ *
  * Manages the data master for exit survey forms, including sessions, questions,
  * and processing student responses during the yudisium process.
  */
@@ -22,7 +22,7 @@ function throwError(msg, code) {
   throw e;
 }
 
-const QUESTION_TYPES = ["short_answer", "paragraph", "single_choice", "multiple_choice", "date"];
+const QUESTION_TYPES = ["short_answer", "paragraph", "single_choice", "multiple_choice", "number", "date"];
 const REQUIRED_SKS = 146;
 const CHOICE_QUESTION_TYPES = ["single_choice", "multiple_choice"];
 
@@ -31,6 +31,7 @@ const QUESTION_TYPE_LABELS = {
   paragraph: "Paragraf",
   single_choice: "Pilihan Ganda",
   multiple_choice: "Kotak Centang",
+  number: "Angka",
   date: "Tanggal",
 };
 
@@ -61,12 +62,14 @@ const isYudisiumRegistrationOpen = (item) => deriveYudisiumStatus(item) === "ope
 
 const hasMetAcademicRequirements = (student, thesis) => {
   const latestDefence = thesis?.thesisDefences?.[0] ?? null;
+  const hasPassedDefence = ["passed", "passed_with_revision"].includes(latestDefence?.status);
   const needsRevision = latestDefence?.status === "passed_with_revision";
   const revisionFinalized =
     !!latestDefence?.revisionFinalizedAt && !!latestDefence?.revisionFinalizedBy;
 
   return (
     (student?.sksCompleted ?? 0) >= REQUIRED_SKS &&
+    hasPassedDefence &&
     (!needsRevision || revisionFinalized) &&
     !!student?.mandatoryCoursesCompleted &&
     !!student?.mkwuCompleted &&
@@ -83,7 +86,8 @@ const formatFormSummary = (item) => {
 
   return {
     id: item.id,
-    name: item.name,
+    name: item.title || item.name,
+    title: item.title || item.name,
     description: item.description ?? null,
     isActive: item.isActive,
     totalSessions: item.sessions?.length ?? 0,
@@ -182,17 +186,22 @@ const getUnandLogoBase64 = () => {
 
 const percentage = (count, total) => (total > 0 ? Math.round((count / total) * 100) : 0);
 
-const mapStudentResponse = (response) => {
-  if (!response) return null;
+const mapStudentResponse = (participant) => {
+  if (!participant || !participant.exitSurveySubmittedAt) return null;
+  const answers = (participant.exitSurveyAnswers || []).map((a) => ({
+    id: a.exitSurveyQuestionId,
+    questionId: a.exitSurveyQuestionId,
+    optionId: a.exitSurveyOptionId,
+    optionIds: (a.selectedOptions || []).map((so) => so.exitSurveyOptionId),
+    answerText: a.answerText,
+    answerNumber: a.answerNumber,
+    answerDate: a.answerDate ? (a.answerDate instanceof Date ? a.answerDate.toISOString().split('T')[0] : String(a.answerDate).split('T')[0]) : null,
+  }));
+
   return {
-    id: response.id,
-    submittedAt: response.submittedAt,
-    answers: response.answers.map((a) => ({
-      id: a.id,
-      questionId: a.exitSurveyQuestionId,
-      optionId: a.exitSurveyOptionId,
-      answerText: a.answerText,
-    })),
+    id: participant.id,
+    submittedAt: participant.exitSurveySubmittedAt,
+    answers,
   };
 };
 
@@ -209,9 +218,17 @@ export const getFormDetail = async (id) => {
   const data = await repo.findFormById(id);
   if (!data) throwError("Form exit survey tidak ditemukan", 404);
 
+  const totalResponses = await prisma.yudisiumParticipant.count({
+    where: {
+      exitSurveyFormId: id,
+      exitSurveySubmittedAt: { not: null },
+    },
+  });
+
   return {
     id: data.id,
-    name: data.name,
+    name: data.title || data.name,
+    title: data.title || data.name,
     description: data.description ?? null,
     isActive: data.isActive,
     sessions: data.sessions.map((s) => ({
@@ -225,19 +242,13 @@ export const getFormDetail = async (id) => {
     updatedAt: data.updatedAt,
     usedCount: data._count?.yudisiums ?? 0,
     totalQuestions: data.sessions.reduce((acc, s) => acc + s.questions.length, 0),
-    totalResponses: (await prisma.studentExitSurveyResponse.findMany({
-      where: {
-        yudisium: { exitSurveyFormId: id }
-      },
-      distinct: ["thesisId"],
-      select: { thesisId: true },
-    })).length,
+    totalResponses,
   };
 };
 
 export const createForm = async (data) => {
   return await repo.createForm({
-    name: data.name,
+    title: data.title || data.name,
     description: data.description ?? null,
     isActive: data.isActive !== false,
   });
@@ -255,7 +266,9 @@ export const updateForm = async (id, data) => {
   }
 
   const updateData = {};
-  if (data.name !== undefined) updateData.name = data.name;
+  if (data.name !== undefined || data.title !== undefined) {
+    updateData.title = data.title ?? data.name;
+  }
   if (data.description !== undefined) updateData.description = data.description;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
@@ -287,17 +300,19 @@ export const getFormResponses = async (formId, filters = {}) => {
   const form = await repo.findFormById(formId);
   if (!form) throwError("Form exit survey tidak ditemukan", 404);
 
-  const responses = await prisma.studentExitSurveyResponse.findMany({
+  const participants = await prisma.yudisiumParticipant.findMany({
     where: {
-      yudisiumId: filters.yudisiumId || undefined,
-      yudisium: { exitSurveyFormId: formId },
+      exitSurveyFormId: formId,
+      exitSurveySubmittedAt: { not: null },
+      ...(filters.yudisiumId && filters.yudisiumId !== "all" ? { yudisiumId: filters.yudisiumId } : {}),
     },
     include: {
       yudisium: true,
-      answers: {
+      exitSurveyAnswers: {
         include: {
           option: true,
           question: true,
+          selectedOptions: { include: { option: true } },
         },
       },
       thesis: {
@@ -310,32 +325,51 @@ export const getFormResponses = async (formId, filters = {}) => {
         },
       },
     },
-    orderBy: { submittedAt: "desc" },
+    orderBy: { exitSurveySubmittedAt: "desc" },
   });
 
-  return responses.map((r) => ({
-    id: r.id,
-    thesisId: r.thesisId,
-    submittedAt: r.submittedAt,
-    yudisiumId: r.yudisiumId,
-    yudisiumName: r.yudisium?.name || "-",
-    name: r.thesis?.student?.user?.fullName || "Mahasiswa",
-    nim: r.thesis?.student?.user?.identityNumber || "-",
-    email: r.thesis?.student?.user?.email || "-",
-    phone: r.thesis?.student?.user?.phoneNumber || "-",
-    gender: r.thesis?.student?.user?.gender ?? null,
-    genderLabel: getGenderLabel(r.thesis?.student?.user?.gender ?? null),
-    enrollmentYear: r.thesis?.student?.enrollmentYear || null,
-    gpa: r.thesis?.student?.gpa ?? null,
-    graduationPredicate: r.thesis?.student?.graduationPredicate ?? null,
-    answers: r.answers.map((a) => ({
-      questionId: a.exitSurveyQuestionId,
-      questionText: a.question?.question,
-      optionId: a.exitSurveyOptionId,
-      optionText: a.option?.optionText,
-      answerText: a.answerText,
-    })),
-  }));
+  return participants.map((p) => {
+    const answers = p.exitSurveyAnswers.flatMap((a) => {
+      if (a.question?.questionType === "multiple_choice") {
+        return (a.selectedOptions || []).map((so) => ({
+          questionId: a.exitSurveyQuestionId,
+          questionText: a.question?.question,
+          optionId: so.exitSurveyOptionId,
+          optionText: so.option?.optionText,
+          answerText: null,
+          answerNumber: null,
+          answerDate: null,
+        }));
+      }
+      return {
+        questionId: a.exitSurveyQuestionId,
+        questionText: a.question?.question,
+        optionId: a.exitSurveyOptionId,
+        optionText: a.option?.optionText,
+        answerText: a.answerText,
+        answerNumber: a.answerNumber,
+        answerDate: a.answerDate,
+      };
+    });
+
+    return {
+      id: p.id,
+      thesisId: p.thesisId,
+      submittedAt: p.exitSurveySubmittedAt,
+      yudisiumId: p.yudisiumId,
+      yudisiumName: p.yudisium?.name || "-",
+      name: p.thesis?.student?.user?.fullName || "Mahasiswa",
+      nim: p.thesis?.student?.user?.identityNumber || "-",
+      email: p.thesis?.student?.user?.email || "-",
+      phone: p.thesis?.student?.user?.phoneNumber || "-",
+      gender: p.thesis?.student?.user?.gender ?? null,
+      genderLabel: getGenderLabel(p.thesis?.student?.user?.gender ?? null),
+      enrollmentYear: p.thesis?.student?.enrollmentYear || null,
+      gpa: p.thesis?.student?.gpa ?? null,
+      graduationPredicate: p.thesis?.student?.graduationPredicate ?? null,
+      answers,
+    };
+  });
 };
 
 const getOrderedQuestions = (form) =>
@@ -423,7 +457,6 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
   const logoBase64 = getUnandLogoBase64();
   const summary = buildRespondentSummary(responses);
   const questionStats = buildChoiceQuestionStats(form, responses);
-  const generatedAt = formatDateLong(new Date());
 
   const summaryRows = [
     ["Total Responden", `${summary.totalRespondents} mahasiswa`],
@@ -669,7 +702,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
       <div>
         <h1>Laporan Exit Survey</h1>
         <h2>${escapeHtml(periodLabel)}</h2>
-        <div class="form-title">${escapeHtml(form.name)}</div>
+        <div class="form-title">${escapeHtml(form.title || form.name)}</div>
       </div>
       ${logoBase64 ? `<img src="${logoBase64}" class="cover-logo" alt="Logo UNAND" />` : ""}
       <div class="cover-footer">
@@ -773,7 +806,7 @@ export const exportFormResponsesExcel = async (formId, filters = {}) => {
     questions.forEach((question) => {
       const answers = response.answers.filter((answer) => answer.questionId === question.id);
       row[question.question] = answers
-        .map((answer) => answer.optionText || answer.answerText)
+        .map((answer) => answer.optionText || answer.answerText || answer.answerNumber || formatDateLong(answer.answerDate))
         .filter(Boolean)
         .join(", ") || "-";
     });
@@ -791,7 +824,7 @@ export const duplicateForm = async (id) => {
   if (!existing) throwError("Form exit survey tidak ditemukan", 404);
 
   const newForm = await repo.createForm({
-    name: `Salinan - ${existing.name}`,
+    title: `Salinan - ${existing.title || existing.name}`,
     description: existing.description,
     isActive: true,
   });
@@ -805,6 +838,7 @@ export const duplicateForm = async (id) => {
 
     for (const q of session.questions) {
       await repo.createQuestion({
+        exitSurveyFormId: newForm.id,
         exitSurveySessionId: newSession.id,
         question: q.question,
         questionType: q.questionType,
@@ -867,34 +901,33 @@ export const deleteSession = async (formId, sessionId) => {
   }
 
   return await prisma.$transaction(async (tx) => {
-    // 1. Delete all answers for all questions in this session
-    await tx.studentExitSurveyAnswer.deleteMany({
+    await tx.yudisiumParticipantExitSurveySelectedOption.deleteMany({
       where: {
-        question: {
-          exitSurveySessionId: sessionId
-        }
-      }
+        answer: {
+          question: { exitSurveySessionId: sessionId },
+        },
+      },
     });
 
-    // 2. Delete all options for all questions in this session
+    await tx.yudisiumParticipantExitSurveyAnswer.deleteMany({
+      where: {
+        question: { exitSurveySessionId: sessionId },
+      },
+    });
+
     await tx.exitSurveyOption.deleteMany({
       where: {
-        question: {
-          exitSurveySessionId: sessionId
-        }
-      }
+        question: { exitSurveySessionId: sessionId },
+      },
     });
 
-    // 3. Delete all questions in this session
     await tx.exitSurveyQuestion.deleteMany({
-      where: { exitSurveySessionId: sessionId }
+      where: { exitSurveySessionId: sessionId },
     });
-    
-    const result = await tx.exitSurveySession.delete({
-      where: { id: sessionId }
+
+    return await tx.exitSurveySession.delete({
+      where: { id: sessionId },
     });
-    
-    return result;
   });
 };
 
@@ -933,9 +966,7 @@ export const createQuestion = async (formId, data) => {
 
   validateQuestionType(data.questionType);
 
-  // Use specified session ID if provided, otherwise fallback to first session
   let sessionId = data.exitSurveySessionId;
-  
   if (!sessionId) {
     let session = form.sessions?.[0];
     if (!session) {
@@ -947,7 +978,6 @@ export const createQuestion = async (formId, data) => {
     }
     sessionId = session.id;
   } else {
-    // Validate that the session belongs to this form
     const session = await repo.findSessionById(sessionId);
     if (!session || session.exitSurveyFormId !== formId) {
       throwError("Sesi tidak ditemukan atau tidak valid untuk form ini", 404);
@@ -955,6 +985,7 @@ export const createQuestion = async (formId, data) => {
   }
 
   const payload = {
+    exitSurveyFormId: formId,
     exitSurveySessionId: sessionId,
     question: data.question,
     description: data.description ?? null,
@@ -1063,7 +1094,7 @@ export const getStudentSurvey = async (userId) => {
     },
     form: {
       id: currentYudisium.exitSurveyForm.id,
-      name: currentYudisium.exitSurveyForm.name,
+      name: currentYudisium.exitSurveyForm.title || currentYudisium.exitSurveyForm.name,
       description: currentYudisium.exitSurveyForm.description,
       sessions: currentYudisium.exitSurveyForm.sessions.map((s) => ({
         id: s.id,
@@ -1105,7 +1136,7 @@ export const submitStudentSurvey = async (userId, payload) => {
   const questionMap = new Map(allQuestions.map((q) => [q.id, q]));
 
   const answerMap = new Map();
-  for (const answer of payload.answers) {
+  for (const answer of (payload?.answers || [])) {
     if (!questionMap.has(answer.questionId)) {
       throwError("Terdapat pertanyaan yang tidak valid", 400);
     }
@@ -1116,6 +1147,7 @@ export const submitStudentSurvey = async (userId, payload) => {
   }
 
   const answerRows = [];
+  const selectedOptionRows = [];
 
   for (const question of allQuestions) {
     const answer = answerMap.get(question.id);
@@ -1129,9 +1161,12 @@ export const submitStudentSurvey = async (userId, payload) => {
 
     if (question.questionType === "single_choice") {
       if (!answer.optionId) {
-        throwError(`Jawaban pilihan tunggal wajib diisi: ${question.question}`, 400);
+        if (question.isRequired) {
+          throwError(`Jawaban pilihan tunggal wajib diisi: ${question.question}`, 400);
+        }
+        continue;
       }
-      const validOption = question.options.some((o) => o.id === answer.optionId);
+      const validOption = (question.options || []).some((o) => o.id === answer.optionId);
       if (!validOption) {
         throwError(`Opsi tidak valid untuk pertanyaan: ${question.question}`, 400);
       }
@@ -1139,50 +1174,144 @@ export const submitStudentSurvey = async (userId, payload) => {
         exitSurveyQuestionId: question.id,
         exitSurveyOptionId: answer.optionId,
         answerText: null,
+        answerNumber: null,
+        answerDate: null,
       });
       continue;
     }
 
     if (question.questionType === "multiple_choice") {
-      const optionIds = Array.isArray(answer.optionIds) ? [...new Set(answer.optionIds)] : [];
+      const optionIds = Array.isArray(answer.optionIds)
+        ? [...new Set(answer.optionIds)]
+        : answer.optionId
+        ? [answer.optionId]
+        : [];
       if (question.isRequired && optionIds.length === 0) {
         throwError(`Jawaban pilihan ganda wajib diisi: ${question.question}`, 400);
       }
-      for (const optionId of optionIds) {
-        const validOption = question.options.some((o) => o.id === optionId);
-        if (!validOption) {
-          throwError(`Opsi tidak valid untuk pertanyaan: ${question.question}`, 400);
+      if (optionIds.length > 0) {
+        for (const optionId of optionIds) {
+          const validOption = (question.options || []).some((o) => o.id === optionId);
+          if (!validOption) {
+            throwError(`Opsi tidak valid untuk pertanyaan: ${question.question}`, 400);
+          }
+          selectedOptionRows.push({
+            exitSurveyQuestionId: question.id,
+            exitSurveyOptionId: optionId,
+          });
         }
         answerRows.push({
           exitSurveyQuestionId: question.id,
-          exitSurveyOptionId: optionId,
+          exitSurveyOptionId: null,
           answerText: null,
+          answerNumber: null,
+          answerDate: null,
         });
       }
       continue;
     }
 
-    const answerText = typeof answer.answerText === "string" ? answer.answerText.trim() : "";
+    if (question.questionType === "number") {
+      const rawVal = answer.answerNumber !== undefined && answer.answerNumber !== null
+        ? answer.answerNumber
+        : answer.answerText !== undefined && answer.answerText !== null
+        ? answer.answerText
+        : answer.value;
+
+      if (rawVal === undefined || rawVal === null || rawVal === "") {
+        if (question.isRequired) {
+          throwError(`Pertanyaan wajib belum dijawab: ${question.question}`, 400);
+        }
+        continue;
+      }
+
+      let parsedNum = typeof rawVal === "number" ? rawVal : NaN;
+      if (typeof rawVal === "string") {
+        const trimmed = rawVal.trim();
+        if (trimmed === "") {
+          if (question.isRequired) {
+            throwError(`Pertanyaan wajib belum dijawab: ${question.question}`, 400);
+          }
+          continue;
+        }
+        if (!isNaN(Number(trimmed))) {
+          parsedNum = Number(trimmed);
+        } else {
+          const normalized = trimmed.replace(/\./g, "").replace(",", ".");
+          parsedNum = Number(normalized);
+        }
+      }
+
+      if (isNaN(parsedNum) || !isFinite(parsedNum)) {
+        throwError(`Jawaban untuk pertanyaan '${question.question}' harus berupa angka yang valid.`, 400);
+      }
+
+      answerRows.push({
+        exitSurveyQuestionId: question.id,
+        exitSurveyOptionId: null,
+        answerText: null,
+        answerNumber: parsedNum,
+        answerDate: null,
+      });
+      continue;
+    }
+
+    if (question.questionType === "date") {
+      const rawDate = answer.answerDate || answer.answerText || answer.value;
+      if (!rawDate) {
+        if (question.isRequired) {
+          throwError(`Pertanyaan wajib belum dijawab: ${question.question}`, 400);
+        }
+        continue;
+      }
+
+      const parsedDate = new Date(rawDate);
+      if (isNaN(parsedDate.getTime())) {
+        throwError(`Jawaban untuk pertanyaan '${question.question}' harus berupa tanggal yang valid.`, 400);
+      }
+
+      answerRows.push({
+        exitSurveyQuestionId: question.id,
+        exitSurveyOptionId: null,
+        answerText: null,
+        answerNumber: null,
+        answerDate: parsedDate,
+      });
+      continue;
+    }
+
+    // Default: short_answer or paragraph
+    const answerText = typeof answer.answerText === "string"
+      ? answer.answerText.trim()
+      : typeof answer.value === "string"
+      ? answer.value.trim()
+      : "";
+
     if (question.isRequired && !answerText) {
       throwError(`Jawaban teks wajib diisi: ${question.question}`, 400);
     }
+
     if (answerText) {
       answerRows.push({
         exitSurveyQuestionId: question.id,
         exitSurveyOptionId: null,
         answerText,
+        answerNumber: null,
+        answerDate: null,
       });
     }
   }
 
-  if (answerRows.length === 0) {
+  if (answerRows.length === 0 && selectedOptionRows.length === 0) {
     throwError("Jawaban exit survey tidak boleh kosong", 400);
   }
 
-  const created = await repo.createResponseWithAnswers({
+  const created = await repo.saveStudentExitSurveyAnswers({
     yudisiumId: currentYudisium.id,
     thesisId: thesis.id,
-    answers: answerRows,
+    exitSurveyFormId: currentYudisium.exitSurveyForm.id,
+    answerRows,
+    selectedOptionRows,
   });
 
   return { response: mapStudentResponse(created) };

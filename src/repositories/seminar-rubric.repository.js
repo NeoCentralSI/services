@@ -82,7 +82,7 @@ export const findCriteriaById = async (id) => {
                     academicYearId: true,
                 },
             },
-            thesisSeminarAssessmentRubrics: {
+            assessmentRubrics: {
                 orderBy: { displayOrder: "asc" },
             },
         },
@@ -103,7 +103,7 @@ export const removeCriteria = async (id) => {
 export const removeCriteriaWithRubrics = async (criteriaId) => {
     return await prisma.$transaction(async (tx) => {
         await tx.thesisSeminarAssessmentRubric.deleteMany({
-            where: { thesisSeminarAssessmentCriteriaId: criteriaId },
+            where: { assessmentCriteriaId: criteriaId },
         });
         return await tx.thesisSeminarAssessmentCriteria.delete({ where: { id: criteriaId } });
     });
@@ -130,7 +130,7 @@ export const removeSeminarConfigByCpmk = async (thesisCpmkId) => {
         }
 
         const deletedRubrics = await tx.thesisSeminarAssessmentRubric.deleteMany({
-            where: { thesisSeminarAssessmentCriteriaId: { in: criteriaIds } },
+            where: { assessmentCriteriaId: { in: criteriaIds } },
         });
 
         const deletedCriteria = await tx.thesisSeminarAssessmentCriteria.deleteMany({
@@ -172,7 +172,7 @@ export const findRubricById = async (id) => {
     return await prisma.thesisSeminarAssessmentRubric.findUnique({
         where: { id },
         include: {
-            thesisSeminarAssessmentCriteria: {
+            assessmentCriteria: {
                 select: { id: true, name: true, maxScore: true, thesisCpmkId: true },
             },
         },
@@ -186,7 +186,7 @@ export const createRubric = async (data) => {
 export const createRubricTx = async ({ criteriaId, data }) => {
     return await prisma.$transaction(async (tx) => {
         const last = await tx.thesisSeminarAssessmentRubric.findFirst({
-            where: { thesisSeminarAssessmentCriteriaId: criteriaId },
+            where: { assessmentCriteriaId: criteriaId },
             orderBy: { displayOrder: "desc" },
             select: { displayOrder: true },
         });
@@ -195,7 +195,7 @@ export const createRubricTx = async ({ criteriaId, data }) => {
 
         return await tx.thesisSeminarAssessmentRubric.create({
             data: {
-                thesisSeminarAssessmentCriteriaId: criteriaId,
+                assessmentCriteriaId: criteriaId,
                 description: data.description,
                 minScore: data.minScore,
                 maxScore: data.maxScore,
@@ -215,7 +215,7 @@ export const removeRubric = async (id) => {
 
 export const getNextRubricDisplayOrder = async (criteriaId) => {
     const last = await prisma.thesisSeminarAssessmentRubric.findFirst({
-        where: { thesisSeminarAssessmentCriteriaId: criteriaId },
+        where: { assessmentCriteriaId: criteriaId },
         orderBy: { displayOrder: "desc" },
         select: { displayOrder: true },
     });
@@ -224,12 +224,12 @@ export const getNextRubricDisplayOrder = async (criteriaId) => {
 
 export const countRubricsForCriteria = async (criteriaId) => {
     return await prisma.thesisSeminarAssessmentRubric.count({
-        where: { thesisSeminarAssessmentCriteriaId: criteriaId },
+        where: { assessmentCriteriaId: criteriaId },
     });
 };
 
 export const findRubricsByCriteria = async (criteriaId, excludeRubricId = null) => {
-    const where = { thesisSeminarAssessmentCriteriaId: criteriaId };
+    const where = { assessmentCriteriaId: criteriaId };
     if (excludeRubricId) {
         where.id = { not: excludeRubricId };
     }
@@ -353,7 +353,7 @@ export const getSeminarWeightSummary = async (academicYearId = null) => {
 
     return {
         totalScore: totalCriteriaScore,
-        isComplete: totalCriteriaScore > 0,
+        isComplete: totalCriteriaScore === 100,
         minimumScore: activeAy?.thesisSeminarMinimumScore || 0,
         details,
     };

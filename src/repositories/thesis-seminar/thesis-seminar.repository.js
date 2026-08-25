@@ -40,8 +40,9 @@ const seminarListInclude = {
   examiners: {
     orderBy: { order: "asc" },
   },
-  documents: {
+  requirementDocuments: {
     include: {
+      requirement: { select: { id: true, academicYearId: true, name: true, description: true, displayOrder: true } },
       verifier: { select: { fullName: true } },
     },
   },
@@ -92,6 +93,36 @@ const seminarDetailInclude = {
     },
     orderBy: { registeredAt: "asc" },
   },
+};
+
+/**
+ * Archive records do not need requirement-document or finalizer relations.
+ * Keeping this include separate lets the archive remain usable while the
+ * operational registration flow is migrated to the new requirement schema.
+ */
+const seminarArchiveInclude = {
+  thesis: {
+    select: {
+      id: true,
+      title: true,
+      student: {
+        select: {
+          id: true,
+          user: { select: { fullName: true, identityNumber: true } },
+        },
+      },
+      thesisSupervisors: {
+        select: {
+          lecturerId: true,
+          role: { select: { name: true } },
+          lecturer: { select: { user: { select: { fullName: true } } } },
+        },
+      },
+    },
+  },
+  room: { select: { id: true, name: true, location: true } },
+  examiners: { orderBy: { order: "asc" } },
+  _count: { select: { audiences: true } },
 };
 
 // ============================================================
@@ -151,6 +182,40 @@ export async function findSeminarsPaginated({ where, skip, take, orderBy = { cre
   );
 
   return { data: enriched, total };
+}
+
+export async function findArchiveSeminarsPaginated({ where, skip, take }) {
+  const [data, total] = await prisma.$transaction([
+    prisma.thesisSeminar.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
+      include: seminarArchiveInclude,
+    }),
+    prisma.thesisSeminar.count({ where }),
+  ]);
+
+  const enriched = await Promise.all(
+    data.map(async (seminar) => ({
+      ...seminar,
+      examiners: await enrichExaminers(seminar.examiners),
+    }))
+  );
+
+  return { data: enriched, total };
+}
+
+export async function findArchiveSeminarById(id) {
+  const seminar = await prisma.thesisSeminar.findUnique({
+    where: { id },
+    include: seminarArchiveInclude,
+  });
+  if (!seminar) return null;
+  return {
+    ...seminar,
+    examiners: await enrichExaminers(seminar.examiners),
+  };
 }
 
 
@@ -293,6 +358,8 @@ export async function findSeminarBasicById(id) {
 
 /**
  * Create seminar with examiners in one transaction (archive input).
+ * Seminar results are attempt-local: never mutate Thesis.thesisStatusId here.
+ * A failed/cancelled seminar retries against the same thesis record.
  */
 export async function createSeminarWithExaminers({
   thesisId,
@@ -300,7 +367,7 @@ export async function createSeminarWithExaminers({
   date,
   status,
   examinerLecturerIds,
-  assignedByUserId,
+  assignedByLecturerId,
 }) {
   return prisma.$transaction(async (tx) => {
     const seminar = await tx.thesisSeminar.create({
@@ -317,7 +384,7 @@ export async function createSeminarWithExaminers({
         data: examinerLecturerIds.map((lecturerId, index) => ({
           thesisSeminarId: seminar.id,
           lecturerId,
-          assignedBy: assignedByUserId,
+          assignedBy: assignedByLecturerId,
           order: index + 1,
           assignedAt: new Date(),
           availabilityStatus: "available",
@@ -332,6 +399,7 @@ export async function createSeminarWithExaminers({
 
 /**
  * Update seminar + replace all examiners in one transaction (archive edit).
+ * Keep the parent thesis status independent from the seminar result.
  */
 export async function updateSeminarWithExaminers({
   seminarId,
@@ -340,7 +408,7 @@ export async function updateSeminarWithExaminers({
   date,
   status,
   examinerLecturerIds,
-  assignedByUserId,
+  assignedByLecturerId,
 }) {
   return prisma.$transaction(async (tx) => {
     await tx.thesisSeminar.update({
@@ -362,7 +430,7 @@ export async function updateSeminarWithExaminers({
         data: examinerLecturerIds.map((lecturerId, index) => ({
           thesisSeminarId: seminarId,
           lecturerId,
-          assignedBy: assignedByUserId,
+          assignedBy: assignedByLecturerId,
           order: index + 1,
           assignedAt: new Date(),
           availabilityStatus: "available",
@@ -589,15 +657,22 @@ export async function getStudentThesisWithSeminarInfo(studentId) {
           resultFinalizedAt: true,
           cancelledReason: true,
           room: { select: { id: true, name: true } },
-          documents: {
+          requirementDocuments: {
             select: {
               thesisSeminarId: true,
-              documentTypeId: true,
-              documentId: true,
+              thesisSeminarRequirementId: true,
+              filePath: true,
+              fileName: true,
+              mimeType: true,
+              fileSize: true,
               status: true,
               submittedAt: true,
               verifiedAt: true,
               notes: true,
+              verifier: { select: { fullName: true } },
+              requirement: {
+                select: { id: true, academicYearId: true, name: true, description: true, displayOrder: true },
+              },
             },
           },
           examiners: {
@@ -799,13 +874,6 @@ export async function getAllStudentSeminars(studentId) {
  */
 export async function findThesesForOptions() {
   return prisma.thesis.findMany({
-    where: {
-      thesisSeminars: {
-        none: {
-          status: { in: ["passed", "passed_with_revision"] },
-        },
-      },
-    },
     select: {
       id: true,
       title: true,
@@ -817,6 +885,12 @@ export async function findThesesForOptions() {
       },
       thesisSupervisors: {
         select: { lecturerId: true },
+      },
+      thesisSeminars: {
+        where: { status: { in: ["passed", "passed_with_revision"] } },
+        select: { id: true, status: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
       },
     },
     orderBy: { createdAt: "desc" },
@@ -832,6 +906,7 @@ export async function findLecturersForOptions() {
       user: {
         userHasRoles: {
           some: {
+            status: "active",
             role: { name: "Penguji" },
           },
         },
@@ -877,6 +952,24 @@ export async function findRoomById(id) {
  */
 export async function findThesisById(id) {
   return prisma.thesis.findUnique({ where: { id }, select: { id: true, studentId: true } });
+}
+
+export async function findEligibleExaminerLecturers(ids) {
+  if (!ids?.length) return [];
+  return prisma.lecturer.findMany({
+    where: {
+      id: { in: ids },
+      user: {
+        userHasRoles: {
+          some: {
+            status: "active",
+            role: { name: "Penguji" },
+          },
+        },
+      },
+    },
+    select: { id: true },
+  });
 }
 
 /**
@@ -1056,6 +1149,7 @@ export async function getThesisWithSeminar(studentId) {
       id: true,
       title: true,
       studentId: true,
+      student: { select: { user: { select: { id: true, fullName: true } } } },
       thesisSeminars: {
         orderBy: { createdAt: "desc" },
         take: 1,

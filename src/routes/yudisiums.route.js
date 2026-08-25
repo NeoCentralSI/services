@@ -114,6 +114,11 @@ router.post(
   requireAnyRole([ROLES.ADMIN]),
   ctrl.verifyParticipantDocument
 );
+router.get(
+  "/:id/participants/:participantId/requirements/:itemId/file",
+  requireAnyRole(PARTICIPANT_DETAIL_VIEWER_ROLES),
+  ctrl.streamRequirementFile
+);
 
 // ============================================================
 // CPL VALIDATION (GKM / Admin)

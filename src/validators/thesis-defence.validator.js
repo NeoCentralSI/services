@@ -85,11 +85,11 @@ export const submitAssessmentSchema = z.object({
 // ============================================================
 
 export const finalizeDefenceSchema = z.object({
-  status: z.enum(["passed", "passed_with_revision", "failed"], {
-    errorMap: () => ({
-      message: "Status akhir harus passed, passed_with_revision, atau failed",
-    }),
+  recommendRevision: z.boolean({
+    required_error: "Pilihan rekomendasi revisi tidak valid.",
+    invalid_type_error: "Pilihan rekomendasi revisi tidak valid.",
   }),
+  status: z.enum(["passed", "passed_with_revision", "failed"]).optional(),
 });
 
 // ============================================================

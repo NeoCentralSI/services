@@ -1,25 +1,16 @@
+import fs from "fs";
 import path from "path";
-import { mkdir, writeFile, unlink } from "fs/promises";
-import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
+import { createHash } from "crypto";
+import { mkdir, writeFile, unlink, access } from "fs/promises";
 import * as docRepo from "../../repositories/thesis-defence/doc.repository.js";
 import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
+import { getStudentByUserId } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import prisma from "../../config/prisma.js";
+import { ENV } from "../../config/env.js";
+import { getActiveAcademicYear, formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
 
-// ============================================================
-// CONSTANTS
-// ============================================================
-
-const DOC_TYPE_CONFIG = {
-  "Laporan Tugas Akhir": { accept: [".pdf"], label: "Laporan Tugas Akhir (PDF)" },
-  "Slide Presentasi": { accept: [".pdf"], label: "Slide Presentasi (PDF)" },
-  "Draft Jurnal TEKNOSI": { accept: [".pdf"], label: "Draft Jurnal TEKNOSI (PDF)" },
-  "Sertifikat TOEFL": { accept: [".pdf"], label: "Sertifikat TOEFL (PDF)" },
-  "Sertifikat SAPS": { accept: [".pdf"], label: "Sertifikat SAPS (PDF)" },
-};
-
-// ============================================================
-// HELPERS
-// ============================================================
+const MAX_FILE_SIZE_BYTES = ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB * 1024 * 1024;
+const ACCEPTED_EXTENSIONS = [".pdf"];
 
 function throwError(message, statusCode) {
   const err = new Error(message);
@@ -27,36 +18,88 @@ function throwError(message, statusCode) {
   throw err;
 }
 
-function validateFileExtension(file, documentTypeName) {
-  const config = DOC_TYPE_CONFIG[documentTypeName];
-  if (!config) throwError(`Tipe dokumen "${documentTypeName}" tidak valid.`, 400);
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (!config.accept.includes(ext)) {
-    throwError(
-      `File untuk ${config.label} harus berformat ${config.accept.join(" atau ").toUpperCase()}.`,
-      400
-    );
+function mapDocument(document) {
+  if (!document) return null;
+  return {
+    thesisDefenceId: document.thesisDefenceId,
+    requirementId: document.thesisDefenceRequirementId,
+    status: document.status,
+    filePath: document.filePath,
+    fileName: document.fileName,
+    mimeType: document.mimeType,
+    fileSize: document.fileSize,
+    submittedAt: document.submittedAt,
+    verifiedAt: document.verifiedAt,
+    verifiedBy: document.verifier?.fullName || null,
+    notes: document.notes,
+  };
+}
+
+function mapRequirement(requirement, document = null) {
+  return {
+    id: requirement.id,
+    name: requirement.name,
+    description: requirement.description || null,
+    displayOrder: requirement.displayOrder,
+    document: mapDocument(document),
+  };
+}
+
+function uploadConfig() {
+  return {
+    accept: ACCEPTED_EXTENSIONS,
+    maxFileSizeBytes: MAX_FILE_SIZE_BYTES,
+    maxFileSizeMb: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB,
+  };
+}
+
+function validateFile(file) {
+  if (!file?.buffer) throwError("Pilih file dokumen yang akan diunggah.", 400);
+
+  const originalName = Buffer.from(file.originalname || "", "latin1").toString("utf8");
+  const extension = path.extname(originalName).toLowerCase();
+  if (!ACCEPTED_EXTENSIONS.includes(extension)) {
+    throwError("Format dokumen tidak didukung. Gunakan file PDF.", 400);
+  }
+  if (file.mimetype !== "application/pdf") {
+    throwError("Isi file tidak dikenali sebagai dokumen PDF yang valid.", 400);
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES || file.buffer.length > MAX_FILE_SIZE_BYTES) {
+    throwError(`Ukuran file maksimal ${ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB} MB.`, 400);
+  }
+  if (file.buffer.subarray(0, 5).toString("ascii") !== "%PDF-") {
+    throwError("File yang dipilih bukan dokumen PDF yang valid.", 400);
+  }
+
+  return { ...file, originalname: originalName };
+}
+
+async function safeUnlink(relativePath) {
+  if (!relativePath) return;
+  const uploadsRoot = path.resolve(process.cwd(), "uploads");
+  const target = path.resolve(process.cwd(), relativePath);
+  if (target !== uploadsRoot && !target.startsWith(`${uploadsRoot}${path.sep}`)) return;
+  try {
+    await unlink(target);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn("Gagal menghapus file dokumen sidang lama:", error.message);
+    }
   }
 }
 
-async function getOrCreateDefence(thesis) {
-  const existing = thesis.thesisDefences?.[0];
-  if (existing && !["failed", "cancelled"].includes(existing.status)) return existing;
+async function validateRegistrationChecklist(thesis) {
+  if (!thesis.studentId) throwError("Data mahasiswa tidak ditemukan pada tugas akhir ini.", 400);
 
-  // Verify requirements before auto-registration
-  if (!thesis.studentId) {
-    throwError("Data mahasiswa tidak ditemukan pada tugas akhir ini.", 400);
-  }
-
-  const student = await prisma.student.findUnique({ 
+  const student = await prisma.student.findUnique({
     where: { id: thesis.studentId },
-    select: { sksCompleted: true }
+    select: { sksCompleted: true },
   });
-  
+
   const passedSeminar = thesis.thesisSeminars?.[0] || null;
   const seminarStatus = passedSeminar?.status ?? null;
   const seminarId = passedSeminar?.id ?? null;
-  
+
   let seminarRevisionMet = false;
   if (seminarStatus === "passed") {
     seminarRevisionMet = true;
@@ -72,256 +115,371 @@ async function getOrCreateDefence(thesis) {
   const supervisors = thesis.thesisSupervisors || [];
   const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.defenceReady);
 
-  if (!passedSeminar || !seminarRevisionMet || (student?.sksCompleted || 0) < 142 || !allSupervisorsReady) {
-    throwError("Anda belum memenuhi persyaratan pendaftaran sidang tugas akhir.", 403);
+  if (
+    !passedSeminar ||
+    !seminarRevisionMet ||
+    (student?.sksCompleted || 0) < 142 ||
+    !allSupervisorsReady
+  ) {
+    throwError("Lengkapi seluruh checklist persyaratan sebelum mengunggah dokumen sidang.", 403);
   }
+}
 
+async function getOrCreateDefence(thesis) {
+  const existing = thesis.thesisDefences?.[0];
+  if (existing && !["failed", "cancelled"].includes(existing.status)) return existing;
+
+  await validateRegistrationChecklist(thesis);
   const created = await coreRepo.createThesisDefence(thesis.id);
   return { id: created.id, status: created.status };
 }
 
-// ============================================================
-// PUBLIC: Document Types
-// ============================================================
+export async function getRequirementsForOverview(_thesis, currentDefence) {
+  const documents = currentDefence?.requirementDocuments || [];
+  const documentMap = new Map(documents.map((item) => [item.thesisDefenceRequirementId, item]));
 
-export async function getDocumentTypes() {
-  const types = await docRepo.ensureDefenceDocumentTypes();
-  return Object.entries(types).map(([name, dt]) => ({
-    id: dt.id,
-    name: dt.name,
-    accept: DOC_TYPE_CONFIG[name]?.accept || [],
-    label: DOC_TYPE_CONFIG[name]?.label || name,
-  }));
+  // Locked attempts retain the documents/requirements that were actually submitted for that attempt.
+  if (currentDefence && currentDefence.status !== "registered") {
+    const historicalRequirements = documents
+      .map((document) => document.requirement)
+      .filter(Boolean);
+    return {
+      requirements: historicalRequirements.map((requirement) =>
+        mapRequirement(requirement, documentMap.get(requirement.id))
+      ),
+      requirementConfiguration: { isConfigured: true, message: null },
+      uploadConfig: uploadConfig(),
+    };
+  }
+
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) {
+    return {
+      requirements: [],
+      requirementConfiguration: {
+        isConfigured: false,
+        message: "Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.",
+      },
+      uploadConfig: uploadConfig(),
+    };
+  }
+
+  const requirements = await docRepo.findRequirementsByAcademicYear(academicYear.id);
+  if (requirements.length === 0) {
+    return {
+      requirements: [],
+      requirementConfiguration: {
+        isConfigured: false,
+        message: `Syarat dokumen sidang untuk ${formatAcademicYearLabel(academicYear)} belum dikonfigurasi.`,
+      },
+      uploadConfig: uploadConfig(),
+    };
+  }
+
+  return {
+    requirements: requirements.map((requirement) =>
+      mapRequirement(requirement, documentMap.get(requirement.id))
+    ),
+    requirementConfiguration: { isConfigured: true, message: null },
+    uploadConfig: uploadConfig(),
+  };
 }
 
-// ============================================================
-// PUBLIC: Get Documents
-// ============================================================
+export async function getDocumentTypes(userId) {
+  const student = await getStudentByUserId(userId);
+  if (!student) throwError("Data mahasiswa tidak ditemukan.", 404);
+  const thesis = await coreRepo.getStudentThesisWithDefenceInfo(student.id);
+  if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
+  const requirements = await docRepo.findRequirementsByAcademicYear(academicYear.id);
+  return requirements.map((item) => ({
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    displayOrder: item.displayOrder,
+    label: item.name,
+    accept: ACCEPTED_EXTENSIONS,
+    maxFileSizeBytes: MAX_FILE_SIZE_BYTES,
+  }));
+}
 
 export async function getDocuments(defenceId) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
-  const docs = await docRepo.findDefenceDocuments(defenceId);
-  return { defenceId, documents: docs };
+
+  const documents = await docRepo.findDefenceDocuments(defenceId);
+  const academicYear = defence.status === "registered" ? await getActiveAcademicYear() : null;
+  if (defence.status === "registered" && !academicYear) {
+    throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
+  }
+  const requirements = defence.status === "registered"
+    ? await docRepo.findRequirementsByAcademicYear(academicYear.id)
+    : documents.map((item) => item.requirement);
+  const documentMap = new Map(documents.map((item) => [item.thesisDefenceRequirementId, item]));
+
+  return {
+    defenceId,
+    requirements: requirements.map((requirement) =>
+      mapRequirement(requirement, documentMap.get(requirement.id))
+    ),
+    uploadConfig: uploadConfig(),
+  };
 }
 
-// ============================================================
-// PUBLIC: Upload Document
-// ============================================================
-
-export async function uploadDocument(defenceId, userId, file, docTypeName) {
-  if (!file || !file.buffer) throwError("File tidak ditemukan.", 400);
-  if (!docTypeName) throwError("Tipe dokumen wajib diisi.", 400);
-
-  // UTF-8 filename normalization
-  const originalName = Buffer.from(file.originalname, "latin1").toString("utf8");
-  const normalizedFile = { ...file, originalname: originalName };
-
-  validateFileExtension(normalizedFile, docTypeName);
+export async function uploadDocument(defenceId, userId, file, requirementId) {
+  const normalizedFile = validateFile(file);
+  if (!requirementId) throwError("Pilih jenis syarat dokumen yang akan diunggah.", 400);
 
   const student = await getStudentByUserId(userId);
   if (!student) throwError("Data mahasiswa tidak ditemukan.", 404);
 
-  const docTypes = await docRepo.ensureDefenceDocumentTypes();
-  const docType = docTypes[docTypeName];
-  if (!docType) throwError(`Tipe dokumen "${docTypeName}" tidak valid.`, 400);
+  const thesis = await coreRepo.getStudentThesisWithDefenceInfo(student.id);
+  if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
 
-  let targetDefenceId = defenceId;
-  let thesisId;
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
 
-  if (!targetDefenceId || targetDefenceId === "active") {
-    const thesis = await coreRepo.getStudentThesisWithDefenceInfo(student.id);
-    if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
-    thesisId = thesis.id;
-    const defence = await getOrCreateDefence(thesis);
-    if (defence.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
-    targetDefenceId = defence.id;
+  const requirement = await docRepo.findRequirementForAcademicYear(requirementId, academicYear.id);
+  if (!requirement) {
+    throwError("Syarat dokumen tidak ditemukan pada tahun akademik yang sedang berjalan.", 400);
+  }
+
+  const configuredRequirements = await docRepo.findRequirementsByAcademicYear(academicYear.id);
+  if (configuredRequirements.length === 0) {
+    throwError(`Syarat dokumen sidang untuk ${formatAcademicYearLabel(academicYear)} belum dikonfigurasi.`, 400);
+  }
+
+  let defence;
+  if (!defenceId || defenceId === "active") {
+    defence = await getOrCreateDefence(thesis);
   } else {
-    const defence = await coreRepo.findDefenceBasicById(targetDefenceId);
+    defence = await coreRepo.findDefenceBasicById(defenceId);
     if (!defence) throwError("Sidang tidak ditemukan.", 404);
-    if (defence.status !== "registered") throwError("Dokumen sudah tidak dapat diubah.", 403);
-    thesisId = defence.thesisId;
-  }
-
-  const existing = await docRepo.findDefenceDocument(targetDefenceId, docType.id);
-  if (existing?.status === "approved") {
-    throwError("Dokumen ini sudah diverifikasi dan tidak dapat diubah.", 403);
-  }
-
-  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", thesisId, "defence", targetDefenceId);
-  await mkdir(uploadsRoot, { recursive: true });
-
-  if (existing?.documentId) {
-    try {
-      const oldDoc = await docRepo.findDocumentById(existing.documentId);
-      if (oldDoc?.filePath) await unlink(path.join(process.cwd(), oldDoc.filePath));
-      await docRepo.deleteDocument(existing.documentId);
-    } catch (e) {
-      console.warn("Could not delete old defence document:", e.message);
+    if (defence.thesis.studentId !== student.id) {
+      throwError("Anda tidak memiliki akses untuk mengubah dokumen sidang ini.", 403);
     }
   }
+  if (defence.status !== "registered") {
+    throwError("Dokumen sidang sudah dikunci dan tidak dapat diubah.", 403);
+  }
 
-  const ext = path.extname(originalName).toLowerCase();
-  const safeName = `${docTypeName.replace(/\s+/g, "-").toLowerCase()}${ext}`;
-  const absolutePath = path.join(uploadsRoot, safeName);
-  await writeFile(absolutePath, file.buffer);
-  const relPath = path.relative(process.cwd(), absolutePath).replace(/\\/g, "/");
+  const existing = await docRepo.findDefenceDocument(defence.id, requirementId);
+  if (existing?.status === "approved") {
+    throwError("Dokumen ini sudah disetujui dan tidak dapat diunggah ulang.", 403);
+  }
 
-  const document = await docRepo.createDocument({
-    userId,
-    documentTypeId: docType.id,
-    fileName: originalName,
-    filePath: relPath,
-  });
+  // Storage hierarchy: isolated by studentId and defenceId attempt
+  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis-defence", student.id, defence.id);
+  await mkdir(uploadsRoot, { recursive: true });
+  const storedName = `requirement-${requirementId}-${Date.now()}.pdf`;
+  const absolutePath = path.join(uploadsRoot, storedName);
+  const relativePath = path.relative(process.cwd(), absolutePath).replace(/\\/g, "/");
+  await writeFile(absolutePath, normalizedFile.buffer);
 
-  await docRepo.upsertDefenceDocument({
-    thesisDefenceId: targetDefenceId,
-    documentTypeId: docType.id,
-    documentId: document.id,
-  });
+  const now = new Date();
+  let saved;
+  try {
+    saved = await docRepo.upsertDefenceDocument(defence.id, requirementId, {
+      filePath: relativePath,
+      fileName: normalizedFile.originalname,
+      mimeType: normalizedFile.mimetype,
+      fileSize: normalizedFile.buffer.length,
+      fileHash: createHash("sha256").update(normalizedFile.buffer).digest("hex"),
+      submittedAt: now,
+      status: "submitted",
+      notes: null,
+      verifiedBy: null,
+      verifiedAt: null,
+    });
+  } catch (error) {
+    await safeUnlink(relativePath);
+    throw error;
+  }
 
-  // Notify Admins
+  if (existing?.filePath && existing.filePath !== relativePath) {
+    await safeUnlink(existing.filePath);
+  }
+
   try {
     const adminIds = await coreRepo.findUserIdsByRole("Admin");
     if (adminIds.length > 0) {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
       const studentName = user?.fullName || "Mahasiswa";
       const title = "Dokumen Sidang TA Baru";
-      const message = `${studentName} telah mengunggah dokumen "${docTypeName}".`;
+      const message = `${studentName} telah mengunggah dokumen "${requirement.name}".`;
 
       await Promise.all([
-        import("../notification.service.js").then(m => m.createNotificationsForUsers(adminIds, { title, message })),
-        import("../push.service.js").then(m => m.sendFcmToUsers(adminIds, { title, body: message, data: { defenceId: targetDefenceId, type: "defence_doc_upload" } }))
+        import("../notification.service.js").then((module) =>
+          module.createNotificationsForUsers(adminIds, { title, message })
+        ),
+        import("../push.service.js").then((module) =>
+          module.sendFcmToUsers(adminIds, {
+            title,
+            body: message,
+            data: { defenceId: defence.id, type: "defence_doc_upload" },
+          })
+        ),
       ]);
     }
+  } catch (error) {
+    console.error("[Notification Error] Gagal mengirim notifikasi upload dokumen sidang:", error.message);
+  }
+
+  return mapDocument(saved);
+}
+
+export async function viewDocument(defenceId, requirementId) {
+  const document = await docRepo.findDefenceDocument(defenceId, requirementId);
+  if (!document) throwError("Dokumen belum diunggah.", 404);
+  return mapDocument(document);
+}
+
+export async function streamDocumentFile(defenceId, requirementId, user, res) {
+  const document = await docRepo.findDefenceDocument(defenceId, requirementId);
+  if (!document || document.thesisDefenceId !== defenceId) {
+    throwError("Dokumen belum diunggah.", 404);
+  }
+
+  const defence = document.defence;
+  const thesisStudentId = defence?.thesis?.studentId || defence?.thesis?.student?.id;
+
+  const userRoles = Array.isArray(user?.roles) ? user.roles : [];
+  const isAdminOrLeadership = userRoles.some((r) =>
+    ["Admin", "Ketua Departemen", "Sekretaris Departemen"].includes(r)
+  );
+
+  const isOwningStudent = Boolean(
+    (user?.studentId && user.studentId === thesisStudentId) ||
+    (user?.id && user.id === thesisStudentId)
+  );
+
+  const userLecturerId = user?.lecturerId || user?.id;
+  const isAssignedSupervisor = Boolean(
+    userLecturerId &&
+    (defence?.thesis?.thesisSupervisors || []).some((s) => s.lecturerId === userLecturerId)
+  );
+
+  const isAssignedExaminer = Boolean(
+    userLecturerId &&
+    (defence?.examiners || []).some(
+      (e) => e.lecturerId === userLecturerId && ["available", "pending"].includes(e.availabilityStatus || "available")
+    )
+  );
+
+  if (!isAdminOrLeadership && !isOwningStudent && !isAssignedSupervisor && !isAssignedExaminer) {
+    throwError("Anda tidak memiliki akses untuk mengunduh atau melihat dokumen ini.", 403);
+  }
+
+  const uploadsRoot = path.resolve(process.cwd(), "uploads");
+  const absolutePath = path.resolve(process.cwd(), document.filePath);
+
+  if (absolutePath !== uploadsRoot && !absolutePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+    throwError("Akses dokumen ditolak.", 403);
+  }
+
+  try {
+    await access(absolutePath);
   } catch (err) {
-    console.error("[Notification Error] Failed to notify admins on defence doc upload:", err.message);
+    throwError("File fisik dokumen tidak ditemukan di server.", 404);
   }
 
-  return {
-    documentId: document.id,
-    documentTypeId: docType.id,
-    fileName: originalName,
-    filePath: relPath,
-    status: "submitted",
-    submittedAt: new Date(),
-  };
+  const safeFileName = (document.fileName || "document.pdf").replace(/["\r\n]/g, "_");
+  res.setHeader("Content-Type", document.mimeType || "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${safeFileName}"`);
+  if (document.fileSize) {
+    res.setHeader("Content-Length", document.fileSize);
+  }
+
+  const stream = fs.createReadStream(absolutePath);
+  stream.on("error", (error) => {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: "Gagal membaca file dokumen." });
+    }
+  });
+  stream.pipe(res);
 }
 
-// ============================================================
-// PUBLIC: View Document
-// ============================================================
-
-export async function viewDocument(defenceId, docTypeId) {
-  const defenceDoc = await docRepo.findDefenceDocumentWithFile(defenceId, docTypeId);
-  if (!defenceDoc) throwError("Dokumen belum diupload.", 404);
-  if (!defenceDoc.document) throwError("File dokumen tidak ditemukan.", 404);
-
-  return {
-    documentTypeId: defenceDoc.documentTypeId,
-    documentId: defenceDoc.documentId,
-    status: defenceDoc.status,
-    submittedAt: defenceDoc.submittedAt,
-    verifiedAt: defenceDoc.verifiedAt,
-    notes: defenceDoc.notes,
-    fileName: defenceDoc.document.fileName,
-    filePath: defenceDoc.document.filePath,
-  };
+async function verifyWithRetry(payload) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await docRepo.verifyRequirementDocumentAtomic(payload);
+    } catch (error) {
+      const retryable = error?.code === "P2034" || /deadlock|serialization/i.test(error?.message || "");
+      if (!retryable || attempt === maxAttempts) throw error;
+    }
+  }
 }
 
-// ============================================================
-// PUBLIC: Verify Document (Admin approve/decline)
-// ============================================================
-
-export async function verifyDocument(defenceId, docTypeId, { action, notes, userId }) {
+export async function verifyDocument(defenceId, requirementId, { action, notes, userId }) {
   if (!["approve", "decline"].includes(action)) {
-    throwError('Action harus "approve" atau "decline".', 400);
+    throwError('Aksi verifikasi harus "approve" atau "decline".', 400);
+  }
+  if (action === "decline" && !String(notes || "").trim()) {
+    throwError("Catatan wajib diisi saat dokumen ditolak.", 400);
   }
 
-  const defence = await coreRepo.findDefenceBasicById(defenceId);
-  if (!defence) throwError("Sidang tidak ditemukan.", 404);
-  if (defence.status !== "registered") {
-    throwError("Verifikasi dokumen hanya dapat dilakukan saat sidang berstatus 'registered'.", 400);
-  }
+  const academicYear = await getActiveAcademicYear();
+  if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
 
-  const docWithFile = await docRepo.findDefenceDocumentWithFile(defenceId, docTypeId);
-  if (!docWithFile) throwError("Dokumen tidak ditemukan untuk di-verifikasi.", 404);
-
-  const docTypes = await docRepo.ensureDefenceDocumentTypes();
-  const docTypeName = Object.keys(docTypes).find(key => docTypes[key].id === docTypeId) || "Dokumen Persyaratan";
-
-  const newStatus = action === "approve" ? "approved" : "declined";
-  await docRepo.updateDefenceDocumentStatus(defenceId, docTypeId, {
-    status: newStatus,
-    notes: notes || null,
+  const result = await verifyWithRetry({
+    academicYearId: academicYear.id,
+    thesisDefenceId: defenceId,
+    requirementId,
+    status: action === "approve" ? "approved" : "declined",
+    notes: String(notes || "").trim() || null,
     verifiedBy: userId,
   });
 
-  const thesis = await coreRepo.findThesisById(defence.thesisId);
-
-  // 1. Notify student about specific document status
-  try {
-    if (thesis?.studentId) {
-      const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
-      const statusText = action === "approve" ? "disetujui" : "ditolak";
-      const message = `Dokumen "${docTypeName}" untuk sidang TA Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${notes}` : ""}`;
-
-      await Promise.all([
-        import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
-        import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { defenceId, type: "defence_doc_verified" } }))
-      ]);
-    }
-  } catch (err) {
-    console.error("[Notification Error] Failed to notify student on doc verification:", err.message);
+  if (result.kind === "defence_not_found") throwError("Sidang tidak ditemukan.", 404);
+  if (result.kind === "defence_locked") {
+    throwError("Verifikasi dokumen hanya dapat dilakukan saat pendaftaran masih berlangsung.", 400);
   }
+  if (result.kind === "requirement_not_found") {
+    throwError("Syarat dokumen tidak ditemukan pada tahun akademik yang sedang berjalan.", 400);
+  }
+  if (result.kind === "document_not_found") throwError("Dokumen belum diunggah.", 404);
 
-  let defenceTransitioned = false;
-  if (action === "approve") {
-    const allDocs = await docRepo.countDefenceDocumentsByStatus(defenceId);
-    const docTypesList = await docRepo.getDefenceDocumentTypes();
-    const approvedCount = allDocs.filter((d) =>
-      d.documentTypeId === docTypeId ? true : d.status === "approved"
-    ).length;
-    
-    if (approvedCount >= docTypesList.length) {
-      await coreRepo.updateDefence(defenceId, { 
-        status: "verified",
-        verifiedAt: new Date()
-      });
-      defenceTransitioned = true;
+  try {
+    const title = action === "approve" ? "Dokumen Disetujui" : "Dokumen Ditolak";
+    const statusText = action === "approve" ? "disetujui" : "ditolak";
+    const message = `Dokumen "${result.requirement.name}" untuk sidang TA Anda telah ${statusText} oleh Admin.${notes ? ` Catatan: ${String(notes).trim()}` : ""}`;
 
-      // 2. Notify student & Kadep about verification transition
-      try {
-        const studentName = thesis?.student?.user?.fullName || "Mahasiswa";
+    const notificationJobs = [
+      import("../notification.service.js").then((module) =>
+        module.createNotificationsForUsers([result.studentUserId], { title, message })
+      ),
+      import("../push.service.js").then((module) =>
+        module.sendFcmToUsers([result.studentUserId], {
+          title,
+          body: message,
+          data: { defenceId, type: "defence_doc_verified" },
+        })
+      ),
+    ];
 
-        if (thesis?.studentId) {
-          const title = "Sidang TA Terverifikasi";
-          const message = "Seluruh dokumen persyaratan sidang TA Anda telah diverifikasi. Menunggu penetapan penguji.";
-          await Promise.all([
-            import("../notification.service.js").then(m => m.createNotificationsForUsers([thesis.studentId], { title, message })),
-            import("../push.service.js").then(m => m.sendFcmToUsers([thesis.studentId], { title, body: message, data: { defenceId, type: "defence_verified" } }))
-          ]);
-        }
-
-        const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
-        if (kadepIds.length > 0) {
-          const kadepTitle = "Penetapan Penguji Sidang TA";
-          const kadepMsg = `Mahasiswa ${studentName} telah melewati verifikasi dokumen sidang TA. Mohon untuk melakukan penetapan dosen penguji.`;
-          await Promise.all([
-            import("../notification.service.js").then(m => m.createNotificationsForUsers(kadepIds, { title: kadepTitle, message: kadepMsg })),
-            import("../push.service.js").then(m => m.sendFcmToUsers(kadepIds, { title: kadepTitle, body: kadepMsg, data: { defenceId, type: "defence_need_examiner" } }))
-          ]);
-        }
-      } catch (err) {
-        console.error("[Notification Error] Failed to notify on defence verification:", err.message);
+    if (result.defenceTransitioned) {
+      const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
+      if (kadepIds.length > 0) {
+        const kadepTitle = "Penetapan Penguji Sidang TA";
+        const kadepMessage = "Pendaftaran sidang TA telah terverifikasi dan siap untuk penetapan dosen penguji.";
+        notificationJobs.push(
+          import("../notification.service.js").then((module) =>
+            module.createNotificationsForUsers(kadepIds, { title: kadepTitle, message: kadepMessage })
+          )
+        );
       }
     }
+    await Promise.all(notificationJobs);
+  } catch (error) {
+    console.error("[Notification Error] Gagal mengirim notifikasi verifikasi dokumen:", error.message);
   }
 
   return {
-    documentTypeId: docTypeId,
-    status: newStatus,
-    defenceTransitioned,
-    newDefenceStatus: defenceTransitioned ? "verified" : defence.status,
+    requirementId,
+    status: result.document.status,
+    defenceTransitioned: result.defenceTransitioned,
+    newDefenceStatus: result.newDefenceStatus,
   };
 }

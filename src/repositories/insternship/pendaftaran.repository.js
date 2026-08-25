@@ -28,7 +28,7 @@ const ACTIVE_PROPOSAL_STATUSES = [
 /**
  * Get all internship proposals where the student is either a coordinator or has an internship.
  * After consolidation, uses `internships` relation instead of `members`.
- * @param {string} studentId 
+ * @param {string} studentId
  * @param {string} [academicYearId]
  * @returns {Promise<Array>}
  */
@@ -91,14 +91,14 @@ export async function getAllCompanies() {
 }
 
 /**
- * Get all eligible students for internship (skscompleted >= 90).
+ * Get all eligible students for internship (sksCompleted >= 90).
  * After consolidation, checks internship records instead of proposal memberships.
  * @returns {Promise<Array>}
  */
 export async function getEligibleStudents() {
     return prisma.student.findMany({
         where: {
-            skscompleted: { gte: 90 },
+            sksCompleted: { gte: 90 },
             // Filter out students who already have an active/non-repeatable internship state.
             // FAILED and rejected states are intentionally not blocked so students can register again.
             internships: {
@@ -124,7 +124,7 @@ export async function getEligibleStudents() {
 
 /**
  * Create a new company.
- * @param {Object} data 
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function createCompany(data) {
@@ -152,7 +152,7 @@ export async function getActiveAcademicYear() {
 /**
  * Create a new internship proposal.
  * After consolidation, members are created as Internship records with PENDING status.
- * @param {Object} data 
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function createProposal(data) {
@@ -188,8 +188,8 @@ export async function createProposal(data) {
 /**
  * Update an existing internship proposal.
  * Resets status to PENDING and handles member update by replacement.
- * @param {string} proposalId 
- * @param {Object} data 
+ * @param {string} proposalId
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function updateProposal(proposalId, data) {
@@ -276,7 +276,7 @@ export async function updateProposal(proposalId, data) {
 
 /**
  * Find if a student has an active proposal or internship.
- * @param {string} studentId 
+ * @param {string} studentId
  * @returns {Promise<Object|null>}
  */
 export async function findActiveProposalOrInternship(studentId) {
@@ -318,7 +318,7 @@ export async function findActiveProposalOrInternship(studentId) {
 
 /**
  * Delete a proposal and its associated documents.
- * @param {string} proposalId 
+ * @param {string} proposalId
  * @returns {Promise<Object>}
  */
 export async function deleteProposal(proposalId) {
@@ -365,7 +365,7 @@ export async function deleteProposal(proposalId) {
 
 /**
  * Handle document record creation.
- * @param {Object} data 
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function createDocument(data) {
@@ -397,7 +397,7 @@ export async function createDocument(data) {
 
 /**
  * Find users by their role name.
- * @param {string} roleName 
+ * @param {string} roleName
  * @returns {Promise<Array>}
  */
 export async function findUsersByRole(roleName) {
@@ -417,7 +417,7 @@ export async function findUsersByRole(roleName) {
 /**
  * Find an internship proposal by ID.
  * After consolidation, includes flat letter fields and internships instead of members.
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<Object|null>}
  */
 export async function findProposalById(id) {
@@ -472,9 +472,9 @@ export async function findProposalById(id) {
 /**
  * Update the status of an internship record (replaces updateMemberStatus).
  * After consolidation, member status is tracked via Internship.status.
- * @param {string} proposalId 
- * @param {string} studentId 
- * @param {string} status 
+ * @param {string} proposalId
+ * @param {string} studentId
+ * @param {string} status
  * @returns {Promise<Object>}
  */
 export async function updateMemberStatus(proposalId, studentId, status) {
@@ -513,7 +513,7 @@ export async function updateMemberStatus(proposalId, studentId, status) {
 /**
  * Upload company response document for a proposal.
  * After consolidation, updates the companyResponseDocId field on the proposal.
- * @param {Object} data 
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function createCompanyResponse(data) {
@@ -533,8 +533,8 @@ export async function createCompanyResponse(data) {
 /**
  * Upload company response and update internship statuses transactionally.
  * After consolidation, updates proposal fields and internship statuses.
- * @param {Object} responseData 
- * @param {Array<{studentId: string, status: string}>} internshipUpdates 
+ * @param {Object} responseData
+ * @param {Array<{studentId: string, status: string}>} internshipUpdates
  * @returns {Promise<Object>}
  */
 export async function createCompanyResponseTransaction(responseData, internshipUpdates) {
@@ -718,8 +718,8 @@ export async function syncMany(apiData) {
 
 /**
  * Update an internship proposal status.
- * @param {string} id 
- * @param {string} status 
+ * @param {string} id
+ * @param {string} status
  * @param {string} [notes]
  * @returns {Promise<Object>}
  */
@@ -737,8 +737,8 @@ export async function updateProposalStatus(id, status, notes) {
 
 /**
  * Update an existing company.
- * @param {string} id 
- * @param {Object} data 
+ * @param {string} id
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function updateCompany(id, data) {
@@ -755,7 +755,7 @@ export async function updateCompany(id, data) {
 
 /**
  * Delete a company.
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<Object>}
  */
 export async function deleteCompany(id) {
@@ -766,8 +766,8 @@ export async function deleteCompany(id) {
 
 /**
  * Update assignment letter details directly on InternshipProposal.
- * @param {string} proposalId 
- * @param {Object} data 
+ * @param {string} proposalId
+ * @param {Object} data
  * @returns {Promise<Object>}
  */
 export async function updateAssignmentLetter(proposalId, data) {
@@ -1351,7 +1351,7 @@ export async function findPendingAssignmentLetters(academicYearId) {
  */
 export async function findPendingSupervisorLetters() {
     return prisma.internshipSupervisorLetter.findMany({
-        where: { 
+        where: {
             documentId: { not: null },
             OR: [
                 { status: 'ACTIVE' },

@@ -1,31 +1,17 @@
 /**
  * Master Seed Script - Orchestrates all seed scripts
- * 
+ *
  * Usage: node scripts/seed-master.js
- * 
+ *
  * This script runs all seeds in the correct order to avoid conflicts.
  */
 
 import { PrismaClient } from "../src/generated/prisma/index.js";
 import bcrypt from "bcrypt";
 import { syncDsiMaster } from "./sync-dsi-master.js";
+import { ROLES } from "../src/constants/roles.js";
 
 const prisma = new PrismaClient();
-
-// ============================================================
-// CONSTANTS - Role names sesuai dengan constants/roles.js
-// ============================================================
-const ROLES = {
-  KETUA_DEPARTEMEN: "Ketua Departemen",
-  SEKRETARIS_DEPARTEMEN: "Sekretaris Departemen",
-  PEMBIMBING_1: "Pembimbing 1",
-  PEMBIMBING_2: "Pembimbing 2",
-  ADMIN: "Admin",
-  PENGUJI: "Penguji",
-  MAHASISWA: "Mahasiswa",
-  GKM: "GKM",
-  DOSEN_METOPEN: "Dosen Metodologi Penelitian",
-};
 
 const DEFAULT_PASSWORD = "password123";
 
@@ -51,6 +37,14 @@ async function seedRoles() {
   console.log("\n" + "=".repeat(60));
   console.log("📋 STEP 1: Seeding Roles...");
   console.log("=".repeat(60));
+  // Hapus alias Metopen lama hanya ketika belum pernah diberikan kepada user.
+  await prisma.userRole.deleteMany({
+    where: {
+      name: { in: ["Dosen Metodologi Penelitian", "Dosen Pengampu Metopel"] },
+      userHasRoles: { none: {} },
+    },
+  });
+
 
   const roleNames = Object.values(ROLES);
   const roleMap = new Map();
@@ -125,24 +119,31 @@ async function seedAcademicYears() {
   const academicYears = [
     {
       semester: "ganjil",
-      year: "2024",
+      year: "2024/2025",
       startDate: new Date("2024-08-01"),
       endDate: new Date("2025-01-31"),
       isActive: false,
     },
     {
       semester: "genap",
-      year: "2024",
+      year: "2024/2025",
       startDate: new Date("2025-02-01"),
       endDate: new Date("2025-07-31"),
       isActive: false,
     },
     {
       semester: "ganjil",
-      year: "2025",
+      year: "2025/2026",
       startDate: new Date("2025-08-01"),
       endDate: new Date("2026-01-31"),
-      isActive: true, // Current active academic year (Start August 2025)
+      isActive: false,
+    },
+    {
+      semester: "ganjil",
+      year: "2026/2027",
+      startDate: new Date("2026-08-01"),
+      endDate: new Date("2027-01-31"),
+      isActive: true, // Current active academic year
     },
   ];
 
@@ -154,14 +155,14 @@ async function seedAcademicYears() {
       where: { semester: ay.semester, year: ay.year },
     });
     if (!existing) {
-      existing = await prisma.academicYear.create({ data: ay });
+      existing = await prisma.academicYear.create({ data: { ...ay, activeKey: ay.isActive ? "ACTIVE" : null } });
       console.log(`  ✅ Created academic year: ${key}${ay.isActive ? ' (ACTIVE)' : ''}`);
     } else {
       // Update isActive if needed
       if (existing.isActive !== ay.isActive) {
         existing = await prisma.academicYear.update({
           where: { id: existing.id },
-          data: { isActive: ay.isActive },
+          data: { isActive: ay.isActive, activeKey: ay.isActive ? "ACTIVE" : null },
         });
         console.log(`  🔄 Updated academic year: ${key}${ay.isActive ? ' (ACTIVE)' : ''}`);
       } else {
@@ -201,7 +202,7 @@ async function seedUsers(roleMap) {
       fullName: "Afriyanti Dwi Kartika, M.T",
       identityType: "NIP",
       identityNumber: "198904212019032024",
-      roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+      roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
@@ -209,7 +210,7 @@ async function seedUsers(roleMap) {
       fullName: "Husnil Kamil, MT",
       identityType: "NIP",
       identityNumber: "198201182008121002",
-      roles: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+      roles: [ROLES.KOORDINATOR_METOPEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {
@@ -225,7 +226,7 @@ async function seedUsers(roleMap) {
       fullName: "Ullya Mega Wahyuni, M.Kom",
       identityType: "NIP",
       identityNumber: "199011032019032008",
-      roles: [ROLES.GKM, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
+      roles: [ROLES.GKM, ROLES.TIM_PENGELOLA_CPL, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {
@@ -469,7 +470,7 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
   console.log("=".repeat(60));
 
   const bimbinganStatus = thesisStatusMap.get("Bimbingan");
-  const currentAcademicYear = academicYearMap.get("ganjil-2025");
+  const currentAcademicYear = academicYearMap.get("ganjil-2026/2027");
 
   const pembimbing1Role = roleMap.get(ROLES.PEMBIMBING_1);
   const pembimbing2Role = roleMap.get(ROLES.PEMBIMBING_2);
@@ -478,7 +479,7 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
   let thesisTopic = await prisma.thesisTopic.findFirst({
     where: { name: "Pengembangan Sistem (Enterprise Application)" },
   });
-  
+
   if (!thesisTopic) {
     // Create if not exists
     thesisTopic = await prisma.thesisTopic.create({
@@ -495,12 +496,12 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
   const nouval = userMap.get("muhammad_2211521020@fti.unand.ac.id");
   const daffa = userMap.get("daffa_2211523022@fti.unand.ac.id");
   const ilham = userMap.get("ilham_2211522028@fti.unand.ac.id");
-  
+
   // Test users for change request feature
   const testChangeTopic = userMap.get("test_changetopic@fti.unand.ac.id");
   const testChangeSupervisor = userMap.get("test_changesupervisor@fti.unand.ac.id");
   // Note: test_nothesis@fti.unand.ac.id doesn't get a thesis (for approved state testing)
-  
+
   const husnil = userMap.get("pembimbing_si@fti.unand.ac.id");
   const afriyanti = userMap.get("sekdep_si@fti.unand.ac.id");
 
@@ -553,7 +554,8 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
         data: {
           thesisId: thesis.id,
           lecturerId: pembimbing1User.id,
-          roleId: roleMap.get(ROLES.PEMBIMBING_1).id,
+          roleId: pembimbing1Role.id,
+          activeRoleKey: thesis.id + ":" + pembimbing1Role.id,
         },
       });
       console.log(`    📌 Pembimbing 1: ${pembimbing1User.fullName}`);
@@ -564,13 +566,33 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
           data: {
             thesisId: thesis.id,
             lecturerId: pembimbing2User.id,
-            roleId: roleMap.get(ROLES.PEMBIMBING_2).id,
+            roleId: pembimbing2Role.id,
+            activeRoleKey: thesis.id + ":" + pembimbing2Role.id,
           },
         });
         console.log(`    📌 Pembimbing 2: ${pembimbing2User.fullName}`);
       }
     } else {
       console.log(`  ⏭️  Thesis exists for ${student.fullName}`);
+    }
+
+    const expectedSupervisors = [
+      { user: pembimbing1User, role: pembimbing1Role, label: "Pembimbing 1" },
+      ...(pembimbing2User ? [{ user: pembimbing2User, role: pembimbing2Role, label: "Pembimbing 2" }] : []),
+    ];
+    for (const assignment of expectedSupervisors) {
+      const activeRoleKey = thesis.id + ":" + assignment.role.id;
+      const existingSupervisor = await prisma.thesisSupervisors.findFirst({
+        where: { thesisId: thesis.id, roleId: assignment.role.id, status: "active" },
+      });
+      if (!existingSupervisor) {
+        await prisma.thesisSupervisors.create({
+          data: { thesisId: thesis.id, lecturerId: assignment.user.id, roleId: assignment.role.id, activeRoleKey },
+        });
+        console.log("    📌 Repaired " + assignment.label + ": " + assignment.user.fullName);
+      } else if (!existingSupervisor.activeRoleKey) {
+        await prisma.thesisSupervisors.update({ where: { id: existingSupervisor.id }, data: { activeRoleKey } });
+      }
     }
 
     thesisMap.set(student.id, thesis);
@@ -685,36 +707,36 @@ async function seedThesisMilestones(thesisMap, userMap) {
 
   // Base milestones template (5 milestones, each worth 20%)
   const baseMilestones = [
-    { 
-      title: "Pengajuan Judul & BAB I", 
+    {
+      title: "Pengajuan Judul & BAB I",
       description: "Judul tugas akhir dan pendahuluan (latar belakang, rumusan masalah, tujuan)",
       orderIndex: 1,
       targetDate: new Date("2025-09-01"),
       weight: 20,
     },
-    { 
-      title: "BAB II - Tinjauan Pustaka", 
+    {
+      title: "BAB II - Tinjauan Pustaka",
       description: "Dasar teori dan penelitian terkait",
       orderIndex: 2,
       targetDate: new Date("2025-10-01"),
       weight: 20,
     },
-    { 
-      title: "BAB III - Metodologi", 
+    {
+      title: "BAB III - Metodologi",
       description: "Metodologi penelitian dan perancangan sistem",
       orderIndex: 3,
       targetDate: new Date("2025-11-01"),
       weight: 20,
     },
-    { 
-      title: "BAB IV - Implementasi", 
+    {
+      title: "BAB IV - Implementasi",
       description: "Implementasi sistem dan coding",
       orderIndex: 4,
       targetDate: new Date("2025-12-15"),
       weight: 20,
     },
-    { 
-      title: "BAB V - Pengujian & Kesimpulan", 
+    {
+      title: "BAB V - Pengujian & Kesimpulan",
       description: "Pengujian sistem, analisis hasil, dan kesimpulan",
       orderIndex: 5,
       targetDate: new Date("2026-01-31"),
@@ -726,7 +748,7 @@ async function seedThesisMilestones(thesisMap, userMap) {
     if (!thesis) continue;
 
     const config = milestoneConfig[studentId];
-    
+
     // Skip if no config (Khalied, Nouval, Daffa, Ilham - no milestones)
     if (!config) {
       console.log(`  ⏭️  Skipping milestones for thesis: ${thesis.title?.slice(0, 40)}... (no milestone data)`);
@@ -746,12 +768,12 @@ async function seedThesisMilestones(thesisMap, userMap) {
     console.log(`  📋 Creating milestones for ${config.name} (Target: ${config.completionPercentage}%)`);
 
     let accumulatedPercentage = 0;
-    
+
     for (const milestone of baseMilestones) {
       accumulatedPercentage += milestone.weight;
-      
+
       let status, progressPercentage, startedAt, completedAt, validatedBy, validatedAt, supervisorNotes;
-      
+
       if (accumulatedPercentage <= config.completionPercentage) {
         // Completed milestone
         status = "completed";
@@ -816,7 +838,7 @@ async function seedGuidances(thesisMap, userMap) {
   // Guidance configuration:
   // Nabil: 5 bimbingan, Fathur: 5 bimbingan, Fariz: 4 bimbingan
   // Timeline: August 2025 - Feb 2026, interval 2-3 weeks
-  
+
   const guidanceSchedules = {
     nabil: {
       thesis: thesisMap.get(nabil?.id),

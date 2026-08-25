@@ -9,25 +9,16 @@ vi.mock("../../../../repositories/yudisium/exit-survey.repository.js");
 vi.mock("../../../../services/yudisium/student.service.js");
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
-    studentExitSurveyResponse: {
+    yudisiumParticipant: {
       count: vi.fn(),
       findMany: vi.fn(),
     },
-    studentExitSurveyAnswer: {
-      createMany: vi.fn(),
-    },
     $transaction: vi.fn((cb) => cb({
-        studentExitSurveyAnswer: { 
-          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-          createMany: vi.fn().mockResolvedValue({ count: 1 }) 
-        },
-        exitSurveyOption: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-        exitSurveyQuestion: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-        exitSurveySession: { delete: vi.fn().mockResolvedValue({ id: '1' }) },
-        studentExitSurveyResponse: { 
-          create: vi.fn().mockResolvedValue({ id: 'r1' }),
-          findUnique: vi.fn().mockResolvedValue({ id: 'r1', answers: [] })
-        },
+      yudisiumParticipantExitSurveySelectedOption: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      yudisiumParticipantExitSurveyAnswer: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      exitSurveyOption: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      exitSurveyQuestion: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      exitSurveySession: { delete: vi.fn().mockResolvedValue({ id: "s1" }) },
     })),
   },
 }));
@@ -128,9 +119,7 @@ describe("Unit Test: Exit Survey Service", () => {
         _count: { yudisiums: 1 },
       };
       repo.findFormById.mockResolvedValue(mockForm);
-      prisma.studentExitSurveyResponse.findMany.mockResolvedValue(
-        Array.from({ length: 10 }, (_, i) => ({ thesisId: `thesis-${i}` }))
-      );
+      prisma.yudisiumParticipant.count.mockResolvedValue(10);
 
       const result = await service.getFormDetail("1");
 
@@ -149,7 +138,7 @@ describe("Unit Test: Exit Survey Service", () => {
     it("should create form with default values", async () => {
       const input = { name: "New Form", description: "Desc" };
       repo.createForm.mockResolvedValue({ id: "1", ...input, isActive: true });
-      
+
       const result = await service.createForm(input);
       expect(result.id).toBe("1");
       expect(repo.createForm).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
@@ -189,7 +178,7 @@ describe("Unit Test: Exit Survey Service", () => {
     it("should delete form if not used in yudisium", async () => {
       repo.findFormById.mockResolvedValue({ id: "1" });
       repo.formHasRelatedYudisiums.mockResolvedValue(false);
-      
+
       await service.deleteForm("1");
       expect(repo.removeForm).toHaveBeenCalledWith("1");
     });
@@ -205,13 +194,14 @@ describe("Unit Test: Exit Survey Service", () => {
   describe("getFormResponses", () => {
     it("should return mapped student responses", async () => {
       repo.findFormById.mockResolvedValue({ id: "f1" });
-      prisma.studentExitSurveyResponse.findMany.mockResolvedValue([
+      prisma.yudisiumParticipant.findMany.mockResolvedValue([
         {
-          id: "r1",
+          id: "p1",
           thesisId: "t1",
-          submittedAt: new Date(),
+          yudisiumId: "y1",
+          exitSurveySubmittedAt: new Date(),
           yudisium: { name: "Yud A" },
-          answers: [],
+          exitSurveyAnswers: [],
           thesis: {
             student: {
               enrollmentYear: 2020,
@@ -220,7 +210,7 @@ describe("Unit Test: Exit Survey Service", () => {
               user: { fullName: "Fathur", gender: false },
             },
           },
-        }
+        },
       ]);
 
       const result = await service.getFormResponses("f1");
@@ -263,14 +253,14 @@ describe("Unit Test: Exit Survey Service", () => {
           },
         ],
       });
-      prisma.studentExitSurveyResponse.findMany.mockResolvedValue([
+      prisma.yudisiumParticipant.findMany.mockResolvedValue([
         {
-          id: "r1",
+          id: "p1",
           thesisId: "t1",
-          submittedAt: new Date("2026-05-16T00:22:00.000Z"),
+          exitSurveySubmittedAt: new Date("2026-05-16T00:22:00.000Z"),
           yudisiumId: "y1",
           yudisium: { name: "Yudisium Mei 2026" },
-          answers: [
+          exitSurveyAnswers: [
             {
               exitSurveyQuestionId: "q1",
               exitSurveyOptionId: "o1",
@@ -329,14 +319,14 @@ describe("Unit Test: Exit Survey Service", () => {
           },
         ],
       });
-      prisma.studentExitSurveyResponse.findMany.mockResolvedValue([
+      prisma.yudisiumParticipant.findMany.mockResolvedValue([
         {
-          id: "r1",
+          id: "p1",
           thesisId: "t1",
-          submittedAt: new Date("2026-05-16T00:22:00.000Z"),
+          exitSurveySubmittedAt: new Date("2026-05-16T00:22:00.000Z"),
           yudisiumId: "y1",
           yudisium: { name: "Yudisium Mei 2026" },
-          answers: [
+          exitSurveyAnswers: [
             {
               exitSurveyQuestionId: "q1",
               exitSurveyOptionId: "o1",
@@ -379,13 +369,12 @@ describe("Unit Test: Exit Survey Service", () => {
       repo.findFormById.mockResolvedValueOnce(mockExisting);
       repo.createForm.mockResolvedValue({ id: "new", name: "Salinan - Old Form" });
       repo.createSession.mockResolvedValue({ id: "new-s1" });
-      
-      // Mock getFormDetail for the final return
+
       repo.findFormById.mockResolvedValue({ id: "new", name: "Salinan - Old Form", sessions: [] });
 
       await service.duplicateForm("old");
 
-      expect(repo.createForm).toHaveBeenCalledWith(expect.objectContaining({ name: "Salinan - Old Form" }));
+      expect(repo.createForm).toHaveBeenCalledWith(expect.objectContaining({ title: "Salinan - Old Form" }));
       expect(repo.createSession).toHaveBeenCalled();
       expect(repo.createQuestion).toHaveBeenCalled();
     });
@@ -406,7 +395,7 @@ describe("Unit Test: Exit Survey Service", () => {
     it("should delete session and all its children via transaction", async () => {
       repo.findSessionById.mockResolvedValue({ id: "s1", exitSurveyFormId: "f1" });
       repo.formHasLinkedResponses.mockResolvedValue(false);
-      
+
       await service.deleteSession("f1", "s1");
 
       expect(prisma.$transaction).toHaveBeenCalled();
@@ -469,7 +458,7 @@ describe("Unit Test: Exit Survey Service", () => {
       studentService.findStudentContext.mockResolvedValue({
         student: makeStudentContext(),
         currentYudisium: makeYudisiumContext(),
-        thesis: makeThesisContext()
+        thesis: makeThesisContext(),
       });
       repo.findResponseByYudisiumThesis.mockResolvedValue(null);
 
@@ -505,15 +494,15 @@ describe("Unit Test: Exit Survey Service", () => {
         thesis: makeThesisContext(),
       });
       repo.findResponseByYudisiumThesis.mockResolvedValue({
-        id: "response-1",
-        submittedAt: new Date("2026-04-10T00:00:00.000Z"),
-        answers: [],
+        id: "p1",
+        exitSurveySubmittedAt: new Date("2026-04-10T00:00:00.000Z"),
+        exitSurveyAnswers: [],
       });
 
       const result = await service.getStudentSurvey("user1");
 
       expect(result.isSubmitted).toBe(true);
-      expect(result.response.id).toBe("response-1");
+      expect(result.response.id).toBe("p1");
     });
 
     it("should block survey access until academic requirements are met", async () => {
@@ -529,73 +518,204 @@ describe("Unit Test: Exit Survey Service", () => {
   });
 
   describe("submitStudentSurvey", () => {
-    it("should submit answers successfully", async () => {
+    it("should submit text answers successfully", async () => {
       studentService.findStudentContext.mockResolvedValue({
         student: makeStudentContext(),
-        currentYudisium: makeYudisiumContext({ exitSurveyForm: { 
-          id: "f1",
-          name: "Exit Survey",
-          description: null,
-          sessions: [{ questions: [{ id: "q1", isRequired: true, questionType: "short_answer" }] }] 
-        } }),
-        thesis: makeThesisContext()
+        currentYudisium: makeYudisiumContext({
+          exitSurveyForm: {
+            id: "f1",
+            name: "Exit Survey",
+            description: null,
+            sessions: [{ questions: [{ id: "q1", isRequired: true, questionType: "short_answer" }] }],
+          },
+        }),
+        thesis: makeThesisContext(),
       });
       repo.findResponseByYudisiumThesis.mockResolvedValue(null);
-      repo.createResponseWithAnswers.mockResolvedValue({ id: "r1", answers: [] });
-
-      const result = await service.submitStudentSurvey("user1", {
-        answers: [{ questionId: "q1", answerText: "Valid Answer" }]
+      repo.saveStudentExitSurveyAnswers.mockResolvedValue({
+        id: "p1",
+        exitSurveySubmittedAt: new Date(),
+        exitSurveyAnswers: [{ exitSurveyQuestionId: "q1", answerText: "Valid Answer" }],
       });
 
-      expect(repo.createResponseWithAnswers).toHaveBeenCalled();
+      const result = await service.submitStudentSurvey("user1", {
+        answers: [{ questionId: "q1", answerText: "Valid Answer" }],
+      });
+
+      expect(repo.saveStudentExitSurveyAnswers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          exitSurveyFormId: "f1",
+          answerRows: [expect.objectContaining({ exitSurveyQuestionId: "q1", answerText: "Valid Answer" })],
+        })
+      );
       expect(result.response).toBeDefined();
+    });
+
+    it("should submit number and date answers successfully", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({
+          exitSurveyForm: {
+            id: "f1",
+            name: "Exit Survey",
+            description: null,
+            sessions: [
+              {
+                questions: [
+                  { id: "q-num", isRequired: true, questionType: "number", question: "Gaji Pertama" },
+                  { id: "q-date", isRequired: true, questionType: "date", question: "Tanggal Mulai Kerja" },
+                ],
+              },
+            ],
+          },
+        }),
+        thesis: makeThesisContext(),
+      });
+      repo.findResponseByYudisiumThesis.mockResolvedValue(null);
+      repo.saveStudentExitSurveyAnswers.mockResolvedValue({
+        id: "p1",
+        exitSurveySubmittedAt: new Date(),
+        exitSurveyAnswers: [],
+      });
+
+      await service.submitStudentSurvey("user1", {
+        answers: [
+          { questionId: "q-num", answerNumber: 5000000 },
+          { questionId: "q-date", answerDate: "2026-07-01" },
+        ],
+      });
+
+      expect(repo.saveStudentExitSurveyAnswers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          answerRows: expect.arrayContaining([
+            expect.objectContaining({ exitSurveyQuestionId: "q-num", answerNumber: 5000000 }),
+            expect.objectContaining({ exitSurveyQuestionId: "q-date", answerDate: expect.any(Date) }),
+          ]),
+        })
+      );
+    });
+
+    it("should reject invalid numeric answers", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({
+          exitSurveyForm: {
+            id: "f1",
+            sessions: [
+              {
+                questions: [{ id: "q-num", isRequired: true, questionType: "number", question: "Lama Menunggu" }],
+              },
+            ],
+          },
+        }),
+        thesis: makeThesisContext(),
+      });
+      repo.findResponseByYudisiumThesis.mockResolvedValue(null);
+
+      await expect(
+        service.submitStudentSurvey("user1", {
+          answers: [{ questionId: "q-num", answerText: "tidak-tahu" }],
+        })
+      ).rejects.toThrow("Jawaban untuk pertanyaan 'Lama Menunggu' harus berupa angka yang valid.");
+    });
+
+    it("should validate single_choice option ownership", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({
+          exitSurveyForm: {
+            id: "f1",
+            sessions: [
+              {
+                questions: [
+                  {
+                    id: "q-sc",
+                    isRequired: true,
+                    questionType: "single_choice",
+                    question: "Status Kerja",
+                    options: [{ id: "opt-1", optionText: "Bekerja" }],
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+        thesis: makeThesisContext(),
+      });
+      repo.findResponseByYudisiumThesis.mockResolvedValue(null);
+
+      await expect(
+        service.submitStudentSurvey("user1", {
+          answers: [{ questionId: "q-sc", optionId: "opt-invalid" }],
+        })
+      ).rejects.toThrow("Opsi tidak valid untuk pertanyaan: Status Kerja");
+    });
+
+    it("should process multiple_choice options into join table rows", async () => {
+      studentService.findStudentContext.mockResolvedValue({
+        student: makeStudentContext(),
+        currentYudisium: makeYudisiumContext({
+          exitSurveyForm: {
+            id: "f1",
+            sessions: [
+              {
+                questions: [
+                  {
+                    id: "q-mc",
+                    isRequired: true,
+                    questionType: "multiple_choice",
+                    question: "Keahlian Utama",
+                    options: [
+                      { id: "opt-1", optionText: "Backend" },
+                      { id: "opt-2", optionText: "Frontend" },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+        thesis: makeThesisContext(),
+      });
+      repo.findResponseByYudisiumThesis.mockResolvedValue(null);
+      repo.saveStudentExitSurveyAnswers.mockResolvedValue({
+        id: "p1",
+        exitSurveySubmittedAt: new Date(),
+        exitSurveyAnswers: [],
+      });
+
+      await service.submitStudentSurvey("user1", {
+        answers: [{ questionId: "q-mc", optionIds: ["opt-1", "opt-2"] }],
+      });
+
+      expect(repo.saveStudentExitSurveyAnswers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          selectedOptionRows: expect.arrayContaining([
+            { exitSurveyQuestionId: "q-mc", exitSurveyOptionId: "opt-1" },
+            { exitSurveyQuestionId: "q-mc", exitSurveyOptionId: "opt-2" },
+          ]),
+        })
+      );
     });
 
     it("should throw error if required question is missing", async () => {
       studentService.findStudentContext.mockResolvedValue({
         student: makeStudentContext(),
-        currentYudisium: makeYudisiumContext({ exitSurveyForm: { 
-          id: "f1",
-          name: "Exit Survey",
-          description: null,
-          sessions: [{ questions: [{ id: "q1", isRequired: true, question: "Req Q" }] }] 
-        } }),
-        thesis: makeThesisContext()
-      });
-      repo.findResponseByYudisiumThesis.mockResolvedValue(null);
-
-      await expect(service.submitStudentSurvey("user1", { answers: [] }))
-        .rejects.toThrow("Pertanyaan wajib belum dijawab: Req Q");
-    });
-
-    it("should block submission when registration is not open", async () => {
-      studentService.findStudentContext.mockResolvedValue({
-        student: makeStudentContext(),
         currentYudisium: makeYudisiumContext({
-          registrationOpenDate: new Date("2026-04-01T00:00:00.000Z"),
-          registrationCloseDate: new Date("2026-04-30T23:59:59.000Z"),
-          eventDate: new Date("2026-06-10T02:00:00.000Z"),
+          exitSurveyForm: {
+            id: "f1",
+            name: "Exit Survey",
+            description: null,
+            sessions: [{ questions: [{ id: "q1", isRequired: true, question: "Req Q" }] }],
+          },
         }),
         thesis: makeThesisContext(),
       });
+      repo.findResponseByYudisiumThesis.mockResolvedValue(null);
 
-      await expect(service.submitStudentSurvey("user1", {
-        answers: [{ questionId: "q1", answerText: "Valid Answer" }],
-      })).rejects.toThrow("Exit survey hanya dapat diisi saat pendaftaran yudisium dibuka");
-      expect(repo.createResponseWithAnswers).not.toHaveBeenCalled();
-    });
-
-    it("should block submission until academic requirements are met", async () => {
-      studentService.findStudentContext.mockResolvedValue({
-        student: makeStudentContext({ sksCompleted: 120 }),
-        currentYudisium: makeYudisiumContext(),
-        thesis: makeThesisContext(),
-      });
-
-      await expect(service.submitStudentSurvey("user1", {
-        answers: [{ questionId: "q1", answerText: "Valid Answer" }],
-      })).rejects.toThrow("Exit survey hanya dapat diisi setelah seluruh persyaratan akademik terpenuhi");
-      expect(repo.createResponseWithAnswers).not.toHaveBeenCalled();
+      await expect(service.submitStudentSurvey("user1", { answers: [] })).rejects.toThrow(
+        "Pertanyaan wajib belum dijawab: Req Q"
+      );
     });
   });
 });

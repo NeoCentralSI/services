@@ -136,7 +136,8 @@ export async function getRoomOptions(req, res, next) {
 export async function exportArchive(req, res, next) {
   try {
     const buffer = await coreService.exportArchive();
-    res.setHeader("Content-Disposition", 'attachment; filename="Arsip_Sidang_TA.xlsx"');
+    const exportDate = new Date().toISOString().split("T")[0];
+    res.setHeader("Content-Disposition", `attachment; filename="Arsip Sidang TA - ${exportDate}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buffer);
   } catch (error) {
@@ -160,7 +161,7 @@ export async function importArchive(req, res, next) {
 
 export async function getDocumentTypes(req, res, next) {
   try {
-    const result = await docService.getDocumentTypes();
+    const result = await docService.getDocumentTypes(req.user.id);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -178,11 +179,12 @@ export async function getDocuments(req, res, next) {
 
 export async function uploadDocument(req, res, next) {
   try {
+    const requirementId = req.body.requirementId || req.body.documentTypeName;
     const result = await docService.uploadDocument(
       req.params.id,
       req.user.id,
       req.file,
-      req.body.documentTypeName
+      requirementId
     );
     res.json({ success: true, data: result });
   } catch (error) {
@@ -190,9 +192,23 @@ export async function uploadDocument(req, res, next) {
   }
 }
 
+export async function streamDocumentFile(req, res, next) {
+  try {
+    await docService.streamDocumentFile(
+      req.params.id,
+      req.params.requirementId,
+      req.user,
+      res
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function viewDocument(req, res, next) {
   try {
-    const result = await docService.viewDocument(req.params.id, req.params.documentTypeId);
+    const requirementId = req.params.requirementId;
+    const result = await docService.viewDocument(req.params.id, requirementId);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -201,7 +217,8 @@ export async function viewDocument(req, res, next) {
 
 export async function verifyDocument(req, res, next) {
   try {
-    const result = await docService.verifyDocument(req.params.id, req.params.documentTypeId, {
+    const requirementId = req.params.requirementId;
+    const result = await docService.verifyDocument(req.params.id, requirementId, {
       action: req.body.action,
       notes: req.body.notes,
       userId: req.user.id,
@@ -304,8 +321,8 @@ export async function getRevisions(req, res, next) {
 export async function createRevision(req, res, next) {
   try {
     const result = await revisionService.createRevision(
-      req.params.id, 
-      req.body, 
+      req.params.id,
+      req.body,
       req.user.studentId,
       req.user
     );
@@ -346,7 +363,7 @@ export async function deleteRevision(req, res, next) {
 export async function finalizeRevisions(req, res, next) {
   try {
     const result = await revisionService.finalizeRevisions(
-      req.params.id, 
+      req.params.id,
       req.user.lecturerId,
       req.user
     );
@@ -359,7 +376,7 @@ export async function finalizeRevisions(req, res, next) {
 export async function unfinalizeRevisions(req, res, next) {
   try {
     const result = await revisionService.unfinalizeRevisions(
-      req.params.id, 
+      req.params.id,
       req.user.lecturerId,
       req.user
     );

@@ -32,10 +32,11 @@ vi.mock("../../../../services/notification.service.js", () => ({
   createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }),
 }));
 
-import { 
-  getRevisions, 
+import {
+  getRevisions,
   initiateRevisionItems,
-  updateRevision 
+  updateRevision,
+  createRevision
 } from "../../../../services/thesis-seminar/revision.service.js";
 
 describe("Thesis Seminar Revision Service", () => {
@@ -71,13 +72,30 @@ describe("Thesis Seminar Revision Service", () => {
         .rejects.toMatchObject({ statusCode: 403 });
     });
   });
+  describe("createRevision (ownership)", () => {
+    it("rejects a student who does not own the seminar", async () => {
+      mockCoreRepo.findSeminarBasicById.mockResolvedValue({
+        id: "sem-1",
+        status: "passed_with_revision",
+        thesis: { studentId: "owner-student" },
+      });
+
+      await expect(createRevision(
+        "sem-1",
+        { seminarExaminerId: "examiner-1", description: "Perbaikan" },
+        "other-student",
+      )).rejects.toMatchObject({ statusCode: 403 });
+
+      expect(mockPrisma.thesisSeminarExaminer.findFirst).not.toHaveBeenCalled();
+    });
+  });
 
   describe("updateRevision (locks and notifications)", () => {
-    const revision = { 
-      id: "rev-1", 
-      studentSubmittedAt: null, 
+    const revision = {
+      id: "rev-1",
+      studentSubmittedAt: null,
       revisionAction: "Done fixing the layout", // Added to pass validation
-      seminarExaminer: { order: 1, thesisSeminarId: "sem-1", seminar: { revisionFinalizedAt: null, thesis: { studentId: "stu-1", thesisSupervisors: [{ lecturerId: "sup-1", lecturer: { user: { id: "sup-user-id" } } }] } } } 
+      seminarExaminer: { order: 1, thesisSeminarId: "sem-1", seminar: { revisionFinalizedAt: null, thesis: { studentId: "stu-1", thesisSupervisors: [{ lecturerId: "sup-1", lecturer: { user: { id: "sup-user-id" } } }] } } }
     };
 
     it("notifies supervisor when student submits perbaikan", async () => {
@@ -91,11 +109,21 @@ describe("Thesis Seminar Revision Service", () => {
         title: "Pengajuan Perbaikan Revisi"
       }));
     });
+    it("rejects student actions from a student who does not own the seminar", async () => {
+      mockRevisionRepo.findRevisionById.mockResolvedValue(revision);
+
+      await expect(updateRevision(
+        "sem-1",
+        "rev-1",
+        { action: "save_action", revisionAction: "Perbaikan" },
+        { studentId: "other-student" },
+      )).rejects.toMatchObject({ statusCode: 403 });
+    });
 
     it("blocks updates if already finalized", async () => {
-      const finalizedRevision = { 
-        ...revision, 
-        seminarExaminer: { ...revision.seminarExaminer, seminar: { ...revision.seminarExaminer.seminar, revisionFinalizedAt: new Date() } } 
+      const finalizedRevision = {
+        ...revision,
+        seminarExaminer: { ...revision.seminarExaminer, seminar: { ...revision.seminarExaminer.seminar, revisionFinalizedAt: new Date() } }
       };
       mockRevisionRepo.findRevisionById.mockResolvedValue(finalizedRevision);
 
@@ -109,7 +137,7 @@ describe("Thesis Seminar Revision Service", () => {
       const seminar = { id: "sem-1", revisionFinalizedBy: null };
       mockCoreRepo.findSeminarById.mockResolvedValue(seminar);
       mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup-rel-1", thesis: { thesisSupervisors: [{ id: "my-sup-id" }] } });
-      
+
       // 1 approved, 1 submitted but not approved
       mockRevisionRepo.findRevisionsBySeminarId.mockResolvedValue([
         { id: "rev-1", studentSubmittedAt: new Date(), supervisorApprovedAt: new Date() },
@@ -120,12 +148,27 @@ describe("Thesis Seminar Revision Service", () => {
       await expect(finalizeRevisions("sem-1", "lect-1"))
         .rejects.toMatchObject({ statusCode: 400, message: /belum disetujui/ });
     });
+    it("blocks finalization while any revision item has not been approved", async () => {
+      const seminar = { id: "sem-1", revisionFinalizedBy: null };
+      mockCoreRepo.findSeminarById.mockResolvedValue(seminar);
+      mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({
+        thesis: { thesisSupervisors: [{ id: "my-sup-id" }] },
+      });
+      mockRevisionRepo.findRevisionsBySeminarId.mockResolvedValue([
+        { id: "rev-1", studentSubmittedAt: new Date(), supervisorApprovedAt: new Date() },
+        { id: "rev-2", studentSubmittedAt: null, supervisorApprovedAt: null },
+      ]);
 
-    it("allows finalization if all submitted items are approved", async () => {
+      const { finalizeRevisions } = await import("../../../../services/thesis-seminar/revision.service.js");
+      await expect(finalizeRevisions("sem-1", "lect-1"))
+        .rejects.toMatchObject({ statusCode: 400, message: /belum disetujui/ });
+    });
+
+    it("allows finalization if all revision items are approved", async () => {
       const seminar = { id: "sem-1", revisionFinalizedBy: null };
       mockCoreRepo.findSeminarById.mockResolvedValue(seminar);
       mockCoreRepo.findSeminarSupervisorRole.mockResolvedValue({ id: "sup-rel-1", thesis: { thesisSupervisors: [{ id: "my-sup-id" }] } });
-      
+
       mockRevisionRepo.findRevisionsBySeminarId.mockResolvedValue([
         { id: "rev-1", studentSubmittedAt: new Date(), supervisorApprovedAt: new Date() },
       ]);

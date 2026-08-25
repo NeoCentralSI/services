@@ -86,11 +86,11 @@ async function main() {
 
   // 5. Create Metopen Class
   const metopenClass = await prisma.metopenClass.upsert({
-    where: { 
-      // Assuming name + academicYearId is unique enough for dummy, 
+    where: {
+      // Assuming name + academicYearId is unique enough for dummy,
       // but MetopenClass doesn't have a unique constraint on name.
       // We'll use findFirst/create for this since no ID is known.
-      id: 'dummy-class-a' 
+      id: 'dummy-class-a'
     },
     update: {},
     create: {
@@ -134,7 +134,7 @@ async function main() {
       update: {},
       create: {
         id: user.id,
-        skscompleted: 110,
+        sksCompleted: 110,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
         currentSemester: 6,
@@ -218,7 +218,7 @@ async function main() {
     update: {},
     create: {
       id: userB.id,
-      skscompleted: 110,
+      sksCompleted: 110,
       mandatoryCoursesCompleted: true,
       mkwuCompleted: true,
       currentSemester: 6,

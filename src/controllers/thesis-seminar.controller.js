@@ -32,7 +32,7 @@ export async function getSeminarDetail(req, res, next) {
       const result = await studentService.getSeminarDetail(req.user.id, req.params.id);
       return res.json({ success: true, data: result });
     }
-    
+
     const result = await coreService.getSeminarDetail(req.params.id);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
@@ -68,14 +68,14 @@ export async function cancelSeminar(req, res, next) {
 
 export async function createArchive(req, res, next) {
   try {
-    const result = await coreService.createArchive(req.body, req.user.id);
+    const result = await coreService.createArchive(req.validated);
     res.status(201).json({ success: true, data: result });
   } catch (error) { next(error); }
 }
 
 export async function updateArchive(req, res, next) {
   try {
-    const result = await coreService.updateArchive(req.params.id, req.body, req.user.id);
+    const result = await coreService.updateArchive(req.params.id, req.validated);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -118,7 +118,8 @@ export async function getRoomOptions(req, res, next) {
 export async function exportArchive(req, res, next) {
   try {
     const buffer = await coreService.exportArchive();
-    res.setHeader("Content-Disposition", 'attachment; filename="Arsip_Seminar_Hasil.xlsx"');
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename="Arsip Seminar Hasil - ${exportDate}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buffer);
   } catch (error) { next(error); }
@@ -128,7 +129,7 @@ export async function exportArchive(req, res, next) {
 export async function importArchive(req, res, next) {
   try {
     if (!req.file) throw Object.assign(new Error("File tidak ditemukan"), { statusCode: 400 });
-    const result = await coreService.importArchive(req.file.buffer, req.user.id);
+    const result = await coreService.importArchive(req.file.buffer);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -139,7 +140,7 @@ export async function importArchive(req, res, next) {
 
 export async function getDocumentTypes(req, res, next) {
   try {
-    const result = await docService.getDocumentTypes();
+    const result = await docService.getDocumentTypes(req.user.studentId);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
@@ -154,21 +155,21 @@ export async function getDocuments(req, res, next) {
 export async function uploadDocument(req, res, next) {
   try {
     // Note: If uploading from student route without seminarId in param, we pass undefined
-    const result = await docService.uploadDocument(req.params.id, req.user.studentId, req.file, req.body.documentTypeName);
+    const result = await docService.uploadDocument(req.params.id, req.user.studentId, req.file, req.body.requirementId);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
 
 export async function viewDocument(req, res, next) {
   try {
-    const result = await docService.viewDocument(req.params.id, req.params.documentTypeId);
+    const result = await docService.viewDocument(req.params.id, req.params.requirementId);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
 }
 
 export async function verifyDocument(req, res, next) {
   try {
-    const result = await docService.verifyDocument(req.params.id, req.params.documentTypeId, {
+    const result = await docService.verifyDocument(req.params.id, req.params.requirementId, {
       action: req.body.action,
       notes: req.body.notes,
       userId: req.user.id,
@@ -273,7 +274,8 @@ export async function updateAudience(req, res, next) {
 export async function exportAudiences(req, res, next) {
   try {
     const buffer = await audienceService.exportAudiences(req.params.id);
-    res.setHeader("Content-Disposition", 'attachment; filename="Daftar_Audience.xlsx"');
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename="Daftar Peserta Seminar Hasil - ${exportDate}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buffer);
   } catch (error) { next(error); }
@@ -282,7 +284,8 @@ export async function exportAudiences(req, res, next) {
 export async function exportAudiencesPdf(req, res, next) {
   try {
     const buffer = await audienceService.exportAudiencesPdf(req.params.id);
-    res.setHeader("Content-Disposition", 'attachment; filename="Daftar_Audience.pdf"');
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename="Daftar Hadir Peserta Seminar Hasil - ${exportDate}.pdf"`);
     res.setHeader("Content-Type", "application/pdf");
     res.send(buffer);
   } catch (error) { next(error); }

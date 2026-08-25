@@ -3,6 +3,7 @@ import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repo
 import { mapSeminarsToAnnouncementItems } from "./core.service.js";
 import * as examinerRepo from "../../repositories/thesis-seminar/examiner.repository.js";
 import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
+import * as docService from "./doc.service.js";
 import * as revisionRepo from "../../repositories/thesis-seminar/revision.repository.js";
 import * as audienceRepo from "../../repositories/thesis-seminar/audience.repository.js";
 import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
@@ -24,7 +25,7 @@ async function resolveStudent(userId) {
 
 function buildSeminarMilestones(allChecklistMet, currentSeminar) {
   return [
-    { id: "checklist", label: "Memenuhi Syarat Pendaftaran", checked: allChecklistMet },
+    { id: "checklist", label: "Memenuhi Syarat Pendaftaran", checked: allChecklistMet || Boolean(currentSeminar) },
     {
       id: "documents",
       label: "Dokumen Seminar Lengkap",
@@ -83,6 +84,9 @@ async function buildOverviewWithoutThesis(student) {
     milestones: buildSeminarMilestones(false, null),
     canUpload: false,
     seminar: null,
+    requirements: [],
+    requirementConfiguration: { isConfigured: false, message: "Tugas akhir belum tersedia sehingga syarat dokumen seminar belum dapat dimuat." },
+    uploadConfig: { accept: [".pdf"], maxFileSizeBytes: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB * 1024 * 1024, maxFileSizeMb: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB },
   };
 }
 
@@ -114,11 +118,12 @@ export async function getOverview(userId) {
   }
 
   const milestones = buildSeminarMilestones(allChecklistMet, currentSeminar);
+  const requirementState = await docService.getRequirementsForOverview(thesis, currentSeminar);
 
   // Locking Logic
   // 1. Cannot upload if checklist not met
   // 2. Cannot change documents if status > registered
-  const canUpload = allChecklistMet && (!currentSeminar || currentSeminar.status === "registered");
+  const canUpload = allChecklistMet && requirementState.requirementConfiguration.isConfigured && (!currentSeminar || currentSeminar.status === "registered");
 
   let enrichedExaminers = [];
   if (currentSeminar?.examiners?.length) {
@@ -137,6 +142,7 @@ export async function getOverview(userId) {
     allChecklistMet,
     milestones,
     canUpload,
+    ...requirementState,
     seminar: currentSeminar
       ? {
           id: currentSeminar.id,
@@ -152,7 +158,6 @@ export async function getOverview(userId) {
           cancelledReason: currentSeminar.cancelledReason,
           scheduledAt: currentSeminar.scheduledAt,
           room: currentSeminar.room,
-          documents: currentSeminar.documents || [],
           examiners: enrichedExaminers,
         }
       : null,
@@ -181,7 +186,7 @@ export async function getAttendanceHistory(userId) {
   return {
     summary: { attended, total: records.length, required: MIN_KEHADIRAN, met: attended >= MIN_KEHADIRAN },
       records: records.map((r) => ({
-      seminarId: r.thesisSeminarId, 
+      seminarId: r.thesisSeminarId,
       seminarStatus: r.seminar?.status || null,
       seminarEndTime: r.seminar?.endTime || null,
       seminarResultFinalizedAt: r.seminar?.resultFinalizedAt || null,
@@ -198,7 +203,7 @@ export async function getAttendanceHistory(userId) {
 export async function getSeminarHistory(userId) {
   const student = await resolveStudent(userId);
   let seminars = await coreRepo.getAllStudentSeminars(student.id);
-  
+
   // Filter only failed or cancelled as per requirements ("Attempt")
   seminars = seminars.filter((s) => ["failed", "cancelled"].includes(s.status));
 
@@ -237,7 +242,6 @@ export async function getSeminarDetail(userId, seminarId) {
     for (const l of lecs) lecMap.set(l.id, l.user?.fullName || "-");
   }
 
-  const docTypes = await docRepo.getSeminarDocumentTypes();
   const docs = await docRepo.findSeminarDocuments(seminarId);
   const examinerNotes = (seminar.examiners || []).filter((e) => e.revisionNotes).map((e) => ({ examinerOrder: e.order, lecturerName: lecMap.get(e.lecturerId) || "-", revisionNotes: e.revisionNotes }));
 
@@ -259,40 +263,39 @@ export async function getSeminarDetail(userId, seminarId) {
   return {
     id: seminar.id, status: computeEffectiveStatus(seminar.status, seminar.date, seminar.startTime, seminar.endTime), registeredAt: seminar.registeredAt,
     date: seminar.date, startTime: seminar.startTime, endTime: seminar.endTime,
-    meetingLink: seminar.meetingLink, 
+    meetingLink: seminar.meetingLink,
     finalScore: isPresenter ? seminar.finalScore : null,
     grade: isPresenter && seminar.finalScore != null ? mapScoreToGrade(seminar.finalScore) : null,
-    resultFinalizedAt: seminar.resultFinalizedAt, 
+    resultFinalizedAt: seminar.resultFinalizedAt,
     revisionFinalizedAt: seminar.revisionFinalizedAt,
     revisionFinalizedBy: seminar.revisionFinalizedBy,
     scheduledAt: seminar.scheduledAt,
     cancelledReason: seminar.cancelledReason, room: seminar.room,
     student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
     thesis: { id: seminar.thesis.id, title: seminar.thesis.title, supervisors: (seminar.thesis.thesisSupervisors || []).map((s) => ({ role: s.role?.name || "-", lecturerName: s.lecturer?.user?.fullName || "-" })) },
-    examiners: (seminar.examiners || []).map((e) => ({ 
-      id: e.id, 
-      order: e.order, 
-      lecturerName: lecMap.get(e.lecturerId) || "-", 
-      assessmentScore: isPresenter ? e.assessmentScore : null, 
-      assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null 
+    examiners: (seminar.examiners || []).map((e) => ({
+      id: e.id,
+      order: e.order,
+      lecturerName: lecMap.get(e.lecturerId) || "-",
+      assessmentScore: isPresenter ? e.assessmentScore : null,
+      assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null
     })),
     documents: (isPresenter || isAudience)
-      ? docs.map((d) => {
-          const dt = docTypes.find((t) => t.id === d.documentTypeId);
-          return {
-            documentTypeId: d.documentTypeId,
-            documentTypeName: dt?.name || "-",
-            fileName: d.document?.fileName || null,
-            filePath: d.document?.filePath || null,
-            status: d.status,
-            submittedAt: d.submittedAt,
-            verifiedAt: d.verifiedAt,
-            notes: d.notes,
-          };
-        })
+      ? docs.map((d) => ({
+          requirementId: d.thesisSeminarRequirementId,
+          requirementName: d.requirement?.name || "-",
+          documentTypeId: d.thesisSeminarRequirementId,
+          documentTypeName: d.requirement?.name || "-",
+          fileName: d.fileName,
+          filePath: d.filePath,
+          status: d.status,
+          submittedAt: d.submittedAt,
+          verifiedAt: d.verifiedAt,
+          notes: d.notes,
+        }))
       : [],
-    examinerNotes: isPresenter ? examinerNotes : [], 
-    revisions: isPresenter ? revisions : [], 
+    examinerNotes: isPresenter ? examinerNotes : [],
+    revisions: isPresenter ? revisions : [],
     revisionSummary: isPresenter ? revisionSummary : { total: 0, finished: 0, pendingApproval: 0 },
     audiences: audiences.map((a) => ({ studentName: a.student?.user?.fullName || "-", nim: a.student?.user?.identityNumber || "-", registeredAt: a.registeredAt, isPresent: Boolean(a.approvedAt), approvedAt: a.approvedAt, approvedByName: a.supervisor?.lecturer?.user?.fullName || null })),
   };
@@ -321,7 +324,7 @@ export async function getAssessmentView(userId, seminarId) {
     examiners: examiners.map((item) => {
       const groups = {};
       (item.thesisSeminarExaminerAssessmentDetails || []).forEach((d) => {
-        const cpmk = d.criteria?.cpmk; if (!cpmk) return;
+        const cpmk = d.criteria?.thesisCpmk; if (!cpmk) return;
         if (!groups[cpmk.id]) groups[cpmk.id] = { id: cpmk.id, code: cpmk.code, description: cpmk.description, criteria: [] };
         groups[cpmk.id].criteria.push({ id: d.criteria.id, name: d.criteria.name, maxScore: d.criteria.maxScore, score: d.score, displayOrder: d.criteria.displayOrder });
       });
