@@ -8,6 +8,7 @@ export default defineConfig({
     exclude: [
       "node_modules/**",
       "src/test/integration/**",
+      "src/test/system/**",
       "src/test/integration/topicChange.test.js",
       "src/test/unit/thesisChangeRequest.service.test.js",
       "src/test/unit/milestone.service.test.js",
