@@ -1904,7 +1904,7 @@ model Yudisium {
 
   decreeFileSize Int? @map("decree_file_size")
 
-  exitSurveyFormId String? @map("exit_survey_form_id")
+  exitSurveyFormId String? @map("exit_survey_form_id") @db.VarChar(255)
 
   registrationOpenDate DateTime? @map("registration_open_date")
 
