@@ -934,8 +934,8 @@ export async function respondToProposal(id, status, notes) {
     // Create notifications for coordinator and internship students
     try {
         const statusLabel = status === 'APPROVED_PROPOSAL' ? 'DISETUJUI' : 'DITOLAK';
-        const title = `Proposal Internship ${statusLabel}`;
-        let message = `Proposal Internship Anda ke ${proposal.targetCompany.companyName} telah ${statusLabel.toLowerCase()} oleh Sekdep.`;
+        const title = `Pengajuan Kerja Praktik ${statusLabel}`;
+        let message = `Pengajuan Kerja Praktik Anda ke ${proposal.targetCompany.companyName} telah ${statusLabel.toLowerCase()} oleh Sekdep.`;
 
         if (status === 'REJECTED_PROPOSAL' && notes) {
             message += ` Catatan: ${notes}`;
@@ -974,8 +974,8 @@ export async function respondToProposal(id, status, notes) {
         // Admin (Only if status is approved)
         if (status === 'APPROVED_PROPOSAL') {
             const admins = await registrationRepository.findUsersByRole(ROLES.ADMIN);
-            const adminTitle = "Pengajuan Internship Baru (Approved)";
-            const adminMessage = `Proposal Internship ke ${proposal.targetCompany.companyName} telah disetujui Sekdep and siap diproses Surat Pengantarnya.`;
+            const adminTitle = "Pengajuan Kerja Praktik Baru (Disetujui)";
+            const adminMessage = `Pengajuan Kerja Praktik ke ${proposal.targetCompany.companyName} telah disetujui Sekdep dan siap diproses Surat Pengantarnya.`;
             const adminUserIds = admins.map(a => a.id);
 
             const adminNotifications = admins.map(admin => ({
@@ -1429,7 +1429,12 @@ export async function approveLetter(userId, type, proposalId, signaturePositions
             const absolutePath = path.resolve(letterDoc.filePath);
             const pdfBuffer = await fsPromises.readFile(absolutePath);
 
-            const verifyUrl = `${ENV.FRONTEND_URL}/verify/${isLecturerAssign ? 'lecturer-assignment' : 'internship-letter'}/${verifyId}`;
+            const verifyPath = isLecturerAssign
+                ? 'lecturer-assignment'
+                : isAssign
+                    ? 'internship-assignment'
+                    : 'internship-letter';
+            const verifyUrl = `${ENV.FRONTEND_URL}/verify/${verifyPath}/${verifyId}`;
             const signedPdfBuffer = await stampQRCode(pdfBuffer, verifyUrl, signaturePositions);
 
             // Calculate SHA-256 Hash for file integrity verification

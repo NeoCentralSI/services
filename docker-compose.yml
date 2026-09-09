@@ -8,14 +8,14 @@ services:
 
 
 
-  # ── DB (MariaDB) ───────────────────────────────────────────────
+  # ── DB (MySQL 8) ───────────────────────────────────────────────
   db:
-    image: mariadb:10.11
+    image: mysql:8.0
     container_name: neocentral-db
     restart: unless-stopped
     environment:
-      MARIADB_ROOT_PASSWORD: password
-      MARIADB_DATABASE: tka_db
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: tka_db
     ports:
       - "3306:3306"
     volumes:
