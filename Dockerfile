@@ -15,7 +15,11 @@ RUN set -eux; pnpm install --frozen-lockfile || (yes | pnpm approve-builds && pn
 # Generate Prisma client using binary directly (avoids pnpm exec issues)
 RUN ./node_modules/.bin/prisma generate
 
-FROM deps AS migrator
+# Operational image used only through the Compose "tools" profile.
+FROM deps AS tools
+COPY src ./src
+COPY scripts ./scripts
+COPY package.json ./
 
 # Strip devDependencies before copying to runner
 FROM deps AS prod-deps
@@ -38,6 +42,9 @@ COPY --from=prod-deps /app/src/generated ./src/generated
 
 # Copy source
 COPY src ./src
+# TA-04 generation still reads this official runtime template from /app/guide.
+# Other guide files remain excluded by .dockerignore.
+COPY ["guide/TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf", "./guide/TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf"]
 COPY package.json ./
 
 RUN mkdir -p uploads && chown -R appuser:appgroup /app
