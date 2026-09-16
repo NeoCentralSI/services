@@ -1,9 +1,9 @@
-﻿name: Backend Quality Gate
+name: Backend Quality Gate
 
 on:
   pull_request:
   push:
-    branches: [main, develop, staging]
+    branches: [develop, staging]
   workflow_dispatch:
 
 permissions:
@@ -18,22 +18,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # Minimal required env for prisma validate/generate + unit tests.
       DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
       JWT_SECRET: ci-jwt-secret-for-tests-only
       REFRESH_TOKEN_SECRET: ci-refresh-secret-for-tests-only
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: 10.23.0
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prisma generate
       - run: pnpm exec prisma validate

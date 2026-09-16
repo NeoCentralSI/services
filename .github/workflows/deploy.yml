@@ -1,80 +1,130 @@
-# CI/CD - Backend (services)
-# Triggers on push to staging branch
-# Self-hosted runner on VM -> build Docker image locally -> deploy
 name: Deploy Backend
 
-# Deployment disabled because server is offline. Use workflow_dispatch if manually needed.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      schema_applied:
+        description: Confirm that the production database schema has been synchronized manually
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neocentral-dev-backend
+  cancel-in-progress: false
 
 env:
-  DEPLOY_DIR: /www/wwwroot/neocentral
-  IMAGE_TAG: neocentral/services:latest
-  MIGRATE_IMAGE_TAG: neocentral/services-migrate:latest
+  DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
+  JWT_SECRET: ci-jwt-secret-for-tests-only
+  REFRESH_TOKEN_SECRET: ci-refresh-secret-for-tests-only
 
 jobs:
-  deploy:
-    name: Build & Deploy
-    runs-on: self-hosted
-    timeout-minutes: 30
-    env:
-      # Dummy values only for pre-deploy verify (prisma generate/validate + unit tests).
-      # Runtime container uses compose/.env on the VM, not these values.
-      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
-      JWT_SECRET: ci-jwt-secret-for-tests-only
-      REFRESH_TOKEN_SECRET: ci-refresh-secret-for-tests-only
-
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: staging
-
       - uses: pnpm/action-setup@v4
         with:
           version: 10.23.0
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - run: pnpm exec prisma validate
+      - run: pnpm test
 
-      - name: Verify backend before deployment
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: neocentral-dev
+      url: https://neocentral.dev/health
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: schema
+        name: Detect database schema changes
+        shell: bash
         run: |
-          pnpm install --frozen-lockfile
-          pnpm exec prisma generate
-          pnpm exec prisma validate
-          pnpm test
+          CHANGED=false
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            BASE_SHA="${{ github.event.before }}"
+            if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+              BASE_SHA="$(git rev-parse HEAD^)"
+            fi
+            if git diff --name-only "$BASE_SHA" "${{ github.sha }}" |
+              grep -Eq '^(prisma/schema\.prisma|prisma/migrations/)'; then
+              CHANGED=true
+            fi
+          fi
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker images locally
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
-          docker build -t ${{ env.IMAGE_TAG }} .
-          # deps/migrator stage keeps prisma CLI (not pruned) for schema sync
-          docker build --target migrator -t ${{ env.MIGRATE_IMAGE_TAG }} .
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: Update docker-compose on VM
+      - name: Upload application source
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
         run: |
-          cp -f docker-compose.prod.yml ${{ env.DEPLOY_DIR }}/docker-compose.yml
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_USER" && test -n "$DEPLOY_DIR"
+          rsync -az --delete             --exclude='.env'             --exclude='.git/'             --exclude='.deployed-sha'             --exclude='node_modules/'             --exclude='coverage/'             --exclude='uploads/'             -e "ssh -p $DEPLOY_PORT"             ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
 
-      - name: Deploy backend
-        working-directory: ${{ env.DEPLOY_DIR }}
+      - name: Hold deployment until database is synchronized
+        if: github.event_name == 'push' && steps.schema.outputs.changed == 'true'
         run: |
-          docker compose up -d backend --force-recreate
-          echo "Waiting for backend to be healthy..."
-          sleep 10
+          echo "::warning::Prisma schema changed; backend rebuild is intentionally held."
+          {
+            echo "## Database synchronization required"
+            echo "Source is on the VM, but the running backend was not rebuilt."
+            echo "Apply and verify the schema manually, then run this workflow with schema_applied enabled."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run Prisma migrations
-        working-directory: ${{ env.DEPLOY_DIR }}
+      - name: Build, deploy, and verify
+        if: >-
+          (github.event_name == 'push' && steps.schema.outputs.changed != 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.schema_applied == true)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
-          # Use migrator image (has prisma CLI). Backend runtime image is prod-pruned.
-          # Staging historically used db push and may lack `_prisma_migrations`.
-          docker compose --profile tools run --rm --entrypoint ./node_modules/.bin/prisma backend-migrator migrate deploy \
-            || docker compose --profile tools run --rm --entrypoint ./node_modules/.bin/prisma backend-migrator db push
-
-      - name: Cleanup old images
-        run: docker image prune -f
-
-      - name: Verify deployment
-        working-directory: ${{ env.DEPLOY_DIR }}
-        run: |
-          docker compose ps backend
-          echo "Backend deployed successfully"
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST"             "DEPLOY_DIR='$DEPLOY_DIR' DEPLOY_SHA='$DEPLOY_SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          docker compose up -d --build backend
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/health >/dev/null; then
+              printf '%s\n' "$DEPLOY_SHA" > .deployed-sha
+              docker compose ps
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs --tail=150 backend
+          exit 1
+          REMOTE
