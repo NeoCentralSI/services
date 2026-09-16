@@ -1,5 +1,4 @@
 import prisma from "../../config/prisma.js";
-import { withSupervisorRoleAliases } from "../../utils/supervisorIntegrity.js";
 
 export function getStudentByUserId(userId) {
   // Schema baru: Student.id adalah foreign key ke User.id
@@ -42,25 +41,38 @@ export async function getThesisHistory(studentId) {
   return theses;
 }
 
-export async function getSupervisorsForThesis(thesisId) {
-  const supervisors = await prisma.thesisParticipant.findMany({
-    where: { thesisId, status: "active" },
+export async function getSupervisorsForThesis(thesisId, { includeInactive = false } = {}) {
+  // Default active (FUN-030). Pass includeInactive: true only for history surfaces
+  // that must show released/terminated supervisors. The 12 production callers
+  // (guidance request, notify, my-thesis, logbook PDF) keep the default.
+  const supervisors = await prisma.thesisSupervisors.findMany({
+    where: {
+      thesisId,
+      ...(includeInactive ? {} : { status: "active" }),
+    },
     include: {
+      role: { select: { name: true } },
       lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
-      role: true,
     },
   });
-  return withSupervisorRoleAliases(supervisors);
+  return supervisors;
 }
 
-export function listGuidancesForThesis(thesisId, status) {
+export function buildGuidanceListWhere(thesisId, status, phase) {
   const where = { thesisId };
   if (status) {
     where.status = status;
   } else {
-    // Default: exclude deleted
     where.status = { not: "deleted" };
   }
+  if (phase === "proposal" || phase === "thesis") {
+    where.phase = phase;
+  }
+  return where;
+}
+
+export function listGuidancesForThesis(thesisId, status, phase) {
+  const where = buildGuidanceListWhere(thesisId, status, phase);
   // Schema baru: tidak ada schedule relation, gunakan requestedDate/approvedDate langsung
   return prisma.thesisGuidance.findMany({
     where,
@@ -192,12 +204,16 @@ export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }
 /**
  * Get completed guidance history for student
  */
-export function getCompletedGuidanceHistory(studentId) {
+export function getCompletedGuidanceHistory(studentId, phase) {
+  const where = {
+    thesis: { studentId },
+    status: "completed",
+  };
+  if (phase === "proposal" || phase === "thesis") {
+    where.phase = phase;
+  }
   return prisma.thesisGuidance.findMany({
-    where: {
-      thesis: { studentId },
-      status: "completed",
-    },
+    where,
     include: {
       supervisor: { include: { user: true } },
       milestones: { include: { milestone: { select: { id: true, title: true } } } },

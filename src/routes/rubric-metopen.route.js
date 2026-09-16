@@ -1,6 +1,10 @@
 import express from "express";
 import {
     getCpmksWithRubrics,
+    listAllMetopenCpmks,
+    createMetopenCpmk,
+    updateMetopenCpmk,
+    deleteMetopenCpmk,
     createCriteria,
     updateCriteria,
     deleteCriteria,
@@ -12,6 +16,8 @@ import {
     getWeightSummary,
     reorderCriteria,
     reorderRubrics,
+    getScoreComposition,
+    updateScoreComposition,
 } from "../controllers/metopenAssessmentAdmin.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import {
@@ -21,6 +27,9 @@ import {
     updateRubricSchema,
     reorderCriteriaSchema,
     reorderRubricsSchema,
+    createMetopenCpmkSchema,
+    updateMetopenCpmkSchema,
+    updateScoreCompositionSchema,
 } from "../validators/metopenAssessmentAdmin.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
@@ -31,6 +40,10 @@ router.use(authGuard);
 router.use(requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]));
 
 router.get("/cpmks", getCpmksWithRubrics);
+router.get("/cpmks/all", listAllMetopenCpmks);
+router.post("/cpmks", validate(createMetopenCpmkSchema), createMetopenCpmk);
+router.patch("/cpmks/:cpmkId", validate(updateMetopenCpmkSchema), updateMetopenCpmk);
+router.delete("/cpmks/:cpmkId", deleteMetopenCpmk);
 
 router.post("/criteria", validate(createCriteriaSchema), createCriteria);
 router.patch("/criteria/reorder", validate(reorderCriteriaSchema), reorderCriteria);
@@ -39,6 +52,7 @@ router.delete("/criteria/:criteriaId", deleteCriteria);
 
 router.patch("/rubrics/reorder", validate(reorderRubricsSchema), reorderRubrics);
 
+/** Hapus kriteria+rubrik untuk role tertentu (bukan hapus master CPMK). */
 router.delete("/cpmk/:cpmkId", removeCpmkConfig);
 
 router.get("/criteria/:criteriaId/rubrics", listRubrics);
@@ -48,5 +62,13 @@ router.patch("/rubrics/:rubricId", validate(updateRubricSchema), updateRubric);
 router.delete("/rubrics/:rubricId", deleteRubric);
 
 router.get("/weight-summary", getWeightSummary);
+
+/** Komposisi batas poin TA-03A:TA-03B per tahun akademik (default 75:25). */
+router.get("/composition/:academicYearId", getScoreComposition);
+router.put(
+  "/composition/:academicYearId",
+  validate(updateScoreCompositionSchema),
+  updateScoreComposition,
+);
 
 export default router;

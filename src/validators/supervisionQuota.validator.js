@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "./common.validator.js";
 
 /** Body schema for PUT set default quota */
 export const setDefaultQuotaBodySchema = z.object({
@@ -22,14 +23,4 @@ export const updateLecturerQuotaBodySchema = z.object({
 });
 
 /** academicYearId: UUID atau slug tahun-YYYY-ganjil|genap */
-export const academicYearIdParamSchema = z
-  .string()
-  .min(1, "academicYearId wajib diisi")
-  .refine(
-    (val) => {
-      if (z.string().uuid().safeParse(val).success) return true;
-      const slugMatch = /^tahun-(\d{4})-(ganjil|genap)$/.exec(val);
-      return !!slugMatch;
-    },
-    { message: "academicYearId harus UUID atau format tahun-YYYY-ganjil|genap" }
-  );
+export const academicYearIdParamSchema = academicYearIdSchema;

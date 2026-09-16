@@ -1,511 +1,307 @@
-/**
- * Prisma Seed — NeoCentral / SIMPTA
- *
- * Menginisialisasi data master dan data testing awal.
- * Jalankan dengan: npx prisma db seed
- *
- * Prinsip:
- * - Gunakan upsert agar seed bisa dijalankan berulang tanpa duplikat
- * - Data master (roles, thesis statuses, dll) selalu di-seed
- * - Data testing hanya di-upsert, tidak menimpa data yang sudah ada
- */
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+import generated from "../src/generated/prisma/index.js";
+import { syncDsiMaster } from "../scripts/sync-dsi-master.js";
 
-import { PrismaClient } from '../src/generated/prisma/index.js';
+dotenv.config();
 
+const { PrismaClient } = generated;
 const prisma = new PrismaClient();
+const modelFields = new Map(
+  generated.Prisma.dmmf.datamodel.models.map((model) => [
+    model.name,
+    new Set(model.fields.map((field) => field.name)),
+  ])
+);
 
-// ────────────────────────────────────────────────────────────
-// MASTER DATA
-// ────────────────────────────────────────────────────────────
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_PATH = path.join(
+  __dirname,
+  "seed-data",
+  "users-students-lecturers.json"
+);
 
-async function seedRoles() {
-  const roles = [
-    'Admin',
-    'Ketua Departemen',
-    'Sekretaris Departemen',
-    'Pembimbing 1',
-    'Pembimbing 2',
-    'Penguji',
-    'Mahasiswa',
-    'GKM',
-    'Koordinator Matkul Metopen',
-    'Koordinator Yudisium',
-    'Tim Pengelola CPL',
-  ];
+const VALID_IDENTITY_TYPES = new Set(["NIM", "NIP", "OTHER"]);
+const VALID_STUDENT_STATUSES = new Set([
+  "dropout",
+  "bss",
+  "lulus",
+  "mengundurkan_diri",
+  "active",
+]);
+const VALID_ROLE_STATUSES = new Set(["active", "nonActive"]);
 
-  for (const name of roles) {
-    const existingByName = await prisma.userRole.findFirst({ where: { name } });
-    if (existingByName) {
-      await prisma.userRole.update({
-        where: { id: existingByName.id },
-        data: { name },
+function asDate(value, fallback = new Date()) {
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function asBoolean(value) {
+  return value === true || value === 1 || value === "1";
+}
+
+function asNullableString(value) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+}
+
+function normalizeIdentityType(value) {
+  return VALID_IDENTITY_TYPES.has(value) ? value : "OTHER";
+}
+
+function normalizeStudentStatus(value) {
+  return VALID_STUDENT_STATUSES.has(value) ? value : "active";
+}
+
+function normalizeRoleStatus(value) {
+  return VALID_ROLE_STATUSES.has(value) ? value : "active";
+}
+
+function parseJson(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function pickModelData(modelName, data) {
+  const fields = modelFields.get(modelName);
+  if (!fields) return data;
+
+  return Object.fromEntries(
+    Object.entries(data).filter(([key]) => fields.has(key))
+  );
+}
+
+async function loadSeedData() {
+  const raw = await fs.readFile(DATA_PATH, "utf8");
+  return JSON.parse(raw);
+}
+
+async function findExistingUser(seedUser) {
+  const or = [{ id: seedUser.id }, { identityNumber: seedUser.identityNumber }];
+  const email = asNullableString(seedUser.email);
+  if (email) {
+    or.push({ email });
+  }
+
+  return prisma.user.findFirst({ where: { OR: or } });
+}
+
+async function seedRoles(roles) {
+  const roleIdMap = new Map();
+
+  for (const role of roles) {
+    let existing = await prisma.userRole.findFirst({
+      where: {
+        OR: [{ id: role.id }, { name: role.name }],
+      },
+    });
+
+    if (existing) {
+      existing = await prisma.userRole.update({
+        where: { id: existing.id },
+        data: { name: role.name },
       });
     } else {
-      await prisma.userRole.create({ data: { id: name, name } });
+      existing = await prisma.userRole.create({
+        data: { id: role.id, name: role.name },
+      });
     }
+
+    roleIdMap.set(role.id, existing.id);
   }
 
-  // Cleanup legacy Metopen role ids if present and already migrated.
-  for (const legacyRoleId of ['Dosen Metodologi Penelitian', 'Dosen Pengampu Metopel']) {
-    const legacy = await prisma.userRole.findUnique({ where: { id: legacyRoleId } });
-    if (legacy) {
-      const hasLinks = await prisma.userHasRole.count({ where: { roleId: legacy.id } });
-      if (hasLinks === 0) {
-        await prisma.userRole.delete({ where: { id: legacy.id } }).catch(() => {});
-      }
-    }
-  }
-
-  console.log(`  Roles: ${roles.length} seeded`);
+  return roleIdMap;
 }
 
-async function seedThesisStatuses() {
-  const statuses = [
-    'Pengajuan Judul',
-    'Metopel',
-    'Bimbingan',
-    'Seminar Proposal',
-    'Acc Seminar',
-    'Revisi Seminar',
-    'Sidang',
-    'Revisi Sidang',
-    'Selesai',
-    'Gagal',
-  ];
+async function seedUsers(users) {
+  const userIdMap = new Map();
 
-  for (const name of statuses) {
-    await prisma.thesisStatus.upsert({
-      where: { id: name },
-      update: { name },
-      create: { id: name, name },
-    });
-  }
-
-  console.log(`  ThesisStatus: ${statuses.length} seeded`);
-}
-
-async function seedAcademicYear() {
-  const year = await prisma.academicYear.upsert({
-    where: { id: 'tahun-2025-genap' },
-    update: { isActive: true },
-    create: {
-      id: 'tahun-2025-genap',
-      semester: 'genap',
-      year: 2025,
-      startDate: new Date('2026-01-13'),
-      endDate: new Date('2026-06-30'),
-      isActive: true,
-    },
-  });
-
-  await prisma.supervisionQuotaDefault.upsert({
-    where: { academicYearId: year.id },
-    update: {},
-    create: {
-      academicYearId: year.id,
-      quotaMax: 10,
-      quotaSoftLimit: 8,
-    },
-  });
-
-  console.log(`  AcademicYear: ${year.year} ${year.semester} (aktif)`);
-  return year;
-}
-
-async function seedDocumentTypes() {
-  const types = [
-    { id: 'dt-proposal-ta', name: 'Proposal Tugas Akhir' },
-    { id: 'dt-lembar-konsultasi', name: 'Lembar Konsultasi' },
-    { id: 'dt-berita-acara-seminar', name: 'Berita Acara Seminar' },
-    { id: 'dt-berita-acara-sidang', name: 'Berita Acara Sidang' },
-    { id: 'dt-surat-persetujuan-judul', name: 'Surat Persetujuan Judul TA' },
-    { id: 'dt-surat-penugasan', name: 'Surat Penugasan Pembimbing (TA-04)' },
-    { id: 'dt-naskah-ta', name: 'Naskah Tugas Akhir Final' },
-  ];
-
-  for (const dt of types) {
-    await prisma.documentType.upsert({
-      where: { id: dt.id },
-      update: { name: dt.name },
-      create: dt,
-    });
-  }
-
-  console.log(`  DocumentType: ${types.length} seeded`);
-}
-
-async function seedScienceGroups() {
-  const groups = [
-    { id: 'kbk-si', name: 'Sistem Informasi' },
-    { id: 'kbk-rpl', name: 'Rekayasa Perangkat Lunak' },
-    { id: 'kbk-bd', name: 'Big Data & Analitika' },
-    { id: 'kbk-iot', name: 'Internet of Things' },
-    { id: 'kbk-ai', name: 'Kecerdasan Buatan' },
-  ];
-
-  for (const g of groups) {
-    await prisma.scienceGroup.upsert({
-      where: { id: g.id },
-      update: { name: g.name },
-      create: g,
-    });
-  }
-
-  console.log(`  ScienceGroup: ${groups.length} seeded`);
-}
-
-// ────────────────────────────────────────────────────────────
-// THESIS TOPICS
-// ────────────────────────────────────────────────────────────
-
-async function seedTopics() {
-  const topics = [
-    { id: 'topic-erp', name: 'Enterprise Resource Planning', scienceGroupId: 'kbk-si', isPublished: true },
-    { id: 'topic-ecommerce', name: 'E-Commerce & Digital Business', scienceGroupId: 'kbk-si', isPublished: true },
-    { id: 'topic-webdev', name: 'Pengembangan Aplikasi Web', scienceGroupId: 'kbk-rpl', isPublished: true },
-    { id: 'topic-mobile', name: 'Mobile Application Development', scienceGroupId: 'kbk-rpl', isPublished: true },
-    { id: 'topic-datawarehouse', name: 'Data Warehouse & Business Intelligence', scienceGroupId: 'kbk-bd', isPublished: true },
-    { id: 'topic-datamining', name: 'Data Mining & Knowledge Discovery', scienceGroupId: 'kbk-bd', isPublished: true },
-    { id: 'topic-smartcity', name: 'Smart City & Smart Environment', scienceGroupId: 'kbk-iot', isPublished: true },
-    { id: 'topic-embedded', name: 'Embedded System & Sensor Networks', scienceGroupId: 'kbk-iot', isPublished: true },
-    { id: 'topic-nlp', name: 'Natural Language Processing', scienceGroupId: 'kbk-ai', isPublished: true },
-    { id: 'topic-ml', name: 'Machine Learning & Deep Learning', scienceGroupId: 'kbk-ai', isPublished: true },
-  ];
-
-  for (const t of topics) {
-    await prisma.thesisTopic.upsert({
-      where: { id: t.id },
-      update: { name: t.name, isPublished: t.isPublished },
-      create: { ...t, description: `Topik penelitian bidang ${t.name}` },
-    });
-  }
-
-  console.log(`  ThesisTopics: ${topics.length} seeded`);
-}
-
-// ────────────────────────────────────────────────────────────
-// MILESTONE TEMPLATES (METOPEN)
-// ────────────────────────────────────────────────────────────
-
-async function seedMilestoneTemplates() {
-  const templates = [
-    { id: 'tpl-bab1', name: 'BAB 1 - Pendahuluan', description: 'Latar belakang masalah, rumusan masalah, tujuan, dan manfaat penelitian', orderIndex: 1, defaultDueDays: 14, weightPercentage: 15, isGateToAdvisorSearch: false },
-    { id: 'tpl-literatur', name: 'Kajian Literatur & Gap Penelitian', description: 'Studi literatur terkait, identifikasi research gap, dan kerangka pemikiran', orderIndex: 2, defaultDueDays: 14, weightPercentage: 20, isGateToAdvisorSearch: false },
-    { id: 'tpl-metodologi', name: 'Metodologi Penelitian', description: 'Desain penelitian, metode pengumpulan data, teknik analisis', orderIndex: 3, defaultDueDays: 14, weightPercentage: 20, isGateToAdvisorSearch: false, requiresAdvisor: true },
-    { id: 'tpl-draft-proposal', name: 'Draft Proposal Lengkap', description: 'Dokumen proposal BAB 1-3 lengkap untuk direview pembimbing dan Koordinator Metopen', orderIndex: 4, defaultDueDays: 21, weightPercentage: 25, isGateToAdvisorSearch: false, requiresAdvisor: true },
-    { id: 'tpl-revisi-final', name: 'Revisi & Proposal Final', description: 'Revisi berdasarkan feedback dan penyerahan proposal final', orderIndex: 5, defaultDueDays: 14, weightPercentage: 20, isGateToAdvisorSearch: false, requiresAdvisor: true },
-  ];
-
-  for (const t of templates) {
-    await prisma.thesisMilestoneTemplate.upsert({
-      where: { id: t.id },
-      update: { name: t.name, description: t.description, orderIndex: t.orderIndex, isActive: true },
-      create: {
-        id: t.id,
-        name: t.name,
-        description: t.description,
-        phase: 'metopen',
-        orderIndex: t.orderIndex,
-        defaultDueDays: t.defaultDueDays,
-        weightPercentage: t.weightPercentage,
-        isGateToAdvisorSearch: t.isGateToAdvisorSearch || false,
-        requiresAdvisor: t.requiresAdvisor || false,
-        isActive: true,
-      },
-    });
-  }
-
-  console.log(`  MilestoneTemplates: ${templates.length} seeded`);
-}
-
-// ────────────────────────────────────────────────────────────
-// TEST LECTURERS (with quota and KBK)
-// ────────────────────────────────────────────────────────────
-
-async function seedTestLecturers(activeYear) {
-  const lecturers = [
-    { nip: '198501012010011001', name: 'Dr. Husnil Kamil, M.T.',          kbk: 'kbk-si',  topics: ['topic-erp', 'topic-ecommerce'],  quotaMax: 10, quotaSoft: 8,  current: 3  },
-    { nip: '199003052015042001', name: 'Afriyanti Dwi Kartika, M.T.',    kbk: 'kbk-rpl', topics: ['topic-webdev', 'topic-mobile'],   quotaMax: 8,  quotaSoft: 6,  current: 5  },
-    { nip: '198712152012011002', name: 'Dr. Ricky Akbar, M.Kom.',        kbk: 'kbk-bd',  topics: ['topic-datawarehouse', 'topic-datamining'], quotaMax: 10, quotaSoft: 8, current: 7 },
-    { nip: '199205102018031001', name: 'Meza Silvana, M.T.',             kbk: 'kbk-iot', topics: ['topic-smartcity', 'topic-embedded'], quotaMax: 8,  quotaSoft: 6, current: 2 },
-    { nip: '199108222017041001', name: 'Dr. Fajril Akbar, M.Sc.',       kbk: 'kbk-ai',  topics: ['topic-nlp', 'topic-ml'],           quotaMax: 10, quotaSoft: 8, current: 8 },
-    { nip: '198809142014041001', name: 'Haris Suryamen, M.Sc.',         kbk: 'kbk-si',  topics: ['topic-erp'],                       quotaMax: 8,  quotaSoft: 6, current: 6 },
-  ];
-
-  const pembimbing1Role = await prisma.userRole.findFirst({ where: { name: 'Pembimbing 1' } });
-  if (!pembimbing1Role) throw new Error('Role "Pembimbing 1" not found — run seedRoles first');
-
-  for (const l of lecturers) {
-    const user = await prisma.user.upsert({
-      where: { identityNumber: l.nip },
-      update: { fullName: l.name },
-      create: {
-        identityNumber: l.nip,
-        identityType: 'NIP',
-        fullName: l.name,
-        email: `${l.nip}@fti.unand.ac.id`,
-        isVerified: true,
-      },
+  for (const seedUser of users) {
+    const now = new Date();
+    const existing = await findExistingUser(seedUser);
+    const data = pickModelData("User", {
+      fullName: seedUser.fullName,
+      identityNumber: seedUser.identityNumber,
+      identityType: normalizeIdentityType(seedUser.identityType),
+      email: asNullableString(seedUser.email),
+      password: seedUser.password ?? null,
+      phoneNumber: asNullableString(seedUser.phoneNumber),
+      isVerified: asBoolean(seedUser.isVerified),
+      oauthProvider: asNullableString(seedUser.oauthProvider),
+      oauthId: asNullableString(seedUser.oauthId),
+      avatarUrl: asNullableString(seedUser.avatarUrl),
+      gender: seedUser.gender ?? null,
+      token: null,
+      refreshToken: null,
+      oauthRefreshToken: null,
+      createdAt: asDate(seedUser.createdAt, now),
+      updatedAt: asDate(seedUser.updatedAt, now),
     });
 
-    await prisma.lecturer.upsert({
-      where: { id: user.id },
-      update: { scienceGroupId: l.kbk, acceptingRequests: true },
-      create: { id: user.id, scienceGroupId: l.kbk, acceptingRequests: true },
-    });
-
-    // Assign Pembimbing 1 role
-    await prisma.userHasRole.upsert({
-      where: { userId_roleId: { userId: user.id, roleId: pembimbing1Role.id } },
-      update: { status: 'active' },
-      create: { userId: user.id, roleId: pembimbing1Role.id, status: 'active' },
-    });
-
-    // Set supervision quota
-    const existingQuota = await prisma.lecturerSupervisionQuota.findFirst({
-      where: { lecturerId: user.id, academicYearId: activeYear.id },
-    });
-    if (!existingQuota) {
-      await prisma.lecturerSupervisionQuota.create({
+    let user;
+    if (existing) {
+      user = await prisma.user.update({
+        where: { id: existing.id },
+        data,
+      });
+    } else {
+      user = await prisma.user.create({
         data: {
-          lecturerId: user.id,
-          academicYearId: activeYear.id,
-          quotaMax: l.quotaMax,
-          quotaSoftLimit: l.quotaSoft,
-          currentCount: l.current,
+          id: seedUser.id,
+          ...data,
         },
       });
     }
 
-    // Link offered topics
-    for (const topicId of l.topics) {
-      const topic = await prisma.thesisTopic.findUnique({ where: { id: topicId } });
-      if (topic && !topic.lecturerId) {
-        await prisma.thesisTopic.update({
-          where: { id: topicId },
-          data: { lecturerId: user.id },
-        });
-      }
-    }
+    userIdMap.set(seedUser.id, user.id);
   }
 
-  console.log(`  Lecturers: ${lecturers.length} seeded with quota & KBK`);
+  return userIdMap;
 }
 
-// ────────────────────────────────────────────────────────────
-// KOORDINATOR METOPEN
-// ────────────────────────────────────────────────────────────
-
-async function seedDosenPengampu(activeYear) {
-  const nip = '198501012010011001'; // Dr. Husnil Kamil
-  const user = await prisma.user.findUnique({ where: { identityNumber: nip } });
-  if (!user) { console.log('  ! Koordinator Metopen not found, skipping'); return; }
-
-  const metopelRole = await prisma.userRole.findFirst({ where: { name: 'Koordinator Matkul Metopen' } });
-  if (!metopelRole) return;
-
-  await prisma.userHasRole.upsert({
-    where: { userId_roleId: { userId: user.id, roleId: metopelRole.id } },
-    update: { status: 'active' },
-    create: { userId: user.id, roleId: metopelRole.id, status: 'active' },
+async function resolveScienceGroupId(scienceGroupId) {
+  if (!scienceGroupId) return null;
+  const existing = await prisma.scienceGroup.findUnique({
+    where: { id: scienceGroupId },
+    select: { id: true },
   });
-
-  console.log(`  Koordinator Matkul Metopen: ${user.fullName}`);
+  return existing?.id ?? null;
 }
 
-// ────────────────────────────────────────────────────────────
-// TEST STUDENT — ILHAM
-// ────────────────────────────────────────────────────────────
+async function seedStudents(students, userIdMap) {
+  let count = 0;
 
-async function seedTestStudentIlham(activeYear) {
-  const NIM = '2211522028';
+  for (const student of students) {
+    const targetUserId = userIdMap.get(student.id);
+    if (!targetUserId) continue;
 
-  const user = await prisma.user.upsert({
-    where: { identityNumber: NIM },
-    update: { fullName: 'Ilham Nugraha' },
-    create: {
-      identityNumber: NIM,
-      identityType: 'NIM',
-      fullName: 'Ilham Nugraha',
-      email: 'ilham_2211522028@fti.unand.ac.id',
-      isVerified: true,
-    },
-  });
+    const data = pickModelData("Student", {
+      status: normalizeStudentStatus(student.status),
+      enrollmentYear: student.enrollmentYear ?? null,
+      sksCompleted: Number(student.skscompleted ?? 0),
 
-  await prisma.student.upsert({
-    where: { id: user.id },
-    update: {
-      sksCompleted: 130,
-      status: 'active',
-      mandatoryCoursesCompleted: true,
-      mkwuCompleted: true,
-      internshipCompleted: true,
-      kknCompleted: true,
-      currentSemester: 8,
-      enrollmentYear: 2022,
-    },
-    create: {
-      id: user.id,
-      sksCompleted: 130,
-      status: 'active',
-      mandatoryCoursesCompleted: true,
-      mkwuCompleted: true,
-      internshipCompleted: true,
-      kknCompleted: true,
-      currentSemester: 8,
-      enrollmentYear: 2022,
-    },
-  });
+      mandatoryCoursesCompleted: asBoolean(student.mandatoryCoursesCompleted),
+      mkwuCompleted: asBoolean(student.mkwuCompleted),
+      internshipCompleted: asBoolean(student.internshipCompleted),
+      kknCompleted: asBoolean(student.kknCompleted),
+      researchMethodCompleted: asBoolean(student.researchMethodCompleted),
+      currentSemester: student.currentSemester ?? null,
+      createdAt: asDate(student.createdAt),
+      updatedAt: asDate(student.updatedAt),
+    });
 
-  // Assign Mahasiswa role
-  const mahasiswaRole = await prisma.userRole.findFirst({ where: { name: 'Mahasiswa' } });
-  if (mahasiswaRole) {
+    await prisma.student.upsert({
+      where: { id: targetUserId },
+      update: data,
+      create: {
+        id: targetUserId,
+        ...data,
+      },
+    });
+    count += 1;
+  }
+
+  return count;
+}
+
+async function seedLecturers(lecturers, userIdMap) {
+  let count = 0;
+
+  for (const lecturer of lecturers) {
+    const targetUserId = userIdMap.get(lecturer.id);
+    if (!targetUserId) continue;
+
+    const data = pickModelData("Lecturer", {
+      scienceGroupId: await resolveScienceGroupId(lecturer.scienceGroupId),
+      data: parseJson(lecturer.data),
+      createdAt: asDate(lecturer.createdAt),
+      updatedAt: asDate(lecturer.updatedAt),
+    });
+
+    await prisma.lecturer.upsert({
+      where: { id: targetUserId },
+      update: data,
+      create: {
+        id: targetUserId,
+        ...data,
+      },
+    });
+    count += 1;
+  }
+
+  return count;
+}
+
+async function seedUserRoles(userHasRoles, userIdMap, roleIdMap) {
+  let count = 0;
+
+  for (const assignment of userHasRoles) {
+    const userId = userIdMap.get(assignment.userId);
+    const roleId = roleIdMap.get(assignment.roleId);
+    if (!userId || !roleId) continue;
+
     await prisma.userHasRole.upsert({
-      where: { userId_roleId: { userId: user.id, roleId: mahasiswaRole.id } },
-      update: { status: 'active' },
-      create: { userId: user.id, roleId: mahasiswaRole.id, status: 'active' },
-    });
-  }
-
-  // Thesis with status "Metopel" (eligible for metopen features)
-  const metopelStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Metopel' } });
-
-  const existingThesis = await prisma.thesis.findFirst({ where: { studentId: user.id } });
-  let thesis;
-
-  if (!existingThesis) {
-    thesis = await prisma.thesis.create({
-      data: {
-        studentId: user.id,
-        thesisStatusId: metopelStatus?.id,
-        academicYearId: activeYear.id,
-        title: 'Pengembangan Sistem Informasi Monitoring Tugas Akhir Berbasis Web',
-        thesisTopicId: 'topic-webdev',
-        rating: 'ONGOING',
+      where: {
+        userId_roleId: { userId, roleId },
+      },
+      update: {
+        status: normalizeRoleStatus(assignment.status),
+      },
+      create: {
+        userId,
+        roleId,
+        status: normalizeRoleStatus(assignment.status),
       },
     });
-    console.log('    Thesis baru dibuat untuk Ilham');
-  } else {
-    thesis = await prisma.thesis.update({
-      where: { id: existingThesis.id },
-      data: {
-        thesisStatusId: metopelStatus?.id,
-        academicYearId: activeYear.id,
-      },
-    });
-    console.log('    Thesis Ilham diupdate → Metopel');
+    count += 1;
   }
 
-  // Pastikan Ilham TIDAK punya pembimbing (untuk testing fitur cari pembimbing)
-  await prisma.thesisParticipant.deleteMany({ where: { thesisId: thesis.id } });
-  console.log(`  Test Student Ilham (${NIM}) — tanpa pembimbing, siap test fitur cari pembimbing`);
-  return user;
+  return count;
 }
-
-// ────────────────────────────────────────────────────────────
-// TEST STUDENT — FARIZ (preserved from original seed)
-// ────────────────────────────────────────────────────────────
-
-async function seedTestStudentFariz(activeYear) {
-  const NIM = '2211523034';
-
-  const user = await prisma.user.upsert({
-    where: { identityNumber: NIM },
-    update: {},
-    create: {
-      identityNumber: NIM,
-      identityType: 'NIM',
-      fullName: 'Fariz (Test Account)',
-      email: 'fariz.test@simpta.dev',
-      isVerified: true,
-    },
-  });
-
-  await prisma.student.upsert({
-    where: { id: user.id },
-    update: {
-      sksCompleted: 130,
-      status: 'active',
-      mandatoryCoursesCompleted: true,
-      mkwuCompleted: true,
-      internshipCompleted: true,
-      kknCompleted: true,
-      currentSemester: 8,
-      enrollmentYear: 2022,
-    },
-    create: {
-      id: user.id,
-      sksCompleted: 130,
-      status: 'active',
-      mandatoryCoursesCompleted: true,
-      mkwuCompleted: true,
-      internshipCompleted: true,
-      kknCompleted: true,
-      currentSemester: 8,
-      enrollmentYear: 2022,
-    },
-  });
-
-  const mahasiswaRole = await prisma.userRole.findFirst({ where: { name: 'Mahasiswa' } });
-  if (mahasiswaRole) {
-    await prisma.userHasRole.upsert({
-      where: { userId_roleId: { userId: user.id, roleId: mahasiswaRole.id } },
-      update: { status: 'active' },
-      create: { userId: user.id, roleId: mahasiswaRole.id, status: 'active' },
-    });
-  }
-
-  const thesisStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Pengajuan Judul' } });
-  const existingThesis = await prisma.thesis.findFirst({ where: { studentId: user.id } });
-
-  if (!existingThesis) {
-    await prisma.thesis.create({
-      data: {
-        studentId: user.id,
-        thesisStatusId: thesisStatus?.id,
-        academicYearId: activeYear.id,
-        title: '[TEST] Implementasi Sistem Rekomendasi berbasis Machine Learning untuk DSS Akademik',
-        proposalStatus: 'accepted',
-        rating: 'ONGOING',
-      },
-    });
-  }
-
-  console.log(`  Test Student Fariz (${NIM})`);
-  return user;
-}
-
-// ────────────────────────────────────────────────────────────
-// MAIN
-// ────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('Memulai seed database NeoCentral...\n');
+  const seedData = await loadSeedData();
 
-  console.log('--- Master Data ---');
-  await seedRoles();
-  await seedThesisStatuses();
-  const activeYear = await seedAcademicYear();
-  await seedDocumentTypes();
-  await seedScienceGroups();
-  await seedTopics();
-  await seedMilestoneTemplates();
+  console.log("Seeding users/students/lecturers from cloned snapshot...");
+  console.log(`Snapshot generated at: ${seedData.generatedAt}`);
 
-  console.log('\n--- Test Lecturers ---');
-  await seedTestLecturers(activeYear);
-  await seedDosenPengampu(activeYear);
+  const roleIdMap = await seedRoles(seedData.roles ?? []);
+  const userIdMap = await seedUsers(seedData.users ?? []);
+  const studentCount = await seedStudents(seedData.students ?? [], userIdMap);
+  const lecturerCount = await seedLecturers(seedData.lecturers ?? [], userIdMap);
+  const userRoleCount = await seedUserRoles(
+    seedData.userHasRoles ?? [],
+    userIdMap,
+    roleIdMap
+  );
 
-  console.log('\n--- Test Students ---');
-  await seedTestStudentIlham(activeYear);
-  await seedTestStudentFariz(activeYear);
+  // Keep a fresh/reset database aligned with the canonical DSI master. The
+  // synchronizer upserts by NIP/name and never deletes thesis transactions.
+  const master = await syncDsiMaster(prisma);
+  console.log(`DSI master synced: ${master.groups.length} KBK, ${master.lecturers.length} real lecturers`);
 
-  console.log('\nSeed selesai. Database siap digunakan.');
+  console.log("Seed completed.");
+  console.log(`Roles: ${roleIdMap.size}`);
+  console.log(`Users: ${userIdMap.size}`);
+  console.log(`Students: ${studentCount}`);
+  console.log(`Lecturers: ${lecturerCount}`);
+  console.log(`Role assignments: ${userRoleCount}`);
 }
 
 main()
-  .catch((e) => {
-    console.error('Seed gagal:', e);
-    process.exit(1);
+  .catch((error) => {
+    console.error("Seed failed:", error);
+    process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
-
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

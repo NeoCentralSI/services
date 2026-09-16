@@ -6,6 +6,7 @@ import {
   ADVISOR_REQUEST_LEGACY_BOOKING_OR_ACTIVE_STATUSES,
   ADVISOR_REQUEST_PENDING_KADEP_STATUSES,
 } from "../constants/advisorRequestStatus.js";
+import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 const TRACKED_REQUEST_STATUSES = [
   ...ADVISOR_REQUEST_BOOKING_STATUSES,
@@ -14,15 +15,17 @@ const TRACKED_REQUEST_STATUSES = [
   ...ADVISOR_REQUEST_LEGACY_BOOKING_OR_ACTIVE_STATUSES,
 ];
 
-export function getQuotaRepositoryClient(client = prisma) {
-  return client;
+export function getQuotaRepositoryClient(client) {
+  // Explicit undefined/null must fall back to the root Prisma client.
+  // Default-parameter fallback only covers omitted args, not `client: undefined`
+  // from `{ client }` destructuring — that previously caused
+  // "Cannot read properties of undefined (reading 'findMany')".
+  return client ?? prisma;
 }
 
 export async function findActiveAcademicYear(client = prisma) {
-  return client.academicYear.findFirst({
-    where: { isActive: true },
-    select: { id: true, year: true, semester: true },
-  });
+  const db = getQuotaRepositoryClient(client);
+  return resolveOperationalAcademicYear(db);
 }
 
 export async function findQuotaLecturerMetadata(client, academicYearId, lecturerIds = null) {
@@ -77,15 +80,39 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
   const db = getQuotaRepositoryClient(client);
   return db.thesisAdvisorRequest.findMany({
     where: {
-      ...(academicYearId ? { academicYearId } : {}),
-      ...(lecturerIds?.length
-        ? {
-            OR: [
-              { lecturerId: { in: lecturerIds } },
-              { redirectedTo: { in: lecturerIds } },
-            ],
-          }
-        : {}),
+      // Both clauses below are disjunctions, so they must live inside `AND`.
+      // Two sibling `OR` keys in one `where` would silently overwrite each
+      // other and drop a filter entirely.
+      AND: [
+        // Fetch a superset: the request's own period plus any request whose
+        // thesis lives in the requested period. The thesis period is the
+        // authoritative one and the caller narrows this down again with
+        // `requestBelongsToQuotaYear`. Filtering on `academicYearId` alone
+        // would drop a booking whose thesis has moved to the operational
+        // period, and then count it twice through the supervisor row
+        // (SIMPTA-FUN-006).
+        ...(academicYearId
+          ? [
+              {
+                OR: [
+                  { academicYearId },
+                  { thesis: { academicYearId } },
+                  { thesis: { activeAcademicYearId: academicYearId } },
+                ],
+              },
+            ]
+          : []),
+        ...(lecturerIds?.length
+          ? [
+              {
+                OR: [
+                  { lecturerId: { in: lecturerIds } },
+                  { redirectedTo: { in: lecturerIds } },
+                ],
+              },
+            ]
+          : []),
+      ],
       status: { in: TRACKED_REQUEST_STATUSES },
     },
     select: {
@@ -94,13 +121,21 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
       lecturerId: true,
       redirectedTo: true,
       academicYearId: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
       thesisId: true,
       status: true,
       routeType: true,
+      // BR-06 (canon §7.3): flag eksplisit untuk Overquota Sah snapshot.
+      acceptedOverNormal: true,
+      // BR-26 audit Path C (canon §5.2.1).
+      forwardedToKadepAt: true,
+      forwardedByLecturerId: true,
+      lecturerOverquotaReason: true,
       proposedTitle: true,
       lecturerApprovalNote: true,
       rejectionReason: true,
       justificationText: true,
+      studentJustification: true,
       kadepNotes: true,
       createdAt: true,
       updatedAt: true,
@@ -130,6 +165,17 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
           },
         },
       },
+      forwardedByLecturer: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              fullName: true,
+              identityNumber: true,
+            },
+          },
+        },
+      },
       topic: {
         select: { id: true, name: true, scienceGroupId: true },
       },
@@ -137,9 +183,21 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
         select: {
           id: true,
           title: true,
+          academicYearId: true,
           proposalStatus: true,
+          finalProposalVersionId: true,
+          activeAcademicYearId: true,
+          ta04AssignmentAcademicYearId: true,
           thesisStatus: { select: { name: true } },
           studentId: true,
+          academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          activeAcademicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          finalProposalVersion: { select: { version: true, submittedAsFinalAt: true } },
+          proposalVersions: {
+            where: { isLatest: true },
+            take: 1,
+            select: { version: true, isLatest: true, submittedAsFinalAt: true },
+          },
         },
       },
     },
@@ -149,12 +207,21 @@ export async function findTrackedAdvisorRequests(client, academicYearId, lecture
 
 export async function findTrackedSupervisorAssignments(client, academicYearId, lecturerIds = null) {
   const db = getQuotaRepositoryClient(client);
-  return db.thesisParticipant.findMany({
+  return db.thesisSupervisors.findMany({
     where: {
       status: "active",
       lecturerId: lecturerIds?.length ? { in: lecturerIds } : undefined,
       role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
-      ...(academicYearId ? { thesis: { academicYearId } } : {}),
+      ...(academicYearId
+        ? {
+            thesis: {
+              OR: [
+                { academicYearId },
+                { activeAcademicYearId: academicYearId },
+              ],
+            },
+          }
+        : {}),
     },
     select: {
       id: true,
@@ -166,9 +233,21 @@ export async function findTrackedSupervisorAssignments(client, academicYearId, l
         select: {
           id: true,
           title: true,
+          academicYearId: true,
           proposalStatus: true,
+          finalProposalVersionId: true,
+          activeAcademicYearId: true,
+          ta04AssignmentAcademicYearId: true,
           thesisStatus: { select: { name: true } },
           studentId: true,
+          academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          activeAcademicYear: { select: { id: true, year: true, semester: true, isActive: true } },
+          finalProposalVersion: { select: { version: true, submittedAsFinalAt: true } },
+          proposalVersions: {
+            where: { isLatest: true },
+            take: 1,
+            select: { version: true, isLatest: true, submittedAsFinalAt: true },
+          },
           student: {
             select: {
               id: true,
@@ -208,7 +287,9 @@ export async function ensureLecturerQuotaRow(client, lecturerId, academicYearId)
       quotaSoftLimit: defaultQuota?.quotaSoftLimit ?? 8,
       currentCount: 0,
     },
-    select: { id: true },
+    // `currentCount` is returned so callers can report what the cache held
+    // before a reconciliation overwrote it (SIMPTA-FUN-010).
+    select: { id: true, currentCount: true },
   });
 }
 

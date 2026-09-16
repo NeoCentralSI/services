@@ -45,7 +45,7 @@ export const rejectRequestSchema = z.object({
 
 export const lecturerReviewSchema = z.object({
   status: z.enum(['approved', 'rejected'], {
-    errorMap: () => ({ message: 'Status must be approved or rejected' })
+    errorMap: () => ({ message: 'Status harus disetujui atau ditolak' })
   }),
   notes: z
     .string()

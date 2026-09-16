@@ -114,8 +114,8 @@ export function ensureUserRole(userId, roleId) {
 	});
 }
 
-export function createStudentForUser({ userId, status, enrollmentYear, sksCompleted, skscompleted }) {
-	const rawSks = sksCompleted ?? skscompleted;
+export function createStudentForUser({ userId, status, enrollmentYear, sksCompleted }) {
+	const rawSks = sksCompleted;
 	const sks = Number.isInteger(rawSks) && rawSks >= 0 ? rawSks : 0;
 	return prisma.student.create({
 		data: { id: userId, status: status || "active", enrollmentYear: enrollmentYear ?? null, sksCompleted: sks },

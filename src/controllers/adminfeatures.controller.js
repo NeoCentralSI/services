@@ -1,4 +1,4 @@
-import { importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, importStudentsCsvFromUpload, adminUpdateUser, adminUpdateStudent, adminUpdateLecturer, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getActiveAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, createRoom, updateRoom, getRooms, deleteRoom } from "../services/adminfeatures.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs } from "../services/adminfeatures.service.js";
 import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
@@ -18,35 +18,23 @@ export async function importStudentsCsv(req, res, next) {
 }
 
 
+function auditActor(req) {
+	const forwarded = req.headers?.["x-forwarded-for"];
+	const ip = (typeof forwarded === "string" ? forwarded.split(",")[0] : null) || req.ip || null;
+	return {
+		actorUserId: req.user?.sub ?? null,
+		ipAddress: ip ? String(ip).slice(0, 45) : null,
+		userAgent: req.get?.("user-agent") ?? req.headers?.["user-agent"] ?? null,
+	};
+}
+
 export async function updateUserByAdmin(req, res, next) {
   try {
     const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
-		const { fullName, email, roles, identityNumber, identityType, isVerified } = body;
-    const user = await adminUpdateUser(id, { fullName, email, roles, identityNumber, identityType, isVerified });
-    res.status(200).json({ success: true, user });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function updateStudentByAdminController(req, res, next) {
-	try {
-		const { id } = req.params;
-		const body = req.validated ?? req.body ?? {};
-		const student = await adminUpdateStudent(id, body);
-		res.status(200).json({ success: true, data: student });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function updateLecturerByAdminController(req, res, next) {
-	try {
-		const { id } = req.params;
-		const body = req.validated ?? req.body ?? {};
-		const lecturer = await adminUpdateLecturer(id, body);
-		res.status(200).json({ success: true, data: lecturer });
+		const { fullName, email, roles, identityNumber, identityType, isVerified, gender } = body;
+		const user = await adminUpdateUser(id, { fullName, email, roles, identityNumber, identityType, isVerified, gender }, auditActor(req));
+		res.status(200).json({ success: true, user });
 	} catch (err) {
 		next(err);
 	}
@@ -55,8 +43,8 @@ export async function updateLecturerByAdminController(req, res, next) {
 export async function createUserByAdminController(req, res, next) {
 	try {
 		const body = req.validated ?? req.body ?? {};
-		const { fullName, email, roles, identityNumber, identityType } = body;
-		const result = await adminCreateUser({ fullName, email, roles, identityNumber, identityType });
+		const { fullName, email, roles, identityNumber, identityType, gender } = body;
+		const result = await adminCreateUser({ fullName, email, roles, identityNumber, identityType, gender }, auditActor(req));
 		res.status(201).json({ success: true, user: result });
 	} catch (err) {
 		next(err);
@@ -67,7 +55,7 @@ export async function createAcademicYearController(req, res, next) {
 	try {
 		const body = req.validated ?? req.body ?? {};
 		const { semester, year, startDate, endDate } = body;
-		const ay = await createAcademicYear({ semester, year, startDate, endDate });
+		const ay = await createAcademicYear({ semester, year, startDate, endDate }, auditActor(req));
 		res.status(201).json({ success: true, academicYear: ay });
 	} catch (err) {
 		next(err);
@@ -78,9 +66,22 @@ export async function updateAcademicYearController(req, res, next) {
 	try {
 		const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
-		const { semester, year, startDate, endDate, isActive } = body;
-		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate, isActive });
+		const { semester, year, startDate, endDate } = body;
+		const updated = await updateAcademicYear(id, { semester, year, startDate, endDate }, auditActor(req));
 		res.status(200).json({ success: true, academicYear: updated });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getAdminAuditLogsController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page, 10) || 1;
+		const pageSize = parseInt(req.query.pageSize, 10) || 20;
+		const action = req.query.action || null;
+		const entity = req.query.entity || null;
+		const result = await listAdminAuditLogs({ page, pageSize, action, entity });
+		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
 	}
@@ -100,97 +101,10 @@ export async function getAcademicYearsController(req, res, next) {
 
 export async function getActiveAcademicYearController(req, res, next) {
 	try {
-		const active = await getActiveAcademicYear();
+		// Prefer operational resolver (date window + isActive fallback) so Admin
+		// Master Data / Kuota Bimbingan stay aligned with lecturer quota cohort.
+		const active = await getOperationalAcademicYear();
 		res.status(200).json({ success: true, academicYear: active });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function createRoomController(req, res, next) {
-	try {
-		const body = req.validated ?? req.body ?? {};
-		const { name, location, capacity } = body;
-		const room = await createRoom({ name, location, capacity });
-		res.status(201).json({ success: true, room });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function updateRoomController(req, res, next) {
-	try {
-		const { id } = req.params;
-		const body = req.validated ?? req.body ?? {};
-		const { name, location, capacity } = body;
-		const room = await updateRoom(id, { name, location, capacity });
-		res.status(200).json({ success: true, room });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function getRoomsController(req, res, next) {
-	try {
-		const page = parseInt(req.query.page, 10) || 1;
-		const limitRaw = req.query.limit ?? req.query.pageSize;
-		const limit = parseInt(limitRaw, 10) || 10;
-		const search = req.query.search || "";
-		const status = req.query.status || "all";
-		const result = await getRooms({ page, limit, search, status });
-		res.status(200).json({
-			success: true,
-			message: "Berhasil mengambil data ruangan",
-			data: result.data,
-			total: result.total,
-		});
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function deleteRoomController(req, res, next) {
-	try {
-		const { id } = req.params;
-		await deleteRoom(id);
-		res.status(200).json({ success: true, message: "Ruangan berhasil dihapus" });
-	} catch (err) {
-		next(err);
-	}
-}
-
-// Excel import controllers (JSON payload from frontend)
-export async function importStudentsExcelController(req, res, next) {
-	try {
-		const result = await importStudentsExcel(req.body);
-		res.status(200).json(result);
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function importLecturersExcelController(req, res, next) {
-	try {
-		const result = await importLecturersExcel(req.body);
-		res.status(200).json(result);
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function importUsersExcelController(req, res, next) {
-	try {
-		const result = await importUsersExcel(req.body);
-		res.status(200).json(result);
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function importAcademicYearsExcelController(req, res, next) {
-	try {
-		const result = await importAcademicYearsExcel(req.body);
-		res.status(200).json(result);
 	} catch (err) {
 		next(err);
 	}
@@ -216,7 +130,10 @@ export async function getStudentsController(req, res, next) {
 		const page = parseInt(req.query.page) || 1;
 		const pageSize = parseInt(req.query.pageSize) || 10;
 		const search = req.query.search || "";
-		const result = await getStudents({ page, pageSize, search });
+		const enrollmentYear = req.query.enrollmentYear || req.query.enrollmentYearFilter || undefined;
+		const sortBy = req.query.sortBy || undefined;
+		const sortOrder = req.query.sortOrder || "desc";
+		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -411,6 +328,112 @@ export async function getThesisStatusesController(req, res, next) {
 	try {
 		const statuses = await getThesisStatuses();
 		res.status(200).json({ success: true, data: statuses });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function getRoomsController(req, res, next) {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const pageSize = parseInt(req.query.limit ?? req.query.pageSize) || 10;
+		const search = req.query.search || "";
+		const status = req.query.status || "all";
+		const result = await getRooms({ page, pageSize, search, status });
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function createRoomController(req, res, next) {
+	try {
+		const body = req.validated ?? req.body ?? {};
+		const room = await createRoom(body);
+		res.status(201).json({ success: true, data: room });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function updateRoomController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const body = req.validated ?? req.body ?? {};
+		const room = await updateRoom(id, body);
+		res.status(200).json({ success: true, data: room });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function deleteRoomController(req, res, next) {
+	try {
+		const { id } = req.params;
+		await deleteRoom(id);
+		res.status(200).json({ success: true, message: "Ruangan berhasil dihapus" });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function updateStudentByAdminController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const body = req.validated ?? req.body ?? {};
+		const result = await adminUpdateStudent(id, body);
+		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function updateLecturerByAdminController(req, res, next) {
+	try {
+		const { id } = req.params;
+		const body = req.validated ?? req.body ?? {};
+		const result = await adminUpdateLecturer(id, body);
+		res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importStudentsExcelController(req, res, next) {
+	try {
+		const { rows } = req.body || {};
+		const result = await importStudentsExcel(rows);
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importLecturersExcelController(req, res, next) {
+	try {
+		const { rows } = req.body || {};
+		const result = await importLecturersExcel(rows);
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importUsersExcelController(req, res, next) {
+	try {
+		const rows = Array.isArray(req.body) ? req.body : (req.body?.rows || []);
+		const result = await importUsersExcel(rows);
+		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+export async function importAcademicYearsExcelController(req, res, next) {
+	try {
+		const { rows } = req.body || {};
+		const result = await importAcademicYearsExcel(rows);
+		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
 	}

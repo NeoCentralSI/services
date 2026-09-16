@@ -7,9 +7,12 @@ vi.mock("../../repositories/metopen.repository.js", () => ({
 vi.mock("../../config/prisma.js", () => ({
   default: {
     student: { findUnique: vi.fn() },
+    academicYear: { findMany: vi.fn() },
+    studentAcademicYearSnapshot: { findUnique: vi.fn() },
     researchMethodScore: { findFirst: vi.fn() },
-    thesis: { findUnique: vi.fn(), update: vi.fn() },
-    thesisParticipant: { count: vi.fn() },
+    thesis: { findUnique: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
+    thesisAdvisorRequest: { findFirst: vi.fn() },
+    thesisSupervisors: { count: vi.fn(), findMany: vi.fn() },
     thesisMilestone: { findMany: vi.fn() },
   },
 }));
@@ -29,6 +32,11 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       id: "student-1",
       takingThesisCourse: true,
     });
+    prisma.academicYear.findMany.mockResolvedValue([]);
+    prisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue(null);
+    prisma.researchMethodScore.findFirst.mockResolvedValue(null);
+    prisma.thesis.findFirst.mockResolvedValue(null);
+    prisma.thesisAdvisorRequest.findFirst.mockResolvedValue(null);
   });
 
   function setupThesis(overrides = {}) {
@@ -43,7 +51,8 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     };
     repo.findStudentThesis.mockResolvedValue(thesis);
     prisma.thesis.findUnique.mockResolvedValue(thesis);
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.thesisSupervisors.count.mockResolvedValue(1);
     prisma.thesisMilestone.findMany.mockResolvedValue([]);
     prisma.thesis.update.mockResolvedValue(thesis);
   }
@@ -55,6 +64,9 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
   }
 
@@ -165,16 +177,17 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     expect(result.reason).toContain("penilaian Metopel");
   });
 
-  it("keeps Metopen active until title approval is actually accepted", async () => {
+  it("keeps Metopen operational after proposal accepted until KRS TA archive applies", async () => {
     prisma.student.findUnique.mockResolvedValue({
       id: "student-1",
       eligibleMetopen: true,
       metopenEligibilitySource: "sia",
       metopenEligibilityUpdatedAt: "2026-04-23T10:00:00.000Z",
+      takingThesisCourse: false,
       thesis: [
         {
           id: "thesis-1",
-          proposalStatus: "submitted",
+          proposalStatus: "accepted",
           thesisStatus: { name: "Bimbingan" },
         },
       ],
@@ -188,12 +201,13 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
     expect(result.source).toBe("sia");
   });
 
-  it("marks Metopen as archive only after TA-04 approval has been accepted", async () => {
+  it("marks Metopen as archive only after official promotion to active TA", async () => {
     prisma.student.findUnique.mockResolvedValue({
       id: "student-1",
       eligibleMetopen: true,
       metopenEligibilitySource: "sia",
       metopenEligibilityUpdatedAt: "2026-04-23T10:00:00.000Z",
+      takingThesisCourse: true,
       thesis: [
         {
           id: "thesis-1",
@@ -202,12 +216,63 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
         },
       ],
     });
+    prisma.academicYear.findMany.mockResolvedValue([
+      {
+        id: "ay-active",
+        startDate: new Date("2020-01-01T00:00:00.000Z"),
+        endDate: new Date("2030-01-01T00:00:00.000Z"),
+      },
+    ]);
+    prisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue({
+      takingThesisCourse: true,
+    });
+    prisma.researchMethodScore.findFirst.mockResolvedValue({ id: "score-1" });
+    prisma.thesisAdvisorRequest.findFirst.mockResolvedValue({ id: "req-official" });
+    prisma.thesis.findFirst.mockResolvedValue({ id: "thesis-1" });
 
     const result = await checkEligibility("user-1");
 
     expect(result.canAccess).toBe(true);
     expect(result.canSubmit).toBe(false);
     expect(result.readOnly).toBe(true);
+    expect(result.isMetopenArchive).toBe(true);
+  });
+
+  it("does not archive a failed or released Metopel cycle just because SIA KRS TA is true", async () => {
+    prisma.student.findUnique.mockResolvedValue({
+      id: "student-1",
+      eligibleMetopen: true,
+      metopenEligibilitySource: "sia",
+      metopenEligibilityUpdatedAt: "2026-04-23T10:00:00.000Z",
+      takingThesisCourse: true,
+      thesis: [
+        {
+          id: "thesis-1",
+          proposalStatus: null,
+          thesisStatus: { name: "Diajukan" },
+        },
+      ],
+    });
+    prisma.academicYear.findMany.mockResolvedValue([
+      {
+        id: "ay-active",
+        startDate: new Date("2020-01-01T00:00:00.000Z"),
+        endDate: new Date("2030-01-01T00:00:00.000Z"),
+      },
+    ]);
+    prisma.studentAcademicYearSnapshot.findUnique.mockResolvedValue({
+      takingThesisCourse: true,
+    });
+    prisma.researchMethodScore.findFirst.mockResolvedValue({ id: "score-1" });
+    prisma.thesisAdvisorRequest.findFirst.mockResolvedValue(null);
+    prisma.thesis.findFirst.mockResolvedValue(null);
+
+    const result = await checkEligibility("user-1");
+
+    expect(result.hasTakenMetopen).toBe(true);
+    expect(result.readOnly).toBe(false);
+    expect(result.isMetopenArchive).toBe(false);
+    expect(result.canSubmit).toBe(true);
   });
 
   it("does not let stale legacy milestones block KaDep queue submission when TA-03 scores already exist", async () => {
@@ -226,7 +291,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       proposalStatus: null,
       finalProposalVersionId: "proposal-version-1",
     });
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.thesisMilestone.findMany.mockResolvedValue([
       { id: "legacy-task-1", status: "in_progress", title: "Task publish kelas lama" },
     ]);
@@ -235,6 +300,9 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
 
     const result = await submitTitleReport("user-1");
@@ -266,12 +334,15 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       proposalStatus: null,
       finalProposalVersionId: null,
     });
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
 
     await expect(submitTitleReport("user-1")).rejects.toThrow("submit proposal final");
@@ -296,14 +367,144 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       id: "student-1",
       takingThesisCourse: false,
     });
-    prisma.thesisParticipant.count.mockResolvedValue(1);
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
     prisma.researchMethodScore.findFirst.mockResolvedValue({
       supervisorScore: 60,
       lecturerScore: 20,
       finalScore: 80,
       isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
     });
 
     await expect(submitTitleReport("user-1")).rejects.toThrow("mata kuliah Tugas Akhir");
+  });
+
+  // F-4.4 follow-up: submitted thesis yang syaratnya terdegradasi → dequeue otomatis
+  // saat submitTitleReport dipanggil (reset proposalStatus=null + throw block reason).
+  it("auto-dequeues submitted thesis when a prerequisite has degraded (P2 added without co-sign)", async () => {
+    repo.findStudentThesis.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+    });
+    prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: true });
+    // P2 aktif tapi co-signedAt null → ta03aReady=false → dequeue.
+    prisma.thesisSupervisors.findMany.mockResolvedValue([
+      { role: { name: "Pembimbing 1" } },
+      { role: { name: "Pembimbing 2" } },
+    ]);
+    prisma.researchMethodScore.findFirst.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: 20,
+      finalScore: 80,
+      isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
+    });
+
+    await expect(submitTitleReport("user-1")).rejects.toThrow(/co-sign|final/i);
+
+    // Dequeue: proposalStatus di-reset ke null.
+    expect(prisma.thesis.update).toHaveBeenCalledWith({
+      where: { id: "thesis-1" },
+      data: {
+        proposalStatus: null,
+        proposalReviewNotes: null,
+        proposalReviewedAt: null,
+        proposalReviewedByUserId: null,
+      },
+    });
+  });
+
+  // F-4.4 follow-up: submitted thesis yang SIA flip takingThesisCourse=false → dequeue.
+  it("auto-dequeues submitted thesis when SIA flips takingThesisCourse to false", async () => {
+    repo.findStudentThesis.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+    });
+    prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: false });
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.researchMethodScore.findFirst.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: 20,
+      finalScore: 80,
+      isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
+    });
+
+    await expect(submitTitleReport("user-1")).rejects.toThrow("mata kuliah Tugas Akhir");
+
+    expect(prisma.thesis.update).toHaveBeenCalledWith({
+      where: { id: "thesis-1" },
+      data: {
+        proposalStatus: null,
+        proposalReviewNotes: null,
+        proposalReviewedAt: null,
+        proposalReviewedByUserId: null,
+      },
+    });
+  });
+
+  // Idempotent: submitted thesis yang semua syarat masih terpenuhi → tetap "submitted",
+  // tidak ada prisma.thesis.update (no-op).
+  it("keeps submitted thesis queued when all prerequisites still hold (idempotent no-op)", async () => {
+    repo.findStudentThesis.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+      thesisStatus: { name: "Bimbingan" },
+    });
+    prisma.thesis.findUnique.mockResolvedValue({
+      id: "thesis-1",
+      studentId: "student-1",
+      title: "Judul SIMPTA",
+      proposalStatus: "submitted",
+      finalProposalVersionId: "proposal-version-1",
+    });
+    prisma.student.findUnique.mockResolvedValue({ id: "student-1", takingThesisCourse: true });
+    prisma.thesisSupervisors.findMany.mockResolvedValue([{ role: { name: "Pembimbing 1" } }]);
+    prisma.researchMethodScore.findFirst.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: 20,
+      finalScore: 80,
+      isFinalized: true,
+      attendanceAutoZeroedAt: null,
+      coSignedAt: null,
+      coSignedByLecturerId: null,
+    });
+
+    const result = await submitTitleReport("user-1");
+
+    expect(result.proposalStatus).toBe("submitted");
+    // No enqueue update (already submitted) and no dequeue update.
+    expect(prisma.thesis.update).not.toHaveBeenCalled();
   });
 });

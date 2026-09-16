@@ -22,6 +22,7 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import prisma from "../../../config/prisma.js";
 import { updateAllThesisStatuses } from "../../../services/thesisStatus.service.js";
+import { runCleanupIfEnabled } from "./cleanup.js";
 
 // ── Helpers ──
 function daysAgo(n) {
@@ -162,61 +163,58 @@ describe("IT-05: CRON Thesis Status Rating", () => {
   });
 
   afterAll(async () => {
-    if (SKIP_CLEANUP) {
-      console.warn("[IT-05] SKIP_CLEANUP=true, skipping cleanup");
-      await prisma.$disconnect();
-      return;
-    }
-    // Restore all test theses to original state
-    try {
-      for (const entry of testTheses) {
-        const { thesis, originalRating, originalCreatedAt, originalDeadlineDate, originalStatusId } = entry;
+    await runCleanupIfEnabled("IT-05", async () => {
+      // Restore all test theses to original state
+      try {
+        for (const entry of testTheses) {
+          const { thesis, originalRating, originalCreatedAt, originalDeadlineDate, originalStatusId } = entry;
 
-        await prisma.thesis.update({
-          where: { id: thesis.id },
-          data: {
-            rating: originalRating,
-            createdAt: originalCreatedAt,
-            deadlineDate: originalDeadlineDate,
-            thesisStatusId: originalStatusId,
-          },
-        });
-
-        // Restore guidance dates
-        for (const g of thesis.thesisGuidances) {
-          await prisma.thesisGuidance.update({
-            where: { id: g.id },
+          await prisma.thesis.update({
+            where: { id: thesis.id },
             data: {
-              completedAt: g.completedAt,
-              approvedDate: g.approvedDate,
+              rating: originalRating,
+              createdAt: originalCreatedAt,
+              deadlineDate: originalDeadlineDate,
+              thesisStatusId: originalStatusId,
             },
           });
+
+          // Restore guidance dates
+          for (const g of thesis.thesisGuidances) {
+            await prisma.thesisGuidance.update({
+              where: { id: g.id },
+              data: {
+                completedAt: g.completedAt,
+                approvedDate: g.approvedDate,
+              },
+            });
+          }
         }
-      }
 
-      // Restore any cancelled guidances for thesis 3 (FAILED cleanup)
-      if (testTheses[3]) {
-        await prisma.thesisGuidance.updateMany({
+        // Restore any cancelled guidances for thesis 3 (FAILED cleanup)
+        if (testTheses[3]) {
+          await prisma.thesisGuidance.updateMany({
+            where: {
+              thesisId: testTheses[3].thesis.id,
+              status: "cancelled",
+            },
+            data: { status: "requested" },
+          });
+        }
+
+        // Clean up test notifications
+        await prisma.notification.deleteMany({
           where: {
-            thesisId: testTheses[3].thesis.id,
-            status: "cancelled",
+            createdAt: { gte: new Date(Date.now() - 120000) },
+            title: { in: ["⚠️ Tugas Akhir GAGAL", "⚠️ Tugas Akhir Gagal"] },
           },
-          data: { status: "requested" },
         });
+
+        console.log("[IT-05 cleanup] All theses restored to original state.");
+      } catch (err) {
+        console.error("[IT-05 cleanup] Error:", err.message);
       }
-
-      // Clean up test notifications
-      await prisma.notification.deleteMany({
-        where: {
-          createdAt: { gte: new Date(Date.now() - 120000) },
-          title: { in: ["⚠️ Tugas Akhir GAGAL", "⚠️ Tugas Akhir Gagal"] },
-        },
-      });
-
-      console.log("[IT-05 cleanup] All theses restored to original state.");
-    } catch (err) {
-      console.error("[IT-05 cleanup] Error:", err.message);
-    }
+    });
     await prisma.$disconnect();
   });
 

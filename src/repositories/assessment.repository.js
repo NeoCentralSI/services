@@ -16,15 +16,12 @@ export const findCriteriaByFormCode = async (formCode) => {
     return [];
   }
 
-  return prisma.assessmentCriteria.findMany({
+  return prisma.metopenAssessmentCriteria.findMany({
     where: {
-      appliesTo: { in: ["proposal", "metopen"] },
       role,
-      isDeleted: false,
-      cpmk: { type: "research_method" },
     },
     include: {
-      cpmk: true,
+      metopenCpmk: true,
     },
     orderBy: [{ role: 'asc' }, { displayOrder: 'asc' }],
   });

@@ -207,6 +207,8 @@ export async function findStudentThesis(userId) {
       title: true,
       thesisStatusId: true,
       proposalStatus: true,
+      academicYearId: true,
+      ta04AssignmentAcademicYearId: true,
       thesisStatus: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -464,7 +466,7 @@ export function createDocument(data) {
 }
 
 export function countSupervisorsForThesis(thesisId, roleNames) {
-  return prisma.thesisParticipant.count({
+  return prisma.thesisSupervisors.count({
     where: {
       thesisId,
       role: { is: { name: { in: roleNames } } },
@@ -567,7 +569,7 @@ export function findLinkedGuidances(milestoneId) {
 }
 
 export function findSupervisedThesesByLecturer(lecturerId) {
-  return prisma.thesisParticipant.findMany({
+  return prisma.thesisSupervisors.findMany({
     where: { lecturerId },
     include: {
       thesis: {

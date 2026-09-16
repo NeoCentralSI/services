@@ -1,9 +1,10 @@
 import { z } from "zod/v4";
+import { academicYearIdSchema } from "./common.validator.js";
 
 export const createClassSchema = z.object({
   name: z.string().min(1, "Nama kelas wajib diisi").max(255),
   description: z.string().max(1000).optional(),
-  academicYearId: z.string().uuid().optional(),
+  academicYearId: academicYearIdSchema.optional(),
 });
 
 export const updateClassSchema = z.object({
@@ -23,7 +24,7 @@ export const publishToClassSchema = z.object({
 });
 
 export const resolveDuplicateEnrollmentSchema = z.object({
-  academicYearId: z.string().uuid().optional().nullable(),
+  academicYearId: academicYearIdSchema.optional().nullable(),
   studentId: z.string().uuid("Student ID tidak valid"),
   keepClassId: z.string().uuid("Kelas yang dipertahankan tidak valid"),
 });

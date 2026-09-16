@@ -61,7 +61,9 @@ export const findStudentAdvisorAccessContext = async (userId) => {
         select: {
           id: true,
           title: true,
+          academicYearId: true,
           proposalStatus: true,
+          ta04AssignmentIssuedAt: true,
           thesisStatus: {
             select: { id: true, name: true },
           },
@@ -69,23 +71,31 @@ export const findStudentAdvisorAccessContext = async (userId) => {
             select: {
               id: true,
               lecturerId: true,
+              status: true,
+              createdAt: true,
               role: {
                 select: { id: true, name: true },
               },
               lecturer: {
                 select: {
                   id: true,
+                  scienceGroup: { select: { id: true, name: true } },
                   user: {
                     select: {
                       id: true,
                       fullName: true,
                       email: true,
                       avatarUrl: true,
+                      identityNumber: true,
                     },
                   },
                 },
               },
             },
+          },
+          advisorRequests: {
+            where: { status: "booking_approved" },
+            select: { id: true },
           },
         },
       },
@@ -257,11 +267,11 @@ export const findById = async (id) => {
         include: {
           user: { select: { id: true, fullName: true, identityNumber: true, avatarUrl: true } },
           scienceGroup: { select: { id: true, name: true } },
-          supervisionQuotas: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
-            select: { quotaMax: true, quotaSoftLimit: true, currentCount: true },
-          },
+          // No `supervisionQuotas` here on purpose: the row is period-agnostic
+          // and carries a cached `currentCount`, so it used to ship a second,
+          // often stale set of load numbers next to the recomputed
+          // `quotaSnapshot` in the same payload (SIMPTA-FUN-009). Callers that
+          // need quota must use `getLecturerQuotaSnapshot`.
         },
       },
       topic: true,
@@ -314,6 +324,7 @@ export const findByLecturerId = async (lecturerId) => {
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -338,6 +349,7 @@ export const findRespondedByLecturerId = async (lecturerId) => {
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
     },
     orderBy: { updatedAt: "desc" },
     take: 50,
@@ -362,14 +374,13 @@ export const findEscalated = async () => {
         include: {
           user: { select: { id: true, fullName: true, identityNumber: true } },
           scienceGroup: { select: { id: true, name: true } },
-          supervisionQuotas: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
-            select: { quotaMax: true, quotaSoftLimit: true, currentCount: true },
-          },
+          // See `findById`: quota for the decision card comes from
+          // `getLecturerQuotaSnapshot`, never from this cached row
+          // (SIMPTA-FUN-009).
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -402,6 +413,7 @@ export const findPendingAssignment = async () => {
         },
       },
       topic: true,
+      academicYear: { select: { id: true, year: true, semester: true, isActive: true } },
       redirectTarget: {
         include: {
           user: { select: { id: true, fullName: true } },
@@ -674,51 +686,52 @@ export const getLecturerCatalog = async (academicYearId) => {
 };
 
 /**
- * Find alternative lecturers in the same science group with available quota.
- * Like getLecturerCatalog, queries from Lecturer to include those without quota records.
+ * Distinct thesis-topic names currently supervised by each lecturer (FUN-016).
+ * Empty array when the lecturer has no active topic-linked assignment.
  */
-export const findAlternativeLecturers = async (scienceGroupId, academicYearId, excludeLecturerId) => {
-  const DEFAULT_QUOTA_MAX = 8;
-  const DEFAULT_SOFT_LIMIT = 6;
+export const findSupervisedTopicsByLecturerIds = async (lecturerIds = [], academicYearId) => {
+  const uniqueIds = [...new Set((lecturerIds ?? []).filter(Boolean))];
+  const byLecturer = new Map(uniqueIds.map((id) => [id, []]));
+  if (uniqueIds.length === 0 || !academicYearId) return byLecturer;
 
-  const lecturers = await prisma.lecturer.findMany({
+  const rows = await prisma.thesisSupervisors.findMany({
     where: {
-      ...(excludeLecturerId ? { id: { not: excludeLecturerId } } : {}),
-      scienceGroupId,
-      acceptingRequests: true,
+      lecturerId: { in: uniqueIds },
+      status: "active",
+      role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+      thesis: {
+        OR: [{ academicYearId }, { activeAcademicYearId: academicYearId }],
+        thesisTopicId: { not: null },
+      },
     },
-    include: {
-      user: {
-        select: { id: true, fullName: true, identityNumber: true, avatarUrl: true },
-      },
-      scienceGroup: { select: { id: true, name: true } },
-      supervisionQuotas: {
-        where: { academicYearId },
-        take: 1,
-      },
-      thesisSupervisors: {
-        where: {
-          status: "active",
-          thesis: {
-            academicYearId,
-            OR: [
-              { thesisStatus: { is: null } },
-              {
-                thesisStatus: {
-                  is: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } },
-                },
-              },
-            ],
-          },
-        },
+    select: {
+      lecturerId: true,
+      thesis: {
         select: {
-          thesis: {
-            select: { id: true, thesisTopicId: true },
-          },
+          thesisTopic: { select: { name: true } },
         },
       },
     },
   });
+
+  for (const row of rows) {
+    const topicName = row.thesis?.thesisTopic?.name?.trim();
+    if (!topicName) continue;
+    const list = byLecturer.get(row.lecturerId);
+    if (!list) continue;
+    if (!list.includes(topicName)) list.push(topicName);
+  }
+
+  return byLecturer;
+};
+
+/**
+ * Find alternative lecturers in the same science group with available quota.
+ * Like getLecturerCatalog, queries from Lecturer to include those without quota records.
+ */
+const mapLecturersWithQuota = (lecturers, academicYearId) => {
+  const DEFAULT_QUOTA_MAX = 8;
+  const DEFAULT_SOFT_LIMIT = 6;
 
   return lecturers
     .map((lecturer) => {
@@ -738,6 +751,68 @@ export const findAlternativeLecturers = async (scienceGroupId, academicYearId, e
     );
 };
 
+const lecturerAssignmentInclude = (academicYearId) => ({
+  user: {
+    select: { id: true, fullName: true, identityNumber: true, avatarUrl: true },
+  },
+  scienceGroup: { select: { id: true, name: true } },
+  supervisionQuotas: {
+    where: { academicYearId },
+    take: 1,
+  },
+  thesisSupervisors: {
+    where: {
+      status: "active",
+      thesis: {
+        academicYearId,
+        OR: [
+          { thesisStatus: { is: null } },
+          {
+            thesisStatus: {
+              is: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } },
+            },
+          },
+        ],
+      },
+    },
+    select: {
+      thesis: {
+        select: { id: true, thesisTopicId: true },
+      },
+    },
+  },
+});
+
+export const findAlternativeLecturers = async (scienceGroupId, academicYearId, excludeLecturerId) => {
+  const lecturers = await prisma.lecturer.findMany({
+    where: {
+      ...(excludeLecturerId ? { id: { not: excludeLecturerId } } : {}),
+      scienceGroupId,
+      acceptingRequests: true,
+    },
+    include: lecturerAssignmentInclude(academicYearId),
+  });
+
+  return mapLecturersWithQuota(lecturers, academicYearId);
+};
+
+/**
+ * All active lecturers accepting requests (cross-KBK), for KaDep assign/redirect.
+ * Canon v3.3 §5.2.1 — alternatif tidak terbatas rekomendasi KBK top-3.
+ */
+export const findAssignableLecturers = async (academicYearId, excludeLecturerId) => {
+  const lecturers = await prisma.lecturer.findMany({
+    where: {
+      ...(excludeLecturerId ? { id: { not: excludeLecturerId } } : {}),
+      acceptingRequests: true,
+    },
+    include: lecturerAssignmentInclude(academicYearId),
+    orderBy: { user: { fullName: "asc" } },
+  });
+
+  return mapLecturersWithQuota(lecturers, academicYearId);
+};
+
 
 /**
  * Find the currently active academic year.
@@ -750,11 +825,51 @@ export const findActiveAcademicYear = async () => {
  * Find a thesis topic by ID.
  */
 export const findTopicById = async (id) => {
-  return prisma.thesisTopic.findUnique({ where: { id } });
+  return prisma.thesisTopic.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+  });
 };
 
 export const findTopicByIdWithClient = async (client, id) => {
-  return client.thesisTopic.findUnique({ where: { id } });
+  return client.thesisTopic.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+  });
+};
+
+export const findAllTopicsWithScienceGroup = async () => {
+  return prisma.thesisTopic.findMany({
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+};
+
+export const findAllTopicsWithScienceGroupWithClient = async (client) => {
+  return client.thesisTopic.findMany({
+    select: {
+      id: true,
+      name: true,
+      scienceGroupId: true,
+      scienceGroup: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
 };
 
 /**
@@ -842,7 +957,11 @@ export const findThesisByStudent = async (studentId) => {
 export const findLecturerForAssignment = async (lecturerId) => {
   return prisma.lecturer.findUnique({
     where: { id: lecturerId },
-    select: { id: true, user: { select: { fullName: true } } },
+    select: {
+      id: true,
+      acceptingRequests: true,
+      user: { select: { fullName: true } },
+    },
   });
 };
 
@@ -856,7 +975,7 @@ export const hasAnyActiveRole = async (userId, roleNames) => {
       status: "active",
       role: { name: { in: roleNames } },
     },
-    select: { id: true },
+    select: { userId: true, roleId: true },
   });
 };
 
@@ -911,11 +1030,11 @@ export const findByIdWithClient = async (client, id) => {
         include: {
           user: { select: { id: true, fullName: true, identityNumber: true, avatarUrl: true } },
           scienceGroup: { select: { id: true, name: true } },
-          supervisionQuotas: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
-            select: { quotaMax: true, quotaSoftLimit: true, currentCount: true },
-          },
+          // No `supervisionQuotas` here on purpose: the row is period-agnostic
+          // and carries a cached `currentCount`, so it used to ship a second,
+          // often stale set of load numbers next to the recomputed
+          // `quotaSnapshot` in the same payload (SIMPTA-FUN-009). Callers that
+          // need quota must use `getLecturerQuotaSnapshot`.
         },
       },
       topic: true,
@@ -1043,7 +1162,7 @@ export const findSupervisorAssignmentByLecturerAndThesis = async (
   thesisId,
   lecturerId,
 ) => {
-  return client.thesisParticipant.findFirst({
+  return client.thesisSupervisors.findFirst({
     where: {
       thesisId,
       lecturerId,
@@ -1069,13 +1188,13 @@ export const terminateSupervisorAssignmentByLecturerAndThesis = async (
   thesisId,
   lecturerId,
 ) => {
-  return client.thesisParticipant.updateMany({
+  return client.thesisSupervisors.updateMany({
     where: {
       thesisId,
       lecturerId,
       status: "active",
     },
-    data: { status: "terminated" },
+    data: { status: "terminated", activeRoleKey: null },
   });
 };
 
@@ -1086,6 +1205,7 @@ export const findThesisProcessLockState = async (client, thesisId) => {
       id: true,
       proposalStatus: true,
       finalProposalVersionId: true,
+      ta04AssignmentIssuedAt: true,
       _count: {
         select: {
           thesisGuidances: {
@@ -1125,6 +1245,14 @@ export const updateStatusWithClient = async (client, id, data) => {
       },
     },
   });
+};
+
+export const updateStatusIfCurrent = async (client, id, expectedStatus, data) => {
+  const result = await client.thesisAdvisorRequest.updateMany({
+    where: { id, status: expectedStatus },
+    data,
+  });
+  return result.count;
 };
 
 export const createAuditLogWithClient = async (client, data) => {
@@ -1208,7 +1336,7 @@ export const findAcademicYearById = async (id) => {
  * Find all assigned supervisors for an academic year (batch TA-04).
  */
 export const findSupervisorsByAcademicYear = async (academicYearId) => {
-  return prisma.thesisParticipant.findMany({
+  return prisma.thesisSupervisors.findMany({
     where: {
       thesis: { academicYearId },
     },
@@ -1248,27 +1376,26 @@ export const findActiveKaDep = async () => {
   const assignment = await prisma.userHasRole.findFirst({
     where: { roleId: kadepRole.id, status: "active" },
     include: {
-      user: { select: { fullName: true, identityNumber: true } },
+      user: { select: { id: true, fullName: true, identityNumber: true } },
     },
   });
   return assignment?.user ?? null;
 };
 
 /**
- * Find theses eligible for official TA-04 batch (Panduan Langkah 6): TA-03A/TA-03B
- * complete, enrolled in TA course, final proposal selected, and Pembimbing 1 active.
+ * Find theses eligible for early TA-04 assignment batch: TA-01/TA-02 booking
+ * already approved in the Metopen academic year and Pembimbing 1 exists.
+ * TA-03/KRS gates are intentionally excluded; they are handled by automatic
+ * promotion/release after the next SIA snapshot.
  */
 export const findThesesWithSupervisors = async (academicYearId) => {
   return prisma.thesis.findMany({
     where: {
       academicYearId,
-      proposalStatus: "accepted",
-      finalProposalVersionId: { not: null },
-      student: { takingThesisCourse: true },
-      researchMethodScores: {
+      advisorRequests: {
         some: {
-          supervisorScore: { not: null },
-          lecturerScore: { not: null },
+          academicYearId,
+          status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
         },
       },
       thesisSupervisors: {
@@ -1282,13 +1409,45 @@ export const findThesesWithSupervisors = async (academicYearId) => {
       id: true,
       title: true,
       titleApprovalDocumentId: true,
-      student: {
+      ta04AssignmentIssuedAt: true,
+      ta04AssignmentTitle: true,
+      ta04AssignmentSupervisorNames: true,
+      ta04AssignmentAcademicYearId: true,
+      thesisTopicId: true,
+      thesisTopic: {
         select: {
-          user: { select: { fullName: true, identityNumber: true } },
+          id: true,
+          name: true,
+          scienceGroup: { select: { id: true, name: true } },
         },
       },
-      thesisSupervisors: {
+      student: {
         select: {
+          user: { select: { id: true, fullName: true, identityNumber: true } },
+        },
+      },
+      advisorRequests: {
+        where: {
+          academicYearId,
+          status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
+        },
+        select: {
+          id: true,
+          status: true,
+          academicYearId: true,
+          lecturerId: true,
+          proposedTitle: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      thesisSupervisors: {
+        where: {
+          status: "active",
+          role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
+        },
+        select: {
+          status: true,
           lecturer: {
             select: {
               user: { select: { fullName: true } },
@@ -1304,13 +1463,17 @@ export const findThesesWithSupervisors = async (academicYearId) => {
 };
 
 /**
- * Find rejected requests by a specific dosen (for KaDep monitoring)
+ * Find rejected-by-dosen requests untuk monitoring KaDep.
+ *
+ * Canon v2.2 + handoff P0-03: pasca Migration B status legacy "rejected"
+ * sudah dimigrasi ke "rejected_by_dosen". Query tetap include legacy untuk
+ * backward compat read pada rows historis yang belum tersentuh backfill.
  */
 export const findRejectedByLecturer = async (lecturerId) => {
   return prisma.thesisAdvisorRequest.findMany({
     where: {
       lecturerId,
-      status: "rejected",
+      status: { in: [ADVISOR_REQUEST_STATUS.REJECTED_BY_DOSEN, ADVISOR_REQUEST_STATUS.REJECTED] },
     },
     include: {
       student: {

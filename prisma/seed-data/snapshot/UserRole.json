@@ -1,0 +1,46 @@
+[
+  {
+    "id": "3a1ebec1-be17-45e4-903b-bcf21c7b37c1",
+    "name": "Admin"
+  },
+  {
+    "id": "6d89fae2-7a4c-4a2c-880c-f0ba5e82af31",
+    "name": "GKM"
+  },
+  {
+    "id": "71b5722f-41be-4063-ab9d-187437e2fb9b",
+    "name": "Ketua Departemen"
+  },
+  {
+    "id": "k00rd000-0000-0000-0000-000000000001",
+    "name": "Koordinator Matkul Metopen"
+  },
+  {
+    "id": "k00rd000-0000-0000-0000-000000000002",
+    "name": "Koordinator Yudisium"
+  },
+  {
+    "id": "31017520-673c-45fd-a52e-8b4a89a06c62",
+    "name": "Mahasiswa"
+  },
+  {
+    "id": "b46a4535-2323-4ca9-885a-8d8c948711b3",
+    "name": "Pembimbing 1"
+  },
+  {
+    "id": "cdfc4fca-f3d1-4e1d-bb04-5961c15d1c13",
+    "name": "Pembimbing 2"
+  },
+  {
+    "id": "bd09b50a-c2e9-4248-8a31-f296c0ef1233",
+    "name": "Penguji"
+  },
+  {
+    "id": "09094723-ddfb-47f4-88e0-2ee8baf5311d",
+    "name": "Sekretaris Departemen"
+  },
+  {
+    "id": "k00rd000-0000-0000-0000-000000000003",
+    "name": "Tim Pengelola CPL"
+  }
+]

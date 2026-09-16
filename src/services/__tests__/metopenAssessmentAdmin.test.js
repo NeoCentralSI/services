@@ -6,12 +6,12 @@ vi.mock("../../repositories/metopenAssessmentAdmin.repository.js", () => ({
   findCriteria: vi.fn(),
   createCriteria: vi.fn(),
   updateCriteria: vi.fn(),
-  softDeleteCriteria: vi.fn(),
+  deleteCriteria: vi.fn(),
   findRubricById: vi.fn(),
   findRubricsByCriteria: vi.fn(),
   createRubric: vi.fn(),
   updateRubric: vi.fn(),
-  softDeleteRubric: vi.fn(),
+  deleteRubric: vi.fn(),
   getNextCriteriaDisplayOrder: vi.fn(),
   getNextRubricDisplayOrder: vi.fn(),
   getActiveCriteriaTotalScore: vi.fn(),
@@ -23,25 +23,49 @@ vi.mock("../../repositories/metopenAssessmentAdmin.repository.js", () => ({
   removeMetopenConfigByCpmk: vi.fn(),
   reorderCriteria: vi.fn(),
   reorderRubrics: vi.fn(),
+  findMetopenCpmkByCode: vi.fn(),
+  createMetopenCpmk: vi.fn(),
+  updateMetopenCpmk: vi.fn(),
+  deleteMetopenCpmk: vi.fn(),
+  cpmkHasAssessmentData: vi.fn(),
+}));
+
+vi.mock("../metopenScoreComposition.service.js", () => ({
+  getCapForRole: vi.fn(async (role) => ({
+    cap: role === "supervisor" ? 75 : 25,
+    composition: { ta03aCap: 75, ta03bCap: 25 },
+  })),
+  getCompositionForAcademicYear: vi.fn(async () => ({
+    academicYearId: "ay-1",
+    ta03aCap: 75,
+    ta03bCap: 25,
+    isLocked: false,
+    finalizedScoreCount: 0,
+  })),
+  resolveAcademicYearIdForCpmk: vi.fn(async () => "ay-1"),
+  assertCompositionEditable: vi.fn(async () => undefined),
+}));
+
+vi.mock("../../repositories/advisorQuota.repository.js", () => ({
+  findActiveAcademicYear: vi.fn(async () => ({ id: "ay-1", year: "2025/2026", semester: "ganjil" })),
 }));
 
 const repo = await import("../../repositories/metopenAssessmentAdmin.repository.js");
 const service = await import("../metopenAssessmentAdmin.service.js");
 
-function makeCpmk(type = "research_method") {
-  return { id: "cpmk-1", type, code: "CPMK-01", isActive: true };
+function makeCpmk() {
+  return { id: "cpmk-1", code: "CPMK-01", academicYearId: "ay-1" };
 }
 
 function makeCriteria(overrides = {}) {
   return {
     id: "crit-1",
-    cpmkId: "cpmk-1",
-    appliesTo: "metopen",
+    metopenCpmkId: "cpmk-1",
     role: "supervisor",
     name: "Presentasi Lisan",
     maxScore: 20,
-    isDeleted: false,
-    assessmentRubrics: [],
+    metopenAssessmentRubrics: [],
+    metopenCpmk: { id: "cpmk-1", code: "CPMK-01", academicYearId: "ay-1" },
     ...overrides,
   };
 }
@@ -62,7 +86,7 @@ describe("metopenAssessmentAdmin.service", () => {
       repo.createCriteria.mockResolvedValue(makeCriteria());
 
       const result = await service.createCriteria({
-        cpmkId: "cpmk-1",
+        metopenCpmkId: "cpmk-1",
         name: "Presentasi Lisan",
         role: "supervisor",
         maxScore: 20,
@@ -70,7 +94,7 @@ describe("metopenAssessmentAdmin.service", () => {
 
       expect(repo.createCriteria).toHaveBeenCalledWith(
         expect.objectContaining({
-          appliesTo: "proposal",
+          metopenCpmkId: "cpmk-1",
           role: "supervisor",
           maxScore: 20,
         }),
@@ -84,7 +108,7 @@ describe("metopenAssessmentAdmin.service", () => {
 
       await expect(
         service.createCriteria({
-          cpmkId: "cpmk-1",
+          metopenCpmkId: "cpmk-1",
           name: "Over",
           role: "supervisor",
           maxScore: 10,
@@ -98,7 +122,7 @@ describe("metopenAssessmentAdmin.service", () => {
 
       await expect(
         service.createCriteria({
-          cpmkId: "cpmk-1",
+          metopenCpmkId: "cpmk-1",
           name: "Over",
           role: "default",
           maxScore: 10,
@@ -106,25 +130,12 @@ describe("metopenAssessmentAdmin.service", () => {
       ).rejects.toThrow("Skor melebihi batas TA-03B (25)");
     });
 
-    it("rejects non-research_method CPMK", async () => {
-      repo.findCpmkById.mockResolvedValue(makeCpmk("thesis"));
-
-      await expect(
-        service.createCriteria({
-          cpmkId: "cpmk-1",
-          name: "X",
-          role: "supervisor",
-          maxScore: 10,
-        }),
-      ).rejects.toThrow("bukan CPMK Metode Penelitian");
-    });
-
     it("rejects when CPMK not found", async () => {
       repo.findCpmkById.mockResolvedValue(null);
 
       await expect(
         service.createCriteria({
-          cpmkId: "missing",
+          metopenCpmkId: "missing",
           name: "X",
           role: "supervisor",
           maxScore: 10,
@@ -173,15 +184,15 @@ describe("metopenAssessmentAdmin.service", () => {
     });
 
     it("allows operational updates when criteria already has assessment data", async () => {
-      repo.findCriteriaById.mockResolvedValue(makeCriteria({ isActive: true }));
+      repo.findCriteriaById.mockResolvedValue(makeCriteria({ displayOrder: 1 }));
       repo.criteriaHasAssessmentData.mockResolvedValue(true);
-      repo.updateCriteria.mockResolvedValue(makeCriteria({ isActive: false }));
+      repo.updateCriteria.mockResolvedValue(makeCriteria({ displayOrder: 2 }));
 
-      const result = await service.updateCriteria("crit-1", { isActive: false });
-      expect(result.isActive).toBe(false);
+      const result = await service.updateCriteria("crit-1", { displayOrder: 2 });
+      expect(result.displayOrder).toBe(2);
       expect(repo.updateCriteria).toHaveBeenCalledWith(
         "crit-1",
-        expect.objectContaining({ isActive: false }),
+        expect.objectContaining({ displayOrder: 2 }),
       );
     });
   });
@@ -191,7 +202,7 @@ describe("metopenAssessmentAdmin.service", () => {
       repo.findCriteriaById.mockResolvedValue(makeCriteria({ maxScore: 20 }));
       repo.findRubricsByCriteria.mockResolvedValue([]);
       repo.getNextRubricDisplayOrder.mockResolvedValue(1);
-      repo.createRubric.mockResolvedValue({ id: "rubric-1", assessmentCriteriaId: "crit-1" });
+      repo.createRubric.mockResolvedValue({ id: "rubric-1", metopenAssessmentCriteriaId: "crit-1" });
 
       const result = await service.createRubric("crit-1", {
         minScore: 0,
@@ -201,7 +212,7 @@ describe("metopenAssessmentAdmin.service", () => {
 
       expect(repo.createRubric).toHaveBeenCalledWith(
         expect.objectContaining({
-          assessmentCriteriaId: "crit-1",
+          metopenAssessmentCriteriaId: "crit-1",
           minScore: 0,
           maxScore: 10,
           description: "Cukup",
@@ -254,29 +265,12 @@ describe("metopenAssessmentAdmin.service", () => {
   });
 
   describe("updateRubric", () => {
-    it("rejects update when rubric has assessment data", async () => {
-      repo.findRubricById.mockResolvedValue({
-        id: "rubric-1",
-        assessmentCriteriaId: "crit-1",
-        minScore: 0,
-        maxScore: 10,
-        isDeleted: false,
-      });
-      repo.rubricHasAssessmentData.mockResolvedValue(true);
-
-      await expect(
-        service.updateRubric("rubric-1", { description: "Baru" }),
-      ).rejects.toThrow("sudah digunakan pada data penilaian");
-      expect(repo.updateRubric).not.toHaveBeenCalled();
-    });
-
     it("rejects updated rubric overlap with another active rubric", async () => {
       repo.findRubricById.mockResolvedValue({
         id: "rubric-1",
-        assessmentCriteriaId: "crit-1",
+        metopenAssessmentCriteriaId: "crit-1",
         minScore: 0,
         maxScore: 5,
-        isDeleted: false,
       });
       repo.findCriteriaById.mockResolvedValue(makeCriteria({ maxScore: 20 }));
       repo.findRubricsByCriteria.mockResolvedValue([
@@ -304,20 +298,20 @@ describe("metopenAssessmentAdmin.service", () => {
     it("allows deletion when criteria has no assessment data", async () => {
       repo.findCriteriaById.mockResolvedValue(makeCriteria());
       repo.criteriaHasAssessmentData.mockResolvedValue(false);
-      repo.softDeleteCriteria.mockResolvedValue({ id: "crit-1" });
+      repo.deleteCriteria.mockResolvedValue({ id: "crit-1" });
 
       await expect(service.deleteCriteria("crit-1")).resolves.toBeDefined();
-      expect(repo.softDeleteCriteria).toHaveBeenCalledWith("crit-1");
+      expect(repo.deleteCriteria).toHaveBeenCalledWith("crit-1");
     });
   });
 
   describe("getCpmksWithRubrics", () => {
     it("delegates to repository with role", async () => {
-      const mockData = [{ id: "cpmk-1", code: "CPMK-01", assessmentCriterias: [] }];
+      const mockData = [{ id: "cpmk-1", code: "CPMK-01", metopenAssessmentCriterias: [] }];
       repo.findConfiguredMetopenCpmks.mockResolvedValue(mockData);
 
-      const result = await service.getCpmksWithRubrics("supervisor");
-      expect(repo.findConfiguredMetopenCpmks).toHaveBeenCalledWith("supervisor");
+      const result = await service.getCpmksWithRubrics("supervisor", "ay-1");
+      expect(repo.findConfiguredMetopenCpmks).toHaveBeenCalledWith("supervisor", "ay-1");
       expect(result).toEqual(mockData);
     });
   });
@@ -333,9 +327,11 @@ describe("metopenAssessmentAdmin.service", () => {
       };
       repo.getMetopenWeightSummary.mockResolvedValue(mockSummary);
 
-      const result = await service.getWeightSummary("supervisor");
+      const result = await service.getWeightSummary("supervisor", "ay-1");
       expect(result.totalScore).toBe(75);
       expect(result.details).toHaveLength(1);
+      expect(result.ta03aCap).toBe(75);
+      expect(result.ta03bCap).toBe(25);
     });
   });
 
@@ -358,6 +354,45 @@ describe("metopenAssessmentAdmin.service", () => {
 
       const result = await service.removeCpmkConfig("cpmk-1", "supervisor");
       expect(result.deletedCriteria).toBe(1);
+    });
+  });
+
+  describe("MetopenCpmk master catalog", () => {
+    it("normalizes code on create", async () => {
+      repo.findMetopenCpmkByCode.mockResolvedValue(null);
+      repo.createMetopenCpmk.mockResolvedValue({ id: "c1", code: "CPMK-01" });
+
+      await service.createMetopenCpmk({
+        code: "cpmk 01",
+        description: "Presentasi proposal tugas akhir",
+        academicYearId: "ay-1",
+      });
+
+      expect(repo.createMetopenCpmk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "CPMK-01",
+          description: "Presentasi proposal tugas akhir",
+        }),
+      );
+    });
+
+    it("rejects delete when CPMK already has score details", async () => {
+      repo.findCpmkById.mockResolvedValue(makeCpmk());
+      repo.cpmkHasAssessmentData.mockResolvedValue(true);
+
+      await expect(service.deleteMetopenCpmk("cpmk-1")).rejects.toThrow(
+        "sudah dipakai pada data penilaian",
+      );
+      expect(repo.deleteMetopenCpmk).not.toHaveBeenCalled();
+    });
+
+    it("deletes master CPMK when unused by scores", async () => {
+      repo.findCpmkById.mockResolvedValue(makeCpmk());
+      repo.cpmkHasAssessmentData.mockResolvedValue(false);
+      repo.deleteMetopenCpmk.mockResolvedValue({ id: "cpmk-1" });
+
+      await service.deleteMetopenCpmk("cpmk-1");
+      expect(repo.deleteMetopenCpmk).toHaveBeenCalledWith("cpmk-1");
     });
   });
 });

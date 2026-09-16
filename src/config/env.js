@@ -55,6 +55,12 @@ export const ENV = {
   SIA_FETCH_TIMEOUT: toNum(process.env.SIA_FETCH_TIMEOUT, 10000), // ms
   SIA_CHUNK_SIZE: toNum(process.env.SIA_CHUNK_SIZE, 200),
   ENABLE_SIA_CRON: toBool(process.env.ENABLE_SIA_CRON),
+  // UAT/local: mock payload when real SIA (:4000) is unavailable.
+  // Production must set SIA_MOCK=false and point SIA_BASE_URL to the real service.
+  SIA_MOCK:
+    process.env.SIA_MOCK !== undefined
+      ? toBool(process.env.SIA_MOCK)
+      : String(process.env.NODE_ENV || "development").toLowerCase() !== "production",
 
   // ===============================
   // 🕒 CRON JOBS
@@ -64,20 +70,39 @@ export const ENV = {
   // Thesis status cron controls
   THESIS_STATUS_CRON: process.env.THESIS_STATUS_CRON || "30 2 * * *", // 02:30 every day
   THESIS_STATUS_TZ: process.env.THESIS_STATUS_TZ || "Asia/Jakarta", // WIB (UTC+7)
+  ACADEMIC_YEAR_SYNC_CRON: process.env.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *",
+  ACADEMIC_YEAR_SYNC_TZ: process.env.ACADEMIC_YEAR_SYNC_TZ || "Asia/Jakarta",
+  // Absolute currentCount overwrite (not increment). After academic-year sync.
+  QUOTA_SYNC_CRON: process.env.QUOTA_SYNC_CRON || "15 1 * * *",
+  QUOTA_SYNC_TZ: process.env.QUOTA_SYNC_TZ || "Asia/Jakarta",
   // Guidance reminder cron controls
   GUIDANCE_REMINDER_CRON: process.env.GUIDANCE_REMINDER_CRON || "0 7 * * *", // 07:00 every day
   GUIDANCE_REMINDER_TZ: process.env.GUIDANCE_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
   // Daily thesis reminder cron controls (for active thesis students)
   DAILY_THESIS_REMINDER_CRON: process.env.DAILY_THESIS_REMINDER_CRON || "0 9 * * *", // 09:00 every day
   DAILY_THESIS_REMINDER_TZ: process.env.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
-  // Advisor request withdraw reminder cron controls
-  ADVISOR_WITHDRAW_REMINDER_CRON: process.env.ADVISOR_WITHDRAW_REMINDER_CRON || "0 * * * *", // hourly
-  ADVISOR_WITHDRAW_REMINDER_TZ: process.env.ADVISOR_WITHDRAW_REMINDER_TZ || "Asia/Jakarta", // WIB (UTC+7)
+  // Academic event and yudisium lifecycle reminders
+  ACADEMIC_EVENT_H_MINUS_ONE_CRON: process.env.ACADEMIC_EVENT_H_MINUS_ONE_CRON || "0 18 * * *", // H-1 18:00 WIB
+  ACADEMIC_EVENT_DAY_CRON: process.env.ACADEMIC_EVENT_DAY_CRON || "0 7 * * *", // Hari H 07:00 WIB
+  ACADEMIC_EVENT_REMINDER_TZ: process.env.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta",
+  YUDISIUM_REGISTRATION_CLOSING_REMINDER_CRON:
+    process.env.YUDISIUM_REGISTRATION_CLOSING_REMINDER_CRON || "0 12 * * *", // H-1 close 12:00 WIB
+  YUDISIUM_REGISTRATION_OPEN_REMINDER_CRON:
+    process.env.YUDISIUM_REGISTRATION_OPEN_REMINDER_CRON || "0 6 * * *", // Open date 06:00 WIB
+  YUDISIUM_REGISTRATION_CLOSED_REMINDER_CRON:
+    process.env.YUDISIUM_REGISTRATION_CLOSED_REMINDER_CRON || "0 6 * * *", // Close date 06:00 WIB
+  YUDISIUM_REGISTRATION_REMINDER_TZ: process.env.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta",
+  EXAMINER_NO_RESPONSE_REMINDER_CRON:
+    process.env.EXAMINER_NO_RESPONSE_REMINDER_CRON || "0 8 * * *", // H+3 assignment 08:00 WIB
+  EXAMINER_NO_RESPONSE_REMINDER_TZ: process.env.EXAMINER_NO_RESPONSE_REMINDER_TZ || "Asia/Jakarta",
 
   // ===============================
-  // 🎓 Academic thresholds
+  // 🎓 ACADEMIC THRESHOLDS
   // ===============================
+  SEMINAR_MIN_BIMBINGAN: toNum(process.env.SEMINAR_MIN_BIMBINGAN, 8),
+  SEMINAR_MIN_KEHADIRAN: toNum(process.env.SEMINAR_MIN_KEHADIRAN, 8),
   METOPEL_PASSING_SCORE: toNum(process.env.METOPEL_PASSING_SCORE, 60),
+  REQUIREMENT_DOCUMENT_MAX_SIZE_MB: toNum(process.env.REQUIREMENT_DOCUMENT_MAX_SIZE_MB, 10),
 
   // ===============================
   // 🧰 LOGGING

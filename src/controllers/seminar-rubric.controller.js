@@ -1,6 +1,25 @@
 import * as service from "../services/seminar-rubric.service.js";
 
 // ────────────────────────────────────────────
+// Academic Year Minimum Score
+// ────────────────────────────────────────────
+
+export const updateSeminarMinimumScore = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { minimumScore } = req.validated;
+        const data = await service.updateSeminarMinimumScore(id, minimumScore);
+        res.status(200).json({
+            success: true,
+            message: "Berhasil mengubah skor minimum kelulusan seminar",
+            data,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ────────────────────────────────────────────
 // CPMK Listing
 // ────────────────────────────────────────────
 
@@ -24,7 +43,8 @@ export const getCpmksWithRubrics = async (req, res, next) => {
 
 export const createCriteria = async (req, res, next) => {
     try {
-        const data = await service.createCriteria(req.validated);
+        const { cpmkId, ...rest } = req.validated;
+        const data = await service.createCriteria({ thesisCpmkId: cpmkId, ...rest });
         res.status(201).json({
             success: true,
             message: "Berhasil menambah kriteria seminar",
@@ -131,7 +151,8 @@ export const deleteRubric = async (req, res, next) => {
 
 export const reorderCriteria = async (req, res, next) => {
     try {
-        await service.reorderCriteria(req.validated);
+        const { cpmkId, ...rest } = req.validated;
+        await service.reorderCriteria({ thesisCpmkId: cpmkId, ...rest });
         res.status(200).json({
             success: true,
             message: "Berhasil mengubah urutan kriteria",

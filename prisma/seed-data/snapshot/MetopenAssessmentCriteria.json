@@ -1,0 +1,82 @@
+[
+  {
+    "id": "044ec5a5-307a-4fe9-9d29-71bb0c50aa59",
+    "metopenCpmkId": "39c4a678-85d6-4cf9-b760-778ec5a5182b",
+    "name": "Kualitas Rumusan Masalah & Tinjauan Pustaka",
+    "role": "supervisor",
+    "maxScore": 40,
+    "displayOrder": 1,
+    "createdAt": "2026-08-20T12:59:37.687Z",
+    "updatedAt": "2026-08-20T12:59:37.687Z"
+  },
+  {
+    "id": "1e5ddd1c-47e8-4da9-9611-17b16b8437cf",
+    "metopenCpmkId": "301f9abe-47a5-4aab-9652-89dabf827cc7",
+    "name": "Penyampaian Presentasi & Kedisiplinan Format",
+    "role": "default",
+    "maxScore": 25,
+    "displayOrder": 3,
+    "createdAt": "2026-08-20T12:59:37.707Z",
+    "updatedAt": "2026-08-20T12:59:37.707Z"
+  },
+  {
+    "id": "29dd00a5-5ef4-484d-9831-3c8abd646fe4",
+    "metopenCpmkId": "92d37bd8-789d-4564-864c-e5369d5dca5a",
+    "name": "Kualitas Rumusan Masalah & Tinjauan Pustaka",
+    "role": "supervisor",
+    "maxScore": 40,
+    "displayOrder": 1,
+    "createdAt": "2026-08-20T12:59:37.737Z",
+    "updatedAt": "2026-08-20T12:59:37.737Z"
+  },
+  {
+    "id": "5c4a0aa0-c2d3-4623-9ec5-bc5bc1106add",
+    "metopenCpmkId": "8d1ef832-c4e9-401e-9525-ed78544b1a27",
+    "name": "Kualitas Rumusan Masalah",
+    "role": "default",
+    "maxScore": 100,
+    "displayOrder": 1,
+    "createdAt": "2026-08-20T12:54:03.838Z",
+    "updatedAt": "2026-08-20T12:54:03.838Z"
+  },
+  {
+    "id": "6019191a-624c-488b-8431-3796d3a566dc",
+    "metopenCpmkId": "5a2b13b2-b6ac-4a88-bd5b-ee077a8a4d5a",
+    "name": "Kesesuaian & Kedalaman Metodologi Penelitian",
+    "role": "supervisor",
+    "maxScore": 35,
+    "displayOrder": 2,
+    "createdAt": "2026-08-20T12:59:37.745Z",
+    "updatedAt": "2026-08-20T12:59:37.745Z"
+  },
+  {
+    "id": "64bd6834-2cc2-41e4-8fec-872f1a9e384d",
+    "metopenCpmkId": "7b57f94c-5025-4a5f-868e-9bc076fefe16",
+    "name": "Penyampaian Presentasi Proposal",
+    "role": "default",
+    "maxScore": 100,
+    "displayOrder": 2,
+    "createdAt": "2026-08-20T12:54:03.880Z",
+    "updatedAt": "2026-08-20T12:54:03.880Z"
+  },
+  {
+    "id": "874dc639-647c-4c76-a1b6-6e3f312b6cb8",
+    "metopenCpmkId": "0a6cd5a7-e448-495c-a896-0fff23dcfa94",
+    "name": "Kesesuaian & Kedalaman Metodologi Penelitian",
+    "role": "supervisor",
+    "maxScore": 35,
+    "displayOrder": 2,
+    "createdAt": "2026-08-20T12:59:37.698Z",
+    "updatedAt": "2026-08-20T12:59:37.698Z"
+  },
+  {
+    "id": "c93ca4b6-1f01-47f2-9d85-199b59678081",
+    "metopenCpmkId": "435c2806-14e3-423a-a5f7-177c045e5330",
+    "name": "Penyampaian Presentasi & Kedisiplinan Format",
+    "role": "default",
+    "maxScore": 25,
+    "displayOrder": 3,
+    "createdAt": "2026-08-20T12:59:37.752Z",
+    "updatedAt": "2026-08-20T12:59:37.752Z"
+  }
+]

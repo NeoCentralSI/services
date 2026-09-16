@@ -1,0 +1,80 @@
+# CI/CD - Backend (services)
+# Triggers on push to staging branch
+# Self-hosted runner on VM -> build Docker image locally -> deploy
+name: Deploy Backend
+
+# Deployment disabled because server is offline. Use workflow_dispatch if manually needed.
+on:
+  workflow_dispatch:
+
+env:
+  DEPLOY_DIR: /www/wwwroot/neocentral
+  IMAGE_TAG: neocentral/services:latest
+  MIGRATE_IMAGE_TAG: neocentral/services-migrate:latest
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: self-hosted
+    timeout-minutes: 30
+    env:
+      # Dummy values only for pre-deploy verify (prisma generate/validate + unit tests).
+      # Runtime container uses compose/.env on the VM, not these values.
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
+      JWT_SECRET: ci-jwt-secret-for-tests-only
+      REFRESH_TOKEN_SECRET: ci-refresh-secret-for-tests-only
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Verify backend before deployment
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec prisma generate
+          pnpm exec prisma validate
+          pnpm test
+
+      - name: Build Docker images locally
+        run: |
+          docker build -t ${{ env.IMAGE_TAG }} .
+          # deps/migrator stage keeps prisma CLI (not pruned) for schema sync
+          docker build --target migrator -t ${{ env.MIGRATE_IMAGE_TAG }} .
+
+      - name: Update docker-compose on VM
+        run: |
+          cp -f docker-compose.prod.yml ${{ env.DEPLOY_DIR }}/docker-compose.yml
+
+      - name: Deploy backend
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose up -d backend --force-recreate
+          echo "Waiting for backend to be healthy..."
+          sleep 10
+
+      - name: Run Prisma migrations
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          # Use migrator image (has prisma CLI). Backend runtime image is prod-pruned.
+          # Staging historically used db push and may lack `_prisma_migrations`.
+          docker compose --profile tools run --rm --entrypoint ./node_modules/.bin/prisma backend-migrator migrate deploy \
+            || docker compose --profile tools run --rm --entrypoint ./node_modules/.bin/prisma backend-migrator db push
+
+      - name: Cleanup old images
+        run: docker image prune -f
+
+      - name: Verify deployment
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose ps backend
+          echo "Backend deployed successfully"

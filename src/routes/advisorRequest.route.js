@@ -46,19 +46,25 @@ router.get(
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
   controller.getRecommendations,
 );
+router.get(
+  "/:id/assignable-lecturers",
+  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
+  controller.getAssignableLecturers,
+);
 router.post(
   "/:id/decide",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
   validate(kadepDecideSchema),
   controller.decideByKadep,
 );
+// Deprecated: selalu 400 — lihat assignAdvisor() di service (canon §5.8/§5.10).
 router.post(
   "/:id/assign",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
   controller.assignAdvisor,
 );
 
-// ── Batch TA-04 export ─────────────────────────────────
+// ── Formulir TA-04 batch per periode ───────────────────
 router.get(
   "/batch-ta04/:academicYearId",
   requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]),

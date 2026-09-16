@@ -49,12 +49,19 @@ import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
 import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
+import { assertTa04GuidanceAuthorized } from "../ta04Authorization.service.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
 		const err = new Error("Lecturer profile not found for this user");
 		err.statusCode = 404;
 		throw err;
+	}
+}
+
+async function assertProposalGuidanceMutationAuthorized(guidance) {
+	if ((guidance?.phase ?? "proposal") === "proposal") {
+		await assertTa04GuidanceAuthorized(guidance.thesisId ?? guidance.thesis?.id);
 	}
 }
 
@@ -113,14 +120,15 @@ async function resolveMilestoneTitles(guidance) {
 	return (guidance.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
 }
 
-export async function getMyStudentsService(userId, roles) {
+export async function getMyStudentsService(userId, roles, { scope = "active" } = {}) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	// Default to supervisor roles only
 	const defaultRoles = SUPERVISOR_ROLES;
 	const rawStudents = await findMyStudents(
 		lecturer.id,
-		Array.isArray(roles) && roles.length ? roles : defaultRoles
+		Array.isArray(roles) && roles.length ? roles : defaultRoles,
+		{ scope }
 	);
 
 	// Transform data to flat structure for frontend
@@ -303,6 +311,7 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 		err.statusCode = 400;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	const updated = await rejectGuidanceById(guidanceId, { feedback });
 
@@ -358,6 +367,7 @@ export async function cancelGuidanceByLecturerService(userId, guidanceId, { reas
 		err.statusCode = 400;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	if (!reason || !reason.trim()) {
 		const err = new Error("Alasan pembatalan wajib diisi");
@@ -440,6 +450,7 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, app
 		err.statusCode = 400;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	const updated = await approveGuidanceById(guidanceId, { feedback, approvedDate, duration });
 
@@ -578,6 +589,7 @@ export async function postGuidanceFeedbackService(userId, guidanceId, { feedback
 		err.statusCode = 404;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 	await approveGuidanceById(guidanceId, { feedback });
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
 	return { guidance: toFlatGuidance(fresh) };
@@ -696,6 +708,7 @@ export async function approveSessionSummaryService(userId, guidanceId) {
 		err.statusCode = 404;
 		throw err;
 	}
+	await assertProposalGuidanceMutationAuthorized(guidance);
 
 	const updated = await approveSessionSummary(guidanceId);
 
@@ -951,7 +964,7 @@ export async function approveThesisProposalService(userId, thesisId) {
 	void userId;
 	void thesisId;
 	throw new ForbiddenError(
-		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan proses melalui penilaian TA-03; keputusan TA-04 diputuskan oleh KaDep.",
+		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan proses melalui penilaian TA-03; promosi aktif berjalan otomatis setelah TA-03 final dan KRS Tugas Akhir terkonfirmasi.",
 	);
 }
 
@@ -961,7 +974,7 @@ export async function approveThesisProposalService(userId, thesisId) {
  * Get eligible lecturers for student transfer (have active "Pembimbing 1" role)
  */
 export async function getEligibleTransferLecturersService(userId) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const lecturers = await findEligibleTransferLecturers(lecturer.id);
@@ -972,7 +985,7 @@ export async function getEligibleTransferLecturersService(userId) {
  * Request student transfer to another lecturer
  */
 export async function requestStudentTransferService(userId, { thesisIds, targetLecturerId, reason }) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1093,7 +1106,7 @@ export async function requestStudentTransferService(userId, { thesisIds, targetL
  * Reads compact payload from notification and enriches with student details from DB
  */
 export async function getIncomingTransferRequestsService(userId) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1114,7 +1127,7 @@ export async function getIncomingTransferRequestsService(userId) {
 			// Enrich student details from thesis supervisor records
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.thesisParticipant.findMany({
+				? await prisma.thesisSupervisors.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1169,7 +1182,7 @@ export async function getIncomingTransferRequestsService(userId) {
  * and notifies kadep + source that target has approved.
  */
 export async function approveTransferRequestService(userId, notificationId) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1256,7 +1269,7 @@ export async function approveTransferRequestService(userId, notificationId) {
  * Marks target notification read, updates kadep notifications to st=target_rejected, notifies source.
  */
 export async function rejectTransferRequestService(userId, notificationId, { reason } = {}) {
-	throwSupervisorTransferRemoved();
+
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1329,7 +1342,7 @@ export async function rejectTransferRequestService(userId, notificationId, { rea
  * Get pending transfer requests for Kadep review
  */
 export async function getKadepPendingTransfersService(userId) {
-	throwSupervisorTransferRemoved();
+
 	const notifications = await findPendingKadepTransferNotifications(userId);
 	const transfers = [];
 
@@ -1353,7 +1366,7 @@ export async function getKadepPendingTransfersService(userId) {
 			// Get student details
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.thesisParticipant.findMany({
+				? await prisma.thesisSupervisors.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1409,7 +1422,7 @@ export async function getKadepPendingTransfersService(userId) {
  * Get ALL kadep transfer notifications (for history view with pagination)
  */
 export async function getKadepAllTransfersService(userId, { page = 1, pageSize = 10, search = "", status = "" } = {}) {
-	throwSupervisorTransferRemoved();
+
 	const { notifications, total } = await findAllKadepTransferNotifications(userId, { page, pageSize, search });
 	const transfers = [];
 
@@ -1427,7 +1440,7 @@ export async function getKadepAllTransfersService(userId, { page = 1, pageSize =
 
 			const thesisIds = (payload.refs || []).map((r) => r.tId);
 			const supRecords = thesisIds.length
-				? await prisma.thesisParticipant.findMany({
+				? await prisma.thesisSupervisors.findMany({
 					where: { thesisId: { in: thesisIds } },
 					include: {
 						role: { select: { name: true } },
@@ -1492,7 +1505,7 @@ export async function getKadepAllTransfersService(userId, { page = 1, pageSize =
  * Only allowed if target lecturer has already approved (tgtApproved=true)
  */
 export async function kadepApproveTransferService(userId, notificationId) {
-	throwSupervisorTransferRemoved();
+
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");
@@ -1534,7 +1547,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
 	const results = await prisma.$transaction(async (tx) => {
 		const txResults = [];
 		for (const ref of refs) {
-			const sourceRecord = await tx.thesisParticipant.findFirst({
+			const sourceRecord = await tx.thesisSupervisors.findFirst({
 				where: { id: ref.sId, thesisId: ref.tId, status: "active" },
 				include: {
 					role: { select: { id: true, name: true } },
@@ -1546,7 +1559,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
 				throw new Error(`Active supervisor record not found for thesis ${ref.tId}`);
 			}
 
-			const targetActiveRecords = await tx.thesisParticipant.findMany({
+			const targetActiveRecords = await tx.thesisSupervisors.findMany({
 				where: {
 					thesisId: ref.tId,
 					lecturerId: targetLecturerId,
@@ -1557,19 +1570,19 @@ export async function kadepApproveTransferService(userId, notificationId) {
 			});
 
 			if (targetActiveRecords.length > 0) {
-				await tx.thesisParticipant.updateMany({
+				await tx.thesisSupervisors.updateMany({
 					where: { id: { in: targetActiveRecords.map((record) => record.id) } },
-					data: { status: "terminated" },
+					data: { status: "terminated", activeRoleKey: null },
 				});
 			}
 
 			// Transfer the supervisor record to the target lecturer.
-			await tx.thesisParticipant.update({
+			await tx.thesisSupervisors.update({
 				where: { id: ref.sId },
 				data: { lecturerId: targetLecturerId },
 			});
 
-			const allSupRecords = await tx.thesisParticipant.findMany({
+			const allSupRecords = await tx.thesisSupervisors.findMany({
 				where: { thesisId: ref.tId, status: "active" },
 				include: { role: { select: { id: true, name: true } } },
 			});
@@ -1676,7 +1689,7 @@ export async function kadepApproveTransferService(userId, notificationId) {
  * Kadep rejects a transfer request
  */
 export async function kadepRejectTransferService(userId, notificationId, { reason } = {}) {
-	throwSupervisorTransferRemoved();
+
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");
@@ -1766,3 +1779,4 @@ export async function kadepRejectTransferService(userId, notificationId, { reaso
 
 	return { message: "Transfer request ditolak oleh Kadep" };
 }
+

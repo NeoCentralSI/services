@@ -25,6 +25,7 @@ pids
 *.pid
 *.seed
 *.pid.lock
+*.rdb
 
 # Testing / coverage
 coverage
@@ -58,3 +59,4 @@ data
 # Notes:
 # - Do NOT ignore prisma/migrations; keep migrations under version control
 # - Keep lockfiles (pnpm-lock.yaml) committed for reproducible installs
+scripts/backups/

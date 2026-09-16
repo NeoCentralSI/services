@@ -1,9 +1,8 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "../common.validator.js";
 
 export const createCpmkSchema = z.object({
-    academicYearId: z
-        .string()
-        .uuid("academicYearId harus berupa UUID yang valid")
+    academicYearId: academicYearIdSchema
         .nullish()
         .transform((v) => v ?? undefined),
     code: z
@@ -19,9 +18,7 @@ export const createCpmkSchema = z.object({
 });
 
 export const updateCpmkSchema = z.object({
-    academicYearId: z
-        .string()
-        .uuid("academicYearId harus berupa UUID yang valid")
+    academicYearId: academicYearIdSchema
         .nullish()
         .transform((v) => v ?? undefined),
     code: z

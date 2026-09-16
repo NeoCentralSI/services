@@ -73,9 +73,6 @@ export async function consumeExchangePayload(code) {
   if (!code || typeof code !== "string") return null;
   const fromRedis = await tryRedis(async () => {
     const key = `${REDIS_PREFIX}${code}`;
-    if (typeof redisClient.getDel === "function") {
-      return await redisClient.getDel(key);
-    }
     const value = await redisClient.get(key);
     if (value) await redisClient.del(key);
     return value;

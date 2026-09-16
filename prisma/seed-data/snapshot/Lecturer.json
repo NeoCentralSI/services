@@ -1,0 +1,138 @@
+[
+  {
+    "id": "06802de5-5400-4964-bc63-f794b99f885d",
+    "scienceGroupId": "0504c57b-cb2d-436c-baed-8f113a6efc7c",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.879Z",
+    "updatedAt": "2026-08-20T13:21:06.567Z"
+  },
+  {
+    "id": "2676116f-1a01-4cad-98dd-b5b655f29a4d",
+    "scienceGroupId": "72535ef3-f622-42f0-940c-a29edf2e8e0b",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.032Z",
+    "updatedAt": "2026-08-20T13:21:06.567Z"
+  },
+  {
+    "id": "316bda38-a489-4edb-a846-a7512770f927",
+    "scienceGroupId": "9889d201-d6ff-44eb-b8f6-1de0a6ac866a",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:53.467Z",
+    "updatedAt": "2026-08-20T11:59:45.651Z"
+  },
+  {
+    "id": "3517135f-8e8b-4533-a73e-8b093a414d21",
+    "scienceGroupId": "0504c57b-cb2d-436c-baed-8f113a6efc7c",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.151Z",
+    "updatedAt": "2026-08-20T12:00:57.883Z"
+  },
+  {
+    "id": "42f345ca-157b-45e8-928d-c2882ab3258d",
+    "scienceGroupId": "9889d201-d6ff-44eb-b8f6-1de0a6ac866a",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.513Z",
+    "updatedAt": "2026-08-20T12:00:36.412Z"
+  },
+  {
+    "id": "587b9267-49ad-49f6-8b47-a63ed2ded1a3",
+    "scienceGroupId": "72535ef3-f622-42f0-940c-a29edf2e8e0b",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.388Z",
+    "updatedAt": "2026-08-20T12:00:42.175Z"
+  },
+  {
+    "id": "5a46ca38-d665-4c0d-b088-66d0a7bfe339",
+    "scienceGroupId": "9889d201-d6ff-44eb-b8f6-1de0a6ac866a",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:53.350Z",
+    "updatedAt": "2026-08-20T11:59:52.316Z"
+  },
+  {
+    "id": "61ae421d-25a1-44c6-b8a2-36b5ae0ae955",
+    "scienceGroupId": "72535ef3-f622-42f0-940c-a29edf2e8e0b",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:51.799Z",
+    "updatedAt": "2026-08-20T12:01:17.830Z"
+  },
+  {
+    "id": "6623a805-ee0d-43ea-8f8b-42235c9ae79d",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:51.554Z",
+    "updatedAt": "2026-08-20T12:01:26.423Z"
+  },
+  {
+    "id": "6d185d45-b683-48ed-864b-68546341e2c8",
+    "scienceGroupId": "9889d201-d6ff-44eb-b8f6-1de0a6ac866a",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:51.680Z",
+    "updatedAt": "2026-08-20T12:01:21.917Z"
+  },
+  {
+    "id": "7729b347-1f3e-44af-8ddd-5f0ae8e32a94",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.996Z",
+    "updatedAt": "2026-08-20T12:00:11.907Z"
+  },
+  {
+    "id": "843571f1-8dc7-4d8b-aea5-2851ef965df0",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.636Z",
+    "updatedAt": "2026-08-20T12:00:30.440Z"
+  },
+  {
+    "id": "a06826f7-ab48-4250-bb94-d65f9c8c68c9",
+    "scienceGroupId": "0504c57b-cb2d-436c-baed-8f113a6efc7c",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.271Z",
+    "updatedAt": "2026-08-20T12:00:51.134Z"
+  },
+  {
+    "id": "b6413007-0324-414a-a8ae-f955d7587614",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:53.116Z",
+    "updatedAt": "2026-08-20T12:00:05.926Z"
+  },
+  {
+    "id": "da2610d2-f608-4946-b5d0-2dbf02919dcb",
+    "scienceGroupId": "0504c57b-cb2d-436c-baed-8f113a6efc7c",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:51.915Z",
+    "updatedAt": "2026-08-20T12:01:11.924Z"
+  },
+  {
+    "id": "e8513ebe-494c-47b0-85ea-67f924ecd278",
+    "scienceGroupId": "497529fc-8fd8-462c-b1e3-987ae916a317",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:53.231Z",
+    "updatedAt": "2026-08-20T11:59:58.691Z"
+  },
+  {
+    "id": "ee26de03-823f-4455-ad80-647127c8d703",
+    "scienceGroupId": "0504c57b-cb2d-436c-baed-8f113a6efc7c",
+    "data": null,
+    "acceptingRequests": true,
+    "createdAt": "2026-08-20T11:35:52.760Z",
+    "updatedAt": "2026-08-20T12:00:24.834Z"
+  }
+]

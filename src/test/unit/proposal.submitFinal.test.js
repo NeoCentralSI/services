@@ -2,7 +2,7 @@
 // eksplisit, bukan inferred. Validasi minimum:
 // - Harus ada dokumen proposal terupload sebelumnya
 // - Harus punya pembimbing aktif
-// - Tidak bisa diulang setelah TA-04 disahkan
+// - Tidak bisa diulang setelah promosi aktif TA
 // - Idempotent jika versi yang sama sudah pernah disubmit final
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,13 +14,27 @@ vi.mock("../../repositories/thesisGuidance/student.guidance.repository.js", () =
 
 vi.mock("../../repositories/thesisGuidance/proposal.repository.js", () => ({
   findLatestProposalVersion: vi.fn(),
+  getProposalSubmissionStatus: vi.fn(),
   countActiveSupervisors: vi.fn(),
   submitFinalProposalVersion: vi.fn(),
+  findResearchMethodScoreProgress: vi.fn(),
+}));
+
+vi.mock("../../services/ta04Authorization.service.js", () => ({
+  assertTa04GuidanceAuthorized: vi.fn(),
+  getTa04GuidanceAuthorization: vi.fn(),
+}));
+
+vi.mock("../../services/metopenAttendance.service.js", () => ({
+  reconcileAttendanceForThesis: vi.fn(),
 }));
 
 let studentRepo;
 let proposalRepo;
+let ta04Authorization;
+let metopenAttendance;
 let submitFinalProposal;
+let getProposalSubmissionStatus;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -31,7 +45,23 @@ beforeEach(async () => {
   proposalRepo = await import(
     "../../repositories/thesisGuidance/proposal.repository.js"
   );
-  ({ submitFinalProposal } = await import(
+  ta04Authorization = await import(
+    "../../services/ta04Authorization.service.js"
+  );
+  metopenAttendance = await import("../../services/metopenAttendance.service.js");
+  ta04Authorization.getTa04GuidanceAuthorization.mockResolvedValue({
+    hasBookedSupervisor: true,
+    guidanceGateOpen: true,
+    guidanceGateReason: null,
+  });
+  ta04Authorization.assertTa04GuidanceAuthorized.mockResolvedValue({
+    guidanceGateOpen: true,
+  });
+  metopenAttendance.reconcileAttendanceForThesis.mockResolvedValue({
+    status: "eligible",
+    applied: null,
+  });
+  ({ submitFinalProposal, getProposalSubmissionStatus } = await import(
     "../../services/thesisGuidance/proposal.service.js"
   ));
 });
@@ -75,7 +105,7 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
     expect(proposalRepo.submitFinalProposalVersion).not.toHaveBeenCalled();
   });
 
-  it("rejects ketika proposal sudah disahkan TA-04 (proposalStatus accepted)", async () => {
+  it("rejects ketika proposal sudah promosi beban aktif (proposalStatus accepted)", async () => {
     studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
     studentRepo.getActiveThesisForStudent.mockResolvedValue({
       ...baseThesis,
@@ -83,7 +113,7 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
     });
 
     await expect(submitFinalProposal(studentId)).rejects.toThrow(
-      /Proposal sudah disahkan sebagai TA-04/i,
+      /sudah promosi ke beban aktif Tugas Akhir/i,
     );
     expect(proposalRepo.findLatestProposalVersion).not.toHaveBeenCalled();
   });
@@ -111,6 +141,7 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
     studentRepo.getActiveThesisForStudent.mockResolvedValue(baseThesis);
     proposalRepo.findLatestProposalVersion.mockResolvedValue(latestVersion);
     proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+    proposalRepo.findResearchMethodScoreProgress.mockResolvedValue(null);
     proposalRepo.submitFinalProposalVersion.mockResolvedValue({
       ...latestVersion,
       submittedAsFinalAt: new Date(),
@@ -123,8 +154,70 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
       "version-2",
       studentId,
     );
+    expect(metopenAttendance.reconcileAttendanceForThesis).toHaveBeenCalledWith(
+      "thesis-1",
+      studentId,
+    );
     expect(result.alreadySubmitted).toBe(false);
     expect(result.finalProposalVersion).toBeTruthy();
     expect(result.finalProposalVersion.id).toBe("version-2");
+  });
+
+  it("tidak memanggil reconcile pada re-submit idempotent", async () => {
+    studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
+    studentRepo.getActiveThesisForStudent.mockResolvedValue({
+      ...baseThesis,
+      finalProposalVersionId: latestVersion.id,
+    });
+    proposalRepo.findLatestProposalVersion.mockResolvedValue({
+      ...latestVersion,
+      submittedAsFinalAt: new Date("2026-04-01"),
+    });
+    proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+
+    await submitFinalProposal(studentId);
+
+    expect(metopenAttendance.reconcileAttendanceForThesis).not.toHaveBeenCalled();
+  });
+
+  // F-4.3: lock integritas — versi final tidak boleh ditukar saat penilaian TA-03 berjalan.
+  it("rejects swap versi final saat penilaian TA-03 sudah dimulai", async () => {
+    studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
+    studentRepo.getActiveThesisForStudent.mockResolvedValue(baseThesis);
+    proposalRepo.findLatestProposalVersion.mockResolvedValue(latestVersion);
+    proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+    proposalRepo.findResearchMethodScoreProgress.mockResolvedValue({
+      supervisorScore: 60,
+      lecturerScore: null,
+      isFinalized: false,
+    });
+
+    await expect(submitFinalProposal(studentId)).rejects.toThrow(
+      /Penilaian TA-03 sudah dimulai/i,
+    );
+    expect(proposalRepo.submitFinalProposalVersion).not.toHaveBeenCalled();
+  });
+
+  it("menampilkan alasan lock final saat penilaian TA-03 sudah selesai", async () => {
+    studentRepo.getStudentByUserId.mockResolvedValue(baseStudent);
+    studentRepo.getActiveThesisForStudent.mockResolvedValue(baseThesis);
+    proposalRepo.findLatestProposalVersion.mockResolvedValue(latestVersion);
+    proposalRepo.getProposalSubmissionStatus.mockResolvedValue({
+      proposalStatus: null,
+      finalProposalVersion: null,
+    });
+    proposalRepo.countActiveSupervisors.mockResolvedValue(1);
+    proposalRepo.findResearchMethodScoreProgress.mockResolvedValue({
+      supervisorScore: 70,
+      lecturerScore: 20,
+      finalScore: 90,
+      isFinalized: true,
+    });
+
+    const result = await getProposalSubmissionStatus(studentId);
+
+    expect(result.uploadLocked).toBe(true);
+    expect(result.uploadLockedReason).toMatch(/TA-03 sudah final/i);
+    expect(result.uploadLockedReason).not.toMatch(/sedang berlangsung/i);
   });
 });

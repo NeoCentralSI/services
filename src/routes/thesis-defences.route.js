@@ -60,7 +60,8 @@ router.get("/:id", requireAnyRole(ALL_ROLES), ctrl.getDefenceDetail);
 router.get("/:id/invitation-letter", requireAnyRole(ALL_ROLES), ctrl.downloadInvitationLetter);
 router.get("/:id/assessment-result", requireAnyRole(ALL_ROLES), ctrl.downloadAssessmentResult);
 router.get("/:id/documents", requireAnyRole(ALL_ROLES), ctrl.getDocuments);
-router.get("/:id/documents/:documentTypeId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
+router.get("/:id/documents/:requirementId/file", requireAnyRole(ALL_ROLES), ctrl.streamDocumentFile);
+router.get("/:id/documents/:requirementId", requireAnyRole(ALL_ROLES), ctrl.viewDocument);
 
 // ============================================================
 // ADMIN: Scheduling & document validation
@@ -73,9 +74,9 @@ router.post(
   ctrl.setSchedule
 );
 router.post(
-  "/:id/documents/:documentTypeId/validate",
+  "/:id/documents/:requirementId/verify",
   requireAnyRole([ROLES.ADMIN]),
-  ctrl.validateDocument
+  ctrl.verifyDocument
 );
 
 // ============================================================

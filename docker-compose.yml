@@ -1,76 +1,120 @@
-# ─────────────────────────────────────────────────────────────────
-# Production Docker Compose – Tugas Akhir Backend
-# Usage:
-#   1. Copy .env.example → .env and fill in all values
-#   2. docker compose up -d
-# ─────────────────────────────────────────────────────────────────
 services:
-
-  # ── App ────────────────────────────────────────────────────────
-  app:
+  backend:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: neocentral-app
-    image: neocentral-backend:latest
+      target: runner
+    image: ${BACKEND_IMAGE:-neocentral-backend}
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
     environment:
-      NODE_ENV: production
-      REDIS_URL: redis://redis:6379
-      GOTENBERG_URL: http://gotenberg:3000
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-3000}:3000"
     volumes:
-      - uploads:/app/uploads
+      - uploads-data:/app/uploads
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
       gotenberg:
-        condition: service_started
+        condition: service_healthy
     networks:
-      - neocentral-net
+      - backend-internal
+      - neocentral
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
       retries: 5
-      start_period: 40s
+      start_period: 30s
 
-  # ── Redis ──────────────────────────────────────────────────────
+  # Explicit local tools; these never start with a normal "docker compose up".
+  # Fresh schema: docker compose --profile tools run --rm backend-tools
+  # Seed data:    docker compose --profile tools run --rm backend-tools node scripts/seed-master.js
+  backend-tools:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tools
+    image: ${BACKEND_TOOLS_IMAGE:-neocentral-backend-tools}
+    env_file:
+      - .env
+    environment:
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
+    command: ["./node_modules/.bin/prisma", "db", "push"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend-internal
+      - neocentral
+
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-neocentral}
+      MYSQL_USER: ${MYSQL_USER:-neocentral}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - backend-internal
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   redis:
     image: redis:7-alpine
-    container_name: neocentral-redis
     restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     volumes:
       - redis-data:/data
     networks:
-      - neocentral-net
+      - backend-internal
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ── Gotenberg (PDF) ────────────────────────────────────────────
   gotenberg:
     image: gotenberg/gotenberg:8
-    container_name: neocentral-gotenberg
     restart: unless-stopped
     command:
       - gotenberg
-      - "--chromium-disable-routes=false"
-      - "--api-timeout=60s"
+      - --api-port=3001
+      - --chromium-disable-routes=false
+      - --api-timeout=60s
     networks:
-      - neocentral-net
-    # Not exposed externally – only reachable by the app container
+      - backend-internal
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
-# ─────────────────────────────────────────────────────────────────
 volumes:
-  uploads:
+  uploads-data:
   redis-data:
+  db-data:
 
 networks:
-  neocentral-net:
+  backend-internal:
     driver: bridge
+  neocentral:
+    external: true
+    name: ${SHARED_NETWORK_NAME:-neocentral}

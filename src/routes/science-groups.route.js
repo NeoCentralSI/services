@@ -1,5 +1,6 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
+import { validate } from "../middlewares/validation.middleware.js";
 import { ROLES } from "../constants/roles.js";
 import {
     getScienceGroupsController,
@@ -7,12 +8,13 @@ import {
     updateScienceGroupController,
     deleteScienceGroupController
 } from "../controllers/scienceGroup.controller.js";
+import { scienceGroupNameSchema } from "../validators/scienceGroup.validator.js";
 
 const router = express.Router();
 
 router.get("/", authGuard, requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]), getScienceGroupsController);
-router.post("/", authGuard, requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]), createScienceGroupController);
-router.patch("/:id", authGuard, requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]), updateScienceGroupController);
+router.post("/", authGuard, requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]), validate(scienceGroupNameSchema), createScienceGroupController);
+router.patch("/:id", authGuard, requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]), validate(scienceGroupNameSchema), updateScienceGroupController);
 router.delete("/:id", authGuard, requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN]), deleteScienceGroupController);
 
 export default router;

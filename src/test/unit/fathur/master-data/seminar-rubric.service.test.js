@@ -1,474 +1,186 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockPrisma, mockTx, mockGetActiveAcademicYearId } = vi.hoisted(() => ({
-  mockPrisma: {
-    cpmk: {
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-    },
-    assessmentCriteria: {
-      findFirst: vi.fn(),
-      findUnique: vi.fn(),
-      findMany: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    },
-    assessmentRubric: {
-      findFirst: vi.fn(),
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    },
-    thesisSeminarExaminerAssessmentDetail: {
-      count: vi.fn(),
-    },
-    thesisDefenceExaminerAssessmentDetail: {
-      count: vi.fn(),
-    },
-    $transaction: vi.fn(),
+const { repository, getActiveAcademicYearId } = vi.hoisted(() => ({
+  repository: {
+    updateSeminarMinimumScore: vi.fn(),
+    findThesisCpmkById: vi.fn(),
+    findConfiguredSeminarCpmks: vi.fn(),
+    getNextCriteriaDisplayOrder: vi.fn(),
+    createCriteria: vi.fn(),
+    findCriteriaById: vi.fn(),
+    updateCriteria: vi.fn(),
+    removeCriteriaWithRubrics: vi.fn(),
+    findSeminarCriteriaByCpmk: vi.fn(),
+    removeSeminarConfigByCpmk: vi.fn(),
+    criteriaHasAssessmentData: vi.fn(),
+    hasAnyAssessmentDataForAcademicYear: vi.fn(),
+    findRubricById: vi.fn(),
+    createRubricTx: vi.fn(),
+    updateRubric: vi.fn(),
+    removeRubric: vi.fn(),
+    findRubricsByCriteria: vi.fn(),
+    getActiveCriteriaTotalScore: vi.fn(),
+    reorderCriteria: vi.fn(),
+    reorderRubrics: vi.fn(),
+    getSeminarWeightSummary: vi.fn(),
   },
-  mockTx: {
-    assessmentRubric: {
-      findFirst: vi.fn(),
-      create: vi.fn(),
-      deleteMany: vi.fn(),
-    },
-    assessmentCriteria: {
-      delete: vi.fn(),
-    },
-  },
-  mockGetActiveAcademicYearId: vi.fn(),
+  getActiveAcademicYearId: vi.fn(),
 }));
 
-vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../../../../helpers/academicYear.helper.js", () => ({
-  getActiveAcademicYearId: mockGetActiveAcademicYearId,
-}));
+vi.mock("../../../../repositories/seminar-rubric.repository.js", () => repository);
+vi.mock("../../../../helpers/academicYear.helper.js", () => ({ getActiveAcademicYearId }));
 
 import {
   createCriteria,
   createRubric,
   deleteCriteria,
-  deleteRubric,
   getCpmksWithRubrics,
-  getWeightSummary,
   reorderCriteria,
   reorderRubrics,
-  removeSeminarCpmkConfig,
   updateCriteria,
   updateRubric,
+  updateSeminarMinimumScore,
 } from "../../../../services/seminar-rubric.service.js";
 
-describe("Rubric Seminar Service", () => {
+describe("Seminar rubric service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetActiveAcademicYearId.mockResolvedValue("ay-active");
-    mockPrisma.$transaction.mockImplementation(async (arg) => {
-      if (typeof arg === "function") return arg(mockTx);
-      return Promise.all(arg);
-    });
+    getActiveAcademicYearId.mockResolvedValue("ay-active");
+    repository.criteriaHasAssessmentData.mockResolvedValue(false);
+    repository.hasAnyAssessmentDataForAcademicYear.mockResolvedValue(false);
+    repository.findRubricsByCriteria.mockResolvedValue([]);
+    repository.findSeminarCriteriaByCpmk.mockResolvedValue([]);
+    repository.getActiveCriteriaTotalScore.mockResolvedValue(0);
   });
 
-  it("getCpmksWithRubrics returns configured tree with criteria/rubric ordering and lock flags", async () => {
-    mockPrisma.cpmk.findMany.mockResolvedValue([
-      {
-        id: "cpmk-1",
-        code: "CPMK-01",
-        description: "A",
-        assessmentCriterias: [
-          {
-            id: "cr-1",
-            name: "K1",
-            appliesTo: "seminar",
-            role: "default",
-            maxScore: 40,
-            displayOrder: 1,
-            assessmentRubrics: [{ id: "rb-1", displayOrder: 1 }],
-          },
-        ],
-      },
-    ]);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
+  it("returns the selected academic-year rubric tree with assessment locks", async () => {
+    repository.findConfiguredSeminarCpmks.mockResolvedValue([{
+      id: "cpmk-1",
+      thesisSeminarAssessmentCriterias: [{
+        id: "criteria-1",
+        assessmentRubrics: [{ id: "rubric-1" }],
+      }],
+    }]);
+    repository.criteriaHasAssessmentData.mockResolvedValue(true);
 
     const result = await getCpmksWithRubrics({ academicYearId: "ay-1" });
-    expect(result[0].assessmentCriterias[0]).toMatchObject({
-      id: "cr-1",
-      hasAssessmentDetails: false,
-    });
+
+    expect(repository.findConfiguredSeminarCpmks).toHaveBeenCalledWith("ay-1");
+    expect(result[0].assessmentCriterias[0].hasAssessmentDetails).toBe(true);
+    expect(result[0].hasAssessmentDetails).toBe(true);
   });
 
-  it("createCriteria succeeds and assigns next displayOrder for seminar/default context", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({
-      id: "cpmk-1",
-      type: "thesis",
-      academicYearId: "ay-1",
-    });
-    mockPrisma.assessmentCriteria.findFirst.mockResolvedValue({ displayOrder: 2 });
-    mockPrisma.assessmentCriteria.create.mockResolvedValue({
-      id: "cr-new",
-      cpmkId: "cpmk-1",
-      appliesTo: "seminar",
-      role: "default",
+  it("creates criteria under the CPMK academic year without exceeding 100", async () => {
+    repository.findThesisCpmkById.mockResolvedValue({ id: "cpmk-1", academicYearId: "ay-1" });
+    repository.getActiveCriteriaTotalScore.mockResolvedValue(70);
+    repository.getNextCriteriaDisplayOrder.mockResolvedValue(3);
+    repository.createCriteria.mockResolvedValue({ id: "criteria-new" });
+
+    await createCriteria({ thesisCpmkId: "cpmk-1", name: "Analisis", maxScore: 30 });
+
+    expect(repository.getActiveCriteriaTotalScore).toHaveBeenCalledWith(null, "ay-1");
+    expect(repository.createCriteria).toHaveBeenCalledWith({
+      thesisCpmkId: "cpmk-1",
+      name: "Analisis",
       maxScore: 30,
-      name: "Baru",
       displayOrder: 3,
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-
-    const result = await createCriteria({ cpmkId: "cpmk-1", name: "Baru", maxScore: 30 });
-    expect(mockPrisma.assessmentCriteria.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        cpmkId: "cpmk-1",
-        appliesTo: "seminar",
-        role: "default",
-        displayOrder: 3,
-      }),
-    });
-    expect(result).toMatchObject({ id: "cr-new" });
   });
 
-  it("updateCriteria allows name changes even when downstream assessment details exist", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      cpmkId: "cpmk-1",
-      appliesTo: "seminar",
-      role: "default",
-      maxScore: 40,
-      assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentCriteria.update.mockResolvedValue({
-      id: "cr-1",
-      name: "Updated Name",
-      maxScore: 40,
-    });
+  it("rejects criteria that would make the academic-year total exceed 100", async () => {
+    repository.findThesisCpmkById.mockResolvedValue({ id: "cpmk-1", academicYearId: "ay-1" });
+    repository.getActiveCriteriaTotalScore.mockResolvedValue(90);
 
-    const result = await updateCriteria("cr-1", { name: "Updated Name" });
-    expect(mockPrisma.assessmentCriteria.update).toHaveBeenCalledWith({
-      where: { id: "cr-1" },
-      data: { name: "Updated Name" },
-    });
-    expect(result).toMatchObject({ id: "cr-1" });
+    await expect(createCriteria({
+      thesisCpmkId: "cpmk-1",
+      name: "Analisis",
+      maxScore: 20,
+    })).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("updateCriteria maxScore succeeds when downstream assessment details are zero", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      cpmkId: "cpmk-1",
-      appliesTo: "seminar",
-      role: "default",
-      maxScore: 40,
-      assessmentRubrics: [{ maxScore: 20 }],
-      cpmk: { academicYearId: "ay-1" },
+  it("allows a criteria name change after scoring but locks maxScore", async () => {
+    repository.findCriteriaById.mockResolvedValue({
+      id: "criteria-1",
+      maxScore: 20,
+      thesisCpmk: { academicYearId: "ay-1" },
     });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentCriteria.update.mockResolvedValue({
-      id: "cr-1",
-      maxScore: 45,
+    repository.criteriaHasAssessmentData.mockResolvedValue(true);
+    repository.updateCriteria.mockResolvedValue({ id: "criteria-1", name: "Nama baru" });
+
+    await expect(updateCriteria("criteria-1", { name: "Nama baru" })).resolves.toMatchObject({
+      name: "Nama baru",
     });
-
-    const result = await updateCriteria("cr-1", { maxScore: 45 });
-    expect(result).toMatchObject({ id: "cr-1", maxScore: 45 });
-  });
-
-  it("updateCriteria maxScore rejects (400) when downstream assessment details are found", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      cpmkId: "cpmk-1",
-      appliesTo: "seminar",
-      role: "default",
-      maxScore: 40,
-      assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-
-    await expect(updateCriteria("cr-1", { maxScore: 50 })).rejects.toMatchObject({ statusCode: 400 });
-    expect(mockPrisma.assessmentCriteria.update).not.toHaveBeenCalled();
-  });
-
-  it("reorderCriteria mutates only displayOrder fields in sequence", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1" });
-    mockPrisma.assessmentCriteria.update.mockResolvedValue({});
-
-    await reorderCriteria({ cpmkId: "cpmk-1", orderedIds: ["cr-2", "cr-1"] });
-
-    expect(mockPrisma.assessmentCriteria.update).toHaveBeenNthCalledWith(1, {
-      where: { id: "cr-2" },
-      data: { displayOrder: 1 },
-    });
-    expect(mockPrisma.assessmentCriteria.update).toHaveBeenNthCalledWith(2, {
-      where: { id: "cr-1" },
-      data: { displayOrder: 2 },
-    });
-  });
-
-  it("reorderCriteria rejects (400) when repository signals parent mismatch", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1" });
-    const mismatchError = Object.assign(new Error("Mismatch"), { statusCode: 400 });
-    mockPrisma.assessmentCriteria.update.mockRejectedValue(mismatchError);
-
-    await expect(
-      reorderCriteria({ cpmkId: "cpmk-1", orderedIds: ["cr-x", "cr-y"] })
-    ).rejects.toMatchObject({ statusCode: 400 });
-  });
-
-  it("deleteCriteria succeeds and cascades when downstream assessment details are zero", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
-      cpmk: { academicYearId: "ay-1" },
-      assessmentRubrics: [],
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockTx.assessmentRubric.deleteMany.mockResolvedValue({ count: 2 });
-    mockTx.assessmentCriteria.delete.mockResolvedValue({ id: "cr-1" });
-
-    await deleteCriteria("cr-1");
-    expect(mockTx.assessmentRubric.deleteMany).toHaveBeenCalledWith({
-      where: { assessmentCriteriaId: "cr-1" },
-    });
-    expect(mockTx.assessmentCriteria.delete).toHaveBeenCalledWith({
-      where: { id: "cr-1" },
-    });
-  });
-
-  it("deleteCriteria rejects (400) when downstream assessment details are found", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
-      cpmk: { academicYearId: "ay-1" },
-      assessmentRubrics: [],
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-
-    await expect(deleteCriteria("cr-1")).rejects.toMatchObject({ statusCode: 400 });
-  });
-
-  it("createRubric succeeds with next displayOrder when parent criteria is unlocked", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
-      maxScore: 10,
-      assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentRubric.findMany.mockResolvedValue([]);
-    mockTx.assessmentRubric.findFirst.mockResolvedValue({ displayOrder: 1 });
-    mockTx.assessmentRubric.create.mockResolvedValue({ id: "rb-new", displayOrder: 2 });
-
-    const result = await createRubric("cr-1", {
-      description: "Rubrik A",
-      minScore: 0,
-      maxScore: 10,
-    });
-
-    expect(result).toMatchObject({ id: "rb-new", displayOrder: 2 });
-  });
-
-  it("createRubric rejects (400) when parent criteria has downstream assessment details", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
-      maxScore: 10,
-      assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
-
-    await expect(
-      createRubric("cr-1", { description: "Locked", minScore: 0, maxScore: 5 })
-    ).rejects.toMatchObject({ statusCode: 400 });
-  });
-
-  it("updateRubric allows editing all rubric fields when parent criteria is unlocked", async () => {
-    mockPrisma.assessmentRubric.findUnique.mockResolvedValue({
-      id: "rb-1",
-      assessmentCriteriaId: "cr-1",
-      minScore: 0,
-      maxScore: 5,
-      assessmentCriteria: {
-        id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
-        maxScore: 10,
-      },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentRubric.findMany.mockResolvedValue([]);
-    mockPrisma.assessmentRubric.update.mockResolvedValue({
-      id: "rb-1",
-      description: "Updated",
-      minScore: 1,
-      maxScore: 7,
-    });
-
-    const result = await updateRubric("rb-1", {
-      description: "Updated",
-      minScore: 1,
-      maxScore: 7,
-    });
-    expect(result).toMatchObject({ id: "rb-1", maxScore: 7 });
-  });
-
-  it("updateRubric rejects (400) when parent criteria has downstream assessment details", async () => {
-    mockPrisma.assessmentRubric.findUnique.mockResolvedValue({
-      id: "rb-1",
-      assessmentCriteriaId: "cr-1",
-      minScore: 0,
-      maxScore: 5,
-      assessmentCriteria: {
-        id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
-        maxScore: 10,
-      },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-
-    await expect(updateRubric("rb-1", { description: "Blocked" })).rejects.toMatchObject({
+    await expect(updateCriteria("criteria-1", { maxScore: 25 })).rejects.toMatchObject({
       statusCode: 400,
     });
   });
 
-  it("reorderRubrics mutates only displayOrder values", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-1",
-      appliesTo: "seminar",
-      role: "default",
-      assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
-    });
-    mockPrisma.assessmentRubric.update.mockResolvedValue({});
+  it("blocks deleting a scored criterion", async () => {
+    repository.findCriteriaById.mockResolvedValue({ id: "criteria-1" });
+    repository.criteriaHasAssessmentData.mockResolvedValue(true);
 
-    await reorderRubrics({ criteriaId: "cr-1", orderedIds: ["rb-2", "rb-1"] });
-
-    expect(mockPrisma.assessmentRubric.update).toHaveBeenNthCalledWith(1, {
-      where: { id: "rb-2" },
-      data: { displayOrder: 1 },
-    });
-    expect(mockPrisma.assessmentRubric.update).toHaveBeenNthCalledWith(2, {
-      where: { id: "rb-1" },
-      data: { displayOrder: 2 },
-    });
+    await expect(deleteCriteria("criteria-1")).rejects.toMatchObject({ statusCode: 400 });
+    expect(repository.removeCriteriaWithRubrics).not.toHaveBeenCalled();
   });
 
-  it("reorderRubrics rejects (400) when criteria parent context is invalid", async () => {
-    mockPrisma.assessmentCriteria.findUnique.mockResolvedValue({
-      id: "cr-x",
-      appliesTo: "defence",
-      role: "examiner",
-      assessmentRubrics: [],
-      cpmk: { academicYearId: "ay-1" },
+  it("validates rubric ranges against the criterion and existing ranges", async () => {
+    repository.findCriteriaById.mockResolvedValue({ id: "criteria-1", maxScore: 10 });
+    repository.findRubricsByCriteria.mockResolvedValue([{ id: "rubric-1", minScore: 0, maxScore: 5 }]);
+
+    await expect(createRubric("criteria-1", {
+      description: "Tumpang tindih",
+      minScore: 5,
+      maxScore: 8,
+    })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("updates a rubric through the new assessmentCriteria relation", async () => {
+    repository.findRubricById.mockResolvedValue({
+      id: "rubric-1",
+      minScore: 0,
+      maxScore: 5,
+      assessmentCriteria: { id: "criteria-1", maxScore: 10 },
+    });
+    repository.updateRubric.mockResolvedValue({ id: "rubric-1", description: "Baru" });
+
+    await updateRubric("rubric-1", { description: "Baru" });
+
+    expect(repository.findRubricsByCriteria).toHaveBeenCalledWith("criteria-1", "rubric-1");
+    expect(repository.updateRubric).toHaveBeenCalledWith("rubric-1", { description: "Baru" });
+  });
+
+  it("reorders only a complete, unlocked criterion set belonging to the CPMK", async () => {
+    repository.findSeminarCriteriaByCpmk.mockResolvedValue([{ id: "criteria-1" }, { id: "criteria-2" }]);
+
+    await reorderCriteria({
+      thesisCpmkId: "cpmk-1",
+      orderedIds: ["criteria-2", "criteria-1"],
     });
 
-    await expect(
-      reorderRubrics({ criteriaId: "cr-x", orderedIds: ["rb-1", "rb-2"] })
-    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(repository.reorderCriteria).toHaveBeenCalledWith(
+      "cpmk-1",
+      ["criteria-2", "criteria-1"],
+    );
   });
 
-  it("deleteRubric succeeds when parent criteria has no downstream assessment details", async () => {
-    mockPrisma.assessmentRubric.findUnique.mockResolvedValue({
-      id: "rb-1",
-      assessmentCriteriaId: "cr-1",
-      assessmentCriteria: {
-        id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
-        maxScore: 10,
-      },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.assessmentRubric.delete.mockResolvedValue({ id: "rb-1" });
+  it("rejects rubric reorder IDs from another criterion", async () => {
+    repository.findCriteriaById.mockResolvedValue({ id: "criteria-1" });
+    repository.findRubricsByCriteria.mockResolvedValue([{ id: "rubric-1" }]);
 
-    await deleteRubric("rb-1");
-    expect(mockPrisma.assessmentRubric.delete).toHaveBeenCalledWith({ where: { id: "rb-1" } });
+    await expect(reorderRubrics({
+      criteriaId: "criteria-1",
+      orderedIds: ["rubric-other"],
+    })).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("deleteRubric rejects (400) when parent criteria has downstream assessment details", async () => {
-    mockPrisma.assessmentRubric.findUnique.mockResolvedValue({
-      id: "rb-1",
-      assessmentCriteriaId: "cr-1",
-      assessmentCriteria: {
-        id: "cr-1",
-        appliesTo: "seminar",
-        role: "default",
-        maxScore: 10,
-      },
-    });
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(1);
+  it("updates the minimum passing score for the requested academic year only when unlocked", async () => {
+    repository.updateSeminarMinimumScore.mockResolvedValue({ id: "ay-1", thesisSeminarMinimumScore: 65 });
 
-    await expect(deleteRubric("rb-1")).rejects.toMatchObject({ statusCode: 400 });
-  });
+    await updateSeminarMinimumScore("ay-1", 65);
 
-  it("getWeightSummary returns totalScore and details computed for seminar context", async () => {
-    mockPrisma.cpmk.findMany.mockResolvedValue([
-      {
-        id: "cpmk-1",
-        code: "CPMK-01",
-        description: "Desc",
-        assessmentCriterias: [
-          { id: "cr-1", name: "A", maxScore: 30, assessmentRubrics: [{ id: "r1" }] },
-          { id: "cr-2", name: "B", maxScore: 20, assessmentRubrics: [] },
-        ],
-      },
-      {
-        id: "cpmk-2",
-        code: "CPMK-02",
-        description: "Desc",
-        assessmentCriterias: [{ id: "cr-3", name: "C", maxScore: 10, assessmentRubrics: [] }],
-      },
-    ]);
+    expect(repository.updateSeminarMinimumScore).toHaveBeenCalledWith("ay-1", 65);
 
-    const result = await getWeightSummary({ academicYearId: "ay-1" });
-    expect(result.totalScore).toBe(60);
-    expect(result.details).toHaveLength(2);
-  });
-
-  it("removeSeminarCpmkConfig succeeds when no downstream assessment details exist", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1", type: "thesis" });
-    mockPrisma.assessmentCriteria.findMany.mockResolvedValue([
-      { id: "cr-1" },
-      { id: "cr-2" },
-    ]);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-    mockPrisma.$transaction.mockResolvedValue([{ count: 2 }, { count: 2 }]);
-
-    await removeSeminarCpmkConfig("cpmk-1");
-    // Since it's inside a transaction using prisma directly in the repository, we just ensure it doesn't throw.
-  });
-
-  it("removeSeminarCpmkConfig rejects (400) when downstream assessment details exist", async () => {
-    mockPrisma.cpmk.findUnique.mockResolvedValue({ id: "cpmk-1", type: "thesis" });
-    mockPrisma.assessmentCriteria.findMany.mockResolvedValue([
-      { id: "cr-1" },
-    ]);
-    mockPrisma.thesisSeminarExaminerAssessmentDetail.count.mockResolvedValue(1);
-    mockPrisma.thesisDefenceExaminerAssessmentDetail.count.mockResolvedValue(0);
-
-    await expect(removeSeminarCpmkConfig("cpmk-1")).rejects.toMatchObject({ statusCode: 400 });
+    repository.hasAnyAssessmentDataForAcademicYear.mockResolvedValue(true);
+    await expect(updateSeminarMinimumScore("ay-1", 70)).rejects.toMatchObject({ statusCode: 400 });
   });
 });

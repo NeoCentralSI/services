@@ -137,6 +137,16 @@ export async function getRecommendations(req, res, next) {
   }
 }
 
+export async function getAssignableLecturers(req, res, next) {
+  try {
+    const { id } = req.params;
+    const data = await service.getAssignableLecturers(id);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function decideByKadep(req, res, next) {
   try {
     const kadepUserId = req.user.sub;
@@ -173,7 +183,9 @@ export async function getRequestDetail(req, res, next) {
 export async function getBatchTA04(req, res, next) {
   try {
     const { academicYearId } = req.params;
-    const { pdfBuffer, fileName } = await service.generateBatchTA04(academicYearId);
+    const { pdfBuffer, fileName } = await service.generateBatchTA04(academicYearId, {
+      callerUserId: req.user.sub,
+    });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     res.send(pdfBuffer);
@@ -185,7 +197,7 @@ export async function getBatchTA04(req, res, next) {
 export async function finalizeBatchTA04(req, res, next) {
   try {
     const { academicYearId } = req.params;
-    const data = await service.finalizeBatchTA04(academicYearId);
+    const data = await service.finalizeBatchTA04(academicYearId, req.user.sub);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);

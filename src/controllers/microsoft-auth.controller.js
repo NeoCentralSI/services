@@ -1,38 +1,23 @@
 // src/controllers/microsoft-auth.controller.js
+import { ENV } from "../config/env.js";
 import {
   getMicrosoftAuthUrl,
   loginWithMicrosoftAuthorizationCode,
 } from "../services/microsoft-auth.service.js";
-import {
-  storeExchangePayload,
-  consumeExchangePayload,
-} from "../services/oauth-exchange.service.js";
+import { storeExchangePayload, consumeExchangePayload } from "../services/oauth-exchange.service.js";
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-const ONE_SHOT_CODE_PATTERN = /^[a-f0-9]{64}$/i;
-const GENERIC_AUTH_CALLBACK_ERROR = "Sistem autentikasi belum siap. Hubungi admin.";
+const frontendUrl = () => ENV.FRONTEND_URL;
 
-function getSafeCallbackErrorMessage(error) {
-  if (error?.statusCode === 404 && /akun belum terdaftar/i.test(error.message || "")) {
-    return error.message;
-  }
-
-  if (error?.statusCode === 401) {
-    return "Login Microsoft gagal. Silakan coba lagi atau hubungi admin.";
-  }
-
-  return GENERIC_AUTH_CALLBACK_ERROR;
+function isDirectMicrosoftAuthorizationCode(code) {
+  return typeof code === "string" && code.startsWith("0.");
 }
 
-function logCallbackError(error) {
-  if (process.env.NODE_ENV === "test") {
-    return;
+function publicMicrosoftAuthErrorMessage(error) {
+  const rawMessage = error?.message || "";
+  if (/prisma|invocation|database|column|does not exist/i.test(rawMessage)) {
+    return "Sistem autentikasi belum siap. Hubungi admin.";
   }
-
-  console.error("[MicrosoftAuth] Callback failed:", error?.message || error);
-  if (error?.stack) {
-    console.error(error.stack);
-  }
+  return rawMessage || "Authentication failed";
 }
 
 /**
@@ -42,6 +27,7 @@ function logCallbackError(error) {
 export async function initiateLogin(req, res, next) {
   try {
     const authUrl = await getMicrosoftAuthUrl();
+    // Redirect langsung ke Microsoft login page
     res.redirect(authUrl);
   } catch (error) {
     next(error);
@@ -51,61 +37,53 @@ export async function initiateLogin(req, res, next) {
 /**
  * Handle Microsoft OAuth callback
  * GET /auth/microsoft/callback
- *
- * Tidak lagi mengirim token (access + refresh) lewat URL. Sebagai gantinya,
- * server menyimpan payload di Redis (atau in-memory fallback) dengan TTL
- * pendek dan memberi `?code=<exchangeCode>` ke frontend. Frontend kemudian
- * menukar code itu sekali lewat POST /auth/microsoft/exchange.
  */
 export async function handleCallback(req, res, next) {
   try {
     const { code, error: oauthError, error_description } = req.query;
 
+    // Handle OAuth errors dari Microsoft
     if (oauthError) {
-      const errorMsg = error_description || oauthError || "Login failed";
-      return res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(errorMsg)}`);
+      const errorMsg = error_description || oauthError || 'Login failed';
+      return res.redirect(`${frontendUrl()}/login?error=${encodeURIComponent(errorMsg)}`);
     }
 
     if (!code) {
-      return res.redirect(
-        `${FRONTEND_URL}/login?error=${encodeURIComponent("Authorization code is required")}`,
-      );
+      return res.redirect(`${frontendUrl()}/login?error=${encodeURIComponent('Authorization code is required')}`);
     }
 
     const result = await loginWithMicrosoftAuthorizationCode(code);
 
-    const exchangeCode = await storeExchangePayload({
+    const callbackUrl = `${frontendUrl()}/auth/microsoft/callback`;
+    const tokenData = {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       user: result.user,
       hasCalendarAccess: result.hasCalendarAccess,
-    });
+    };
 
-    return res.redirect(
-      `${FRONTEND_URL}/auth/microsoft/callback?code=${encodeURIComponent(exchangeCode)}`,
-    );
+    const exchangeCode = await storeExchangePayload(tokenData);
+    res.redirect(`${callbackUrl}?code=${encodeURIComponent(exchangeCode)}`);
   } catch (error) {
+    // If account not verified (403), redirect to account-inactive page
     if (error.statusCode === 403) {
-      return res.redirect(`${FRONTEND_URL}/auth/inactive`);
+      return res.redirect(`${frontendUrl()}/auth/inactive`);
     }
-    logCallbackError(error);
-    const errorMsg = getSafeCallbackErrorMessage(error);
-    res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(errorMsg)}`);
+    // Redirect ke login dengan error message
+    const errorMsg = publicMicrosoftAuthErrorMessage(error);
+    res.redirect(`${frontendUrl()}/login?error=${encodeURIComponent(errorMsg)}`);
   }
 }
 
 /**
- * Exchange the one-shot code for actual tokens.
- * POST /auth/microsoft/exchange  body: { code }
+ * Exchange one-shot code for tokens
+ * POST /auth/microsoft/exchange
  */
 export async function exchangeOauthCode(req, res, next) {
   try {
-    const { code } = req.body ?? {};
-    if (!code || typeof code !== "string") {
-      return res.status(400).json({
-        success: false,
-        message: "Exchange code is required",
-      });
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ success: false, message: "Exchange code is required" });
     }
 
     const payload = await consumeExchangePayload(code);
@@ -113,7 +91,7 @@ export async function exchangeOauthCode(req, res, next) {
       return res.status(200).json({ success: true, data: payload });
     }
 
-    if (ONE_SHOT_CODE_PATTERN.test(code)) {
+    if (!isDirectMicrosoftAuthorizationCode(code)) {
       return res.status(400).json({
         success: false,
         message: "Exchange code is invalid, expired, or already used",
@@ -121,16 +99,8 @@ export async function exchangeOauthCode(req, res, next) {
     }
 
     const result = await loginWithMicrosoftAuthorizationCode(code);
-    return res.status(200).json({
-      success: true,
-      data: {
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        user: result.user,
-        hasCalendarAccess: result.hasCalendarAccess,
-      },
-    });
-  } catch (err) {
-    next(err);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
   }
 }

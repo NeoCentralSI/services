@@ -163,7 +163,7 @@ function enumColumnHasValue(columnType, value) {
 }
 
 export async function assertSimptaSchemaCompatibility(client = basePrisma) {
-  const tableNamesToCheck = [...new Set([...REQUIRED_SIMPTA_TABLES, "thesis_supervisors"])];
+  const tableNamesToCheck = [...new Set(REQUIRED_SIMPTA_TABLES)];
   const [existingTables, pendingMigrations] = await Promise.all([
     getExistingTableNames(tableNamesToCheck, client),
     getPendingPrismaMigrationNames(client),
@@ -215,22 +215,18 @@ export async function assertSimptaSchemaCompatibility(client = basePrisma) {
     return;
   }
 
-  const legacyHint =
-    existingTables.has("thesis_supervisors") && !existingTables.has("thesis_participants")
-      ? " Database masih memakai tabel legacy `thesis_supervisors`."
-      : "";
   const pendingHint =
     pendingMigrations.length > 0
       ? ` Pending Prisma migrations: ${pendingMigrations.join(", ")}.`
       : "";
 
   throw new Error(
-    `Schema database SIMPTA belum sinkron dengan code aktif. Objek yang belum tersedia: ${missingSchemaParts.join(", ")}.${legacyHint}${pendingHint} Periksa \`npx prisma migrate status\` di folder services dan sinkronkan database ke baseline migration repo ini.`
+    `Schema database SIMPTA belum sinkron dengan code aktif. Objek yang belum tersedia: ${missingSchemaParts.join(", ")}.${pendingHint} Periksa \`npx prisma migrate status\` di folder services dan sinkronkan database ke baseline migration repo ini.`
   );
 }
 
 /**
- * After TA-03A/TA-03B rows change, keep KaDep queue in sync (Panduan Langkah 4–6).
+ * After TA-03A/TA-03B rows change, run early TA-04 promotion/release lifecycle.
  * Dynamic import avoids circular dependency with metopen.service (which imports prisma).
  */
 async function afterResearchMethodScoreWrite(thesisId) {
@@ -242,7 +238,7 @@ async function afterResearchMethodScoreWrite(thesisId) {
     await syncKadepProposalQueueByThesisId(thesisId);
   } catch (err) {
     console.error(
-      "[Prisma] syncKadepProposalQueueByThesisId failed:",
+      "[Prisma] TA-04 lifecycle sync failed:",
       err?.message ?? err
     );
   }
@@ -279,10 +275,6 @@ export async function checkDatabaseConnection() {
       if (process.env.SIMPTA_SCHEMA_STRICT === "true") {
         throw schemaError;
       }
-      console.warn(
-        "⚠️ SIMPTA schema compatibility warning:",
-        schemaError.message
-      );
     }
     console.log("✅ Database connected successfully");
   } catch (err) {

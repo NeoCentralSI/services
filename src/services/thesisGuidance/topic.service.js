@@ -39,6 +39,8 @@ export async function getTopics() {
   return topics.map((topic) => ({
     id: topic.id,
     name: topic.name,
+    scienceGroupId: topic.scienceGroupId,
+    scienceGroup: topic.scienceGroup,
     createdAt: topic.createdAt,
     updatedAt: topic.updatedAt,
     thesisCount: topic._count?.thesis || 0,
@@ -58,6 +60,8 @@ export async function getTopicById(id) {
   return {
     id: topic.id,
     name: topic.name,
+    scienceGroupId: topic.scienceGroupId,
+    scienceGroup: topic.scienceGroup,
     createdAt: topic.createdAt,
     updatedAt: topic.updatedAt,
     thesisCount: topic._count?.thesis || 0,
@@ -76,13 +80,21 @@ export async function createTopic(user, data) {
     throw new ConflictError("Topik dengan nama tersebut sudah ada");
   }
 
+  const scienceGroup = await topicRepo.findScienceGroupById(data.scienceGroupId);
+  if (!scienceGroup) {
+    throw new BadRequestError("KBK topik tidak ditemukan");
+  }
+
   const topic = await topicRepo.create({
     name: data.name.trim(),
+    scienceGroupId: data.scienceGroupId,
   });
 
   return {
     id: topic.id,
     name: topic.name,
+    scienceGroupId: topic.scienceGroupId,
+    scienceGroup: topic.scienceGroup,
     createdAt: topic.createdAt,
     updatedAt: topic.updatedAt,
     thesisCount: 0,
@@ -108,14 +120,24 @@ export async function updateTopic(id, user, data) {
     }
   }
 
+  if (data.scienceGroupId !== undefined) {
+    const scienceGroup = await topicRepo.findScienceGroupById(data.scienceGroupId);
+    if (!scienceGroup) {
+      throw new BadRequestError("KBK topik tidak ditemukan");
+    }
+  }
+
   const updateData = {};
   if (data.name) updateData.name = data.name.trim();
+  if (data.scienceGroupId !== undefined) updateData.scienceGroupId = data.scienceGroupId;
 
   const topic = await topicRepo.update(id, updateData);
 
   return {
     id: topic.id,
     name: topic.name,
+    scienceGroupId: topic.scienceGroupId,
+    scienceGroup: topic.scienceGroup,
     createdAt: topic.createdAt,
     updatedAt: topic.updatedAt,
     thesisCount: topic._count?.thesis || 0,
@@ -166,10 +188,16 @@ export async function createOfferedTopic(userId, data) {
     throw new ConflictError("Topik dengan nama tersebut sudah ada");
   }
 
+  const lecturer = await topicRepo.findLecturerScienceGroupById(userId);
+  if (!lecturer?.scienceGroupId) {
+    throw new BadRequestError("Dosen belum memiliki KBK. Hubungi Admin/Sekdep sebelum membuat topik.");
+  }
+
   const topic = await topicRepo.create({
     name: data.name.trim(),
     description: data.description?.trim() || null,
     lecturerId: userId,
+    scienceGroupId: lecturer.scienceGroupId,
     isPublished: true,
   });
 

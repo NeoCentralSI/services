@@ -1,0 +1,24 @@
+[
+  {
+    "id": "4db89a9c-27c1-4ca6-a1fb-c1eeb3c89560",
+    "semester": "ganjil",
+    "year": "2026/2027",
+    "startDate": "2026-08-17T17:00:00.000Z",
+    "endDate": "2026-12-30T16:59:59.999Z",
+    "isActive": false,
+    "activeKey": null,
+    "createdAt": "2026-08-20T11:54:10.644Z",
+    "updatedAt": "2026-08-20T11:54:10.644Z"
+  },
+  {
+    "id": "8d8ecd52-5191-47b3-bd8c-6fdb2cb6b1fa",
+    "semester": "genap",
+    "year": "2025/2026",
+    "startDate": "2026-01-04T17:00:00.000Z",
+    "endDate": "2026-06-26T16:59:59.999Z",
+    "isActive": false,
+    "activeKey": null,
+    "createdAt": "2026-08-20T11:54:59.870Z",
+    "updatedAt": "2026-08-20T11:54:59.870Z"
+  }
+]

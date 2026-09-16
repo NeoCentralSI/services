@@ -6,6 +6,7 @@
  *   pending  ──(dosen mark review)──▶ under_review
  *      │                                    │
  *      │                                    ├──(dosen accept) ──▶ booking_approved ──▶ active_official
+ *      │                                    │                         └──▶ released
  *      │                                    └──(dosen reject) ──▶ rejected_by_dosen ◄──── closed (mahasiswa cabut/tutup)
  *      │
  *      └──(kuota merah / KaDep route)──▶ pending_kadep
@@ -14,11 +15,15 @@
  *                                            ├──(KaDep request revisi TA-02) ──▶ revision_requested
  *                                            └──(KaDep reject) ──▶ rejected_by_kadep
  *
- *   active_official adalah status terminal positif sebelum TA-04 mengubahnya
- *   menjadi "ACTIVE_OFFICIAL" pada thesis (lihat `metopen.service.reviewTitleReport`).
+ *   active_official adalah status positif setelah promosi otomatis beban aktif:
+ *   TA-03 final non-auto-zero + snapshot KRS TA true.
  *
+ *   released  : booking TA-04 awal hangus karena gagal Metopen/auto-zero,
+ *               tutup periode Metopel (BR-29), atau snapshot KRS TA tidak
+ *               mengonfirmasi mengambil MK TA.
  *   canceled  : mahasiswa tarik diri sebelum dosen merespon
- *   closed    : ditutup final oleh sistem (mis. ditolak permanen dan tidak revisi-able)
+ *   closed    : ditutup sistem (pra-booking saat periode Metopel ditutup, atau
+ *               ditolak permanen dan tidak revisi-able). Bukan cabut mahasiswa.
  *
  * --- LEGACY (jangan dipakai untuk write baru) ---
  * `escalated`, `approved`, `rejected`, `override_approved`, `redirected`,
@@ -40,6 +45,7 @@ export const ADVISOR_REQUEST_STATUS = {
   PENDING_KADEP: "pending_kadep",
   BOOKING_APPROVED: "booking_approved",
   ACTIVE_OFFICIAL: "active_official",
+  RELEASED: "released",
   REVISION_REQUESTED: "revision_requested",
   REJECTED_BY_DOSEN: "rejected_by_dosen",
   REJECTED_BY_KADEP: "rejected_by_kadep",
@@ -94,6 +100,7 @@ export const ADVISOR_REQUEST_HISTORY_RESPONDED_STATUSES = [
   ADVISOR_REQUEST_STATUS.REJECTED_BY_KADEP,
   ADVISOR_REQUEST_STATUS.CANCELED,
   ADVISOR_REQUEST_STATUS.CLOSED,
+  ADVISOR_REQUEST_STATUS.RELEASED,
   ADVISOR_REQUEST_STATUS.REJECTED,
   ADVISOR_REQUEST_STATUS.WITHDRAWN,
   ...ADVISOR_REQUEST_PENDING_KADEP_STATUSES,
@@ -108,18 +115,19 @@ export const ADVISOR_REQUEST_STATUS_LABELS = {
   [ADVISOR_REQUEST_STATUS.PENDING_KADEP]: "Menunggu Validasi KaDep",
   [ADVISOR_REQUEST_STATUS.BOOKING_APPROVED]: "Booking Disetujui",
   [ADVISOR_REQUEST_STATUS.ACTIVE_OFFICIAL]: "Aktif Resmi",
+  [ADVISOR_REQUEST_STATUS.RELEASED]: "Booking Dilepas",
   [ADVISOR_REQUEST_STATUS.REVISION_REQUESTED]: "Perlu Revisi",
   [ADVISOR_REQUEST_STATUS.REJECTED_BY_DOSEN]: "Ditolak Dosen",
   [ADVISOR_REQUEST_STATUS.REJECTED_BY_KADEP]: "Ditolak KaDep",
   [ADVISOR_REQUEST_STATUS.CANCELED]: "Dibatalkan",
   [ADVISOR_REQUEST_STATUS.CLOSED]: "Ditutup",
-  [ADVISOR_REQUEST_STATUS.ESCALATED]: "Eskalasi Legacy",
-  [ADVISOR_REQUEST_STATUS.APPROVED]: "Approved Legacy",
-  [ADVISOR_REQUEST_STATUS.REJECTED]: "Rejected Legacy",
-  [ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED]: "Override Legacy",
-  [ADVISOR_REQUEST_STATUS.REDIRECTED]: "Redirected Legacy",
-  [ADVISOR_REQUEST_STATUS.WITHDRAWN]: "Withdrawn Legacy",
-  [ADVISOR_REQUEST_STATUS.ASSIGNED]: "Assigned Legacy",
+  [ADVISOR_REQUEST_STATUS.ESCALATED]: "Menunggu KaDep (data lama)",
+  [ADVISOR_REQUEST_STATUS.APPROVED]: "Disetujui (data lama)",
+  [ADVISOR_REQUEST_STATUS.REJECTED]: "Ditolak (data lama)",
+  [ADVISOR_REQUEST_STATUS.OVERRIDE_APPROVED]: "Disetujui di atas kuota (data lama)",
+  [ADVISOR_REQUEST_STATUS.REDIRECTED]: "Dialihkan (data lama)",
+  [ADVISOR_REQUEST_STATUS.WITHDRAWN]: "Ditarik (data lama)",
+  [ADVISOR_REQUEST_STATUS.ASSIGNED]: "Ditetapkan (data lama)",
 };
 
 export function isAdvisorRequestBlocking(status) {

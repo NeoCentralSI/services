@@ -5,10 +5,37 @@ vi.mock("../config/prisma.js", () => ({
     student: {
       findUnique: vi.fn(),
     },
-    thesisParticipant: {
+    thesisSupervisors: {
       count: vi.fn(),
     },
+    // Metopel history/archive probes (metopenArchive.helper.js) run on every
+    // access-state resolve; without them the eligibility state throws.
+    researchMethodScore: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    thesis: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    thesisAdvisorRequest: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    studentAcademicYearSnapshot: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
   },
+}));
+
+vi.mock("../helpers/academicYear.helper.js", () => ({
+  resolveOperationalAcademicYear: vi.fn().mockResolvedValue({
+    id: "academic-year-1",
+    year: "2026/2027",
+    semester: "ganjil",
+  }),
+  getActiveAcademicYear: vi.fn().mockResolvedValue({
+    id: "academic-year-1",
+    year: "2026/2027",
+    semester: "ganjil",
+  }),
 }));
 
 vi.mock("../utils/quotaSync.js", () => ({
@@ -38,6 +65,7 @@ vi.mock("../repositories/advisorRequest.repository.js", () => ({
   findActiveAcademicYear: vi.fn(),
   findTopicById: vi.fn(),
   findTopicByIdWithClient: vi.fn(),
+  findAllTopicsWithScienceGroupWithClient: vi.fn(),
   findLecturerForValidation: vi.fn(),
   findLecturerForValidationWithClient: vi.fn(),
   findLecturerQuota: vi.fn(),
@@ -68,6 +96,7 @@ vi.mock("../repositories/advisorRequest.repository.js", () => ({
   createDocument: vi.fn(),
   findAcademicYearById: vi.fn(),
   findSupervisorsByAcademicYear: vi.fn(),
+  findActiveKaDep: vi.fn(),
   createAuditLogWithClient: vi.fn(),
 }));
 
@@ -92,6 +121,8 @@ function createStudentContext({
   gateStatuses = ["completed"],
   supervisors = [],
   proposalStatus = null,
+  ta04AssignmentIssuedAt = null,
+  advisorRequests = [],
 } = {}) {
   return {
     id: "student-1",
@@ -106,6 +137,8 @@ function createStudentContext({
         id: "thesis-1",
         title: "Judul Uji",
         proposalStatus,
+        ta04AssignmentIssuedAt,
+        advisorRequests,
         thesisStatus: { id: "status-metopen", name: "Metopel" },
         thesisSupervisors: supervisors,
         thesisMilestones: gateStatuses.map((status, index) => ({
@@ -176,6 +209,7 @@ describe("advisorRequest.service", () => {
     repo.findLatestByStudent.mockResolvedValue(null);
     repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
     repo.findBlockingConflictByStudent.mockResolvedValue(null);
+    repo.findAllTopicsWithScienceGroupWithClient.mockResolvedValue([]);
     repo.executeTransaction.mockImplementation(async (callback) => callback({ tx: true }));
     repo.upsertDraftByStudentWithClient.mockImplementation(async (_tx, _studentId, patch) => {
       advisorDraft = { ...(advisorDraft ?? {}), ...patch };
@@ -187,6 +221,7 @@ describe("advisorRequest.service", () => {
       ...data,
     }));
     repo.createAuditLogWithClient.mockResolvedValue({});
+    repo.findActiveKaDep.mockResolvedValue(null);
     vi.mocked(countActiveSupervisionsForYear).mockResolvedValue(0);
     vi.mocked(getLecturerQuotaSnapshot).mockResolvedValue({
       lecturerId: "lecturer-1",
@@ -231,6 +266,8 @@ describe("advisorRequest.service", () => {
         createStudentContext({
           supervisors: [createSupervisor()],
           proposalStatus: "accepted",
+          ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
+          advisorRequests: [{ id: "request-assigned", status: "booking_approved" }],
         })
       );
       repo.findBlockingByStudent.mockResolvedValue(null);
@@ -239,7 +276,7 @@ describe("advisorRequest.service", () => {
         service.submitRequest("student-1", {
           lecturerId: "lecturer-1",
           topicId: "topic-1",
-          proposedTitle: "Judul Uji",
+          proposedTitle: "Rancang Bangun Sistem Uji",
           backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
           problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
           proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -259,7 +296,7 @@ describe("advisorRequest.service", () => {
         service.submitRequest("student-1", {
           lecturerId: "lecturer-1",
           topicId: "topic-1",
-          proposedTitle: "Judul Uji",
+          proposedTitle: "Rancang Bangun Sistem Uji",
           backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
           problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
           proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -278,13 +315,13 @@ describe("advisorRequest.service", () => {
       repo.createWithClient.mockResolvedValue({ id: "request-1", status: "pending", routeType: "normal" });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
       repo.findLecturerForValidationWithClient.mockResolvedValue({ id: "lecturer-1", acceptingRequests: true });
 
       await service.submitRequest("student-1", {
         lecturerId: "lecturer-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
         backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
         problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
         proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -314,7 +351,7 @@ describe("advisorRequest.service", () => {
       });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
       repo.findLecturerForValidationWithClient.mockResolvedValue({ id: "lecturer-1", acceptingRequests: true });
       vi.mocked(getLecturerQuotaSnapshot).mockResolvedValue({
         lecturerId: "lecturer-1",
@@ -349,18 +386,20 @@ describe("advisorRequest.service", () => {
     });
 
     it("should allow TA-02 submission without selecting a target lecturer", async () => {
+      // Canon §5.2 + HANDOFF P0-04: TA-02 wajib pakai routeType='dept' (Path A),
+      // BUKAN 'escalated' (Path C — semantik berbeda).
       repo.findStudentAdvisorAccessContext.mockResolvedValue(createStudentContext());
       repo.findBlockingByStudent.mockResolvedValue(null);
       repo.findActiveByStudent.mockResolvedValue(null);
       repo.createWithClient.mockResolvedValue({
         id: "request-ta02-1",
         status: "pending_kadep",
-        routeType: "escalated",
+        routeType: "dept",
         lecturerId: null,
       });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
 
       await service.submitRequest("student-1", {
         lecturerId: null,
@@ -381,7 +420,7 @@ describe("advisorRequest.service", () => {
           studentId: "student-1",
           lecturerId: null,
           status: "pending_kadep",
-          routeType: "escalated",
+          routeType: "dept",
         }),
       );
     });
@@ -393,7 +432,7 @@ describe("advisorRequest.service", () => {
       repo.createWithClient.mockResolvedValue({ id: "request-2", status: "pending", routeType: "normal" });
 
       repo.findActiveAcademicYear.mockResolvedValue({ id: "academic-year-1" });
-      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI" });
+      repo.findTopicByIdWithClient.mockResolvedValue({ id: "topic-1", name: "AI", scienceGroupId: "kbk-1" });
       repo.findLecturerForValidationWithClient.mockResolvedValue({ id: "lecturer-1", acceptingRequests: true });
       vi.mocked(getLecturerQuotaSnapshot).mockResolvedValue({
         lecturerId: "lecturer-1",
@@ -405,7 +444,7 @@ describe("advisorRequest.service", () => {
       await service.submitRequest("student-1", {
         lecturerId: "lecturer-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
         backgroundSummary: "Latar belakang pengujian yang cukup panjang.",
         problemStatement: "Tujuan pengujian yang cukup jelas dan terukur.",
         proposedSolution: "Solusi pengujian yang cukup panjang.",
@@ -424,7 +463,7 @@ describe("advisorRequest.service", () => {
   });
 
   describe("assignAdvisor", () => {
-    it("should assign pembimbing 1 using roleId and thesisStatusId in one transaction", async () => {
+    it("should reject the deprecated direct assignment path before opening a transaction", async () => {
       repo.findById.mockResolvedValue({
         id: "request-1",
         status: "approved",
@@ -432,7 +471,7 @@ describe("advisorRequest.service", () => {
         lecturerId: "lecturer-1",
         academicYearId: "academic-year-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
       });
       repo.findRoleByName.mockResolvedValue({ id: "role-p1", name: ROLES.PEMBIMBING_1 });
       repo.findThesisStatusByName.mockResolvedValue({ id: "status-bimbingan", name: "Bimbingan" });
@@ -458,7 +497,7 @@ describe("advisorRequest.service", () => {
         supervisionQuotaDefault: {
           findUnique: vi.fn().mockResolvedValue(null),
         },
-        thesisParticipant: {
+        thesisSupervisors: {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockResolvedValue([]),
           create: vi.fn().mockResolvedValue({ id: "supervisor-row-1" }),
@@ -467,51 +506,19 @@ describe("advisorRequest.service", () => {
           upsert: vi.fn().mockResolvedValue({ id: "quota-1" }),
         },
         thesisAdvisorRequest: {
-          update: vi.fn().mockResolvedValue({ id: "request-1", status: "assigned" }),
+          update: vi.fn().mockResolvedValue({ id: "request-1", status: "active_official" }),
         },
       };
       repo.executeAssignmentTransaction.mockImplementation(async (callback) => callback(tx));
       repo.findTA04LetterData.mockResolvedValue([null, null, null]);
 
-      const result = await service.assignAdvisor("request-1", "kadep-1");
-
-      expect(tx.thesis.update).toHaveBeenCalledWith({
-        where: { id: "thesis-1" },
-        data: expect.objectContaining({
-          thesisStatusId: "status-bimbingan",
-          thesisTopicId: "topic-1",
-          academicYearId: "academic-year-1",
-        }),
-      });
-      expect(tx.thesisParticipant.create).toHaveBeenCalledWith({
-        data: {
-          thesisId: "thesis-1",
-          lecturerId: "lecturer-1",
-          roleId: "role-p1",
-        },
-        select: { id: true, thesisId: true, lecturerId: true, roleId: true, status: true },
-      });
-      expect(syncLecturerQuotaCurrentCount).toHaveBeenCalledWith(
-        "lecturer-1",
-        "academic-year-1",
-        { client: tx },
+      await expect(service.assignAdvisor("request-1", "kadep-1")).rejects.toThrow(
+        /Penetapan pembimbing mandiri sudah dinonaktifkan/i,
       );
-      expect(tx.thesisAdvisorRequest.update).toHaveBeenCalledWith({
-        where: { id: "request-1" },
-        data: expect.objectContaining({
-          status: "assigned",
-          reviewedBy: "kadep-1",
-        }),
-      });
-      expect(result).toEqual(
-        expect.objectContaining({
-          thesisId: "thesis-1",
-          assignedLecturerId: "lecturer-1",
-        })
-      );
+      expect(repo.executeAssignmentTransaction).not.toHaveBeenCalled();
     });
 
-    it("should reject duplicate pembimbing 1 assignment", async () => {
+    it("should remain disabled even when legacy assignment fixtures contain duplicates", async () => {
       repo.findById.mockResolvedValue({
         id: "request-1",
         status: "approved",
@@ -519,7 +526,7 @@ describe("advisorRequest.service", () => {
         lecturerId: "lecturer-1",
         academicYearId: "academic-year-1",
         topicId: "topic-1",
-        proposedTitle: "Judul Uji",
+        proposedTitle: "Rancang Bangun Sistem Uji",
       });
       repo.findRoleByName.mockResolvedValue({ id: "role-p1", name: ROLES.PEMBIMBING_1 });
       repo.findThesisStatusByName.mockResolvedValue({ id: "status-bimbingan", name: "Bimbingan" });
@@ -542,7 +549,7 @@ describe("advisorRequest.service", () => {
           create: vi.fn(),
           update: vi.fn().mockResolvedValue({ id: "thesis-1" }),
         },
-        thesisParticipant: {
+        thesisSupervisors: {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockResolvedValue([
             {
@@ -565,10 +572,11 @@ describe("advisorRequest.service", () => {
       repo.executeAssignmentTransaction.mockImplementation(async (callback) => callback(tx));
 
       await expect(service.assignAdvisor("request-1", "kadep-1")).rejects.toThrow(
-        "Mahasiswa ini sudah memiliki Pembimbing 1"
+        /Penetapan pembimbing mandiri sudah dinonaktifkan/i,
       );
 
-      expect(tx.thesisParticipant.create).not.toHaveBeenCalled();
+      expect(repo.executeAssignmentTransaction).not.toHaveBeenCalled();
+      expect(tx.thesisSupervisors.create).not.toHaveBeenCalled();
       expect(syncLecturerQuotaCurrentCount).not.toHaveBeenCalled();
       expect(tx.thesisAdvisorRequest.update).not.toHaveBeenCalled();
     });

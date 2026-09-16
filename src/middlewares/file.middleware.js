@@ -1,4 +1,5 @@
 import multer from "multer";
+import { ENV } from "../config/env.js";
 
 const storage = multer.memoryStorage();
 
@@ -14,6 +15,18 @@ function csvFileFilter(req, file, cb) {
 	cb(null, true);
 }
 
+function excelFileFilter(req, file, cb) {
+	const name = (file.originalname || "").toLowerCase();
+	const okMime = [
+		"application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/octet-stream",
+	];
+	const isExcel = okMime.includes(file.mimetype) || /\.(xls|xlsx)$/i.test(name);
+	if (!isExcel) return cb(new Error("Only Excel files are allowed"));
+	cb(null, true);
+}
+
 function thesisFileFilter(req, file, cb) {
 	// Restrict thesis uploads to PDF only so they can be previewed inline
 	const isPdf = file.mimetype === "application/pdf" || (file.originalname || "").toLowerCase().endsWith(".pdf");
@@ -22,15 +35,12 @@ function thesisFileFilter(req, file, cb) {
 }
 
 function seminarDocFileFilter(req, file, cb) {
-	const name = (file.originalname || "").toLowerCase();
-	const allowedMimes = [
-		"application/pdf",
-		"application/vnd.ms-powerpoint",
-		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-	];
-	const allowedExts = [".pdf", ".ppt", ".pptx"];
-	const isAllowed = allowedMimes.includes(file.mimetype) || allowedExts.some((ext) => name.endsWith(ext));
-	if (!isAllowed) return cb(new Error("Only PDF and PPT/PPTX files are allowed for seminar documents"));
+	const isPdf = file.mimetype === "application/pdf" && (file.originalname || "").toLowerCase().endsWith(".pdf");
+	if (!isPdf) {
+		const error = new Error("Format dokumen tidak didukung. Gunakan file PDF.");
+		error.statusCode = 400;
+		return cb(error);
+	}
 	cb(null, true);
 }
 
@@ -49,16 +59,32 @@ function guideFileFilter(req, file, cb) {
 }
 
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+const excelUpload = multer({ storage, fileFilter: excelFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 const thesisUpload = multer({ storage, fileFilter: thesisFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
-const seminarDocUpload = multer({ storage, fileFilter: seminarDocFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
+const seminarDocUpload = multer({
+	storage,
+	fileFilter: seminarDocFileFilter,
+	limits: { fileSize: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB * 1024 * 1024 },
+});
 const guideUpload = multer({ storage, fileFilter: guideFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 
 export const uploadCsv = upload.single("file");
+export const uploadExcelFile = excelUpload.single("file");
+/** Metopel attendance: legacy `file` (1) and/or `files` (1–2) multipart fields. */
+export const uploadExcelAttendance = excelUpload.fields([
+	{ name: "file", maxCount: 1 },
+	{ name: "files", maxCount: 2 },
+]);
 export const uploadThesisFile = thesisUpload.single("file");
 export const uploadInternshipFile = thesisUpload.single("file");
 export const uploadSeminarDocFile = seminarDocUpload.single("file");
 export const uploadGuideFile = guideUpload.single("file");
 export const uploadYudisiumDocFile = thesisUpload.single("file");
+export const uploadCplRepairFiles = thesisUpload.fields([
+  { name: "recommendation", maxCount: 1 },
+  { name: "settlement", maxCount: 1 },
+]);
+export const parseGuidanceRequestForm = upload.none();
 
 export default upload;
 

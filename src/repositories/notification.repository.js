@@ -6,7 +6,12 @@ import prisma from "../config/prisma.js";
  * @param {object} options - { limit, offset, onlyUnread }
  */
 // Internal notification types used as state-tracking records (not user-facing)
-const INTERNAL_NOTIFICATION_TITLES = ["[TRANSFER_REQUEST]", "[TRANSFER_REQUEST_KADEP]", "REQUEST_SUPERVISOR_2"];
+export const INTERNAL_NOTIFICATION_TITLES = [
+	"[TRANSFER_REQUEST]",
+	"[TRANSFER_REQUEST_KADEP]",
+	"REQUEST_SUPERVISOR_2",
+	"REQUEST_SUPERVISOR_2_KADEP",
+];
 
 export async function findNotificationsByUserId(userId, { limit = 20, offset = 0, onlyUnread = false } = {}) {
 	const where = { userId, title: { notIn: INTERNAL_NOTIFICATION_TITLES } };
@@ -38,8 +43,10 @@ export async function countUnreadNotifications(userId) {
  * @param {string} userId
  */
 export async function markNotificationAsRead(notificationId, userId) {
+	// Record internal (state-tracking) tidak boleh "diproses" lewat jalur
+	// read-notification umum — hanya service pemiliknya yang boleh menutupnya.
 	return await prisma.notification.updateMany({
-		where: { id: notificationId, userId },
+		where: { id: notificationId, userId, title: { notIn: INTERNAL_NOTIFICATION_TITLES } },
 		data: { isRead: true },
 	});
 }
@@ -49,8 +56,10 @@ export async function markNotificationAsRead(notificationId, userId) {
  * @param {string} userId
  */
 export async function markAllNotificationsAsRead(userId) {
+	// F2-1: WAJIB exclude record internal — tanpa ini, "tandai semua dibaca"
+	// memusnahkan pending request (Pembimbing 2 / transfer) secara senyap.
 	return await prisma.notification.updateMany({
-		where: { userId, isRead: false },
+		where: { userId, isRead: false, title: { notIn: INTERNAL_NOTIFICATION_TITLES } },
 		data: { isRead: true },
 	});
 }
@@ -85,7 +94,7 @@ export async function createNotificationsMany(dataArray = []) {
  */
 export async function deleteNotification(notificationId, userId) {
 	return await prisma.notification.deleteMany({
-		where: { id: notificationId, userId },
+		where: { id: notificationId, userId, title: { notIn: INTERNAL_NOTIFICATION_TITLES } },
 	});
 }
 
@@ -95,7 +104,7 @@ export async function deleteNotification(notificationId, userId) {
  */
 export async function deleteAllNotifications(userId) {
 	return await prisma.notification.deleteMany({
-		where: { userId },
+		where: { userId, title: { notIn: INTERNAL_NOTIFICATION_TITLES } },
 	});
 }
 

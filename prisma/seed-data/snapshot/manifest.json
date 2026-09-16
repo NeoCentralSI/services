@@ -1,0 +1,26 @@
+{
+  "exportedAt": "2026-08-20T13:28:31.827Z",
+  "tables": {
+    "AcademicYear": 2,
+    "ThesisTopic": 5,
+    "ThesisStatus": 8,
+    "UserRole": 11,
+    "ScienceGroup": 4,
+    "User": 689,
+    "Lecturer": 17,
+    "Student": 651,
+    "UserHasRole": 704,
+    "Thesis": 301,
+    "ThesisSupervisors": 448,
+    "ThesisAdvisorRequest": 0,
+    "ThesisMilestoneTemplate": 35,
+    "ThesisMilestone": 1484,
+    "ThesisGuidance": 1699,
+    "ThesisProposalVersion": 213,
+    "ResearchMethodScore": 213,
+    "Document": 219,
+    "StudentAcademicYearSnapshot": 2,
+    "MetopenCpmk": 8,
+    "MetopenAssessmentCriteria": 8
+  }
+}

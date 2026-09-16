@@ -1,4 +1,4 @@
-import { sendLogbookReminders } from "../services/insternship/activity.service.js";
+import { sendLogbookReminders } from "../services/insternship/pelaksanaan.service.js";
 
 /**
  * Job to send internship logbook reminders to students.

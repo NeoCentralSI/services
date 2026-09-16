@@ -22,35 +22,40 @@ export const getAllThesesMasterData = async () => {
     const theses = await masterDataTaRepository.findAllTheses();
 
     // Map data to the format expected by the frontend table
-    return theses.map((thesis) => ({
-        id: thesis.id,
-        title: thesis.title,
-        rating: thesis.rating,
-        startDate: thesis.startDate,
-        isProposal: thesis.isProposal,
-        student: {
-            id: thesis.student?.id,
-            nim: thesis.student?.user?.identityNumber,
-            name: thesis.student?.user?.fullName
-        },
-        topic: thesis.thesisTopic ? {
-            id: thesis.thesisTopic.id,
-            name: thesis.thesisTopic.name
-        } : null,
-        supervisors: thesis.thesisSupervisors.map(ts => ({
-            lecturerId: ts.lecturerId,
-            name: ts.lecturer?.user?.fullName,
-            roleId: ts.roleId,
-            roleName: ts.role?.name
-        })),
-        status: thesis.thesisStatus?.name || "Belum Ada Status",
-        thesisStatusId: thesis.thesisStatusId || "none",
-        academicYear: thesis.academicYear ? {
-            id: thesis.academicYear.id,
-            semester: thesis.academicYear.semester,
-            year: thesis.academicYear.year
-        } : null
-    }));
+    return theses.map((thesis) => {
+        const statusName = thesis.thesisStatus?.name || "Belum Ada Status";
+        const isCompleted = statusName === "Selesai" || statusName === "Lulus";
+
+        return {
+            id: thesis.id,
+            title: thesis.title,
+            rating: isCompleted ? null : thesis.rating,
+            startDate: thesis.startDate,
+            isProposal: thesis.isProposal,
+            student: {
+                id: thesis.student?.id,
+                nim: thesis.student?.user?.identityNumber,
+                name: thesis.student?.user?.fullName
+            },
+            topic: thesis.thesisTopic ? {
+                id: thesis.thesisTopic.id,
+                name: thesis.thesisTopic.name
+            } : null,
+            supervisors: thesis.thesisSupervisors.map(ts => ({
+                lecturerId: ts.lecturerId,
+                name: ts.lecturer?.user?.fullName,
+                roleId: ts.roleId,
+                roleName: ts.role?.name
+            })),
+            status: thesis.thesisStatus?.name || "Belum Ada Status",
+            thesisStatusId: thesis.thesisStatusId || "none",
+            academicYear: thesis.academicYear ? {
+                id: thesis.academicYear.id,
+                semester: thesis.academicYear.semester,
+                year: thesis.academicYear.year
+            } : null
+        };
+    });
 };
 
 export const getAllThesisStatuses = async () => {
@@ -293,6 +298,15 @@ export const importThesesMasterData = async (rows) => {
                 if (isNaN(startDate.getTime())) startDate = null;
             }
 
+            // Status-aware rating defaulting
+            let assignedRating = "ONGOING";
+            const rowStatusStr = String(row["Status"] || "").trim().toLowerCase();
+            if (rowStatusStr === "gagal") {
+                assignedRating = "FAILED";
+            } else if (rowStatusStr === "dibatalkan") {
+                assignedRating = "CANCELLED";
+            }
+
             const payload = {
                 title: row["Judul Tugas Akhir"] !== "-" ? row["Judul Tugas Akhir"] : null,
                 thesisTopicId: topicId,
@@ -301,7 +315,7 @@ export const importThesesMasterData = async (rows) => {
                 startDate: startDate || (existingThesis ? existingThesis.startDate : new Date()),
                 rating: ["ONGOING", "SLOW", "AT_RISK", "FAILED", "CANCELLED"].includes(row["Rating"])
                     ? row["Rating"]
-                    : (existingThesis ? existingThesis.rating : "ONGOING"),
+                    : (existingThesis ? existingThesis.rating : assignedRating),
                 supervisors: supervisors.length > 0 ? supervisors : undefined
             };
 

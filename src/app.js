@@ -13,7 +13,8 @@ import { checkThesisFileAccess } from "./middlewares/fileAccess.middleware.js";
 const app = express();
 
 app.use(cors(createCorsOptions()));
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(morgan("dev"));
 app.use((req, res, next) => {
   const writeLocked = ["true", "1", "yes"].includes(
@@ -43,17 +44,14 @@ try {
   // Protect yudisium uploads with authGuard
   app.use("/uploads/yudisium", authGuard, express.static(path.join(uploadsDir, "yudisium")));
 
-  // Internship and metopen uploads now require authentication (basic gate).
-  app.use("/uploads/internship", authGuard, express.static(path.join(uploadsDir, "internship")));
-  app.use("/uploads/metopen", authGuard, express.static(path.join(uploadsDir, "metopen")));
-  app.use("/uploads/logbooks", authGuard, express.static(path.join(uploadsDir, "logbooks")));
-  app.use("/uploads/field-assessments", authGuard, express.static(path.join(uploadsDir, "field-assessments")));
-  app.use("/uploads/documents", authGuard, (_req, res) => {
-    res.status(404).json({
-      success: false,
-      message: "Akses dokumen akademik harus melalui endpoint /documents/:id/download",
-    });
-  });
+  // Serve internship and general uploads statically
+  app.use("/uploads/internship", express.static(path.join(uploadsDir, "internship")));
+  app.use("/uploads/general", express.static(path.join(uploadsDir, "general")));
+  app.use("/uploads/logbooks", express.static(path.join(uploadsDir, "logbooks")));
+  app.use("/uploads/field-assessments", express.static(path.join(uploadsDir, "field-assessments")));
+  app.use("/uploads/seminar", express.static(path.join(uploadsDir, "seminar")));
+  // Backward compatibility for documents generated before the folder rename.
+  app.use("/uploads/seminar-minutes", express.static(path.join(uploadsDir, "seminar")));
 
   console.log("📁 Serving authenticated uploads (thesis, yudisium, metopen, internship) and guarded document downloads via /documents/:id/download");
 } catch (err) {
@@ -85,6 +83,7 @@ try {
     }
   }
   console.log(`🧩 Routes mounted (${mounted.length}): ${mounted.join(", ") || "(none)"}`);
+  console.log("--------------------------------------------------");
 } catch (e) {
   console.error("❌ Failed scanning routes directory:", e.stack || e.message);
 }

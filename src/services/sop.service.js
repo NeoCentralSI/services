@@ -54,7 +54,7 @@ export async function listSop(category) {
         where,
         include: {
             documentType: true,
-            user: {
+            uploader: {
                 select: {
                     fullName: true
                 }
@@ -74,7 +74,7 @@ export async function listSop(category) {
         url: `/${doc.filePath}`,
         size: 0,
         updatedAt: doc.updatedAt.toISOString(),
-        uploadedBy: doc.user?.fullName
+        uploadedBy: doc.uploader?.fullName
     }));
 }
 

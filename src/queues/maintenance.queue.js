@@ -5,12 +5,18 @@ import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
-import { runAdvisorWithdrawReminderJob } from "../jobs/advisor-withdraw-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
-import { finalizeCompletedYudisium } from "../jobs/yudisium-finalize.job.js";
+import { runQuotaCurrentCountSyncJob } from "../jobs/quota-sync.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
+import {
+  runAcademicEventReminderJob,
+  runExaminerNoResponseReminderJob,
+  runYudisiumRegistrationClosedReminderJob,
+  runYudisiumRegistrationClosingReminderJob,
+  runYudisiumRegistrationOpenReminderJob,
+} from "../jobs/academic-event-notification.job.js";
 
 function buildRedisConnection(url) {
   try {
@@ -30,36 +36,64 @@ function buildRedisConnection(url) {
 const connection = { connection: buildRedisConnection(ENV.REDIS_URL) };
 
 export const MAINTENANCE_QUEUE = "maintenance";
+const MAINTENANCE_ENABLED =
+  ENV.ENABLE_CRON === true && ENV.SKIP_REDIS !== true && ENV.NODE_ENV !== "test";
 
-export const maintenanceQueue = new Queue(MAINTENANCE_QUEUE, {
-  ...connection,
-  // global throughput limiter (optional)
-  limiter: { max: 100, duration: 60_000 },
-});
+let queueReady = true;
+
+export const maintenanceQueue = MAINTENANCE_ENABLED
+  ? new Queue(MAINTENANCE_QUEUE, {
+      ...connection,
+      limiter: { max: 100, duration: 60_000 },
+    })
+  : null;
+
+if (maintenanceQueue) {
+  maintenanceQueue.on("error", (err) => {
+    if (!queueReady) return;
+    queueReady = false;
+    console.warn("⚠️  Maintenance queue unavailable (Redis/BullMQ init failed). Background jobs disabled. API server will continue normally.");
+    console.warn("   Cause:", err.message);
+    if (err.message.includes("Redis version")) {
+      console.warn("   Fix: upgrade Redis to >= 5.0 (recommended 7.x). Current Redis is too old for BullMQ.");
+    }
+  });
+}
+
+async function safeAdd(name, opts) {
+  if (!MAINTENANCE_ENABLED || !maintenanceQueue) {
+    if (ENV.NODE_ENV !== "test") {
+      console.log(`⏭️  Skip scheduling ${name} (maintenance jobs disabled).`);
+    }
+    return false;
+  }
+  if (!queueReady) {
+    console.warn(`⏭️  Skip scheduling ${name} (queue unavailable).`);
+    return false;
+  }
+  try {
+    await maintenanceQueue.add(name, {}, opts);
+    return true;
+  } catch (err) {
+    queueReady = false;
+    console.warn(`⚠️  Failed to schedule ${name} (non-fatal): ${err.message}`);
+    return false;
+  }
+}
 
 export async function scheduleDailyThesisStatus() {
-  // Add or update a repeatable job that runs on a cron schedule
-  // Default: once every 24 hours at 02:30 WIB. Override via ENV.THESIS_STATUS_CRON and ENV.THESIS_STATUS_TZ.
   const pattern = ENV.THESIS_STATUS_CRON || "30 2 * * *";
   const tz = ENV.THESIS_STATUS_TZ || "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "thesis-status",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable thesis-status job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("thesis-status", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable thesis-status job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "thesis-status");
     if (jobInfo) {
       const nextIso = jobInfo.next ? new Date(jobInfo.next).toISOString() : "unknown";
       const nextLocal = jobInfo.next ? new Date(jobInfo.next).toLocaleString() : "unknown";
-      // BullMQ v5 returns a `key` for repeatables; `id` may be undefined
       console.log(`📌 Repeat registered: next=${nextIso} (local ${nextLocal}) key=${jobInfo.key || "n/a"}`);
     }
   } catch (e) {
@@ -68,53 +102,49 @@ export async function scheduleDailyThesisStatus() {
 }
 
 export async function scheduleAcademicYearSync() {
-  const pattern = ENV.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *"; // Midnight + 1 hr
+  const pattern = ENV.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *";
   const tz = ENV.ACADEMIC_YEAR_SYNC_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "academic-year-sync",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("academic-year-sync", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 5,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+  if (ok) console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
 }
 
-/**
- * Schedule automatic SIA sync job
- * Default: every 6 hours. Override via ENV.SIA_SYNC_CRON
- */
+export async function scheduleQuotaCurrentCountSync() {
+  const pattern = ENV.QUOTA_SYNC_CRON || "15 1 * * *";
+  const tz = ENV.QUOTA_SYNC_TZ || "Asia/Jakarta";
+  const ok = await safeAdd("quota-current-count-sync", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+  if (ok) console.log(`🗓️  Scheduled repeatable quota-current-count-sync job with cron: "${pattern}" tz="${tz}"`);
+}
+
 export async function scheduleSiaSync() {
-  // Check if SIA sync cron is enabled
   if (ENV.ENABLE_SIA_CRON === false || ENV.ENABLE_SIA_CRON === "false") {
     console.log("⏸️  SIA sync cron is disabled (ENABLE_SIA_CRON=false)");
     return;
   }
-
-  // Default: every 6 hours at minute 0. Override via ENV.SIA_SYNC_CRON
   const pattern = ENV.SIA_SYNC_CRON || "0 */6 * * *";
   const tz = ENV.SIA_SYNC_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "sia-sync",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-      attempts: 3,
-      backoff: {
-        type: "exponential",
-        delay: 2000,
-      },
-    }
-  );
-  console.log(`🔄 Scheduled repeatable SIA sync job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("sia-sync", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 2000 },
+  });
+  if (ok) console.log(`🔄 Scheduled repeatable SIA sync job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "sia-sync");
     if (jobInfo) {
@@ -127,28 +157,14 @@ export async function scheduleSiaSync() {
   }
 }
 
-/**
- * Schedule daily guidance reminder job
- * Default: every day at 07:00 WIB. Override via ENV.GUIDANCE_REMINDER_CRON
- * Sends FCM notifications to students and lecturers who have guidance scheduled for today
- */
 export async function scheduleGuidanceReminder() {
-  // Default: every day at 07:00 WIB
   const pattern = ENV.GUIDANCE_REMINDER_CRON || "0 7 * * *";
   const tz = ENV.GUIDANCE_REMINDER_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "guidance-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-    }
-  );
-  console.log(`📅 Scheduled repeatable guidance reminder job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("guidance-reminder", { repeat: { pattern, tz }, removeOnComplete: 50, removeOnFail: 100 });
+  if (ok) console.log(`📅 Scheduled repeatable guidance reminder job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "guidance-reminder");
     if (jobInfo) {
@@ -161,28 +177,14 @@ export async function scheduleGuidanceReminder() {
   }
 }
 
-/**
- * Schedule daily thesis reminder job for all active thesis students
- * Default: every day at 09:00 WIB. Override via ENV.DAILY_THESIS_REMINDER_CRON
- * Sends FCM notifications to students who are currently working on their thesis
- */
 export async function scheduleDailyThesisReminder() {
-  // Default: every day at 09:00 WIB
   const pattern = ENV.DAILY_THESIS_REMINDER_CRON || "0 9 * * *";
   const tz = ENV.DAILY_THESIS_REMINDER_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "daily-thesis-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-    }
-  );
-  console.log(`🎓 Scheduled repeatable daily thesis reminder job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("daily-thesis-reminder", { repeat: { pattern, tz }, removeOnComplete: 50, removeOnFail: 100 });
+  if (ok) console.log(`🎓 Scheduled repeatable daily thesis reminder job with cron: "${pattern}" tz="${tz}"`);
 
   try {
+    if (!ok) return;
     const repeats = await maintenanceQueue.getRepeatableJobs();
     const jobInfo = repeats.find((r) => r.name === "daily-thesis-reminder");
     if (jobInfo) {
@@ -195,143 +197,153 @@ export async function scheduleDailyThesisReminder() {
   }
 }
 
-/**
- * Schedule advisor request withdraw unlock reminder job.
- * Default: hourly at minute 0, so students are notified soon after the 72h lock expires.
- */
-export async function scheduleAdvisorWithdrawReminder() {
-  const pattern = ENV.ADVISOR_WITHDRAW_REMINDER_CRON || "0 * * * *";
-  const tz = ENV.ADVISOR_WITHDRAW_REMINDER_TZ || "Asia/Jakarta";
-
-  await maintenanceQueue.add(
-    "advisor-withdraw-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: 50,
-      removeOnFail: 100,
-    }
-  );
-  console.log(`📣 Scheduled repeatable advisor withdraw reminder job with cron: "${pattern}" tz="${tz}"`);
-}
-
-export async function scheduleYudisiumFinalize() {
-  // Run daily at 00:15 WIB to finalize yudisium events whose event date has passed
-  const pattern = "15 0 * * *";
-  const tz = "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "yudisium-finalize",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled yudisium-finalize job with cron: "${pattern}" tz="${tz}"`);
-}
-
 export async function scheduleDailyInternshipStatus() {
-  // Run daily at 00:00 WIB to enforce internship reporting/seminar deadlines
   const pattern = ENV.INTERNSHIP_STATUS_CRON || "0 0 * * *";
   const tz = ENV.INTERNSHIP_STATUS_TZ || "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "internship-status",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable internship-status job with cron: "${pattern}" tz="${tz}"`);
+  const ok = await safeAdd("internship-status", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable internship-status job with cron: "${pattern}" tz="${tz}"`);
 }
 
-/**
- * Schedule internship seminar reminder job (every minute)
- */
 export async function scheduleInternshipSeminarReminder() {
-  const pattern = "* * * * *"; // Every minute
+  const pattern = "* * * * *";
   const tz = "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "internship-seminar-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
-  );
-  console.log(`🗓️  Scheduled repeatable internship-seminar-reminder job with cron: "${pattern}"`);
+  const ok = await safeAdd("internship-seminar-reminder", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable internship-seminar-reminder job with cron: "${pattern}"`);
 }
 
-/**
- * Schedule internship logbook reminder job (16:00 and 17:00 WIB)
- */
 export async function scheduleInternshipLogbookReminder() {
-  const pattern = "0 16,17 * * *"; 
+  const pattern = "0 16,17 * * *";
   const tz = "Asia/Jakarta";
-  await maintenanceQueue.add(
-    "internship-logbook-reminder",
-    {},
-    {
-      repeat: { pattern, tz },
-      removeOnComplete: true,
-      removeOnFail: true,
-    }
+  const ok = await safeAdd("internship-logbook-reminder", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
+  if (ok) console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
+async function scheduleRepeatableMaintenanceJob(name, pattern, tz = "Asia/Jakarta") {
+  const ok = await safeAdd(name, { repeat: { pattern, tz }, removeOnComplete: 50, removeOnFail: 100 });
+  if (ok) console.log(`🗓️  Scheduled repeatable ${name} job with cron: "${pattern}" tz="${tz}"`);
+}
+
+export async function scheduleAcademicEventHMinusOneReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "academic-event-h-minus-one-reminder",
+    ENV.ACADEMIC_EVENT_H_MINUS_ONE_CRON || "0 18 * * *",
+    ENV.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta"
   );
-  console.log(`🗓️  Scheduled repeatable internship-logbook-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
+export async function scheduleAcademicEventDayReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "academic-event-day-reminder",
+    ENV.ACADEMIC_EVENT_DAY_CRON || "0 7 * * *",
+    ENV.ACADEMIC_EVENT_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationClosingReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-closing-reminder",
+    ENV.YUDISIUM_REGISTRATION_CLOSING_REMINDER_CRON || "0 12 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationOpenReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-open-reminder",
+    ENV.YUDISIUM_REGISTRATION_OPEN_REMINDER_CRON || "0 6 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleYudisiumRegistrationClosedReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "yudisium-registration-closed-reminder",
+    ENV.YUDISIUM_REGISTRATION_CLOSED_REMINDER_CRON || "0 6 * * *",
+    ENV.YUDISIUM_REGISTRATION_REMINDER_TZ || "Asia/Jakarta"
+  );
+}
+
+export async function scheduleExaminerNoResponseReminder() {
+  await scheduleRepeatableMaintenanceJob(
+    "examiner-no-response-reminder",
+    ENV.EXAMINER_NO_RESPONSE_REMINDER_CRON || "0 8 * * *",
+    ENV.EXAMINER_NO_RESPONSE_REMINDER_TZ || "Asia/Jakarta"
+  );
 }
 
 // Worker to process maintenance jobs
-export const maintenanceWorker = new Worker(
-  MAINTENANCE_QUEUE,
-  async (job) => {
-    switch (job.name) {
-      case "thesis-status":
-        await runThesisStatusJob();
-        break;
-      case "sia-sync":
-        await runSiaSync();
-        break;
-      case "academic-year-sync":
-        await syncActiveAcademicYear();
-        break;
-      case "guidance-reminder":
-        await runGuidanceReminderJob();
-        break;
-      case "daily-thesis-reminder":
-        await runDailyThesisReminderJob();
-        break;
-      case "advisor-withdraw-reminder":
-        await runAdvisorWithdrawReminderJob();
-        break;
-      case "yudisium-finalize":
-        await finalizeCompletedYudisium();
-        break;
-      case "internship-status":
-        await runInternshipStatusJob();
-        break;
-      case "internship-seminar-reminder":
-        await runInternshipSeminarReminderJob();
-        break;
-      case "internship-logbook-reminder":
-        await runInternshipLogbookReminderJob();
-        break;
-      default:
-        // no-op
-        break;
-    }
-  },
-  { ...connection, concurrency: 1 }
-);
+export const maintenanceWorker = MAINTENANCE_ENABLED
+  ? new Worker(
+      MAINTENANCE_QUEUE,
+      async (job) => {
+        switch (job.name) {
+          case "thesis-status":
+            await runThesisStatusJob();
+            break;
+          case "sia-sync":
+            await runSiaSync();
+            break;
+          case "academic-year-sync":
+            await syncActiveAcademicYear();
+            break;
+          case "quota-current-count-sync":
+            await runQuotaCurrentCountSyncJob();
+            break;
+          case "guidance-reminder":
+            await runGuidanceReminderJob();
+            break;
+          case "daily-thesis-reminder":
+            await runDailyThesisReminderJob();
+            break;
+          case "internship-status":
+            await runInternshipStatusJob();
+            break;
+          case "internship-seminar-reminder":
+            await runInternshipSeminarReminderJob();
+            break;
+          case "internship-logbook-reminder":
+            await runInternshipLogbookReminderJob();
+            break;
+          case "academic-event-h-minus-one-reminder":
+            await runAcademicEventReminderJob({ offsetDays: 1, phase: "h_minus_one" });
+            break;
+          case "academic-event-day-reminder":
+            await runAcademicEventReminderJob({ offsetDays: 0, phase: "event_day" });
+            break;
+          case "yudisium-registration-closing-reminder":
+            await runYudisiumRegistrationClosingReminderJob();
+            break;
+          case "yudisium-registration-open-reminder":
+            await runYudisiumRegistrationOpenReminderJob();
+            break;
+          case "yudisium-registration-closed-reminder":
+            await runYudisiumRegistrationClosedReminderJob();
+            break;
+          case "examiner-no-response-reminder":
+            await runExaminerNoResponseReminderJob();
+            break;
+          default:
+            // no-op
+            break;
+        }
+      },
+      { ...connection, concurrency: 1 }
+    )
+  : null;
 
-maintenanceWorker.on("completed", (job) => {
-  if (ENV.NODE_ENV !== "test") console.log(`🧹 Maintenance job done → ${job.name} (${job.id})`);
-});
-maintenanceWorker.on("failed", (job, err) => {
-  console.error(`❌ Maintenance job failed → ${job?.name} (${job?.id}):`, err?.message || err);
-});
-maintenanceWorker.on("ready", () => {
-  console.log("🛠️  Maintenance worker is ready and listening for jobs");
-});
+if (maintenanceWorker) {
+  maintenanceWorker.on("error", (err) => {
+    if (ENV.NODE_ENV === "test") return;
+    console.warn("⚠️  Maintenance worker error (non-fatal):", err.message);
+  });
+
+  maintenanceWorker.on("completed", (job) => {
+    if (ENV.NODE_ENV !== "test") console.log(`🧹 Maintenance job done → ${job.name} (${job.id})`);
+  });
+  maintenanceWorker.on("failed", (job, err) => {
+    console.error(`❌ Maintenance job failed → ${job?.name} (${job?.id}):`, err?.message || err);
+  });
+  maintenanceWorker.on("ready", () => {
+    console.log("🛠️  Maintenance worker is ready and listening for jobs");
+  });
+}

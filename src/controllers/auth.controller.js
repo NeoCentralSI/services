@@ -56,12 +56,16 @@ export async function updateProfileHandler(req, res, next) {
 		const { phoneNumber } = req.body || {};
 		const userId = req.user.sub;
 
+		console.log(`[updateProfileHandler] Updating user ${userId}:`, { phoneNumber });
+
 		// Update user
 		const updatedUser = await prisma.user.update({
 			where: { id: userId },
 			data: {
 				phoneNumber: phoneNumber || null,
 			},
+
+
 			include: {
 				userHasRoles: {
 					include: {
@@ -91,6 +95,7 @@ export async function updateProfileHandler(req, res, next) {
 			phoneNumber: updatedUser.phoneNumber,
 			isVerified: updatedUser.isVerified,
 			avatarUrl: updatedUser.avatarUrl || null,
+			gender: updatedUser.gender ?? null,
 			roles: updatedUser.userHasRoles.map((uhr) => ({
 				id: uhr.role.id,
 				name: uhr.role.name,

@@ -19,7 +19,7 @@ describe("error.middleware", () => {
 
   it("maps Prisma missing-table errors to an actionable schema sync message", () => {
     const error = new Prisma.PrismaClientKnownRequestError(
-      "The table `thesis_participants` does not exist in the current database.",
+      "The table `thesis_supervisors` does not exist in the current database.",
       {
         code: "P2021",
         clientVersion: "test",

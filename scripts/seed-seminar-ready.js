@@ -1,18 +1,23 @@
 /**
- * Seed Seminar-Ready Data
+ * Seed Seminar-Ready Data (Bimbingan Only)
  *
- * Makes a student seminar-ready by fulfilling all checklist requirements:
- *   1. Creates additional completed guidances (to reach MIN_BIMBINGAN)
- *   2. Creates mock seminars from other students + attendance records (to reach MIN_KEHADIRAN)
- *   3. Sets all supervisors' seminarReady = true
+ * Makes a list of students seminar-ready by fulfilling bimbingan and supervisor requirements:
+ *   1. Creates additional completed guidances (to reach MIN_BIMBINGAN = 8)
+ *   2. Sets all supervisors' seminarReady = true
+ *
+ * Target Students:
+ *   - Mustafa (2211522036)
+ *   - Nabil (2211522018)
+ *   - Ilham (2211522028)
+ *   - Khalied (2211523030)
+ *   - Fariz (2211523034)
+ *   - Nouval (2211521020)
  *
  * Usage:
- *   node scripts/seed-seminar-ready.js                    # default: mustafa_2211522036
- *   node scripts/seed-seminar-ready.js 2211522018         # specify student by identity number
- *   node scripts/seed-seminar-ready.js --reset            # reset seminar-ready state for default student
- *   node scripts/seed-seminar-ready.js 2211522018 --reset # reset specific student
+ *   node scripts/seed-seminar-ready.js
+ *   node scripts/seed-seminar-ready.js --reset
  *
- * Respects env: SEMINAR_MIN_BIMBINGAN (default 8), SEMINAR_MIN_KEHADIRAN (default 8)
+ * Note: Attendance requirements are now handled via archive/manual entry, so they are removed from this script.
  */
 
 import { PrismaClient } from "../src/generated/prisma/index.js";
@@ -22,9 +27,15 @@ dotenv.config();
 
 const prisma = new PrismaClient();
 
-const MIN_BIMBINGAN = Number(process.env.SEMINAR_MIN_BIMBINGAN) || 8;
-const MIN_KEHADIRAN = Number(process.env.SEMINAR_MIN_KEHADIRAN) || 8;
-const DEFAULT_IDENTITY = "2211522036"; // Mustafa Fathur Rahman
+const MIN_BIMBINGAN = 8;
+const TARGET_IDENTITIES = [
+  "2211522036", // Mustafa Fathur Rahman
+  "2211522018", // Nabil
+  "2211522028", // Ilham
+  "2211523030", // Khalied
+  "2211523034", // Fariz
+  "2211521020", // Nouval
+];
 
 // ============================================================
 // HELPERS
@@ -32,18 +43,15 @@ const DEFAULT_IDENTITY = "2211522036"; // Mustafa Fathur Rahman
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  let identityNumber = DEFAULT_IDENTITY;
   let reset = false;
 
   for (const arg of args) {
     if (arg === "--reset") {
       reset = true;
-    } else if (/^\d+$/.test(arg)) {
-      identityNumber = arg;
     }
   }
 
-  return { identityNumber, reset };
+  return { reset };
 }
 
 async function getStudentData(identityNumber) {
@@ -55,7 +63,8 @@ async function getStudentData(identityNumber) {
   });
 
   if (!user || !user.student) {
-    throw new Error(`Student with identity number ${identityNumber} not found`);
+    console.warn(`  ⚠️ Student with identity number ${identityNumber} not found, skipping.`);
+    return null;
   }
 
   const thesis = await prisma.thesis.findFirst({
@@ -73,7 +82,8 @@ async function getStudentData(identityNumber) {
   });
 
   if (!thesis) {
-    throw new Error(`No thesis found for student ${user.fullName}`);
+    console.warn(`  ⚠️ No thesis found for student ${user.fullName}, skipping.`);
+    return null;
   }
 
   return { user, student: user.student, thesis };
@@ -91,11 +101,12 @@ async function seedGuidances(thesis) {
     return;
   }
 
-  console.log(`  📋 Adding ${needed} completed guidances (${completedCount} → ${completedCount + needed})`);
+  console.log(`  📋 Adding ${needed} completed guidances (${completedCount} → ${MIN_BIMBINGAN})`);
 
   const primarySupervisor = thesis.thesisSupervisors[0];
   if (!primarySupervisor) {
-    throw new Error("No supervisor found for thesis");
+    console.warn("  ⚠️ No supervisor found for thesis, skipping guidances.");
+    return;
   }
 
   const topics = [
@@ -120,12 +131,13 @@ async function seedGuidances(thesis) {
     "Slide presentasi sudah baik. Fokus pada demo sistem saat seminar.",
   ];
 
-  // Start dates after existing guidances
-  const baseDate = new Date("2025-12-01");
+  // Use recent dates
+  const baseDate = new Date();
+  baseDate.setDate(baseDate.getDate() - (needed * 7)); // Look back 1 week per guidance needed
 
   for (let i = 0; i < needed; i++) {
     const date = new Date(baseDate);
-    date.setDate(date.getDate() + i * 14); // every 2 weeks
+    date.setDate(baseDate.getDate() + i * 7); 
 
     await prisma.thesisGuidance.create({
       data: {
@@ -136,7 +148,7 @@ async function seedGuidances(thesis) {
         duration: 60,
         studentNotes: topics[i % topics.length],
         supervisorFeedback: feedbacks[i % feedbacks.length],
-        sessionSummary: `Bimbingan membahas ${topics[i % topics.length].toLowerCase()}. Mahasiswa menunjukkan progress yang baik.`,
+        sessionSummary: `Bimbingan membahas ${topics[i % topics.length].toLowerCase()}. (Seeded for readiness)`,
         status: "completed",
         completedAt: new Date(date.getTime() + 60 * 60 * 1000),
       },
@@ -146,115 +158,13 @@ async function seedGuidances(thesis) {
 }
 
 // ============================================================
-// 2. SEED SEMINAR ATTENDANCE
-// ============================================================
-async function seedAttendance(student, thesis) {
-  // Count existing attendance
-  const existingAttendance = await prisma.thesisSeminarAudience.count({
-    where: {
-      studentId: student.id,
-      isPresent: true,
-    },
-  });
-
-  const needed = MIN_KEHADIRAN - existingAttendance;
-
-  if (needed <= 0) {
-    console.log(`  ⏭️  Already has ${existingAttendance}/${MIN_KEHADIRAN} seminar attendances`);
-    return;
-  }
-
-  console.log(`  📋 Creating ${needed} seminar attendance records (${existingAttendance} → ${existingAttendance + needed})`);
-
-  // Find other students' theses (not this student's) to create mock seminars
-  const otherTheses = await prisma.thesis.findMany({
-    where: {
-      studentId: { not: student.id },
-    },
-    include: {
-      student: {
-        include: { user: true },
-      },
-    },
-    take: needed,
-  });
-
-  if (otherTheses.length < needed) {
-    console.log(`  ⚠️  Only ${otherTheses.length} other theses available (need ${needed}). Will create what we can.`);
-  }
-
-  const baseDate = new Date("2025-10-01");
-
-  // Get the first supervisor for approvedBy
-  const approver = thesis.thesisSupervisors[0];
-
-  for (let i = 0; i < Math.min(needed, otherTheses.length); i++) {
-    const otherThesis = otherTheses[i];
-    const seminarDate = new Date(baseDate);
-    seminarDate.setDate(seminarDate.getDate() + i * 7); // weekly
-
-    // Check if this other thesis already has a passed seminar
-    let seminar = await prisma.thesisSeminar.findFirst({
-      where: {
-        thesisId: otherThesis.id,
-        status: "passed",
-      },
-    });
-
-    // Create a mock passed seminar if none exists
-    if (!seminar) {
-      seminar = await prisma.thesisSeminar.create({
-        data: {
-          thesisId: otherThesis.id,
-          status: "passed",
-          registeredAt: new Date(seminarDate.getTime() - 14 * 24 * 60 * 60 * 1000),
-          date: seminarDate,
-          startTime: new Date("1970-01-01T09:00:00"),
-          endTime: new Date("1970-01-01T11:00:00"),
-          finalScore: 75 + Math.floor(Math.random() * 15),
-          grade: "B+",
-          resultFinalizedAt: seminarDate,
-        },
-      });
-      console.log(`    📝 Created mock seminar for ${otherThesis.student?.user?.fullName || "unknown"}`);
-    }
-
-    // Check if audience record already exists
-    const existing = await prisma.thesisSeminarAudience.findUnique({
-      where: {
-        thesisSeminarId_studentId: {
-          thesisSeminarId: seminar.id,
-          studentId: student.id,
-        },
-      },
-    });
-
-    if (!existing) {
-      await prisma.thesisSeminarAudience.create({
-        data: {
-          thesisSeminarId: seminar.id,
-          studentId: student.id,
-          isPresent: true,
-          registeredAt: new Date(seminarDate.getTime() - 7 * 24 * 60 * 60 * 1000),
-          approvedAt: seminarDate,
-          approvedBy: approver?.id || null,
-        },
-      });
-      console.log(`    ✅ Attendance #${existingAttendance + i + 1}: ${seminarDate.toISOString().split("T")[0]} - ${otherThesis.student?.user?.fullName || "Seminar"}`);
-    } else {
-      console.log(`    ⏭️  Attendance already exists for seminar of ${otherThesis.student?.user?.fullName || "unknown"}`);
-    }
-  }
-}
-
-// ============================================================
-// 3. SET SUPERVISOR SEMINAR READY
+// 2. SET SUPERVISOR SEMINAR READY
 // ============================================================
 async function setSupervisorReady(thesis) {
   const supervisors = thesis.thesisSupervisors;
 
-  if (supervisors.every((s) => s.seminarReady)) {
-    console.log(`  ⏭️  All ${supervisors.length} supervisors already marked seminarReady`);
+  if (supervisors.length === 0) {
+    console.warn("  ⚠️ No supervisors found to mark as ready.");
     return;
   }
 
@@ -263,119 +173,63 @@ async function setSupervisorReady(thesis) {
     data: { seminarReady: true },
   });
 
-  for (const sup of supervisors) {
-    const name = sup.lecturer?.user?.fullName || sup.lecturerId;
-    console.log(`    ✅ ${name}: seminarReady = true`);
-  }
+  console.log(`    ✅ All ${supervisors.length} supervisors marked as seminarReady = true`);
 }
 
 // ============================================================
-// RESET: Undo seminar-ready state
+// RESET: Undo seminar-ready state (Bimbingan Only)
 // ============================================================
 async function resetSeminarReady(student, thesis) {
-  console.log("\n🔄 RESETTING seminar-ready state...\n");
-
-  // 1. Delete seeded guidances (those with specific session summaries from this script)
+  // 1. Delete seeded guidances (those with the specific summary tag)
   const deletedGuidances = await prisma.thesisGuidance.deleteMany({
     where: {
       thesisId: thesis.id,
       status: "completed",
-      sessionSummary: { contains: "Mahasiswa menunjukkan progress yang baik" },
+      sessionSummary: { contains: "(Seeded for readiness)" },
     },
   });
   console.log(`  🗑️  Deleted ${deletedGuidances.count} seeded guidances`);
 
-  // 2. Delete audience records for this student
-  const deletedAudiences = await prisma.thesisSeminarAudience.deleteMany({
-    where: { studentId: student.id },
-  });
-  console.log(`  🗑️  Deleted ${deletedAudiences.count} audience records`);
-
-  // 3. Delete mock seminars created by this script (passed seminars for other students that have no examiners)
-  const otherTheses = await prisma.thesis.findMany({
-    where: { studentId: { not: student.id } },
-    select: { id: true },
-  });
-  const otherThesisIds = otherTheses.map((t) => t.id);
-
-  const mockSeminars = await prisma.thesisSeminar.findMany({
-    where: {
-      thesisId: { in: otherThesisIds },
-      status: "passed",
-      examiners: { none: {} },
-    },
-    select: { id: true },
-  });
-
-  if (mockSeminars.length > 0) {
-    // Delete audiences first (FK constraint)
-    await prisma.thesisSeminarAudience.deleteMany({
-      where: { thesisSeminarId: { in: mockSeminars.map((s) => s.id) } },
-    });
-    const deletedSeminars = await prisma.thesisSeminar.deleteMany({
-      where: { id: { in: mockSeminars.map((s) => s.id) } },
-    });
-    console.log(`  🗑️  Deleted ${deletedSeminars.count} mock seminars`);
-  }
-
-  // 4. Reset supervisor seminarReady
+  // 2. Reset supervisor seminarReady
   await prisma.thesisSupervisors.updateMany({
     where: { thesisId: thesis.id },
     data: { seminarReady: false },
   });
   console.log(`  🗑️  Reset all supervisors seminarReady = false`);
-
-  console.log("\n✅ Reset complete. Student is back to pre-seminar state.");
 }
 
 // ============================================================
 // MAIN
 // ============================================================
 async function main() {
-  const { identityNumber, reset } = parseArgs();
+  const { reset } = parseArgs();
 
   console.log("\n" + "=".repeat(60));
-  console.log("🎓 SEED SEMINAR-READY DATA");
+  console.log("🎓 SEED SEMINAR-READY DATA (BIMBINGAN ONLY)");
   console.log("=".repeat(60));
   console.log(`📅 Date: ${new Date().toISOString()}`);
-  console.log(`🎯 Student: ${identityNumber}`);
-  console.log(`📊 Thresholds: MIN_BIMBINGAN=${MIN_BIMBINGAN}, MIN_KEHADIRAN=${MIN_KEHADIRAN}`);
+  console.log(`🎯 Threshold: MIN_BIMBINGAN=${MIN_BIMBINGAN}`);
   console.log(`${reset ? "🔄 Mode: RESET" : "🌱 Mode: SEED"}`);
   console.log("=".repeat(60));
 
-  const { user, student, thesis } = await getStudentData(identityNumber);
-  console.log(`\n👤 Student: ${user.fullName} (${identityNumber})`);
-  console.log(`📖 Thesis: ${thesis.title}`);
-  console.log(`👥 Supervisors: ${thesis.thesisSupervisors.map((s) => s.lecturer?.user?.fullName).join(", ")}`);
+  for (const identity of TARGET_IDENTITIES) {
+    const data = await getStudentData(identity);
+    if (!data) continue;
 
-  if (reset) {
-    await resetSeminarReady(student, thesis);
-  } else {
-    console.log("\n--- 1. Guidances ---");
-    await seedGuidances(thesis);
+    const { user, student, thesis } = data;
+    console.log(`\n👤 Processing: ${user.fullName} (${identity})`);
 
-    console.log("\n--- 2. Seminar Attendance ---");
-    await seedAttendance(student, thesis);
-
-    console.log("\n--- 3. Supervisor Readiness ---");
-    await setSupervisorReady(thesis);
-
-    // Summary
-    const finalGuidanceCount = await prisma.thesisGuidance.count({
-      where: { thesisId: thesis.id, status: "completed" },
-    });
-    const finalAttendanceCount = await prisma.thesisSeminarAudience.count({
-      where: { studentId: student.id, isPresent: true },
-    });
-
-    console.log("\n" + "=".repeat(60));
-    console.log("✨ SEED COMPLETE!");
-    console.log("=".repeat(60));
-    console.log(`   📆 Guidances: ${finalGuidanceCount}/${MIN_BIMBINGAN} ${finalGuidanceCount >= MIN_BIMBINGAN ? "✅" : "❌"}`);
-    console.log(`   👥 Attendance: ${finalAttendanceCount}/${MIN_KEHADIRAN} ${finalAttendanceCount >= MIN_KEHADIRAN ? "✅" : "❌"}`);
-    console.log(`   ✅ Supervisors: All seminarReady = true`);
-    console.log(`   🎯 All checklist met: ${finalGuidanceCount >= MIN_BIMBINGAN && finalAttendanceCount >= MIN_KEHADIRAN ? "YES ✅" : "NO ❌"}`);
+    if (reset) {
+      await resetSeminarReady(student, thesis);
+    } else {
+      await seedGuidances(thesis);
+      await setSupervisorReady(thesis);
+    }
   }
+
+  console.log("\n" + "=".repeat(60));
+  console.log("✨ OPERATION COMPLETE!");
+  console.log("=".repeat(60) + "\n");
 }
 
 main()

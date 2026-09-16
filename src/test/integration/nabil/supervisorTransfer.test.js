@@ -24,6 +24,7 @@ import {
   approveTransferRequestService,
   kadepApproveTransferService,
 } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
+import { runCleanupIfEnabled } from "./cleanup.js";
 
 // ── Test Data ──
 let sourceThesis = null;       // Thesis supervised by source lecturer
@@ -140,11 +141,6 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
   });
 
   afterAll(async () => {
-    if (SKIP_CLEANUP) {
-      console.warn("[IT-03] SKIP_CLEANUP=true, skipping cleanup");
-      await prisma.$disconnect();
-      return;
-    }
     try {
       // 1. Restore the supervisor record back to original lecturer
       if (thesisSupervisorRecordId && originalLecturerId) {
@@ -155,23 +151,8 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
           })
           .catch(() => {});
       }
-
-      // 2. Clean up notification records created during the test
-      const cutoff = new Date(Date.now() - 120000); // within last 2 minutes
-      await prisma.notification.deleteMany({
-        where: {
-          createdAt: { gte: cutoff },
-          OR: [
-            { title: { contains: "Transfer" } },
-            { title: { contains: "Dosen Pembimbing Berubah" } },
-            { title: { contains: "Permintaan Transfer" } },
-          ],
-        },
-      });
-
-      console.log("[IT-03 cleanup] Restored original state.");
-    } catch (err) {
-      console.error("[IT-03 cleanup] Error:", err.message);
+    } catch (error) {
+      console.warn("[IT-03 cleanup] Failed to restore supervisor:", error?.message || error);
     }
     await prisma.$disconnect();
   });
@@ -182,6 +163,19 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
       console.warn("[IT-03] Insufficient test data, skipping");
       return;
     }
+
+    await expect(
+      requestStudentTransferService(sourceUserId, {
+        thesisIds: [sourceThesis.id],
+        targetLecturerId,
+        reason: "Integration test - transfer pembimbing",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("tidak difasilitasi pada scope aktif SIMPTA"),
+    });
+    console.log("[IT-03] Formal supervisor transfer is intentionally disabled in active SIMPTA scope.");
+    return;
 
     // ═══════════════════════════════════════════════════════
     // STEP 1: Dosen A requests transfer to Dosen B

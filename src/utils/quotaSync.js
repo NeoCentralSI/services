@@ -2,7 +2,7 @@
  * Centralized quota synchronization utility.
  *
  * Recalculates LecturerSupervisionQuota.currentCount from the actual
- * ThesisParticipant records instead of relying on incremental updates
+ * ThesisSupervisors records instead of relying on incremental updates
  * that can drift when some code paths skip the counter.
  */
 
@@ -16,7 +16,7 @@ export const CLOSED_THESIS_STATUS_NAMES = CLOSED_THESIS_STATUSES;
  * Use for validation checks where you don't want a side-effect.
  */
 export async function countActiveSupervisionsAll(client, lecturerId) {
-  return client.thesisParticipant.count({
+  return client.thesisSupervisors.count({
     where: {
       lecturerId,
       status: "active",
@@ -36,7 +36,7 @@ export async function countActiveSupervisionsAll(client, lecturerId) {
  */
 export async function countActiveSupervisionsForYear(client, lecturerId, academicYearId) {
   if (!lecturerId || !academicYearId) return 0;
-  return client.thesisParticipant.count({
+  return client.thesisSupervisors.count({
     where: {
       lecturerId,
       status: "active",
@@ -63,7 +63,7 @@ export async function syncQuotaCount(client, lecturerId, academicYearId) {
   if (!lecturerId || !academicYearId) return 0;
 
   const snapshot = await getLecturerQuotaSnapshot(lecturerId, academicYearId, { client });
-  const fallbackActiveCount = await client.thesisParticipant.count({
+  const fallbackActiveCount = await client.thesisSupervisors.count({
     where: {
       lecturerId,
       status: "active",
@@ -102,7 +102,7 @@ export async function syncQuotaCount(client, lecturerId, academicYearId) {
  * @returns {Promise<Array<{lecturerId: string, currentCount: number}>>}
  */
 export async function syncAllQuotaCounts(prismaClient, academicYearId) {
-  const supervisorRows = await prismaClient.thesisParticipant.findMany({
+  const supervisorRows = await prismaClient.thesisSupervisors.findMany({
     where: {
       status: "active",
       thesis: {

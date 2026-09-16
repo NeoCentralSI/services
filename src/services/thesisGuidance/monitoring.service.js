@@ -1,8 +1,21 @@
 import * as monitoringRepository from "../../repositories/thesisGuidance/monitoring.repository.js";
 import { sendFcmToUsers } from "../push.service.js";
+import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import { supervisorRoleDisplayName, isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
+import {
+  buildTa03Snapshot,
+  buildTa04Snapshot,
+  deriveSimptaThesisStatus,
+} from "../../utils/simptaThesisStatus.util.js";
+import {
+  ALL_PERIODS_LABEL,
+  MONITORING_SUMMARY_DEFINITION_LABEL,
+  SUPERVISOR_LOAD_DEFINITION_LABEL,
+  periodLabelFromAcademicYear,
+  uniqueThesisCountFromLoads,
+} from "../../utils/loadScope.util.js";
 
 function toTitleCaseName(str) {
   if (!str) return "";
@@ -13,34 +26,28 @@ function toTitleCaseName(str) {
     .join(" ");
 }
 
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
+function supervisorRoleName(participant) {
+  return supervisorRoleDisplayName(participantRole(participant));
 }
 
-function toIsoDate(value) {
+function participantRole(participant) {
+  return participant?.supervisorRole ?? participant?.role?.name;
+}
+
+function toIsoString(value) {
   if (!value) return null;
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-async function optionalRepositoryCall(name, ...args) {
-  const fn = monitoringRepository[name];
-  return typeof fn === "function" ? fn(...args) : [];
-}
-
-function normalizeReportOptions(input) {
-  if (!input || typeof input === "string") {
-    return {
-      academicYearId: input || null,
-      statusIds: [],
-      ratings: [],
-    };
-  }
-
-  return {
-    academicYearId: input.academicYearId || null,
-    statusIds: Array.isArray(input.statusIds) ? input.statusIds : [],
-    ratings: Array.isArray(input.ratings) ? input.ratings : [],
-  };
+function newestActivityIso(values, fallback) {
+  const validDates = values
+    .map((value) => (value ? new Date(value) : null))
+    .filter((date) => date && !Number.isNaN(date.getTime()));
+  const fallbackIso = toIsoString(fallback);
+  if (!validDates.length) return fallbackIso;
+  validDates.sort((a, b) => b.getTime() - a.getTime());
+  return validDates[0].toISOString();
 }
 
 /**
@@ -58,25 +65,33 @@ export async function getMonitoringDashboard(academicYear) {
     batchDistribution,
     progressDistribution,
     guidanceTrend,
+    supervisorLoads,
   ] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
     monitoringRepository.getRatingDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
     monitoringRepository.getAtRiskStudents(5, academicYear),
-    optionalRepositoryCall("getSlowStudents", 5, academicYear),
+    monitoringRepository.getSlowStudents(5, academicYear),
     monitoringRepository.getStudentsReadyForSeminar(academicYear),
-    optionalRepositoryCall("getTopicDistribution", academicYear),
-    optionalRepositoryCall("getBatchDistribution", academicYear),
-    optionalRepositoryCall("getProgressDistribution", academicYear),
-    optionalRepositoryCall("getGuidanceTrend", academicYear),
+    monitoringRepository.getTopicDistribution(academicYear),
+    monitoringRepository.getBatchDistribution(academicYear),
+    monitoringRepository.getProgressDistribution(academicYear),
+    monitoringRepository.getGuidanceTrend(academicYear),
+    getSupervisorWorkloads(academicYear),
   ]);
+
+  const uniqueThesisCount = uniqueThesisCountFromLoads(supervisorLoads.lecturers);
+  const periodLabel = supervisorLoads.periodLabel;
 
   return {
     summary: {
       ...progressStats,
       totalReadyForSeminar: readyForSeminar.length,
       totalAtRisk: atRiskStudents.length,
-      totalSlow: slowStudents.length,
+      totalPostProposalTheses: uniqueThesisCount,
+      supervisorLoadThesisCount: uniqueThesisCount,
+      definitionLabel: MONITORING_SUMMARY_DEFINITION_LABEL,
+      periodLabel,
     },
     statusDistribution,
     ratingDistribution,
@@ -86,6 +101,7 @@ export async function getMonitoringDashboard(academicYear) {
     guidanceTrend,
     atRiskStudents,
     slowStudents,
+    supervisorLoads,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({
       thesisId: t.id,
       title: t.title,
@@ -94,11 +110,82 @@ export async function getMonitoringDashboard(academicYear) {
         nim: t.student?.user?.identityNumber,
         email: t.student?.user?.email,
       },
-      supervisors: asArray(t.thesisSupervisors).map((p) => ({
+      supervisors: t.thesisSupervisors.map((p) => ({
         name: p.lecturer?.user?.fullName,
-        role: supervisorRoleDisplayName(p.supervisorRole),
+        role: supervisorRoleName(p),
       })),
     })),
+  };
+}
+
+/**
+ * Get lecturer supervision workload, grouped by lecturer.
+ */
+export async function getSupervisorWorkloads(academicYear) {
+  const [rows, academicYearRecord] = await Promise.all([
+    monitoringRepository.getSupervisorWorkloadRows(academicYear),
+    academicYear ? monitoringRepository.getAcademicYearById(academicYear) : Promise.resolve(null),
+  ]);
+  const lecturerMap = new Map();
+
+  rows.forEach((row) => {
+    const lecturerId = row.lecturerId;
+    if (!lecturerId || !row.lecturer?.user) return;
+
+    if (!lecturerMap.has(lecturerId)) {
+      lecturerMap.set(lecturerId, {
+        lecturerId,
+        lecturerName: row.lecturer.user.fullName,
+        lecturerNip: row.lecturer.user.identityNumber,
+        lecturerEmail: row.lecturer.user.email,
+        studentsByThesis: new Map(),
+      });
+    }
+
+    const lecturer = lecturerMap.get(lecturerId);
+    const thesisId = row.thesis?.id;
+    if (!thesisId || lecturer.studentsByThesis.has(thesisId)) return;
+
+    lecturer.studentsByThesis.set(thesisId, {
+      thesisId,
+      thesisTitle: row.thesis?.title,
+      role: row.role?.name,
+      name: row.thesis?.student?.user?.fullName,
+      nim: row.thesis?.student?.user?.identityNumber,
+      email: row.thesis?.student?.user?.email,
+    });
+  });
+
+  const lecturers = Array.from(lecturerMap.values())
+    .map((lecturer) => {
+      const students = Array.from(lecturer.studentsByThesis.values())
+        .filter((student) => student.name || student.nim)
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+      return {
+        lecturerId: lecturer.lecturerId,
+        lecturerName: lecturer.lecturerName,
+        lecturerNip: lecturer.lecturerNip,
+        lecturerEmail: lecturer.lecturerEmail,
+        studentCount: students.length,
+        students,
+      };
+    })
+    .sort((a, b) => {
+      if (b.studentCount !== a.studentCount) return b.studentCount - a.studentCount;
+      return (a.lecturerName || "").localeCompare(b.lecturerName || "");
+    });
+
+  return {
+    definitionLabel: SUPERVISOR_LOAD_DEFINITION_LABEL,
+    periodLabel: academicYear
+      ? academicYearRecord
+        ? periodLabelFromAcademicYear(academicYearRecord)
+        : academicYear
+      : ALL_PERIODS_LABEL,
+    academicYearId: academicYear ?? null,
+    uniqueThesisCount: uniqueThesisCountFromLoads(lecturers),
+    lecturers,
   };
 }
 
@@ -122,8 +209,8 @@ export async function getThesesList(filters) {
     }
 
     // Get supervisors
-    const pembimbing1 = t.thesisSupervisors?.find((p) => isPembimbing1(p.supervisorRole));
-    const pembimbing2 = t.thesisSupervisors?.find((p) => isPembimbing2(p.supervisorRole));
+    const pembimbing1 = t.thesisSupervisors?.find((p) => isPembimbing1(participantRole(p)));
+    const pembimbing2 = t.thesisSupervisors?.find((p) => isPembimbing2(participantRole(p)));
 
     return {
       id: t.id,
@@ -136,7 +223,15 @@ export async function getThesesList(filters) {
         nim: t.student?.user?.identityNumber,
         email: t.student?.user?.email,
       },
-      status: t.thesisStatus?.name,
+      status: deriveSimptaThesisStatus(t),
+      ta04: buildTa04Snapshot(t),
+      ta03: buildTa03Snapshot(t),
+      topic: t.thesisTopic
+        ? {
+            id: t.thesisTopic.id,
+            name: t.thesisTopic.name,
+          }
+        : null,
       academicYear: t.academicYear?.name,
       progress: {
         completed: completedMilestones,
@@ -150,8 +245,8 @@ export async function getThesesList(filters) {
         pembimbing2Id: pembimbing2?.lecturerId || null,
       },
       seminarApproval: (() => {
-        const sup1 = t.thesisSupervisors?.find((p) => isPembimbing1(p.supervisorRole));
-        const sup2 = t.thesisSupervisors?.find((p) => isPembimbing2(p.supervisorRole));
+        const sup1 = t.thesisSupervisors?.find((p) => isPembimbing1(participantRole(p)));
+        const sup2 = t.thesisSupervisors?.find((p) => isPembimbing2(participantRole(p)));
         const s1 = sup1?.seminarReady || false;
         const s2 = sup2?.seminarReady || false;
         return {
@@ -181,10 +276,11 @@ export async function getThesesList(filters) {
  * Get filter options for monitoring page
  */
 export async function getFilterOptions() {
-  const [statusDistribution, supervisors, academicYears] = await Promise.all([
+  const [statusDistribution, supervisors, academicYears, topicDistribution] = await Promise.all([
     monitoringRepository.getStatusDistribution(),
     monitoringRepository.getAllSupervisors(),
     monitoringRepository.getAllAcademicYears(),
+    monitoringRepository.getTopicDistribution(),
   ]);
 
   return {
@@ -198,6 +294,11 @@ export async function getFilterOptions() {
     supervisors: supervisors.map((s) => ({
       value: s.id,
       label: s.name,
+    })),
+    topics: topicDistribution.map((t) => ({
+      value: t.id,
+      label: t.name,
+      count: t.count,
     })),
     academicYears: academicYears.map((ay) => ({
       value: ay.id,
@@ -215,13 +316,10 @@ export async function getAtRiskStudentsFull(academicYear) {
 }
 
 /**
- * Get full list of slow-progress students
+ * Get full list of slow students
  */
 export async function getSlowStudentsFull(academicYear) {
-  if (typeof monitoringRepository.getSlowStudents === "function") {
-    return monitoringRepository.getSlowStudents(50, academicYear);
-  }
-  return [];
+  return monitoringRepository.getSlowStudents(50, academicYear);
 }
 
 /**
@@ -238,9 +336,9 @@ export async function getStudentsReadyForSeminarFull(academicYear) {
       nim: t.student?.user?.identityNumber,
       email: t.student?.user?.email,
     },
-    supervisors: asArray(t.thesisSupervisors).map((p) => ({
+    supervisors: t.thesisSupervisors.map((p) => ({
       name: p.lecturer?.user?.fullName,
-      role: supervisorRoleDisplayName(p.supervisorRole),
+      role: supervisorRoleName(p),
     })),
   }));
 }
@@ -258,42 +356,37 @@ export async function getThesisDetail(thesisId) {
   }
 
   // Calculate milestone progress
-  const milestones = asArray(thesis.thesisMilestones);
+  const milestones = thesis.thesisMilestones || [];
   const completedMilestones = milestones.filter((m) => m.status === "completed").length;
   const totalMilestones = milestones.length;
   const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-  // Get last activity
-  const activityDates = [
-    thesis.updatedAt,
-    thesis.createdAt,
-    ...milestones.map((m) => m.updatedAt || m.completedAt),
-    ...asArray(thesis.thesisGuidances).map((g) => g.updatedAt || g.completedAt || g.approvedDate || g.createdAt),
-    ...asArray(thesis.thesisSeminars).map((s) => s.updatedAt || s.createdAt),
-    ...asArray(thesis.thesisDefences).map((d) => d.updatedAt || d.createdAt),
-  ]
-    .filter(Boolean)
-    .map((date) => new Date(date))
-    .filter((date) => !Number.isNaN(date.getTime()));
-  const lastActivity = activityDates.length > 0
-    ? new Date(Math.max(...activityDates.map((date) => date.getTime()))).toISOString()
-    : null;
+  const guidancesRaw = thesis.thesisGuidances || [];
+  const seminarsRaw = thesis.thesisSeminars || [];
+  const defencesRaw = thesis.thesisDefences || [];
+  const lastActivity = newestActivityIso([
+    ...milestones.flatMap((m) => [m.updatedAt, m.completedAt, m.submittedAt, m.createdAt]),
+    ...guidancesRaw.flatMap((g) => [g.completedAt, g.approvedDate, g.updatedAt, g.createdAt]),
+    ...seminarsRaw.flatMap((s) => [s.updatedAt, s.createdAt, s.registeredAt, s.date]),
+    ...defencesRaw.flatMap((d) => [d.updatedAt, d.createdAt, d.registeredAt, d.date]),
+  ], thesis.updatedAt || thesis.createdAt);
 
   // Separate supervisors and examiners
-  const supervisors = asArray(thesis.thesisSupervisors)
+  const thesisSupervisors = thesis.thesisSupervisors || [];
+  const supervisors = thesisSupervisors
     .map((p) => ({
       id: p.lecturer?.user?.id,
       name: p.lecturer?.user?.fullName,
       email: p.lecturer?.user?.email,
-      role: supervisorRoleDisplayName(p.supervisorRole),
+      role: supervisorRoleName(p),
     }));
 
   // ThesisSupervisors only contains pembimbing roles; examiners handled elsewhere
   const examiners = [];
 
   // Format seminars
-  const seminars = asArray(thesis.thesisSeminars).map((s) => {
-    const scores = asArray(s.scores);
+  const seminars = seminarsRaw.map((s) => {
+    const scores = s.scores || [];
     return {
     id: s.id,
     status: s.status,
@@ -313,8 +406,8 @@ export async function getThesisDetail(thesisId) {
   });
 
   // Format defences
-  const defences = asArray(thesis.thesisDefences).map((d) => {
-    const scores = asArray(d.scores);
+  const defences = defencesRaw.map((d) => {
+    const scores = d.scores || [];
     return {
     id: d.id,
     status: d.status?.name || null,
@@ -333,7 +426,7 @@ export async function getThesisDetail(thesisId) {
   });
 
   // Format guidances
-  const guidances = asArray(thesis.thesisGuidances).map((g) => ({
+  const guidances = guidancesRaw.map((g) => ({
     id: g.id,
     status: g.status,
     topic: g.studentNotes,
@@ -349,7 +442,9 @@ export async function getThesisDetail(thesisId) {
   return {
     id: thesis.id,
     title: thesis.title,
-    status: thesis.thesisStatus?.name || null,
+    status: deriveSimptaThesisStatus(thesis),
+    ta04: buildTa04Snapshot(thesis),
+    ta03: buildTa03Snapshot(thesis),
     topic: thesis.thesisTopic?.name || null,
     academicYear: thesis.academicYear
       ? `${thesis.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${thesis.academicYear.year}`
@@ -359,8 +454,8 @@ export async function getThesisDetail(thesisId) {
     createdAt: thesis.createdAt,
     lastActivity,
     seminarApproval: (() => {
-      const sup1 = thesis.thesisSupervisors?.find((p) => isPembimbing1(p.supervisorRole));
-      const sup2 = thesis.thesisSupervisors?.find((p) => isPembimbing2(p.supervisorRole));
+      const sup1 = thesisSupervisors.find((p) => isPembimbing1(participantRole(p)));
+      const sup2 = thesisSupervisors.find((p) => isPembimbing2(participantRole(p)));
       const s1 = sup1?.seminarReady || false;
       const s2 = sup2?.seminarReady || false;
       return {
@@ -408,12 +503,34 @@ export async function getThesisDetail(thesisId) {
  * Send warning notification to student about thesis progress (for department roles: Kadep, Sekdep, GKM)
  */
 export async function sendWarningNotificationService(userId, thesisId, warningType) {
-  // Get user info for sender name
-  const sender = await prisma.user.findUnique({
+  // Get user info and roles for authorization
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { fullName: true }
+    include: { userHasRoles: { include: { role: true } } }
   });
-  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
+
+  // Authorization: only Ketua Departemen or supervisors may send warnings
+  const isKadep = (user.userHasRoles || []).some(
+    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+  );
+
+  // Check if user is supervisor for this thesis (Lecturer.id is user id)
+  const supRecord = await prisma.thesisSupervisors.findFirst({
+    where: { thesisId: thesisId, lecturerId: userId }
+  });
+  const isSupervisor = Boolean(supRecord);
+
+  if (!isKadep && !isSupervisor) {
+    const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang dapat mengirim peringatan tugas akhir");
+    err.statusCode = 403;
+    throw err;
+  }
 
   // Get thesis with student info
   const thesis = await prisma.thesis.findUnique({
@@ -489,20 +606,42 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 }
 
 /**
- * Send warning notifications to multiple students.
+ * Send warning notification to multiple students.
  */
 export async function sendBatchWarningNotificationService(userId, thesisIds = [], warningType = "SLOW") {
   if (!Array.isArray(thesisIds) || thesisIds.length === 0) {
-    const err = new Error("thesisIds wajib diisi");
+    const err = new Error("Daftar tugas akhir tidak boleh kosong");
     err.statusCode = 400;
     throw err;
   }
 
-  const sender = await prisma.user.findUnique({
+  // Get user info and roles for authorization
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { fullName: true },
+    include: { userHasRoles: { include: { role: true } } }
   });
-  const senderName = toTitleCaseName(sender?.fullName || "Manajemen Prodi");
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
+
+  const isKadep = (user.userHasRoles || []).some(
+    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+  );
+
+  // If not kadep, ensure the user supervises ALL theses in the list
+  if (!isKadep) {
+    const supervisedCount = await prisma.thesisSupervisors.count({
+      where: { thesisId: { in: thesisIds }, lecturerId: userId }
+    });
+    if (supervisedCount !== thesisIds.length) {
+      const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang mengawasi tesis tersebut yang dapat mengirim peringatan massal");
+      err.statusCode = 403;
+      throw err;
+    }
+  }
 
   const theses = await prisma.thesis.findMany({
     where: { id: { in: thesisIds } },
@@ -515,28 +654,40 @@ export async function sendBatchWarningNotificationService(userId, thesisIds = []
     },
   });
 
-  if (theses.length === 0) {
-    const err = new Error("Tidak ada tugas akhir yang ditemukan");
+  if (!theses.length) {
+    const err = new Error("Tugas akhir tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
 
-  const warningLabels = {
-    SLOW: "Progress tugas akhir terdeteksi lambat",
-    AT_RISK: "Progress tugas akhir dalam kondisi berisiko",
-    FAILED: "Tugas akhir melewati batas waktu",
+  const messages = {
+    SLOW: {
+      title: "Peringatan Progress Tugas Akhir",
+      body: (studentName) => `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing.`,
+      notifBody: `Progress tugas akhir Anda terdeteksi lambat. ${senderName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`,
+    },
+    AT_RISK: {
+      title: "Peringatan Serius: Progress Tugas Akhir",
+      body: (studentName) => `Halo ${toTitleCaseName(studentName)}, status tugas akhir Anda dalam kondisi berisiko. Segera hubungi dosen pembimbing.`,
+      notifBody: `Status tugas akhir Anda dalam kondisi berisiko. ${senderName} meminta Anda segera menghubungi dosen pembimbing.`,
+    },
+    FAILED: {
+      title: "Pemberitahuan Status Tugas Akhir",
+      body: (studentName) => `Halo ${toTitleCaseName(studentName)}, tugas akhir Anda telah melampaui batas waktu. Segera hubungi dosen pembimbing.`,
+      notifBody: `Tugas akhir Anda telah melampaui batas waktu. Silakan hubungi dosen pembimbing atau ${senderName}.`,
+    },
   };
-  const title = "Peringatan Progress Tugas Akhir";
-  const body = warningLabels[warningType] || warningLabels.SLOW;
+  const message = messages[warningType] || messages.SLOW;
 
   let sent = 0;
   for (const thesis of theses) {
     const studentUserId = thesis.student?.user?.id;
+    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
     if (!studentUserId) continue;
 
     await sendFcmToUsers([studentUserId], {
-      title,
-      body: `${body}. Segera tindak lanjuti bersama dosen pembimbing.`,
+      title: message.title,
+      body: message.body(studentName),
       data: {
         type: "thesis_warning",
         thesisId: thesis.id,
@@ -545,29 +696,26 @@ export async function sendBatchWarningNotificationService(userId, thesisIds = []
     });
 
     await createNotificationsForUsers([studentUserId], {
-      title,
-      message: `${body}. ${senderName} meminta Anda segera menindaklanjuti progres tugas akhir.`,
+      title: message.title,
+      message: message.notifBody,
       type: "thesis_warning",
       referenceId: thesis.id,
     });
-
     sent += 1;
   }
 
   return {
     success: true,
     sent,
-    message: `Peringatan dikirim ke ${sent} mahasiswa`,
   };
 }
 
 /**
  * Get comprehensive progress report data for PDF generation
- * @param {string} academicYearId - Academic year ID
+ * @param {string|Object} options - Academic year ID or options object
  */
 export async function getProgressReportService(options = {}) {
-  const { academicYearId } = normalizeReportOptions(options);
-
+  const academicYearId = typeof options === "string" ? options : options?.academicYearId;
   // Get academic year info
   const academicYear = academicYearId
     ? await monitoringRepository.getAcademicYearById(academicYearId)
@@ -606,8 +754,8 @@ export async function getProgressReportService(options = {}) {
     completedMilestones += completedMilestoneCount;
 
     // Get supervisors
-    const pembimbing1 = t.thesisSupervisors?.find(p => isPembimbing1(p.supervisorRole));
-    const pembimbing2 = t.thesisSupervisors?.find(p => isPembimbing2(p.supervisorRole));
+    const pembimbing1 = t.thesisSupervisors?.find(p => isPembimbing1(participantRole(p)));
+    const pembimbing2 = t.thesisSupervisors?.find(p => isPembimbing2(participantRole(p)));
 
     return {
       no: index + 1,
@@ -615,7 +763,7 @@ export async function getProgressReportService(options = {}) {
       name: toTitleCaseName(t.student?.user?.fullName || "-"),
       title: t.title || "-",
       topic: t.thesisTopic?.name || "-",
-      status: t.thesisStatus?.name || "-",
+      status: deriveSimptaThesisStatus(t),
       rating: t.rating || "ONGOING",
       pembimbing1: toTitleCaseName(pembimbing1?.lecturer?.user?.fullName || "-"),
       pembimbing2: toTitleCaseName(pembimbing2?.lecturer?.user?.fullName || "-"),

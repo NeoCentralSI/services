@@ -101,7 +101,7 @@ export const createThesis = async (data) => {
 export const updateThesis = async (id, data) => {
     return await prisma.$transaction(async (tx) => {
         const oldSupervisors = data.supervisors
-            ? await tx.thesisParticipant.findMany({
+            ? await tx.thesisSupervisors.findMany({
                   where: { thesisId: id },
                   select: { lecturerId: true },
               })

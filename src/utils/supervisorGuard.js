@@ -17,7 +17,7 @@ import { BadRequestError } from "./errors.js";
  * @param {string} roleName - Human-readable role name for the error message
  */
 export async function assertNoActiveDuplicateRole(tx, thesisId, roleId, roleName = "pembimbing") {
-  const existing = await tx.thesisParticipant.findFirst({
+  const existing = await tx.thesisSupervisors.findFirst({
     where: {
       thesisId,
       status: "active",
@@ -49,7 +49,7 @@ export async function assertNoActiveDuplicateRole(tx, thesisId, roleId, roleName
  * @param {string} lecturerId
  */
 export async function assertLecturerNotAlreadyAssigned(tx, thesisId, lecturerId) {
-  const existing = await tx.thesisParticipant.findFirst({
+  const existing = await tx.thesisSupervisors.findFirst({
     where: { thesisId, lecturerId, status: "active" },
     select: {
       id: true,

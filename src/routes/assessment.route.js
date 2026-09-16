@@ -1,12 +1,18 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES, SUPERVISOR_ROLES } from "../constants/roles.js";
+import { uploadExcelAttendance } from "../middlewares/file.middleware.js";
+import * as metopenAttendanceController from "../controllers/metopenAttendance.controller.js";
+import * as assessmentExportController from "../controllers/assessmentExport.controller.js";
+import * as metopenMonitoringController from "../controllers/metopenMonitoring.controller.js";
 import {
   getCriteriaByFormCode,
   getSupervisorScoringQueue,
+  getSupervisorScoringHistory,
   submitSupervisorScore,
   coSignSupervisorScoreAndSync,
   getMetopenScoringQueue,
+  getMetopenScoringHistory,
   submitMetopenScore,
   publishFinalScore,
   getScoresByThesisForSupervisor,
@@ -20,6 +26,17 @@ router.use(authGuard);
 // Hanya 1 role/orang berhak mengisi TA-03B (Canon §5.7), walaupun di lapangan
 // pengampu mata kuliah Metopen bisa lebih dari 1.
 const KOORDINATOR_METOPEN_ROLES = [ROLES.KOORDINATOR_METOPEN];
+const ATTENDANCE_READER_ROLES = [...new Set([...SUPERVISOR_ROLES, ...KOORDINATOR_METOPEN_ROLES])];
+// Pembaca rubrik penilaian: grader (P1/P2 + Koordinator) + management pengelola rubrik.
+// Mahasiswa melihat rubrik via arsip (/metopen/me/archive), bukan endpoint ini (audit F-4.5).
+const CRITERIA_READER_ROLES = [
+  ...new Set([
+    ...ATTENDANCE_READER_ROLES,
+    ROLES.SEKRETARIS_DEPARTEMEN,
+    ROLES.KETUA_DEPARTEMEN,
+    ROLES.ADMIN,
+  ]),
+];
 
 // ============================================
 // Criteria
@@ -29,9 +46,12 @@ const KOORDINATOR_METOPEN_ROLES = [ROLES.KOORDINATOR_METOPEN];
  * GET /assessment/criteria/:formCode
  * Get AssessmentCriteria for TA-03A (formCode=TA-03A) or TA-03B (formCode=TA-03B).
  */
-router.get("/criteria/:formCode", async (req, res, next) => {
+router.get("/criteria/:formCode", requireAnyRole(CRITERIA_READER_ROLES), async (req, res, next) => {
   try {
-    const data = await getCriteriaByFormCode(req.params.formCode);
+    const academicYearId = req.query.academicYearId
+      ? String(req.query.academicYearId)
+      : null;
+    const data = await getCriteriaByFormCode(req.params.formCode, academicYearId);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -51,7 +71,39 @@ router.get(
   requireAnyRole(SUPERVISOR_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getSupervisorScoringQueue(req.user.sub);
+      const result = await getSupervisorScoringQueue(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
+      res.json({
+        success: true,
+        data: result.items,
+        meta: {
+          emptyReason: result.emptyReason,
+          emptyReasonText: result.emptyReasonText,
+          blockedByGate: result.blockedByGate,
+          otherPeriods: result.otherPeriods ?? [],
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /assessment/supervisor/history
+ * Read-only history for TA-03A items that already have score progress/final data.
+ */
+router.get(
+  "/supervisor/history",
+  requireAnyRole(SUPERVISOR_ROLES),
+  async (req, res, next) => {
+    try {
+      const data = await getSupervisorScoringHistory(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
       res.json({ success: true, data });
     } catch (err) {
       next(err);
@@ -157,12 +209,129 @@ router.get(
   requireAnyRole(KOORDINATOR_METOPEN_ROLES),
   async (req, res, next) => {
     try {
-      const data = await getMetopenScoringQueue(req.user.sub);
+      const result = await getMetopenScoringQueue(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
+      res.json({
+        success: true,
+        data: result.items,
+        meta: {
+          emptyReason: result.emptyReason,
+          emptyReasonText: result.emptyReasonText,
+          blockedByGate: result.blockedByGate,
+          otherPeriods: result.otherPeriods ?? [],
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /assessment/metopen/history
+ * Read-only history for TA-03B items already scored / auto-zeroed.
+ */
+router.get(
+  "/metopen/history",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  async (req, res, next) => {
+    try {
+      const data = await getMetopenScoringHistory(
+        req.user.sub,
+        req.query?.academicYearId,
+      );
       res.json({ success: true, data });
     } catch (err) {
       next(err);
     }
   }
+);
+
+/**
+ * GET /assessment/metopen/attendance/latest
+ * Latest Metopel attendance XLSX import summary for required `academicYearId`.
+ */
+router.get(
+  "/metopen/attendance/latest",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  metopenAttendanceController.getLatestAttendanceImport,
+);
+
+/**
+ * POST /assessment/metopen/attendance/preview
+ * F-4.2: dry-run pratinjau dampak auto-zero (<75% PERMANEN) sebelum commit.
+ * Tidak menulis DB; hanya parse + hitung daftar yang akan di-auto-zero.
+ * Multipart: `files` (1–2 xlsx, merged by NIM) and/or legacy single `file`.
+ * Required form field: `academicYearId`.
+ * Same NIM in both files → 400 with conflict list (no auto-pick %).
+ */
+router.post(
+  "/metopen/attendance/preview",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  uploadExcelAttendance,
+  metopenAttendanceController.previewAttendance,
+);
+
+/**
+ * POST /assessment/metopen/attendance/upload
+ * Upload report peserta kelas Metopel (1–2 xlsx → one active import).
+ * Rows below 75% attendance are auto-zeroed for already-scoreable theses.
+ * Multipart: `files` (1–2) and/or legacy single `file`.
+ * Required form field: `academicYearId`.
+ */
+router.post(
+  "/metopen/attendance/upload",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  uploadExcelAttendance,
+  metopenAttendanceController.uploadAttendance,
+);
+
+/**
+ * GET /assessment/metopen/attendance/eligibility/:thesisId
+ * Gate TA-03A/TA-03B scoring by the latest import in the thesis period.
+ */
+router.get(
+  "/metopen/attendance/eligibility/:thesisId",
+  requireAnyRole(ATTENDANCE_READER_ROLES),
+  metopenAttendanceController.getAttendanceEligibility,
+);
+
+/**
+ * GET /assessment/metopen/monitoring
+ * Dashboard Koordinator Metopen — list eligible Metopen + status pencarian
+ * pembimbing + rincian nilai 4 bucket (Presentasi 20, Konten 40, Struktur 25,
+ * Respons 15). Mirror semantik xlsx download tapi dalam JSON untuk UI table.
+ *
+ * RBAC: eksklusif Koordinator Matkul Metopen (canon §5.7.3 BR-28 + BR-19).
+ *
+ * Penting: route ini WAJIB di-mount SEBELUM `/metopen/:thesisId/score` agar
+ * literal segment "monitoring" tidak tertangkap oleh path parameter `:thesisId`.
+ */
+router.get(
+  "/metopen/monitoring",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  metopenMonitoringController.getMonitoring,
+);
+
+/**
+ * GET /assessment/metopen/scores/export
+ * Download nilai TA-03A + TA-03B kelas Metopel dalam format Template SIA (xlsx).
+ * Daftar peserta = union peserta attendance import yang dirujuk (default: import
+ * terbaru) + mahasiswa yang punya ResearchMethodScore pada periode itu, supaya
+ * nilai final yang imutabel (BR-21) tidak pernah hilang dari berkas SIA.
+ * Komponen yang belum dinilai ditulis sebagai sel kosong; auto-zero presensi
+ * <75% tetap 0 di semua kolom dengan keterangan sebagai cell comment.
+ * BR-28 (canon §5.7.3) + canon §5.7.4.
+ *
+ * Penting: route ini WAJIB di-mount SEBELUM `/metopen/:thesisId/score` agar
+ * literal segment "scores" tidak tertangkap oleh path parameter `:thesisId`.
+ */
+router.get(
+  "/metopen/scores/export",
+  requireAnyRole(KOORDINATOR_METOPEN_ROLES),
+  assessmentExportController.downloadMetopenScores,
 );
 
 /**

@@ -51,7 +51,7 @@ function readMapping(mapPath) {
 }
 
 async function findDuplicateGroups(client = prisma) {
-  const participants = await client.thesisParticipant.findMany({
+  const participants = await client.thesisSupervisors.findMany({
     where: {
       status: "active",
       role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } },
@@ -118,7 +118,7 @@ async function applyPlan(plan) {
     const academicYearIds = new Set();
     for (const item of plan) {
       if (item.academicYearId) academicYearIds.add(item.academicYearId);
-      await tx.thesisParticipant.updateMany({
+      await tx.thesisSupervisors.updateMany({
         where: { id: { in: item.terminate.map((row) => row.participantId) } },
         data: { status: "terminated" },
       });

@@ -1,8 +1,16 @@
 /**
- * Ensure users sesuai usersData master.
- * Password semua: Password@2025
+ * Ensure users sesuai usersData master + akun dummy peran tunggal untuk UAT.
+ * Password semua akun yang di-manage di sini: Password@2025
+ *
+ * Kebijakan (2026-07-13):
+ * - Akun REAL (@fti.unand.ac.id) tidak dipecah / tidak dilucuti role-nya.
+ *   Kalau Sekdep kebetulan juga Koordinator di data real, biarkan.
+ * - Isolasi peran untuk uji UAT memakai akun DUMMY @dummy.ac.id (satu peran jelas).
+ * - Hapus hanya user residual yang eksplisit tidak terpakai (bukan dosen/mahasiswa real).
  *
  * Jalankan: node scripts/ensure-users.js
+ * Opsional: node scripts/ensure-users.js --skip-dummy
+ *   → tidak membuat/menghidupkan akun @dummy.ac.id (uji berbasis akun real saja)
  * (dari folder services, dengan DATABASE_URL ter-set)
  */
 
@@ -12,6 +20,15 @@ import { ROLES } from '../src/constants/roles.js';
 
 const prisma = new PrismaClient();
 const PASSWORD_PLAIN = 'Password@2025';
+const SKIP_DUMMY = process.argv.includes('--skip-dummy');
+
+/** User residual yang boleh dihapus — jangan masukkan akun real / fixture EDGE / fixture UAT. */
+const UNUSED_USERS = [
+  { email: 'mahasiswa@email.com', identityNumber: '209102201' },
+  { email: 'test_changetopic@fti.unand.ac.id', identityNumber: '2211522101' },
+  { email: 'test_changesupervisor@fti.unand.ac.id', identityNumber: '2211522102' },
+  { email: 'test_nothesis@fti.unand.ac.id', identityNumber: '2211522103' },
+];
 
 // Data user master - sesuaikan dengan seed-master
 const usersData = [
@@ -22,14 +39,17 @@ const usersData = [
     identityNumber: '198410062012121001',
     roles: [ROLES.KETUA_DEPARTEMEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
     isLecturer: true,
+    preserveExtraRoles: true,
   },
   {
     email: 'sekdep_si@fti.unand.ac.id',
     fullName: 'Afriyanti Dwi Kartika, M.T',
     identityType: 'NIP',
     identityNumber: '198904212019032024',
+    // Role di bawah = baseline. Role tambahan yang sudah ada di DB (mis. Koordinator Metopen) TIDAK dihapus.
     roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_YUDISIUM, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
     isLecturer: true,
+    preserveExtraRoles: true,
   },
   {
     email: 'pembimbing_si@fti.unand.ac.id',
@@ -179,40 +199,81 @@ const usersData = [
     enrollmentYear: 2024,
     sksCompleted: 60,
   },
+
+  // ── Akun DUMMY peran tunggal untuk UAT (bukan orang real) ──────────────
+  // Dipakai saat perlu membuktikan "role A boleh / role B tidak boleh"
+  // tanpa mengubah akun real yang punya banyak jabatan.
   {
-    email: 'test_changetopic@fti.unand.ac.id',
-    fullName: 'Test Ganti Topik',
-    identityType: 'NIM',
-    identityNumber: '2211522101',
-    roles: [ROLES.MAHASISWA],
-    isStudent: true,
-    enrollmentYear: 2022,
-    sksCompleted: 130,
+    email: 'uat.admin@dummy.ac.id',
+    fullName: 'UAT Admin',
+    identityType: 'OTHER',
+    identityNumber: '297000000001',
+    roles: [ROLES.ADMIN],
+    isLecturer: false,
   },
   {
-    email: 'test_changesupervisor@fti.unand.ac.id',
-    fullName: 'Test Ganti Dospem',
-    identityType: 'NIM',
-    identityNumber: '2211522102',
-    roles: [ROLES.MAHASISWA],
-    isStudent: true,
-    enrollmentYear: 2022,
-    sksCompleted: 130,
+    email: 'uat.kadep@dummy.ac.id',
+    fullName: 'UAT Ketua Departemen',
+    identityType: 'NIP',
+    identityNumber: '297001012020121001',
+    roles: [ROLES.KETUA_DEPARTEMEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2],
+    isLecturer: true,
   },
   {
-    email: 'test_nothesis@fti.unand.ac.id',
-    fullName: 'Test Tanpa Thesis',
+    email: 'uat.sekdep@dummy.ac.id',
+    fullName: 'UAT Sekretaris Departemen',
+    identityType: 'NIP',
+    identityNumber: '297001012020121002',
+    roles: [ROLES.SEKRETARIS_DEPARTEMEN, ROLES.PEMBIMBING_2],
+    isLecturer: true,
+  },
+  {
+    email: 'uat.koordinator@dummy.ac.id',
+    fullName: 'UAT Koordinator Metopen',
+    identityType: 'NIP',
+    identityNumber: '297001012020121003',
+    roles: [ROLES.KOORDINATOR_METOPEN, ROLES.PEMBIMBING_2],
+    isLecturer: true,
+  },
+  {
+    email: 'uat.pembimbing@dummy.ac.id',
+    fullName: 'UAT Dosen Pembimbing',
+    identityType: 'NIP',
+    identityNumber: '297001012020121004',
+    roles: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+    isLecturer: true,
+  },
+  {
+    email: 'uat.mhs.eligible@dummy.ac.id',
+    fullName: 'UAT Mahasiswa Eligible',
     identityType: 'NIM',
-    identityNumber: '2211522103',
+    identityNumber: '2377000001',
     roles: [ROLES.MAHASISWA],
     isStudent: true,
-    enrollmentYear: 2022,
-    sksCompleted: 130,
+    enrollmentYear: 2023,
+    sksCompleted: 120,
+    eligibleMetopen: true,
+  },
+  {
+    email: 'uat.mhs.blocked@dummy.ac.id',
+    fullName: 'UAT Mahasiswa Tidak Eligible',
+    identityType: 'NIM',
+    identityNumber: '2377000002',
+    roles: [ROLES.MAHASISWA],
+    isStudent: true,
+    enrollmentYear: 2024,
+    sksCompleted: 60,
+    eligibleMetopen: false,
   },
 ];
 
+function activeUsersData() {
+  if (!SKIP_DUMMY) return usersData;
+  return usersData.filter((u) => !String(u.email || '').toLowerCase().endsWith('@dummy.ac.id'));
+}
+
 async function ensureRoles() {
-  const roleNames = [...new Set(usersData.flatMap((u) => u.roles))];
+  const roleNames = [...new Set(activeUsersData().flatMap((u) => u.roles))];
   for (const name of roleNames) {
     const existing = await prisma.userRole.findFirst({ where: { name } });
     if (!existing) {
@@ -223,7 +284,7 @@ async function ensureRoles() {
 }
 
 async function ensureAllowedUsers(passwordHash) {
-  for (const spec of usersData) {
+  for (const spec of activeUsersData()) {
     let user = await prisma.user.findFirst({
       where: {
         OR: [{ email: spec.email }, { identityNumber: spec.identityNumber }],
@@ -266,6 +327,14 @@ async function ensureAllowedUsers(passwordHash) {
     if (spec.isStudent) {
       const enrollmentYear = spec.enrollmentYear ?? 2022;
       const sksCompleted = spec.sksCompleted ?? 130;
+      const eligibilityPatch =
+        typeof spec.eligibleMetopen === 'boolean'
+          ? {
+              eligibleMetopen: spec.eligibleMetopen,
+              metopenEligibilitySource: 'devtools',
+              metopenEligibilityUpdatedAt: new Date(),
+            }
+          : {};
       await prisma.student.upsert({
         where: { id: user.id },
         update: {
@@ -277,6 +346,7 @@ async function ensureAllowedUsers(passwordHash) {
           kknCompleted: true,
           currentSemester: 8,
           enrollmentYear,
+          ...eligibilityPatch,
         },
         create: {
           id: user.id,
@@ -288,6 +358,7 @@ async function ensureAllowedUsers(passwordHash) {
           kknCompleted: true,
           currentSemester: 8,
           enrollmentYear,
+          ...eligibilityPatch,
         },
       });
     }
@@ -306,21 +377,24 @@ async function ensureAllowedUsers(passwordHash) {
   }
 }
 
-async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
+async function deleteUnusedUsers() {
   const allUsers = await prisma.user.findMany({
     select: { id: true, email: true, identityNumber: true },
   });
+  const unusedEmails = new Set(UNUSED_USERS.map((u) => u.email.toLowerCase()));
+  const unusedIds = new Set(UNUSED_USERS.map((u) => u.identityNumber));
   const toDelete = allUsers.filter(
     (u) =>
-      !allowedIdentityNumbers.has(u.identityNumber) &&
-      !(u.email && allowedEmails.has(u.email.toLowerCase()))
+      (u.email && unusedEmails.has(u.email.toLowerCase())) ||
+      (u.identityNumber && unusedIds.has(u.identityNumber)),
   );
+
   if (toDelete.length === 0) {
-    console.log('  Tidak ada user redundan.');
+    console.log('  Tidak ada user residual yang perlu dihapus.');
     return;
   }
 
-  console.log(`  Menghapus ${toDelete.length} user redundan...`);
+  console.log(`  Menghapus ${toDelete.length} user residual tidak terpakai...`);
 
   for (const u of toDelete) {
     try {
@@ -336,11 +410,6 @@ async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
         await prisma.thesisAdvisorRequest.updateMany({ where: { redirectedTo: id }, data: { redirectedTo: null } });
         await prisma.thesisTopic.updateMany({ where: { lecturerId: id }, data: { lecturerId: null } });
         await prisma.thesisGuidance.updateMany({ where: { supervisorId: id }, data: { supervisorId: null } });
-        const metopenClasses = await prisma.metopenClass.findMany({ where: { lecturerId: id }, select: { id: true } });
-        for (const mc of metopenClasses) {
-          await prisma.metopenClassStudent.deleteMany({ where: { classId: mc.id } });
-        }
-        await prisma.metopenClass.deleteMany({ where: { lecturerId: id } });
         await prisma.lecturerSupervisionQuota.deleteMany({ where: { lecturerId: id } });
         await prisma.lecturerAvailability.deleteMany({ where: { lecturerId: id } });
         await prisma.thesisChangeRequestApproval.deleteMany({ where: { lecturerId: id } });
@@ -351,15 +420,31 @@ async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
       if (hasStudent) {
         const theses = await prisma.thesis.findMany({ where: { studentId: id }, select: { id: true } });
         for (const t of theses) {
+          await prisma.researchMethodScoreDetail.deleteMany({ where: { researchMethodScore: { thesisId: t.id } } });
+          await prisma.researchMethodScore.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisSupervisors.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisMilestone.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisGuidance.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisSeminar.deleteMany({ where: { thesisId: t.id } });
           await prisma.thesisDefence.deleteMany({ where: { thesisId: t.id } });
-          await prisma.metopenClassStudent.deleteMany({ where: { studentId: id } });
+          await prisma.ta04BatchMember.deleteMany({ where: { thesisId: t.id } });
+          await prisma.thesisStudentInformalLog.deleteMany({ where: { thesisId: t.id } });
+          await prisma.thesisChangeRequest.deleteMany({ where: { thesisId: t.id } });
+          await prisma.yudisiumParticipant.deleteMany({ where: { thesisId: t.id } });
+          await prisma.thesisAdvisorRequest.deleteMany({ where: { thesisId: t.id } });
+          await prisma.thesis.update({
+            where: { id: t.id },
+            data: { finalProposalVersionId: null },
+          }).catch(() => null);
+          await prisma.thesisProposalVersion.deleteMany({ where: { thesisId: t.id } });
         }
-        await prisma.thesis.deleteMany({ where: { studentId: id } });
+        await prisma.metopenAttendanceRecord.updateMany({
+          where: { studentId: id },
+          data: { studentId: null },
+        });
+        await prisma.thesisAdvisorRequestDraft.deleteMany({ where: { studentId: id } });
         await prisma.thesisAdvisorRequest.deleteMany({ where: { studentId: id } });
+        await prisma.thesis.deleteMany({ where: { studentId: id } });
         await prisma.student.delete({ where: { id } });
       }
 
@@ -377,9 +462,9 @@ async function deleteRedundantUsers(allowedEmails, allowedIdentityNumbers) {
       await prisma.yudisiumCplRecommendation.updateMany({ where: { resolvedBy: id }, data: { resolvedBy: null } });
       await prisma.thesisAdvisorRequest.updateMany({ where: { reviewedBy: id }, data: { reviewedBy: null } });
       await prisma.user.delete({ where: { id } });
-      console.log(`    Dihapus: ${u.email}`);
+      console.log(`    Dihapus: ${u.email ?? u.identityNumber}`);
     } catch (err) {
-      console.error(`    Gagal hapus ${u.email}:`, err.message);
+      console.error(`    Gagal hapus ${u.email ?? u.identityNumber}:`, err.message);
     }
   }
 }
@@ -429,25 +514,30 @@ async function ensureSupervisionQuotas() {
 }
 
 async function main() {
-  console.log('Ensure users - sesuai usersData master, password: Password@2025\n');
+  console.log('Ensure users - password: Password@2025');
+  console.log(
+    SKIP_DUMMY
+      ? 'Mode: --skip-dummy (hanya akun real @fti.unand.ac.id)\n'
+      : 'Kebijakan: akun real tidak dilucuti role; isolasi UAT via akun @dummy.ac.id\n',
+  );
 
   const passwordHash = await bcrypt.hash(PASSWORD_PLAIN, 10);
-  const allowedEmails = new Set(usersData.map((u) => u.email.toLowerCase()));
-  const allowedIdentityNumbers = new Set(usersData.map((u) => u.identityNumber));
 
   console.log('--- Pastikan role ada ---');
   await ensureRoles();
 
-  console.log('\n--- Hapus user redundan terlebih dahulu ---');
-  await deleteRedundantUsers(allowedEmails, allowedIdentityNumbers);
+  console.log('\n--- Hapus user residual tidak terpakai saja ---');
+  await deleteUnusedUsers();
 
-  console.log('\n--- Upsert user dari usersData ---');
+  console.log(SKIP_DUMMY
+    ? '\n--- Upsert user master (tanpa akun dummy) ---'
+    : '\n--- Upsert user master + akun dummy peran tunggal ---');
   await ensureAllowedUsers(passwordHash);
 
   console.log('\n--- Pastikan kuota bimbingan ada untuk semua pembimbing ---');
   await ensureSupervisionQuotas();
 
-  console.log('\nSelesai.');
+  console.log('\nSelesai. Role ekstra pada akun real (jika ada) dibiarkan utuh.');
 }
 
 main()

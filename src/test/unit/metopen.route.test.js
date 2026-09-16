@@ -22,8 +22,14 @@ describe("metopen.route", () => {
         { path: "/me/proposal-approval", methods: ["get"] },
         { path: "/me/seminar-eligibility", methods: ["get"] },
         { path: "/me/proposal-queue/sync", methods: ["post"] },
+        { path: "/me/archive", methods: ["get"] },
+        { path: "/me/archive/title-approval-document", methods: ["get"] },
         { path: "/kadep/title-reports/pending", methods: ["get"] },
         { path: "/kadep/thesis/:thesisId/title-report/review", methods: ["post"] },
+        { path: "/kadep/title-reports/missing-document", methods: ["get"] },
+        { path: "/kadep/title-reports/history", methods: ["get"] },
+        { path: "/kadep/thesis/:thesisId/title-report/regenerate", methods: ["post"] },
+        { path: "/kadep/thesis/:thesisId/title-report/document", methods: ["get"] },
       ]),
     );
   });

@@ -7,6 +7,11 @@ import {
   getActiveThesisForStudent,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as proposalRepo from "../../repositories/thesisGuidance/proposal.repository.js";
+import {
+  assertTa04GuidanceAuthorized,
+  getTa04GuidanceAuthorization,
+} from "../ta04Authorization.service.js";
+import { reconcileAttendanceForThesis } from "../metopenAttendance.service.js";
 
 function sanitizePdfFileName(originalName) {
   const base = path.basename(String(originalName || "proposal.pdf"));
@@ -44,6 +49,31 @@ function mapProposalVersion(versionRow) {
   };
 }
 
+function isScoreProgressStarted(scoreProgress) {
+  return Boolean(
+    scoreProgress &&
+      (scoreProgress.isFinalized ||
+        scoreProgress.supervisorScore != null ||
+        scoreProgress.lecturerScore != null)
+  );
+}
+
+function getUploadLockedReason({ isAccepted, scoreProgress }) {
+  if (isAccepted) {
+    return "Mahasiswa sudah promosi ke beban aktif Tugas Akhir.";
+  }
+
+  if (scoreProgress?.isFinalized) {
+    return "Penilaian TA-03 sudah final. Proposal final dikunci permanen dan tidak dapat diganti.";
+  }
+
+  if (isScoreProgressStarted(scoreProgress)) {
+    return "Penilaian TA-03 sedang berlangsung.";
+  }
+
+  return null;
+}
+
 async function getStudentAndThesis(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) throw new NotFoundError("Data mahasiswa tidak ditemukan");
@@ -59,6 +89,21 @@ export async function uploadProposalVersion(userId, file, description) {
   assertPdfBuffer(file);
 
   const { thesis } = await getStudentAndThesis(userId);
+
+  if (thesis.proposalStatus === "accepted") {
+    throw new BadRequestError(
+      "Mahasiswa sudah promosi ke beban aktif Tugas Akhir. Tidak dapat mengunggah versi proposal Metopel baru."
+    );
+  }
+
+  const scoreProgress = await proposalRepo.findResearchMethodScoreProgress(thesis.id);
+  if (isScoreProgressStarted(scoreProgress)) {
+    throw new BadRequestError(
+      scoreProgress?.isFinalized
+        ? "Penilaian TA-03 sudah final. Tidak dapat mengunggah versi proposal baru."
+        : "Penilaian TA-03 sudah dimulai. Tidak dapat mengunggah versi proposal baru sampai siklus penilaian selesai/di-reset."
+    );
+  }
 
   const uploadsDir = path.join(process.cwd(), "uploads", "thesis", thesis.id, "proposal");
   await fs.mkdir(uploadsDir, { recursive: true });
@@ -111,16 +156,30 @@ export async function getProposalVersions(userId) {
 
 export async function getProposalSubmissionStatus(userId) {
   const { thesis } = await getStudentAndThesis(userId);
-  const [latestVersion, submissionStatus, supervisorCount] = await Promise.all([
+  const [latestVersion, submissionStatus, supervisorCount, scoreProgress, guidanceAuthorization] = await Promise.all([
     proposalRepo.findLatestProposalVersion(thesis.id),
     proposalRepo.getProposalSubmissionStatus(thesis.id),
     proposalRepo.countActiveSupervisors(thesis.id),
+    proposalRepo.findResearchMethodScoreProgress(thesis.id),
+    getTa04GuidanceAuthorization(thesis.id),
   ]);
+
+  const isAccepted = submissionStatus?.proposalStatus === "accepted";
+  const isScoringStarted = isScoreProgressStarted(scoreProgress);
+  const uploadLocked = isAccepted || isScoringStarted;
+  const uploadLockedReason = getUploadLockedReason({ isAccepted, scoreProgress });
 
   return {
     thesisId: thesis.id,
     hasSupervisor: supervisorCount > 0,
+    hasBookedSupervisor: guidanceAuthorization.hasBookedSupervisor,
+    hasOfficialSupervisor: guidanceAuthorization.hasOfficialSupervisor,
+    canSubmitFinalProposal: guidanceAuthorization.guidanceGateOpen && !isAccepted && !isScoringStarted,
+    guidanceGateOpen: guidanceAuthorization.guidanceGateOpen,
+    guidanceGateReason: guidanceAuthorization.guidanceGateReason,
     proposalStatus: submissionStatus?.proposalStatus ?? null,
+    uploadLocked,
+    uploadLockedReason,
     latestVersion: latestVersion ? mapProposalVersion(latestVersion) : null,
     finalProposalVersion: submissionStatus?.finalProposalVersion
       ? {
@@ -143,9 +202,11 @@ export async function submitFinalProposal(userId) {
 
   if (thesis.proposalStatus === "accepted") {
     throw new BadRequestError(
-      "Proposal sudah disahkan sebagai TA-04. Versi final tidak dapat diubah dari alur mahasiswa."
+      "Mahasiswa sudah promosi ke beban aktif Tugas Akhir. Versi final proposal Metopel tidak dapat diubah dari alur mahasiswa."
     );
   }
+
+  await assertTa04GuidanceAuthorized(thesis.id);
 
   const [latestVersion, supervisorCount] = await Promise.all([
     proposalRepo.findLatestProposalVersion(thesis.id),
@@ -172,16 +233,46 @@ export async function submitFinalProposal(userId) {
     };
   }
 
+  // F-4.3: lock integritas — bila penilaian TA-03 sudah dimulai/terkunci untuk
+  // proposal final aktif, jangan biarkan mahasiswa menukar versi yang sedang
+  // (atau sudah) dinilai. Idempotent re-submit versi yang sama tetap lolos di atas.
+  const scoreProgress = await proposalRepo.findResearchMethodScoreProgress(thesis.id);
+  if (isScoreProgressStarted(scoreProgress)) {
+    throw new BadRequestError(
+      scoreProgress?.isFinalized
+        ? "Penilaian TA-03 sudah final untuk proposal final saat ini. Versi final tidak dapat diganti."
+        : "Penilaian TA-03 sudah dimulai untuk proposal final saat ini. Versi final tidak dapat diganti sampai siklus penilaian selesai/di-reset.",
+    );
+  }
+
   const submittedVersion = await proposalRepo.submitFinalProposalVersion(
     thesis.id,
     latestVersion.id,
     userId,
   );
 
+  // BR-28 catch-up: upload-first then submit-final must still resolve attendance
+  // (NIM match + deferred auto-zero / clear). Only on submitFinalProposal — not TA-04.
+  let attendanceReconcile = null;
+  try {
+    attendanceReconcile = await reconcileAttendanceForThesis(thesis.id, userId);
+  } catch (err) {
+    console.error(
+      "[submitFinalProposal] attendance reconcile failed",
+      { thesisId: thesis.id, message: err?.message },
+    );
+    attendanceReconcile = {
+      status: "error",
+      applied: null,
+      message: err?.message ?? "Attendance reconcile failed",
+    };
+  }
+
   return {
     thesisId: thesis.id,
     finalProposalVersion: mapProposalVersion(submittedVersion),
     alreadySubmitted: false,
+    attendanceReconcile,
   };
 }
 
@@ -195,6 +286,8 @@ export async function getProposalVersionsForLecturer(lecturerUserId, thesisId) {
   if (!isSupervisor && !isMetopenLecturer) {
     throw new ForbiddenError("Anda tidak memiliki akses untuk melihat proposal mahasiswa ini");
   }
+
+  await assertTa04GuidanceAuthorized(thesisId);
 
   const versions = await proposalRepo.getProposalVersions(thesisId);
 

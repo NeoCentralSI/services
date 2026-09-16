@@ -11,8 +11,9 @@ logs
 .github
 README.md
 docs
+guide/*
+!guide/TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf
 test
-scripts
 data
 tmp
 temp

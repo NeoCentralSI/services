@@ -1,6 +1,6 @@
 import prisma from "../config/prisma.js";
 
-export const findAll = async ({ status = "active", search = "", page = 1, limit = 10 } = {}) => {
+export const findAll = async ({ status = "all", search = "", page = 1, limit = 10, curriculumId } = {}) => {
     const where = {};
     const parsedPage = parseInt(page) || 1;
     const parsedLimit = parseInt(limit) || 10;
@@ -18,18 +18,30 @@ export const findAll = async ({ status = "active", search = "", page = 1, limit 
         ];
     }
 
+    if (curriculumId) {
+        where.curriculumId = curriculumId;
+    }
+
     const skip = (parsedPage - 1) * parsedLimit;
 
     const [data, total] = await prisma.$transaction([
         prisma.cpl.findMany({
             where,
-            orderBy: { code: "asc" },
+            orderBy: [{ code: "asc" }, { version: "desc" }],
             include: {
                 _count: {
                     select: {
                         studentCplScores: true,
                     },
                 },
+                curriculum: {
+                    select: {
+                        id: true,
+                        name: true,
+                        startYear: true,
+                        endYear: true,
+                    }
+                }
             },
             skip,
             take: parsedLimit,
@@ -49,6 +61,14 @@ export const findById = async (id) => {
                     studentCplScores: true,
                 },
             },
+            curriculum: {
+                select: {
+                    id: true,
+                    name: true,
+                    startYear: true,
+                    endYear: true,
+                }
+            }
         },
     });
 };
@@ -61,9 +81,10 @@ export const findByCode = async (code, excludeId = null) => {
     return await prisma.cpl.findFirst({ where });
 };
 
-export const findActiveByCode = async (code, excludeId = null) => {
+export const findActiveByCodeAndCurriculum = async (code, curriculumId, excludeId = null) => {
     const where = {
         code,
+        curriculumId,
         isActive: true,
     };
 
@@ -72,6 +93,14 @@ export const findActiveByCode = async (code, excludeId = null) => {
     }
 
     return await prisma.cpl.findFirst({ where });
+};
+
+export const findLatestVersionByCodeAndCurriculum = async (code, curriculumId) => {
+    return await prisma.cpl.findFirst({
+        where: { code, curriculumId },
+        orderBy: { version: "desc" },
+        select: { version: true },
+    });
 };
 
 export const create = async (data) => {
@@ -115,21 +144,37 @@ const studentScoreInclude = {
             code: true,
             description: true,
             minimalScore: true,
+            version: true,
             isActive: true,
+            curriculumId: true,
+            curriculum: {
+                select: {
+                    name: true,
+                    startYear: true
+                }
+            }
         },
     },
-    inputUser: {
+    inputLecturer: {
         select: {
             id: true,
-            fullName: true,
-            identityNumber: true,
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true,
+                },
+            },
         },
     },
-    verifier: {
+    validatorLecturer: {
         select: {
             id: true,
-            fullName: true,
-            identityNumber: true,
+            user: {
+                select: {
+                    fullName: true,
+                    identityNumber: true,
+                },
+            },
         },
     },
 };
@@ -169,6 +214,16 @@ export const findStudentScoreByCplAndStudent = async (cplId, studentId) => {
     });
 };
 
+export const findStudentScoresByLogicalCpl = async (studentId, curriculumId, code) => {
+    return await prisma.studentCplScore.findMany({
+        where: {
+            studentId,
+            cpl: { curriculumId, code },
+        },
+        include: studentScoreInclude,
+    });
+};
+
 export const createStudentScore = async (data) => {
     return await prisma.studentCplScore.create({ data });
 };
@@ -190,9 +245,9 @@ export const removeStudentScore = async (cplId, studentId) => {
     });
 };
 
-export const findStudentsNotInCpl = async (cplId, search = "") => {
+export const findStudentsNotInLogicalCpl = async (curriculumId, code, search = "") => {
     const linkedRows = await prisma.studentCplScore.findMany({
-        where: { cplId },
+        where: { cpl: { curriculumId, code } },
         select: { studentId: true },
     });
     const linkedStudentIds = linkedRows.map((row) => row.studentId);
@@ -278,6 +333,11 @@ export const findCplScoresForExport = async (cplId) => {
 export const findAllCplScoresForExport = async () => {
     return await prisma.studentCplScore.findMany({
         include: studentScoreInclude,
-        orderBy: [{ cpl: { code: "asc" } }, { student: { user: { fullName: "asc" } } }],
+        orderBy: [
+            { cpl: { curriculum: { startYear: "asc" } } },
+            { cpl: { code: "asc" } },
+            { cpl: { version: "asc" } },
+            { student: { user: { fullName: "asc" } } },
+        ],
     });
 };

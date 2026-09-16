@@ -1,0 +1,34 @@
+[
+  {
+    "id": "a82972a5-f5ee-4667-90ea-077cc5b4adc6",
+    "name": "Bimbingan"
+  },
+  {
+    "id": "5e78f1ab-2f62-4eb7-a652-520d03f7834d",
+    "name": "Diajukan"
+  },
+  {
+    "id": "1556a0fe-16e9-4675-a8ba-88e78c073a61",
+    "name": "Dibatalkan"
+  },
+  {
+    "id": "38525f6a-351b-4748-954b-3900040c0934",
+    "name": "Drop Out"
+  },
+  {
+    "id": "44abd9c3-ed18-4716-8830-a88e81f73621",
+    "name": "Gagal"
+  },
+  {
+    "id": "f3260af7-e59b-4f53-98ea-4266daf69129",
+    "name": "Lulus"
+  },
+  {
+    "id": "edbfb97d-f167-46fe-b898-aa9adadb3687",
+    "name": "Metopel"
+  },
+  {
+    "id": "cbaeb1b9-e625-471a-b8de-55af2a909a0e",
+    "name": "Selesai"
+  }
+]

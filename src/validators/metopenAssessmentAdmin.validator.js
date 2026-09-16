@@ -1,14 +1,14 @@
 import { z } from "zod";
+import { academicYearIdSchema } from "./common.validator.js";
 
 const assessmentRoleSchema = z.enum(["default", "supervisor"]);
 
 export const createCriteriaSchema = z.object({
-  cpmkId: z.string().uuid("CPMK tidak valid"),
+  metopenCpmkId: z.string().uuid("CPMK tidak valid"),
   name: z.string().min(1, "Nama kriteria wajib diisi").max(255, "Nama kriteria maksimal 255 karakter"),
   role: assessmentRoleSchema,
   maxScore: z.number().int().min(0, "Skor maksimal minimal 0").max(100, "Skor maksimal terlalu besar"),
   displayOrder: z.number().int().min(0).optional(),
-  isActive: z.boolean().optional(),
 });
 
 export const updateCriteriaSchema = createCriteriaSchema.partial();
@@ -56,3 +56,66 @@ export const reorderRubricsSchema = z.object({
     .array(z.string().uuid("ID tidak valid"))
     .min(1, "Minimal 1 item"),
 });
+
+export const createMetopenCpmkSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(5, "Kode CPMK terlalu pendek")
+    .max(20, "Kode CPMK maksimal 20 karakter")
+    .regex(
+      /^CPMK[- ]?\d{1,2}$/i,
+      "Kode harus berformat resmi, contoh: CPMK-01, CPMK-02, CPMK-03 (dipakai export nilai SIA)",
+    ),
+  description: z
+    .string()
+    .trim()
+    .min(10, "Deskripsi CPMK minimal 10 karakter")
+    .max(255, "Deskripsi CPMK maksimal 255 karakter"),
+  academicYearId: academicYearIdSchema,
+});
+
+export const updateMetopenCpmkSchema = z
+  .object({
+    code: z
+      .string()
+      .trim()
+      .min(5, "Kode CPMK terlalu pendek")
+      .max(20, "Kode CPMK maksimal 20 karakter")
+      .regex(
+        /^CPMK[- ]?\d{1,2}$/i,
+        "Kode harus berformat resmi, contoh: CPMK-01, CPMK-02, CPMK-03 (dipakai export nilai SIA)",
+      )
+      .optional(),
+    description: z
+      .string()
+      .trim()
+      .min(10, "Deskripsi CPMK minimal 10 karakter")
+      .max(255, "Deskripsi CPMK maksimal 255 karakter")
+      .optional(),
+  })
+  .refine((payload) => payload.code !== undefined || payload.description !== undefined, {
+    message: "Minimal satu field (kode atau deskripsi) harus diisi",
+  });
+
+export const academicYearIdParamSchema = z.object({
+  academicYearId: academicYearIdSchema,
+});
+
+export const updateScoreCompositionSchema = z
+  .object({
+    ta03aCap: z
+      .number({ required_error: "Batas TA-03A wajib diisi" })
+      .int("Batas TA-03A harus bilangan bulat")
+      .min(1, "Batas TA-03A minimal 1")
+      .max(99, "Batas TA-03A maksimal 99"),
+    ta03bCap: z
+      .number({ required_error: "Batas TA-03B wajib diisi" })
+      .int("Batas TA-03B harus bilangan bulat")
+      .min(1, "Batas TA-03B minimal 1")
+      .max(99, "Batas TA-03B maksimal 99"),
+  })
+  .refine((payload) => payload.ta03aCap + payload.ta03bCap === 100, {
+    message: "Jumlah TA-03A + TA-03B harus tepat 100",
+    path: ["ta03bCap"],
+  });

@@ -1,0 +1,951 @@
+import * as examinerRepo from "../../repositories/thesis-defence/examiner.repository.js";
+import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
+import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
+import { mapScoreToGrade } from "../../utils/score.util.js";
+import prisma from "../../config/prisma.js";
+import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function throwError(message, statusCode) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  throw err;
+}
+
+function resolveSupervisorMembership(supervisorRelation) {
+  if (!supervisorRelation) return null;
+  if (supervisorRelation.thesis?.thesisSupervisors?.length > 0) {
+    return supervisorRelation.thesis.thesisSupervisors[0];
+  }
+  return supervisorRelation;
+}
+
+function parseAndValidateScore(scoreInput, maxScore, criterionName) {
+  if (
+    scoreInput === null ||
+    scoreInput === undefined ||
+    typeof scoreInput === "boolean" ||
+    (typeof scoreInput === "string" && scoreInput.trim() === "") ||
+    Array.isArray(scoreInput) ||
+    (typeof scoreInput === "object" && scoreInput !== null)
+  ) {
+    throwError(`Nilai untuk '${criterionName || "kriteria"}' tidak valid.`, 400);
+  }
+
+  const num = Number(scoreInput);
+  if (!Number.isFinite(num)) {
+    throwError(`Nilai untuk '${criterionName || "kriteria"}' tidak valid.`, 400);
+  }
+
+  if (num < 0 || num > maxScore) {
+    throwError(`Nilai untuk '${criterionName || "kriteria"}' harus 0-${maxScore}.`, 400);
+  }
+
+  return num;
+}
+
+function groupAssessmentDetailsByCpmk(details = []) {
+  const byGroup = {};
+  details.forEach((item) => {
+    const cpmk = item.criteria?.thesisCpmk;
+    if (!cpmk) return;
+    const groupKey = cpmk.code || cpmk.id;
+    if (!byGroup[groupKey]) {
+      byGroup[groupKey] = { id: cpmk.id, code: cpmk.code, description: cpmk.description, criteria: [] };
+    }
+    byGroup[groupKey].criteria.push({
+      id: item.criteria.id,
+      name: item.criteria.name,
+      maxScore: item.criteria.maxScore,
+      score: item.score,
+      displayOrder: item.criteria.displayOrder,
+      rubrics: (item.criteria.assessmentRubrics || []).map((r) => ({
+        id: r.id,
+        minScore: r.minScore,
+        maxScore: r.maxScore,
+        description: r.description,
+      })),
+    });
+  });
+  Object.values(byGroup).forEach((g) =>
+    g.criteria.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
+  );
+  return Object.values(byGroup).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+}
+
+export async function resolveDefenceAssessmentConfiguration(defenceId) {
+  const defence = await prisma.thesisDefence.findUnique({
+    where: { id: defenceId },
+    select: {
+      id: true,
+      requirementDocuments: {
+        select: {
+          requirement: {
+            select: { academicYearId: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+
+  const requirementAcademicYearIds = Array.from(
+    new Set(
+      (defence.requirementDocuments || [])
+        .map((doc) => doc.requirement?.academicYearId)
+        .filter(Boolean)
+    )
+  );
+
+  if (requirementAcademicYearIds.length > 1) {
+    throwError("Terdapat ketidakcocokan tahun akademik pada dokumen persyaratan sidang.", 409);
+  }
+
+  let academicYearId = requirementAcademicYearIds[0] || null;
+  if (!academicYearId) {
+    const activeAy = await getActiveAcademicYear();
+    academicYearId = activeAy?.id || null;
+  }
+
+  if (!academicYearId) {
+    throwError("Tahun akademik untuk penilaian sidang belum tersedia. Hubungi Admin.", 400);
+  }
+
+  const minimumPassingScore = await examinerRepo.findDefenceMinimumScore(academicYearId);
+  if (minimumPassingScore === null || minimumPassingScore === undefined) {
+    throwError("Nilai minimum kelulusan sidang untuk tahun akademik ini belum dikonfigurasi.", 400);
+  }
+
+  return { academicYearId, minimumPassingScore: Number(minimumPassingScore) };
+}
+
+// ============================================================
+// PUBLIC: Eligible Examiners
+// ============================================================
+
+export async function getEligibleExaminers(defenceId) {
+  const defence = await coreRepo.findDefenceBasicById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+
+  const lecturers = await examinerRepo.findEligibleExaminers(defenceId);
+  const lecturerIds = lecturers.map((l) => l.id);
+  if (lecturerIds.length === 0) return [];
+
+  let previousExaminerIds = [];
+  const currentThesis = await prisma.thesis.findUnique({
+    where: { id: defence.thesisId },
+    select: { studentId: true },
+  });
+  if (currentThesis?.studentId) {
+    const passedSeminar = await prisma.thesisSeminar.findFirst({
+      where: {
+        thesis: { studentId: currentThesis.studentId },
+        status: { in: ['passed', 'passed_with_revision'] },
+      },
+      include: { examiners: { select: { lecturerId: true } } },
+      orderBy: { date: 'desc' },
+    });
+    if (passedSeminar) {
+      passedSeminar.examiners.forEach((e) => {
+        previousExaminerIds.push(e.lecturerId);
+      });
+    }
+  }
+
+  const now = new Date();
+  const oneMonthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const [availabilityRows, upcomingSeminars, upcomingDefences] = await Promise.all([
+    prisma.lecturerAvailability.findMany({
+      where: { lecturerId: { in: lecturerIds } },
+      orderBy: [{ lecturerId: "asc" }, { day: "asc" }, { startTime: "asc" }],
+    }),
+    prisma.thesisSeminarExaminer.findMany({
+      where: {
+        lecturerId: { in: lecturerIds },
+        availabilityStatus: { in: ["pending", "available"] },
+        seminar: {
+          status: { in: ["scheduled", "verified"] },
+          date: { gte: now, lte: oneMonthLater },
+        },
+      },
+      include: {
+        seminar: {
+          select: {
+            date: true,
+            startTime: true,
+            endTime: true,
+            thesis: { select: { student: { select: { user: { select: { fullName: true } } } } } },
+          },
+        },
+      },
+    }),
+    prisma.thesisDefenceExaminer.findMany({
+      where: {
+        lecturerId: { in: lecturerIds },
+        availabilityStatus: { in: ["pending", "available"] },
+        defence: {
+          status: { in: ["scheduled", "verified", "examiner_assigned"] },
+          date: { gte: now, lte: oneMonthLater },
+        },
+      },
+      include: {
+        defence: {
+          select: {
+            date: true,
+            startTime: true,
+            endTime: true,
+            thesis: { select: { student: { select: { user: { select: { fullName: true } } } } } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const DAY_LABELS = {
+    MONDAY: "Senin",
+    TUESDAY: "Selasa",
+    WEDNESDAY: "Rabu",
+    THURSDAY: "Kamis",
+    FRIDAY: "Jumat",
+    SATURDAY: "Sabtu",
+    SUNDAY: "Minggu",
+  };
+
+  const formatTimeHHMM = (isoString) => {
+    if (!isoString) return "--:--";
+    const d = new Date(isoString);
+    return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  };
+
+  const availabilitiesByLecturer = new Map();
+  availabilityRows.forEach((slot) => {
+    if (!availabilitiesByLecturer.has(slot.lecturerId)) availabilitiesByLecturer.set(slot.lecturerId, []);
+    availabilitiesByLecturer.get(slot.lecturerId).push(slot);
+  });
+
+  return lecturers.map((l) => {
+    const filteredSeminars = upcomingSeminars.filter((s) => s.lecturerId === l.id);
+    const filteredDefences = upcomingDefences.filter((d) => d.lecturerId === l.id);
+    const upcomingCount = filteredSeminars.length + filteredDefences.length;
+
+    const events = [
+      ...filteredSeminars.map((s) => ({
+        type: "seminar",
+        title: "Seminar Hasil",
+        studentName: s.seminar?.thesis?.student?.user?.fullName || "Mahasiswa",
+        date: s.seminar.date,
+        startTime: formatTimeHHMM(s.seminar.startTime),
+        endTime: formatTimeHHMM(s.seminar.endTime),
+      })),
+      ...filteredDefences.map((d) => ({
+        type: "defence",
+        title: "Sidang Tugas Akhir",
+        studentName: d.defence?.thesis?.student?.user?.fullName || "Mahasiswa",
+        date: d.defence.date,
+        startTime: formatTimeHHMM(d.defence.startTime),
+        endTime: formatTimeHHMM(d.defence.endTime),
+      })),
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const availabilityRanges = (availabilitiesByLecturer.get(l.id) || []).map((slot) => ({
+      day: slot.day,
+      dayLabel: DAY_LABELS[slot.day] || slot.day,
+      startTime: formatTimeHHMM(slot.startTime),
+      endTime: formatTimeHHMM(slot.endTime),
+      validFrom: slot.validFrom,
+      validUntil: slot.validUntil,
+      label: `${DAY_LABELS[slot.day] || slot.day}, ${formatTimeHHMM(slot.startTime)}-${formatTimeHHMM(slot.endTime)}`,
+    }));
+
+    return {
+      id: l.id,
+      fullName: l.user?.fullName || "-",
+      identityNumber: l.user?.identityNumber || "-",
+      scienceGroup: l.scienceGroup?.name || "-",
+      upcomingCount,
+      availabilityRanges,
+      events,
+      isPreviousExaminer: previousExaminerIds.includes(l.id),
+      isSelectable: true,
+    };
+  });
+}
+
+// ============================================================
+// PUBLIC: Assign Examiners (Kadep)
+// ============================================================
+
+export async function assignExaminers(defenceId, examinerIds, assignedByUserId) {
+  const defence = await coreRepo.findDefenceById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (!["verified", "examiner_assigned", "scheduled"].includes(defence.status)) {
+    throwError("Sidang harus berstatus 'verified', 'examiner_assigned', atau 'scheduled' untuk penetapan penguji.", 400);
+  }
+
+  if (examinerIds.length < 1) throwError("Minimal 1 penguji wajib ditetapkan.", 400);
+  if (new Set(examinerIds).size !== examinerIds.length) throwError("Penguji tidak boleh duplikat.", 400);
+
+  const currentAssignments = await prisma.thesisDefenceExaminer.findMany({
+    where: {
+      thesisDefenceId: defenceId,
+      availabilityStatus: { in: ["available", "pending", "unavailable"] },
+    },
+    orderBy: [{ assignedAt: "desc" }, { createdAt: "desc" }],
+  });
+
+  const assignmentByLecturerId = new Map();
+  currentAssignments.forEach((assignment) => {
+    if (!assignmentByLecturerId.has(assignment.lecturerId)) {
+      assignmentByLecturerId.set(assignment.lecturerId, assignment);
+    }
+  });
+
+  const currentComparableAssignments = [...assignmentByLecturerId.values()];
+  const requestedIdSet = new Set(examinerIds);
+  const requestedOrderByLecturerId = new Map(examinerIds.map((lecturerId, idx) => [lecturerId, idx + 1]));
+
+  const removedExaminerRecordIds = currentComparableAssignments
+    .filter((examiner) => !requestedIdSet.has(examiner.lecturerId))
+    .map((examiner) => examiner.id);
+  const addedExaminerIds = examinerIds.filter((lecturerId) => !assignmentByLecturerId.has(lecturerId));
+  const keptExaminerUpdates = examinerIds
+    .map((lecturerId, idx) => ({ lecturerId, order: idx + 1, existing: assignmentByLecturerId.get(lecturerId) }))
+    .filter((item) => item.existing);
+
+  await prisma.$transaction(async (tx) => {
+    if (removedExaminerRecordIds.length > 0) {
+      await tx.thesisDefenceExaminer.deleteMany({
+        where: {
+          id: { in: removedExaminerRecordIds },
+          thesisDefenceId: defenceId,
+          availabilityStatus: { in: ["available", "pending", "unavailable"] },
+        },
+      });
+    }
+
+    if (keptExaminerUpdates.length > 0) {
+      await Promise.all(
+        keptExaminerUpdates.map((item) =>
+          tx.thesisDefenceExaminer.update({
+            where: { id: item.existing.id },
+            data: {
+              order: item.order,
+              ...(item.existing.availabilityStatus === "unavailable"
+                ? { availabilityStatus: "pending", respondedAt: null }
+                : {}),
+            },
+          })
+        )
+      );
+    }
+
+    if (addedExaminerIds.length > 0) {
+      const now = new Date();
+      await tx.thesisDefenceExaminer.createMany({
+        data: addedExaminerIds.map((lecturerId) => ({
+          thesisDefenceId: defenceId,
+          lecturerId,
+          order: requestedOrderByLecturerId.get(lecturerId),
+          assignedBy: assignedByUserId,
+          assignedAt: now,
+          availabilityStatus: "pending",
+        })),
+      });
+    }
+  });
+
+  try {
+    const studentName = defence.thesis?.student?.user?.fullName || "Mahasiswa";
+    const studentUserId = defence.thesis?.studentId;
+
+    if (addedExaminerIds.length > 0) {
+      const newLecturers = await prisma.lecturer.findMany({
+        where: { id: { in: addedExaminerIds } },
+        include: { user: { select: { id: true } } },
+      });
+      const userIds = newLecturers.map((l) => l.user.id);
+      const title = "Penugasan Penguji Sidang TA";
+      const message = `Anda telah ditugaskan sebagai penguji sidang tugas akhir mahasiswa ${studentName}. Mohon berikan konfirmasi kesediaan Anda.`;
+
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers(userIds, { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers(userIds, { title, body: message, data: { defenceId, type: "defence_examiner_assigned" } })),
+      ]);
+    }
+
+    if (addedExaminerIds.length > 0 && studentUserId) {
+      const title = "Penetapan Penguji Sidang TA";
+      const message = `Penguji sidang tugas akhir Anda telah ditetapkan oleh Ketua Departemen.`;
+      await Promise.all([
+        import("../notification.service.js").then((m) => m.createNotificationsForUsers([studentUserId], { title, message })),
+        import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_examiner_assigned_student" } })),
+      ]);
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify on examiner assignment:", err.message);
+  }
+
+  const activeExaminers = await examinerRepo.findActiveExaminersByDefence(defenceId);
+  const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
+
+  if (defence.status !== "scheduled") {
+    const targetStatus = allAvailable ? "examiner_assigned" : "verified";
+    if (defence.status !== targetStatus) await coreRepo.updateDefenceStatus(defenceId, targetStatus);
+  }
+
+  return activeExaminers;
+}
+
+// ============================================================
+// PUBLIC: Respond to Assignment (Lecturer)
+// ============================================================
+
+export async function respondExaminerAssignment(defenceId, examinerId, payload, lecturerId) {
+  const { status, unavailableReasons } = payload || {};
+  if (!["available", "unavailable"].includes(status)) {
+    throwError("Status harus 'available' atau 'unavailable'.", 400);
+  }
+
+  const examiner = await examinerRepo.findExaminerById(examinerId);
+  if (!examiner) throwError("Data penguji tidak ditemukan.", 404);
+  if (examiner.lecturerId !== lecturerId) throwError("Anda bukan penguji yang ditugaskan.", 403);
+  if (examiner.availabilityStatus !== "pending") throwError("Anda sudah memberikan respons sebelumnya.", 400);
+
+  await examinerRepo.updateExaminerAvailability(examinerId, status, unavailableReasons);
+
+  const activeExaminers = await examinerRepo.findActiveExaminersByDefence(examiner.thesisDefenceId);
+  const allAvailable = activeExaminers.length > 0 && activeExaminers.every((e) => e.availabilityStatus === "available");
+  let defenceTransitioned = false;
+
+  const defence = await coreRepo.findDefenceBasicById(examiner.thesisDefenceId);
+  if (allAvailable && defence && defence.status !== "scheduled") {
+    await coreRepo.updateDefenceStatus(examiner.thesisDefenceId, "examiner_assigned");
+    defenceTransitioned = true;
+  }
+
+  try {
+    const thesis = await prisma.thesis.findUnique({
+      where: { id: defence.thesisId },
+      select: {
+        studentId: true,
+        thesisSupervisors: {
+          include: { lecturer: { include: { user: { select: { id: true } } } } },
+        },
+      },
+    });
+    const studentUserId = thesis?.studentId;
+    const studentName = defence.thesis?.student?.user?.fullName || "Mahasiswa";
+    const supervisorUserIds = (thesis?.thesisSupervisors || []).map((s) => s.lecturer?.user?.id).filter(Boolean);
+
+    const lecturerRecord = await prisma.lecturer.findUnique({
+      where: { id: lecturerId },
+      include: { user: { select: { fullName: true } } },
+    });
+    const lecturerName = lecturerRecord?.user?.fullName || "Dosen Penguji";
+
+    if (status === "unavailable") {
+      const kadepIds = await coreRepo.findUserIdsByRole("Ketua Departemen");
+      if (kadepIds.length > 0) {
+        const title = "Penguji Sidang TA Berhalangan";
+        const message = `${lecturerName} tidak bersedia menjadi penguji sidang TA mahasiswa ${studentName}. Alasan: ${unavailableReasons || "-"}. Mohon lakukan penetapan ulang.`;
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(kadepIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(kadepIds, { title, body: message, data: { defenceId, type: "defence_examiner_unavailable" } })),
+        ]);
+      }
+    }
+
+    if (defenceTransitioned) {
+      const title = "Penguji Sidang TA Lengkap";
+      const message = `Seluruh penguji untuk sidang TA ${studentName} telah bersedia hadir. Menunggu penetapan jadwal oleh Admin.`;
+
+      if (studentUserId) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers([studentUserId], { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers([studentUserId], { title, body: message, data: { defenceId, type: "defence_all_examiners_available_student" } })),
+        ]);
+      }
+
+      const adminIds = await coreRepo.findUserIdsByRole("Admin");
+      if (adminIds.length > 0) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(adminIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(adminIds, { title, body: message, data: { defenceId, type: "defence_all_examiners_available_admin" } })),
+        ]);
+      }
+
+      if (supervisorUserIds.length > 0) {
+        await Promise.all([
+          import("../notification.service.js").then((m) => m.createNotificationsForUsers(supervisorUserIds, { title, message })),
+          import("../push.service.js").then((m) => m.sendFcmToUsers(supervisorUserIds, { title, body: message, data: { defenceId, type: "defence_all_examiners_available_supervisor" } })),
+        ]);
+      }
+    }
+  } catch (err) {
+    console.error("[Notification Error] Failed to notify stakeholders on defence examiner response:", err.message);
+  }
+
+  return { examinerId, availabilityStatus: status, defenceTransitioned };
+}
+
+// ============================================================
+// PUBLIC: Assessment Form (Examiner / Supervisor)
+// ============================================================
+
+export async function getAssessment(defenceId, user) {
+  const defence = await coreRepo.findDefenceById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian penilaian tidak tersedia untuk data arsip sidang.", 400);
+  }
+
+  const effectiveStatus = computeEffectiveDefenceStatus(
+    defence.status,
+    defence.date,
+    defence.startTime,
+    defence.endTime
+  );
+  if (
+    !["ongoing", "passed", "passed_with_revision", "failed"].includes(effectiveStatus)
+  ) {
+    throwError(
+      "Form penilaian hanya tersedia saat sidang sedang berlangsung atau sudah selesai.",
+      400
+    );
+  }
+
+  const isFinalized =
+    ["passed", "passed_with_revision", "failed"].includes(effectiveStatus) ||
+    !!defence.resultFinalizedAt;
+
+  const examiner = user.lecturerId
+    ? await examinerRepo.findLatestExaminerByDefenceAndLecturer(defenceId, user.lecturerId)
+    : null;
+  const supervisorRelation = user.lecturerId
+    ? await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId)
+    : null;
+  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
+
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin =
+    user.roles?.some((r) => adminRoleNames.includes(String(r.name || r).toLowerCase())) ||
+    adminRoleNames.includes(String(user.role || "").toLowerCase());
+  const isExaminer = !!examiner && examiner.availabilityStatus === "available";
+  const isSupervisor = !!mySupervisor;
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
+
+  if (!isFinalized && isStudent) {
+    throwError("Penilaian sidang belum selesai dan belum difinalisasi.", 403);
+  }
+
+  if (!isExaminer && !isSupervisor && !isAdmin && !isStudent) {
+    throwError("Anda tidak memiliki akses ke form penilaian ini.", 403);
+  }
+
+  const { academicYearId, minimumPassingScore } = await resolveDefenceAssessmentConfiguration(defenceId);
+
+  const assessorRole = isExaminer ? "examiner" : isSupervisor ? "supervisor" : "viewer";
+
+  if (assessorRole === "viewer") {
+    return {
+      defence: {
+        id: defence.id,
+        status: effectiveStatus,
+        studentName: defence.thesis?.student?.user?.fullName || "-",
+        studentNim: defence.thesis?.student?.user?.identityNumber || "-",
+        thesisTitle: defence.thesis?.title || "-",
+        date: defence.date,
+        startTime: defence.startTime,
+        endTime: defence.endTime,
+        room: defence.room ? { id: defence.room.id, name: defence.room.name } : null,
+      },
+      assessorRole: "viewer",
+      examiner: null,
+      supervisor: null,
+      criteriaGroups: [],
+      minimumPassingScore,
+    };
+  }
+
+  const cpmks = await examinerRepo.findDefenceAssessmentCpmks(academicYearId, assessorRole);
+
+  let existingScoreMap = new Map();
+  if (assessorRole === "examiner") {
+    existingScoreMap = new Map(
+      (examiner.thesisDefenceExaminerAssessmentDetails || []).map((item) => [
+        item.assessmentCriteriaId,
+        item.score,
+      ])
+    );
+  } else {
+    const supervisorDetails = await coreRepo.findDefenceSupervisorAssessmentDetails(defenceId);
+    existingScoreMap = new Map(
+      (supervisorDetails || []).map((item) => [item.assessmentCriteriaId, item.score])
+    );
+  }
+
+  const groupedByCode = new Map();
+  for (const cpmk of cpmks) {
+    if (!groupedByCode.has(cpmk.code)) {
+      groupedByCode.set(cpmk.code, {
+        id: cpmk.id,
+        code: cpmk.code,
+        description: cpmk.description,
+        criteria: [],
+      });
+    }
+    const group = groupedByCode.get(cpmk.code);
+    const mappedCriteria = (cpmk.assessmentCriterias || []).map((c) => ({
+      id: c.id,
+      name: c.name || "-",
+      maxScore: c.maxScore || 0,
+      score: existingScoreMap.get(c.id) ?? null,
+      rubrics: (c.assessmentRubrics || []).map((r) => ({
+        id: r.id,
+        minScore: r.minScore,
+        maxScore: r.maxScore,
+        description: r.description,
+      })),
+    }));
+    group.criteria.push(...mappedCriteria);
+  }
+  const criteriaGroups = Array.from(groupedByCode.values());
+
+  return {
+    defence: {
+      id: defence.id,
+      status: effectiveStatus,
+      studentName: defence.thesis?.student?.user?.fullName || "-",
+      studentNim: defence.thesis?.student?.user?.identityNumber || "-",
+      thesisTitle: defence.thesis?.title || "-",
+      date: defence.date,
+      startTime: defence.startTime,
+      endTime: defence.endTime,
+      room: defence.room ? { id: defence.room.id, name: defence.room.name } : null,
+    },
+    assessorRole,
+    examiner:
+      assessorRole === "examiner"
+        ? {
+            id: examiner.id,
+            order: examiner.order,
+            assessmentScore: examiner.assessmentScore,
+            revisionNotes: examiner.revisionNotes,
+            assessmentSubmittedAt: examiner.assessmentSubmittedAt,
+          }
+        : null,
+    supervisor:
+      assessorRole === "supervisor"
+        ? {
+            roleName: mySupervisor?.role?.name || "Pembimbing",
+            assessmentScore: defence.supervisorScore,
+            supervisorNotes: defence.supervisorNotes,
+            assessmentSubmittedAt: defence.supervisorAssessmentSubmittedAt,
+          }
+        : null,
+    criteriaGroups,
+    minimumPassingScore,
+  };
+}
+
+// ============================================================
+// PUBLIC: Submit Assessment (Examiner / Supervisor)
+// ============================================================
+
+export async function submitAssessment(defenceId, payload, lecturerId) {
+  const defence = await coreRepo.findDefenceById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+
+  const effectiveStatus = computeEffectiveDefenceStatus(
+    defence.status,
+    defence.date,
+    defence.startTime,
+    defence.endTime
+  );
+  if (effectiveStatus !== "ongoing") {
+    throwError("Penilaian hanya dapat disubmit saat sidang sedang berlangsung.", 400);
+  }
+
+  const examiner = await examinerRepo.findLatestExaminerByDefenceAndLecturer(defenceId, lecturerId);
+  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, lecturerId);
+  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
+
+  const isExaminer = !!examiner && examiner.availabilityStatus === "available";
+  const isSupervisor = !!mySupervisor;
+  if (!isExaminer && !isSupervisor) throwError("Anda bukan penilai aktif pada sidang ini.", 403);
+
+  const role = isExaminer ? "examiner" : "supervisor";
+  const { academicYearId } = await resolveDefenceAssessmentConfiguration(defenceId);
+  const cpmks = await examinerRepo.findDefenceAssessmentCpmks(academicYearId, role);
+  const activeCriteria = cpmks.flatMap((cpmk) => cpmk.assessmentCriterias || []);
+  if (activeCriteria.length === 0) {
+    throwError("Rubrik penilaian sidang untuk tahun akademik ini belum dikonfigurasi.", 400);
+  }
+
+  const criteriaMap = new Map(activeCriteria.map((item) => [item.id, item]));
+  const incoming = payload.scores || [];
+  const isDraft = !!payload.isDraft;
+
+  if (!isDraft && incoming.length !== activeCriteria.length) {
+    throwError("Semua kriteria aktif harus diisi sebelum submit.", 400);
+  }
+
+  const seen = new Set();
+  const normalizedScores = incoming.map((item) => {
+    const criterion = criteriaMap.get(item.assessmentCriteriaId);
+    if (!criterion) throwError("Terdapat kriteria yang tidak valid.", 400);
+    if (seen.has(item.assessmentCriteriaId)) throwError("Duplikasi kriteria pada payload penilaian.", 400);
+    seen.add(item.assessmentCriteriaId);
+
+    const scoreNum = parseAndValidateScore(item.score, criterion.maxScore || 0, criterion.name);
+    return { assessmentCriteriaId: item.assessmentCriteriaId, score: scoreNum };
+  });
+
+  if (role === "examiner") {
+    if (examiner.assessmentSubmittedAt) {
+      throwError("Penilaian penguji sudah disubmit sebelumnya dan tidak dapat diubah.", 400);
+    }
+    const updated = await examinerRepo.saveDefenceExaminerAssessment({
+      examinerId: examiner.id,
+      scores: normalizedScores,
+      revisionNotes: payload.revisionNotes,
+      isDraft,
+    });
+    return {
+      assessorRole: "examiner",
+      examinerId: updated.id,
+      assessmentScore: updated.assessmentScore,
+      assessmentSubmittedAt: updated.assessmentSubmittedAt,
+    };
+  }
+
+  if (defence.supervisorAssessmentSubmittedAt) {
+    throwError("Penilaian pembimbing sudah disubmit dan tidak dapat diubah.", 400);
+  }
+
+  const updated = await coreRepo.saveDefenceSupervisorAssessment({
+    defenceId,
+    scores: normalizedScores,
+    supervisorNotes: payload.supervisorNotes,
+    isDraft,
+  });
+  return {
+    assessorRole: "supervisor",
+    defenceId: updated.id,
+    assessmentScore: updated.supervisorScore,
+    assessmentSubmittedAt: updated.supervisorAssessmentSubmittedAt,
+  };
+}
+
+// ============================================================
+// PUBLIC: Finalization Data (Supervisor view)
+// ============================================================
+
+export async function getFinalizationData(defenceId, user) {
+  const defence = await coreRepo.findDefenceById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.registeredAt === null) {
+    throwError("Rincian penilaian tidak tersedia untuk data arsip sidang.", 400);
+  }
+
+  const { minimumPassingScore } = await resolveDefenceAssessmentConfiguration(defenceId);
+
+  const supervisorRelation = user.lecturerId ? await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId) : null;
+  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
+
+  const adminRoleNames = ["admin", "ketua departemen", "sekretaris departemen", "gkm"];
+  const isAdmin = user.roles?.some(r => adminRoleNames.includes(String(r.name || r).toLowerCase())) ||
+                  adminRoleNames.includes(String(user.role || "").toLowerCase());
+
+  const thesisStudentId = defence.thesis?.studentId || defence.thesis?.student?.id;
+  const isStudent = !!user.studentId && thesisStudentId === user.studentId;
+  const isExaminer = user.lecturerId && (defence.examiners || []).some((ex) => ex.lecturerId === user.lecturerId);
+  const isSupervisor = !!mySupervisor;
+
+  if (!isAdmin && !isStudent && !isExaminer && !isSupervisor) {
+    throwError("Anda tidak memiliki akses untuk melihat rekapitulasi sidang ini.", 403);
+  }
+
+  const effectiveStatus = computeEffectiveDefenceStatus(
+    defence.status,
+    defence.date,
+    defence.startTime,
+    defence.endTime
+  );
+
+  const examiners = await examinerRepo.findActiveExaminersWithAssessments(defenceId);
+  const hasTwoExaminers = examiners.length >= 2;
+  const allExaminerSubmitted =
+    hasTwoExaminers && examiners.every((item) => !!item.assessmentSubmittedAt && item.assessmentScore !== null);
+
+  const examinerAverageScore = allExaminerSubmitted
+    ? examiners.reduce((sum, item) => sum + (item.assessmentScore || 0), 0) / examiners.length
+    : null;
+
+  const supervisorDetails = await coreRepo.findDefenceSupervisorAssessmentDetails(defenceId);
+  const supervisorAssessmentSubmitted = !!defence.supervisorAssessmentSubmittedAt;
+  const supervisorAssessmentGroups = groupAssessmentDetailsByCpmk(supervisorDetails);
+
+  const recommendationUnlocked = allExaminerSubmitted && supervisorAssessmentSubmitted;
+  const computedFinalScore = recommendationUnlocked
+    ? (examinerAverageScore || 0) + (defence.supervisorScore || 0)
+    : null;
+
+  const isFinalized = ["passed", "passed_with_revision", "failed"].includes(effectiveStatus);
+
+  const primarySupervisor =
+    (defence.thesis?.thesisSupervisors || []).find(
+      (ts) => ts.role?.name?.toLowerCase().includes("1") || ts.role?.name?.toLowerCase().includes("utama")
+    ) || defence.thesis?.thesisSupervisors?.[0];
+
+  const supervisorName =
+    defence.resultFinalizer?.lecturer?.user?.fullName ||
+    mySupervisor?.lecturer?.user?.fullName ||
+    primarySupervisor?.lecturer?.user?.fullName ||
+    "-";
+
+  const supervisorRoleName =
+    defence.resultFinalizer?.role?.name ||
+    mySupervisor?.role?.name ||
+    primarySupervisor?.role?.name ||
+    "Pembimbing";
+
+  return {
+    defence: {
+      id: defence.id,
+      status: effectiveStatus,
+      examinerAverageScore,
+      supervisorScore: defence.supervisorScore,
+      finalScore: defence.finalScore,
+      computedFinalScore,
+      grade: defence.grade,
+      resultFinalizedAt: defence.resultFinalizedAt,
+      resultFinalizedBy: defence.resultFinalizer?.lecturer?.user?.fullName || null,
+      revisionFinalizedAt: defence.revisionFinalizedAt,
+      revisionFinalizedBy: defence.revisionFinalizer?.lecturer?.user?.fullName || null,
+      studentName: defence.thesis?.student?.user?.fullName || "-",
+      studentNim: defence.thesis?.student?.user?.identityNumber || "-",
+      thesisTitle: defence.thesis?.title || "-",
+    },
+    supervisor: {
+      roleName: supervisorRoleName,
+      name: supervisorName,
+      canFinalize:
+        isSupervisor && effectiveStatus === "ongoing" && !defence.resultFinalizedAt,
+    },
+    examiners: examiners.map((item) => {
+      const isSubmitted = !!item.assessmentSubmittedAt;
+      const canSeeDetails = isFinalized || isAdmin || isSupervisor || item.lecturerId === user.lecturerId;
+      return {
+        id: item.id,
+        lecturerId: item.lecturerId,
+        lecturerName:
+          (defence.examiners || []).find((x) => x.lecturerId === item.lecturerId)?.lecturerName || "-",
+        order: item.order,
+        assessmentScore: canSeeDetails ? item.assessmentScore : null,
+        revisionNotes: canSeeDetails ? item.revisionNotes : null,
+        assessmentSubmittedAt: item.assessmentSubmittedAt,
+        isDraft: !isSubmitted && item.assessmentScore !== null,
+        assessmentDetails: canSeeDetails
+          ? groupAssessmentDetailsByCpmk(item.thesisDefenceExaminerAssessmentDetails || [])
+          : [],
+      };
+    }),
+    supervisorAssessment: {
+      assessmentScore: defence.supervisorScore,
+      supervisorNotes: defence.supervisorNotes,
+      assessmentSubmittedAt: supervisorAssessmentSubmitted ? defence.updatedAt : null,
+      assessmentDetails: supervisorAssessmentGroups,
+    },
+    allExaminerSubmitted,
+    supervisorAssessmentSubmitted,
+    recommendationUnlocked,
+    minimumPassingScore,
+  };
+}
+
+// ============================================================
+// PUBLIC: Finalize Defence Result (Supervisor)
+// ============================================================
+
+export async function finalizeDefence(defenceId, payload, lecturerId) {
+  const defence = await coreRepo.findDefenceById(defenceId);
+  if (!defence) throwError("Sidang tidak ditemukan.", 404);
+  if (defence.resultFinalizedAt) throwError("Hasil sidang sudah pernah ditetapkan.", 400);
+
+  const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, lecturerId);
+  const mySupervisor = resolveSupervisorMembership(supervisorRelation);
+  if (!mySupervisor) throwError("Anda bukan dosen pembimbing pada sidang ini.", 403);
+
+  const effectiveStatus = computeEffectiveDefenceStatus(
+    defence.status,
+    defence.date,
+    defence.startTime,
+    defence.endTime
+  );
+  if (effectiveStatus !== "ongoing") {
+    throwError("Penetapan hasil hanya dapat dilakukan saat sidang berstatus sedang berlangsung.", 400);
+  }
+
+  const { minimumPassingScore } = await resolveDefenceAssessmentConfiguration(defenceId);
+
+  const examiners = await examinerRepo.findActiveExaminersWithAssessments(defenceId);
+  const allExaminerSubmitted =
+    examiners.length >= 2 &&
+    examiners.every((item) => !!item.assessmentSubmittedAt && item.assessmentScore !== null);
+  if (!allExaminerSubmitted) {
+    throwError("Penetapan hasil dikunci sampai seluruh penguji submit nilai.", 400);
+  }
+  if (defence.supervisorScore === null || !defence.supervisorAssessmentSubmittedAt) {
+    throwError("Penetapan hasil dikunci sampai pembimbing submit penilaian.", 400);
+  }
+
+  const examinerAverageScore =
+    examiners.reduce((sum, item) => sum + (item.assessmentScore || 0), 0) / examiners.length;
+  const supervisorScore = defence.supervisorScore || 0;
+  const finalScore = examinerAverageScore + supervisorScore;
+  const finalGrade = mapScoreToGrade(finalScore);
+
+  let targetStatus = "passed";
+  if (finalScore < minimumPassingScore) {
+    targetStatus = "failed";
+  } else if (payload.recommendRevision) {
+    targetStatus = "passed_with_revision";
+  }
+
+  const finalized = await coreRepo.finalizeDefenceResult({
+    defenceId,
+    status: targetStatus,
+    examinerAverageScore,
+    supervisorScore,
+    finalScore,
+    grade: finalGrade,
+    resultFinalizedBy: mySupervisor.id,
+  });
+
+  if (targetStatus === "passed_with_revision") {
+    try {
+      const { initiateRevisionItems } = await import("./revision.service.js");
+      await initiateRevisionItems(defenceId);
+    } catch (err) {
+      console.error("[Revision Init Error] Failed to auto-generate revision items:", err.message);
+    }
+  }
+
+  return {
+    defenceId: finalized.id,
+    status: finalized.status,
+    examinerAverageScore: finalized.examinerAverageScore,
+    supervisorScore: finalized.supervisorScore,
+    finalScore: finalized.finalScore,
+    grade: finalized.grade,
+    resultFinalizedAt: finalized.resultFinalizedAt,
+    minimumPassingScore,
+  };
+}
