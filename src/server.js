@@ -59,7 +59,7 @@ async function startServer() {
     console.log("⏸️  Maintenance schedulers disabled (ENABLE_CRON=false).");
   }
   const server = app.listen(PORT, () => {
-    console.log(`✅ Server running at http://localhost:${PORT} - CI/CD verified`);
+    console.log(`✅ Server running at http://localhost:${PORT}`);
   });
   // WebSocket disabled: migrated to FCM push notifications
 }
