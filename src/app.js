@@ -99,7 +99,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.json({ message: "API is running 🚀" });
+  res.json({ message: "API is running 🚀 - CI/CD verified" });
 });
 
 app.use((req, res, next) => {
