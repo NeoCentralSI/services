@@ -3,13 +3,13 @@ import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
 import * as audienceRepo from "../../repositories/thesis-seminar/audience.repository.js";
 import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
 import prisma from "../../config/prisma.js";
-import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 import * as xlsx from "xlsx";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import * as examinerService from "./examiner.service.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
+import { renderAndIssueOfficialHtmlDocument } from "../official-document.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -827,21 +827,6 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   const seminarTime = formatTime(seminar.startTime);
   const seminarPlace = seminar.room ? seminar.room.name : (seminar.meetingLink || 'Daring');
 
-  // Signatory: Ketua Departemen
-  const ketuaDept = await prisma.user.findFirst({
-    where: {
-      userHasRoles: {
-        some: {
-          role: { name: "Ketua Departemen" },
-          status: "active"
-        }
-      }
-    }
-  });
-
-  const ketuaDeptName = ketuaDept?.fullName || 'Ketua Departemen';
-  const ketuaDeptNip = ketuaDept?.identityNumber || '-';
-
   // Logo base64
   const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
   let logoBase64 = "";
@@ -1017,13 +1002,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
 
   <p style="margin-top: 20px;">Untuk itu dimohon kesediaan Sdr(i) untuk hadir sebagai Penguji / Pembimbing pada Seminar tersebut.</p>
 
-  <div class="signature-block">
-    <p style="margin-bottom: 0;">Ketua,</p>
-    <div class="space"></div>
-    <p style="font-weight: bold; text-decoration: underline; margin: 0;">${ketuaDeptName}</p>
-    <p style="margin: 0;">NIP. ${ketuaDeptNip}</p>
-  </div>
-  <div class="clear"></div>
+
 
   <div class="tembusan">
     <p style="margin: 0; font-weight: bold;">Tembusan :</p>
@@ -1036,7 +1015,17 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
 </body>
 </html>`;
 
-  return await convertHtmlToPdf(html);
+  return await renderAndIssueOfficialHtmlDocument({
+    documentKind: "seminar_invitation",
+    sourceId: seminarId,
+    title: "Surat Undangan Seminar Hasil Tugas Akhir",
+    documentNumber: actualNomorSurat || null,
+    subjectName: studentName,
+    subjectIdentifier: studentNim,
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
+  });
 }
 
 export async function generateAssessmentResultPdf(seminarId) {
@@ -1102,10 +1091,6 @@ export async function generateAssessmentResultPdf(seminarId) {
   const isPassed = status === 'passed';
   const isPassedWithRevision = status === 'passed_with_revision';
   const isFailed = status === 'failed';
-
-  // Signature Block
-  const supervisor1 = seminar.thesis?.thesisSupervisors?.find(s => s.role?.name === "Pembimbing 1");
-  const dospemName = supervisor1?.lecturer?.user?.fullName || '-';
 
   const html = `<!DOCTYPE html>
 <html lang="id">
@@ -1272,33 +1257,20 @@ export async function generateAssessmentResultPdf(seminarId) {
     <li><span class="checkbox">${isFailed ? '&#10003;' : ''}</span> Tidak lulus dan harus mengulang seminar hasil</li>
   </ul>
 
-  <div class="section-title">D. Tanda Tangan Penguji dan Pembimbing</div>
-  <table class="signature-grid" style="margin-left: 20px; width: calc(100% - 20px);">
-    <tr>
-      <th style="text-align: left; padding-bottom: 10px;">No.</th>
-      <th style="text-align: left; padding-bottom: 10px;">Nama Dosen</th>
-      <th style="text-align: left; padding-bottom: 10px;">Peran</th>
-      <th style="text-align: left; padding-bottom: 10px;">Tanda Tangan</th>
-    </tr>
-    <tr>
-      <td style="width: 30px;">1.</td>
-      <td class="sig-name">[ ${dospemName} ]</td>
-      <td class="sig-role">Dosen Pembimbing</td>
-      <td class="sig-box"></td>
-    </tr>
-    ${examiners.map((ex, idx) => `
-      <tr>
-        <td>${idx + 2}.</td>
-        <td class="sig-name">[ ${ex.lecturerName} ]</td>
-        <td class="sig-role">Penguji ${ex.order}</td>
-        <td class="sig-box"></td>
-      </tr>
-    `).join('')}
-  </table>
+
 </body>
 </html>`;
 
-  return await convertHtmlToPdf(html);
+  return await renderAndIssueOfficialHtmlDocument({
+    documentKind: "seminar_assessment_result",
+    sourceId: seminarId,
+    title: "Formulir Berita Acara Seminar Hasil Tugas Akhir",
+    subjectName: studentName,
+    subjectIdentifier: studentNim,
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
+  });
 }
 
 /**

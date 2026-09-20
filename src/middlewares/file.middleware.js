@@ -66,6 +66,11 @@ const seminarDocUpload = multer({
 	fileFilter: seminarDocFileFilter,
 	limits: { fileSize: ENV.REQUIREMENT_DOCUMENT_MAX_SIZE_MB * 1024 * 1024 },
 });
+const officialDocumentUpload = multer({
+	storage,
+	fileFilter: seminarDocFileFilter,
+	limits: { fileSize: 10 * 1024 * 1024 },
+});
 const guideUpload = multer({ storage, fileFilter: guideFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 
 export const uploadCsv = upload.single("file");
@@ -78,6 +83,7 @@ export const uploadExcelAttendance = excelUpload.fields([
 export const uploadThesisFile = thesisUpload.single("file");
 export const uploadInternshipFile = thesisUpload.single("file");
 export const uploadSeminarDocFile = seminarDocUpload.single("file");
+export const uploadOfficialDocumentFile = officialDocumentUpload.single("file");
 export const uploadGuideFile = guideUpload.single("file");
 export const uploadYudisiumDocFile = thesisUpload.single("file");
 export const uploadCplRepairFiles = thesisUpload.fields([

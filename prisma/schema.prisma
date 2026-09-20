@@ -2244,6 +2244,36 @@ model Document {
   @@map("documents")
 }
 
+model OfficialGeneratedDocument {
+  id                String    @id @default(uuid()) @db.VarChar(191)
+  verificationToken String    @unique @map("verification_token") @db.VarChar(64)
+  documentKind      String    @map("document_kind") @db.VarChar(64)
+  sourceId          String    @map("source_id") @db.VarChar(191)
+  sourceFingerprint String    @map("source_fingerprint") @db.VarChar(64)
+  version           Int       @default(1)
+  status            String    @default("current") @db.VarChar(32)
+  title             String    @db.VarChar(255)
+  documentNumber    String?   @map("document_number") @db.VarChar(255)
+  subjectName       String?   @map("subject_name") @db.VarChar(255)
+  subjectIdentifier String?   @map("subject_identifier") @db.VarChar(100)
+  issuerName        String?   @map("issuer_name") @db.VarChar(255)
+  issuerRole        String?   @map("issuer_role") @db.VarChar(100)
+  filePath          String    @map("file_path") @db.VarChar(512)
+  fileName          String    @map("file_name") @db.VarChar(255)
+  fileSize          Int       @map("file_size")
+  mimeType          String    @default("application/pdf") @map("mime_type") @db.VarChar(100)
+  fileHash          String    @map("file_hash") @db.VarChar(64)
+  issuedAt          DateTime  @default(now()) @map("issued_at")
+  supersededAt      DateTime? @map("superseded_at")
+  revokedAt         DateTime? @map("revoked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([documentKind, sourceId, version])
+  @@index([documentKind, sourceId, status])
+  @@map("official_generated_documents")
+}
+
 model DocumentType {
   id               String                  @id @default(uuid())
   name             String?
