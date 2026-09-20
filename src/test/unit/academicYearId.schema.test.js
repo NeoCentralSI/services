@@ -5,7 +5,6 @@ import { createClassSchema } from "../../validators/metopenClass.validator.js";
 import { createMetopenCpmkSchema } from "../../validators/metopenAssessmentAdmin.validator.js";
 import { createThesisCpmkSchema } from "../../validators/master-data/thesis-cpmk.validator.js";
 import { copyTemplateSchema, createRequirementSchema } from "../../validators/master-data/thesis-requirement.validator.js";
-import { createCpmkSchema } from "../../validators/master-data/cpmk.validator.js";
 import { academicYearIdParamSchema } from "../../validators/supervisionQuota.validator.js";
 
 const ACTIVE_PERIOD_UUID = "2e74a7ed-cd51-4889-a550-6a74effeb8ba";
@@ -57,11 +56,6 @@ describe("validators sharing academicYearIdSchema", () => {
       "master-data copyTemplateSchema",
       copyTemplateSchema,
       (id) => ({ sourceAcademicYearId: id, targetAcademicYearId: id }),
-    ],
-    [
-      "master-data createCpmkSchema",
-      createCpmkSchema,
-      (id) => ({ academicYearId: id, code: "CPMK-01", description: "Deskripsi", type: "thesis" }),
     ],
   ];
 

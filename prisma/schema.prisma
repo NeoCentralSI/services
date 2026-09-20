@@ -269,7 +269,6 @@ model AcademicYear {
   internshipCpmks                    InternshipCpmk[]
   internshipGuidanceQuestions        InternshipGuidanceQuestion[]
   internshipGuidanceLecturerCriteria InternshipGuidanceLecturerCriteria[]
-  cpmks                              Cpmk[]
   thesisCpmks                        ThesisCpmk[]
   thesisSeminarRequirements          ThesisSeminarRequirement[]
   thesisDefenceRequirements          ThesisDefenceRequirement[]
@@ -374,31 +373,10 @@ model Cpl {
   curriculum Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Restrict)
 
   displayOrder               Int                         @default(0) @map("display_order")
-  cpmks                      Cpmk[]
   yudisiumCplRecommendations YudisiumCplRecommendation[]
 
   @@unique([curriculumId, code, version])
   @@map("cpls")
-}
-
-model Cpmk {
-  id             String   @id @default(uuid()) @db.VarChar(255)
-  academicYearId String?  @map("academic_year_id") @db.VarChar(255)
-  cplId          String?  @map("cpl_id") @db.VarChar(255)
-  code           String   @db.VarChar(255)
-  description    String   @db.VarChar(255)
-  type           CpmkType
-  displayOrder   Int      @default(0) @map("display_order")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  academicYear        AcademicYear?        @relation(fields: [academicYearId], references: [id])
-  cpl                 Cpl?                 @relation(fields: [cplId], references: [id])
-  assessmentCriterias AssessmentCriteria[]
-
-  @@index([academicYearId], map: "cpmks_academic_year_id_fkey")
-  @@index([cplId])
-  @@map("cpmks")
 }
 
 model ThesisCpmk {
@@ -571,53 +549,7 @@ model ThesisDefenceSupervisorAssessmentRubric {
   @@map("thesis_defence_supervisor_assessment_rubrics")
 }
 
-model AssessmentCriteria {
-  id           String              @id @default(uuid()) @db.VarChar(255)
-  cpmkId       String              @map("cpmk_id") @db.VarChar(255)
-  name         String?             @db.VarChar(255)
-  appliesTo    AssessmentAppliesTo @map("applies_to")
-  role         AssessmentRole      @default(default)
-  maxScore     Int?                @map("max_score")
-  isActive     Boolean             @default(true) @map("is_active")
-  displayOrder Int                 @default(0) @map("display_order")
-  isDeleted    Boolean             @default(false) @map("is_deleted")
-  deletedAt    DateTime?           @map("deleted_at")
-  createdAt    DateTime            @default(now()) @map("created_at")
-  updatedAt    DateTime            @updatedAt @map("updated_at")
-
-  cpmk              Cpmk               @relation(fields: [cpmkId], references: [id])
-  assessmentRubrics AssessmentRubric[]
-
-  milestoneTemplateCriterias MilestoneTemplateCriteria[]
-
-  @@index([cpmkId], map: "assessment_criterias_cpmk_id_fkey")
-  @@map("assessment_criterias")
-}
-
-model AssessmentRubric {
-  id                   String    @id @default(uuid()) @db.VarChar(255)
-  assessmentCriteriaId String    @map("assessment_criteria_id") @db.VarChar(255)
-  minScore             Int       @default(0) @map("min_score")
-  maxScore             Int       @default(0) @map("max_score")
-  description          String    @db.Text
-  displayOrder         Int       @default(0) @map("display_order")
-  isDeleted            Boolean   @default(false) @map("is_deleted")
-  deletedAt            DateTime? @map("deleted_at")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
-
-  assessmentCriteria         AssessmentCriteria                @relation(fields: [assessmentCriteriaId], references: [id])
-  milestoneAssessmentDetails ThesisMilestoneAssessmentDetail[]
-
-  @@index([assessmentCriteriaId], map: "assessment_rubrics_assessment_criteria_id_fkey")
-  @@map("assessment_rubrics")
-}
-
-/// CPMK khusus modul Metode Penelitian (Metopen). Dipisahkan dari Cpmk
-/// generik (yang menampung type=research_method + thesis) agar tabel
-/// metopen tidak tercampur dengan CPMK modul TA penuh. Canon §5.7.
-/// Migrasi data dari cpmks (type=research_method) → metopen_cpmks
-/// dilakukan oleh scripts/migrate_metopen_data.mjs.
+/// CPMK khusus modul Metode Penelitian (Metopen).
 model MetopenCpmk {
   id             String   @id @default(uuid()) @db.VarChar(191)
   academicYearId String   @map("academic_year_id") @db.VarChar(191)
@@ -655,9 +587,7 @@ model MetopenScoreComposition {
 
 /// Kriteria penilaian Metopen (TA-03A supervisor / TA-03B koordinator).
 /// Batas peran (cap) per tahun akademik ada di MetopenScoreComposition
-/// (default 75:25). Dipisahkan dari AssessmentCriteria generik yang
-/// menampung appliesTo + isActive + isDeleted. Tabel ini hard-delete
-/// (tidak ada soft-delete) sesuai desain metopen admin rubric management.
+/// (default 75:25). Tabel ini hard-delete sesuai desain pengelolaan rubrik Metopen.
 /// Canon §5.7.1 (P1+P2 co-sign) + §5.7 (TA-03B koordinator).
 model MetopenAssessmentCriteria {
   id            String         @id @default(uuid()) @db.VarChar(191)
@@ -671,14 +601,15 @@ model MetopenAssessmentCriteria {
 
   metopenCpmk                MetopenCpmk                 @relation(fields: [metopenCpmkId], references: [id])
   metopenAssessmentRubrics   MetopenAssessmentRubric[]
+  milestoneTemplateCriterias MilestoneTemplateCriteria[]
   researchMethodScoreDetails ResearchMethodScoreDetail[]
 
   @@index([metopenCpmkId], map: "metopen_assessment_criterias_metopen_cpmk_id_fkey")
   @@map("metopen_assessment_criterias")
 }
 
-/// Level rubrik penilaian Metopen. Dipisahkan dari AssessmentRubric generik
-/// (tanpa isDeleted/deletedAt — hard delete). Dipakai oleh RubricGradingForm
+/// Level rubrik penilaian Metopen.
+/// Dipakai oleh RubricGradingForm
 /// untuk selection descriptor saat supervisor/koordinator input nilai.
 model MetopenAssessmentRubric {
   id                          String   @id @default(uuid()) @db.VarChar(191)
@@ -690,7 +621,8 @@ model MetopenAssessmentRubric {
   createdAt                   DateTime @default(now()) @map("created_at")
   updatedAt                   DateTime @updatedAt @map("updated_at")
 
-  metopenAssessmentCriteria  MetopenAssessmentCriteria   @relation(fields: [metopenAssessmentCriteriaId], references: [id])
+  metopenAssessmentCriteria  MetopenAssessmentCriteria         @relation(fields: [metopenAssessmentCriteriaId], references: [id])
+  milestoneAssessmentDetails ThesisMilestoneAssessmentDetail[]
   researchMethodScoreDetails ResearchMethodScoreDetail[]
 
   @@index([metopenAssessmentCriteriaId], map: "metopen_assessment_rubrics_metopen_assessment_criteria_id_fkey")
@@ -1239,8 +1171,8 @@ model MilestoneTemplateCriteria {
   weightPercentage     Int?     @map("weight_percentage")
   createdAt            DateTime @default(now()) @map("created_at")
 
-  milestoneTemplate  ThesisMilestoneTemplate @relation(fields: [milestoneTemplateId], references: [id], onDelete: Cascade)
-  assessmentCriteria AssessmentCriteria      @relation(fields: [assessmentCriteriaId], references: [id])
+  milestoneTemplate  ThesisMilestoneTemplate   @relation(fields: [milestoneTemplateId], references: [id], onDelete: Cascade)
+  assessmentCriteria MetopenAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id])
 
   @@id([milestoneTemplateId, assessmentCriteriaId])
   @@index([assessmentCriteriaId])
@@ -1290,9 +1222,9 @@ model ThesisMilestoneAssessmentDetail {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  milestone ThesisMilestone   @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  lecturer  Lecturer          @relation(fields: [lecturerId], references: [id])
-  rubric    AssessmentRubric? @relation(fields: [rubricId], references: [id])
+  milestone ThesisMilestone          @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  lecturer  Lecturer                 @relation(fields: [lecturerId], references: [id])
+  rubric    MetopenAssessmentRubric? @relation(fields: [rubricId], references: [id])
 
   @@index([milestoneId])
   @@index([lecturerId])
@@ -3236,11 +3168,6 @@ enum CplScoreSource {
   manual
 }
 
-enum CpmkType {
-  research_method
-  thesis
-}
-
 enum MilestonePhase {
   metopen
   thesis
@@ -3250,29 +3177,6 @@ enum AssessmentRole {
   default
   examiner
   supervisor
-}
-
-/// Cakupan form penilaian yang memakai AssessmentCriteria.
-/// Sumber: canon §5.7 + §5.7.4 + HANDOFF §5 P1-09.
-///
-/// SIMPTA scope (rows yang relevan untuk Penilaian Proposal):
-/// - `proposal` = TA-03A (Penilaian Proposal oleh Pembimbing, maks 75 poin).
-///                CPMK-01 Presentasi (20) + CPMK-02 Konten (40) + CPMK-03 Respons (15).
-/// - `metopen`  = TA-03B (Penilaian Proposal oleh Koordinator Matkul Metopen, maks 25 poin).
-///                CPMK-02 Proposal struktur (25, role=default).
-///
-/// Out-of-SIMPTA scope (modul TA penuh):
-/// - `seminar`  = Penilaian Seminar Hasil (TA-08 / modul TA penuh, BUKAN SIMPTA).
-/// - `defence`  = Penilaian Sidang (modul TA penuh, BUKAN SIMPTA).
-///
-/// Service `assessment.service.js` yang menulis TA-03A wajib pakai
-/// `appliesTo='proposal'`; TA-03B pakai `appliesTo='metopen'`. Filter
-/// `appliesTo IN ('proposal', 'metopen')` saat fetch criteria SIMPTA.
-enum AssessmentAppliesTo {
-  seminar
-  defence
-  proposal
-  metopen
 }
 
 /// Status enum lifecycle pengajuan pembimbing. Canon §5.2 + skill system-design.
