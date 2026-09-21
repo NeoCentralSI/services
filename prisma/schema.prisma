@@ -280,6 +280,7 @@ model AcademicYear {
   metopenAttendanceImports           MetopenAttendanceImport[]
   metopenCpmks                       MetopenCpmk[]
   metopenScoreComposition            MetopenScoreComposition?
+  researchMethodCpmks                ResearchMethodCpmk[]
   ta04Batches                        Ta04Batch[]
   ta04AssignmentTheses               Thesis[]                             @relation("ThesisTa04AssignmentAcademicYear")
   activeTheses                       Thesis[]                             @relation("ThesisActiveAcademicYear")
@@ -627,6 +628,89 @@ model MetopenAssessmentRubric {
 
   @@index([metopenAssessmentCriteriaId], map: "metopen_assessment_rubrics_metopen_assessment_criteria_id_fkey")
   @@map("metopen_assessment_rubrics")
+}
+
+/// Katalog CPMK Metode Penelitian versi baru. Model ini sengaja berdiri
+/// independen dari MetopenCpmk dan belum dipakai oleh alur operasional TA-03.
+model ResearchMethodCpmk {
+  id             String   @id @default(uuid()) @db.VarChar(191)
+  academicYearId String   @map("academic_year_id") @db.VarChar(191)
+  code           String   @db.VarChar(255)
+  description    String   @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  academicYear                   AcademicYear                                  @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  supervisorAssessmentCriterias  ResearchMethodSupervisorAssessmentCriteria[]
+  coordinatorAssessmentCriterias ResearchMethodCoordinatorAssessmentCriteria[]
+
+  @@unique([academicYearId, code], map: "research_method_cpmks_period_code_key")
+  @@index([academicYearId], map: "research_method_cpmks_academic_year_id_fkey")
+  @@map("research_method_cpmks")
+}
+
+model ResearchMethodSupervisorAssessmentCriteria {
+  id                   String   @id @default(uuid()) @db.VarChar(191)
+  researchMethodCpmkId String   @map("research_method_cpmk_id") @db.VarChar(191)
+  name                 String   @db.VarChar(255)
+  maxScore             Int      @map("max_score")
+  displayOrder         Int      @default(0) @map("display_order")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  researchMethodCpmk ResearchMethodCpmk                         @relation(fields: [researchMethodCpmkId], references: [id], onDelete: Restrict, map: "rm_supervisor_criterias_cpmk_fkey")
+  assessmentRubrics  ResearchMethodSupervisorAssessmentRubric[]
+
+  @@index([researchMethodCpmkId], map: "rm_supervisor_criterias_cpmk_id_fkey")
+  @@map("research_method_supervisor_assessment_criterias")
+}
+
+model ResearchMethodSupervisorAssessmentRubric {
+  id                   String   @id @default(uuid()) @db.VarChar(191)
+  assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(191)
+  minScore             Int      @default(0) @map("min_score")
+  maxScore             Int      @default(0) @map("max_score")
+  description          String   @db.Text
+  displayOrder         Int      @default(0) @map("display_order")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  assessmentCriteria ResearchMethodSupervisorAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id], onDelete: Cascade, map: "rm_supervisor_rubrics_criteria_fkey")
+
+  @@index([assessmentCriteriaId], map: "rm_supervisor_rubrics_criteria_id_fkey")
+  @@map("research_method_supervisor_assessment_rubrics")
+}
+
+model ResearchMethodCoordinatorAssessmentCriteria {
+  id                   String   @id @default(uuid()) @db.VarChar(191)
+  researchMethodCpmkId String   @map("research_method_cpmk_id") @db.VarChar(191)
+  name                 String   @db.VarChar(255)
+  maxScore             Int      @map("max_score")
+  displayOrder         Int      @default(0) @map("display_order")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  researchMethodCpmk ResearchMethodCpmk                          @relation(fields: [researchMethodCpmkId], references: [id], onDelete: Restrict, map: "rm_coordinator_criterias_cpmk_fkey")
+  assessmentRubrics  ResearchMethodCoordinatorAssessmentRubric[]
+
+  @@index([researchMethodCpmkId], map: "rm_coordinator_criterias_cpmk_id_fkey")
+  @@map("research_method_coordinator_assessment_criterias")
+}
+
+model ResearchMethodCoordinatorAssessmentRubric {
+  id                   String   @id @default(uuid()) @db.VarChar(191)
+  assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(191)
+  minScore             Int      @default(0) @map("min_score")
+  maxScore             Int      @default(0) @map("max_score")
+  description          String   @db.Text
+  displayOrder         Int      @default(0) @map("display_order")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  assessmentCriteria ResearchMethodCoordinatorAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id], onDelete: Cascade, map: "rm_coordinator_rubrics_criteria_fkey")
+
+  @@index([assessmentCriteriaId], map: "rm_coordinator_rubrics_criteria_id_fkey")
+  @@map("research_method_coordinator_assessment_rubrics")
 }
 
 model ExitSurveyForm {
