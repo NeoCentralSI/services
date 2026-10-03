@@ -126,6 +126,28 @@ describe("Module 14: Data Master Tugas Akhir", () => {
       expect(result).toBeDefined();
     });
 
+    it("forwards manual status and proposal flag including false", async () => {
+      mockRepo.findThesisById.mockResolvedValue(THESIS);
+      mockRepo.updateThesis.mockResolvedValue({
+        ...THESIS,
+        thesisStatusId: "status-bimbingan",
+        isProposal: false,
+      });
+
+      await updateThesisMasterData("thesis-1", {
+        thesisStatusId: "status-bimbingan",
+        isProposal: false,
+      });
+
+      expect(mockRepo.updateThesis).toHaveBeenCalledWith(
+        "thesis-1",
+        expect.objectContaining({
+          thesisStatusId: "status-bimbingan",
+          isProposal: false,
+        })
+      );
+    });
+
     it("throws 404 if thesis not found", async () => {
       mockRepo.findThesisById.mockResolvedValue(null);
 
