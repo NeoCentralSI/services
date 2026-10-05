@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockNotification, mockPdf } = vi.hoisted(() => ({
+const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockNotification, mockPdf, mockOfficial } = vi.hoisted(() => ({
   mockPrisma: {
     thesisSeminar: { findUnique: vi.fn() },
     thesisSeminarAudience: { create: vi.fn() },
@@ -46,6 +46,7 @@ const { mockPrisma, mockAudienceRepo, mockCoreRepo, mockXlsx, mockOutlook, mockN
   mockOutlook: { hasCalendarAccess: vi.fn(), createCalendarEvent: vi.fn() },
   mockNotification: { createNotificationService: vi.fn() },
   mockPdf: { convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) },
+  mockOfficial: { renderAndIssueOfficialHtmlDocument: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) },
 }));
 
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
@@ -55,6 +56,7 @@ vi.mock("../../../../services/outlook-calendar.service.js", () => mockOutlook);
 vi.mock("../../../../services/notification.service.js", () => mockNotification);
 vi.mock("xlsx", () => mockXlsx);
 vi.mock("../../../../utils/pdf.util.js", () => mockPdf);
+vi.mock("../../../../services/official-document.service.js", () => mockOfficial);
 
 import {
   getAudiences, addAudience, updateAudience, removeAudience,
@@ -186,7 +188,7 @@ describe("Thesis Seminar Audience Service (Full Suite)", () => {
       mockPrisma.user.findFirst.mockResolvedValue({ fullName: "Kadep" });
 
       const res = await exportAudiencesPdf("s1");
-      const html = mockPdf.convertHtmlToPdf.mock.calls[0][0];
+      const html = mockOfficial.renderAndIssueOfficialHtmlDocument.mock.calls[0][0].html;
 
       expect(res).toEqual(Buffer.from("fake-pdf"));
       expect(html).toContain("Mahasiswa Disetujui");

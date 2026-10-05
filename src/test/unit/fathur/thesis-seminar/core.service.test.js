@@ -70,6 +70,9 @@ vi.mock("../../../../services/notification.service.js", () => ({ createNotificat
 vi.mock("../../../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }) }));
 vi.mock("../../../../services/outlook-calendar.service.js", () => ({ hasCalendarAccess: vi.fn().mockResolvedValue(true), createSeminarCalendarEvents: vi.fn().mockResolvedValue({}) }));
 vi.mock("../../../../utils/pdf.util.js", () => ({ convertHtmlToPdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")) }));
+vi.mock("../../../../services/official-document.service.js", () => ({
+  renderAndIssueOfficialHtmlDocument: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")),
+}));
 vi.mock("../../../../services/thesis-seminar/examiner.service.js", () => ({ getFinalizationData: vi.fn() }));
 
 import * as coreService from "../../../../services/thesis-seminar/core.service.js";

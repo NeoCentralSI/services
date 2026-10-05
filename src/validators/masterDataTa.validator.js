@@ -24,6 +24,7 @@ export const createThesisSchema = z.object({
     thesisTopicId: z.string().uuid().nullable().optional(),
     pembimbing1: z.string().uuid(),
     pembimbing2: z.union([z.string().uuid(), z.literal("none")]).nullable().optional(),
+    isProposal: z.boolean().optional(),
 }).refine((data) => !data.pembimbing2 || data.pembimbing1 !== data.pembimbing2, {
     message: "Pembimbing 1 dan Pembimbing 2 harus dosen yang berbeda",
     path: ["pembimbing2"],
@@ -35,6 +36,8 @@ export const updateThesisSchema = z.object({
     academicYearId: academicYearIdSchema.nullable().optional(),
     startDate: z.string().datetime({ offset: true }).nullable().optional().or(z.date().nullable().optional()),
     rating: z.enum(["ONGOING", "SLOW", "AT_RISK", "FAILED", "CANCELLED"]).optional(),
+    thesisStatusId: z.union([z.string().uuid(), z.literal("none")]).nullable().optional(),
+    isProposal: z.boolean().optional(),
     pembimbing1: z.string().uuid().optional(),
     pembimbing2: z.union([z.string().uuid(), z.literal("none")]).nullable().optional(),
     supervisors: z.array(

@@ -227,7 +227,7 @@ async function ensureAssessmentCriteria({ name, cpmkId, role, maxScore }) {
  *
  * Catatan: Konten 40 (CPMK-02 supervisor) SENGAJA tidak di-seed rubric supaya
  * UI Pembimbing memakai sub-breakdown 4 × 0-10 (Pendahuluan, Kajian, Metodologi,
- * Kelayakan); submission backend valid karena `assessmentRubrics.length === 0`
+ * Kelayakan); submission backend valid karena `metopenAssessmentRubrics.length === 0`
  * memperbolehkan rubricId=null.
  */
 async function ensureRubricLevels(criteriaId, levels) {

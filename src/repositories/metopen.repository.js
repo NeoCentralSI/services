@@ -24,7 +24,7 @@ export function findAllTemplates({ isActive = null, topicId = null } = {}) {
       templateCriterias: {
         include: {
           assessmentCriteria: {
-            include: { assessmentRubrics: true },
+            include: { metopenAssessmentRubrics: true },
           },
         },
       },
@@ -47,7 +47,7 @@ export function findTemplateById(id) {
       templateCriterias: {
         include: {
           assessmentCriteria: {
-            include: { assessmentRubrics: true },
+            include: { metopenAssessmentRubrics: true },
           },
         },
       },
@@ -158,7 +158,7 @@ export function findTasksByThesisId(thesisId) {
           templateCriterias: {
             include: {
               assessmentCriteria: {
-                include: { assessmentRubrics: true },
+                include: { metopenAssessmentRubrics: true },
               },
             },
           },
@@ -227,7 +227,7 @@ export function findTaskById(milestoneId) {
           templateCriterias: {
             include: {
               assessmentCriteria: {
-                include: { assessmentRubrics: true },
+                include: { metopenAssessmentRubrics: true },
               },
             },
           },

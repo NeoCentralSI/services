@@ -2,7 +2,7 @@ import * as audienceRepo from "../../repositories/thesis-seminar/audience.reposi
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
 import * as xlsx from "xlsx";
 import prisma from "../../config/prisma.js";
-import { convertHtmlToPdf } from "../../utils/pdf.util.js";
+import { renderAndIssueOfficialHtmlDocument } from "../official-document.service.js";
 import path from "path";
 import fs from "fs";
 import * as outlookService from "../outlook-calendar.service.js";
@@ -344,28 +344,6 @@ export async function exportAudiencesPdf(seminarId) {
 
   const rows = (await audienceRepo.findAudiencesBySeminarId(seminarId)).filter((row) => row.approvedAt);
 
-  // Fetch Ketua Departemen
-  const ketuaDept = await prisma.user.findFirst({
-    where: {
-      userHasRoles: {
-        some: {
-          role: { name: "Ketua Departemen" },
-          status: "active"
-        }
-      }
-    }
-  });
-
-  const ketuaDeptName = ketuaDept?.fullName || 'Ketua Departemen';
-  const ketuaDeptNip = ketuaDept?.identityNumber || '-';
-
-  // Fetch Pembimbing 1
-  const supervisor1 = seminar.thesis?.thesisSupervisors?.find(
-    (ts) => ts.role?.name === "Pembimbing 1"
-  );
-  const supervisorName = supervisor1?.lecturer?.user?.fullName || '-';
-  const supervisorNip = supervisor1?.lecturer?.user?.identityNumber || '-';
-
   // Logo loading - try multiple possible paths to be robust
   const possibleLogoPaths = [
     path.resolve(__dirname, "../../assets/unand-logo.png"),
@@ -383,8 +361,6 @@ export async function exportAudiencesPdf(seminarId) {
       }
     } catch (err) { /* continue */ }
   }
-
-  const dateStr = new Date().toLocaleDateString("id-ID", { day: 'numeric', month: 'long', year: 'numeric' });
 
   const html = `
 <!DOCTYPE html>
@@ -493,30 +469,19 @@ export async function exportAudiencesPdf(seminarId) {
     </tbody>
   </table>
 
-  <div class="footer-container">
-    <table class="signature-wrapper">
-      <tr>
-        <td class="signature-block">
-          <p>&nbsp;</p>
-          <p>Pembimbing,</p>
-          <div class="space"></div>
-          <p><strong>${supervisorName}</strong></p>
-          <p>NIP. ${supervisorNip}</p>
-        </td>
-        <td class="signature-block" style="padding-left: 50px;">
-          <p>Padang, ${dateStr}</p>
-          <p>Ketua Departemen,</p>
-          <div class="space"></div>
-          <p><strong>${ketuaDeptName}</strong></p>
-          <p>NIP. ${ketuaDeptNip}</p>
-        </td>
-      </tr>
-    </table>
-  </div>
 </body>
 </html>
   `;
 
-  return convertHtmlToPdf(html);
+  return renderAndIssueOfficialHtmlDocument({
+    documentKind: "seminar_audience_list",
+    sourceId: seminarId,
+    title: "Daftar Hadir Peserta Seminar Hasil",
+    subjectName: seminar.thesis?.student?.user?.fullName || "-",
+    subjectIdentifier: seminar.thesis?.student?.user?.identityNumber || "-",
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
+  });
 }
 

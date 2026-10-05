@@ -6,7 +6,7 @@ import prisma from "../../config/prisma.js";
 import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
 import * as docRepo from "../../repositories/thesis-defence/doc.repository.js";
 import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
-import { convertHtmlToPdf } from "../../utils/pdf.util.js";
+import { renderAndIssueOfficialHtmlDocument } from "../official-document.service.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import * as examinerService from "./examiner.service.js";
@@ -1194,37 +1194,19 @@ export async function generateAssessmentResultPdf(defenceId) {
     </div>
   </div>
 
-  <div class="section-title">F. Validasi Penilai</div>
-  <table class="signature-grid">
-    <thead>
-      <tr>
-        <th style="width: 30px; text-align: left;">No.</th>
-        <th style="width: 250px; text-align: left;">Nama Dosen</th>
-        <th style="width: 150px; text-align: left;">Peran</th>
-        <th style="width: 150px; text-align: left;">Tanda Tangan</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>1.</td>
-        <td class="sig-name-box">[ ${finalizationData.supervisor.name} ]</td>
-        <td class="sig-role">Dosen Pembimbing</td>
-        <td class="sig-line"></td>
-      </tr>
-      ${examiners.map((ex, idx) => `
-        <tr>
-          <td>${idx + 2}.</td>
-          <td class="sig-name-box">[ ${ex.lecturerName} ]</td>
-          <td class="sig-role">Penguji ${ex.order}</td>
-          <td class="sig-line"></td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>
 </body>
 </html>`;
 
-  return await convertHtmlToPdf(html);
+  return await renderAndIssueOfficialHtmlDocument({
+    documentKind: "defence_assessment_result",
+    sourceId: defenceId,
+    title: "Formulir Berita Acara Sidang Tugas Akhir",
+    subjectName: studentName,
+    subjectIdentifier: studentNim,
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
+  });
 }
 
 export async function generateInvitationLetter(defenceId, nomorSurat) {
@@ -1320,21 +1302,6 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
   const defenceDateFormatted = formatIndoDate(defence.date);
   const defenceTime = formatTime(defence.startTime);
   const defencePlace = defence.room ? defence.room.name : (defence.meetingLink || 'Daring');
-
-  // Signatory: Ketua Departemen
-  const ketuaDept = await prisma.user.findFirst({
-    where: {
-      userHasRoles: {
-        some: {
-          role: { name: "Ketua Departemen" },
-          status: "active"
-        }
-      }
-    }
-  });
-
-  const ketuaDeptName = ketuaDept?.fullName || 'Ketua Departemen';
-  const ketuaDeptNip = ketuaDept?.identityNumber || '-';
 
   // Logo base64
   const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
@@ -1504,13 +1471,6 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
 
   <p style="margin-top: 20px;">Untuk itu dimohon kesediaan Sdr(i) untuk hadir sebagai Penguji / Pembimbing pada Sidang tersebut.</p>
 
-  <div class="signature-block">
-    <p style="margin-bottom: 0;">Ketua,</p>
-    <div class="space"></div>
-    <p style="font-weight: bold; text-decoration: underline; margin: 0;">${ketuaDeptName}</p>
-    <p style="margin: 0;">NIP. ${ketuaDeptNip}</p>
-  </div>
-  <div class="clear"></div>
 
   <div class="tembusan">
     <p style="margin: 0; font-weight: bold;">Tembusan :</p>
@@ -1523,7 +1483,17 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
 </body>
 </html>`;
 
-  return await convertHtmlToPdf(html);
+  return await renderAndIssueOfficialHtmlDocument({
+    documentKind: "defence_invitation",
+    sourceId: defenceId,
+    title: "Surat Undangan Sidang Tugas Akhir",
+    documentNumber: actualNomorSurat || null,
+    subjectName: studentName,
+    subjectIdentifier: studentNim,
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
+  });
 }
 
 /**

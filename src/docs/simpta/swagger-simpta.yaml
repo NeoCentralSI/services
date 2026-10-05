@@ -606,7 +606,7 @@ paths:
                                   nullable: true
                                 description:
                                   type: string
-                            assessmentRubrics:
+                            metopenAssessmentRubrics:
                               type: array
                               items:
                                 type: object

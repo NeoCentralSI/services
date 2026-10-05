@@ -14,7 +14,6 @@ export default defineConfig({
         "src/services/adminfeatures.service.js",
         "src/services/curriculum.service.js",
         "src/services/cpl.service.js",
-        "src/services/cpmk.service.js",
         "src/services/thesis-cpmk.service.js",
         "src/services/lecturer-availability.service.js",
         "src/services/defence-requirement.service.js",

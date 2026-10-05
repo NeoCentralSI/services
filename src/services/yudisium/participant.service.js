@@ -7,6 +7,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { fileURLToPath } from "url";
 
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
+import { renderAndIssueOfficialHtmlDocument } from "../official-document.service.js";
 
 import prisma from "../../config/prisma.js";
 
@@ -1825,28 +1826,6 @@ const getUnandLogoBase64 = () => {
   return "";
 };
 
-const getFathurSignatureBase64 = () => {
-  const possiblePaths = [
-    path.resolve(__dirname, "../../assets/ttd_fathur_no_background.png"),
-    path.resolve(__dirname, "../assets/ttd_fathur_no_background.png"),
-    path.resolve(process.cwd(), "src/assets/ttd_fathur_no_background.png"),
-  ];
-
-  for (const p of possiblePaths) {
-    try {
-      if (fs.existsSync(p)) {
-        const buf = fs.readFileSync(p);
-        return `data:image/png;base64,${buf.toString("base64")}`;
-      }
-    } catch {
-      // Continue to the next known path.
-    }
-  }
-  return "";
-};
-
-
-
 const mapCplScoresForReport = (scores) =>
 
   scores.map((sc) => {
@@ -1993,7 +1972,7 @@ const buildRadarSvg = (scores) => {
 
 
 
-const buildCplReportPdf = async ({ studentName, studentNim, scores }) => {
+const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) => {
 
   const logoBase64 = getUnandLogoBase64();
 
@@ -2018,8 +1997,6 @@ const buildCplReportPdf = async ({ studentName, studentNim, scores }) => {
     `).join("")
 
     : `<tr><td colspan="4" class="text-center">Belum ada data nilai CPL</td></tr>`;
-
-  const today = formatDateLong(new Date());
 
   const allPassed = mappedScores.length > 0 && mappedScores.every((score) => score.status === "Tercapai");
 
@@ -2357,19 +2334,6 @@ const buildCplReportPdf = async ({ studentName, studentNim, scores }) => {
 
 
 
-  <div class="signature">
-
-    <div>Padang, ${escapeHtml(today)}</div>
-
-    <div>Koordinator Asesmen CPL.</div>
-
-    <div class="signature-space"></div>
-
-    <div class="signature-name">Ullya Mega Wahyuni, M.Kom</div>
-
-    <div>NIP: 199011032019032008</div>
-
-  </div>
 
 </body>
 
@@ -2377,34 +2341,15 @@ const buildCplReportPdf = async ({ studentName, studentNim, scores }) => {
 
 
 
-  return await convertHtmlToPdf(html);
-
-};
-
-
-
-const getDepartmentHead = async () => {
-
-  return await prisma.user.findFirst({
-
-    where: {
-
-      userHasRoles: {
-
-        some: {
-
-          status: "active",
-
-          role: { name: ROLES.KETUA_DEPARTEMEN },
-
-        },
-
-      },
-
-    },
-
-    select: { fullName: true, identityNumber: true },
-
+  return await renderAndIssueOfficialHtmlDocument({
+    documentKind: "yudisium_cpl_report",
+    sourceId,
+    title: "Formulir Penilaian Capaian Pembelajaran Lulusan",
+    subjectName: studentName,
+    subjectIdentifier: studentNim,
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
   });
 
 };
@@ -2485,15 +2430,11 @@ const buildLearningCertificatePdf = async ({
 
   scores,
 
-  departmentHead,
-
   certificateNumber,
 
 }) => {
 
   const logoBase64 = getUnandLogoBase64();
-
-  const signatureBase64 = getFathurSignatureBase64();
 
   const student = participant.thesis?.student || {};
 
@@ -2949,23 +2890,6 @@ const buildLearningCertificatePdf = async ({
 
 
 
-      <div class="signature">
-
-        <div>Padang, ${escapeHtml(formatDateLong(signatureDate))}</div>
-
-        <div>Ketua Departemen Sistem Informasi</div>
-
-        <div>Fakultas Teknologi Informasi - Universitas Andalas</div>
-
-        <div class="signature-space">
-          ${signatureBase64 ? `<img src="${signatureBase64}" class="signature-img" alt="Tanda Tangan Ketua Departemen" />` : ''}
-        </div>
-
-        <div class="signature-name">${escapeHtml(departmentHead?.fullName || "-")}</div>
-
-        <div>NIP. ${escapeHtml(departmentHead?.identityNumber || "-")}</div>
-
-      </div>
 
     </main>
 
@@ -2977,7 +2901,17 @@ const buildLearningCertificatePdf = async ({
 
 
 
-  return await convertHtmlToPdf(html);
+  return await renderAndIssueOfficialHtmlDocument({
+    documentKind: "yudisium_learning_certificate",
+    sourceId: participant.id,
+    title: "Surat Keterangan Capaian Pembelajaran",
+    documentNumber: certificateNumber,
+    subjectName: studentName,
+    subjectIdentifier: studentNim,
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
+  });
 
 };
 
@@ -3028,6 +2962,8 @@ export const exportParticipantCplReport = async (participantId, viewer = null) =
 
 
   return await buildCplReportPdf({
+
+    sourceId: participant.id,
 
     studentName: student.user?.fullName || "-",
 
@@ -3106,6 +3042,8 @@ export const exportCurrentStudentCplReport = async (userId) => {
   const scores = await participantRepo.findStudentCplScores(student.id);
 
   return await buildCplReportPdf({
+
+    sourceId: participant.id,
 
     studentName: student.user?.fullName || "-",
 
@@ -3205,11 +3143,9 @@ export const exportCurrentStudentCertificate = async (userId) => {
 
 
 
-  const [scores, departmentHead, participantNumber, periodCode] = await Promise.all([
+  const [scores, participantNumber, periodCode] = await Promise.all([
 
     participantRepo.findStudentCplScores(student.id),
-
-    getDepartmentHead(),
 
     getCertificateParticipantNumber(participant),
 
@@ -3225,7 +3161,6 @@ export const exportCurrentStudentCertificate = async (userId) => {
 
     scores,
 
-    departmentHead,
 
     certificateNumber: `${participantNumber}/UN.16.15.3.2/${periodCode}`,
 
@@ -3235,7 +3170,7 @@ export const exportCurrentStudentCertificate = async (userId) => {
 
 
 
-export const exportParticipants = async (yudisiumId, userId) => {
+export const exportParticipants = async (yudisiumId, _userId) => {
 
   const yudisium = await prisma.yudisium.findUnique({
 
@@ -3276,32 +3211,6 @@ export const exportParticipants = async (yudisiumId, userId) => {
 
 
   if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
-
-
-
-  // Fetch Signatories
-
-  const koordinator = await prisma.user.findUnique({ where: { id: userId } });
-
-  const ketuaDept = await prisma.user.findFirst({
-
-    where: {
-
-      userHasRoles: {
-
-        some: {
-
-          role: { name: "Ketua Departemen" },
-
-          status: "active",
-
-        },
-
-      },
-
-    },
-
-  });
 
 
 
@@ -3366,10 +3275,6 @@ export const exportParticipants = async (yudisiumId, userId) => {
   });
 
   const studentCount = participants.length;
-
-  const dateStr = formatDateLong(new Date());
-
-
 
   const participantRows = participants.length > 0 ? participants.map((p, i) => `
 
@@ -3779,103 +3684,6 @@ export const exportParticipants = async (yudisiumId, userId) => {
 
 
 
-  <div class="avoid-break">
-
-    <div class="section-title">D. TANDA TANGAN KOORDINATOR YUDISIUM</div>
-
-    <p class="signature-note">
-
-      Dengan ini menetapkan jadwal pelaksanaan yudisium berdasarkan data mahasiswa yang telah memenuhi seluruh persyaratan akademik dan administratif.
-
-    </p>
-
-
-
-    <div class="signature-block">
-
-      <p>Koordinator Yudisium</p>
-
-      <table class="signature-table">
-
-        <tr>
-
-          <td class="signature-label">Nama</td>
-
-          <td class="signature-colon">:</td>
-
-          <td>${escapeHtml(koordinator?.fullName || "-")}</td>
-
-        </tr>
-
-        <tr>
-
-          <td>Tanda Tangan</td>
-
-          <td class="signature-colon">:</td>
-
-          <td><span class="signature-line">&nbsp;</span></td>
-
-        </tr>
-
-        <tr>
-
-          <td>Tanggal</td>
-
-          <td class="signature-colon">:</td>
-
-          <td><span class="signature-line">${escapeHtml(dateStr)}</span></td>
-
-        </tr>
-
-      </table>
-
-    </div>
-
-
-
-    <div class="signature-block" style="margin-top: 30px;">
-
-      <p>Mengetahui,</p>
-
-      <p>Ketua Departemen Sistem Informasi,</p>
-
-      <table class="signature-table">
-
-        <tr>
-
-          <td class="signature-label">Nama</td>
-
-          <td class="signature-colon">:</td>
-
-          <td>${escapeHtml(ketuaDept?.fullName || "-")}</td>
-
-        </tr>
-
-        <tr>
-
-          <td>Tanda Tangan</td>
-
-          <td class="signature-colon">:</td>
-
-          <td><span class="signature-line">&nbsp;</span></td>
-
-        </tr>
-
-        <tr>
-
-          <td>Tanggal</td>
-
-          <td class="signature-colon">:</td>
-
-          <td><span class="signature-line">&nbsp;</span></td>
-
-        </tr>
-
-      </table>
-
-    </div>
-
-  </div>
 
 </body>
 
@@ -3883,7 +3691,15 @@ export const exportParticipants = async (yudisiumId, userId) => {
 
 
 
-  return await convertHtmlToPdf(html);
+  return await renderAndIssueOfficialHtmlDocument({
+    documentKind: "yudisium_participant_list",
+    sourceId: yudisiumId,
+    title: "Daftar Peserta Yudisium",
+    subjectName: yudisium.name,
+    issuerName: "Departemen Sistem Informasi Universitas Andalas",
+    issuerRole: "Penerbit dokumen",
+    html,
+  });
 
 };
 

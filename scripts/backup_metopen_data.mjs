@@ -19,9 +19,6 @@ try {
     'metopenAssessmentRubric',
     'researchMethodScore',
     'researchMethodScoreDetail',
-    'cpmk',
-    'assessmentCriteria',
-    'assessmentRubric',
   ];
 
   const backup = { timestamp: new Date().toISOString(), tables: {} };

@@ -205,23 +205,6 @@ CREATE TABLE `cpls` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `cpmks` (
-    `id` VARCHAR(255) NOT NULL,
-    `academic_year_id` VARCHAR(255) NULL,
-    `cpl_id` VARCHAR(255) NULL,
-    `code` VARCHAR(255) NOT NULL,
-    `description` VARCHAR(255) NOT NULL,
-    `type` ENUM('research_method', 'thesis') NOT NULL,
-    `display_order` INTEGER NOT NULL DEFAULT 0,
-    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updated_at` DATETIME(3) NOT NULL,
-
-    INDEX `cpmks_academic_year_id_fkey`(`academic_year_id`),
-    INDEX `cpmks_cpl_id_idx`(`cpl_id`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
 CREATE TABLE `thesis_cpmks` (
     `id` VARCHAR(255) NOT NULL,
     `academic_year_id` VARCHAR(255) NOT NULL,
@@ -319,42 +302,6 @@ CREATE TABLE `thesis_defence_supervisor_assessment_rubrics` (
     `updated_at` DATETIME(3) NOT NULL,
 
     INDEX `idx_tdsa_rubrics_criteria`(`thesis_defence_supervisor_assessment_criteria_id`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `assessment_criterias` (
-    `id` VARCHAR(255) NOT NULL,
-    `cpmk_id` VARCHAR(255) NOT NULL,
-    `name` VARCHAR(255) NULL,
-    `applies_to` ENUM('seminar', 'defence', 'proposal', 'metopen') NOT NULL,
-    `role` ENUM('default', 'examiner', 'supervisor') NOT NULL DEFAULT 'default',
-    `max_score` INTEGER NULL,
-    `is_active` BOOLEAN NOT NULL DEFAULT true,
-    `display_order` INTEGER NOT NULL DEFAULT 0,
-    `is_deleted` BOOLEAN NOT NULL DEFAULT false,
-    `deleted_at` DATETIME(3) NULL,
-    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updated_at` DATETIME(3) NOT NULL,
-
-    INDEX `assessment_criterias_cpmk_id_fkey`(`cpmk_id`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `assessment_rubrics` (
-    `id` VARCHAR(255) NOT NULL,
-    `assessment_criteria_id` VARCHAR(255) NOT NULL,
-    `min_score` INTEGER NOT NULL DEFAULT 0,
-    `max_score` INTEGER NOT NULL DEFAULT 0,
-    `description` TEXT NOT NULL,
-    `display_order` INTEGER NOT NULL DEFAULT 0,
-    `is_deleted` BOOLEAN NOT NULL DEFAULT false,
-    `deleted_at` DATETIME(3) NULL,
-    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updated_at` DATETIME(3) NOT NULL,
-
-    INDEX `assessment_rubrics_assessment_criteria_id_fkey`(`assessment_criteria_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -2024,12 +1971,6 @@ ALTER TABLE `student_academic_year_snapshots` ADD CONSTRAINT `student_academic_y
 ALTER TABLE `cpls` ADD CONSTRAINT `cpls_curriculum_id_fkey` FOREIGN KEY (`curriculum_id`) REFERENCES `curriculums`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `cpmks` ADD CONSTRAINT `cpmks_academic_year_id_fkey` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `cpmks` ADD CONSTRAINT `cpmks_cpl_id_fkey` FOREIGN KEY (`cpl_id`) REFERENCES `cpls`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE `thesis_cpmks` ADD CONSTRAINT `thesis_cpmks_academic_year_id_fkey` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -2049,12 +1990,6 @@ ALTER TABLE `thesis_defence_supervisor_assessment_criterias` ADD CONSTRAINT `the
 
 -- AddForeignKey
 ALTER TABLE `thesis_defence_supervisor_assessment_rubrics` ADD CONSTRAINT `thesis_defence_supervisor_assessment_rubrics_thesis_defence_fkey` FOREIGN KEY (`thesis_defence_supervisor_assessment_criteria_id`) REFERENCES `thesis_defence_supervisor_assessment_criterias`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `assessment_criterias` ADD CONSTRAINT `assessment_criterias_cpmk_id_fkey` FOREIGN KEY (`cpmk_id`) REFERENCES `cpmks`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `assessment_rubrics` ADD CONSTRAINT `assessment_rubrics_assessment_criteria_id_fkey` FOREIGN KEY (`assessment_criteria_id`) REFERENCES `assessment_criterias`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `metopen_cpmks` ADD CONSTRAINT `metopen_cpmks_academic_year_id_fkey` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -2210,7 +2145,7 @@ ALTER TABLE `thesis_guidance_milestones` ADD CONSTRAINT `thesis_guidance_milesto
 ALTER TABLE `milestone_template_criterias` ADD CONSTRAINT `milestone_template_criterias_milestone_template_id_fkey` FOREIGN KEY (`milestone_template_id`) REFERENCES `thesis_milestone_templates`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `milestone_template_criterias` ADD CONSTRAINT `milestone_template_criterias_assessment_criteria_id_fkey` FOREIGN KEY (`assessment_criteria_id`) REFERENCES `assessment_criterias`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `milestone_template_criterias` ADD CONSTRAINT `milestone_template_criterias_assessment_criteria_id_fkey` FOREIGN KEY (`assessment_criteria_id`) REFERENCES `metopen_assessment_criterias`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `milestone_template_attachments` ADD CONSTRAINT `milestone_template_attachments_template_id_fkey` FOREIGN KEY (`template_id`) REFERENCES `thesis_milestone_templates`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2228,7 +2163,7 @@ ALTER TABLE `thesis_milestone_assessment_details` ADD CONSTRAINT `thesis_milesto
 ALTER TABLE `thesis_milestone_assessment_details` ADD CONSTRAINT `thesis_milestone_assessment_details_lecturer_id_fkey` FOREIGN KEY (`lecturer_id`) REFERENCES `lecturers`(`user_id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `thesis_milestone_assessment_details` ADD CONSTRAINT `thesis_milestone_assessment_details_rubric_id_fkey` FOREIGN KEY (`rubric_id`) REFERENCES `assessment_rubrics`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `thesis_milestone_assessment_details` ADD CONSTRAINT `thesis_milestone_assessment_details_rubric_id_fkey` FOREIGN KEY (`rubric_id`) REFERENCES `metopen_assessment_rubrics`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `thesis_guidances` ADD CONSTRAINT `thesis_guidances_document_id_fkey` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
