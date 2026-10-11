@@ -25,6 +25,8 @@ import {
 import { syncLecturerQuotaCurrentCount } from "../services/advisorQuota.service.js";
 import { closeUnfinishedMetopenForYear, assertDevtoolsMetopenPeriodCloseAllowed } from "../services/metopenPeriodClose.service.js";
 import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
+import { GUIDANCE_STATUS } from "../constants/guidanceStatus.js";
+import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../services/auditLog.service.js";
 
 const router = express.Router();
 
@@ -1173,6 +1175,140 @@ router.post("/scenarios/close-metopen-period", async (req, res, next) => {
         ? `Dry-run tutup periode ${data.yearLabel} selesai.`
         : `Periode ${data.yearLabel} ditutup.`,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// Guidance sessions — move a session schedule without editing the database
+// ============================================
+
+const GUIDANCE_STATUS_VALUES = Object.values(GUIDANCE_STATUS);
+/** Editable schedule columns. `requestedDate` is NOT NULL in the schema. */
+const GUIDANCE_DATE_FIELDS = ["requestedDate", "approvedDate", "summarySubmittedAt", "completedAt"];
+const GUIDANCE_LIST_SELECT = {
+  id: true,
+  status: true,
+  phase: true,
+  requestedDate: true,
+  approvedDate: true,
+  summarySubmittedAt: true,
+  completedAt: true,
+  thesis: {
+    select: {
+      id: true,
+      title: true,
+      student: { select: { user: { select: { fullName: true, identityNumber: true } } } },
+    },
+  },
+  supervisor: { select: { user: { select: { fullName: true } } } },
+};
+
+function mapGuidanceRow(row) {
+  return {
+    id: row.id,
+    status: row.status,
+    phase: row.phase,
+    requestedDate: row.requestedDate,
+    approvedDate: row.approvedDate,
+    summarySubmittedAt: row.summarySubmittedAt,
+    completedAt: row.completedAt,
+    thesisId: row.thesis?.id ?? null,
+    thesisTitle: row.thesis?.title ?? null,
+    studentName: row.thesis?.student?.user?.fullName ?? null,
+    studentNim: row.thesis?.student?.user?.identityNumber ?? null,
+    supervisorName: row.supervisor?.user?.fullName ?? null,
+  };
+}
+
+/** Reads the editable date fields from a request body; past dates are allowed. */
+export function parseGuidanceSchedulePatch(body = {}) {
+  const data = {};
+  for (const field of GUIDANCE_DATE_FIELDS) {
+    if (body[field] === undefined) continue;
+    const raw = body[field];
+    if (raw === null || raw === "") {
+      if (field === "requestedDate") throw new BadRequestError("Waktu diusulkan wajib diisi.");
+      data[field] = null;
+      continue;
+    }
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) throw new BadRequestError(`Nilai ${field} bukan tanggal yang valid.`);
+    data[field] = date;
+  }
+  if (Object.keys(data).length === 0) throw new BadRequestError("Tidak ada tanggal yang diubah.");
+  return data;
+}
+
+// GET /devtools/guidances — guidance sessions with search, status filter, pagination
+router.get("/guidances", async (req, res, next) => {
+  try {
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
+    if (status && !GUIDANCE_STATUS_VALUES.includes(status)) {
+      throw new BadRequestError("Status sesi bimbingan tidak dikenal.");
+    }
+    const pageSize = Math.min(Math.max(Number(req.query.pageSize) || 20, 1), 100);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+
+    const where = {
+      ...(status ? { status } : {}),
+      ...(search
+        ? {
+          thesis: {
+            student: {
+              user: { OR: [{ fullName: { contains: search } }, { identityNumber: { contains: search } }] },
+            },
+          },
+        }
+        : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      prisma.thesisGuidance.findMany({
+        where,
+        select: GUIDANCE_LIST_SELECT,
+        orderBy: [{ requestedDate: "desc" }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.thesisGuidance.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: rows.map(mapGuidanceRow),
+      meta: { page, pageSize, total, totalPages: Math.max(Math.ceil(total / pageSize), 1) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /devtools/guidances/:id — edit session dates only (no status change, no notification)
+router.patch("/guidances/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const data = parseGuidanceSchedulePatch(req.body);
+
+    const existing = await prisma.thesisGuidance.findUnique({ where: { id }, select: GUIDANCE_LIST_SELECT });
+    if (!existing) throw new NotFoundError("Sesi bimbingan tidak ditemukan");
+
+    const updated = await prisma.thesisGuidance.update({ where: { id }, data, select: GUIDANCE_LIST_SELECT });
+
+    const pick = (row) => Object.fromEntries(Object.keys(data).map((field) => [field, row[field]]));
+    await logAudit({
+      actorUserId: req.user?.sub ?? req.user?.id ?? null,
+      action: AUDIT_ACTIONS.GUIDANCE_SCHEDULE_OVERRIDDEN,
+      entityType: ENTITY_TYPES.THESIS_GUIDANCE,
+      entityId: id,
+      oldValues: pick(existing),
+      newValues: pick(updated),
+      metadata: { source: "devtools" },
+    });
+
+    res.json({ success: true, data: mapGuidanceRow(updated), message: "Jadwal sesi bimbingan berhasil diubah" });
   } catch (err) {
     next(err);
   }
