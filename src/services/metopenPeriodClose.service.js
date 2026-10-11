@@ -2,6 +2,7 @@ import prisma from "../config/prisma.js";
 import { BadRequestError, NotFoundError } from "../utils/errors.js";
 import { ROLES } from "../constants/roles.js";
 import { ADVISOR_REQUEST_STATUS } from "../constants/advisorRequestStatus.js";
+import { THESIS_STATUS } from "../constants/thesisStatus.js";
 import {
   IN_FLIGHT_CLOSE_STATUSES,
   IN_FLIGHT_RELEASE_STATUSES,
@@ -139,7 +140,7 @@ export async function closeUnfinishedMetopenForYear(closedAcademicYearId, { dryR
   const theses = await prisma.thesis.findMany({
     where: {
       academicYearId: yearId,
-      isProposal: true,
+      status: THESIS_STATUS.PROPOSAL,
     },
     select: {
       id: true,

@@ -76,11 +76,7 @@ async function findEligibleStudentFixture() {
   const theses = await prisma.thesis.findMany({
     where: {
       // Guard F2-2: P2 hanya untuk thesis fase TA (post-TA-04) yang masih berjalan.
-      isProposal: false,
-      OR: [
-        { thesisStatus: null },
-        { thesisStatus: { name: { notIn: ["Selesai", "Gagal", "Dibatalkan", "Lulus", "Drop Out"] } } },
-      ],
+      status: "research",
       thesisSupervisors: {
         some: {
           status: "active",
@@ -472,20 +468,11 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
   });
 
   it("E — arsip: Pembimbing 2 melihat mahasiswa thesis Selesai di scope archive", async () => {
-    const selesaiStatus = await prisma.thesisStatus.findFirst({
-      where: { name: "Selesai" },
-      select: { id: true },
-    });
-    if (!selesaiStatus) {
-      console.warn("[IT-P2/E] Status Selesai tidak ada. Lewati.");
-      return;
-    }
-
     const p2OnFinished = await prisma.thesisSupervisors.findFirst({
       where: {
         status: "active",
         role: { name: ROLES.PEMBIMBING_2 },
-        thesis: { thesisStatusId: selesaiStatus.id },
+        thesis: { status: "completed" },
       },
       select: { lecturerId: true, thesisId: true },
     });
@@ -506,18 +493,12 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
   });
 
   it("F — baca skor thesis Selesai tidak ditolak karena status tutup (read-only arsip)", async () => {
-    const selesaiStatus = await prisma.thesisStatus.findFirst({
-      where: { name: "Selesai" },
-      select: { id: true },
-    });
-    if (!selesaiStatus) return;
-
     const row = await prisma.thesisSupervisors.findFirst({
       where: {
         status: "active",
         role: { name: ROLES.PEMBIMBING_2 },
         thesis: {
-          thesisStatusId: selesaiStatus.id,
+          status: "completed",
           finalProposalVersionId: { not: null },
         },
       },

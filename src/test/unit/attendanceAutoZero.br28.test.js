@@ -88,7 +88,7 @@ function thesisFixture() {
       status: "active",
       user: { id: STUDENT_USER_ID, fullName: "Ilham", identityNumber: "2211523001" },
     },
-    thesisStatus: { name: "Bimbingan" },
+    status: "research",
     thesisSupervisors: [
       {
         id: "ts-p1",

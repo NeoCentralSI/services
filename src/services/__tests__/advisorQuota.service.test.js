@@ -53,7 +53,7 @@ function createRequest({
   thesisAcademicYearId = "ay-1",
   thesisActiveAcademicYearId = null,
   proposalStatus = null,
-  thesisStatusName = "Metopel",
+  thesisStatusName = "proposal",
   thesisTitle,
   redirectedTo = null,
   routeType = "normal",
@@ -99,7 +99,7 @@ function createRequest({
           proposalStatus,
           academicYearId: thesisAcademicYearId,
           activeAcademicYearId: thesisActiveAcademicYearId,
-          thesisStatus: { name: thesisStatusName },
+          status: thesisStatusName,
           studentId,
         }
       : null,
@@ -114,7 +114,7 @@ function createSupervisor({
   academicYearId = "ay-1",
   activeAcademicYearId = null,
   proposalStatus = null,
-  thesisStatusName = "Metopel",
+  thesisStatusName = "proposal",
   thesisTitle,
 } = {}) {
   return {
@@ -129,7 +129,7 @@ function createSupervisor({
       proposalStatus,
       academicYearId,
       activeAcademicYearId,
-      thesisStatus: { name: thesisStatusName },
+      status: thesisStatusName,
       studentId,
       student: {
         id: studentId,
@@ -399,7 +399,7 @@ describe("advisorQuota.service", () => {
           proposalStatus: "submitted",
           academicYearId: "ay-1",
           finalProposalVersionId: "ver-2",
-          thesisStatus: { name: "Metopel" },
+          status: "proposal",
           studentId: "student-proposal",
           academicYear: { id: "ay-1", year: "2026/2027", semester: "ganjil", isActive: true },
           finalProposalVersion: { version: 2, submittedAsFinalAt: new Date("2026-08-01T00:00:00Z") },

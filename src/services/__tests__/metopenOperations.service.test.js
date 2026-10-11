@@ -55,7 +55,7 @@ describe("getMetopenSiaOperations", () => {
         thesis: {
           id: "thesis-1",
           academicYearId: "ay-old",
-          isProposal: true,
+          status: "proposal",
           researchMethodScores: [
             {
               isFinalized: true,

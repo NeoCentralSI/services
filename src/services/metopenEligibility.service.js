@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
+import { THESIS_STATUS } from "../constants/thesisStatus.js";
 import { buildRuntimeSnapshotObservationPatch } from "./studentPeriodSnapshot.service.js";
 import {
   studentHasOfficialMetopenArchive,
@@ -86,9 +87,7 @@ export async function getStudentMetopenEligibilityContext(userId, { client = pri
           id: true,
           title: true,
           proposalStatus: true,
-          thesisStatus: {
-            select: { id: true, name: true },
-          },
+          status: true,
         },
       },
     },
@@ -145,10 +144,9 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
     typeof snapshot?.takingThesisCourse === "boolean" ? snapshot.takingThesisCourse : null;
   const takingThesisCourse = takingFromSnapshot ?? takingFromStudent;
   const hasThesisRecord = Boolean(thesis);
+  // Past the proposal phase (research, on_leave, completed, failed) — K15.
   const isThesisCompleted =
-    thesis?.thesisStatus?.name === "Lulus" ||
-    thesis?.thesisStatus?.name === "Selesai" ||
-    thesis?.isProposal === false;
+    Boolean(thesis?.status) && thesis.status !== THESIS_STATUS.PROPOSAL;
   const canAccessTugasAkhir =
     takingThesisCourse === true ||
     hasThesisRecord ||
@@ -164,7 +162,7 @@ export async function resolveMetopenEligibilityState(userId, { client = prisma }
     canSubmit: eligibleMetopen === true && !readOnly,
     readOnly,
     thesisId: thesis?.id ?? null,
-    thesisPhase: thesis?.thesisStatus?.name ?? null,
+    thesisPhase: thesis?.status ?? null,
     source: student.metopenEligibilitySource ?? null,
     updatedAt: student.metopenEligibilityUpdatedAt ?? null,
     takingThesisCourse,

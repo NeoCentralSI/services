@@ -46,6 +46,7 @@ describe("proposal.service", () => {
     studentRepo.getStudentByUserId.mockResolvedValue({ id: "student-1" });
     studentRepo.getActiveThesisForStudent.mockResolvedValue({
       id: "thesis-1",
+      status: "proposal",
       proposalStatus: null,
       finalProposalVersionId: null,
     });

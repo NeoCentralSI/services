@@ -84,7 +84,7 @@ export const findMetopenScoringQueue = async (metopenLecturerId) => {
       thesisMilestones: {
         some: {
           status: 'completed',
-          milestoneTemplate: { phase: 'metopen' },
+          milestoneTemplate: { phase: 'proposal' },
         },
       },
     },

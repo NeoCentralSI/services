@@ -9,7 +9,7 @@ import prisma from "../src/config/prisma.js";
  * via reviewTitleReport KaDep. Mereka tidak memenuhi syarat batch TA-04 dan
  * menyesatkan UI (badge "Disahkan" padahal tidak pernah disahkan resmi).
  *
- * Reset ke proposalStatus=null + isProposal=true = kembali ke state akurat
+ * Reset ke proposalStatus=null + status=proposal = kembali ke state akurat
  * "belum disahkan". Thesis tetap ada (tidak delete) untuk data historis.
  */
 async function main() {
@@ -27,7 +27,7 @@ async function main() {
       title: true,
       proposalReviewedAt: true,
       finalProposalVersionId: true,
-      isProposal: true,
+      status: true,
       student: {
         select: {
           takingThesisCourse: true,
@@ -55,7 +55,8 @@ async function main() {
     where: { id: { in: ids } },
     data: {
       proposalStatus: null,
-      isProposal: true,
+      status: "proposal",
+      statusChangedAt: new Date(),
       proposalReviewedAt: null,
       proposalReviewedByUserId: null,
       proposalReviewNotes: null,
@@ -63,7 +64,7 @@ async function main() {
   });
 
   console.log(`\n✅ Reset complete: ${result.count} thesis updated.`);
-  console.log("   proposalStatus=null, isProposal=true, audit pengesahan dibersihkan.");
+  console.log("   proposalStatus=null, status=proposal, audit pengesahan dibersihkan.");
 
   // Verifikasi: cek thesis accepted tersisa
   const remainingAccepted = await prisma.thesis.count({

@@ -1,4 +1,5 @@
 import prisma from "../../config/prisma.js";
+import { OPEN_THESIS_STATUSES, TA_PHASE } from "../../constants/thesisStatus.js";
 
 // ============================================================
 // SHARED INCLUDES — reused across list, detail, and CRUD queries
@@ -618,8 +619,10 @@ export async function findLecturerAvailabilities(lecturerIds) {
  * Get the student's thesis with full seminar info for the overview page.
  */
 export async function getStudentThesisWithSeminarInfo(studentId) {
+  // K15: the student's latest thesis that has not ended (a failed older thesis is skipped).
   return prisma.thesis.findFirst({
-    where: { studentId },
+    where: { studentId, status: { in: OPEN_THESIS_STATUSES } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
       title: true,
@@ -639,7 +642,8 @@ export async function getStudentThesisWithSeminarInfo(studentId) {
         },
       },
       thesisGuidances: {
-        where: { status: "completed" },
+        // K7: only completed TA-phase sessions count towards the seminar requirement.
+        where: { status: "completed", ...TA_PHASE },
         select: { id: true },
       },
       thesisSeminars: {
@@ -699,7 +703,8 @@ export async function getStudentThesisWithSeminarInfo(studentId) {
  */
 export async function countCompletedGuidances(thesisId) {
   return prisma.thesisGuidance.count({
-    where: { thesisId, status: "completed" },
+    // K7: only completed TA-phase sessions count towards the seminar requirement.
+    where: { thesisId, status: "completed", ...TA_PHASE },
   });
 }
 

@@ -87,8 +87,12 @@ export const studentNotesSchema = z.object({
   studentNotes: z.string().min(1, "studentNotes is required"),
 });
 
+// K19: a student cancels a requested or accepted session with a reason.
 export const cancelGuidanceSchema = z.object({
-  reason: z.string().max(1000, "Alasan maksimal 1000 karakter").optional(),
+  reason: z.preprocess(
+    (v) => (v === undefined || v === null ? "" : v),
+    z.string().trim().min(1, "Alasan pembatalan wajib diisi").max(1000, "Alasan maksimal 1000 karakter"),
+  ),
 });
 
 export const completeComponentsSchema = z.object({

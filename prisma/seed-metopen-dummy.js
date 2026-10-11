@@ -40,17 +40,7 @@ async function main() {
     console.log('✅ Created active academic year');
   }
 
-  // 2. Ensure "Metopel" Thesis Status
-  let statusMetopel = await prisma.thesisStatus.findFirst({
-    where: { name: 'Metopel' },
-  });
-
-  if (!statusMetopel) {
-    statusMetopel = await prisma.thesisStatus.create({
-      data: { name: 'Metopel' },
-    });
-    console.log('✅ Created "Metopel" thesis status');
-  }
+  // 2. Thesis status: K15 enum on thesis.status (Metopel students are in the proposal phase)
 
   // 3. Ensure a Thesis Topic
   let topic = await prisma.thesisTopic.findFirst();
@@ -150,7 +140,7 @@ async function main() {
         data: {
           studentId: studentProfile.id,
           thesisTopicId: topic.id,
-          thesisStatusId: statusMetopel.id,
+          status: 'proposal',
           academicYearId: academicYear.id,
           title: `Rancang Bangun Sistem Informasi ${s.name}`,
           startDate: new Date(),
@@ -234,7 +224,7 @@ async function main() {
       data: {
         studentId: studentProfileB.id,
         thesisTopicId: topic.id,
-        thesisStatusId: statusMetopel.id,
+        status: 'proposal',
         academicYearId: academicYear.id,
         title: 'Analisis Keamanan Jaringan Kampus',
         startDate: new Date(),

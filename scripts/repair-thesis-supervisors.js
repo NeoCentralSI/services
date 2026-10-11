@@ -228,9 +228,9 @@ function findSingle(index, name, kind) {
 }
 
 function pickTargetThesis(theses) {
-  const activeStatuses = new Set(["Gagal", "Dibatalkan"]);
-  const nonProposal = theses.filter((thesis) => thesis.isProposal === false);
-  const active = nonProposal.filter((thesis) => !activeStatuses.has(thesis.thesisStatus?.name));
+  // K15: status is the phase marker; `failed` covers the legacy Gagal/Dibatalkan.
+  const nonProposal = theses.filter((thesis) => thesis.status && thesis.status !== "proposal");
+  const active = nonProposal.filter((thesis) => thesis.status !== "failed");
   return (active[0] || nonProposal[0] || theses[0]) ?? null;
 }
 
@@ -278,7 +278,6 @@ async function main() {
     const theses = await prisma.thesis.findMany({
       where: { studentId: student.id },
       include: {
-        thesisStatus: true,
         thesisSupervisors: {
           include: {
             role: true,

@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import { sendFcmToUsers } from "../services/push.service.js";
+import { OPEN_THESIS_STATUSES } from "../constants/thesisStatus.js";
 
 /**
  * Job untuk mengirim daily reminder ke semua mahasiswa yang sedang mengerjakan tugas akhir.
@@ -17,17 +18,8 @@ export async function runDailyThesisReminderJob() {
     // Excluded statuses: thesis that are completed/graduated
     const activeTheses = await prisma.thesis.findMany({
       where: {
-        // Active thesis - not completed, not cancelled
-        OR: [
-          { thesisStatusId: null },
-          {
-            thesisStatus: {
-              name: {
-                notIn: ["Lulus", "Selesai", "Dibatalkan", "Cancelled", "Completed", "Graduated"]
-              }
-            }
-          }
-        ]
+        // Active thesis - not finished, not failed (K15)
+        status: { in: OPEN_THESIS_STATUSES },
       },
       include: {
         student: {
@@ -36,9 +28,6 @@ export async function runDailyThesisReminderJob() {
               select: { id: true, fullName: true, email: true }
             }
           }
-        },
-        thesisStatus: {
-          select: { name: true }
         },
         thesisSupervisors: {
           include: {

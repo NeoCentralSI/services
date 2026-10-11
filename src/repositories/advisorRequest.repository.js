@@ -1,5 +1,5 @@
 import prisma from "../config/prisma.js";
-import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { OPEN_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import {
   ADVISOR_REQUEST_BLOCKING_STATUSES,
   ADVISOR_REQUEST_HISTORY_RESPONDED_STATUSES,
@@ -13,7 +13,6 @@ import { createSupervisorAssignments } from "../utils/supervisorIntegrity.js";
 const ACTIVE_STATUSES = ADVISOR_REQUEST_BLOCKING_STATUSES;
 const BLOCKING_STATUSES = ADVISOR_REQUEST_BLOCKING_STATUSES;
 const HISTORY_STATUSES = ADVISOR_REQUEST_HISTORY_RESPONDED_STATUSES;
-const CLOSED_THESIS_STATUS_NAMES = CLOSED_THESIS_STATUSES;
 
 /**
  * Find student record by authenticated user id.
@@ -64,9 +63,7 @@ export const findStudentAdvisorAccessContext = async (userId) => {
           academicYearId: true,
           proposalStatus: true,
           ta04AssignmentIssuedAt: true,
-          thesisStatus: {
-            select: { id: true, name: true },
-          },
+          status: true,
           thesisSupervisors: {
             select: {
               id: true,
@@ -174,7 +171,7 @@ export const findLatestByStudent = async (studentId) => {
           id: true,
           title: true,
           proposalStatus: true,
-          thesisStatus: { select: { name: true } },
+          status: true,
           academicYearId: true,
         },
       },
@@ -207,7 +204,7 @@ export const create = async (data) => {
           id: true,
           title: true,
           proposalStatus: true,
-          thesisStatus: { select: { name: true } },
+          status: true,
           studentId: true,
           academicYearId: true,
         },
@@ -237,7 +234,7 @@ export const createWithClient = async (client, data) => {
           id: true,
           title: true,
           proposalStatus: true,
-          thesisStatus: { select: { name: true } },
+          status: true,
           studentId: true,
           academicYearId: true,
         },
@@ -283,7 +280,7 @@ export const findById = async (id) => {
           academicYearId: true,
           thesisTopicId: true,
           studentId: true,
-          thesisStatus: { select: { id: true, name: true } },
+          status: true,
           thesisSupervisors: {
             select: {
               id: true,
@@ -444,7 +441,7 @@ export const findByStudent = async (studentId) => {
           id: true,
           title: true,
           proposalStatus: true,
-          thesisStatus: { select: { name: true } },
+          status: true,
           academicYearId: true,
         },
       },
@@ -592,7 +589,7 @@ export const updateStatus = async (id, data) => {
           id: true,
           title: true,
           proposalStatus: true,
-          thesisStatus: { select: { name: true } },
+          status: true,
           academicYearId: true,
         },
       },
@@ -643,16 +640,7 @@ export const getLecturerCatalog = async (academicYearId) => {
           status: "active",
           thesis: {
             academicYearId,
-            OR: [
-              { thesisStatus: { is: null } },
-              {
-                thesisStatus: {
-                  is: {
-                    name: { notIn: CLOSED_THESIS_STATUS_NAMES },
-                  },
-                },
-              },
-            ],
+            status: { in: OPEN_THESIS_STATUSES },
           },
         },
         select: {
@@ -765,14 +753,7 @@ const lecturerAssignmentInclude = (academicYearId) => ({
       status: "active",
       thesis: {
         academicYearId,
-        OR: [
-          { thesisStatus: { is: null } },
-          {
-            thesisStatus: {
-              is: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } },
-            },
-          },
-        ],
+        status: { in: OPEN_THESIS_STATUSES },
       },
     },
     select: {
@@ -911,16 +892,6 @@ export const findRoleByName = async (name) => {
 };
 
 /**
- * Look up a ThesisStatus by its name.
- */
-export const findThesisStatusByName = async (name) => {
-  return prisma.thesisStatus.findFirst({
-    where: { name },
-    select: { id: true, name: true },
-  });
-};
-
-/**
  * Find a thesis by its ID.
  */
 export const findThesisById = async (thesisId) => {
@@ -1046,7 +1017,7 @@ export const findByIdWithClient = async (client, id) => {
           academicYearId: true,
           thesisTopicId: true,
           studentId: true,
-          thesisStatus: { select: { id: true, name: true } },
+          status: true,
           thesisSupervisors: {
             select: {
               id: true,
@@ -1106,7 +1077,7 @@ export const findThesisByIdWithClient = async (client, thesisId) => {
       academicYearId: true,
       proposalStatus: true,
       studentId: true,
-      thesisStatus: { select: { id: true, name: true } },
+      status: true,
     },
   });
 };
@@ -1122,7 +1093,7 @@ export const findThesisByStudentWithClient = async (client, studentId) => {
       academicYearId: true,
       proposalStatus: true,
       studentId: true,
-      thesisStatus: { select: { id: true, name: true } },
+      status: true,
     },
   });
 };
@@ -1152,7 +1123,7 @@ export const updateThesisWithClient = async (client, thesisId, data) => {
       academicYearId: true,
       proposalStatus: true,
       studentId: true,
-      thesisStatus: { select: { id: true, name: true } },
+      status: true,
     },
   });
 };
@@ -1239,7 +1210,7 @@ export const updateStatusWithClient = async (client, id, data) => {
           id: true,
           title: true,
           proposalStatus: true,
-          thesisStatus: { select: { name: true } },
+          status: true,
           academicYearId: true,
         },
       },

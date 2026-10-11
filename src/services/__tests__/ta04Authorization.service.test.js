@@ -2,30 +2,30 @@ import { describe, expect, it } from "vitest";
 import { deriveGuidancePhaseFromThesis } from "../ta04Authorization.service.js";
 
 describe("deriveGuidancePhaseFromThesis", () => {
-  it("keeps Metopel theses on proposal even if a client would send thesis", () => {
+  it("keeps Metopel theses on proposal even if a client would send research", () => {
     expect(
       deriveGuidancePhaseFromThesis({
-        isProposal: true,
+        status: "proposal",
         proposalStatus: "submitted",
       }),
     ).toBe("proposal");
   });
 
-  it("uses thesis phase after proposal is accepted", () => {
+  it("uses research phase after proposal is accepted", () => {
     expect(
       deriveGuidancePhaseFromThesis({
-        isProposal: true,
+        status: "proposal",
         proposalStatus: "accepted",
       }),
-    ).toBe("thesis");
+    ).toBe("research");
   });
 
-  it("uses thesis phase when the thesis has left Metopel", () => {
+  it("uses research phase when the thesis has left Metopel", () => {
     expect(
       deriveGuidancePhaseFromThesis({
-        isProposal: false,
+        status: "research",
         proposalStatus: "submitted",
       }),
-    ).toBe("thesis");
+    ).toBe("research");
   });
 });

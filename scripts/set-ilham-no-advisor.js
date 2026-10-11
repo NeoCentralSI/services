@@ -54,7 +54,7 @@ async function main() {
 
   // 4. Pastikan gate milestone ada dan completed
   const gateTemplate = await prisma.thesisMilestoneTemplate.findFirst({
-    where: { isGateToAdvisorSearch: true, phase: 'metopen' },
+    where: { isGateToAdvisorSearch: true, phase: 'proposal' },
     select: { id: true, name: true },
   });
 
@@ -96,6 +96,7 @@ async function main() {
         title: gateTemplate.name,
         orderIndex: 2,
         status: 'completed',
+        phase: 'proposal',
         progressPercentage: 100,
         completedAt: now,
         validatedAt: now,

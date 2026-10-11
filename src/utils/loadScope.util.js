@@ -4,7 +4,7 @@ import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 export const QUOTA_LOAD_DEFINITION_LABEL =
   "Beban kuota SIMPTA (fase proposal): Aktif + Booking pada periode yang dipilih. Bukan beban pasca-proposal di Monitoring Tugas Akhir.";
 
-/** Monitoring TA: hanya thesis isProposal=false. */
+/** Monitoring TA: hanya thesis yang sudah lewat fase proposal (status bukan `proposal`). */
 export const SUPERVISOR_LOAD_DEFINITION_LABEL =
   "Beban bimbingan pasca-proposal (modul TA penuh). Thesis yang masih di fase proposal tidak dihitung.";
 

@@ -1,14 +1,16 @@
 import express from "express";
 import { authGuard } from "../../middlewares/auth.middleware.js";
 import { loadUserRoles, requireRoles } from "../../middlewares/rbac.middleware.js";
+import { ROLES, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { validate } from "../../middlewares/validation.middleware.js";
 import * as controller from "../../controllers/thesisGuidance/milestone.controller.js";
 import * as validator from "../../validators/milestone.validator.js";
-import { ROLES, SUPERVISOR_ROLES } from "../../constants/roles.js";
 
 const router = express.Router();
 
-// All routes require auth + roles loaded for access checks
+// Guidance revival: the baseline relied on service-level checks only. Route-level role
+// guards from the active app are kept so the restore does not widen access (e.g. the
+// ready-for-seminar/defence lists were open to any authenticated user in the baseline).
 router.use(authGuard, loadUserRoles);
 
 // ============================================
@@ -19,25 +21,25 @@ router.use(authGuard, loadUserRoles);
  * GET /api/milestone-templates
  * Get all milestone templates
  */
-router.get("/templates", controller.getTemplates);
+router.get("/templates", authGuard, controller.getTemplates);
 
 /**
  * GET /api/milestones/templates/topics
  * Get thesis topics for template filtering
  */
-router.get("/templates/topics", controller.getTopics);
+router.get("/templates/topics", authGuard, controller.getTopics);
 
 /**
  * GET /api/milestone-templates/categories
  * Get template topics with count (legacy endpoint name)
  */
-router.get("/templates/categories", controller.getTemplateCategories);
+router.get("/templates/categories", authGuard, controller.getTemplateCategories);
 
 /**
  * GET /api/milestones/templates/:templateId
  * Get template by ID
  */
-router.get("/templates/:templateId", controller.getTemplateById);
+router.get("/templates/:templateId", authGuard, controller.getTemplateById);
 
 /**
  * POST /api/milestones/templates
@@ -45,7 +47,7 @@ router.get("/templates/:templateId", controller.getTemplateById);
  */
 router.post(
   "/templates",
-  requireRoles(ROLES.SEKRETARIS_DEPARTEMEN),
+  authGuard, requireRoles(ROLES.SEKRETARIS_DEPARTEMEN),
   validate(validator.createTemplateSchema),
   controller.createTemplate
 );
@@ -56,7 +58,7 @@ router.post(
  */
 router.patch(
   "/templates/:templateId",
-  requireRoles(ROLES.SEKRETARIS_DEPARTEMEN),
+  authGuard, requireRoles(ROLES.SEKRETARIS_DEPARTEMEN),
   validate(validator.updateTemplateSchema),
   controller.updateTemplate
 );
@@ -67,7 +69,7 @@ router.patch(
  */
 router.delete(
   "/templates/bulk",
-  requireRoles(ROLES.SEKRETARIS_DEPARTEMEN),
+  authGuard, requireRoles(ROLES.SEKRETARIS_DEPARTEMEN),
   validate(validator.bulkDeleteTemplatesSchema),
   controller.bulkDeleteTemplates
 );
@@ -76,32 +78,42 @@ router.delete(
  * DELETE /api/milestones/templates/:templateId
  * Delete template (Sekretaris Departemen only)
  */
-router.delete("/templates/:templateId", requireRoles(ROLES.SEKRETARIS_DEPARTEMEN), controller.deleteTemplate);
+router.delete("/templates/:templateId", authGuard, requireRoles(ROLES.SEKRETARIS_DEPARTEMEN), controller.deleteTemplate);
+
+// ============================================
+// Supervisor Aggregate Routes
+// ============================================
+
+/**
+ * GET /api/milestones/supervisor/pending-review
+ * Get all pending_review milestones across supervised theses (single query)
+ */
+router.get("/supervisor/pending-review", authGuard, requireRoles(...SUPERVISOR_ROLES), controller.getSupervisorPendingReview);
 
 // ============================================
 // Thesis Milestone Routes
-// Access checked in service via getThesisWithAccess()
+// All routes require authentication
 // ============================================
 
 /**
  * GET /api/milestones/thesis/:thesisId
  * Get all milestones for a thesis
  */
-router.get("/thesis/:thesisId", controller.getMilestones);
+router.get("/thesis/:thesisId", authGuard, controller.getMilestones);
 
 /**
  * GET /api/milestones/thesis/:thesisId/progress
  * Get overall thesis milestone progress
  */
-router.get("/thesis/:thesisId/progress", controller.getProgress);
+router.get("/thesis/:thesisId/progress", authGuard, controller.getProgress);
 
 /**
  * POST /api/milestones/thesis/:thesisId
- * Create new milestone (student only — checked in service)
+ * Create new milestone (student only)
  */
 router.post(
   "/thesis/:thesisId",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.createMilestoneSchema),
   controller.createMilestone
 );
@@ -112,7 +124,7 @@ router.post(
  */
 router.post(
   "/thesis/:thesisId/by-supervisor",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.createMilestoneBySupervisorSchema),
   controller.createMilestoneBySupervisor
 );
@@ -123,7 +135,7 @@ router.post(
  */
 router.post(
   "/thesis/:thesisId/from-templates",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.createFromTemplatesSchema),
   controller.createFromTemplates
 );
@@ -134,7 +146,7 @@ router.post(
  */
 router.patch(
   "/thesis/:thesisId/reorder",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.reorderMilestonesSchema),
   controller.reorderMilestones
 );
@@ -144,18 +156,12 @@ router.patch(
 // ============================================
 
 /**
- * GET /api/milestones/:milestoneId
- * Get milestone detail
- */
-router.get("/:milestoneId", controller.getMilestoneDetail);
-
-/**
  * PATCH /api/milestones/:milestoneId
  * Update milestone (student only)
  */
 router.patch(
   "/:milestoneId",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.updateMilestoneSchema),
   controller.updateMilestone
 );
@@ -164,7 +170,7 @@ router.patch(
  * DELETE /api/milestones/:milestoneId
  * Delete milestone (student only)
  */
-router.delete("/:milestoneId", requireRoles(ROLES.MAHASISWA), controller.deleteMilestone);
+router.delete("/:milestoneId", authGuard, requireRoles(ROLES.MAHASISWA), controller.deleteMilestone);
 
 // ============================================
 // Status Management Routes
@@ -176,7 +182,7 @@ router.delete("/:milestoneId", requireRoles(ROLES.MAHASISWA), controller.deleteM
  */
 router.patch(
   "/:milestoneId/status",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.updateStatusSchema),
   controller.updateStatus
 );
@@ -187,7 +193,7 @@ router.patch(
  */
 router.patch(
   "/:milestoneId/progress",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.updateProgressSchema),
   controller.updateProgress
 );
@@ -198,7 +204,7 @@ router.patch(
  */
 router.post(
   "/:milestoneId/submit-review",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.submitForReviewSchema),
   controller.submitForReview
 );
@@ -213,7 +219,7 @@ router.post(
  */
 router.post(
   "/:milestoneId/validate",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.validateMilestoneSchema),
   controller.validateMilestone
 );
@@ -224,7 +230,7 @@ router.post(
  */
 router.post(
   "/:milestoneId/request-revision",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.requestRevisionSchema),
   controller.requestRevision
 );
@@ -235,7 +241,7 @@ router.post(
  */
 router.post(
   "/:milestoneId/feedback",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.addFeedbackSchema),
   controller.addFeedback
 );
@@ -246,19 +252,15 @@ router.post(
 
 /**
  * GET /api/milestones/ready-for-seminar
- * Get list of students ready for seminar registration (sekdep/kadep/admin)
+ * Get list of students ready for seminar registration (sekdep/admin)
  */
-router.get(
-  "/ready-for-seminar",
-  requireRoles(ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN),
-  controller.getStudentsReadyForSeminar
-);
+router.get("/ready-for-seminar", authGuard, requireRoles(ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN), controller.getStudentsReadyForSeminar);
 
 /**
  * GET /api/milestones/thesis/:thesisId/seminar-readiness
  * Get thesis seminar readiness status
  */
-router.get("/thesis/:thesisId/seminar-readiness", controller.getThesisSeminarReadiness);
+router.get("/thesis/:thesisId/seminar-readiness", authGuard, controller.getThesisSeminarReadiness);
 
 /**
  * POST /api/milestones/thesis/:thesisId/seminar-readiness/approve
@@ -266,7 +268,7 @@ router.get("/thesis/:thesisId/seminar-readiness", controller.getThesisSeminarRea
  */
 router.post(
   "/thesis/:thesisId/seminar-readiness/approve",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.seminarReadinessNotesSchema),
   controller.approveSeminarReadiness
 );
@@ -277,9 +279,19 @@ router.post(
  */
 router.post(
   "/thesis/:thesisId/seminar-readiness/revoke",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.seminarReadinessNotesSchema),
   controller.revokeSeminarReadiness
+);
+
+/**
+ * POST /api/milestones/thesis/:thesisId/seminar-readiness/remind
+ * Request to remind supervisors to approve seminar readiness
+ */
+router.post(
+  "/thesis/:thesisId/seminar-readiness/remind",
+  authGuard, requireRoles(ROLES.MAHASISWA),
+  controller.remindSeminarReadiness
 );
 
 // ============================================
@@ -288,19 +300,15 @@ router.post(
 
 /**
  * GET /api/milestones/ready-for-defence
- * Get list of students ready for defence registration (sekdep/kadep/admin)
+ * Get list of students ready for defence registration (sekdep/admin)
  */
-router.get(
-  "/ready-for-defence",
-  requireRoles(ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN),
-  controller.getStudentsReadyForDefence
-);
+router.get("/ready-for-defence", authGuard, requireRoles(ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN), controller.getStudentsReadyForDefence);
 
 /**
  * GET /api/milestones/thesis/:thesisId/defence-readiness
  * Get thesis defence readiness status
  */
-router.get("/thesis/:thesisId/defence-readiness", controller.getThesisDefenceReadiness);
+router.get("/thesis/:thesisId/defence-readiness", authGuard, controller.getThesisDefenceReadiness);
 
 /**
  * POST /api/milestones/thesis/:thesisId/defence-readiness/approve
@@ -308,7 +316,7 @@ router.get("/thesis/:thesisId/defence-readiness", controller.getThesisDefenceRea
  */
 router.post(
   "/thesis/:thesisId/defence-readiness/approve",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.defenceReadinessNotesSchema),
   controller.approveDefenceReadiness
 );
@@ -319,7 +327,7 @@ router.post(
  */
 router.post(
   "/thesis/:thesisId/defence-readiness/revoke",
-  requireRoles(...SUPERVISOR_ROLES),
+  authGuard, requireRoles(...SUPERVISOR_ROLES),
   validate(validator.defenceReadinessNotesSchema),
   controller.revokeDefenceReadiness
 );
@@ -330,9 +338,17 @@ router.post(
  */
 router.post(
   "/thesis/:thesisId/request-defence",
-  requireRoles(ROLES.MAHASISWA),
+  authGuard, requireRoles(ROLES.MAHASISWA),
   validate(validator.requestDefenceSchema),
   controller.requestDefence
 );
+
+/**
+ * GET /api/milestones/:milestoneId
+ * Get milestone detail
+ * Registered last so fixed paths such as /ready-for-seminar and /ready-for-defence
+ * are not captured as a milestone id.
+ */
+router.get("/:milestoneId", authGuard, controller.getMilestoneDetail);
 
 export default router;

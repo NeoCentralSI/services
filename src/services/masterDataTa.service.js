@@ -1,6 +1,50 @@
 import prisma from "../config/prisma.js";
 import * as masterDataTaRepository from "../repositories/masterDataTa.repository.js";
-import { ROLES } from "../constants/roles.js";
+import { THESIS_STATUS, OPEN_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { THESIS_STATUS_LABELS } from "../constants/thesisLabels.js";
+import {
+    CREATABLE_THESIS_STATUSES,
+    assertSingleOpenThesis,
+    statusChangeData,
+    applyTerminationSideEffects,
+    changeThesisStatus,
+    parseTerminationReason,
+} from "./thesisLifecycle.service.js";
+import {
+    createSupervisorAssignments,
+    replaceSupervisorAssignments,
+    getCanonicalSupervisorRoles,
+} from "../utils/supervisorIntegrity.js";
+import { syncQuotaCount } from "../utils/quotaSync.js";
+import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
+
+const ALL_THESIS_STATUSES = Object.values(THESIS_STATUS);
+
+/** Legacy status names accepted from imported spreadsheets (K15 mapping). */
+const LEGACY_STATUS_NAMES = {
+    "diajukan": THESIS_STATUS.PROPOSAL,
+    "proposal": THESIS_STATUS.PROPOSAL,
+    "bimbingan": THESIS_STATUS.RESEARCH,
+    "aktif": THESIS_STATUS.RESEARCH,
+    "tugas akhir": THESIS_STATUS.RESEARCH,
+    "bss": THESIS_STATUS.ON_LEAVE,
+    "selesai": THESIS_STATUS.COMPLETED,
+    "lulus": THESIS_STATUS.COMPLETED,
+    "gagal": THESIS_STATUS.FAILED,
+    "dibatalkan": THESIS_STATUS.FAILED,
+    "drop out": THESIS_STATUS.FAILED,
+};
+
+/** Parse a spreadsheet "Status" cell into a ThesisLifecycleStatus (null when unknown/empty).
+ * Accepts the enum value, its Indonesian label (§2.2b), or a legacy status name. */
+export function parseThesisStatusCell(value) {
+    const text = String(value ?? "").trim().toLowerCase();
+    if (!text || text === "-") return null;
+    if (ALL_THESIS_STATUSES.includes(text)) return text;
+    const byLabel = Object.entries(THESIS_STATUS_LABELS).find(([, label]) => label.toLowerCase() === text);
+    if (byLabel) return byLabel[0];
+    return LEGACY_STATUS_NAMES[text] ?? null;
+}
 
 class NotFoundError extends Error {
     constructor(message) {
@@ -23,15 +67,13 @@ export const getAllThesesMasterData = async () => {
 
     // Map data to the format expected by the frontend table
     return theses.map((thesis) => {
-        const statusName = thesis.thesisStatus?.name || "Belum Ada Status";
-        const isCompleted = statusName === "Selesai" || statusName === "Lulus";
+        const isCompleted = thesis.status === THESIS_STATUS.COMPLETED;
 
         return {
             id: thesis.id,
             title: thesis.title,
             rating: isCompleted ? null : thesis.rating,
             startDate: thesis.startDate,
-            isProposal: thesis.isProposal,
             student: {
                 id: thesis.student?.id,
                 nim: thesis.student?.user?.identityNumber,
@@ -47,8 +89,11 @@ export const getAllThesesMasterData = async () => {
                 roleId: ts.roleId,
                 roleName: ts.role?.name
             })),
-            status: thesis.thesisStatus?.name || "Belum Ada Status",
-            thesisStatusId: thesis.thesisStatusId || "none",
+            status: thesis.status,
+            // K21: the form offers only allowed transitions (on_leave returns to statusBeforeLeave)
+            statusBeforeLeave: thesis.statusBeforeLeave ?? null,
+            terminationReason: thesis.terminationReason ?? null,
+            terminationNote: thesis.terminationNote ?? null,
             academicYear: thesis.academicYear ? {
                 id: thesis.academicYear.id,
                 semester: thesis.academicYear.semester,
@@ -58,115 +103,152 @@ export const getAllThesesMasterData = async () => {
     });
 };
 
-export const getAllThesisStatuses = async () => {
-    return await prisma.thesisStatus.findMany({
-        orderBy: { id: "asc" }
-    });
-};
+/** Supervisor input -> [{ lecturerId, roleId }]; P1 required when `requireP1`. */
+async function buildSupervisors(client, { pembimbing1, pembimbing2 }, { requireP1 }) {
+    const p1 = pembimbing1 && pembimbing1 !== "none" ? pembimbing1 : null;
+    const p2 = pembimbing2 && pembimbing2 !== "none" ? pembimbing2 : null;
+    if (!p1 && !p2) {
+        if (requireP1) throw new ValidationError("Pembimbing 1 wajib diisi.");
+        return null;
+    }
+    if (!p1) throw new ValidationError("Pembimbing 1 wajib diisi bila Pembimbing 2 diisi.");
+    if (p1 === p2) throw new ValidationError("Pembimbing 1 dan Pembimbing 2 harus dosen yang berbeda.");
+    const roles = await getCanonicalSupervisorRoles(client);
+    const rows = [{ lecturerId: p1, roleId: roles.pembimbing1.id }];
+    if (p2) rows.push({ lecturerId: p2, roleId: roles.pembimbing2.id });
+    return rows;
+}
 
-export const createThesisMasterData = async (data) => {
-    // 1. Check if student has active thesis (ONGOING, SLOW, AT_RISK)
-    const activeThesis = await prisma.thesis.findFirst({
-        where: {
-            studentId: data.studentId,
-            rating: { in: ["ONGOING", "SLOW", "AT_RISK"] }
-        }
-    });
+async function assertTopicExists(client, thesisTopicId) {
+    if (!thesisTopicId) return;
+    const topic = await client.thesisTopic.findUnique({ where: { id: thesisTopicId }, select: { id: true } });
+    if (!topic) throw new ValidationError("Topik tugas akhir tidak ditemukan.");
+}
 
-    if (activeThesis) {
-        throw new ValidationError("Mahasiswa masih memiliki Tugas Akhir yang aktif. Hanya dapat menambahkan revisi untuk status FAILED / CANCELLED.");
+/**
+ * K21 create: one open thesis per student, explicit status (default research), P1 required,
+ * `failed` needs a termination reason. Rating is never taken from input (computed by the job).
+ */
+export const createThesisMasterData = async (data, { actorUserId = null, client = prisma } = {}) => {
+    const status = data.status ?? THESIS_STATUS.RESEARCH;
+    if (!CREATABLE_THESIS_STATUSES.includes(status)) {
+        throw new ValidationError(
+            `Tugas akhir baru tidak dapat langsung berstatus "${THESIS_STATUS_LABELS[status] ?? status}". Buat dengan status "${THESIS_STATUS_LABELS.research}", lalu ubah statusnya.`
+        );
     }
 
-    // 2. Get active academic year
-    const activeYear = await prisma.academicYear.findFirst({
-        where: { isActive: true }
-    });
-
+    const activeYear = data.academicYearId
+        ? { id: data.academicYearId }
+        : await client.academicYear.findFirst({ where: { isActive: true } });
     if (!activeYear) {
         throw new ValidationError("Tidak ada tahun ajaran aktif di sistem.");
     }
 
-    // 3. Set auto dates
-    const startDate = new Date();
-    const deadlineDate = new Date();
-    deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
+    const startDate = data.startDate ? new Date(data.startDate) : new Date();
+    const deadlineDate = data.deadlineDate ? new Date(data.deadlineDate) : new Date(startDate);
+    if (!data.deadlineDate) deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
 
-    // 4. Map Pembimbing
-    const utamaRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_1 } });
-    const pendampingRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_2 } });
+    const run = async (tx) => {
+        if (OPEN_THESIS_STATUSES.includes(status)) {
+            await assertSingleOpenThesis(tx, data.studentId);
+        }
+        await assertTopicExists(tx, data.thesisTopicId);
+        const supervisors = await buildSupervisors(tx, data, { requireP1: true });
 
-    if (!utamaRole) {
-        throw new Error(`Role '${ROLES.PEMBIMBING_1}' tidak ditemukan di sistem.`);
-    }
-    if (data.pembimbing2 && data.pembimbing2 !== "none" && !pendampingRole) {
-        throw new Error(`Role '${ROLES.PEMBIMBING_2}' tidak ditemukan di sistem.`);
-    }
-
-    const supervisors = [
-        { lecturerId: data.pembimbing1, roleId: utamaRole.id }
-    ];
-
-    if (data.pembimbing2 && data.pembimbing2 !== "none") {
-        supervisors.push({
-            lecturerId: data.pembimbing2,
-            roleId: pendampingRole.id
+        const now = new Date();
+        const statusData = statusChangeData(null, status, {
+            actorUserId,
+            terminationReason: data.terminationReason,
+            terminationNote: data.terminationNote,
+            now,
         });
-    }
+        const thesis = await tx.thesis.create({
+            data: {
+                studentId: data.studentId,
+                title: data.title || null,
+                thesisTopicId: data.thesisTopicId || null,
+                academicYearId: activeYear.id,
+                startDate,
+                deadlineDate,
+                rating: "ONGOING",
+                ...statusData,
+            },
+        });
 
-    const bimbinganStatus = await prisma.thesisStatus.findFirst({
-        where: { name: { contains: "Bimbingan" } }
-    });
-
-    const payload = {
-        studentId: data.studentId,
-        title: data.title || null,
-        thesisTopicId: data.thesisTopicId || null,
-        academicYearId: activeYear.id,
-        thesisStatusId: bimbinganStatus ? bimbinganStatus.id : null,
-        startDate,
-        deadlineDate,
-        supervisors,
-        isProposal: data.isProposal ?? false
+        const result = await createSupervisorAssignments(tx, thesis.id, supervisors, { requireP1: true });
+        // A thesis created as failed keeps its supervisors only as history (released).
+        if (status === THESIS_STATUS.FAILED) {
+            await applyTerminationSideEffects(tx, thesis.id, { now });
+        }
+        for (const lecturerId of result.affectedLecturerIds) {
+            await syncQuotaCount(tx, lecturerId, activeYear.id);
+        }
+        await tx.auditLog.create({
+            data: {
+                userId: actorUserId,
+                action: AUDIT_ACTIONS.THESIS_CREATED,
+                entity: ENTITY_TYPES.THESIS,
+                entityId: thesis.id,
+                changes: { oldValues: null, newValues: { status, studentId: data.studentId, thesisTopicId: data.thesisTopicId || null }, metadata: { source: "master-data-ta" } },
+            },
+        });
+        return thesis;
     };
-
-    return await masterDataTaRepository.createThesis(payload);
+    return client === prisma ? prisma.$transaction(run) : run(client);
 };
 
-export const updateThesisMasterData = async (id, data) => {
-    const existing = await masterDataTaRepository.findThesisById(id);
-    if (!existing) {
-        throw new NotFoundError("Thesis not found");
-    }
-
-    if (data.pembimbing1) {
-        const utamaRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_1 } });
-        const pendampingRole = await prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_2 } });
-
-        if (!utamaRole) {
-            throw new Error(`Role '${ROLES.PEMBIMBING_1}' tidak ditemukan di sistem.`);
+/**
+ * K21 update: status follows the K15 transitions (failed / on_leave rules in
+ * thesisLifecycle.service), topic and supervisors can be set, replaced supervisors become
+ * "released". Rating is not editable here.
+ */
+export const updateThesisMasterData = async (id, data, { actorUserId = null, client = prisma } = {}) => {
+    const run = async (tx) => {
+        const existing = await tx.thesis.findUnique({ where: { id } });
+        if (!existing) {
+            throw new NotFoundError("Tugas akhir tidak ditemukan");
         }
-        if (data.pembimbing2 && data.pembimbing2 !== "none" && !pendampingRole) {
-            throw new Error(`Role '${ROLES.PEMBIMBING_2}' tidak ditemukan di sistem.`);
+        const closed = !OPEN_THESIS_STATUSES.includes(existing.status);
+        const wantsSupervisorChange = data.pembimbing1 !== undefined || data.pembimbing2 !== undefined;
+        if (closed && wantsSupervisorChange) {
+            throw new ValidationError(
+                `Pembimbing tugas akhir berstatus "${THESIS_STATUS_LABELS[existing.status]}" tidak dapat diubah.`
+            );
+        }
+        if (data.thesisTopicId !== undefined) await assertTopicExists(tx, data.thesisTopicId);
+
+        const fields = {};
+        if (data.title !== undefined) fields.title = data.title || null;
+        if (data.thesisTopicId !== undefined) fields.thesisTopicId = data.thesisTopicId || null;
+        if (data.academicYearId !== undefined) fields.academicYearId = data.academicYearId || null;
+        if (data.startDate !== undefined) fields.startDate = data.startDate ? new Date(data.startDate) : null;
+        let thesis = existing;
+        if (Object.keys(fields).length > 0) {
+            thesis = await tx.thesis.update({ where: { id }, data: fields });
         }
 
-        data.supervisors = [
-            { lecturerId: data.pembimbing1, roleId: utamaRole.id }
-        ];
+        const ayId = thesis.academicYearId;
+        if (wantsSupervisorChange && !closed) {
+            const supervisors = await buildSupervisors(tx, data, { requireP1: true });
+            const result = await replaceSupervisorAssignments(tx, id, supervisors, { requireP1: true });
+            if (ayId) {
+                for (const lecturerId of result.affectedLecturerIds) {
+                    await syncQuotaCount(tx, lecturerId, ayId);
+                }
+            }
+        }
 
-        if (data.pembimbing2 && data.pembimbing2 !== "none") {
-            data.supervisors.push({
-                lecturerId: data.pembimbing2,
-                roleId: pendampingRole.id
+        if (data.status && data.status !== existing.status) {
+            const changed = await changeThesisStatus(tx, thesis, data.status, {
+                actorUserId,
+                terminationReason: data.terminationReason,
+                terminationNote: data.terminationNote,
             });
+            thesis = changed.thesis;
         }
-    }
-
-    if (data.thesisStatusId === "none" || !data.thesisStatusId) {
-        delete data.thesisStatusId;
-    }
-    delete data.status; // Cleanup legacy field if present
-
-    return await masterDataTaRepository.updateThesis(id, data);
+        return thesis;
+    };
+    return client === prisma ? prisma.$transaction(run) : run(client);
 };
 
 export const syncSia = async () => {
@@ -214,22 +296,37 @@ export const syncSia = async () => {
     }
 };
 
-export const importThesesMasterData = async (rows) => {
+/** Lecturer by full name (exact, case-insensitive), else a unique partial match. */
+async function findLecturerByName(name) {
+    const exact = await prisma.lecturer.findMany({
+        where: { user: { fullName: name } },
+        select: { id: true },
+        take: 2,
+    });
+    if (exact.length === 1) return exact[0];
+    const partial = await prisma.lecturer.findMany({
+        where: { user: { fullName: { contains: name } } },
+        select: { id: true },
+        take: 2,
+    });
+    if (partial.length === 1) return partial[0];
+    throw new Error(partial.length === 0 ? `Dosen "${name}" tidak ditemukan` : `Nama dosen "${name}" cocok dengan lebih dari satu dosen; tulis nama lengkap`);
+}
+
+/**
+ * K21 import: each row follows the same rules as add/edit (one open thesis per student,
+ * K15 transitions, `failed` needs "Alasan Penghentian", P1 required for a new thesis).
+ * A failing row is reported with its row number and never stops the other rows.
+ * The "Rating" column is ignored: rating is computed by the rating job.
+ */
+export const importThesesMasterData = async (rows, { actorUserId = null } = {}) => {
     const results = {
         success: 0,
         updated: 0,
         failed: 0,
-        errors: []
+        errors: [],
+        ignoredColumns: ["Rating"],
     };
-
-    // Pre-cache roles
-    const [utamaRole, pendampingRole] = await Promise.all([
-        prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_1 } }),
-        prisma.userRole.findFirst({ where: { name: ROLES.PEMBIMBING_2 } })
-    ]);
-
-    if (!utamaRole) throw new Error(`Role '${ROLES.PEMBIMBING_1}' tidak ditemukan.`);
-    if (!pendampingRole) throw new Error(`Role '${ROLES.PEMBIMBING_2}' tidak ditemukan.`);
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -239,97 +336,83 @@ export const importThesesMasterData = async (rows) => {
             const nim = String(row["NIM"] || "").trim();
             if (!nim) throw new Error("NIM tidak boleh kosong");
 
-            // Lookups
             const student = await masterDataTaRepository.findStudentByNim(nim);
             if (!student) throw new Error(`Mahasiswa dengan NIM ${nim} tidak ditemukan`);
 
-            const existingThesis = await masterDataTaRepository.findThesisByStudentId(student.id);
+            // The thesis to update is the student's open thesis; otherwise a new one is created.
+            const existingThesis = await prisma.thesis.findFirst({
+                where: { studentId: student.id, status: { in: OPEN_THESIS_STATUSES } },
+                orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            });
 
             // Academic Year lookup from "2024 - Ganjil" or "2024/2025 - Ganjil" format
-            let academicYearId = null;
-            if (row["Tahun Ajaran"]) {
+            let academicYearId;
+            if (row["Tahun Ajaran"] && row["Tahun Ajaran"] !== "-") {
                 const [yearPart, semesterPart] = String(row["Tahun Ajaran"]).split(" - ").map(s => s.trim());
                 const yearRange = yearPart && yearPart.includes("/") ? yearPart : (yearPart ? `${yearPart}/${parseInt(yearPart, 10) + 1}` : null);
                 const semester = semesterPart && String(semesterPart).toLowerCase() === "genap" ? "genap" : "ganjil";
-                if (yearRange) {
-                    const ay = await masterDataTaRepository.findAcademicYearByYearAndSemester(yearRange, semester);
-                    if (ay) academicYearId = ay.id;
-                }
+                const ay = yearRange ? await masterDataTaRepository.findAcademicYearByYearAndSemester(yearRange, semester) : null;
+                if (!ay) throw new Error(`Tahun ajaran "${row["Tahun Ajaran"]}" tidak ditemukan`);
+                academicYearId = ay.id;
             }
 
-            // Topic lookup
-            let topicId = null;
+            let thesisTopicId;
             if (row["Topik"] && row["Topik"] !== "-") {
-                const topic = await masterDataTaRepository.findTopicByName(row["Topik"]);
-                if (topic) topicId = topic.id;
+                const topic = await masterDataTaRepository.findTopicByName(String(row["Topik"]).trim());
+                if (!topic) throw new Error(`Topik "${row["Topik"]}" tidak ditemukan`);
+                thesisTopicId = topic.id;
             }
 
-            // Status lookup
-            let statusId = null;
-            if (row["Status"] && row["Status"] !== "-") {
-                const status = await masterDataTaRepository.findThesisStatusByName(row["Status"]);
-                if (status) statusId = status.id;
+            const statusCell = row["Status"];
+            const status = parseThesisStatusCell(statusCell);
+            if (statusCell && String(statusCell).trim() && String(statusCell).trim() !== "-" && !status) {
+                throw new Error(`Status "${statusCell}" tidak dikenal`);
+            }
+            const terminationReason = parseTerminationReason(row["Alasan Penghentian"]);
+            if (row["Alasan Penghentian"] && String(row["Alasan Penghentian"]).trim() !== "-" && !terminationReason) {
+                throw new Error(`Alasan penghentian "${row["Alasan Penghentian"]}" tidak dikenal`);
             }
 
-            // Supervisors lookup
-            const supervisors = [];
             const p1Name = String(row["Pembimbing 1"] || "").trim();
             const p2Name = String(row["Pembimbing 2"] || "").trim();
+            const pembimbing1 = p1Name && p1Name !== "-" ? (await findLecturerByName(p1Name)).id : undefined;
+            const pembimbing2 = p2Name && p2Name !== "-" ? (await findLecturerByName(p2Name)).id : undefined;
 
-            if (p1Name && p1Name !== "-") {
-                const l1 = await prisma.lecturer.findFirst({
-                    where: { user: { fullName: { contains: p1Name } } }
-                });
-                if (l1) supervisors.push({ lecturerId: l1.id, roleId: utamaRole.id });
-            }
-
-            if (p2Name && p2Name !== "-") {
-                const l2 = await prisma.lecturer.findFirst({
-                    where: { user: { fullName: { contains: p2Name } } }
-                });
-                if (l2) supervisors.push({ lecturerId: l2.id, roleId: pendampingRole.id });
-            }
-
-            // Parsing Dates
-            let startDate = null;
+            let startDate;
             if (row["Tanggal Mulai"] && row["Tanggal Mulai"] !== "-") {
-                // xlsx-parsed date might be serial number or string
                 startDate = new Date(row["Tanggal Mulai"]);
-                if (isNaN(startDate.getTime())) startDate = null;
+                if (isNaN(startDate.getTime())) throw new Error(`Tanggal mulai "${row["Tanggal Mulai"]}" tidak valid`);
             }
 
-            // Status-aware rating defaulting
-            let assignedRating = "ONGOING";
-            const rowStatusStr = String(row["Status"] || "").trim().toLowerCase();
-            if (rowStatusStr === "gagal") {
-                assignedRating = "FAILED";
-            } else if (rowStatusStr === "dibatalkan") {
-                assignedRating = "CANCELLED";
-            }
-
-            const payload = {
-                title: row["Judul Tugas Akhir"] !== "-" ? row["Judul Tugas Akhir"] : null,
-                thesisTopicId: topicId,
-                thesisStatusId: statusId,
-                academicYearId: academicYearId,
-                startDate: startDate || (existingThesis ? existingThesis.startDate : new Date()),
-                rating: ["ONGOING", "SLOW", "AT_RISK", "FAILED", "CANCELLED"].includes(row["Rating"])
-                    ? row["Rating"]
-                    : (existingThesis ? existingThesis.rating : assignedRating),
-                supervisors: supervisors.length > 0 ? supervisors : undefined
+            const title = row["Judul Tugas Akhir"] && row["Judul Tugas Akhir"] !== "-" ? String(row["Judul Tugas Akhir"]) : undefined;
+            const common = {
+                terminationReason,
+                terminationNote: row["Catatan Penghentian"] && row["Catatan Penghentian"] !== "-" ? String(row["Catatan Penghentian"]) : undefined,
             };
 
             if (existingThesis) {
-                await masterDataTaRepository.updateThesis(existingThesis.id, payload);
+                await updateThesisMasterData(existingThesis.id, {
+                    title,
+                    thesisTopicId,
+                    academicYearId,
+                    startDate,
+                    status: status ?? undefined,
+                    ...(pembimbing1 || pembimbing2 ? { pembimbing1, pembimbing2 } : {}),
+                    ...common,
+                }, { actorUserId });
                 results.updated++;
             } else {
-                payload.studentId = student.id;
-                // For new records, set 1 year deadline
-                const deadline = new Date(payload.startDate);
-                deadline.setFullYear(deadline.getFullYear() + 1);
-                payload.deadlineDate = deadline;
-
-                await masterDataTaRepository.createThesis(payload);
+                await createThesisMasterData({
+                    studentId: student.id,
+                    title,
+                    thesisTopicId,
+                    academicYearId,
+                    startDate,
+                    status: status ?? THESIS_STATUS.RESEARCH,
+                    pembimbing1,
+                    pembimbing2,
+                    ...common,
+                }, { actorUserId });
                 results.success++;
             }
         } catch (err) {

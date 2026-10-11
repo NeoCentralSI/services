@@ -34,6 +34,31 @@ export function formatDateTimeJakarta(input, { withSeconds = false, withDay = fa
 }
 
 // Helper: return weekday in Indonesian (e.g., "Senin", "Selasa") in Asia/Jakarta TZ
+/**
+ * Indonesian date + time for user-facing text (notifications, FCM, email), always
+ * Asia/Jakarta, 24-hour clock with a dot: "14 Oktober 2026 14.00 WIB", or
+ * "Rabu, 14 Oktober 2026 14.00 WIB" with `withWeekday`. Empty/invalid input -> "-".
+ * Same output as the frontend `formatDateTimeWib` (lib/text.ts).
+ */
+export function formatDateTimeWib(input, { withWeekday = false } = {}) {
+  if (!input) return "-";
+  const d = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(d.getTime())) return "-";
+  const parts = new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
+  const text = `${get("day")} ${get("month")} ${get("year")} ${get("hour")}.${get("minute")} WIB`;
+  return withWeekday ? `${get("weekday")}, ${text}` : text;
+}
+
 export function getWeekdayIndonesian(input) {
 	if (!input) return null;
 	const d = input instanceof Date ? input : new Date(input);

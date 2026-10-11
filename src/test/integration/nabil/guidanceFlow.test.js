@@ -35,11 +35,9 @@ vi.mock("../../../services/outlook-calendar.service.js", () => ({
 }));
 
 const STUDENT_NOTES_MARKER = "IT Test Guidance Notes";
-const INACTIVE_THESIS_STATUSES = ["Dibatalkan", "Gagal"];
 
 const THESIS_INCLUDE = {
   student: { include: { user: { select: { id: true, fullName: true } } } },
-  thesisStatus: { select: { name: true } },
   thesisSupervisors: {
     where: { status: "active" },
     include: {
@@ -55,7 +53,8 @@ const BOOKED_THESIS_WHERE = {
   thesisSupervisors: {
     some: { status: "active", role: { name: ROLES.PEMBIMBING_1 } },
   },
-  NOT: { thesisStatus: { name: { in: INACTIVE_THESIS_STATUSES } } },
+  // Paket A (K15): TA guidance only runs for a thesis in the TA phase.
+  status: "research",
   // Guard "satu pengajuan aktif" di requestGuidanceService akan menolak thesis
   // yang masih punya antrean bimbingan milik data lain.
   thesisGuidances: { none: { status: "requested" } },

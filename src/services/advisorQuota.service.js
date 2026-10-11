@@ -28,12 +28,12 @@ function isClosedThesisStatus(thesisStatusName) {
 function isOfficialAccepted(thesis) {
   return (
     thesis?.proposalStatus === OFFICIAL_PROPOSAL_STATUS &&
-    !isClosedThesisStatus(thesis?.thesisStatus?.name)
+    !isClosedThesisStatus(thesis?.status)
   );
 }
 
 function shouldIgnoreForQuota(thesis) {
-  return isClosedThesisStatus(thesis?.thesisStatus?.name);
+  return isClosedThesisStatus(thesis?.status);
 }
 
 /** Track both thesis-key and student-key so request (thesisId null) + supervisor row don't double-count. */
@@ -211,7 +211,7 @@ function mapRequestEntry(request, bucket, operationalAcademicYearId) {
     proposalStatus: proposalInfo.proposalStatus,
     proposalVersion: proposalInfo.proposalVersion,
     hasFinalProposal: proposalInfo.hasFinalProposal,
-    thesisStatus: request.thesis?.thesisStatus?.name ?? null,
+    thesisStatus: request.thesis?.status ?? null,
     academicYearId: period.academicYearId,
     academicYearLabel: period.academicYearLabel,
     isCurrentPeriod: period.isCurrentPeriod,
@@ -250,7 +250,7 @@ function mapSupervisorEntry(supervisor, bucket, operationalAcademicYearId) {
     proposalStatus: proposalInfo.proposalStatus,
     proposalVersion: proposalInfo.proposalVersion,
     hasFinalProposal: proposalInfo.hasFinalProposal,
-    thesisStatus: supervisor.thesis?.thesisStatus?.name ?? null,
+    thesisStatus: supervisor.thesis?.status ?? null,
     academicYearId: period.academicYearId,
     academicYearLabel: period.academicYearLabel,
     isCurrentPeriod: period.isCurrentPeriod,

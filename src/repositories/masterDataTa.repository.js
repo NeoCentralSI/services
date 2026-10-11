@@ -29,7 +29,6 @@ export const findAllTheses = async () => {
                     role: true
                 }
             },
-            thesisStatus: true,
             academicYear: true
         },
         orderBy: { createdAt: "desc" }
@@ -61,7 +60,6 @@ export const findThesisById = async (id) => {
                     role: true
                 }
             },
-            thesisStatus: true
         }
     });
 };
@@ -73,12 +71,13 @@ export const createThesis = async (data) => {
                 studentId: data.studentId,
                 title: data.title,
                 thesisTopicId: data.thesisTopicId,
-                thesisStatusId: data.thesisStatusId,
+                // K15: status is always written explicitly by the caller.
+                status: data.status,
+                statusChangedAt: new Date(),
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
                 deadlineDate: data.deadlineDate,
                 rating: "ONGOING",
-                isProposal: data.isProposal ?? false
             }
         });
 
@@ -112,11 +111,11 @@ export const updateThesis = async (id, data) => {
             data: {
                 title: data.title,
                 thesisTopicId: data.thesisTopicId,
-                thesisStatusId: data.thesisStatusId,
+                status: data.status,
+                ...(data.status ? { statusChangedAt: new Date() } : {}),
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
                 rating: data.rating,
-                isProposal: data.isProposal
             }
         });
 
@@ -167,12 +166,6 @@ export const findAcademicYearByYearAndSemester = async (year, semester) => {
             year: year,
             semester: semester
         }
-    });
-};
-
-export const findThesisStatusByName = async (name) => {
-    return await prisma.thesisStatus.findFirst({
-        where: { name: { contains: name } }
     });
 };
 

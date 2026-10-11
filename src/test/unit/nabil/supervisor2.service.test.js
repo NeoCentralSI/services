@@ -109,9 +109,8 @@ const THESIS = {
   title: "AI Research",
   studentId: STUDENT_ID,
   academicYearId: "ay-1",
-  isProposal: false,
+  status: "research",
   proposalStatus: "accepted",
-  thesisStatus: { name: "Bimbingan" },
 };
 
 function mockActiveThesis(overrides = {}) {
@@ -133,7 +132,7 @@ describe("Pembimbing 2 Service (unit)", () => {
 
   describe("getAvailableSupervisor2Service", () => {
     it("menolak jika thesis masih fase proposal (F2-2)", async () => {
-      mockActiveThesis({ isProposal: true });
+      mockActiveThesis({ status: "proposal" });
 
       await expect(getAvailableSupervisor2Service(STUDENT_USER_ID)).rejects.toMatchObject({
         statusCode: 400,
@@ -141,7 +140,7 @@ describe("Pembimbing 2 Service (unit)", () => {
     });
 
     it("menolak jika thesis sudah ditutup (Selesai/Gagal) (F2-2)", async () => {
-      mockActiveThesis({ thesisStatus: { name: "Selesai" } });
+      mockActiveThesis({ status: "completed" });
 
       await expect(getAvailableSupervisor2Service(STUDENT_USER_ID)).rejects.toMatchObject({
         statusCode: 400,
@@ -209,7 +208,7 @@ describe("Pembimbing 2 Service (unit)", () => {
     });
 
     it("mengizinkan request saat fase proposal (BR-20: P2 untuk co-sign TA-03A)", async () => {
-      mockActiveThesis({ isProposal: true });
+      mockActiveThesis({ status: "proposal" });
       mockSupervisor2Repo.hasPembimbing1.mockResolvedValue(true);
       mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(false);
       mockSupervisor2Repo.findPendingSupervisor2Request.mockResolvedValue(null);
@@ -441,7 +440,7 @@ describe("Pembimbing 2 Service (unit)", () => {
     it("membatalkan penerbitan TA-04 saat P2 disetujui agar batch terbaru wajib difinalisasi", async () => {
       mockKadepStageRequest();
       mockThesisForValidation({
-        isProposal: true,
+        status: "proposal",
         proposalStatus: null,
         ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
       });
@@ -465,7 +464,7 @@ describe("Pembimbing 2 Service (unit)", () => {
 
     it("approve menolak (400) bila thesis sudah ditutup (F2-2)", async () => {
       mockKadepStageRequest();
-      mockThesisForValidation({ thesisStatus: { name: "Selesai" } });
+      mockThesisForValidation({ status: "completed" });
 
       await expect(
         decideSupervisor2ByKadepService(KADEP_USER_ID, "req-kadep-1", { approve: true }),

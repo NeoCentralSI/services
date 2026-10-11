@@ -1,17 +1,18 @@
 /**
  * Penurunan status alur SIMPTA dari kolom yang benar-benar ditulis alur proposal.
  *
- * `thesis.thesis_status_id` adalah lookup warisan modul TA penuh dan tidak pernah
- * diperbarui oleh alur SIMPTA, sehingga tidak boleh dipakai sebagai sumber label
- * pada permukaan SIMPTA (temuan SIMPTA-FUN-023). Kolom yang dipakai di sini:
+ * `thesis.status` (K15) membedakan fase proposal dan fase TA; label SIMPTA yang lebih
+ * rinci diturunkan dari kolom alur proposal. Kolom yang dipakai di sini:
  *
- * - `thesis.isProposal` + `thesis.activePromotedAt` — promosi beban aktif (canon §5.13)
+ * - `thesis.status` + `thesis.activePromotedAt` — promosi beban aktif (canon §5.13)
  * - `research_method_scores.isFinalized` — TA-03 final (BR-21)
  * - `thesis.ta04AssignmentIssuedAt` — SK penugasan TA-04 awal (canon §5.8)
  * - `thesis_advisor_request.status` — booking TA-01/TA-02 (canon §5.2)
  *
  * Enam label user-facing dipakai untuk memampatkan belasan state backend.
  */
+
+import { THESIS_STATUS, POST_PROPOSAL_THESIS_STATUSES } from "../constants/thesisStatus.js";
 
 export const SIMPTA_THESIS_STATUS = {
   NO_ADVISOR: "Belum Ada Pembimbing",
@@ -79,7 +80,7 @@ export const SIMPTA_THESIS_STATUS_INCLUDE = {
  * permukaan yang menurunkan status dari data yang tidak lengkap.
  */
 export const SIMPTA_THESIS_STATUS_SELECT = {
-  isProposal: true,
+  status: true,
   activePromotedAt: true,
   ta04AssignmentIssuedAt: true,
   proposalStatus: true,
@@ -91,7 +92,7 @@ function hasRequestWithStatus(thesis, statuses) {
 }
 
 function isPromoted(thesis) {
-  return thesis?.isProposal === false || Boolean(thesis?.activePromotedAt);
+  return (Boolean(thesis?.status) && thesis.status !== THESIS_STATUS.PROPOSAL) || Boolean(thesis?.activePromotedAt);
 }
 
 function hasFinalizedTa03(thesis) {
@@ -152,7 +153,7 @@ export function buildTa03Snapshot(thesis) {
   };
 }
 
-const NOT_PROMOTED = { isProposal: true, activePromotedAt: null };
+const NOT_PROMOTED = { status: THESIS_STATUS.PROPOSAL, activePromotedAt: null };
 const TA03_FINALIZED = { researchMethodScores: { some: { isFinalized: true } } };
 const HAS_BOOKED_REQUEST = { advisorRequests: { some: { status: { in: BOOKED_REQUEST_STATUSES } } } };
 const HAS_IN_FLIGHT_REQUEST = { advisorRequests: { some: { status: { in: IN_FLIGHT_REQUEST_STATUSES } } } };
@@ -164,7 +165,7 @@ const HAS_IN_FLIGHT_REQUEST = { advisorRequests: { some: { status: { in: IN_FLIG
  */
 const SIMPTA_THESIS_STATUS_WHERE = {
   [SIMPTA_THESIS_STATUS.ACTIVE_THESIS]: {
-    OR: [{ isProposal: false }, { activePromotedAt: { not: null } }],
+    OR: [{ status: { in: POST_PROPOSAL_THESIS_STATUSES } }, { activePromotedAt: { not: null } }],
   },
   [SIMPTA_THESIS_STATUS.TA03_PUBLISHED]: {
     ...NOT_PROMOTED,

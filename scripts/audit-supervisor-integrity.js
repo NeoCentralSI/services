@@ -49,7 +49,7 @@ async function findDuplicateActiveSupervisorRoles() {
           title: true,
           academicYearId: true,
           proposalStatus: true,
-          thesisStatus: { select: { name: true } },
+          status: true,
           student: { select: { user: { select: { fullName: true, identityNumber: true } } } },
         },
       },
@@ -67,7 +67,7 @@ async function findDuplicateActiveSupervisorRoles() {
     student: rows[0]?.thesis?.student?.user ?? null,
     thesisTitle: rows[0]?.thesis?.title ?? null,
     academicYearId: rows[0]?.thesis?.academicYearId ?? null,
-    thesisStatus: rows[0]?.thesis?.thesisStatus?.name ?? null,
+    thesisStatus: rows[0]?.thesis?.status ?? null,
     participants: rows.map((row) => ({
       participantId: row.id,
       lecturerId: row.lecturerId,

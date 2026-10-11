@@ -7,6 +7,7 @@ import { ROLES } from "../constants/roles.js";
 import { createNotificationEventForUsers } from "../services/notification.service.js";
 import { getPeriodSnapshotCoverage } from "../services/studentPeriodSnapshot.service.js";
 import { closeUnfinishedMetopenForYear } from "../services/metopenPeriodClose.service.js";
+import { THESIS_STATUS } from "../constants/thesisStatus.js";
 
 async function findActiveUserIdsByRole(roleName) {
     const rows = await prisma.userHasRole.findMany({
@@ -99,14 +100,14 @@ async function notifyAdminPeriodCloseFailed(year, closeError) {
 
 /**
  * BR-29 retry: ganti tahun tidak ditahan, tetapi close in-flight pada tahun
- * non-aktif yang masih `isProposal` wajib diulang setiap sync sampai sukses.
+ * non-aktif yang masih berstatus `proposal` wajib diulang setiap sync sampai sukses.
  */
 async function closeLeftoverMetopenOnInactiveYears(activeYearId) {
     const leftoverYears = await prisma.academicYear.findMany({
         where: {
             isActive: false,
             ...(activeYearId ? { id: { not: activeYearId } } : {}),
-            thesis: { some: { isProposal: true } },
+            thesis: { some: { status: THESIS_STATUS.PROPOSAL } },
         },
         select: { id: true, year: true, semester: true, startDate: true },
         orderBy: [{ startDate: "desc" }, { createdAt: "asc" }],

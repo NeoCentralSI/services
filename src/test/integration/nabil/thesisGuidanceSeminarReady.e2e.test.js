@@ -40,8 +40,6 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
   let testStudentUser = null;
   let testStudent = null;
   let testThesis = null;
-  let bimbinganStatus = null;
-  let accSeminarStatus = null;
 
   beforeAll(async () => {
     // 1. Fetch active academic year
@@ -54,10 +52,6 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
 
     // 2. Fetch Topic
     testTopic = await prisma.thesisTopic.findFirst();
-
-    // 3. Fetch Statuses
-    bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: "Bimbingan" } });
-    accSeminarStatus = await prisma.thesisStatus.findFirst({ where: { name: "Acc Seminar" } });
 
     // 4. Fetch 2 distinct lecturers with user accounts
     const lecturers = await prisma.lecturer.findMany({
@@ -98,10 +92,9 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
       data: {
         studentId: testStudent.id,
         thesisTopicId: testTopic.id,
-        thesisStatusId: bimbinganStatus?.id,
+        status: "research",
         academicYearId: activeAcademicYear.id,
         title: "Rancang Bangun Sistem Realtime IoT Menggunakan WebSockets",
-        isProposal: false,
         proposalStatus: "accepted",
         rating: "ONGOING",
         startDate: new Date(),
@@ -150,6 +143,7 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
         studentNotes: "Konsultasi BAB 4 & Analisis Kinerja WebSocket",
         sessionSummary: "Pembahasan grafik perbandingan latency telah tervalidasi. Lanjutkan ke penulisan draf final.",
         status: "completed",
+        phase: "research",
         completedAt: new Date(),
       },
     });
@@ -166,6 +160,7 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
         title: "Bab 1: Pendahuluan",
         orderIndex: 1,
         status: "in_progress",
+        phase: "research",
         progressPercentage: 50,
       },
     });

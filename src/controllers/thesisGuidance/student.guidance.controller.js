@@ -44,12 +44,6 @@ export async function guidanceDetail(req, res, next) {
 
 export async function requestGuidance(req, res, next) {
   try {
-    // DEBUG: Log req.body to see what's received
-    console.log("[requestGuidance] req.body:", JSON.stringify(req.body, null, 2));
-    console.log("[requestGuidance] req.body['milestoneIds[]']:", req.body?.["milestoneIds[]"]);
-    console.log("[requestGuidance] req.body.milestoneIds:", req.body?.milestoneIds);
-    console.log("[requestGuidance] req.validated:", JSON.stringify(req.validated, null, 2));
-
     const {
       guidanceDate,
       studentNotes,
@@ -62,13 +56,11 @@ export async function requestGuidance(req, res, next) {
     // Collect milestoneIds from both milestoneIds and milestoneIds[] form fields
     const rawMilestoneIds =
       (req.body && (req.body["milestoneIds[]"] || req.body.milestoneIds)) || milestoneIds;
-    console.log("[requestGuidance] rawMilestoneIds:", rawMilestoneIds);
     const normalizedMilestoneIds = Array.isArray(rawMilestoneIds)
       ? rawMilestoneIds
       : rawMilestoneIds
         ? [rawMilestoneIds]
         : undefined;
-    console.log("[requestGuidance] normalizedMilestoneIds:", normalizedMilestoneIds);
     const file = req.file || null;
     // File is optional - student can use previously uploaded file
     const result = await requestGuidanceService(

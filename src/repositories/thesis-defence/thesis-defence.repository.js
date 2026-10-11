@@ -1,4 +1,5 @@
 import prisma from "../../config/prisma.js";
+import { OPEN_THESIS_STATUSES } from "../../constants/thesisStatus.js";
 
 // ============================================================
 // SHARED INCLUDES
@@ -650,8 +651,10 @@ export async function finalizeDefenceRevisions({ defenceId, supervisorId }) {
 // ============================================================
 
 export async function getStudentThesisWithDefenceInfo(studentId) {
+  // K15: the student's latest thesis that has not ended (a failed older thesis is skipped).
   return prisma.thesis.findFirst({
-    where: { studentId },
+    where: { studentId, status: { in: OPEN_THESIS_STATUSES } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
       studentId: true,

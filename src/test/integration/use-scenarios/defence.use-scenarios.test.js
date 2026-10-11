@@ -66,9 +66,8 @@ describe.sequential("Use Scenario Integration — Thesis Defence (UC-18 s.d. UC-
       })];
     }
 
-    const thesisStatus = await prisma.thesisStatus.findFirst({ where: { name: { contains: "Bimbingan" } } });
     const supervisorRole = await prisma.userRole.findFirst({ where: { name: { contains: "Pembimbing" } } });
-    if (!thesisStatus || !supervisorRole) throw new Error("Seed status/role pembimbing belum tersedia.");
+    if (!supervisorRole) throw new Error("Seed status/role pembimbing belum tersedia.");
 
     studentUser = await prisma.user.create({
       data: { fullName: `Mahasiswa ${marker}`, identityNumber: `NIM-${marker}`, identityType: "NIM", email: `${marker}@test.local`, password: "test" },
@@ -85,7 +84,7 @@ describe.sequential("Use Scenario Integration — Thesis Defence (UC-18 s.d. UC-
     ({ user: examinerUser2, lecturer: examiner2 } = await createLecturer("examiner-2"));
 
     thesis = await prisma.thesis.create({
-      data: { studentId: student.id, title: `Thesis ${marker}`, thesisStatusId: thesisStatus.id, academicYearId: academicYear.id },
+      data: { studentId: student.id, title: `Thesis ${marker}`, status: "research", academicYearId: academicYear.id },
     });
     supervisor = await prisma.thesisSupervisors.create({
       data: { thesisId: thesis.id, lecturerId: supervisorLecturer.id, roleId: supervisorRole.id, seminarReady: true, defenceReady: true },

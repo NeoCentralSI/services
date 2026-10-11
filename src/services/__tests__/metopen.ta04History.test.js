@@ -18,7 +18,7 @@ function bookingWithoutActiveP1() {
   return {
     id: "thesis-1",
     title: "Judul perlu diperbaiki",
-    isProposal: true,
+    status: "proposal",
     proposalStatus: null,
     activePromotedAt: null,
     ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),

@@ -4,7 +4,7 @@ import path from "path";
 import * as XLSX from "xlsx";
 
 import { BadRequestError, ForbiddenError } from "../utils/errors.js";
-import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { CLOSED_THESIS_STATUSES, THESIS_STATUS } from "../constants/thesisStatus.js";
 import { ROLES } from "../constants/roles.js";
 import * as repo from "../repositories/metopenAttendance.repository.js";
 import { createNotificationEventForUsers } from "./notification.service.js";
@@ -22,7 +22,7 @@ export const METOPEN_ATTENDANCE_MAX_FILES = 2;
 export function canClearAttendanceAutoZeroOnEligibleReupload(thesis) {
   if (!thesis) return false;
   if (thesis.activePromotedAt) return false;
-  if (thesis.isProposal === false) return false;
+  if (thesis.status && thesis.status !== THESIS_STATUS.PROPOSAL) return false;
   if (Array.isArray(thesis.advisorRequests) && thesis.advisorRequests.length > 0) {
     return false;
   }

@@ -1,7 +1,7 @@
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError, ForbiddenError } from "../utils/errors.js";
 import { ROLES } from "../constants/roles.js";
-import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { CLOSED_THESIS_STATUSES, OPEN_THESIS_STATUSES, THESIS_STATUS } from "../constants/thesisStatus.js";
 import { formatAcademicYearLabel, resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 import { syncKadepProposalQueueByThesisId } from "./metopen.service.js";
 import { assertAttendanceEligibleForManualReview } from "./metopenAttendance.service.js";
@@ -558,7 +558,7 @@ const TA03_EMPTY_REASON = {
 function isThesisInScoringScope(thesis) {
   if (!thesis) return false;
   if (thesis.student?.status !== "active") return false;
-  if (isClosedThesisStatus(thesis.thesisStatus?.name)) return false;
+  if (isClosedThesisStatus(thesis.status)) return false;
   return true;
 }
 
@@ -730,9 +730,7 @@ const OTHER_PERIOD_THESIS_SELECT = {
       user: { select: { id: true, fullName: true, identityNumber: true } },
     },
   },
-  thesisStatus: {
-    select: { name: true },
-  },
+  status: true,
 };
 
 /**
@@ -776,9 +774,7 @@ const SUPERVISOR_SCORING_THESIS_SELECT = {
       user: { select: { id: true, fullName: true, identityNumber: true } },
     },
   },
-  thesisStatus: {
-    select: { name: true },
-  },
+  status: true,
   researchMethodScores: {
     select: {
       id: true,
@@ -840,7 +836,7 @@ async function findSupervisedThesesInOtherPeriods(supervisorUserId, academicYear
       },
       thesis: {
         academicYearId: { not: academicYearId },
-        isProposal: true,
+        status: THESIS_STATUS.PROPOSAL,
         student: { status: "active" },
       },
     },
@@ -981,9 +977,7 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
       student: {
         select: { status: true },
       },
-      thesisStatus: {
-        select: { name: true },
-      },
+      status: true,
       thesisSupervisors: {
         where: { lecturerId: supervisorUserId, status: "active" },
         include: { role: { select: { name: true } } },
@@ -1001,7 +995,7 @@ export async function submitSupervisorScore(thesisId, supervisorUserId, data) {
     throw new ForbiddenError("Mahasiswa tidak aktif. Penilaian TA-03A hanya boleh dilakukan untuk mahasiswa aktif.");
   }
 
-  if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
+  if (isClosedThesisStatus(thesis.status)) {
     throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03A aktif");
   }
 
@@ -1153,7 +1147,7 @@ export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {})
       academicYearId: true,
       ta04AssignmentIssuedAt: true,
       student: { select: { status: true } },
-      thesisStatus: { select: { name: true } },
+      status: true,
       thesisSupervisors: {
         where: {
           lecturerId: coSignerUserId,
@@ -1180,7 +1174,7 @@ export async function coSignSupervisorScore(thesisId, coSignerUserId, data = {})
       "Mahasiswa tidak aktif. Co-sign TA-03A hanya boleh untuk mahasiswa aktif.",
     );
   }
-  if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
+  if (isClosedThesisStatus(thesis.status)) {
     throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03A aktif");
   }
   assertTa04AssignmentIssuedForScoring(thesis, "TA-03A");
@@ -1267,9 +1261,7 @@ const METOPEN_SCORING_THESIS_SELECT = {
       user: { select: { id: true, fullName: true, identityNumber: true } },
     },
   },
-  thesisStatus: {
-    select: { name: true },
-  },
+  status: true,
   researchMethodScores: {
     select: {
       id: true,
@@ -1305,10 +1297,7 @@ async function findMetopenThesesForScoring(academicYearId) {
     where: {
       academicYearId,
       student: { status: "active" },
-      OR: [
-        { thesisStatusId: null },
-        { thesisStatus: { name: { notIn: CLOSED_THESIS_STATUSES } } },
-      ],
+      status: { in: OPEN_THESIS_STATUSES },
     },
     select: METOPEN_SCORING_THESIS_SELECT,
     orderBy: { updatedAt: "desc" },
@@ -1319,12 +1308,8 @@ async function findMetopenThesesInOtherPeriods(academicYearId) {
   return prisma.thesis.findMany({
     where: {
       academicYearId: { not: academicYearId },
-      isProposal: true,
+      status: THESIS_STATUS.PROPOSAL,
       student: { status: "active" },
-      OR: [
-        { thesisStatusId: null },
-        { thesisStatus: { name: { notIn: CLOSED_THESIS_STATUSES } } },
-      ],
     },
     select: OTHER_PERIOD_THESIS_SELECT,
   });
@@ -1462,9 +1447,7 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
       student: {
         select: { status: true },
       },
-      thesisStatus: {
-        select: { name: true },
-      },
+      status: true,
       researchMethodScores: {
         take: 1,
         select: { periodClosedAt: true },
@@ -1478,7 +1461,7 @@ export async function submitMetopenScore(thesisId, lecturerUserId, data) {
     throw new ForbiddenError("Mahasiswa tidak aktif. Penilaian TA-03B hanya boleh dilakukan untuk mahasiswa aktif.");
   }
 
-  if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
+  if (isClosedThesisStatus(thesis.status)) {
     throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03B aktif");
   }
 
@@ -1872,9 +1855,7 @@ export async function getScoresByThesisForMetopenLecturer(thesisId, lecturerUser
       student: {
         select: { status: true },
       },
-      thesisStatus: {
-        select: { name: true },
-      },
+      status: true,
       researchMethodScores: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -1893,7 +1874,7 @@ export async function getScoresByThesisForMetopenLecturer(thesisId, lecturerUser
     throw new ForbiddenError("Mahasiswa ini tidak berada pada antrean penilaian TA-03B aktif");
   }
 
-  if (isClosedThesisStatus(thesis.thesisStatus?.name)) {
+  if (isClosedThesisStatus(thesis.status)) {
     throw new ForbiddenError("Thesis ini tidak berada pada antrean penilaian TA-03B aktif");
   }
 

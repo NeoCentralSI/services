@@ -1,159 +1,266 @@
 /**
- * Unit Tests — Module 14: Data Master Tugas Akhir
- * Covers: getAllThesesMasterData, createThesisMasterData, updateThesisMasterData, syncSia
+ * Unit Tests — Module 14: Data Master Tugas Akhir (Paket B, K21)
+ *
+ * Real service + lifecycle rules (thesisLifecycle.service) against the in-memory Prisma
+ * stand-in, so the rules are checked on real rows:
+ * one open thesis per student, K15 transitions, `failed` (reason, released supervisors,
+ * cancelled open sessions), `on_leave` (previous status + start date, return only to it),
+ * rating never taken from input, P1/P2 rules, replaced supervisors kept as "released",
+ * and per-row import errors.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { store, resetDb, callsTo } from "./helpers/fakePrisma.js";
 
-// ── hoisted mocks ──────────────────────────────────────────────
-const { mockRepo, mockPrisma } = vi.hoisted(() => ({
-  mockRepo: {
-    findAllTheses: vi.fn(),
-    findThesisById: vi.fn(),
-    createThesis: vi.fn(),
-    updateThesis: vi.fn(),
-  },
-  mockPrisma: {
-    thesis: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    thesisStatus: { findMany: vi.fn(), findFirst: vi.fn() },
-    thesisSupervisors: { create: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
-    userRole: { findFirst: vi.fn() },
-    student: { findUnique: vi.fn() },
-    academicYear: { findFirst: vi.fn() },
-    $transaction: vi.fn(),
-  },
+vi.mock("../../../config/prisma.js", async () => ({
+  default: (await import("./helpers/fakePrisma.js")).prismaFake,
 }));
+// Quota recount reads the quota tables; its behaviour is covered elsewhere.
+vi.mock("../../../utils/quotaSync.js", () => ({ syncQuotaCount: vi.fn().mockResolvedValue(undefined) }));
 
-vi.mock("../../../repositories/masterDataTa.repository.js", () => mockRepo);
-vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
-
-import {
+const {
   getAllThesesMasterData,
-  getAllThesisStatuses,
   createThesisMasterData,
   updateThesisMasterData,
-} from "../../../services/masterDataTa.service.js";
+  importThesesMasterData,
+  parseThesisStatusCell,
+} = await import("../../../services/masterDataTa.service.js");
+const { THESIS_STATUS_TRANSITIONS, SYSTEM_CANCEL_REASON } = await import("../../../services/thesisLifecycle.service.js");
 
-// ── Test Data ──────────────────────────────────────────────────
-const THESIS = {
-  id: "thesis-1",
-  title: "AI Research",
-  student: { id: "s1", user: { fullName: "Budi", identityNumber: "123" } },
-  thesisTopic: { name: "ML" },
-  thesisStatus: { name: "Bimbingan" },
-  thesisSupervisors: [],
-};
+const lecturer = (id, fullName) => ({ id, user: { id: `u-${id}`, fullName } });
 
-// ══════════════════════════════════════════════════════════════
-describe("Module 14: Data Master Tugas Akhir", () => {
-  beforeEach(() => vi.clearAllMocks());
+function buildState() {
+  return {
+    userRole: [
+      { id: "r-p1", name: "Pembimbing 1" },
+      { id: "r-p2", name: "Pembimbing 2" },
+    ],
+    academicYear: [{ id: "ay-1", year: "2026/2027", semester: "ganjil", isActive: true }],
+    thesisTopic: [{ id: "topic-ml", name: "Machine Learning" }],
+    lecturer: [lecturer("L1", "Dr. Satu"), lecturer("L2", "Dr. Dua"), lecturer("L3", "Dr. Tiga")],
+    student: [
+      { id: "S1", user: { identityNumber: "2211520001", fullName: "Mahasiswa Satu" } },
+      { id: "S2", user: { identityNumber: "2211520002", fullName: "Mahasiswa Dua" } },
+      { id: "S3", user: { identityNumber: "2211520003", fullName: "Mahasiswa Tiga" } },
+    ],
+    thesis: [
+      // S1: running TA with P1 + P2 and open sessions
+      { id: "T1", studentId: "S1", status: "research", rating: "SLOW", academicYearId: "ay-1", thesisTopicId: "topic-ml", title: "TA Satu" },
+      // S3: proposal-phase thesis
+      { id: "T3", studentId: "S3", status: "proposal", rating: "ONGOING", academicYearId: "ay-1", thesisTopicId: null, title: null },
+    ],
+    thesisSupervisors: [
+      { id: "ts-1", thesisId: "T1", lecturerId: "L1", roleId: "r-p1", status: "active", activeRoleKey: "T1:r-p1" },
+      { id: "ts-2", thesisId: "T1", lecturerId: "L2", roleId: "r-p2", status: "active", activeRoleKey: "T1:r-p2" },
+    ],
+    thesisGuidance: [
+      { id: "g-req", thesisId: "T1", status: "requested" },
+      { id: "g-acc", thesisId: "T1", status: "accepted" },
+      { id: "g-sum", thesisId: "T1", status: "summary_pending" },
+      { id: "g-rev", thesisId: "T1", status: "summary_rejected" },
+      { id: "g-done", thesisId: "T1", status: "completed" },
+      { id: "g-old", thesisId: "T1", status: "rescheduled" },
+    ],
+    auditLog: [],
+  };
+}
 
-  // ─── Get All Theses ───────────────────────────────────────
-  describe("getAllThesesMasterData", () => {
-    it("returns all theses with student, topic, status, supervisors", async () => {
-      mockRepo.findAllTheses.mockResolvedValue([THESIS]);
+const thesisRow = (id) => store.state.thesis.find((t) => t.id === id);
+// The in-memory store does not apply schema defaults; `status` defaults to "active".
+const supRows = (thesisId) =>
+  store.state.thesisSupervisors
+    .filter((s) => s.thesisId === thesisId)
+    .map((s) => ({ ...s, status: s.status ?? "active" }));
+const guidance = (id) => store.state.thesisGuidance.find((g) => g.id === id);
 
-      const result = await getAllThesesMasterData();
+beforeEach(() => {
+  resetDb(buildState());
+});
 
-      expect(result).toHaveLength(1);
+describe("getAllThesesMasterData", () => {
+  it("maps rows and hides the rating of a completed thesis", async () => {
+    store.state.thesis = [
+      { id: "A", status: "completed", rating: "ONGOING", student: { user: {} }, thesisSupervisors: [] },
+      { id: "B", status: "research", rating: "SLOW", student: { user: {} }, thesisSupervisors: [] },
+    ];
+    const result = await getAllThesesMasterData();
+    expect(result.find((r) => r.id === "A").rating).toBeNull();
+    expect(result.find((r) => r.id === "B").rating).toBe("SLOW");
+  });
+});
+
+describe("K21 tambah TA", () => {
+  it("membuat TA research dengan P1/P2, tahun ajaran aktif, dan rating dari sistem (bukan input)", async () => {
+    const thesis = await createThesisMasterData(
+      { studentId: "S2", title: "TA Dua", thesisTopicId: "topic-ml", pembimbing1: "L1", pembimbing2: "L3", rating: "AT_RISK" },
+      { actorUserId: "admin" },
+    );
+    expect(thesis).toMatchObject({ status: "research", academicYearId: "ay-1", rating: "ONGOING", thesisTopicId: "topic-ml" });
+    expect(thesis.statusChangedAt).toBeInstanceOf(Date);
+    expect(supRows(thesis.id).map((s) => [s.lecturerId, s.roleId, s.status])).toEqual([
+      ["L1", "r-p1", "active"],
+      ["L3", "r-p2", "active"],
+    ]);
+    expect(callsTo("auditLog", "create")).toHaveLength(1);
+  });
+
+  it("menolak TA kedua yang terbuka untuk mahasiswa yang sama (400) dan tidak menulis apa pun", async () => {
+    await expect(createThesisMasterData({ studentId: "S1", pembimbing1: "L1" })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(createThesisMasterData({ studentId: "S3", pembimbing1: "L1" })).rejects.toThrow(/Proposal/);
+    expect(callsTo("thesis", "create")).toHaveLength(0);
+  });
+
+  it("P1 wajib dan P1 tidak boleh sama dengan P2", async () => {
+    await expect(createThesisMasterData({ studentId: "S2" })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", pembimbing2: "L1" })).rejects.toMatchObject({ statusCode: 400 });
+    expect(callsTo("thesis", "create")).toHaveLength(0);
+  });
+
+  it("topik yang tidak ada ditolak (400)", async () => {
+    await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", thesisTopicId: "nope" })).rejects.toThrow(/Topik/);
+  });
+
+  it("TA baru tidak bisa langsung on_leave; failed butuh alasan", async () => {
+    await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", status: "on_leave" })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", status: "failed" })).rejects.toThrow(/Alasan penghentian/);
+  });
+
+  it("TA lama yang sudah selesai tidak menghalangi TA baru", async () => {
+    thesisRow("T1").status = "completed";
+    const thesis = await createThesisMasterData({ studentId: "S1", pembimbing1: "L3" });
+    expect(thesis.status).toBe("research");
+  });
+});
+
+describe("K21/K15 ubah status", () => {
+  it("tabel transisi K15", () => {
+    expect(THESIS_STATUS_TRANSITIONS).toEqual({
+      proposal: ["research", "on_leave", "failed"],
+      research: ["on_leave", "completed", "failed"],
+      on_leave: ["proposal", "research", "failed"],
+      completed: [],
+      failed: [],
     });
   });
 
-  // ─── Get All Thesis Statuses ──────────────────────────────
-  describe("getAllThesisStatuses", () => {
-    it("returns all thesis statuses ordered by id", async () => {
-      mockPrisma.thesisStatus.findMany.mockResolvedValue([
-        { id: 1, name: "Bimbingan" },
-        { id: 2, name: "Selesai" },
-      ]);
-
-      const result = await getAllThesisStatuses();
-
-      expect(result).toHaveLength(2);
-    });
+  it("menolak transisi yang tidak diizinkan (400), tanpa menulis", async () => {
+    await expect(updateThesisMasterData("T3", { status: "completed" })).rejects.toMatchObject({ statusCode: 400 });
+    thesisRow("T1").status = "completed";
+    await expect(updateThesisMasterData("T1", { status: "research" })).rejects.toThrow(/tidak dapat diubah lagi/);
+    expect(callsTo("thesis", "update")).toHaveLength(0);
   });
 
-  // ─── Create Thesis ───────────────────────────────────────
-  describe("createThesisMasterData", () => {
-    it("creates thesis with auto start date, 1-year deadline, and Bimbingan status", async () => {
-      mockPrisma.thesis.findFirst.mockResolvedValue(null); // no active thesis
-      mockPrisma.academicYear.findFirst.mockResolvedValue({ id: "ay1" });
-      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-bimbingan", name: "Bimbingan" });
-      mockPrisma.userRole.findFirst
-        .mockResolvedValueOnce({ id: "role-p1" })  // Pembimbing 1
-        .mockResolvedValueOnce({ id: "role-p2" }); // Pembimbing 2
-      mockRepo.createThesis.mockResolvedValue({ id: "thesis-new", title: "New Research" });
-
-      const result = await createThesisMasterData({
-        studentId: "s1",
-        title: "New Research",
-        pembimbing1: "lec-1",
-      });
-
-      expect(result).toHaveProperty("id");
-    });
-
-    it("rejects (400) if student has an active thesis", async () => {
-      mockPrisma.thesis.findFirst.mockResolvedValue({ id: "active-thesis" });
-
-      await expect(
-        createThesisMasterData({ studentId: "s1", title: "X", pembimbing1: "lec-1" })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects (400) if no active academic year", async () => {
-      mockPrisma.thesis.findFirst.mockResolvedValue(null);
-      mockPrisma.academicYear.findFirst.mockResolvedValue(null);
-
-      await expect(
-        createThesisMasterData({ studentId: "s1", title: "X", pembimbing1: "lec-1" })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
+  it("ke failed tanpa alasan ditolak (400): pembimbing dan sesi tidak tersentuh", async () => {
+    await expect(updateThesisMasterData("T1", { status: "failed" })).rejects.toMatchObject({ statusCode: 400 });
+    expect(thesisRow("T1").status).toBe("research");
+    expect(supRows("T1").every((s) => s.status === "active")).toBe(true);
+    expect(guidance("g-acc").status).toBe("accepted");
   });
 
-  // ─── Update Thesis ───────────────────────────────────────
-  describe("updateThesisMasterData", () => {
-    it("updates thesis supervisor and status", async () => {
-      mockRepo.findThesisById.mockResolvedValue(THESIS);
-      mockRepo.updateThesis.mockResolvedValue({ ...THESIS, title: "Updated" });
-      // Service looks up userRole when pembimbing1 is provided
-      mockPrisma.userRole.findFirst.mockResolvedValue({ id: "role-p1", name: "Pembimbing 1" });
+  it("ke failed dengan alasan: kolom penghentian terisi, pembimbing released, sesi terbuka dibatalkan sistem", async () => {
+    await updateThesisMasterData(
+      "T1",
+      { status: "failed", terminationReason: "dropped_out", terminationNote: "Tidak aktif 2 semester" },
+      { actorUserId: "admin" },
+    );
+    const t = thesisRow("T1");
+    expect(t).toMatchObject({ status: "failed", terminationReason: "dropped_out", terminationNote: "Tidak aktif 2 semester", terminatedByUserId: "admin" });
+    expect(t.terminatedAt).toBeInstanceOf(Date);
+    expect(t.statusChangedAt).toBeInstanceOf(Date);
+    expect(supRows("T1").map((s) => [s.status, s.activeRoleKey])).toEqual([["released", null], ["released", null]]);
+    for (const id of ["g-req", "g-acc", "g-sum", "g-rev", "g-old"]) {
+      expect(guidance(id)).toMatchObject({ status: "cancelled", cancelledBy: "system", cancelReason: SYSTEM_CANCEL_REASON });
+    }
+    expect(guidance("g-done").status).toBe("completed");
+    const audit = store.state.auditLog.find((a) => a.action === "THESIS_STATUS_CHANGED");
+    expect(audit.changes.oldValues.status).toBe("research");
+    expect(audit.changes.newValues).toMatchObject({ status: "failed", terminationReason: "dropped_out" });
+  });
 
-      const result = await updateThesisMasterData("thesis-1", {
-        pembimbing1: "lec-2",
-        thesisStatusId: 2,
-      });
+  it("alasan penghentian juga diterima dalam bentuk label", async () => {
+    await updateThesisMasterData("T1", { status: "failed", terminationReason: "Mengundurkan diri" });
+    expect(thesisRow("T1").terminationReason).toBe("withdrawn");
+  });
 
-      expect(result).toBeDefined();
-    });
+  it("ke on_leave mencatat status sebelumnya dan tanggal mulai; kembali hanya ke status itu", async () => {
+    await updateThesisMasterData("T1", { status: "on_leave" });
+    expect(thesisRow("T1")).toMatchObject({ status: "on_leave", statusBeforeLeave: "research" });
+    expect(thesisRow("T1").leaveStartedAt).toBeInstanceOf(Date);
+    // pembimbing tetap melekat
+    expect(supRows("T1").every((s) => s.status === "active")).toBe(true);
 
-    it("forwards manual status and proposal flag including false", async () => {
-      mockRepo.findThesisById.mockResolvedValue(THESIS);
-      mockRepo.updateThesis.mockResolvedValue({
-        ...THESIS,
-        thesisStatusId: "status-bimbingan",
-        isProposal: false,
-      });
+    await expect(updateThesisMasterData("T1", { status: "proposal" })).rejects.toThrow(/status sebelumnya/);
+    await expect(updateThesisMasterData("T1", { status: "completed" })).rejects.toMatchObject({ statusCode: 400 });
 
-      await updateThesisMasterData("thesis-1", {
-        thesisStatusId: "status-bimbingan",
-        isProposal: false,
-      });
+    await updateThesisMasterData("T1", { status: "research" });
+    expect(thesisRow("T1")).toMatchObject({ status: "research", statusBeforeLeave: null, leaveStartedAt: null });
+  });
 
-      expect(mockRepo.updateThesis).toHaveBeenCalledWith(
-        "thesis-1",
-        expect.objectContaining({
-          thesisStatusId: "status-bimbingan",
-          isProposal: false,
-        })
-      );
-    });
+  it("rating tidak bisa diubah lewat data master", async () => {
+    await updateThesisMasterData("T1", { title: "Baru", rating: "ONGOING" });
+    expect(thesisRow("T1")).toMatchObject({ title: "Baru", rating: "SLOW" });
+  });
+});
 
-    it("throws 404 if thesis not found", async () => {
-      mockRepo.findThesisById.mockResolvedValue(null);
+describe("K21 topik dan pembimbing", () => {
+  it("mengganti P2: relasi lama menjadi released (tidak dihapus), yang baru active", async () => {
+    await updateThesisMasterData("T1", { pembimbing1: "L1", pembimbing2: "L3" });
+    const rows = supRows("T1");
+    expect(rows.find((s) => s.lecturerId === "L2")).toMatchObject({ status: "released", activeRoleKey: null });
+    expect(rows.find((s) => s.lecturerId === "L3")).toMatchObject({ status: "active", roleId: "r-p2" });
+    expect(rows.find((s) => s.lecturerId === "L1")).toMatchObject({ status: "active", roleId: "r-p1" });
+    expect(callsTo("thesisSupervisors", "delete")).toHaveLength(0);
+    expect(callsTo("thesisSupervisors", "deleteMany")).toHaveLength(0);
+  });
 
-      await expect(
-        updateThesisMasterData("nonexistent", { title: "X" })
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
+  it("P1 = P2 ditolak; pembimbing TA yang sudah berakhir tidak bisa diubah", async () => {
+    await expect(updateThesisMasterData("T1", { pembimbing1: "L1", pembimbing2: "L1" })).rejects.toMatchObject({ statusCode: 400 });
+    thesisRow("T1").status = "completed";
+    await expect(updateThesisMasterData("T1", { pembimbing1: "L3" })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("topik bisa diisi dan diubah", async () => {
+    await updateThesisMasterData("T3", { thesisTopicId: "topic-ml" });
+    expect(thesisRow("T3").thesisTopicId).toBe("topic-ml");
+  });
+});
+
+describe("K21 impor", () => {
+  const row = (extra) => ({ NIM: "2211520002", "Pembimbing 1": "Dr. Satu", ...extra });
+
+  it("baris gagal dilaporkan per baris, baris lain tetap diproses; kolom Rating diabaikan", async () => {
+    const result = await importThesesMasterData([
+      row({ "Topik": "Machine Learning", "Rating": "Berisiko", "Status": "Penelitian" }), // baris 2: buat baru
+      { NIM: "2211520001", "Status": "Selesai" }, // baris 3: S1 research -> completed (boleh)
+      { NIM: "9999999999" }, // baris 4: NIM tidak ada
+      row({ NIM: "2211520003", "Status": "Gagal" }), // baris 5: S3 proposal -> failed tanpa alasan
+      { NIM: "2211520003", "Status": "Entah" }, // baris 6: status tidak dikenal
+      { NIM: "2211520003", "Pembimbing 1": "Dr. Tidak Ada" }, // baris 7: dosen tidak ada
+    ]);
+    expect(result).toMatchObject({ success: 1, updated: 1, failed: 4, ignoredColumns: ["Rating"] });
+    expect(result.errors.map((e) => e.split(":")[0])).toEqual(["Baris 4", "Baris 5", "Baris 6", "Baris 7"]);
+    expect(result.errors[1]).toMatch(/Alasan penghentian/);
+
+    const created = store.state.thesis.find((t) => t.studentId === "S2");
+    expect(created).toMatchObject({ status: "research", rating: "ONGOING", thesisTopicId: "topic-ml" });
+    expect(thesisRow("T1").status).toBe("completed");
+    expect(thesisRow("T3").status).toBe("proposal");
+  });
+
+  it("impor status Gagal dengan alasan memakai aturan yang sama (pembimbing dilepas)", async () => {
+    const result = await importThesesMasterData([{ NIM: "2211520001", "Status": "Gagal", "Alasan Penghentian": "Drop out" }]);
+    expect(result).toMatchObject({ updated: 1, failed: 0 });
+    expect(thesisRow("T1")).toMatchObject({ status: "failed", terminationReason: "dropped_out" });
+    expect(supRows("T1").every((s) => s.status === "released")).toBe(true);
+  });
+});
+
+describe("import cell parsing", () => {
+  it("parses status from enum value, Indonesian label, or legacy name", () => {
+    expect(parseThesisStatusCell("on_leave")).toBe("on_leave");
+    expect(parseThesisStatusCell("Penelitian")).toBe("research");
+    expect(parseThesisStatusCell("Berhenti Studi Sementara (BSS)")).toBe("on_leave");
+    expect(parseThesisStatusCell("Lulus")).toBe("completed");
+    expect(parseThesisStatusCell("-")).toBeNull();
+    expect(parseThesisStatusCell("entah")).toBeNull();
   });
 });

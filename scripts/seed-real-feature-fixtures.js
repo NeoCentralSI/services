@@ -68,12 +68,6 @@ async function ensureRole(name) {
   return prisma.userRole.upsert({ where: { name }, update: {}, create: { name } });
 }
 
-async function ensureThesisStatus(name) {
-  const existing = await prisma.thesisStatus.findFirst({ where: { name } });
-  if (existing) return existing;
-  return prisma.thesisStatus.create({ data: { name } });
-}
-
 async function ensureStudentEligible(user, eligible) {
   if (!user.student) {
     await prisma.student.create({
@@ -294,7 +288,7 @@ async function fixDimasConsistency(dimas, surya, academicYearId) {
     where: { id: thesis.id },
     data: {
       academicYearId,
-      isProposal: true,
+      status: THESIS_STATUS.PROPOSAL,
       ta04AssignmentSupervisorNames: surya.fullName,
       ta04AssignmentTitle: thesis.title,
       ta04AssignmentAcademicYearId: academicYearId,
@@ -316,7 +310,7 @@ async function resetStudentSimptaScratch(studentId) {
   const theses = await prisma.thesis.findMany({
     where: {
       studentId,
-      isProposal: true,
+      status: THESIS_STATUS.PROPOSAL,
       proposalStatus: null,
       ta04AssignmentIssuedAt: null,
     },
@@ -401,7 +395,6 @@ async function ensureFarizFillsSekdepQuota(fariz, sekdep, academicYearId, topicI
     where: { studentId: fariz.id },
     orderBy: { createdAt: "desc" },
   });
-  const status = await ensureThesisStatus(THESIS_STATUS.BIMBINGAN);
   const roleP1 = await ensureRole(ROLES.PEMBIMBING_1);
 
   if (!thesis) {
@@ -410,9 +403,8 @@ async function ensureFarizFillsSekdepQuota(fariz, sekdep, academicYearId, topicI
         studentId: fariz.id,
         academicYearId,
         thesisTopicId: topicId,
-        thesisStatusId: status.id,
         title: "Sistem e-Parkir Berbasis Web",
-        isProposal: true,
+        status: THESIS_STATUS.PROPOSAL,
       },
     });
   } else {
@@ -421,9 +413,8 @@ async function ensureFarizFillsSekdepQuota(fariz, sekdep, academicYearId, topicI
       data: {
         academicYearId,
         thesisTopicId: topicId,
-        thesisStatusId: status.id,
         title: thesis.title || "Sistem e-Parkir Berbasis Web",
-        isProposal: true,
+        status: THESIS_STATUS.PROPOSAL,
         proposalStatus: null,
         ta04AssignmentIssuedAt: null,
         ta04AssignmentTitle: null,

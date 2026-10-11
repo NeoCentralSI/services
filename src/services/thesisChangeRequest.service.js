@@ -1,5 +1,6 @@
 import * as thesisChangeRequestRepository from '../repositories/thesisChangeRequest.repository.js';
 import prisma from '../config/prisma.js';
+import { THESIS_STATUS } from '../constants/thesisStatus.js';
 
 import { createNotificationsForUsers } from './notification.service.js';
 import { sendFcmToUsers } from './push.service.js';
@@ -233,56 +234,29 @@ export const approveRequest = async (requestId, reviewerId, reviewNotes = null) 
     reviewedAt: new Date(),
   });
 
-  // Archive the thesis instead of deleting
-  const dibatalkanStatus = await prisma.thesisStatus.findFirst({
-    where: { name: 'Dibatalkan' }
+  // Archive the thesis instead of deleting. K15: the legacy "Dibatalkan"/"Gagal"
+  // statuses both map to `failed` (TA-05 is frozen and not mounted).
+  await prisma.thesis.update({
+    where: { id: request.thesisId },
+    data: {
+      status: THESIS_STATUS.FAILED,
+      statusChangedAt: new Date(),
+      title: `${request.thesis.title} (Dibatalkan)`, // Optional: append status to title
+    }
   });
 
-  const archiveStatusId = dibatalkanStatus?.id;
+  // SOFT DELETE GUIDANCES & MILESTONES
+  // Set status 'deleted' for all related guidances
+  await prisma.thesisGuidance.updateMany({
+    where: { thesisId: request.thesisId },
+    data: { status: 'deleted' }
+  });
 
-  if (archiveStatusId) {
-    await prisma.thesis.update({
-      where: { id: request.thesisId },
-      data: {
-        thesisStatusId: archiveStatusId,
-        title: `${request.thesis.title} (Dibatalkan)`, // Optional: append status to title
-      }
-    });
-
-    // SOFT DELETE GUIDANCES & MILESTONES
-    // Set status 'deleted' for all related guidances
-    await prisma.thesisGuidance.updateMany({
-      where: { thesisId: request.thesisId },
-      data: { status: 'deleted' }
-    });
-
-    // Set status 'deleted' for all related milestones
-    await prisma.thesisMilestone.updateMany({
-      where: { thesisId: request.thesisId },
-      data: { status: 'deleted' }
-    });
-
-  } else {
-    // Fallback if status not found (should not happen if seeded)
-    // Maybe log error or use 'Gagal'
-    const gagalStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Gagal' } });
-    if (gagalStatus) {
-      await prisma.thesis.update({
-        where: { id: request.thesisId },
-        data: { thesisStatusId: gagalStatus.id }
-      });
-
-      // SOFT DELETE GUIDANCES & MILESTONES (Fallback case too)
-      await prisma.thesisGuidance.updateMany({
-        where: { thesisId: request.thesisId },
-        data: { status: 'deleted' }
-      });
-      await prisma.thesisMilestone.updateMany({
-        where: { thesisId: request.thesisId },
-        data: { status: 'deleted' }
-      });
-    }
-  }
+  // Set status 'deleted' for all related milestones
+  await prisma.thesisMilestone.updateMany({
+    where: { thesisId: request.thesisId },
+    data: { status: 'deleted' }
+  });
 
   // Notify student
   await notifyStudentApproval(updatedRequest);
@@ -293,15 +267,15 @@ export const approveRequest = async (requestId, reviewerId, reviewNotes = null) 
     action: AUDIT_ACTIONS.CHANGE_REQUEST_APPROVED,
     entityType: ENTITY_TYPES.THESIS_CHANGE_REQUEST,
     entityId: requestId,
-    newValues: { thesisId: request.thesisId, reviewNotes, archivedStatusId: archiveStatusId },
+    newValues: { thesisId: request.thesisId, reviewNotes, archivedStatus: THESIS_STATUS.FAILED },
   });
   await logAudit({
     actorUserId: reviewerId,
     action: AUDIT_ACTIONS.THESIS_STATUS_CHANGED,
     entityType: ENTITY_TYPES.THESIS,
     entityId: request.thesisId,
-    oldValues: { status: request.thesis?.thesisStatus?.name },
-    newValues: { status: 'Dibatalkan' },
+    oldValues: { status: request.thesis?.status },
+    newValues: { status: THESIS_STATUS.FAILED },
   });
 
   return flattenRequest(updatedRequest);

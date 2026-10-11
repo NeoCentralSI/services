@@ -66,8 +66,7 @@ async function debugTa04State(identifier) {
   console.log(`  thesisId: ${thesis.id}`);
   console.log(`  title: ${thesis.title ?? "(kosong)"}`);
   console.log(`  proposalStatus: "${thesis.proposalStatus}"  ← HARUS "accepted" jika sudah disahkan`);
-  console.log(`  isProposal: ${thesis.isProposal}`);
-  console.log(`  thesisStatusId: ${thesis.thesisStatusId ?? "(null)"}  ← HARUS ter-set jika sudah disahkan`);
+  console.log(`  status: ${thesis.status}  ← research setelah promosi (K15)`);
   console.log(`  finalProposalVersionId: ${thesis.finalProposalVersionId ?? "(null)"}`);
   console.log(`  academicYearId: ${thesis.academicYearId ?? "(null)"}`);
   console.log(`  proposalReviewedAt: ${thesis.proposalReviewedAt?.toISOString() ?? "(null)"}`);

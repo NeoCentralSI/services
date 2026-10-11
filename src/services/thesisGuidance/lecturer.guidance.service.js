@@ -11,20 +11,17 @@ import {
 	getStudentActiveThesis,
 	getAllProgressComponents,
 	getCompletionsForThesis,
-	upsertCompletionsValidated,
 	listGuidanceHistory,
 	countGraduatedAsSupervisor2,
-	getThesisStatusMap,
-	updateThesisStatusById,
 	findThesisDetailForLecturer,
 	findGuidancesPendingApproval,
 	approveSessionSummary,
-	findPendingGuidanceById,
 	findScheduledGuidances,
 	// Transfer
 	findEligibleTransferLecturers,
 	findSupervisorRecords,
 	lecturerHasRole,
+	findActiveSupervisorRelation,
 	createTransferNotification,
 	findPendingTransferNotifications,
 	findTransferNotificationById,
@@ -38,18 +35,29 @@ import {
 	updateNotificationMessage,
 	findKadepTransferNotificationsBySrcTgt,
 } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
+import { THESIS_STATUS, TA_PHASE } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS_LABELS, GUIDANCE_STATUS_LABELS } from "../../constants/thesisLabels.js";
+import {
+	GUIDANCE_STATUS,
+	GUIDANCE_ACTOR,
+	SCHEDULED_GUIDANCE_STATUSES,
+	effectiveGuidanceDate,
+} from "../../constants/guidanceStatus.js";
+import { ensureSupervisorAvailability } from "./student.guidance.service.js";
+import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
+import { withFeedbackAuthor } from "../../repositories/thesisGuidance/milestone.repository.js";
+import { guidanceDocument, findLatestThesisReport, uploadUrl } from "../../helpers/guidanceFile.helper.js";
 import { ROLE_CATEGORY, ROLES, SUPERVISOR_ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { sendFcmToUsers } from "../push.service.js";
-import { formatDateTimeJakarta } from "../../utils/date.util.js";
-import { createGuidanceCalendarEvent, deleteCalendarEvent } from "../outlook-calendar.service.js";
+import { formatDateTimeJakarta, formatDateTimeWib } from "../../utils/date.util.js";
+import { createGuidanceCalendarEvent, deleteCalendarEvent, updateCalendarEvent } from "../outlook-calendar.service.js";
 import { resolve } from "path";
 import path from "path";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
 import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
-import { assertTa04GuidanceAuthorized } from "../ta04Authorization.service.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
@@ -59,18 +67,57 @@ function ensureLecturer(lecturer) {
 	}
 }
 
-async function assertProposalGuidanceMutationAuthorized(guidance) {
-	if ((guidance?.phase ?? "proposal") === "proposal") {
-		await assertTa04GuidanceAuthorized(guidance.thesisId ?? guidance.thesis?.id);
+/**
+ * Guidance revival correction: acting on a guidance session requires an ACTIVE
+ * supervisor relation with the session's thesis. Being the session's supervisorId or
+ * holding a global supervisor role is not enough (released/terminated rows are refused).
+ */
+async function assertActiveSupervisorForThesis(lecturerId, thesisId) {
+	const relation = thesisId ? await findActiveSupervisorRelation(thesisId, lecturerId) : null;
+	if (!relation) {
+		const err = new Error("Anda bukan pembimbing aktif untuk tugas akhir ini");
+		err.statusCode = 403;
+		throw err;
 	}
+	// Session actions only for a thesis in the TA phase (not proposal, BSS, or closed).
+	const thesisStatus = relation.thesis?.status;
+	if (thesisStatus !== THESIS_STATUS.RESEARCH) {
+		const err = new Error(
+			thesisStatus === THESIS_STATUS.ON_LEAVE
+				? `Tugas akhir mahasiswa sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Aksi bimbingan tidak dapat dilakukan.`
+				: "Aksi bimbingan hanya dapat dilakukan untuk tugas akhir yang sedang berjalan.",
+		);
+		err.statusCode = 403;
+		throw err;
+	}
+	return relation;
 }
 
-function throwSupervisorTransferRemoved() {
+const guidanceStatusLabel = (status) => GUIDANCE_STATUS_LABELS[status] ?? status;
+
+/** K19: a transition starts from an allowed status; otherwise 400 with labels. */
+function assertGuidanceStatus(guidance, allowed, actionText) {
+	if (allowed.includes(guidance.status)) return;
+	const allowedText = [...new Set(allowed.map(guidanceStatusLabel))].map((l) => `"${l}"`).join(" atau ");
 	const err = new Error(
-		"Penggantian/transfer dosen pembimbing formal tidak difasilitasi pada scope aktif SIMPTA.",
+		`Bimbingan tidak dapat ${actionText}. Hanya bimbingan berstatus ${allowedText} yang dapat ${actionText}; status saat ini "${guidanceStatusLabel(guidance.status)}".`,
 	);
 	err.statusCode = 400;
 	throw err;
+}
+
+/** Loads a session of this lecturer and checks the active-supervisor + `research` rule. */
+async function loadLecturerGuidance(userId, guidanceId) {
+	const lecturer = await getLecturerByUserId(userId);
+	ensureLecturer(lecturer);
+	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
+	if (!guidance) {
+		const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
+		err.statusCode = 404;
+		throw err;
+	}
+	await assertActiveSupervisorForThesis(lecturer.id, guidance.thesisId ?? guidance.thesis?.id);
+	return { lecturer, guidance };
 }
 
 // Normalize a guidance record into a flat, tidy shape
@@ -92,9 +139,7 @@ function toFlatGuidance(g) {
 		notes: g.studentNotes || null,
 		studentNotes: g.studentNotes || null, // Alias for clarity
 		supervisorFeedback: g.supervisorFeedback || null,
-		document: g.document
-			? { id: g.document.id, fileName: g.document.fileName, filePath: g.document.filePath }
-			: null,
+		document: guidanceDocument(g),
 		createdAt: g.createdAt || null,
 		createdAtFormatted: g.createdAt ? formatDateTimeJakarta(g.createdAt, { withDay: true }) : null,
 		updatedAt: g.updatedAt || null,
@@ -104,6 +149,14 @@ function toFlatGuidance(g) {
 		duration: g.duration || null,
 		completedAt: g.completedAt || null,
 		rejectionReason: g.rejectionReason || null,
+		// K19 fields
+		suggestedDate: g.suggestedDate || null,
+		suggestedDateFormatted: g.suggestedDate ? formatDateTimeJakarta(g.suggestedDate, { withDay: true }) : null,
+		rescheduleReason: g.rescheduleReason || null,
+		rescheduledAt: g.rescheduledAt || null,
+		cancelReason: g.cancelReason || null,
+		cancelledAt: g.cancelledAt || null,
+		cancelledBy: g.cancelledBy || null,
 		// Milestone info (from junction table)
 		milestoneId: g.milestones?.[0]?.milestoneId || null,
 		milestone: g.milestones?.[0]?.milestone ? { id: g.milestones[0].milestone.id, title: g.milestones[0].milestone.title, status: g.milestones[0].milestone.status } : null,
@@ -120,7 +173,7 @@ async function resolveMilestoneTitles(guidance) {
 	return (guidance.milestones || []).map((m) => m.milestone?.title).filter(Boolean);
 }
 
-export async function getMyStudentsService(userId, roles, { scope = "active" } = {}) {
+export async function getMyStudentsService(userId, roles, { filter = "active" } = {}) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	// Default to supervisor roles only
@@ -128,7 +181,7 @@ export async function getMyStudentsService(userId, roles, { scope = "active" } =
 	const rawStudents = await findMyStudents(
 		lecturer.id,
 		Array.isArray(roles) && roles.length ? roles : defaultRoles,
-		{ scope }
+		{ filter },
 	);
 
 	// Transform data to flat structure for frontend
@@ -139,8 +192,9 @@ export async function getMyStudentsService(userId, roles, { scope = "active" } =
 		identityNumber: s.studentUser?.identityNumber || null,
 		thesisId: s.thesisId,
 		thesisTitle: s.thesisTitle,
-		thesisStatus: s.thesisStatus || "Ongoing",
+		thesisStatus: s.thesisStatus ?? null,
 		roles: s.role ? [s.role] : [],
+		supervisorStatus: s.supervisorStatus || null,
 		thesisRating: s.thesisRating || "ONGOING",
 		latestMilestone: s.latestMilestone || "Belum mulai",
 		// Milestone progress info
@@ -150,6 +204,8 @@ export async function getMyStudentsService(userId, roles, { scope = "active" } =
 		// Guidance info
 		completedGuidanceCount: s.completedGuidanceCount || 0,
 		lastGuidanceDate: s.lastGuidanceDate ? formatDateTimeJakarta(s.lastGuidanceDate, { withDay: true }) : null,
+		// ISO value; the frontend formats it (Paket C, C5)
+		lastGuidanceAt: s.lastGuidanceDate || null,
 		deadlineDate: s.deadlineDate || null,
 		startDate: s.startDate || null
 	}));
@@ -168,35 +224,31 @@ export async function getStudentDetailService(userId, thesisId) {
 		throw err;
 	}
 
-	// Fetch per-guidance uploaded documents (file versioning)
+	// Fetch per-guidance uploaded documents (file versioning), stored on session rows (K17)
 	const guidanceDocuments = await prisma.thesisGuidance.findMany({
 		where: {
 			thesisId: thesis.id,
-			documentId: { not: null },
+			...TA_PHASE,
+			filePath: { not: null },
 		},
 		select: {
 			id: true,
 			requestedDate: true,
 			approvedDate: true,
-			document: {
-				select: {
-					id: true,
-					fileName: true,
-					filePath: true,
-					createdAt: true,
-				},
-			},
+			filePath: true,
+			fileName: true,
+			fileUploadedAt: true,
 		},
 		orderBy: { requestedDate: "desc" },
 	});
-	const activeProposalDocument = thesis.finalProposalVersion?.document ?? thesis.proposalDocument ?? null;
-	const thesisDocumentPath = thesis.document?.filePath ?? "";
-	const activeProposalDocumentPath = activeProposalDocument?.filePath ?? "";
+	// "Laporan terbaru" = attachment of the latest TA-phase session that has a file
+	const latestReport = await findLatestThesisReport(prisma, thesis.id);
+	const latestReportDocument = guidanceDocument(latestReport);
 
 	return {
 		thesisId: thesis.id,
 		title: thesis.title,
-		status: thesis.thesisStatus?.name || "Unknown",
+		status: thesis.status,
 		rating: thesis.rating,
 		startDate: thesis.startDate,
 		deadlineDate: thesis.deadlineDate,
@@ -206,45 +258,43 @@ export async function getStudentDetailService(userId, thesisId) {
 			nim: thesis.student?.user?.identityNumber,
 			email: thesis.student?.user?.email,
 		},
-		document: thesis.document ? {
-			id: thesis.document.id,
-			fileName: path.basename(thesisDocumentPath) || thesis.document.fileName,
-			url: thesisDocumentPath
-				? (thesisDocumentPath.startsWith('uploads/')
-					? `/${thesisDocumentPath}`
-					: `/uploads/${thesisDocumentPath}`)
-				: null
-		} : null,
-		proposalDocument: activeProposalDocument ? {
-			id: activeProposalDocument.id,
-			version: thesis.finalProposalVersion?.version ?? null,
-			fileName: path.basename(activeProposalDocumentPath) || activeProposalDocument.fileName,
-			url: activeProposalDocumentPath
-				? (activeProposalDocumentPath.startsWith('uploads/')
-					? `/${activeProposalDocumentPath}`
-					: `/uploads/${activeProposalDocumentPath}`)
-				: null
-		} : null,
-		uploadedFiles: guidanceDocuments
-			.filter((g) => g.document)
-			.map((g) => ({
-				id: g.document.id,
-				fileName: path.basename(g.document.filePath || "") || g.document.fileName,
-				filePath: g.document.filePath,
-				uploadedAt: g.document.createdAt,
-				guidanceDate: g.approvedDate || g.requestedDate,
-			})),
-		milestones: thesis.thesisMilestones.map(m => ({
+		document: latestReportDocument
+			? { id: latestReportDocument.id, fileName: latestReportDocument.fileName, url: latestReportDocument.url }
+			: null,
+		// Revival adaptation (A2): final proposal version, fallback legacy proposal document.
+		proposalDocument: (() => {
+			const doc = thesis.finalProposalVersion?.document ?? thesis.proposalDocument ?? null;
+			if (!doc) return null;
+			const docPath = doc.filePath || "";
+			return {
+				id: doc.id,
+				fileName: path.basename(docPath) || doc.fileName,
+				// Documents without a stored file have no URL.
+				url: uploadUrl(docPath),
+			};
+		})(),
+		uploadedFiles: guidanceDocuments.map((g) => ({
+			id: g.id,
+			fileName: g.fileName || path.basename(g.filePath || ""),
+			filePath: g.filePath,
+			uploadedAt: g.fileUploadedAt,
+			guidanceDate: g.approvedDate || g.requestedDate,
+		})),
+		milestones: (await withFeedbackAuthor(thesis.thesisMilestones)).map(m => ({
 			id: m.id,
 			title: m.title,
 			status: m.status,
+			// C9: decision notes and supervisor feedback are separate
+			supervisorNotes: m.supervisorNotes || null,
+			feedback: m.feedback || null,
+			feedbackByName: m.feedbackByName || null,
+			feedbackAt: m.feedbackAt || null,
 			updatedAt: m.updatedAt,
 			updatedAtFormatted: m.updatedAt ? formatDateTimeJakarta(m.updatedAt, { withDay: true }) : null,
 			progressPercentage: m.progressPercentage || 0,
 			targetDate: m.targetDate,
 			targetDateFormatted: m.targetDate ? formatDateTimeJakarta(m.targetDate, { withDay: true }) : null,
 		})),
-		researchMethodScore: thesis.researchMethodScores?.[0] || null,
 		guidanceHistory: await (async () => {
 			const studentId = thesis.student?.id || thesis.studentId;
 			if (!studentId) return { count: 0, items: [] };
@@ -295,25 +345,33 @@ export async function getScheduledGuidancesService(userId, { page = 1, pageSize 
 	return { page: p, pageSize: sz, total, totalPages, guidances: items };
 }
 
-export async function rejectGuidanceService(userId, guidanceId, { feedback } = {}) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
-	if (!guidance) {
-		const err = new Error("Guidance not found or not assigned to you");
-		err.statusCode = 404;
-		throw err;
-	}
+export async function rejectGuidanceService(userId, guidanceId, { reason, feedback, suggestedDate = null } = {}) {
+	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
+	assertGuidanceStatus(guidance, [GUIDANCE_STATUS.REQUESTED], "ditolak");
 
-	// Status guard: only allow rejecting "requested" guidance
-	if (guidance.status !== "requested") {
-		const err = new Error(`Tidak dapat menolak bimbingan dengan status "${guidance.status}". Hanya bimbingan berstatus "requested" yang dapat ditolak.`);
+	// K19: a rejection always carries a reason; a suggested time is optional and future.
+	const rejectReason = String(reason ?? feedback ?? "").trim();
+	if (!rejectReason) {
+		const err = new Error("Alasan penolakan wajib diisi");
 		err.statusCode = 400;
 		throw err;
 	}
-	await assertProposalGuidanceMutationAuthorized(guidance);
+	if (suggestedDate && new Date(suggestedDate).getTime() <= Date.now()) {
+		const err = new Error("Usulan waktu harus di masa depan");
+		err.statusCode = 400;
+		throw err;
+	}
 
-	const updated = await rejectGuidanceById(guidanceId, { feedback });
+	const updated = await rejectGuidanceById(guidanceId, { reason: rejectReason, suggestedDate: suggestedDate ? new Date(suggestedDate) : null });
+	const feedbackText = rejectReason;
+	await logAudit({
+		actorUserId: userId,
+		action: AUDIT_ACTIONS.GUIDANCE_REJECTED,
+		entityType: ENTITY_TYPES.THESIS_GUIDANCE,
+		entityId: guidanceId,
+		oldValues: { status: guidance.status },
+		newValues: { status: GUIDANCE_STATUS.REJECTED, reason: rejectReason, suggestedDate: updated.suggestedDate },
+	});
 
 	// Send notification to student
 	try {
@@ -321,13 +379,16 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 		if (studentUserId) {
 			const lecturerName = updated.supervisor?.user?.fullName || "Dosen";
 			const scheduleDateStr = updated.requestedDate
-				? formatDateTimeJakarta(new Date(updated.requestedDate), { withDay: true })
+				? formatDateTimeWib(new Date(updated.requestedDate), { withWeekday: true })
 				: "";
 			const dateInfo = scheduleDateStr ? ` pada ${scheduleDateStr}` : "";
+			const suggestion = updated.suggestedDate
+				? ` Usulan waktu lain: ${formatDateTimeWib(updated.suggestedDate, { withWeekday: true })}.`
+				: "";
 
 			await createNotificationsForUsers([studentUserId], {
 				title: "Bimbingan Ditolak",
-				message: `${lecturerName} menolak permintaan bimbingan${dateInfo}. Alasan: ${feedback || "Tidak disebutkan"}`,
+				message: `${lecturerName} menolak permintaan bimbingan${dateInfo}. Alasan: ${feedbackText}.${suggestion} Silakan ajukan bimbingan baru.`,
 			});
 
 			await sendFcmToUsers([studentUserId], {
@@ -352,24 +413,12 @@ export async function rejectGuidanceService(userId, guidanceId, { feedback } = {
 
 // Cancel an accepted guidance session (lecturer cannot attend)
 export async function cancelGuidanceByLecturerService(userId, guidanceId, { reason } = {}) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
-	if (!guidance) {
-		const err = new Error("Guidance not found or not assigned to you");
-		err.statusCode = 404;
-		throw err;
-	}
+	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
+	// K19: the lecturer cancels a scheduled session (legacy "rescheduled" included).
+	assertGuidanceStatus(guidance, SCHEDULED_GUIDANCE_STATUSES, "dibatalkan");
+	reason = String(reason ?? "").trim();
 
-	// Only allow cancelling "accepted" guidance
-	if (guidance.status !== "accepted") {
-		const err = new Error(`Hanya bimbingan berstatus "diterima" yang dapat dibatalkan. Status saat ini: "${guidance.status}"`);
-		err.statusCode = 400;
-		throw err;
-	}
-	await assertProposalGuidanceMutationAuthorized(guidance);
-
-	if (!reason || !reason.trim()) {
+	if (!reason) {
 		const err = new Error("Alasan pembatalan wajib diisi");
 		err.statusCode = 400;
 		throw err;
@@ -392,11 +441,21 @@ export async function cancelGuidanceByLecturerService(userId, guidanceId, { reas
 	await prisma.thesisGuidance.update({
 		where: { id: guidance.id },
 		data: {
-			status: "cancelled",
-			rejectionReason: reason,
+			status: GUIDANCE_STATUS.CANCELLED,
+			cancelReason: reason,
+			cancelledAt: new Date(),
+			cancelledBy: GUIDANCE_ACTOR.LECTURER,
 			studentCalendarEventId: null,
 			supervisorCalendarEventId: null,
 		},
+	});
+	await logAudit({
+		actorUserId: userId,
+		action: AUDIT_ACTIONS.GUIDANCE_CANCELLED,
+		entityType: ENTITY_TYPES.THESIS_GUIDANCE,
+		entityId: guidance.id,
+		oldValues: { status: guidance.status },
+		newValues: { status: GUIDANCE_STATUS.CANCELLED, cancelledBy: GUIDANCE_ACTOR.LECTURER, reason },
 	});
 
 	// Send notification to student
@@ -404,8 +463,9 @@ export async function cancelGuidanceByLecturerService(userId, guidanceId, { reas
 		const studentUserId = guidance.thesis?.student?.user?.id;
 		if (studentUserId) {
 			const lecturerName = toTitleCaseName(guidance.supervisor?.user?.fullName || "Dosen");
-			const dateStr = guidance.requestedDate
-				? formatDateTimeJakarta(new Date(guidance.requestedDate), { withDay: true })
+			const sessionDate = effectiveGuidanceDate(guidance);
+			const dateStr = sessionDate
+				? formatDateTimeWib(new Date(sessionDate), { withWeekday: true })
 				: "belum ditentukan";
 
 			await createNotificationsForUsers([studentUserId], {
@@ -435,22 +495,8 @@ export async function cancelGuidanceByLecturerService(userId, guidanceId, { reas
 }
 
 export async function approveGuidanceService(userId, guidanceId, { feedback, approvedDate, duration } = {}) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
-	if (!guidance) {
-		const err = new Error("Guidance not found or not assigned to you");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	// Status guard: only allow approving "requested" guidance
-	if (guidance.status !== "requested") {
-		const err = new Error(`Tidak dapat menyetujui bimbingan dengan status "${guidance.status}". Hanya bimbingan berstatus "requested" yang dapat disetujui.`);
-		err.statusCode = 400;
-		throw err;
-	}
-	await assertProposalGuidanceMutationAuthorized(guidance);
+	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
+	assertGuidanceStatus(guidance, [GUIDANCE_STATUS.REQUESTED], "disetujui");
 
 	const updated = await approveGuidanceById(guidanceId, { feedback, approvedDate, duration });
 
@@ -459,8 +505,8 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, app
 		const studentUser = updated.thesis?.student?.user;
 		const supervisorUser = updated.supervisor?.user;
 
-		// Use requestedDate (the date student requested) for the event schedule
-		const scheduledDate = updated.requestedDate;
+		// The agreed session time (approvedDate defaults to the requested time).
+		const scheduledDate = effectiveGuidanceDate(updated);
 
 		if (studentUser && supervisorUser && scheduledDate) {
 			const calendarEvents = await createGuidanceCalendarEvent(
@@ -504,7 +550,7 @@ export async function approveGuidanceService(userId, guidanceId, { feedback, app
 		if (studentUserId) {
 			const lecturerName = updated.supervisor?.user?.fullName || "Dosen";
 			const scheduleDateStr = updated.approvedDate
-				? formatDateTimeJakarta(new Date(updated.approvedDate), { withDay: true })
+				? formatDateTimeWib(new Date(updated.approvedDate), { withWeekday: true })
 				: "";
 			const dateInfo = scheduleDateStr ? ` pada ${scheduleDateStr}` : "";
 
@@ -568,16 +614,17 @@ export async function getStudentProgressDetailService(userId, studentId) {
 }
 
 export async function approveStudentProgressComponentsService(userId, studentId, componentIds = []) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-	const thesis = await getStudentActiveThesis(studentId, lecturer.id);
-	if (!thesis) {
-		const err = new Error("Student thesis not found for this lecturer");
-		err.statusCode = 404;
-		throw err;
-	}
-	const result = await upsertCompletionsValidated(thesis.id, componentIds, lecturer.id);
-	return { thesisId: thesis.id, ...result };
+	// Guidance revival correction: this legacy endpoint marked milestones completed for
+	// P1 or P2 without the milestone review flow. Completion is only through
+	// POST /milestones/:id/validate by the active Pembimbing 1.
+	void userId;
+	void studentId;
+	void componentIds;
+	const err = new Error(
+		"Validasi komponen progres lewat endpoint ini tidak tersedia. Validasi milestone dilakukan Pembimbing 1 melalui halaman milestone.",
+	);
+	err.statusCode = 410;
+	throw err;
 }
 
 export async function postGuidanceFeedbackService(userId, guidanceId, { feedback }) {
@@ -589,7 +636,7 @@ export async function postGuidanceFeedbackService(userId, guidanceId, { feedback
 		err.statusCode = 404;
 		throw err;
 	}
-	await assertProposalGuidanceMutationAuthorized(guidance);
+	await assertActiveSupervisorForThesis(lecturer.id, guidance.thesisId ?? guidance.thesis?.id);
 	await approveGuidanceById(guidanceId, { feedback });
 	const fresh = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
 	return { guidance: toFlatGuidance(fresh) };
@@ -636,35 +683,18 @@ export async function supervisorEligibilityService(userId, threshold = 4) {
 	return { eligible, graduatedAsSup2, required: threshold };
 }
 
-// Lecturer decides to stop supervising and mark thesis as failed, only if current status is at_risk
+// Paket A (K15): this endpoint read ThesisStatus rows "at_risk"/"failed" that never existed
+// (it always failed with 500) and has no UI caller. Stopping a thesis (status `failed` with a
+// mandatory reason) is an Admin action that is not built yet, so the endpoint is closed.
 export async function failStudentThesisService(userId, studentId, { reason } = {}) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-
-	const thesis = await getStudentActiveThesis(studentId, lecturer.id);
-	if (!thesis) {
-		const err = new Error("Student thesis not found for this lecturer");
-		err.statusCode = 404;
-		throw err;
-	}
-
-	const statusMap = await getThesisStatusMap();
-	const idAtRisk = statusMap.get("at_risk") || statusMap.get("at-risk");
-	const idFailed = statusMap.get("failed");
-	if (!idAtRisk || !idFailed) {
-		const err = new Error("Missing ThesisStatus rows: require 'at_risk' and 'failed'");
-		err.statusCode = 500;
-		throw err;
-	}
-
-	if (thesis.thesisStatusId !== idAtRisk) {
-		const err = new Error("Thesis cannot be failed unless current status is 'at_risk'");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	await updateThesisStatusById(thesis.id, idFailed);
-	return { thesisId: thesis.id, status: "failed" };
+	void userId;
+	void studentId;
+	void reason;
+	const err = new Error(
+		"Penghentian tugas akhir oleh pembimbing tidak tersedia. Penghentian dilakukan Admin Departemen dengan alasan yang wajib dicatat.",
+	);
+	err.statusCode = 410;
+	throw err;
 }
 
 // ==================== SESSION SUMMARY APPROVAL ====================
@@ -698,17 +728,9 @@ export async function getPendingApprovalService(userId, { page = 1, pageSize = 1
  * Approve session summary - 1 click, minimal interaction
  */
 export async function approveSessionSummaryService(userId, guidanceId) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-
-	// Check guidance exists and is pending approval
-	const guidance = await findPendingGuidanceById(guidanceId, lecturer.id);
-	if (!guidance) {
-		const err = new Error("Guidance not found or not pending approval");
-		err.statusCode = 404;
-		throw err;
-	}
-	await assertProposalGuidanceMutationAuthorized(guidance);
+	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
+	// K19: only a submitted summary can be approved (-> completed).
+	assertGuidanceStatus(guidance, [GUIDANCE_STATUS.SUMMARY_PENDING], "disetujui ringkasannya");
 
 	const updated = await approveSessionSummary(guidanceId);
 
@@ -770,6 +792,168 @@ export async function approveSessionSummaryService(userId, guidanceId) {
 }
 
 /**
+ * K19: the lecturer moves a scheduled session. The new time applies immediately, the status
+ * stays `accepted`, a reason is required, the student is notified, and the change is
+ * audited. Outlook events are moved when their ids exist; a calendar failure never fails
+ * the action.
+ */
+export async function rescheduleGuidanceByLecturerService(userId, guidanceId, { newDate, reason, duration } = {}) {
+	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
+	assertGuidanceStatus(guidance, SCHEDULED_GUIDANCE_STATUSES, "dijadwalkan ulang");
+
+	const rescheduleReason = String(reason ?? "").trim();
+	if (!rescheduleReason) {
+		const err = new Error("Alasan perubahan jadwal wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+	const start = new Date(newDate);
+	if (Number.isNaN(start.getTime()) || start.getTime() <= Date.now()) {
+		const err = new Error("Jadwal baru harus di masa depan");
+		err.statusCode = 400;
+		throw err;
+	}
+	const durationMinutes = duration || guidance.duration || 60;
+	await ensureSupervisorAvailability({
+		supervisorId: lecturer.id,
+		start,
+		durationMinutes,
+		excludeGuidanceId: guidance.id,
+	});
+
+	const previousDate = effectiveGuidanceDate(guidance);
+	const now = new Date();
+	const updated = await prisma.thesisGuidance.update({
+		where: { id: guidance.id },
+		data: {
+			// Legacy "rescheduled" is normalized to "accepted" (K19).
+			status: GUIDANCE_STATUS.ACCEPTED,
+			approvedDate: start,
+			duration: durationMinutes,
+			rescheduleReason,
+			rescheduledAt: now,
+		},
+		include: {
+			thesis: { include: { student: { include: { user: true } } } },
+			supervisor: { include: { user: true } },
+			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
+		},
+	});
+
+	await logAudit({
+		actorUserId: userId,
+		action: AUDIT_ACTIONS.GUIDANCE_RESCHEDULED,
+		entityType: ENTITY_TYPES.THESIS_GUIDANCE,
+		entityId: guidance.id,
+		oldValues: { status: guidance.status, date: previousDate, duration: guidance.duration },
+		newValues: { status: GUIDANCE_STATUS.ACCEPTED, date: start, duration: durationMinutes, reason: rescheduleReason },
+	});
+
+	const studentUserId = updated.thesis?.student?.user?.id;
+	const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
+	const calendarMoves = [
+		[updated.supervisor?.user?.id || userId, updated.supervisorCalendarEventId],
+		[studentUserId, updated.studentCalendarEventId],
+	];
+	for (const [calendarUserId, eventId] of calendarMoves) {
+		if (!calendarUserId || !eventId) continue;
+		try {
+			await updateCalendarEvent(calendarUserId, eventId, { startTime: start, endTime: end });
+		} catch (e) {
+			console.warn("Failed to move calendar event (lecturer reschedule):", e?.message || e);
+		}
+	}
+
+	if (studentUserId) {
+		const lecturerName = toTitleCaseName(updated.supervisor?.user?.fullName || "Dosen");
+		const oldStr = previousDate ? formatDateTimeWib(new Date(previousDate), { withWeekday: true }) : "-";
+		const newStr = formatDateTimeWib(start, { withWeekday: true });
+		try {
+			await createNotificationsForUsers([studentUserId], {
+				title: "Jadwal Bimbingan Diubah Dosen",
+				message: `${lecturerName} mengubah jadwal bimbingan dari ${oldStr} menjadi ${newStr}. Alasan: ${rescheduleReason}`,
+			});
+			sendFcmToUsers([studentUserId], {
+				title: "Jadwal Bimbingan Diubah Dosen",
+				body: `Jadwal baru: ${newStr}. Alasan: ${rescheduleReason}`,
+				data: {
+					type: "thesis-guidance:rescheduled-by-lecturer",
+					guidanceId: String(guidance.id),
+					role: ROLE_CATEGORY.STUDENT,
+					playSound: "true",
+				},
+			}).catch((e) => console.warn("FCM notify failed (lecturer reschedule):", e?.message || e));
+		} catch (e) {
+			console.warn("Notify failed (lecturer reschedule):", e?.message || e);
+		}
+	}
+
+	const titles = await resolveMilestoneTitles(updated);
+	return { guidance: toFlatGuidance({ ...updated, milestoneTitles: titles }) };
+}
+
+/**
+ * K19: the lecturer asks for a revised summary: summary_pending -> summary_rejected, with
+ * mandatory notes kept in `supervisorFeedback`. The student resubmits via submit-summary.
+ */
+export async function rejectSessionSummaryService(userId, guidanceId, { notes } = {}) {
+	const { guidance } = await loadLecturerGuidance(userId, guidanceId);
+	assertGuidanceStatus(guidance, [GUIDANCE_STATUS.SUMMARY_PENDING], "diminta perbaikan ringkasannya");
+
+	const revisionNotes = String(notes ?? "").trim();
+	if (!revisionNotes) {
+		const err = new Error("Catatan perbaikan ringkasan wajib diisi");
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const updated = await prisma.thesisGuidance.update({
+		where: { id: guidance.id },
+		data: { status: GUIDANCE_STATUS.SUMMARY_REJECTED, supervisorFeedback: revisionNotes },
+		include: {
+			thesis: { include: { student: { include: { user: true } } } },
+			supervisor: { include: { user: true } },
+			milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
+		},
+	});
+
+	await logAudit({
+		actorUserId: userId,
+		action: AUDIT_ACTIONS.GUIDANCE_SUMMARY_REJECTED,
+		entityType: ENTITY_TYPES.THESIS_GUIDANCE,
+		entityId: guidance.id,
+		oldValues: { status: guidance.status },
+		newValues: { status: GUIDANCE_STATUS.SUMMARY_REJECTED, notes: revisionNotes },
+	});
+
+	const studentUserId = updated.thesis?.student?.user?.id;
+	if (studentUserId) {
+		const lecturerName = toTitleCaseName(updated.supervisor?.user?.fullName || "Dosen");
+		try {
+			await createNotificationsForUsers([studentUserId], {
+				title: "Ringkasan Bimbingan Perlu Diperbaiki",
+				message: `${lecturerName} meminta perbaikan ringkasan bimbingan. Catatan: ${revisionNotes}`,
+			});
+			sendFcmToUsers([studentUserId], {
+				title: "Ringkasan Bimbingan Perlu Diperbaiki",
+				body: `Catatan: ${revisionNotes}`,
+				data: {
+					type: "thesis-guidance:summary-rejected",
+					guidanceId: String(guidance.id),
+					role: ROLE_CATEGORY.STUDENT,
+					playSound: "true",
+				},
+			}).catch((e) => console.warn("FCM notify failed (summary rejected):", e?.message || e));
+		} catch (e) {
+			console.warn("Notify failed (summary rejected):", e?.message || e);
+		}
+	}
+
+	const titles = await resolveMilestoneTitles(updated);
+	return { guidance: toFlatGuidance({ ...updated, milestoneTitles: titles }) };
+}
+
+/**
  * Get detailed guidance info for lecturer (for session detail page)
  */
 export async function getGuidanceDetailService(userId, guidanceId) {
@@ -783,7 +967,6 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 			thesis: {
 				include: {
 					student: { include: { user: true } },
-					document: true,
 				},
 			},
 			supervisor: { include: { user: true } },
@@ -831,6 +1014,14 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 		studentNotes: guidance.studentNotes || null,
 		supervisorFeedback: guidance.supervisorFeedback || null,
 		rejectionReason: guidance.rejectionReason || null,
+		// K19: suggested time, lecturer reschedule, cancellation
+		suggestedDate: guidance.suggestedDate || null,
+		suggestedDateFormatted: guidance.suggestedDate ? formatDateTimeJakarta(guidance.suggestedDate, { withDay: true }) : null,
+		rescheduleReason: guidance.rescheduleReason || null,
+		rescheduledAt: guidance.rescheduledAt || null,
+		cancelReason: guidance.cancelReason || null,
+		cancelledAt: guidance.cancelledAt || null,
+		cancelledBy: guidance.cancelledBy || null,
 		// Session summary (filled by student)
 		sessionSummary: guidance.sessionSummary || null,
 		actionItems: guidance.actionItems || null,
@@ -843,13 +1034,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 		milestoneIds: (guidance.milestones || []).map((m) => m.milestoneId),
 		milestoneTitles,
 		milestoneName: milestoneTitles.length > 0 ? milestoneTitles[0] : null,
-		document: guidance.document
-			? {
-				id: guidance.document.id,
-				fileName: guidance.document.fileName,
-				filePath: guidance.document.filePath,
-			}
-			: null,
+		document: guidanceDocument(guidance),
 		// Timestamps
 		createdAt: guidance.createdAt || null,
 		createdAtFormatted: guidance.createdAt
@@ -878,7 +1063,8 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 				}
 			},
 			thesisSupervisors: {
-				where: { lecturerId: lecturer.id },
+				// Only an ACTIVE supervisor relation may send a warning as supervisor.
+				where: { lecturerId: lecturer.id, status: "active" },
 				include: {
 					role: { select: { name: true } }
 				}
@@ -961,6 +1147,8 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
  * @param {string} thesisId
  */
 export async function approveThesisProposalService(userId, thesisId) {
+	// Revival decision (e3): baseline let a supervisor activate a proposal directly
+	// (thesisStatusId=null). That would bypass TA-03/TA-04 promotion, so the lock is kept.
 	void userId;
 	void thesisId;
 	throw new ForbiddenError(
@@ -974,7 +1162,6 @@ export async function approveThesisProposalService(userId, thesisId) {
  * Get eligible lecturers for student transfer (have active "Pembimbing 1" role)
  */
 export async function getEligibleTransferLecturersService(userId) {
-
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 	const lecturers = await findEligibleTransferLecturers(lecturer.id);
@@ -985,7 +1172,6 @@ export async function getEligibleTransferLecturersService(userId) {
  * Request student transfer to another lecturer
  */
 export async function requestStudentTransferService(userId, { thesisIds, targetLecturerId, reason }) {
-
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1106,7 +1292,6 @@ export async function requestStudentTransferService(userId, { thesisIds, targetL
  * Reads compact payload from notification and enriches with student details from DB
  */
 export async function getIncomingTransferRequestsService(userId) {
-
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1182,7 +1367,6 @@ export async function getIncomingTransferRequestsService(userId) {
  * and notifies kadep + source that target has approved.
  */
 export async function approveTransferRequestService(userId, notificationId) {
-
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1269,7 +1453,6 @@ export async function approveTransferRequestService(userId, notificationId) {
  * Marks target notification read, updates kadep notifications to st=target_rejected, notifies source.
  */
 export async function rejectTransferRequestService(userId, notificationId, { reason } = {}) {
-
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
@@ -1342,7 +1525,6 @@ export async function rejectTransferRequestService(userId, notificationId, { rea
  * Get pending transfer requests for Kadep review
  */
 export async function getKadepPendingTransfersService(userId) {
-
 	const notifications = await findPendingKadepTransferNotifications(userId);
 	const transfers = [];
 
@@ -1422,7 +1604,6 @@ export async function getKadepPendingTransfersService(userId) {
  * Get ALL kadep transfer notifications (for history view with pagination)
  */
 export async function getKadepAllTransfersService(userId, { page = 1, pageSize = 10, search = "", status = "" } = {}) {
-
 	const { notifications, total } = await findAllKadepTransferNotifications(userId, { page, pageSize, search });
 	const transfers = [];
 
@@ -1505,7 +1686,6 @@ export async function getKadepAllTransfersService(userId, { page = 1, pageSize =
  * Only allowed if target lecturer has already approved (tgtApproved=true)
  */
 export async function kadepApproveTransferService(userId, notificationId) {
-
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");
@@ -1543,6 +1723,8 @@ export async function kadepApproveTransferService(userId, notificationId) {
 	const sourceLecturerId = payload.src;
 	const refs = payload.refs || [];
 
+	// Revival decision (e5): baseline flow is kept, but the transaction body follows the
+	// active app (status-based rows, quota sync, no P2 deletion or automatic P2->P1 promotion).
 	// Execute the actual supervisor swap in a transaction
 	const results = await prisma.$transaction(async (tx) => {
 		const txResults = [];
@@ -1689,7 +1871,6 @@ export async function kadepApproveTransferService(userId, notificationId) {
  * Kadep rejects a transfer request
  */
 export async function kadepRejectTransferService(userId, notificationId, { reason } = {}) {
-
 	const notif = await findTransferNotificationById(notificationId);
 	if (!notif || notif.userId !== userId) {
 		const err = new Error("Transfer request not found");
@@ -1779,4 +1960,3 @@ export async function kadepRejectTransferService(userId, notificationId, { reaso
 
 	return { message: "Transfer request ditolak oleh Kadep" };
 }
-

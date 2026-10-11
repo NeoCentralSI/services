@@ -96,12 +96,6 @@ async function ensureTopic({ name, scienceGroupId }) {
   });
 }
 
-async function ensureThesisStatus(name) {
-  const found = await prisma.thesisStatus.findFirst({ where: { name } });
-  if (found) return found;
-  return prisma.thesisStatus.create({ data: { name } });
-}
-
 async function ensureLecturer({ fullName, nip, email, scienceGroupId }) {
   const user = await prisma.user.upsert({
     where: { identityNumber: nip },
@@ -520,15 +514,9 @@ async function main() {
   console.log("       + 15 AssessmentRubric levels (Presentasi 5, Struktur 5, Respon 5)");
 
   // ============================================
-  // 4. Thesis status canonical (name BUKAN unique, pakai findFirst pattern)
+  // 4. Thesis status: K15 enum on thesis.status (no lookup table to seed)
   // ============================================
-  console.log("[4/6] Thesis status...");
-  const thesisStatusNames = ["Metopel", "Bimbingan", "Dibatalkan", "Gagal", "Selesai", "Lulus", "Drop Out"];
-  let statusBimbingan = null;
-  for (const name of thesisStatusNames) {
-    const status = await ensureThesisStatus(name);
-    if (name === "Bimbingan") statusBimbingan = status;
-  }
+  console.log("[4/6] Thesis status: enum thesis.status (tidak perlu seed)");
 
   // ============================================
   // 5. 19 mahasiswa edge case
@@ -542,7 +530,7 @@ async function main() {
     p2Id = null,
     title = `Rancang Bangun ${student.user.fullName}`,
     proposalStatus = null,
-    isProposal = true,
+    status = "proposal",
     ta04AssignmentIssuedAt = null,
   }) {
     const thesis = await prisma.thesis.create({
@@ -550,10 +538,9 @@ async function main() {
         studentId: student.student.id,
         academicYearId: academicYear.id,
         thesisTopicId: topic.id,
-        thesisStatusId: statusBimbingan.id,
         title,
         proposalStatus,
-        isProposal,
+        status,
         ta04AssignmentIssuedAt,
       },
     });
@@ -724,7 +711,7 @@ async function main() {
     p1Id: drDoe.id,
     p2Id: drWang.id,
     proposalStatus: "submitted",
-    isProposal: true,
+    status: "proposal",
     ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
   });
   // thesisId wajib di-link (canon: request.thesis?.ta04AssignmentIssuedAt via FK
@@ -892,7 +879,7 @@ async function main() {
     p1Id: drDoe.id,
     p2Id: drWang.id,
     proposalStatus: "submitted",
-    isProposal: false,
+    status: "research",
   });
   const score14 = await prisma.researchMethodScore.create({
     data: {
@@ -951,10 +938,9 @@ async function main() {
       studentId: ec15.student.id,
       academicYearId: academicYear.id,
       thesisTopicId: topic.id,
-      thesisStatusId: statusBimbingan.id,
       title: "Rancang Bangun Sistem Final TA-04",
       proposalStatus: "accepted",
-      isProposal: false,
+      status: "research",
       titleApprovalDocumentId: ta04Document.id,
       proposalReviewedAt: new Date(),
     },
