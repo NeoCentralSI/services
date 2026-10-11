@@ -1706,6 +1706,11 @@ export async function getThesisHistoryService(userId) {
         ? `${t.academicYear.year.includes("/") ? t.academicYear.year : `${t.academicYear.year}/${parseInt(t.academicYear.year) + 1}`} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
         : "-",
       createdAt: t.createdAt,
+      // Why and when a stopped thesis ended (status `failed`); null otherwise.
+      terminationReason: t.terminationReason ?? null,
+      terminationNote: t.terminationNote ?? null,
+      terminatedAt: t.terminatedAt ?? null,
+      statusChangedAt: t.statusChangedAt ?? null,
       stats: {
         guidances: t._count.thesisGuidances,
         completedMilestones: t.status === THESIS_STATUS.FAILED

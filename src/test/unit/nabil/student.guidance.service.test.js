@@ -740,6 +740,9 @@ describe("Module 5: Thesis Overview & History", () => {
         {
           id: "thesis-1", title: "TA Lama",
           status: "failed",
+          terminationReason: "supervision_evaluation",
+          terminationNote: "Tidak ada kemajuan.",
+          terminatedAt: new Date("2025-10-01T03:00:00.000Z"),
           thesisTopic: { name: "ML" },
           academicYear: { year: "2024", semester: "ganjil" },
           createdAt: new Date(),
@@ -755,6 +758,12 @@ describe("Module 5: Thesis Overview & History", () => {
 
       expect(result.theses).toHaveLength(1);
       expect(result.theses[0]).toHaveProperty("status", "failed");
+      // The Riwayat tab shows why and when a thesis was stopped.
+      expect(result.theses[0]).toMatchObject({
+        terminationReason: "supervision_evaluation",
+        terminationNote: "Tidak ada kemajuan.",
+        terminatedAt: new Date("2025-10-01T03:00:00.000Z"),
+      });
     });
 
     it("rejects (404) if student not found", async () => {
