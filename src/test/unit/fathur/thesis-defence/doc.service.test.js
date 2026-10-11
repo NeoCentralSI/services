@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import path from "node:path";
+import { rm } from "node:fs/promises";
 
 const { mockDocRepo, mockCoreRepo, mockPrisma, mockLecturerRepo } = vi.hoisted(() => ({
   mockDocRepo: {
@@ -39,6 +41,11 @@ vi.mock("../../../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn()
 import { verifyDocument, uploadDocument, getDocuments, viewDocument } from "../../../../services/thesis-defence/doc.service.js";
 
 describe("Defence Document Service (Full Alignment)", () => {
+  // The upload tests write real files for the fixture thesis "t1"; remove them afterwards.
+  afterAll(async () => {
+    await rm(path.join(process.cwd(), "uploads", "thesis", "t1"), { recursive: true, force: true });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockLecturerRepo.getStudentByUserId.mockResolvedValue({ id: "st1", userId: "u1" });
@@ -83,6 +90,10 @@ describe("Defence Document Service (Full Alignment)", () => {
       const pdfBuf = Buffer.from("%PDF-1.4\nfake pdf content");
       const res = await uploadDocument("d1", "u1", { originalname: "t.pdf", mimetype: "application/pdf", buffer: pdfBuf, size: pdfBuf.length }, "req1");
       expect(res.status).toBe("submitted");
+      // stored under the thesis hierarchy: uploads/thesis/<thesisId>/defence/<defenceId>/
+      expect(mockDocRepo.upsertDefenceDocument.mock.calls[0][2].filePath).toMatch(
+        /^uploads\/thesis\/t1\/defence\/d1\/requirement-req1-\d+\.pdf$/,
+      );
     });
 
     it("handles auto-registration on first upload with requirements check", async () => {
@@ -105,6 +116,7 @@ describe("Defence Document Service (Full Alignment)", () => {
       const pdfBuf = Buffer.from("%PDF-1.4\nfake pdf content");
       const res = await uploadDocument(null, "u1", { originalname: "t.pdf", mimetype: "application/pdf", buffer: pdfBuf, size: pdfBuf.length }, "req1");
       expect(res.status).toBe("submitted");
+      expect(mockDocRepo.upsertDefenceDocument.mock.calls[0][2].filePath).toMatch(/^uploads\/thesis\/t1\/defence\/d1\//);
     });
 
     it("throws error if requirements not met", async () => {
