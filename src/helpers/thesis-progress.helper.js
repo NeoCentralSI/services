@@ -1,7 +1,7 @@
 /**
  * Thesis progress indicators, derived when read and never stored (Paket E, E3):
  *
- * - activity level, from the date of the last activity;
+ * - activity level, from the date of the last activity of the student;
  * - supervision clock, from `startDate` minus the time spent on leave.
  *
  * This file is the single source for both. Callers select the columns in
@@ -34,7 +34,6 @@ export const THESIS_CLOCK_COLUMNS = Object.freeze({
   leaveStartedAt: true,
   statusChangedAt: true,
   createdAt: true,
-  updatedAt: true,
 });
 
 export const THESIS_PROGRESS_SELECT = Object.freeze({
@@ -83,14 +82,23 @@ const latest = (dates) => {
 };
 
 /**
- * Date of the last thesis activity: the latest of the completed guidance sessions
- * (`approvedDate`, else `completedAt`), the completed milestones (`updatedAt`, else
- * `completedAt`), the seminars (`updatedAt`) and the thesis row itself (`updatedAt`).
+ * Date from which the days without activity are counted.
+ *
+ * Activity is what the student and supervisors do on the thesis: completed guidance
+ * sessions (`approvedDate`, else `completedAt`), completed milestones (`completedAt`;
+ * `updatedAt` only when that is empty) and seminars (`updatedAt`). Editing the thesis row
+ * is not activity, so `thesis.updatedAt` is not read, and feedback on a milestone that is
+ * already completed does not move its date.
+ *
+ * The count never starts before the thesis last became a running one: the later of
+ * `startDate` and `statusChangedAt`. A thesis that just entered research, or just came
+ * back from leave, starts counting from that day instead of being slow at once.
+ *
  * Falls back to `createdAt`. Returns a Date, or null when nothing is known.
  */
 export function getLastActivityAt(thesis) {
   if (!thesis) return null;
-  const dates = [];
+  const dates = [thesis.startDate, thesis.statusChangedAt];
   for (const guidance of thesis.thesisGuidances || []) {
     // Queries that select every session carry `status`; only completed ones count.
     if (guidance.status === undefined || guidance.status === "completed") {
@@ -100,13 +108,12 @@ export function getLastActivityAt(thesis) {
   for (const milestone of thesis.thesisMilestones || []) {
     // A query may already filter to completed milestones and omit `status`.
     if (milestone.status === undefined || milestone.status === "completed") {
-      dates.push(milestone.updatedAt || milestone.completedAt);
+      dates.push(milestone.completedAt || milestone.updatedAt);
     }
   }
   for (const seminar of thesis.thesisSeminars || []) {
     dates.push(seminar.updatedAt);
   }
-  dates.push(thesis.updatedAt);
   return latest(dates) ?? toDate(thesis.createdAt);
 }
 

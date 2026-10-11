@@ -15,17 +15,18 @@ const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (days) => new Date(NOW.getTime() - days * DAY);
 
 describe("getLastActivityAt", () => {
-  it("takes the latest date across completed guidance, completed milestones, seminars and the thesis row", () => {
+  it("takes the latest date across completed guidance, completed milestones and seminars", () => {
     const thesis = {
       createdAt: daysAgo(400),
-      updatedAt: daysAgo(90),
+      startDate: daysAgo(300),
+      statusChangedAt: daysAgo(300),
       thesisGuidances: [
         { status: "completed", approvedDate: daysAgo(50), completedAt: daysAgo(45) },
         { status: "requested", approvedDate: daysAgo(1), completedAt: null }, // not completed: ignored
         { completedAt: daysAgo(70) },
       ],
       thesisMilestones: [
-        { status: "completed", updatedAt: daysAgo(30) },
+        { status: "completed", completedAt: daysAgo(30), updatedAt: daysAgo(30) },
         { status: "in_progress", updatedAt: daysAgo(2) }, // not completed: ignored
       ],
       thesisSeminars: [{ updatedAt: daysAgo(40) }],
@@ -38,6 +39,66 @@ describe("getLastActivityAt", () => {
     expect(getLastActivityAt({ createdAt: daysAgo(5) })).toEqual(daysAgo(5));
     expect(getLastActivityAt({})).toBeNull();
     expect(getLastActivityAt(null)).toBeNull();
+  });
+
+  it("editing the thesis row is not activity: updatedAt is not read", () => {
+    const thesis = {
+      status: "research",
+      createdAt: daysAgo(400),
+      startDate: daysAgo(300),
+      statusChangedAt: daysAgo(300),
+      thesisGuidances: [{ status: "completed", approvedDate: daysAgo(130) }],
+    };
+    const edited = { ...thesis, updatedAt: daysAgo(1) }; // e.g. an Admin edit in the data master
+    expect(getLastActivityAt(edited)).toEqual(daysAgo(130));
+    expect(getActivityLevel(thesis, NOW)).toBe(ACTIVITY_LEVEL.AT_RISK);
+    expect(getActivityLevel(edited, NOW)).toBe(ACTIVITY_LEVEL.AT_RISK);
+  });
+
+  it("feedback on a completed milestone is not activity: completedAt wins over updatedAt", () => {
+    const thesis = {
+      status: "research",
+      startDate: daysAgo(300),
+      statusChangedAt: daysAgo(300),
+      thesisMilestones: [{ status: "completed", completedAt: daysAgo(90), updatedAt: daysAgo(90) }],
+    };
+    const withFeedback = { ...thesis, thesisMilestones: [{ status: "completed", completedAt: daysAgo(90), updatedAt: daysAgo(2) }] };
+    expect(getLastActivityAt(withFeedback)).toEqual(daysAgo(90));
+    expect(getActivityLevel(thesis, NOW)).toBe(ACTIVITY_LEVEL.SLOW);
+    expect(getActivityLevel(withFeedback, NOW)).toBe(ACTIVITY_LEVEL.SLOW);
+  });
+
+  it("a completed milestone without completedAt falls back to its updatedAt", () => {
+    expect(getLastActivityAt({ thesisMilestones: [{ status: "completed", completedAt: null, updatedAt: daysAgo(20) }] })).toEqual(daysAgo(20));
+  });
+
+  it("without any activity the count starts at the later of startDate and statusChangedAt, then createdAt", () => {
+    // Just entered research: not slow at once, whatever the age of the row.
+    const entered = { status: "research", createdAt: daysAgo(400), startDate: daysAgo(3), statusChangedAt: daysAgo(3) };
+    expect(getLastActivityAt(entered)).toEqual(daysAgo(3));
+    expect(getActivityLevel(entered, NOW)).toBe(ACTIVITY_LEVEL.ACTIVE);
+    expect(getLastActivityAt({ createdAt: daysAgo(400), startDate: daysAgo(200), statusChangedAt: null })).toEqual(daysAgo(200));
+    expect(getLastActivityAt({ createdAt: daysAgo(400), startDate: null, statusChangedAt: null })).toEqual(daysAgo(400));
+  });
+
+  it("coming back from leave starts the count at the return date", () => {
+    // Last session 150 days ago, then a leave; back in research 4 days ago.
+    const returned = {
+      status: "research",
+      createdAt: daysAgo(400),
+      startDate: daysAgo(300),
+      statusChangedAt: daysAgo(4),
+      totalLeaveDays: 100,
+      thesisGuidances: [{ status: "completed", approvedDate: daysAgo(150) }],
+    };
+    expect(getLastActivityAt(returned)).toEqual(daysAgo(4));
+    expect(getActivityLevel(returned, NOW)).toBe(ACTIVITY_LEVEL.ACTIVE);
+    // With no new activity the count keeps running from the return date.
+    const later = new Date(NOW.getTime() + 60 * DAY);
+    expect(getActivityLevel(returned, later)).toBe(ACTIVITY_LEVEL.SLOW);
+    // An activity after the return replaces it.
+    const active = { ...returned, thesisGuidances: [...returned.thesisGuidances, { status: "completed", approvedDate: daysAgo(1) }] };
+    expect(getLastActivityAt(active)).toEqual(daysAgo(1));
   });
 });
 
@@ -60,7 +121,7 @@ describe("deriveActivityLevel", () => {
   });
 
   it("only applies to a thesis in research", () => {
-    const base = { updatedAt: daysAgo(200) };
+    const base = { startDate: daysAgo(200), statusChangedAt: daysAgo(200) };
     expect(getActivityLevel({ ...base, status: "research" }, NOW)).toBe(ACTIVITY_LEVEL.AT_RISK);
     for (const status of ["proposal", "on_leave", "completed", "failed"]) {
       expect(getActivityLevel({ ...base, status }, NOW)).toBeNull();
@@ -223,7 +284,15 @@ describe("formatSupervisionDuration", () => {
 describe("summarizeThesisProgress", () => {
   it("returns the derived fields that replace rating and deadlineDate", () => {
     const summary = summarizeThesisProgress(
-      { status: "research", startDate: daysAgo(400), totalLeaveDays: 0, updatedAt: daysAgo(130), createdAt: daysAgo(400) },
+      {
+        status: "research",
+        startDate: daysAgo(400),
+        statusChangedAt: daysAgo(400),
+        totalLeaveDays: 0,
+        updatedAt: daysAgo(1), // not an activity source
+        createdAt: daysAgo(400),
+        thesisGuidances: [{ status: "completed", approvedDate: daysAgo(130) }],
+      },
       NOW,
     );
     expect(summary).toMatchObject({

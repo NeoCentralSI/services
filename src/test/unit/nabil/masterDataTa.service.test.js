@@ -81,7 +81,11 @@ describe("getAllThesesMasterData", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     store.state.thesis = [
       { id: "A", status: "completed", updatedAt: daysAgo(90), student: { user: {} }, thesisSupervisors: [] },
-      { id: "B", status: "research", startDate: daysAgo(200), updatedAt: daysAgo(90), student: { user: {} }, thesisSupervisors: [] },
+      // Edited yesterday (updatedAt), last completed session 90 days ago: the edit is not activity.
+      {
+        id: "B", status: "research", startDate: daysAgo(200), updatedAt: daysAgo(1), student: { user: {} }, thesisSupervisors: [],
+        thesisGuidances: [{ status: "completed", phase: "research", approvedDate: daysAgo(90), completedAt: daysAgo(90) }],
+      },
       { id: "C", status: "research", startDate: daysAgo(10), updatedAt: daysAgo(1), student: { user: {} }, thesisSupervisors: [] },
     ];
     const result = await getAllThesesMasterData();

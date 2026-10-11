@@ -26,7 +26,10 @@ function thesisView(thesis) {
     ...thesis,
     academicYear: { id: "ay-1", year: "2026/2027", semester: "ganjil" },
     student: { id: thesis.studentId, user: user(thesis.studentId) },
-    thesisGuidances: [],
+    // Activity comes from the completed sessions, not from the thesis row.
+    thesisGuidances: world.state.guidances
+      .filter((g) => g.thesisId === thesis.id && g.status === "completed")
+      .map((g) => ({ status: g.status, approvedDate: g.approvedDate ?? null, completedAt: g.approvedDate ?? null })),
     thesisMilestones: [],
     thesisSeminars: world.state.seminars.filter((s) => s.thesisId === thesis.id),
     thesisGuidanceEvaluations: evaluations().filter((e) => e.thesisId === thesis.id),
@@ -117,7 +120,7 @@ function buildState({ startedMonthsAgo = 7 } = {}) {
     users: { [STUDENT]: "Mahasiswa Uji", [P1]: "Pembimbing Satu", [P2]: "Pembimbing Dua", [KADEP]: "Ketua Departemen" },
     theses: [{
       id: "T1", studentId: STUDENT, status: "research", title: "Judul TA", academicYearId: null,
-      startDate: monthsAgo(startedMonthsAgo, 1), totalLeaveDays: 0, createdAt: monthsAgo(startedMonthsAgo, 1), updatedAt: daysAgo(3),
+      startDate: monthsAgo(startedMonthsAgo, 1), totalLeaveDays: 0, createdAt: monthsAgo(startedMonthsAgo, 1),
     }],
     supervisors: [
       { id: "sup-1", thesisId: "T1", lecturerId: P1, roleName: "Pembimbing 1", status: "active", activeRoleKey: "T1:p1" },
@@ -125,8 +128,8 @@ function buildState({ startedMonthsAgo = 7 } = {}) {
     ],
     seminars: [],
     guidances: [
-      { id: "g1", thesisId: "T1", status: "completed" },
-      { id: "g2", thesisId: "T1", status: "completed" },
+      { id: "g1", thesisId: "T1", status: "completed", approvedDate: daysAgo(20) },
+      { id: "g2", thesisId: "T1", status: "completed", approvedDate: daysAgo(3) },
       { id: "g-open", thesisId: "T1", status: "accepted" },
       { id: "g-summary", thesisId: "T1", status: "summary_pending" },
     ],

@@ -45,9 +45,9 @@ const TOPIC_NAME = "Pengembangan Sistem (Enterprise Application)";
 /**
  * One entry per account.
  * - `startedMonthsAgo`: where the supervision clock starts (`startDate`).
- * - `lastActivityDaysAgo`: date of the last activity. It is written to `thesis.updatedAt`
- *   and to the latest completed session/milestone, so the derived activity level is the
- *   one named in the comment.
+ * - `lastActivityDaysAgo`: date of the last activity: the latest completed session and
+ *   milestone end on that day, so the derived activity level is the one named in the
+ *   comment. The thesis row's `updatedAt` is not an activity source.
  * - `completedGuidances` / `milestones`: completed research-phase sessions and milestones
  *   ({ total, completed }).
  * - `seminar`: a results seminar row with the given status.
@@ -633,8 +633,6 @@ async function seedAccount(account, ctx) {
       academicYearId: ctx.academicYear.id,
       startDate,
       createdAt: startDate,
-      // `updatedAt` is one of the activity sources, so it is written explicitly.
-      updatedAt: lastActivityAt,
       status: account.leave ? THESIS_STATUS.ON_LEAVE : THESIS_STATUS.RESEARCH,
       statusChangedAt: leaveStartedAt ?? startDate,
       ...(account.leave ? { statusBeforeLeave: THESIS_STATUS.RESEARCH, leaveStartedAt } : {}),

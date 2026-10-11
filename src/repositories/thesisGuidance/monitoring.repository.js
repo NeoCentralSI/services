@@ -141,6 +141,7 @@ export async function getThesesOverview(filters = {}) {
             id: true,
             status: true,
             progressPercentage: true,
+            completedAt: true,
             updatedAt: true,
           },
         },

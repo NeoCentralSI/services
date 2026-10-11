@@ -305,18 +305,21 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result.lastActivity).toBe(now.toISOString());
     });
 
-    it("falls back to thesis updatedAt if no specific activities exist", async () => {
-      const updatedAt = new Date();
+    it("falls back to the start of supervision if no activity exists (not to the row's updatedAt)", async () => {
+      const startDate = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
       mockRepo.getThesisDetailById.mockResolvedValue({
         ...THESIS_DETAIL,
-        updatedAt,
+        createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+        startDate,
+        statusChangedAt: startDate,
+        updatedAt: new Date(),
         thesisGuidances: [],
         thesisMilestones: [],
         thesisSeminars: [],
       });
 
       const result = await getThesisDetail("thesis-1");
-      expect(result.lastActivity).toBe(updatedAt.toISOString());
+      expect(result.lastActivity).toBe(startDate.toISOString());
     });
 
     it("throws 404 if thesis not found", async () => {
