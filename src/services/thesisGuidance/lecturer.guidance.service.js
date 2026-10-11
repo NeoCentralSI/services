@@ -58,6 +58,7 @@ import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
 import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
+import { ACTIVITY_LEVEL, THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
@@ -195,7 +196,11 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		thesisStatus: s.thesisStatus ?? null,
 		roles: s.role ? [s.role] : [],
 		supervisorStatus: s.supervisorStatus || null,
-		thesisRating: s.thesisRating || "ONGOING",
+		// Derived when read (E3)
+		activityLevel: s.activityLevel ?? null,
+		lastActivityAt: s.lastActivityAt ?? null,
+		daysSinceActivity: s.daysSinceActivity ?? null,
+		supervisionClock: s.supervisionClock ?? null,
 		latestMilestone: s.latestMilestone || "Belum mulai",
 		// Milestone progress info
 		totalMilestones: s.totalMilestones || 0,
@@ -206,7 +211,6 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		lastGuidanceDate: s.lastGuidanceDate ? formatDateTimeJakarta(s.lastGuidanceDate, { withDay: true }) : null,
 		// ISO value; the frontend formats it (Paket C, C5)
 		lastGuidanceAt: s.lastGuidanceDate || null,
-		deadlineDate: s.deadlineDate || null,
 		startDate: s.startDate || null
 	}));
 
@@ -244,14 +248,19 @@ export async function getStudentDetailService(userId, thesisId) {
 	// "Laporan terbaru" = attachment of the latest TA-phase session that has a file
 	const latestReport = await findLatestThesisReport(prisma, thesis.id);
 	const latestReportDocument = guidanceDocument(latestReport);
+	// Activity level and supervision clock are derived when read (E3).
+	const progressSource = await prisma.thesis.findUnique({ where: { id: thesis.id }, select: THESIS_PROGRESS_SELECT });
+	const progress = summarizeThesisProgress(progressSource ?? thesis);
 
 	return {
 		thesisId: thesis.id,
 		title: thesis.title,
 		status: thesis.status,
-		rating: thesis.rating,
+		activityLevel: progress.activityLevel,
+		lastActivityAt: progress.lastActivityAt,
+		daysSinceActivity: progress.daysSinceActivity,
+		supervisionClock: progress.supervisionClock,
 		startDate: thesis.startDate,
-		deadlineDate: thesis.deadlineDate,
 		student: {
 			id: thesis.student?.id,
 			fullName: thesis.student?.user?.fullName,
@@ -306,7 +315,6 @@ export async function getStudentDetailService(userId, thesisId) {
 			return { count: items.length, items };
 		})(),
 		startDateFormatted: thesis.startDate ? formatDateTimeJakarta(thesis.startDate) : null,
-		deadlineDateFormatted: thesis.deadlineDate ? formatDateTimeJakarta(thesis.deadlineDate) : null,
 		userRole: thesis.thesisSupervisors?.find(p => p.lecturer?.user?.id === userId)?.role?.name || null,
 	};
 }
@@ -1095,26 +1103,22 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 		throw err;
 	}
 
-	// Define warning messages based on type
+	// Warning text per activity level (`slow` | `at_risk`).
 	const warningMessages = {
-		SLOW: {
+		slow: {
 			title: "⚠️ Peringatan Progress Tugas Akhir",
 			body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
 			notifBody: `Progress tugas akhir Anda terdeteksi lambat. Dosen pembimbing ${lecturerName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`
 		},
-		AT_RISK: {
+		at_risk: {
 			title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-			body: `Halo ${toTitleCaseName(studentName)}, status tugas akhir Anda dalam kondisi BERISIKO. Segera hubungi dosen pembimbing untuk menghindari kegagalan.`,
-			notifBody: `Status tugas akhir Anda dalam kondisi BERISIKO. Dosen pembimbing ${lecturerName} meminta Anda segera menghubungi beliau.`
+			body: `Halo ${toTitleCaseName(studentName)}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
+			notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Dosen pembimbing ${lecturerName} meminta Anda segera menghubungi beliau.`
 		},
-		FAILED: {
-			title: "❌ Pemberitahuan Status Tugas Akhir",
-			body: `Halo ${toTitleCaseName(studentName)}, tugas akhir Anda telah melampaui batas waktu. Segera hubungi dosen pembimbing untuk langkah selanjutnya.`,
-			notifBody: `Tugas akhir Anda telah melampaui batas waktu. Segera lakukan pendaftaran ulang tugas akhir ke Departemen.`
-		}
 	};
 
-	const message = warningMessages[warningType] || warningMessages.SLOW;
+	const level = String(warningType || "").toLowerCase() === ACTIVITY_LEVEL.AT_RISK ? ACTIVITY_LEVEL.AT_RISK : ACTIVITY_LEVEL.SLOW;
+	const message = warningMessages[level];
 
 	// Send FCM notification
 	await sendFcmToUsers([studentUserId], {
@@ -1123,7 +1127,7 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 		data: {
 			type: "thesis_warning",
 			thesisId: thesis.id,
-			warningType
+			warningType: level
 		}
 	});
 

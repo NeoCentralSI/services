@@ -5,7 +5,7 @@
  * stand-in, so the rules are checked on real rows:
  * one open thesis per student, K15 transitions, `failed` (reason, released supervisors,
  * cancelled open sessions), `on_leave` (previous status + start date, return only to it),
- * rating never taken from input, P1/P2 rules, replaced supervisors kept as "released",
+ * activity level derived (never an input), P1/P2 rules, replaced supervisors kept as "released",
  * and per-row import errors.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,24 +77,31 @@ beforeEach(() => {
 });
 
 describe("getAllThesesMasterData", () => {
-  it("maps rows and hides the rating of a completed thesis", async () => {
+  it("maps rows with the derived activity level (only for a research thesis)", async () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     store.state.thesis = [
-      { id: "A", status: "completed", rating: "ONGOING", student: { user: {} }, thesisSupervisors: [] },
-      { id: "B", status: "research", rating: "SLOW", student: { user: {} }, thesisSupervisors: [] },
+      { id: "A", status: "completed", updatedAt: daysAgo(90), student: { user: {} }, thesisSupervisors: [] },
+      { id: "B", status: "research", startDate: daysAgo(200), updatedAt: daysAgo(90), student: { user: {} }, thesisSupervisors: [] },
+      { id: "C", status: "research", startDate: daysAgo(10), updatedAt: daysAgo(1), student: { user: {} }, thesisSupervisors: [] },
     ];
     const result = await getAllThesesMasterData();
-    expect(result.find((r) => r.id === "A").rating).toBeNull();
-    expect(result.find((r) => r.id === "B").rating).toBe("SLOW");
+    expect(result.find((r) => r.id === "A").activityLevel).toBeNull();
+    expect(result.find((r) => r.id === "B").activityLevel).toBe("slow");
+    expect(result.find((r) => r.id === "B").supervisionClock.evaluationDue).toBe("six_month");
+    expect(result.find((r) => r.id === "C").activityLevel).toBe("active");
+    expect(result[0]).not.toHaveProperty("rating");
   });
 });
 
 describe("K21 tambah TA", () => {
-  it("membuat TA research dengan P1/P2, tahun ajaran aktif, dan rating dari sistem (bukan input)", async () => {
+  it("membuat TA research dengan P1/P2 dan tahun ajaran aktif; rating/tenggat dari input diabaikan", async () => {
     const thesis = await createThesisMasterData(
-      { studentId: "S2", title: "TA Dua", thesisTopicId: "topic-ml", pembimbing1: "L1", pembimbing2: "L3", rating: "AT_RISK" },
+      { studentId: "S2", title: "TA Dua", thesisTopicId: "topic-ml", pembimbing1: "L1", pembimbing2: "L3", rating: "AT_RISK", deadlineDate: "2030-01-01" },
       { actorUserId: "admin" },
     );
-    expect(thesis).toMatchObject({ status: "research", academicYearId: "ay-1", rating: "ONGOING", thesisTopicId: "topic-ml" });
+    expect(thesis).toMatchObject({ status: "research", academicYearId: "ay-1", thesisTopicId: "topic-ml" });
+    expect(thesis).not.toHaveProperty("rating");
+    expect(thesis).not.toHaveProperty("deadlineDate");
     expect(thesis.statusChangedAt).toBeInstanceOf(Date);
     expect(supRows(thesis.id).map((s) => [s.lecturerId, s.roleId, s.status])).toEqual([
       ["L1", "r-p1", "active"],
@@ -195,9 +202,18 @@ describe("K21/K15 ubah status", () => {
     expect(thesisRow("T1")).toMatchObject({ status: "research", statusBeforeLeave: null, leaveStartedAt: null });
   });
 
-  it("rating tidak bisa diubah lewat data master", async () => {
-    await updateThesisMasterData("T1", { title: "Baru", rating: "ONGOING" });
-    expect(thesisRow("T1")).toMatchObject({ title: "Baru", rating: "SLOW" });
+  it("startDate bisa diubah lewat data master; rating dari input diabaikan", async () => {
+    await updateThesisMasterData("T1", { title: "Baru", rating: "ONGOING", startDate: "2025-01-15T00:00:00.000Z" });
+    expect(thesisRow("T1")).toMatchObject({ title: "Baru", startDate: new Date("2025-01-15T00:00:00.000Z") });
+    expect(thesisRow("T1").rating).toBe("SLOW"); // untouched fixture value, never written
+  });
+
+  it("kembali dari BSS menambah lama cuti ke totalLeaveDays", async () => {
+    const leaveStartedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 - 60_000);
+    Object.assign(thesisRow("T1"), { status: "on_leave", statusBeforeLeave: "research", leaveStartedAt });
+    await updateThesisMasterData("T1", { status: "research" });
+    expect(thesisRow("T1")).toMatchObject({ status: "research", leaveStartedAt: null });
+    expect(thesisRow("T1").totalLeaveDays).toEqual({ increment: 30 });
   });
 });
 
@@ -227,21 +243,21 @@ describe("K21 topik dan pembimbing", () => {
 describe("K21 impor", () => {
   const row = (extra) => ({ NIM: "2211520002", "Pembimbing 1": "Dr. Satu", ...extra });
 
-  it("baris gagal dilaporkan per baris, baris lain tetap diproses; kolom Rating diabaikan", async () => {
+  it("baris gagal dilaporkan per baris, baris lain tetap diproses; kolom Aktivitas diabaikan", async () => {
     const result = await importThesesMasterData([
-      row({ "Topik": "Machine Learning", "Rating": "Berisiko", "Status": "Penelitian" }), // baris 2: buat baru
+      row({ "Topik": "Machine Learning", "Aktivitas": "Berisiko", "Status": "Penelitian" }), // baris 2: buat baru
       { NIM: "2211520001", "Status": "Selesai" }, // baris 3: S1 research -> completed (boleh)
       { NIM: "9999999999" }, // baris 4: NIM tidak ada
       row({ NIM: "2211520003", "Status": "Gagal" }), // baris 5: S3 proposal -> failed tanpa alasan
       { NIM: "2211520003", "Status": "Entah" }, // baris 6: status tidak dikenal
       { NIM: "2211520003", "Pembimbing 1": "Dr. Tidak Ada" }, // baris 7: dosen tidak ada
     ]);
-    expect(result).toMatchObject({ success: 1, updated: 1, failed: 4, ignoredColumns: ["Rating"] });
+    expect(result).toMatchObject({ success: 1, updated: 1, failed: 4, ignoredColumns: ["Aktivitas"] });
     expect(result.errors.map((e) => e.split(":")[0])).toEqual(["Baris 4", "Baris 5", "Baris 6", "Baris 7"]);
     expect(result.errors[1]).toMatch(/Alasan penghentian/);
 
     const created = store.state.thesis.find((t) => t.studentId === "S2");
-    expect(created).toMatchObject({ status: "research", rating: "ONGOING", thesisTopicId: "topic-ml" });
+    expect(created).toMatchObject({ status: "research", thesisTopicId: "topic-ml" });
     expect(thesisRow("T1").status).toBe("completed");
     expect(thesisRow("T3").status).toBe("proposal");
   });

@@ -51,7 +51,7 @@ export const THESIS_TERMINATION_REASON = {
 
 /**
  * Fragmen `where` bersama untuk semua perhitungan fase TA (K6/K7): syarat minimal
- * bimbingan seminar, progres dan rating, monitoring, kesiapan seminar dan sidang.
+ * bimbingan seminar, progres dan aktivitas, monitoring, kesiapan seminar dan sidang.
  * Dipakai pada model yang punya kolom `phase` (ThesisGuidance, ThesisMilestone).
  */
 export const TA_PHASE = Object.freeze({ phase: THESIS_PHASE.RESEARCH });

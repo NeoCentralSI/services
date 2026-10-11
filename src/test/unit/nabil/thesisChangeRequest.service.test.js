@@ -64,7 +64,6 @@ const THESIS = {
   id: "thesis-1",
   title: "Old Thesis",
   studentId: STUDENT_ID,
-  rating: "ONGOING",
   student: { id: STUDENT_ID, user: { id: "user-mhs-1", fullName: "Budi", identityNumber: "123", email: "b@t.com" } },
   status: "research",
   thesisTopic: { id: "topic-old", name: "Old Topic" },

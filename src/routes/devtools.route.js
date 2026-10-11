@@ -461,7 +461,6 @@ router.get("/students", async (req, res, next) => {
           select: {
             id: true,
             title: true,
-            rating: true,
             proposalStatus: true,
             status: true,
           },
@@ -495,7 +494,7 @@ router.get("/students", async (req, res, next) => {
           ? {
             id: t.id,
             title: t.title,
-            status: t.status ?? t.rating,
+            status: t.status,
             proposalStatus: t.proposalStatus ?? null,
           }
           : null,
@@ -547,7 +546,6 @@ router.get("/students/:id", async (req, res, next) => {
           select: {
             id: true,
             title: true,
-            rating: true,
             proposalStatus: true,
             createdAt: true,
             status: true,
@@ -584,7 +582,7 @@ router.get("/students/:id", async (req, res, next) => {
         thesis: student.thesis.map((t) => ({
           id: t.id,
           title: t.title,
-          status: t.status ?? t.rating,
+          status: t.status,
           createdAt: t.createdAt,
         })),
       },
@@ -762,7 +760,6 @@ router.get("/thesis/:studentId", async (req, res, next) => {
       select: {
         id: true,
         title: true,
-        rating: true,
         createdAt: true,
         updatedAt: true,
         academicYearId: true,
@@ -783,7 +780,7 @@ router.get("/thesis/:studentId", async (req, res, next) => {
     const data = theses.map((t) => ({
       id: t.id,
       title: t.title,
-      status: t.status ?? t.rating,
+      status: t.status,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       academicYearId: t.academicYearId,

@@ -17,6 +17,7 @@ import {
 } from "../utils/supervisorIntegrity.js";
 import { syncQuotaCount } from "../utils/quotaSync.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
+import { summarizeThesisProgress } from "../helpers/thesis-progress.helper.js";
 
 const ALL_THESIS_STATUSES = Object.values(THESIS_STATUS);
 
@@ -66,13 +67,16 @@ export const getAllThesesMasterData = async () => {
     const theses = await masterDataTaRepository.findAllTheses();
 
     // Map data to the format expected by the frontend table
+    const now = new Date();
     return theses.map((thesis) => {
-        const isCompleted = thesis.status === THESIS_STATUS.COMPLETED;
+        const progress = summarizeThesisProgress(thesis, now);
 
         return {
             id: thesis.id,
             title: thesis.title,
-            rating: isCompleted ? null : thesis.rating,
+            // Derived, read-only: activity level and supervision clock (E3).
+            activityLevel: progress.activityLevel,
+            supervisionClock: progress.supervisionClock,
             startDate: thesis.startDate,
             student: {
                 id: thesis.student?.id,
@@ -127,7 +131,7 @@ async function assertTopicExists(client, thesisTopicId) {
 
 /**
  * K21 create: one open thesis per student, explicit status (default research), P1 required,
- * `failed` needs a termination reason. Rating is never taken from input (computed by the job).
+ * `failed` needs a termination reason. The activity level is derived, never an input.
  */
 export const createThesisMasterData = async (data, { actorUserId = null, client = prisma } = {}) => {
     const status = data.status ?? THESIS_STATUS.RESEARCH;
@@ -145,8 +149,6 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
     }
 
     const startDate = data.startDate ? new Date(data.startDate) : new Date();
-    const deadlineDate = data.deadlineDate ? new Date(data.deadlineDate) : new Date(startDate);
-    if (!data.deadlineDate) deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
 
     const run = async (tx) => {
         if (OPEN_THESIS_STATUSES.includes(status)) {
@@ -169,8 +171,6 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
                 thesisTopicId: data.thesisTopicId || null,
                 academicYearId: activeYear.id,
                 startDate,
-                deadlineDate,
-                rating: "ONGOING",
                 ...statusData,
             },
         });
@@ -200,7 +200,7 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
 /**
  * K21 update: status follows the K15 transitions (failed / on_leave rules in
  * thesisLifecycle.service), topic and supervisors can be set, replaced supervisors become
- * "released". Rating is not editable here.
+ * "released". `startDate` stays editable: it is where the supervision clock starts.
  */
 export const updateThesisMasterData = async (id, data, { actorUserId = null, client = prisma } = {}) => {
     const run = async (tx) => {
@@ -317,7 +317,7 @@ async function findLecturerByName(name) {
  * K21 import: each row follows the same rules as add/edit (one open thesis per student,
  * K15 transitions, `failed` needs "Alasan Penghentian", P1 required for a new thesis).
  * A failing row is reported with its row number and never stops the other rows.
- * The "Rating" column is ignored: rating is computed by the rating job.
+ * The "Aktivitas" column of an exported file is ignored: the activity level is derived.
  */
 export const importThesesMasterData = async (rows, { actorUserId = null } = {}) => {
     const results = {
@@ -325,7 +325,7 @@ export const importThesesMasterData = async (rows, { actorUserId = null } = {}) 
         updated: 0,
         failed: 0,
         errors: [],
-        ignoredColumns: ["Rating"],
+        ignoredColumns: ["Aktivitas"],
     };
 
     for (let i = 0; i < rows.length; i++) {

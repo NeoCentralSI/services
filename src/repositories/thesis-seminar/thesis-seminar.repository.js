@@ -626,7 +626,6 @@ export async function getStudentThesisWithSeminarInfo(studentId) {
     select: {
       id: true,
       title: true,
-      rating: true,
       thesisSupervisors: {
         select: {
           id: true,

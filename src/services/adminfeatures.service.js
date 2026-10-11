@@ -1615,7 +1615,6 @@ export async function getStudentDetail(userId) {
 			status: thesis.status || null,
 			topic: thesis.thesisTopic?.name || null,
 			startDate: thesis.startDate,
-			deadlineDate: thesis.deadlineDate,
 			supervisors,
 			examiners,
 			milestones: {
@@ -1953,11 +1952,11 @@ async function supervisorsToPembimbing(supervisors) {
 
 /**
  * K21: manual thesis creation follows the same rules as the data master (one open thesis
- * per student, K15 statuses, P1 required, rating computed). Not mounted on a route today;
+ * per student, K15 statuses, P1 required). Not mounted on a route today;
  * it delegates so a future route cannot bypass the rules.
  */
 export async function createThesisManually(payload = {}) {
-	const { studentId, title, status, academicYearId, thesisTopicId, startDate, deadlineDate, supervisors = [], actorUserId = null } = payload;
+	const { studentId, title, status, academicYearId, thesisTopicId, startDate, supervisors = [], actorUserId = null } = payload;
 	if (!studentId) {
 		const err = new Error("Mahasiswa wajib dipilih");
 		err.statusCode = 400;
@@ -1971,7 +1970,6 @@ export async function createThesisManually(payload = {}) {
 			academicYearId,
 			thesisTopicId,
 			startDate,
-			deadlineDate,
 			terminationReason: payload.terminationReason,
 			terminationNote: payload.terminationNote,
 			...(await supervisorsToPembimbing(supervisors)),
@@ -1981,7 +1979,7 @@ export async function createThesisManually(payload = {}) {
 	return prisma.thesis.findUnique({ where: { id: thesis.id }, include: thesisInclude });
 }
 
-/** K21: see createThesisManually; rating is not editable. */
+/** K21: see createThesisManually. */
 export async function updateThesisManually(id, payload = {}) {
 	const { title, status, academicYearId, thesisTopicId, startDate, actorUserId = null } = payload;
 	await updateThesisMasterData(
@@ -2009,7 +2007,8 @@ export async function deleteThesis(id, reason = null, actorUserId = null) {
 export async function getAvailableStudents() {
 	return prisma.student.findMany({
 		where: {
-			thesis: { none: { rating: "ONGOING" } },
+			// Students without an open (proposal / research / on leave) thesis.
+			thesis: { none: { status: { in: OPEN_THESIS_STATUSES } } },
 		},
 		include: { user: { omit: USER_CREDENTIAL_OMIT } },
 		orderBy: { user: { fullName: "asc" } },
@@ -2033,4 +2032,33 @@ export async function getSupervisorRoles() {
 export async function getThesisStatuses() {
 	// K15: statuses are an enum on thesis.status (no lookup table).
 	return Object.values(THESIS_STATUS).map((status) => ({ id: status, name: status }));
+}
+
+/**
+ * Get count of failed theses (status `failed`, K15)
+ */
+export async function getFailedThesesCount() {
+	return prisma.thesis.count({ where: { status: THESIS_STATUS.FAILED } });
+}
+
+/**
+ * Get list of failed theses (status `failed`, K15) with student info
+ */
+export async function getFailedTheses() {
+	return prisma.thesis.findMany({
+		where: { status: THESIS_STATUS.FAILED },
+		select: {
+			id: true,
+			title: true,
+			createdAt: true,
+			student: {
+				select: {
+					user: {
+						select: { id: true, fullName: true, identityNumber: true, email: true },
+					},
+				},
+			},
+		},
+		orderBy: { createdAt: "asc" },
+	});
 }

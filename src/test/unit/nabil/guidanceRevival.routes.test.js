@@ -166,9 +166,9 @@ describe("Otorisasi pembimbing dan GKM lewat route", () => {
 
   it("peringatan monitoring: mahasiswa 403 (guard), GKM 403 (service), KaDep 200", async () => {
     const path = "/thesisGuidance/monitoring/theses/t1/send-warning";
-    expect((await request(app).post(path).set(as("stu1")).send({ warningType: "SLOW" })).status).toBe(403);
-    expect((await request(app).post(path).set(as("gkm")).send({ warningType: "SLOW" })).status).toBe(403);
-    expect((await request(app).post(path).set(as("kadep")).send({ warningType: "SLOW" })).status).toBe(200);
+    expect((await request(app).post(path).set(as("stu1")).send({ warningType: "slow" })).status).toBe(403);
+    expect((await request(app).post(path).set(as("gkm")).send({ warningType: "slow" })).status).toBe(403);
+    expect((await request(app).post(path).set(as("kadep")).send({ warningType: "slow" })).status).toBe(200);
   });
 
   it("GKM tetap dapat membaca dashboard monitoring (akses baca dipertahankan)", async () => {

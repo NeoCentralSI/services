@@ -4,7 +4,13 @@ import {
   POST_PROPOSAL_THESIS_STATUSES,
   TA_PHASE,
 } from "../../constants/thesisStatus.js";
-import { THESIS_RATING_LABELS } from "../../constants/thesisLabels.js";
+import { THESIS_ACTIVITY_LABELS } from "../../constants/thesisLabels.js";
+import {
+  ACTIVITY_LEVEL,
+  THESIS_CLOCK_COLUMNS,
+  THESIS_PROGRESS_SELECT,
+  summarizeThesisProgress,
+} from "../../helpers/thesis-progress.helper.js";
 import { findLatestThesisReport as findLatestReport } from "../../helpers/guidanceFile.helper.js";
 import { SCHEDULED_GUIDANCE_STATUSES, getScheduledAt } from "../../constants/guidanceStatus.js";
 
@@ -93,11 +99,7 @@ export async function getThesesOverview(filters = {}) {
       select: {
         id: true,
         title: true,
-        rating: true,
-        createdAt: true,
-        updatedAt: true,
-        startDate: true,
-        deadlineDate: true,
+        ...THESIS_CLOCK_COLUMNS,
         student: {
           include: {
             user: {
@@ -191,50 +193,61 @@ export async function getStatusDistribution(academicYear) {
 }
 
 /**
- * Get thesis rating distribution summary (ONGOING, SLOW, AT_RISK, FAILED)
+ * Running (research) theses with everything the activity helpers read, plus the student
+ * and the active supervisors. The activity level is derived, so filters by level run on
+ * this result (the number of running theses is small).
  */
-export async function getRatingDistribution(academicYear) {
-  const where = {
-    status: RUNNING_TA,
-    rating: { notIn: ["FAILED", "CANCELLED"] },
-
-  };
-
+async function findRunningThesesWithActivity(academicYear) {
+  const where = { status: RUNNING_TA };
   if (academicYear) {
     Object.assign(where, await buildAcademicYearFilter(academicYear));
   }
-
-  const ratings = await prisma.thesis.groupBy({
-    by: ['rating'],
+  const theses = await prisma.thesis.findMany({
     where,
-    _count: {
-      rating: true,
+    select: {
+      id: true,
+      title: true,
+      ...THESIS_PROGRESS_SELECT,
+      student: {
+        select: {
+          user: { select: { fullName: true, identityNumber: true, email: true } },
+        },
+      },
+      thesisSupervisors: {
+        where: {
+          status: "active",
+          role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
+        },
+        select: {
+          lecturer: { select: { user: { select: { fullName: true } } } },
+          role: { select: { name: true } },
+        },
+      },
     },
   });
+  const now = new Date();
+  return theses.map((thesis) => ({ thesis, progress: summarizeThesisProgress(thesis, now) }));
+}
 
-  return ['ONGOING', 'SLOW', 'AT_RISK'].map((rating) => {
-    const found = ratings.find((r) => r.rating === rating);
-    return {
-      id: rating,
-      name: THESIS_RATING_LABELS[rating],
-      value: rating,
-      count: found?._count?.rating || 0,
-    };
-  });
+/**
+ * Activity level distribution of running theses (Lancar / Lambat / Berisiko)
+ */
+export async function getActivityDistribution(academicYear) {
+  const rows = await findRunningThesesWithActivity(academicYear);
+  return Object.values(ACTIVITY_LEVEL).map((level) => ({
+    id: level,
+    name: THESIS_ACTIVITY_LABELS[level],
+    value: level,
+    count: rows.filter((row) => row.progress.activityLevel === level).length,
+  }));
 }
 
 /**
  * Get overall progress statistics
  */
 export async function getProgressStatistics(academicYear) {
-  // Build where clause
-  // Active means it has rating ONGOING, SLOW, or AT_RISK
-  // FAILED and CANCELLED are not active
-  const where = {
-    status: RUNNING_TA,
-    rating: { in: ["ONGOING", "SLOW", "AT_RISK"] },
-
-  };
+  // Running theses only (status `research`).
+  const where = { status: RUNNING_TA };
 
   if (academicYear) {
     Object.assign(where, await buildAcademicYearFilter(academicYear));
@@ -292,214 +305,41 @@ export async function getProgressStatistics(academicYear) {
 }
 
 /**
- * Get at-risk students (no activity for more than 2 months)
+ * Running theses at one activity level, longest without activity first.
  */
-export async function getAtRiskStudents(limit = 10, academicYear) {
-  const where = {
-    status: RUNNING_TA,
-    rating: "AT_RISK",
-
-  };
-
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
-
-  const theses = await prisma.thesis.findMany({
-    where,
-    include: {
+export async function getStudentsByActivityLevel(level, limit = 10, academicYear) {
+  const rows = await findRunningThesesWithActivity(academicYear);
+  return rows
+    .filter((row) => row.progress.activityLevel === level)
+    .map(({ thesis: t, progress }) => ({
+      thesisId: t.id,
+      title: t.title,
       student: {
-        include: {
-          user: {
-            select: {
-              fullName: true,
-              identityNumber: true,
-              email: true,
-            },
-          },
-        },
+        name: t.student?.user?.fullName,
+        nim: t.student?.user?.identityNumber,
+        email: t.student?.user?.email,
       },
-      thesisMilestones: {
-        where: TA_PHASE,
-        orderBy: { updatedAt: "desc" },
-        take: 1,
-        select: {
-          updatedAt: true,
-        },
-      },
-      thesisGuidances: {
-        where: { status: "completed", ...TA_PHASE },
-        orderBy: { approvedDate: "desc" },
-        take: 1,
-        select: {
-          approvedDate: true,
-          completedAt: true,
-        },
-      },
-      thesisSupervisors: {
-        where: {
-          status: "active",
-          role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
-        },
-        include: {
-          lecturer: {
-            include: {
-              user: { select: { fullName: true } },
-            },
-          },
-          role: true,
-        },
-      },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  // Filter and calculate days since last activity
-  const atRisk = theses
-    .map((t) => {
-      const latestGuidance = t.thesisGuidances?.[0];
-      const latestMilestone = t.thesisMilestones?.[0];
-      const latestSeminar = t.thesisSeminars?.[0];
-
-      const activityDates = [
-        latestGuidance?.approvedDate || latestGuidance?.completedAt,
-        latestMilestone?.updatedAt,
-        latestSeminar?.updatedAt,
-        t.updatedAt
-      ].filter(Boolean).map(d => new Date(d).getTime());
-
-      const lastActivity = activityDates.length > 0
-        ? new Date(Math.max(...activityDates)).toISOString()
-        : t.updatedAt;
-
-      const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
-
-      return {
-        thesisId: t.id,
-        title: t.title,
-        student: {
-          name: t.student?.user?.fullName,
-          nim: t.student?.user?.identityNumber,
-          email: t.student?.user?.email,
-        },
-        status: t.status,
-        lastActivity,
-        daysSinceActivity,
-        supervisors: t.thesisSupervisors.map((p) => ({
-          name: p.lecturer?.user?.fullName,
-          role: p.role?.name,
-        })),
-      };
-    })
+      status: t.status,
+      activityLevel: progress.activityLevel,
+      lastActivity: progress.lastActivityAt ? progress.lastActivityAt.toISOString() : null,
+      daysSinceActivity: progress.daysSinceActivity ?? 0,
+      supervisionClock: progress.supervisionClock,
+      supervisors: t.thesisSupervisors.map((p) => ({
+        name: p.lecturer?.user?.fullName,
+        role: p.role?.name,
+      })),
+    }))
     .sort((a, b) => b.daysSinceActivity - a.daysSinceActivity)
     .slice(0, limit);
-
-  return atRisk;
 }
 
-/**
- * Get slow students (rating SLOW)
- */
-export async function getSlowStudents(limit = 10, academicYear) {
-  const where = {
-    status: RUNNING_TA,
-    rating: "SLOW",
+/** Students without activity for more than 120 days. */
+export const getAtRiskStudents = (limit = 10, academicYear) =>
+  getStudentsByActivityLevel(ACTIVITY_LEVEL.AT_RISK, limit, academicYear);
 
-  };
-
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
-
-  const theses = await prisma.thesis.findMany({
-    where,
-    include: {
-      student: {
-        include: {
-          user: {
-            select: {
-              fullName: true,
-              identityNumber: true,
-              email: true,
-            },
-          },
-        },
-      },
-      thesisMilestones: {
-        where: TA_PHASE,
-        orderBy: { updatedAt: "desc" },
-        take: 1,
-        select: {
-          updatedAt: true,
-        },
-      },
-      thesisGuidances: {
-        where: { status: "completed", ...TA_PHASE },
-        orderBy: { approvedDate: "desc" },
-        take: 1,
-        select: {
-          approvedDate: true,
-          completedAt: true,
-        },
-      },
-      thesisSupervisors: {
-        where: {
-          status: "active",
-          role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } },
-        },
-        include: {
-          lecturer: {
-            include: {
-              user: { select: { fullName: true } },
-            },
-          },
-          role: true,
-        },
-      },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  const slow = theses
-    .map((t) => {
-      const latestGuidance = t.thesisGuidances?.[0];
-      const latestMilestone = t.thesisMilestones?.[0];
-      const latestSeminar = t.thesisSeminars?.[0];
-
-      const activityDates = [
-        latestGuidance?.approvedDate || latestGuidance?.completedAt,
-        latestMilestone?.updatedAt,
-        latestSeminar?.updatedAt,
-        t.updatedAt
-      ].filter(Boolean).map(d => new Date(d).getTime());
-
-      const lastActivity = activityDates.length > 0
-        ? new Date(Math.max(...activityDates)).toISOString()
-        : t.updatedAt;
-
-      const daysSinceActivity = Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
-
-      return {
-        thesisId: t.id,
-        title: t.title,
-        student: {
-          name: t.student?.user?.fullName,
-          nim: t.student?.user?.identityNumber,
-          email: t.student?.user?.email,
-        },
-        status: t.status,
-        lastActivity,
-        daysSinceActivity,
-        supervisors: t.thesisSupervisors.map((p) => ({
-          name: p.lecturer?.user?.fullName,
-          role: p.role?.name,
-        })),
-      };
-    })
-    .slice(0, limit);
-
-  return slow;
-}
+/** Students without activity for 60 to 120 days. */
+export const getSlowStudents = (limit = 10, academicYear) =>
+  getStudentsByActivityLevel(ACTIVITY_LEVEL.SLOW, limit, academicYear);
 
 /**
  * Get students ready for seminar
@@ -795,10 +635,11 @@ export function findLatestThesisReport(thesisId) {
  * @param {Object} options - Filter options
  * @param {string} options.academicYearId - Academic year ID
  * @param {string[]} options.statusIds - Array of status IDs
- * @param {string[]} options.ratings - Array of ratings
+ * @param {string[]} options.activityLevels - Activity levels to keep (filtered after reading,
+ *   because the level is derived)
  */
 export async function getThesesForReport(options = {}) {
-  const { academicYearId, statusIds, ratings } = options;
+  const { academicYearId, statusIds, activityLevels } = options;
   const where = { status: { in: POST_PROPOSAL_THESIS_STATUSES } };
 
   if (academicYearId && academicYearId !== 'all') {
@@ -807,10 +648,6 @@ export async function getThesesForReport(options = {}) {
 
   if (statusIds && Array.isArray(statusIds) && statusIds.length > 0) {
     where.status = statusFilter(statusIds);
-  }
-
-  if (ratings && Array.isArray(ratings) && ratings.length > 0) {
-    where.rating = { in: ratings };
   }
 
   const theses = await prisma.thesis.findMany({
@@ -860,18 +697,25 @@ export async function getThesesForReport(options = {}) {
         select: {
           id: true,
           status: true,
+          approvedDate: true,
           completedAt: true,
           createdAt: true,
         },
         orderBy: { completedAt: "desc" },
       },
+      thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
     },
     orderBy: [
       { student: { user: { fullName: "asc" } } },
     ],
   });
 
-  return theses;
+  const now = new Date();
+  const withProgress = theses.map((thesis) => ({ ...thesis, progress: summarizeThesisProgress(thesis, now) }));
+  if (Array.isArray(activityLevels) && activityLevels.length > 0) {
+    return withProgress.filter((thesis) => activityLevels.includes(thesis.progress.activityLevel));
+  }
+  return withProgress;
 }
 
 /**
@@ -954,11 +798,7 @@ export async function getBatchDistribution(academicYear) {
  * Get progress distribution - count of theses per progress bucket
  */
 export async function getProgressDistribution(academicYear) {
-  const where = {
-    status: RUNNING_TA,
-    rating: { in: ["ONGOING", "SLOW", "AT_RISK"] },
-
-  };
+  const where = { status: RUNNING_TA };
   if (academicYear) {
     Object.assign(where, await buildAcademicYearFilter(academicYear));
   }

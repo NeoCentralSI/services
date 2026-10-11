@@ -5,7 +5,8 @@ import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import { THESIS_STATUS } from "../../constants/thesisStatus.js";
-import { getThesisStatusLabel, getThesisRatingLabel } from "../../constants/thesisLabels.js";
+import { getThesisStatusLabel, getThesisActivityLabel, getEvaluationDueLabel } from "../../constants/thesisLabels.js";
+import { ACTIVITY_LEVEL, THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
@@ -23,60 +24,24 @@ function toTitleCaseName(str) {
     .join(" ");
 }
 
-/**
- * Calculate last activity date from multiple sources (guidance, milestone, seminar)
- */
-function calculateLastActivity(thesis) {
-  const dates = [];
-
-  // 1. Guidance approvals
-  const latestGuidance = (thesis.thesisGuidances || []).sort((a, b) => 
-    new Date(b.approvedDate || b.completedAt || 0).getTime() - 
-    new Date(a.approvedDate || a.completedAt || 0).getTime()
-  )[0];
-  if (latestGuidance) {
-    const d = latestGuidance.approvedDate || latestGuidance.completedAt;
-    if (d) dates.push(new Date(d));
-  }
-
-  // 2. Milestone completions/updates
-  const latestMilestone = (thesis.thesisMilestones || []).filter(m => m.status === "completed").sort((a, b) => 
-    new Date(b.updatedAt || b.completedAt || 0).getTime() - 
-    new Date(a.updatedAt || a.completedAt || 0).getTime()
-  )[0];
-  if (latestMilestone) {
-    const d = latestMilestone.updatedAt || latestMilestone.completedAt;
-    if (d) dates.push(new Date(d));
-  }
-
-  // 3. Seminar updates/approvals
-  const latestSeminar = (thesis.thesisSeminars || []).sort((a, b) => 
-    new Date(b.updatedAt || 0).getTime() - 
-    new Date(a.updatedAt || 0).getTime()
-  )[0];
-  if (latestSeminar) {
-    if (latestSeminar.updatedAt) dates.push(new Date(latestSeminar.updatedAt));
-  }
-
-  // Fallback to thesis updatedAt
-  if (thesis.updatedAt) dates.push(new Date(thesis.updatedAt));
-
-  if (dates.length === 0) return thesis.createdAt;
-
-  // Return the maximum date
-  const validDates = dates.filter(d => !isNaN(d.getTime()));
-  if (validDates.length === 0) return thesis.createdAt || new Date().toISOString();
-
-  return new Date(Math.max(...validDates.map(d => d.getTime()))).toISOString();
+/** Derived progress fields of a thesis, shaped for API responses. */
+function progressFields(thesis, now = new Date()) {
+  const progress = summarizeThesisProgress(thesis, now);
+  return {
+    activityLevel: progress.activityLevel,
+    lastActivity: progress.lastActivityAt ? progress.lastActivityAt.toISOString() : null,
+    daysSinceActivity: progress.daysSinceActivity,
+    supervisionClock: progress.supervisionClock,
+  };
 }
 
 /**
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [statusDistribution, ratingDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, supervisorLoads, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
+  const [statusDistribution, activityDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, supervisorLoads, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
-    monitoringRepository.getRatingDistribution(academicYear),
+    monitoringRepository.getActivityDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
     monitoringRepository.getAtRiskStudents(5, academicYear),
     monitoringRepository.getStudentsReadyForSeminar(academicYear),
@@ -92,11 +57,11 @@ export async function getMonitoringDashboard(academicYear) {
     summary: {
       ...progressStats,
       totalReadyForSeminar: readyForSeminar.length,
-      totalAtRisk: atRiskStudents.length,
-      totalSlow: ratingDistribution.find((r) => r.id === "SLOW")?.count || 0,
+      totalAtRisk: activityDistribution.find((r) => r.id === ACTIVITY_LEVEL.AT_RISK)?.count || 0,
+      totalSlow: activityDistribution.find((r) => r.id === ACTIVITY_LEVEL.SLOW)?.count || 0,
     },
     statusDistribution,
-    ratingDistribution,
+    activityDistribution,
     topicDistribution,
     batchDistribution,
     progressDistribution,
@@ -183,6 +148,7 @@ export async function getThesesList(filters) {
   const { theses, total, page, pageSize } = await monitoringRepository.getThesesOverview(filters);
 
   const allAcademicYears = await monitoringRepository.getAllAcademicYears();
+  const now = new Date();
 
   const formattedTheses = theses.map((t) => {
     const milestones = t.thesisMilestones || [];
@@ -190,8 +156,8 @@ export async function getThesesList(filters) {
     const totalMilestones = milestones.length;
     const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-    // Get last activity from multiple indicators (guidance, milestone, seminar)
-    const lastActivity = calculateLastActivity(t);
+    // Activity level and supervision clock are derived when read (E3).
+    const progress = progressFields(t, now);
 
     // Get supervisors
     const pembimbing1 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
@@ -222,7 +188,8 @@ export async function getThesesList(filters) {
     return {
       id: t.id,
       title: t.title,
-      rating: t.rating || 'ONGOING',
+      ...progress,
+      startDate: t.startDate,
       student: {
         id: t.student?.id,
         userId: t.student?.user?.id,
@@ -262,8 +229,6 @@ export async function getThesesList(filters) {
           isFullyApproved: (sup1 ? s1 : true) && (sup2 ? s2 : true),
         };
       })(),
-      lastActivity,
-      deadlineDate: t.deadlineDate,
       createdAt: t.createdAt,
     };
   });
@@ -396,8 +361,8 @@ export async function getThesisDetail(thesisId) {
   const totalMilestones = milestones.length;
   const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-  // Get last activity from multiple indicators (guidance, milestone, seminar)
-  const lastActivity = calculateLastActivity(thesis);
+  // Activity level and supervision clock are derived when read (E3).
+  const progress = progressFields(thesis);
 
   // Separate supervisors and examiners
   const supervisors = thesis.thesisSupervisors
@@ -477,15 +442,13 @@ export async function getThesisDetail(thesisId) {
     id: thesis.id,
     title: thesis.title,
     status: thesis.status,
-    rating: thesis.rating || 'ONGOING',
+    ...progress,
     topic: thesis.thesisTopic?.name || null,
     academicYear: thesis.academicYear
       ? `${thesis.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${thesis.academicYear.year}`
       : null,
     startDate: thesis.startDate,
-    deadlineDate: thesis.deadlineDate,
     createdAt: thesis.createdAt,
-    lastActivity,
     seminarApproval: (() => {
       const sup1 = thesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
       const sup2 = thesis.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
@@ -535,6 +498,11 @@ export async function getThesisDetail(thesisId) {
     seminars,
     defences,
   };
+}
+
+/** Warning level from the client: `slow` or `at_risk` (anything else falls back to `slow`). */
+function normalizeWarningLevel(warningType) {
+  return String(warningType || "").toLowerCase() === ACTIVITY_LEVEL.AT_RISK ? ACTIVITY_LEVEL.AT_RISK : ACTIVITY_LEVEL.SLOW;
 }
 
 /**
@@ -598,26 +566,22 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     throw err;
   }
 
-  // Define warning messages based on type
+  // Warning text per activity level (`slow` | `at_risk`).
   const warningMessages = {
-    SLOW: {
+    slow: {
       title: "⚠️ Peringatan Progress Tugas Akhir",
       body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
       notifBody: `Progress tugas akhir Anda terdeteksi lambat. Departemen mengingatkan Anda untuk segera menjadwalkan bimbingan.`
     },
-    AT_RISK: {
+    at_risk: {
       title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-      body: `Halo ${toTitleCaseName(studentName)}, status tugas akhir Anda dalam kondisi BERISIKO. Segera hubungi dosen pembimbing untuk menghindari kegagalan.`,
-      notifBody: `Status tugas akhir Anda dalam kondisi BERISIKO. Departemen meminta Anda segera menghubungi dosen pembimbing.`
+      body: `Halo ${toTitleCaseName(studentName)}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
+      notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Departemen meminta Anda segera menghubungi dosen pembimbing.`
     },
-    FAILED: {
-      title: "❌ Pemberitahuan Status Tugas Akhir",
-      body: `Halo ${toTitleCaseName(studentName)}, tugas akhir Anda telah melampaui batas waktu. Segera hubungi dosen pembimbing untuk langkah selanjutnya.`,
-      notifBody: `Tugas akhir Anda telah melampaui batas waktu. Silakan hubungi dosen pembimbing atau Departemen.`
-    }
   };
 
-  const message = warningMessages[warningType] || warningMessages.SLOW;
+  const level = normalizeWarningLevel(warningType);
+  const message = warningMessages[level];
 
   // Send FCM notification
   await sendFcmToUsers([studentUserId], {
@@ -626,7 +590,7 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     data: {
       type: "thesis_warning",
       thesisId: thesis.id,
-      warningType
+      warningType: level
     }
   });
 
@@ -683,12 +647,14 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
     }
   }
 
-  // Get all theses with student user info
+  // Get all theses with student user info and what the activity helper reads
   const theses = await prisma.thesis.findMany({
     where: { id: { in: thesisIds } },
-    include: {
+    select: {
+      id: true,
+      ...THESIS_PROGRESS_SELECT,
       student: {
-        include: {
+        select: {
           user: { select: { id: true, fullName: true } }
         }
       }
@@ -699,27 +665,29 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
     throw new Error("Tidak ada data tugas akhir yang ditemukan");
   }
 
-  // Define warning messages based on type
+  // Warning text per activity level (`slow` | `at_risk`).
   const warningMessages = {
-    SLOW: {
+    slow: {
       title: "⚠️ Peringatan: Progress Tugas Akhir",
-      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari. Segera lakukan bimbingan dengan dosen pembimbing Anda sebelum deadline tugas akhir Anda berakhir.`,
+      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
       notifBody: (days) => `Anda tidak ada update progress selama ${days} hari. Segera hubungi dosen pembimbing Anda.`
     },
-    AT_RISK: {
+    at_risk: {
       title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari (Status: BERISIKO). Segera lakukan bimbingan dengan dosen pembimbing Anda sebelum deadline tugas akhir Anda berakhir.`,
-      notifBody: (days) => `Progress Anda terhenti selama ${days} hari (BERISIKO). Segera hubungi dosen pembimbing untuk menghindari kegagalan.`
+      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
+      notifBody: (days) => `Progress Anda terhenti selama ${days} hari (aktivitas: Berisiko). Segera hubungi dosen pembimbing Anda.`
     }
   };
 
-  const messageConfig = warningMessages[warningType] || warningMessages.SLOW;
+  const level = normalizeWarningLevel(warningType);
+  const messageConfig = warningMessages[level];
+  const now = new Date();
 
   // Process notifications in batches
   const results = await Promise.allSettled(theses.map(async (thesis) => {
     const studentUserId = thesis.student?.user?.id;
     const studentName = thesis.student?.user?.fullName || "Mahasiswa";
-    const daysSinceActivity = thesis.daysSinceActivity || 0;
+    const daysSinceActivity = summarizeThesisProgress(thesis, now).daysSinceActivity ?? 0;
 
     if (!studentUserId) return;
 
@@ -730,7 +698,7 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
       data: {
         type: "thesis_warning",
         thesisId: thesis.id,
-        warningType
+        warningType: level
       }
     });
 
@@ -753,7 +721,7 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
 
 /**
  * Get comprehensive progress report data for PDF generation
- * @param {Object} options - Filter options (academicYearId, statusIds, ratings)
+ * @param {Object} options - Filter options (academicYearId, statusIds, activityLevels)
  */
 export async function getProgressReportService(options = {}) {
   const { academicYearId } = options;
@@ -766,9 +734,9 @@ export async function getProgressReportService(options = {}) {
   const theses = await monitoringRepository.getThesesForReport(options);
 
   // Get statistics
-  const [statusDistribution, ratingDistribution] = await Promise.all([
+  const [statusDistribution, activityDistribution] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYearId),
-    monitoringRepository.getRatingDistribution(academicYearId),
+    monitoringRepository.getActivityDistribution(academicYearId),
   ]);
 
   // Calculate summary statistics
@@ -808,7 +776,9 @@ export async function getProgressReportService(options = {}) {
       title: t.title || "-",
       topic: t.thesisTopic?.name || "-",
       status: t.status || "-",
-      rating: t.rating || "ONGOING",
+      activityLevel: t.progress?.activityLevel ?? null,
+      supervisionLabel: t.progress?.supervisionClock?.elapsedLabel ?? "-",
+      evaluationDue: t.progress?.supervisionClock?.evaluationDue ?? null,
       pembimbing1: toTitleCaseName(pembimbing1?.lecturer?.user?.fullName || "-"),
       pembimbing2: toTitleCaseName(pembimbing2?.lecturer?.user?.fullName || "-"),
       guidanceTotal: guidances.length,
@@ -818,7 +788,6 @@ export async function getProgressReportService(options = {}) {
       milestoneCompleted: completedMilestoneCount,
       progressPercent,
       startDate: t.startDate,
-      deadlineDate: t.deadlineDate,
       createdAt: t.createdAt,
     };
   });
@@ -845,7 +814,7 @@ export async function getProgressReportService(options = {}) {
     generatedAt: new Date().toISOString(),
     summary,
     statusDistribution,
-    ratingDistribution,
+    activityDistribution,
     theses: reportData,
   };
 }
@@ -937,8 +906,8 @@ function buildMonitoringReportXml(reportData) {
       ${makeCell("Nama / NIM", { bold: true, center: true, fontSize: 20 })}
       ${makeCell("Judul / Topik", { bold: true, center: true, fontSize: 20 })}
       ${makeCell("Pembimbing", { bold: true, center: true, fontSize: 20 })}
-      ${makeCell("Mulai / Deadline", { bold: true, center: true, fontSize: 20 })}
-      ${makeCell("Rating / Progress", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Mulai / Masa Bimbingan", { bold: true, center: true, fontSize: 20 })}
+      ${makeCell("Aktivitas / Progress", { bold: true, center: true, fontSize: 20 })}
       ${makeCell("Status / Bimbingan Terakhir", { bold: true, center: true, fontSize: 20 })}
     </w:tr>`;
 
@@ -950,13 +919,14 @@ function buildMonitoringReportXml(reportData) {
         pembimbingText += `\n${t.pembimbing2}`;
       }
       // §2.2b: enum values are never printed raw in the report.
-      const ratingLabel = getThesisRatingLabel(t.rating);
+      const activityLabel = getThesisActivityLabel(t.activityLevel);
 
       const identity = `${t.name}\n${t.nim}`;
       const info = `${t.title}\n(${t.topic})`;
-      const dates = `${formatDateLong(t.startDate)}\n${formatDateLong(t.deadlineDate)}`;
+      const dueLabel = t.evaluationDue ? `\n${getEvaluationDueLabel(t.evaluationDue)}` : "";
+      const dates = `${formatDateLong(t.startDate)}\n${t.supervisionLabel}${dueLabel}`;
       const statusInfo = `${getThesisStatusLabel(t.status)}\n${formatDateLong(t.lastGuidanceDate)}`;
-      const progressInfo = `${ratingLabel}\n${t.progressPercent}%`;
+      const progressInfo = `${activityLabel}\n${t.progressPercent}%`;
 
       return `
       <w:tr>
@@ -1099,7 +1069,7 @@ function extractHeaderFromDocXml(body) {
 
 /**
  * Generate progress report PDF using the catatan template header
- * @param {Object} options - Filter options (academicYearId, statusIds, ratings)
+ * @param {Object} options - Filter options (academicYearId, statusIds, activityLevels)
  * @returns {{ buffer: Buffer, filename: string }}
  */
 export async function generateProgressReportPdfService(options = {}) {

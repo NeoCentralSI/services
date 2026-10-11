@@ -28,6 +28,7 @@ import {
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { ForbiddenError } from "../../utils/errors.js";
+import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
 import {
   THESIS_STATUS,
   POST_PROPOSAL_THESIS_STATUSES,
@@ -1539,14 +1540,20 @@ export async function getMyThesisDetailService(userId) {
       role: p.role?.name || null,
     }));
 
+  // Activity level and supervision clock are derived when read (E3).
+  const progressSource = await prisma.thesis.findUnique({ where: { id: fullThesis.id }, select: THESIS_PROGRESS_SELECT });
+  const progress = summarizeThesisProgress(progressSource ?? fullThesis);
+
   return {
     thesis: {
       id: fullThesis.id,
       title: fullThesis.title,
       status: fullThesis.status,
-      rating: fullThesis.rating || null,
+      activityLevel: progress.activityLevel,
+      lastActivityAt: progress.lastActivityAt,
+      daysSinceActivity: progress.daysSinceActivity,
+      supervisionClock: progress.supervisionClock,
       startDate: fullThesis.startDate || null,
-      deadlineDate: fullThesis.deadlineDate || null,
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,
       // Student info
@@ -1686,7 +1693,6 @@ export async function getThesisHistoryService(userId) {
       id: t.id,
       title: t.title,
       status: t.status,
-      rating: t.rating || "ONGOING",
       topic: t.thesisTopic?.name || "-",
       academicYear: t.academicYear
         ? `${t.academicYear.year.includes("/") ? t.academicYear.year : `${t.academicYear.year}/${parseInt(t.academicYear.year) + 1}`} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`

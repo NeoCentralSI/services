@@ -1,5 +1,4 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs } from "../services/adminfeatures.service.js";
-import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs, getFailedThesesCount, getFailedTheses } from "../services/adminfeatures.service.js";
 import { getPendingCount } from "../services/thesisChangeRequest.service.js";
 
 export async function importStudentsCsv(req, res, next) {
@@ -229,7 +228,6 @@ export async function getFailedThesesController(req, res, next) {
 			data: theses.map((t) => ({
 				id: t.id,
 				title: t.title,
-				rating: t.rating,
 				createdAt: t.createdAt,
 				student: {
 					id: t.student?.user?.id,

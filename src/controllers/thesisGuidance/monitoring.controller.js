@@ -188,11 +188,11 @@ export async function sendBatchWarnings(req, res, next) {
  */
 export async function getProgressReport(req, res, next) {
   try {
-    const { academicYear, statusIds, ratings } = req.query;
+    const { academicYear, statusIds, activityLevels } = req.query;
     const options = {
       academicYearId: academicYear,
       statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
-      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+      activityLevels: Array.isArray(activityLevels) ? activityLevels : (activityLevels ? activityLevels.split(",") : []),
     };
     const data = await monitoringService.getProgressReportService(options);
     res.json({
@@ -210,11 +210,11 @@ export async function getProgressReport(req, res, next) {
  */
 export async function downloadProgressReport(req, res, next) {
   try {
-    const { academicYear, statusIds, ratings } = req.query;
+    const { academicYear, statusIds, activityLevels } = req.query;
     const options = {
       academicYearId: academicYear,
       statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
-      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+      activityLevels: Array.isArray(activityLevels) ? activityLevels : (activityLevels ? activityLevels.split(",") : []),
     };
     const result = await monitoringService.generateProgressReportPdfService(options);
     res.setHeader("Content-Type", "application/pdf");

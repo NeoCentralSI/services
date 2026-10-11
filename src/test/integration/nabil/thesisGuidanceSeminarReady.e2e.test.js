@@ -96,7 +96,6 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
         academicYearId: activeAcademicYear.id,
         title: "Rancang Bangun Sistem Realtime IoT Menggunakan WebSockets",
         proposalStatus: "accepted",
-        rating: "ONGOING",
         startDate: new Date(),
         thesisSupervisors: {
           create: [

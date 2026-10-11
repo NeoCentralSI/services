@@ -9,14 +9,17 @@ import {
   THESIS_STATUS_LABELS,
   THESIS_PHASE_LABELS,
   THESIS_TERMINATION_REASON_LABELS,
-  THESIS_RATING_LABELS,
+  THESIS_ACTIVITY_LABELS,
+  EVALUATION_DUE_LABELS,
   GUIDANCE_STATUS_LABELS,
   GUIDANCE_ACTOR_LABELS,
   MILESTONE_STATUS_LABELS,
   getThesisStatusLabel,
-  getThesisRatingLabel,
+  getThesisActivityLabel,
+  getEvaluationDueLabel,
 } from "../../../constants/thesisLabels.js";
 import { THESIS_STATUS, THESIS_PHASE, THESIS_TERMINATION_REASON } from "../../../constants/thesisStatus.js";
+import { ACTIVITY_LEVEL, EVALUATION_DUE } from "../../../helpers/thesis-progress.helper.js";
 
 const enumValues = (name) => {
   const found = generated.Prisma.dmmf.datamodel.enums.find((e) => e.name === name);
@@ -29,7 +32,6 @@ describe("label bahasa Indonesia untuk enum TA", () => {
     ["ThesisLifecycleStatus", THESIS_STATUS_LABELS],
     ["ThesisPhase", THESIS_PHASE_LABELS],
     ["ThesisTerminationReason", THESIS_TERMINATION_REASON_LABELS],
-    ["ThesisRating", THESIS_RATING_LABELS],
     // Paket B: status sesi bimbingan, pihak pembatal, dan status milestone.
     ["GuidanceStatus", GUIDANCE_STATUS_LABELS],
     ["GuidanceActor", GUIDANCE_ACTOR_LABELS],
@@ -58,8 +60,15 @@ describe("label bahasa Indonesia untuk enum TA", () => {
       failed: "Gagal",
     });
     expect(THESIS_PHASE_LABELS).toEqual({ proposal: "Proposal", research: "Tugas Akhir" });
-    expect(THESIS_RATING_LABELS.ONGOING).toBe("Lancar");
     expect(getThesisStatusLabel("on_leave")).toBe("Berhenti Studi Sementara (BSS)");
-    expect(getThesisRatingLabel(null)).toBe("-");
+  });
+
+  it("nilai turunan (aktivitas dan jatuh tempo evaluasi) punya label untuk setiap nilai helper", () => {
+    expect(Object.keys(THESIS_ACTIVITY_LABELS).sort()).toEqual(Object.values(ACTIVITY_LEVEL).sort());
+    expect(THESIS_ACTIVITY_LABELS).toEqual({ active: "Lancar", slow: "Lambat", at_risk: "Berisiko" });
+    expect(Object.keys(EVALUATION_DUE_LABELS).sort()).toEqual(Object.values(EVALUATION_DUE).sort());
+    expect(getThesisActivityLabel("at_risk")).toBe("Berisiko");
+    expect(getThesisActivityLabel(null)).toBe("-");
+    expect(getEvaluationDueLabel("six_month")).toBe("Evaluasi 6 bulan jatuh tempo");
   });
 });

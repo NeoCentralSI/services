@@ -58,7 +58,6 @@ export function buildState() {
   const thesisRef = { id: "t1", title: "TA Uji", studentId: "stu1", status: "research", student };
   const thesis = (thesisRow = {
     ...thesisRef,
-    rating: "SLOW",
     academicYearId: "ay-1",
     thesisTopicId: "topic-1", // Paket B (K20): templates follow the thesis topic
     thesisSupervisors, // same objects as the thesisSupervisors table

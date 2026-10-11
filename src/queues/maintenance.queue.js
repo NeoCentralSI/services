@@ -1,7 +1,6 @@
 import pkg from "bullmq";
 const { Queue, Worker } = pkg;
 import { ENV } from "../config/env.js";
-import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
@@ -78,26 +77,6 @@ async function safeAdd(name, opts) {
     queueReady = false;
     console.warn(`⚠️  Failed to schedule ${name} (non-fatal): ${err.message}`);
     return false;
-  }
-}
-
-export async function scheduleDailyThesisStatus() {
-  const pattern = ENV.THESIS_STATUS_CRON || "30 2 * * *";
-  const tz = ENV.THESIS_STATUS_TZ || "Asia/Jakarta";
-  const ok = await safeAdd("thesis-status", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
-  if (ok) console.log(`🗓️  Scheduled repeatable thesis-status job with cron: "${pattern}" tz="${tz}"`);
-
-  try {
-    if (!ok) return;
-    const repeats = await maintenanceQueue.getRepeatableJobs();
-    const jobInfo = repeats.find((r) => r.name === "thesis-status");
-    if (jobInfo) {
-      const nextIso = jobInfo.next ? new Date(jobInfo.next).toISOString() : "unknown";
-      const nextLocal = jobInfo.next ? new Date(jobInfo.next).toLocaleString() : "unknown";
-      console.log(`📌 Repeat registered: next=${nextIso} (local ${nextLocal}) key=${jobInfo.key || "n/a"}`);
-    }
-  } catch (e) {
-    // non-fatal
   }
 }
 
@@ -277,9 +256,6 @@ export const maintenanceWorker = MAINTENANCE_ENABLED
       MAINTENANCE_QUEUE,
       async (job) => {
         switch (job.name) {
-          case "thesis-status":
-            await runThesisStatusJob();
-            break;
           case "sia-sync":
             await runSiaSync();
             break;

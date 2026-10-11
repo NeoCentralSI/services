@@ -9,7 +9,7 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
   mockRepo: {
     getThesesOverview: vi.fn(),
     getStatusDistribution: vi.fn(),
-    getRatingDistribution: vi.fn(),
+    getActivityDistribution: vi.fn(),
     getProgressStatistics: vi.fn(),
     getAtRiskStudents: vi.fn(),
     getSlowStudents: vi.fn(),
@@ -77,7 +77,11 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     it("returns summary stats, distributions, charts, at-risk and slow students", async () => {
       mockRepo.getProgressStatistics.mockResolvedValue({ total: 100, active: 80 });
       mockRepo.getStatusDistribution.mockResolvedValue([{ status: "Bimbingan", count: 60 }]);
-      mockRepo.getRatingDistribution.mockResolvedValue([{ rating: "on_track", count: 50 }]);
+      mockRepo.getActivityDistribution.mockResolvedValue([
+        { id: "active", name: "Lancar", value: "active", count: 50 },
+        { id: "slow", name: "Lambat", value: "slow", count: 4 },
+        { id: "at_risk", name: "Berisiko", value: "at_risk", count: 2 },
+      ]);
       mockRepo.getAtRiskStudents.mockResolvedValue([{ id: "s1", name: "At Risk Student" }]);
       mockRepo.getSlowStudents.mockResolvedValue([{ id: "s2", name: "Slow Student" }]);
       mockRepo.getStudentsReadyForSeminar.mockResolvedValue([]);
@@ -114,7 +118,9 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
       expect(result).toHaveProperty("summary");
       expect(result).toHaveProperty("statusDistribution");
-      expect(result).toHaveProperty("ratingDistribution");
+      expect(result).toHaveProperty("activityDistribution");
+      expect(result).not.toHaveProperty("ratingDistribution");
+      expect(result.summary).toMatchObject({ totalSlow: 4, totalAtRisk: 2 });
       expect(result).toHaveProperty("topicDistribution");
       expect(result).toHaveProperty("batchDistribution");
       expect(result).toHaveProperty("progressDistribution");
@@ -271,8 +277,6 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         thesisTopic: { name: "ML" },
         academicYear: { semester: "ganjil", year: "2024/2025" },
         startDate: new Date(),
-        deadlineDate: new Date(),
-        rating: "on_track",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -333,7 +337,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         student: { user: { id: "user-1", fullName: "Budi" } },
       });
 
-      await sendWarningNotificationService("user-1", "thesis-1", "SLOW");
+      await sendWarningNotificationService("user-1", "thesis-1", "slow");
 
       expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
       expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
@@ -347,7 +351,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         student: { user: { id: "user-1", fullName: "Budi" } },
       });
 
-      await sendWarningNotificationService("user-1", "thesis-1", "AT_RISK");
+      await sendWarningNotificationService("user-1", "thesis-1", "at_risk");
 
       expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
     });
@@ -357,7 +361,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
-        sendWarningNotificationService("user-1", "nonexistent", "SLOW")
+        sendWarningNotificationService("user-1", "nonexistent", "slow")
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
@@ -367,7 +371,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     it("returns comprehensive report data for PDF generation", async () => {
       mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: "2024/2025" });
       mockRepo.getStatusDistribution.mockResolvedValue([]);
-      mockRepo.getRatingDistribution.mockResolvedValue([]);
+      mockRepo.getActivityDistribution.mockResolvedValue([]);
       mockRepo.getThesesForReport.mockResolvedValue([]);
 
       const result = await getProgressReportService({ academicYearId: "ay1" });
@@ -419,7 +423,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         },
       ]);
 
-      const result = await sendBatchWarningNotificationService("admin-user", ["thesis-1", "thesis-2"], "SLOW");
+      const result = await sendBatchWarningNotificationService("admin-user", ["thesis-1", "thesis-2"], "slow");
 
       expect(result.success).toBe(true);
       expect(mockPush.sendFcmToUsers).toHaveBeenCalledTimes(2);
@@ -428,7 +432,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
     it("throws error if thesisIds is empty", async () => {
       await expect(
-        sendBatchWarningNotificationService("admin-user", [], "SLOW")
+        sendBatchWarningNotificationService("admin-user", [], "slow")
       ).rejects.toThrow();
     });
 
@@ -437,7 +441,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([]);
 
       await expect(
-        sendBatchWarningNotificationService("admin-user", ["nonexistent"], "SLOW")
+        sendBatchWarningNotificationService("admin-user", ["nonexistent"], "slow")
       ).rejects.toThrow();
     });
   });
@@ -447,7 +451,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     it("returns report data with all-semester filter", async () => {
       mockRepo.getThesesForReport.mockResolvedValue([]);
       mockRepo.getStatusDistribution.mockResolvedValue([]);
-      mockRepo.getRatingDistribution.mockResolvedValue([]);
+      mockRepo.getActivityDistribution.mockResolvedValue([]);
 
       const result = await getProgressReportService({});
 
@@ -459,7 +463,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: "2025/2026" });
       mockRepo.getThesesForReport.mockResolvedValue([
         {
-          id: "t1", title: "Thesis 1", rating: "ONGOING",
+          id: "t1", title: "Thesis 1",
           student: { user: { identityNumber: "123", fullName: "Budi" } },
           status: "research",
           thesisTopic: { name: "ML" },
@@ -470,11 +474,11 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
           thesisGuidances: [
             { status: "completed" }, { status: "accepted" },
           ],
-          startDate: new Date(), deadlineDate: new Date(), createdAt: new Date(),
+          startDate: new Date(), createdAt: new Date(),
         },
       ]);
       mockRepo.getStatusDistribution.mockResolvedValue([]);
-      mockRepo.getRatingDistribution.mockResolvedValue([]);
+      mockRepo.getActivityDistribution.mockResolvedValue([]);
 
       const result = await getProgressReportService({ academicYearId: "ay1" });
 

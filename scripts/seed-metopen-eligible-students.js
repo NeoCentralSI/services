@@ -251,7 +251,6 @@ async function main() {
       title: null,
       proposalStatus: null,
       startDate: new Date(),
-      deadlineDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     });
     enrollableStudentIds.push(user.id);
     stats.metopen++;
@@ -280,7 +279,6 @@ async function main() {
       title: entry.title,
       proposalStatus: 'accepted',
       startDate: new Date(),
-      deadlineDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     });
     enrollableStudentIds.push(user.id);
     stats.ta++;

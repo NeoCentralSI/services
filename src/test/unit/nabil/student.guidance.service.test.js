@@ -703,8 +703,8 @@ describe("Module 5: Thesis Overview & History", () => {
         status: "research",
         thesisTopic: { id: "t1", name: "ML" },
         academicYear: { semester: "Ganjil", year: 2025 },
-        startDate: new Date(), deadlineDate: new Date(),
-        rating: "on_track", createdAt: new Date(), updatedAt: new Date(),
+        startDate: new Date(),
+        createdAt: new Date(), updatedAt: new Date(),
         thesisSupervisors: [
           { lecturerId: "lec-1", lecturer: { user: { fullName: "Dr. Andi", email: "andi@test.com" } }, role: { name: "pembimbing_1" } },
         ],
@@ -738,7 +738,7 @@ describe("Module 5: Thesis Overview & History", () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getThesisHistory.mockResolvedValue([
         {
-          id: "thesis-1", title: "TA Lama", rating: "ONGOING",
+          id: "thesis-1", title: "TA Lama",
           status: "failed",
           thesisTopic: { name: "ML" },
           academicYear: { year: "2024", semester: "ganjil" },

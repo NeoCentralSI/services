@@ -8,6 +8,7 @@
  *   transaction, releases every active supervisor relation and cancels open guidance
  *   sessions; `on_leave` remembers the previous status and the start date; leaving
  *   `on_leave` only goes back to that previous status; `statusChangedAt` is always set;
+ *   leaving `on_leave` adds the days spent on leave to `totalLeaveDays`;
  * - the audit log entry of every status change.
  *
  * Callers pass a Prisma transaction client (`tx`) so the change is atomic.
@@ -21,6 +22,7 @@ import { THESIS_STATUS_LABELS, THESIS_TERMINATION_REASON_LABELS } from "../const
 import { GUIDANCE_STATUS, GUIDANCE_ACTOR, OPEN_GUIDANCE_STATUSES } from "../constants/guidanceStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { syncQuotaCount } from "../utils/quotaSync.js";
+import { wholeDaysBetween } from "../helpers/thesis-progress.helper.js";
 
 /** K15: allowed status transitions. `on_leave` may only return to `statusBeforeLeave`. */
 export const THESIS_STATUS_TRANSITIONS = Object.freeze({
@@ -129,6 +131,9 @@ export function statusChangeData(thesis, toStatus, { actorUserId = null, termina
   } else if (thesis?.status === THESIS_STATUS.ON_LEAVE) {
     data.statusBeforeLeave = null;
     data.leaveStartedAt = null;
+    // The supervision clock does not count leave: remember how long this leave lasted.
+    const leaveDays = wholeDaysBetween(thesis.leaveStartedAt, now) ?? 0;
+    if (leaveDays > 0) data.totalLeaveDays = { increment: leaveDays };
   }
   return data;
 }

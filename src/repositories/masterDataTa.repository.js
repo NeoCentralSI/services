@@ -4,6 +4,7 @@ import {
     createSupervisorAssignments,
     replaceSupervisorAssignments,
 } from "../utils/supervisorIntegrity.js";
+import { THESIS_PROGRESS_SELECT } from "../helpers/thesis-progress.helper.js";
 
 export const findAllTheses = async () => {
     return await prisma.thesis.findMany({
@@ -29,7 +30,11 @@ export const findAllTheses = async () => {
                     role: true
                 }
             },
-            academicYear: true
+            academicYear: true,
+            // Read by the derived activity level (helpers/thesis-progress.helper.js).
+            thesisGuidances: THESIS_PROGRESS_SELECT.thesisGuidances,
+            thesisMilestones: THESIS_PROGRESS_SELECT.thesisMilestones,
+            thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
         },
         orderBy: { createdAt: "desc" }
     });
@@ -76,8 +81,6 @@ export const createThesis = async (data) => {
                 statusChangedAt: new Date(),
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
-                deadlineDate: data.deadlineDate,
-                rating: "ONGOING",
             }
         });
 
@@ -115,7 +118,6 @@ export const updateThesis = async (id, data) => {
                 ...(data.status ? { statusChangedAt: new Date() } : {}),
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
-                rating: data.rating,
             }
         });
 

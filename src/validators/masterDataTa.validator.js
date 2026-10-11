@@ -14,7 +14,7 @@ const importThesisRowSchema = z.object({
     "Pembimbing 2": importCellSchema,
     "Tanggal Mulai": importCellSchema,
     "Judul Tugas Akhir": importCellSchema,
-    "Rating": importCellSchema, // ignored (K21: rating is computed)
+    "Aktivitas": importCellSchema, // ignored: derived from the last activity date
     "Alasan Penghentian": importCellSchema,
     "Catatan Penghentian": importCellSchema,
     "No": importCellSchema,
@@ -36,7 +36,7 @@ export const createThesisSchema = z.object({
     status: thesisLifecycleStatusSchema.optional(),
     terminationReason: terminationReasonSchema.optional(),
     terminationNote: terminationNoteSchema,
-    // K21: rating is computed by the rating job; unknown keys (e.g. rating) are stripped.
+    // The activity level is derived; unknown keys (e.g. rating, deadlineDate) are stripped.
 }).refine((data) => !data.pembimbing2 || data.pembimbing1 !== data.pembimbing2, {
     message: "Pembimbing 1 dan Pembimbing 2 harus dosen yang berbeda",
     path: ["pembimbing2"],

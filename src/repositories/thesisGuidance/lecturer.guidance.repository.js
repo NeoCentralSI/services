@@ -6,6 +6,15 @@ import {
 	POST_PROPOSAL_THESIS_STATUSES,
 	TA_PHASE,
 } from "../../constants/thesisStatus.js";
+import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
+
+/** Derived progress fields carried by a "my students" row. */
+const pickProgress = ({ activityLevel, lastActivityAt, daysSinceActivity, supervisionClock }) => ({
+	activityLevel,
+	lastActivityAt,
+	daysSinceActivity,
+	supervisionClock,
+});
 
 /** TA fase TA yang sedang berjalan, termasuk yang ditangguhkan (BSS). */
 const RUNNING_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE];
@@ -52,20 +61,23 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 					// Include ALL milestones to calculate progress
 					thesisMilestones: {
 						where: TA_PHASE,
-						select: { id: true, title: true, status: true, progressPercentage: true }
+						select: { id: true, title: true, status: true, progressPercentage: true, updatedAt: true, completedAt: true }
 					},
 					// Get completed guidances count
 					thesisGuidances: {
 						where: { status: 'completed', ...TA_PHASE },
 						orderBy: { completedAt: 'desc' },
-						select: { id: true, completedAt: true }
+						select: { id: true, approvedDate: true, completedAt: true }
 					},
+					// Read by the derived activity level (helpers/thesis-progress.helper.js)
+					thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
 				},
 			},
 		},
 	});
 
 	// One row per thesis (a student may have a failed thesis and a new one under "Semua")
+	const now = new Date();
 	const seen = new Set();
 	const result = [];
 	for (const p of participants) {
@@ -95,7 +107,8 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 		result.push({
 			thesisId: p.thesisId,
 			thesisTitle: p.thesis?.title ?? null,
-			thesisRating: p.thesis?.rating || "ONGOING", // Enum from Thesis model
+			// Derived when read (E3): activity level and supervision clock
+			...pickProgress(summarizeThesisProgress(p.thesis, now)),
 			thesisStatus: p.thesis?.status ?? null,
 			studentId: sid,
 			studentUser: p.thesis.student.user,
@@ -109,7 +122,6 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			milestoneProgress, // percentage 0-100
 			completedGuidanceCount,
 			lastGuidanceDate,
-			deadlineDate: p.thesis?.deadlineDate ?? null,
 			startDate: p.thesis?.startDate ?? null,
 		});
 	}

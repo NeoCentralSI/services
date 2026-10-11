@@ -161,7 +161,7 @@ describe("Module 8: Dashboard Dosen (My Students)", () => {
             id: "thesis-1",
             title: "Sistem Monitoring",
             status: "research",
-            thesisRating: "Ongoing",
+            activityLevel: "active",
             student: { userId: "user-mhs-1", user: { fullName: "Budi", email: "budi@test.com", identityNumber: "123" } },
             milestones: [{ status: "completed" }, { status: "in_progress" }],
             guidances: [{ status: "completed" }],
@@ -588,7 +588,7 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         status: "research",
         document: null, thesisProposal: null,
-        rating: "on_track", startDate: new Date(), deadlineDate: new Date(),
+        startDate: new Date(),
         thesisMilestones: [{ id: "m1", title: "Bab 1", status: "completed", updatedAt: new Date(), progressPercentage: 100, targetDate: null }],
         studentId: "stu-1",
       });
@@ -609,7 +609,7 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         status: "research",
         proposalDocument: { id: "doc-2", fileName: "lama.pdf", filePath: null },
-        rating: "ONGOING", startDate: new Date(), deadlineDate: new Date(),
+        startDate: new Date(),
         thesisMilestones: [],
         studentId: "stu-1",
       });
@@ -705,7 +705,7 @@ describe("Lecturer Warning Notification", () => {
       });
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
 
-      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "SLOW");
+      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "slow");
 
       expect(result.success).toBe(true);
       expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
@@ -721,7 +721,7 @@ describe("Lecturer Warning Notification", () => {
       });
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
 
-      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "AT_RISK");
+      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "at_risk");
 
       expect(result.success).toBe(true);
     });
@@ -735,7 +735,7 @@ describe("Lecturer Warning Notification", () => {
       });
 
       await expect(
-        sendWarningNotificationService("user-dosen-1", "thesis-1", "SLOW")
+        sendWarningNotificationService("user-dosen-1", "thesis-1", "slow")
       ).rejects.toMatchObject({ statusCode: 403 });
     });
 
@@ -744,7 +744,7 @@ describe("Lecturer Warning Notification", () => {
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
-        sendWarningNotificationService("user-dosen-1", "nonexistent", "SLOW")
+        sendWarningNotificationService("user-dosen-1", "nonexistent", "slow")
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });

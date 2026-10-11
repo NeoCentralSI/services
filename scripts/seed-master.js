@@ -515,8 +515,6 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
 
     if (!thesis) {
       const startDate = new Date("2025-08-01");
-      const deadlineDate = new Date(startDate);
-      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
 
       thesis = await prisma.thesis.create({
         data: {
@@ -524,7 +522,6 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
           title: title,
           thesisTopicId: withTopic ? thesisTopic.id : null,
           startDate: startDate,
-          deadlineDate: deadlineDate,
           academicYearId: currentAcademicYear?.id,
           // K15: status written explicitly (running TA unless a lifecycle is given).
           status,

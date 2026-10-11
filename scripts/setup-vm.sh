@@ -111,8 +111,6 @@ ENABLE_SIA_CRON=false
 # ── Cron Jobs ─────────────────────────────────────────────────────
 ENABLE_CRON=true
 CRON_TIME_NOTIFY=0 * * * *
-THESIS_STATUS_CRON=30 2 * * *
-THESIS_STATUS_TZ=Asia/Jakarta
 GUIDANCE_REMINDER_CRON=0 7 * * *
 GUIDANCE_REMINDER_TZ=Asia/Jakarta
 DAILY_THESIS_REMINDER_CRON=0 9 * * *

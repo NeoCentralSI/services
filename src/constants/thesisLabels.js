@@ -28,13 +28,21 @@ export const THESIS_TERMINATION_REASON_LABELS = Object.freeze({
   other: "Lainnya",
 });
 
-/** `ThesisRating` */
-export const THESIS_RATING_LABELS = Object.freeze({
-  ONGOING: "Lancar",
-  SLOW: "Lambat",
-  AT_RISK: "Berisiko",
-  FAILED: "Gagal (lama)",
-  CANCELLED: "Dibatalkan (lama)",
+/**
+ * Activity level of a research thesis, derived from the last activity date
+ * (`helpers/thesis-progress.helper.js`). Not stored.
+ */
+export const THESIS_ACTIVITY_LABELS = Object.freeze({
+  active: "Lancar",
+  slow: "Lambat",
+  at_risk: "Berisiko",
+});
+
+/** Supervision evaluation that is due, derived from the supervision clock. Not stored. */
+export const EVALUATION_DUE_LABELS = Object.freeze({
+  six_month: "Evaluasi 6 bulan jatuh tempo",
+  extension_follow_up: "Tindak lanjut perpanjangan jatuh tempo",
+  one_year: "Evaluasi 1 tahun jatuh tempo",
 });
 
 /** `GuidanceStatus` (sesi bimbingan, K19). `rescheduled` adalah data lama yang
@@ -73,7 +81,8 @@ const labelOf = (labels) => (value) => (value ? labels[value] ?? String(value) :
 export const getThesisStatusLabel = labelOf(THESIS_STATUS_LABELS);
 export const getThesisPhaseLabel = labelOf(THESIS_PHASE_LABELS);
 export const getThesisTerminationReasonLabel = labelOf(THESIS_TERMINATION_REASON_LABELS);
-export const getThesisRatingLabel = labelOf(THESIS_RATING_LABELS);
+export const getThesisActivityLabel = labelOf(THESIS_ACTIVITY_LABELS);
+export const getEvaluationDueLabel = labelOf(EVALUATION_DUE_LABELS);
 export const getGuidanceStatusLabel = labelOf(GUIDANCE_STATUS_LABELS);
 export const getGuidanceActorLabel = labelOf(GUIDANCE_ACTOR_LABELS);
 export const getMilestoneStatusLabel = labelOf(MILESTONE_STATUS_LABELS);

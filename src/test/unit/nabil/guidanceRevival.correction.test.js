@@ -142,10 +142,10 @@ describe("3. Validasi milestone dan relasi pembimbing aktif", () => {
   });
 
   it("pembimbing released tidak bisa mengirim peringatan dari halaman dosen", async () => {
-    await expect(lecturer.sendWarningNotificationService("rel", "t1", "SLOW")).rejects.toMatchObject({
+    await expect(lecturer.sendWarningNotificationService("rel", "t1", "slow")).rejects.toMatchObject({
       statusCode: 403,
     });
-    await expect(lecturer.sendWarningNotificationService("p1", "t1", "SLOW")).resolves.toBeTruthy();
+    await expect(lecturer.sendWarningNotificationService("p1", "t1", "slow")).resolves.toBeTruthy();
   });
 });
 
@@ -156,7 +156,7 @@ describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
     ["pembimbing released", "rel"],
     ["pembimbing terminated", "term"],
   ])("%s ditolak (403)", async (_label, userId) => {
-    await expect(monitoring.sendWarningNotificationService(userId, "t1", "SLOW")).rejects.toMatchObject({
+    await expect(monitoring.sendWarningNotificationService(userId, "t1", "slow")).rejects.toMatchObject({
       statusCode: 403,
     });
   });
@@ -165,20 +165,20 @@ describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
     ["Ketua Departemen", "kadep"],
     ["Pembimbing 1 aktif", "p1"],
   ])("%s diizinkan", async (_label, userId) => {
-    await expect(monitoring.sendWarningNotificationService(userId, "t1", "SLOW")).resolves.toMatchObject({
+    await expect(monitoring.sendWarningNotificationService(userId, "t1", "slow")).resolves.toMatchObject({
       success: true,
     });
   });
 
   it("peringatan massal: duplikat ID tidak meloloskan / menggagalkan pembimbing aktif; GKM ditolak", async () => {
     await expect(
-      monitoring.sendBatchWarningNotificationService("p1", ["t1", "t1"], "SLOW"),
+      monitoring.sendBatchWarningNotificationService("p1", ["t1", "t1"], "slow"),
     ).resolves.toBeTruthy();
     await expect(
-      monitoring.sendBatchWarningNotificationService("gkm", ["t1"], "SLOW"),
+      monitoring.sendBatchWarningNotificationService("gkm", ["t1"], "slow"),
     ).rejects.toMatchObject({ statusCode: 403 });
     await expect(
-      monitoring.sendBatchWarningNotificationService("rel", ["t1"], "SLOW"),
+      monitoring.sendBatchWarningNotificationService("rel", ["t1"], "slow"),
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 });
