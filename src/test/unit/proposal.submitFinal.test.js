@@ -72,6 +72,8 @@ describe("submitFinalProposal — Canon §5.6 explicit submit final", () => {
   const baseThesis = {
     id: "thesis-1",
     studentId,
+    // K15: Metopel proposal writes are open only in the proposal phase.
+    status: "proposal",
     proposalStatus: null,
     finalProposalVersionId: null,
   };

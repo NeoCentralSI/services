@@ -1,5 +1,6 @@
 import { ForbiddenError, NotFoundError } from "../utils/errors.js";
 import * as ta04AuthorizationRepository from "../repositories/ta04Authorization.repository.js";
+import { THESIS_STATUS, THESIS_PHASE } from "../constants/thesisStatus.js";
 
 export const TA04_GUIDANCE_GATE_MESSAGE =
   "Booking pembimbing sudah disetujui, tetapi Formulir TA-04 belum difinalisasi KaDep. Bimbingan proposal yang tercatat sistem baru dapat dimulai setelah TA-04 terbit.";
@@ -27,13 +28,13 @@ export async function getTa04GuidanceAuthorization(thesisId) {
 
 /**
  * Logbook phase is derived from the thesis, never from the client body.
- * A Metopel thesis (`isProposal !== false` and proposal not accepted) stays
- * `proposal` so `phase=thesis` cannot skip the TA-04 gate.
+ * A Metopel thesis (status `proposal` and proposal not accepted) stays
+ * `proposal` so `phase=research` cannot skip the TA-04 gate.
  */
 export function deriveGuidancePhaseFromThesis(thesis) {
   if (!thesis) return "proposal";
-  if (thesis.proposalStatus === "accepted" || thesis.isProposal === false) {
-    return "thesis";
+  if (thesis.proposalStatus === "accepted" || (thesis.status && thesis.status !== THESIS_STATUS.PROPOSAL)) {
+    return THESIS_PHASE.RESEARCH;
   }
   return "proposal";
 }

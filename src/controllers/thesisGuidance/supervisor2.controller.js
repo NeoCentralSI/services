@@ -68,7 +68,8 @@ export async function approveSupervisor2Request(req, res, next) {
 		const result = await approveSupervisor2RequestService(req.user.sub, requestId);
 		res.json({
 			success: true,
-			message: "Permintaan Pembimbing 2 disetujui",
+			// Active Pembimbing 2 flow is kept (KaDep gives the final decision).
+			message: "Kesediaan dicatat — permintaan diteruskan ke Ketua Departemen untuk persetujuan akhir.",
 			data: result,
 		});
 	} catch (err) {

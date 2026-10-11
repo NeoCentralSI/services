@@ -46,7 +46,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       title: "Judul",
       proposalStatus: "accepted",
       finalProposalVersionId: "proposal-version-1",
-      thesisStatus: { name: "Bimbingan" },
+      status: "research",
       ...overrides,
     };
     repo.findStudentThesis.mockResolvedValue(thesis);
@@ -188,7 +188,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
         {
           id: "thesis-1",
           proposalStatus: "accepted",
-          thesisStatus: { name: "Bimbingan" },
+          status: "research",
         },
       ],
     });
@@ -212,7 +212,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
         {
           id: "thesis-1",
           proposalStatus: "accepted",
-          thesisStatus: { name: "Bimbingan" },
+          status: "research",
         },
       ],
     });
@@ -249,7 +249,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
         {
           id: "thesis-1",
           proposalStatus: null,
-          thesisStatus: { name: "Diajukan" },
+          status: "proposal",
         },
       ],
     });
@@ -282,7 +282,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       title: "Judul SIMPTA",
       proposalStatus: null,
       finalProposalVersionId: "proposal-version-1",
-      thesisStatus: { name: "Bimbingan" },
+      status: "research",
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
@@ -325,7 +325,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       studentId: "student-1",
       title: "Judul SIMPTA",
       proposalStatus: null,
-      thesisStatus: { name: "Bimbingan" },
+      status: "research",
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
@@ -354,7 +354,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       studentId: "student-1",
       title: "Judul SIMPTA",
       proposalStatus: null,
-      thesisStatus: { name: "Bimbingan" },
+      status: "research",
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
@@ -390,7 +390,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       title: "Judul SIMPTA",
       proposalStatus: "submitted",
       finalProposalVersionId: "proposal-version-1",
-      thesisStatus: { name: "Bimbingan" },
+      status: "research",
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
@@ -437,7 +437,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       title: "Judul SIMPTA",
       proposalStatus: "submitted",
       finalProposalVersionId: "proposal-version-1",
-      thesisStatus: { name: "Bimbingan" },
+      status: "research",
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",
@@ -480,7 +480,7 @@ describe("checkSeminarEligibility — canonical SIMPTA gate", () => {
       title: "Judul SIMPTA",
       proposalStatus: "submitted",
       finalProposalVersionId: "proposal-version-1",
-      thesisStatus: { name: "Bimbingan" },
+      status: "research",
     });
     prisma.thesis.findUnique.mockResolvedValue({
       id: "thesis-1",

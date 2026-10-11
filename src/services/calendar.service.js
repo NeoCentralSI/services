@@ -1,5 +1,6 @@
 import { PrismaClient } from "../generated/prisma/index.js";
 import { ROLE_CATEGORY } from "../constants/roles.js";
+import { SCHEDULED_GUIDANCE_STATUSES, effectiveGuidanceDate } from "../constants/guidanceStatus.js";
 
 const prisma = new PrismaClient();
 
@@ -48,13 +49,14 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
             studentId: user.student.id,
           },
           // Only show accepted guidances in calendar (not requested or rejected)
-          status: status || "accepted",
+          status: status ? status : { in: SCHEDULED_GUIDANCE_STATUSES },
           ...(startDate &&
             endDate && {
-            requestedDate: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
-            },
+            // K19: a scheduled session sits at its approved/rescheduled time
+            OR: [
+              { requestedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
+              { approvedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
+            ],
           }),
         },
         include: {
@@ -82,14 +84,14 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
             title: `Bimbingan - ${guidance.supervisor?.user?.fullName || "Dosen"}`,
             description: guidance.studentNotes || "Sesi bimbingan tugas akhir",
             type:
-              guidance.status === "accepted"
+              SCHEDULED_GUIDANCE_STATUSES.includes(guidance.status)
                 ? "guidance_scheduled"
                 : guidance.status === "requested"
                   ? "guidance_request"
                   : "guidance_rejected",
             status: guidance.status,
-            startDate: guidance.requestedDate,
-            endDate: guidance.requestedDate,
+            startDate: effectiveGuidanceDate(guidance),
+            endDate: effectiveGuidanceDate(guidance),
             userId,
             userRole,
             relatedId: guidance.id,
@@ -211,13 +213,14 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
       const guidances = await prisma.thesisGuidance.findMany({
         where: {
           supervisorId: user.lecturer.id,
-          status: "accepted", // Only show accepted guidances in lecturer calendar
+          status: { in: SCHEDULED_GUIDANCE_STATUSES }, // Only scheduled guidances (legacy "rescheduled" included)
           ...(startDate &&
             endDate && {
-            requestedDate: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
-            },
+            // K19: a scheduled session sits at its approved/rescheduled time
+            OR: [
+              { requestedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
+              { approvedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
+            ],
           }),
         },
         include: {
@@ -250,14 +253,14 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
             title: `Bimbingan - ${guidance.thesis.student.user.fullName}`,
             description: guidance.studentNotes || "Sesi bimbingan mahasiswa",
             type:
-              guidance.status === "accepted"
+              SCHEDULED_GUIDANCE_STATUSES.includes(guidance.status)
                 ? "student_guidance"
                 : guidance.status === "requested"
                   ? "guidance_request"
                   : "guidance_rejected",
             status: guidance.status,
-            startDate: guidance.requestedDate,
-            endDate: guidance.requestedDate,
+            startDate: effectiveGuidanceDate(guidance),
+            endDate: effectiveGuidanceDate(guidance),
             userId,
             userRole,
             relatedId: guidance.id,
@@ -443,7 +446,7 @@ export async function getEventStatistics(userId, userRole) {
 
     // Count accepted this month
     const completedThisMonth = monthEvents.events.filter(
-      (event) => event.status === "accepted"
+      (event) => SCHEDULED_GUIDANCE_STATUSES.includes(event.status)
     ).length;
 
     // Count pending actions (requested status)

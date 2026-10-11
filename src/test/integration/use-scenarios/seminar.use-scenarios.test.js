@@ -80,9 +80,8 @@ describe.sequential("Use Scenario Integration — Thesis Seminar (UC-11 s.d. UC-
     assessmentCriterion = await prisma.thesisSeminarAssessmentCriteria.create({
       data: { thesisCpmkId: thesisCpmk.id, name: "Kriteria seminar " + marker, maxScore: 100, displayOrder: 999 },
     });
-    const thesisStatus = await prisma.thesisStatus.findFirst({ where: { name: { contains: "Bimbingan" } } });
     const supervisorRole = await prisma.userRole.findFirst({ where: { name: { contains: "Pembimbing" } } });
-    if (!thesisStatus || !supervisorRole) throw new Error("Seed status/role pembimbing belum tersedia.");
+    if (!supervisorRole) throw new Error("Seed status/role pembimbing belum tersedia.");
 
     studentUser = await prisma.user.create({
       data: { fullName: `Mahasiswa ${marker}`, identityNumber: `NIM-${marker}`, identityType: "NIM", email: `${marker}@test.local`, password: "test" },
@@ -101,7 +100,7 @@ describe.sequential("Use Scenario Integration — Thesis Seminar (UC-11 s.d. UC-
     ({ user: examinerUser2, lecturer: examiner2 } = await createLecturer("examiner-2"));
 
     thesis = await prisma.thesis.create({
-      data: { studentId: student.id, title: `Thesis ${marker}`, thesisStatusId: thesisStatus.id, academicYearId: academicYear.id },
+      data: { studentId: student.id, title: `Thesis ${marker}`, status: "research", academicYearId: academicYear.id },
     });
     supervisor = await prisma.thesisSupervisors.create({
       data: { thesisId: thesis.id, lecturerId: supervisorLecturer.id, roleId: supervisorRole.id, seminarReady: true },
@@ -115,6 +114,7 @@ describe.sequential("Use Scenario Integration — Thesis Seminar (UC-11 s.d. UC-
         completedAt: new Date(),
         studentNotes: `Bimbingan ${index + 1}`,
         status: "completed",
+        phase: "research",
       })),
     });
 
@@ -123,7 +123,7 @@ describe.sequential("Use Scenario Integration — Thesis Seminar (UC-11 s.d. UC-
         data: { fullName: `Audience ${index} ${marker}`, identityNumber: `AUD-${index}-${marker}`, identityType: "NIM", email: `aud-${index}-${marker}@test.local`, password: "test" },
       });
       const audience = await prisma.student.create({ data: { id: user.id, sksCompleted: 100 } });
-      const audienceThesis = await prisma.thesis.create({ data: { studentId: audience.id, title: `Audience thesis ${index}`, thesisStatusId: thesisStatus.id } });
+      const audienceThesis = await prisma.thesis.create({ data: { studentId: audience.id, title: `Audience thesis ${index}`, status: "research" } });
       const pastSeminar = await prisma.thesisSeminar.create({ data: { thesisId: audienceThesis.id, status: "passed", date: new Date() } });
       await prisma.thesisSeminarAudience.create({ data: { thesisSeminarId: pastSeminar.id, thesisId: audienceThesis.id, studentId: student.id, approvedAt: new Date() } });
       audienceFixtures.push({ user, audience, thesis: audienceThesis, seminar: pastSeminar });

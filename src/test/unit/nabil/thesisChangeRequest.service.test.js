@@ -19,7 +19,6 @@ const { mockRepo, mockPrisma, mockNotif, mockPush, mockRoles } = vi.hoisted(() =
     document: { findUnique: vi.fn() },
     thesisTopic: { findUnique: vi.fn() },
     thesis: { findFirst: vi.fn(), update: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
-    thesisStatus: { findFirst: vi.fn(), create: vi.fn() },
     thesisChangeRequest: { update: vi.fn() },
     thesisSupervisors: { updateMany: vi.fn() },
     thesisMilestoneTemplate: { findMany: vi.fn() },
@@ -67,7 +66,7 @@ const THESIS = {
   studentId: STUDENT_ID,
   rating: "ONGOING",
   student: { id: STUDENT_ID, user: { id: "user-mhs-1", fullName: "Budi", identityNumber: "123", email: "b@t.com" } },
-  thesisStatus: { id: "status-bimbingan", name: "Bimbingan" },
+  status: "research",
   thesisTopic: { id: "topic-old", name: "Old Topic" },
   thesisSupervisors: [
     {
@@ -229,10 +228,9 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
 
   // ─── Approve by Kadep (archive old thesis) ────────────────
   describe("approveRequest (Kadep)", () => {
-    it("archives the old thesis as Dibatalkan and soft-deletes guidances/milestones", async () => {
+    it("archives the old thesis as gagal and soft-deletes guidances/milestones", async () => {
       mockRepo.findById.mockResolvedValue(PENDING_REQUEST);
       mockRepo.update.mockResolvedValue({ ...PENDING_REQUEST, status: "approved" });
-      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-dibatalkan", name: "Dibatalkan" });
       mockPrisma.thesis.update.mockResolvedValue({});
       mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.thesisMilestone.updateMany.mockResolvedValue({ count: 1 });
@@ -249,7 +247,8 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
       expect(mockPrisma.thesis.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: "thesis-1" },
         data: expect.objectContaining({
-          thesisStatusId: "status-dibatalkan",
+          // K15: the legacy "Dibatalkan" archive maps to status gagal.
+          status: "failed",
           title: "Old Thesis (Dibatalkan)",
         }),
       }));
@@ -300,7 +299,6 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
     it("does not activate a new thesis or move supervisors", async () => {
       mockRepo.findById.mockResolvedValue(PENDING_REQUEST);
       mockRepo.update.mockResolvedValue({ ...PENDING_REQUEST, status: "approved" });
-      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-dibatalkan", name: "Dibatalkan" });
       mockPrisma.thesis.update.mockResolvedValue({});
       mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 0 });
       mockPrisma.thesisMilestone.updateMany.mockResolvedValue({ count: 0 });
@@ -315,7 +313,6 @@ describe("Module 6: Pengajuan Ganti Topik Tugas Akhir", () => {
     it("sends notification to student after approval", async () => {
       mockRepo.findById.mockResolvedValue(PENDING_REQUEST);
       mockRepo.update.mockResolvedValue({ ...PENDING_REQUEST, status: "approved", thesis: THESIS });
-      mockPrisma.thesisStatus.findFirst.mockResolvedValue({ id: "status-dibatalkan", name: "Dibatalkan" });
       mockPrisma.thesis.update.mockResolvedValue({});
       mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 0 });
       mockPrisma.thesisMilestone.updateMany.mockResolvedValue({ count: 0 });

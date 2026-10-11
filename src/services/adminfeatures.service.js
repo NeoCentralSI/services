@@ -33,6 +33,10 @@ import {
 	ConflictError,
 	NotFoundError,
 } from "../utils/errors.js";
+import { THESIS_STATUS, OPEN_THESIS_STATUSES, CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { SCHEDULED_GUIDANCE_STATUSES } from "../constants/guidanceStatus.js";
+import { createThesisMasterData, updateThesisMasterData } from "./masterDataTa.service.js";
+import { THESIS_STATUS_LABELS } from "../constants/thesisLabels.js";
 import {
 	logAudit,
 	listAdminAuditLogs,
@@ -1126,11 +1130,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 					include: {
 						thesis: {
 							where: {
-								thesisStatus: {
-									name: {
-										notIn: ["Selesai", "Dibatalkan", "Gagal", "Lulus", "Drop Out", "selesai", "dibatalkan", "gagal", "lulus", "drop out"],
-									},
-								},
+								status: { in: OPEN_THESIS_STATUSES },
 							},
 							include: {
 								thesisSupervisors: {
@@ -1429,7 +1429,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "", scien
 								thesisSupervisors: {
 									where: {
 										thesis: {
-											thesisStatus: { name: "Bimbingan" },
+											status: THESIS_STATUS.RESEARCH,
 										},
 									},
 								},
@@ -1500,7 +1500,6 @@ export async function getStudentDetail(userId) {
 				include: {
 					thesis: {
 						include: {
-							thesisStatus: true,
 							thesisTopic: true,
 							thesisSupervisors: {
 								include: {
@@ -1613,7 +1612,7 @@ export async function getStudentDetail(userId) {
 		return {
 			id: thesis.id,
 			title: thesis.title,
-			status: thesis.thesisStatus?.name || null,
+			status: thesis.status || null,
 			topic: thesis.thesisTopic?.name || null,
 			startDate: thesis.startDate,
 			deadlineDate: thesis.deadlineDate,
@@ -1705,7 +1704,6 @@ export async function getLecturerDetail(userId) {
 							role: true,
 							thesis: {
 								include: {
-									thesisStatus: true,
 									student: {
 										include: {
 											user: {
@@ -1718,7 +1716,7 @@ export async function getLecturerDetail(userId) {
 						},
 					},
 					thesisGuidances: {
-						where: { status: "accepted" },
+						where: { status: { in: SCHEDULED_GUIDANCE_STATUSES } },
 						orderBy: { approvedDate: "desc" },
 						take: 10,
 						include: {
@@ -1757,7 +1755,7 @@ export async function getLecturerDetail(userId) {
 		.map((tp) => ({
 			thesisId: tp.thesis.id,
 			title: tp.thesis.title,
-			status: tp.thesis.thesisStatus?.name || null,
+			status: tp.thesis.status || null,
 			role: tp.role.name,
 			student: {
 				id: tp.thesis.student.user.id,
@@ -1771,7 +1769,7 @@ export async function getLecturerDetail(userId) {
 		.map((tp) => ({
 			thesisId: tp.thesis.id,
 			title: tp.thesis.title,
-			status: tp.thesis.thesisStatus?.name || null,
+			status: tp.thesis.status || null,
 			role: tp.role.name,
 			student: {
 				id: tp.thesis.student.user.id,
@@ -1781,8 +1779,8 @@ export async function getLecturerDetail(userId) {
 		}));
 
 	// Active vs completed supervising
-	const activeSupervising = supervising.filter((s) => !["Selesai", "Dibatalkan"].includes(s.status));
-	const completedSupervising = supervising.filter((s) => s.status === "Selesai");
+	const activeSupervising = supervising.filter((s) => !CLOSED_THESIS_STATUSES.includes(s.status));
+	const completedSupervising = supervising.filter((s) => s.status === THESIS_STATUS.COMPLETED);
 
 	// Recent guidances
 	const recentGuidances = user.lecturer.thesisGuidances.map((g) => ({
@@ -1874,7 +1872,6 @@ export async function adminUpdateStudent(id, data) {
 
 const thesisInclude = {
 	student: { include: { user: { omit: USER_CREDENTIAL_OMIT } } },
-	thesisStatus: true,
 	academicYear: true,
 	thesisSupervisors: {
 		include: {
@@ -1883,12 +1880,6 @@ const thesisInclude = {
 		},
 	},
 };
-
-function toDateOrNull(value) {
-	if (!value) return null;
-	const date = new Date(value);
-	return Number.isNaN(date.getTime()) ? null : date;
-}
 
 export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = "", status = "" } = {}) {
 	const skip = (Number(page) - 1) * Number(pageSize);
@@ -1903,7 +1894,8 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 		];
 	}
 	if (status) {
-		where.thesisStatus = { name: { contains: status } };
+		// K15 enum; unknown values match nothing.
+		where.status = Object.values(THESIS_STATUS).includes(status) ? status : { in: [] };
 	}
 
 	const [items, total] = await Promise.all([
@@ -1933,80 +1925,80 @@ export async function getThesisById(id) {
 	return thesis;
 }
 
-export async function createThesisManually(payload = {}) {
-	const {
-		studentId,
-		title,
-		thesisStatusId,
-		academicYearId,
-		thesisTopicId,
-		startDate,
-		deadlineDate,
-		isProposal,
-		rating,
-		supervisors = [],
-	} = payload;
-
-	if (!studentId) {
-		const err = new Error("Student id is required");
+/** Validate an admin-supplied thesis status (K15 enum). Throws 400 for unknown values. */
+function resolveThesisStatusInput(status) {
+	if (status === undefined || status === null || status === "") return null;
+	if (!Object.values(THESIS_STATUS).includes(status)) {
+		const err = new Error(`Status tugas akhir tidak valid. Pilihan: ${Object.values(THESIS_STATUS_LABELS).join(", ")}.`);
 		err.statusCode = 400;
 		throw err;
 	}
-
-	return prisma.$transaction(async (tx) => {
-		const thesis = await tx.thesis.create({
-			data: {
-				studentId,
-				title: title || null,
-				thesisStatusId: thesisStatusId || null,
-				academicYearId: academicYearId || null,
-				thesisTopicId: thesisTopicId || null,
-				startDate: toDateOrNull(startDate),
-				deadlineDate: toDateOrNull(deadlineDate),
-				isProposal: isProposal === undefined ? true : Boolean(isProposal),
-				...(rating ? { rating } : {}),
-			},
-		});
-
-		for (const item of supervisors || []) {
-			const lecturerId = item.lecturerId || item.id;
-			const roleId = item.roleId;
-			if (!lecturerId || !roleId) continue;
-			await tx.thesisSupervisors.create({
-				data: { thesisId: thesis.id, lecturerId, roleId },
-			});
-		}
-
-		return tx.thesis.findUnique({ where: { id: thesis.id }, include: thesisInclude });
-	});
+	return status;
 }
 
-export async function updateThesisManually(id, payload = {}) {
-	const {
-		title,
-		thesisStatusId,
-		academicYearId,
-		thesisTopicId,
-		startDate,
-		deadlineDate,
-		isProposal,
-		rating,
-	} = payload;
-	const data = {};
-	if (title !== undefined) data.title = title || null;
-	if (thesisStatusId !== undefined) data.thesisStatusId = thesisStatusId || null;
-	if (academicYearId !== undefined) data.academicYearId = academicYearId || null;
-	if (thesisTopicId !== undefined) data.thesisTopicId = thesisTopicId || null;
-	if (startDate !== undefined) data.startDate = toDateOrNull(startDate);
-	if (deadlineDate !== undefined) data.deadlineDate = toDateOrNull(deadlineDate);
-	if (isProposal !== undefined) data.isProposal = Boolean(isProposal);
-	if (rating !== undefined) data.rating = rating;
-
-	return prisma.thesis.update({
-		where: { id },
-		data,
-		include: thesisInclude,
+/** `[{ lecturerId|id, roleId }]` -> `{ pembimbing1, pembimbing2 }` by role name. */
+async function supervisorsToPembimbing(supervisors) {
+	if (!Array.isArray(supervisors) || supervisors.length === 0) return {};
+	const roles = await prisma.userRole.findMany({
+		where: { id: { in: supervisors.map((s) => s.roleId).filter(Boolean) } },
+		select: { id: true, name: true },
 	});
+	const roleName = (roleId) => roles.find((r) => r.id === roleId)?.name;
+	const pick = (name) => supervisors.find((s) => roleName(s.roleId) === name);
+	return {
+		pembimbing1: (pick(ROLES.PEMBIMBING_1)?.lecturerId ?? pick(ROLES.PEMBIMBING_1)?.id) || undefined,
+		pembimbing2: (pick(ROLES.PEMBIMBING_2)?.lecturerId ?? pick(ROLES.PEMBIMBING_2)?.id) || undefined,
+	};
+}
+
+/**
+ * K21: manual thesis creation follows the same rules as the data master (one open thesis
+ * per student, K15 statuses, P1 required, rating computed). Not mounted on a route today;
+ * it delegates so a future route cannot bypass the rules.
+ */
+export async function createThesisManually(payload = {}) {
+	const { studentId, title, status, academicYearId, thesisTopicId, startDate, deadlineDate, supervisors = [], actorUserId = null } = payload;
+	if (!studentId) {
+		const err = new Error("Mahasiswa wajib dipilih");
+		err.statusCode = 400;
+		throw err;
+	}
+	const thesis = await createThesisMasterData(
+		{
+			studentId,
+			title,
+			status: resolveThesisStatusInput(status) ?? undefined,
+			academicYearId,
+			thesisTopicId,
+			startDate,
+			deadlineDate,
+			terminationReason: payload.terminationReason,
+			terminationNote: payload.terminationNote,
+			...(await supervisorsToPembimbing(supervisors)),
+		},
+		{ actorUserId },
+	);
+	return prisma.thesis.findUnique({ where: { id: thesis.id }, include: thesisInclude });
+}
+
+/** K21: see createThesisManually; rating is not editable. */
+export async function updateThesisManually(id, payload = {}) {
+	const { title, status, academicYearId, thesisTopicId, startDate, actorUserId = null } = payload;
+	await updateThesisMasterData(
+		id,
+		{
+			title,
+			status: resolveThesisStatusInput(status) ?? undefined,
+			academicYearId,
+			thesisTopicId,
+			startDate,
+			terminationReason: payload.terminationReason,
+			terminationNote: payload.terminationNote,
+			...(payload.supervisors ? await supervisorsToPembimbing(payload.supervisors) : {}),
+		},
+		{ actorUserId },
+	);
+	return prisma.thesis.findUnique({ where: { id }, include: thesisInclude });
 }
 
 export async function deleteThesis(id, reason = null, actorUserId = null) {
@@ -2039,5 +2031,6 @@ export async function getSupervisorRoles() {
 }
 
 export async function getThesisStatuses() {
-	return prisma.thesisStatus.findMany({ orderBy: { name: "asc" } });
+	// K15: statuses are an enum on thesis.status (no lookup table).
+	return Object.values(THESIS_STATUS).map((status) => ({ id: status, name: status }));
 }

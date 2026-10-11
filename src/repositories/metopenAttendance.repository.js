@@ -268,7 +268,7 @@ export function findThesisForAttendanceReconcile(thesisId, client = prisma) {
       id: true,
       studentId: true,
       title: true,
-      isProposal: true,
+      status: true,
       activePromotedAt: true,
       finalProposalVersionId: true,
       researchMethodScores: {
@@ -304,16 +304,13 @@ export function findScoreableThesesByStudentIds(
       academicYearId,
       finalProposalVersionId: { not: null },
       student: { status: "active" },
-      OR: [
-        { thesisStatusId: null },
-        { thesisStatus: { name: { notIn: closedStatusNames } } },
-      ],
+      status: { notIn: closedStatusNames },
     },
     select: {
       id: true,
       studentId: true,
       title: true,
-      isProposal: true,
+      status: true,
       activePromotedAt: true,
       researchMethodScores: {
         take: 1,

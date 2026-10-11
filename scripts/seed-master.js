@@ -10,6 +10,7 @@ import { PrismaClient } from "../src/generated/prisma/index.js";
 import bcrypt from "bcrypt";
 import { syncDsiMaster } from "./sync-dsi-master.js";
 import { ROLES } from "../src/constants/roles.js";
+import { THESIS_STATUS, THESIS_PHASE } from "../src/constants/thesisStatus.js";
 
 const prisma = new PrismaClient();
 
@@ -72,41 +73,8 @@ async function seedRoles() {
 // ============================================================
 
 // ============================================================
-// 3. SEED THESIS STATUS
+// 3. SEED THESIS STATUS (REMOVED - K15: thesis.status is an enum)
 // ============================================================
-async function seedThesisStatus() {
-  console.log("\n" + "=".repeat(60));
-  console.log("📝 STEP 3: Seeding Thesis Status...");
-  console.log("=".repeat(60));
-
-  const statuses = [
-    "Pengajuan Judul",
-    "Bimbingan",
-    "Acc Seminar",      // Milestone 100% + kedua pembimbing approve
-    "Seminar Proposal",
-    "Revisi Seminar",
-    "Sidang",
-    "Revisi Sidang",
-    "Selesai",
-    "Gagal",
-  ];
-  const statusMap = new Map();
-
-  for (const name of statuses) {
-    let status = await prisma.thesisStatus.findFirst({
-      where: { name },
-    });
-    if (!status) {
-      status = await prisma.thesisStatus.create({ data: { name } });
-      console.log(`  ✅ Created thesis status: ${name}`);
-    } else {
-      console.log(`  ⏭️  Thesis status exists: ${name}`);
-    }
-    statusMap.set(name, status);
-  }
-
-  return statusMap;
-}
 
 // ============================================================
 // 4. SEED ACADEMIC YEARS
@@ -371,6 +339,27 @@ async function seedUsers(roleMap) {
       enrollmentYear: 2022,
       sksCompleted: 130,
     },
+    // Paket B (K21): a finished and a stopped thesis for the lecturer list filters
+    {
+      email: "test_selesai@fti.unand.ac.id",
+      fullName: "Test TA Selesai",
+      identityType: "NIM",
+      identityNumber: "2211522104",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2021,
+      sksCompleted: 144,
+    },
+    {
+      email: "test_gagal@fti.unand.ac.id",
+      fullName: "Test TA Gagal",
+      identityType: "NIM",
+      identityNumber: "2211522105",
+      roles: [ROLES.MAHASISWA],
+      isStudent: true,
+      enrollmentYear: 2021,
+      sksCompleted: 130,
+    },
   ];
 
   const userMap = new Map();
@@ -464,12 +453,11 @@ async function seedUsers(roleMap) {
 // ============================================================
 // 7. SEED THESIS WITH PARTICIPANTS & EXAMINERS
 // ============================================================
-async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
+async function seedThesis(userMap, roleMap, academicYearMap) {
   console.log("\n" + "=".repeat(60));
   console.log("📖 STEP 7: Seeding Thesis with Participants...");
   console.log("=".repeat(60));
 
-  const bimbinganStatus = thesisStatusMap.get("Bimbingan");
   const currentAcademicYear = academicYearMap.get("ganjil-2026/2027");
 
   const pembimbing1Role = roleMap.get(ROLES.PEMBIMBING_1);
@@ -502,13 +490,20 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
   const testChangeSupervisor = userMap.get("test_changesupervisor@fti.unand.ac.id");
   // Note: test_nothesis@fti.unand.ac.id doesn't get a thesis (for approved state testing)
 
+  const testSelesai = userMap.get("test_selesai@fti.unand.ac.id");
+  const testGagal = userMap.get("test_gagal@fti.unand.ac.id");
+
   const husnil = userMap.get("pembimbing_si@fti.unand.ac.id");
   const afriyanti = userMap.get("sekdep_si@fti.unand.ac.id");
 
   const thesisMap = new Map();
 
   // Helper function to create thesis
-  async function createThesis(student, title, pembimbing1User, pembimbing2User = null, withTopic = false) {
+  // Paket B: `withTopic` is honoured (a thesis without topic tests "isi topik dulu", K20),
+  // and `lifecycle` seeds a closed thesis (completed, or failed with a reason, K21).
+  async function createThesis(student, title, pembimbing1User, pembimbing2User = null, withTopic = false, lifecycle = {}) {
+    const status = lifecycle.status ?? THESIS_STATUS.RESEARCH;
+    const isFailed = status === THESIS_STATUS.FAILED;
     if (!student || !pembimbing1User) {
       console.log(`  ⚠️  Skipping thesis - Missing student or pembimbing1`);
       return null;
@@ -523,31 +518,30 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
       const deadlineDate = new Date(startDate);
       deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
 
-      // Create a placeholder document (required by current schema)
-      const placeholderDoc = await prisma.document.create({
-        data: {
-          userId: student.id,
-          fileName: `proposal_seed.pdf`,
-        },
-      });
-
       thesis = await prisma.thesis.create({
         data: {
           studentId: student.id,
           title: title,
-          thesisTopicId: thesisTopic.id, // always required now
+          thesisTopicId: withTopic ? thesisTopic.id : null,
           startDate: startDate,
           deadlineDate: deadlineDate,
-          thesisStatusId: bimbinganStatus?.id,
           academicYearId: currentAcademicYear?.id,
-          documentId: placeholderDoc.id,
+          // K15: status written explicitly (running TA unless a lifecycle is given).
+          status,
+          statusChangedAt: lifecycle.statusChangedAt ?? startDate,
+          ...(isFailed
+            ? {
+                terminationReason: lifecycle.terminationReason,
+                terminationNote: lifecycle.terminationNote ?? null,
+                terminatedAt: lifecycle.statusChangedAt ?? startDate,
+              }
+            : {}),
         },
       });
       console.log(`  ✅ Created thesis for ${student.fullName}`);
       console.log(`     Title: ${title}`);
-      if (withTopic) {
-        console.log(`     Topic: Pengembangan Sistem (Enterprise Application)`);
-      }
+      console.log(`     Status: ${status}`);
+      console.log(`     Topic: ${withTopic ? "Pengembangan Sistem (Enterprise Application)" : "(tanpa topik)"}`);
 
       // Add Pembimbing 1
       await prisma.thesisSupervisors.create({
@@ -574,6 +568,16 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
       }
     } else {
       console.log(`  ⏭️  Thesis exists for ${student.fullName}`);
+    }
+
+    // A failed thesis keeps its supervisors only as history (released, K21).
+    if (isFailed) {
+      await prisma.thesisSupervisors.updateMany({
+        where: { thesisId: thesis.id, status: "active" },
+        data: { status: "released", activeRoleKey: null },
+      });
+      thesisMap.set(student.id, thesis);
+      return thesis;
     }
 
     const expectedSupervisors = [
@@ -617,7 +621,7 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
     true // with topic
   );
 
-  // 3. Khalied - sistem informasi beasiswa non apbn (NO topic, NO milestone)
+  // 3. Khalied - sistem informasi beasiswa non apbn (NO topic, NO milestone: K20 "isi topik dulu")
   await createThesis(
     khalied,
     "Sistem Informasi Beasiswa Non APBN",
@@ -635,31 +639,31 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
     true // with topic
   );
 
-  // 5. Nouval - sistem informasi management kelompok keilmuan di dsi (NO topic, NO milestone)
+  // 5. Nouval - sistem informasi management kelompok keilmuan di dsi (WITH topic, NO milestone)
   await createThesis(
     nouval,
     "Sistem Informasi Management Kelompok Keilmuan di DSI",
     husnil,
     null,
-    false // no topic
+    true // with topic (template "before -> after" case)
   );
 
-  // 6. Daffa Agustian - sistem informasi generate report di dinas radio kota padang (NO topic, NO milestone)
+  // 6. Daffa Agustian - sistem informasi generate report di dinas radio kota padang (WITH topic, NO milestone)
   await createThesis(
     daffa,
     "Sistem Informasi Generate Report di Dinas Radio Kota Padang",
     afriyanti,
     null,
-    false // no topic
+    true // with topic (template "before -> after" case)
   );
 
-  // 7. Ilham - sistem informasi pengelolaan proposal TA di dsi (NO topic, NO milestone)
+  // 7. Ilham - sistem informasi pengelolaan proposal TA di dsi (WITH topic, NO milestone)
   await createThesis(
     ilham,
     "Sistem Informasi Pengelolaan Proposal TA di DSI",
     husnil,
     afriyanti,
-    false // no topic
+    true // with topic (template "before -> after" case)
   );
 
   // 8. Test Ganti Topik - untuk test fitur pergantian topik (WITH topic)
@@ -678,6 +682,31 @@ async function seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap) {
     husnil,
     afriyanti,
     true // with topic
+  );
+
+  // 10. Test TA Selesai - closed thesis for the lecturer "Selesai" filter (K21)
+  await createThesis(
+    testSelesai,
+    "Sistem Informasi Inventaris Laboratorium",
+    husnil,
+    afriyanti,
+    true,
+    { status: THESIS_STATUS.COMPLETED, statusChangedAt: new Date("2026-07-15") }
+  );
+
+  // 11. Test TA Gagal - stopped thesis with a reason; supervisors released (K21)
+  await createThesis(
+    testGagal,
+    "Sistem Pakar Diagnosa Hama Tanaman",
+    husnil,
+    afriyanti,
+    true,
+    {
+      status: THESIS_STATUS.FAILED,
+      statusChangedAt: new Date("2026-06-30"),
+      terminationReason: "dropped_out",
+      terminationNote: "Data uji: mahasiswa tidak aktif dua semester.",
+    }
   );
 
   return thesisMap;
@@ -803,6 +832,7 @@ async function seedThesisMilestones(thesisMap, userMap) {
           orderIndex: milestone.orderIndex,
           targetDate: milestone.targetDate,
           status,
+          phase: THESIS_PHASE.RESEARCH,
           progressPercentage,
           startedAt,
           completedAt,
@@ -923,6 +953,7 @@ async function seedGuidances(thesisMap, userMap) {
           summarySubmittedAt: completedAt,
           status: "completed",
           completedAt: completedAt,
+          phase: THESIS_PHASE.RESEARCH,
           studentCalendarEventId: '',
           supervisorCalendarEventId: '',
         },
@@ -948,13 +979,12 @@ async function main() {
   try {
     // Run all seeds in order
     const roleMap = await seedRoles();
-    const thesisStatusMap = await seedThesisStatus();
     const academicYearMap = await seedAcademicYears();
     const userMap = await seedUsers(roleMap);
     // Canonical DSI master must run before thesis fixtures so every topic has
     // a ScienceGroup and real lecturer NIPs/names cannot drift back.
     await syncDsiMaster(prisma);
-    const thesisMap = await seedThesis(userMap, roleMap, thesisStatusMap, academicYearMap);
+    const thesisMap = await seedThesis(userMap, roleMap, academicYearMap);
     await seedThesisMilestones(thesisMap, userMap);
     await seedGuidances(thesisMap, userMap);
 

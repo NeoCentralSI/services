@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { validate } from "../../middlewares/validation.middleware.js";
-import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, transferStudentsSchema, rejectTransferSchema, cancelGuidanceSchema } from "../../validators/lecturer.guidance.validator.js";
+import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, transferStudentsSchema, rejectTransferSchema, cancelGuidanceSchema, lecturerRescheduleGuidanceSchema, rejectSummarySchema } from "../../validators/lecturer.guidance.validator.js";
 import { ROLES } from "../../constants/roles.js";
 import {
 	myStudents,
@@ -21,6 +21,8 @@ import {
 	failStudentThesis,
 	pendingApproval,
 	approveSummary,
+	rejectSummary,
+	rescheduleGuidanceByLecturer,
 	guidanceDetail,
 	sendWarningNotification,
 	approveThesisProposal,
@@ -69,6 +71,9 @@ router.get("/supervisor/eligibility", supervisorEligibility);
 // Session Summary Approval (1-click approve)
 router.get("/pending-approval", pendingApproval);
 router.put("/guidance/:guidanceId/approve-summary", approveSummary);
+// K19: request a revised summary; move an accepted session
+router.put("/guidance/:guidanceId/reject-summary", validate(rejectSummarySchema), rejectSummary);
+router.patch("/guidance/:guidanceId/reschedule", validate(lecturerRescheduleGuidanceSchema), rescheduleGuidanceByLecturer);
 
 // Guidance detail for session page
 router.get("/guidance/:guidanceId", guidanceDetail);

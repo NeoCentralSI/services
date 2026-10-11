@@ -42,7 +42,6 @@ export async function seedFromSnapshot() {
   const order = [
     { name: "AcademicYear", delegate: prisma.academicYear, pk: "id" },
     { name: "ThesisTopic", delegate: prisma.thesisTopic, pk: "id" },
-    { name: "ThesisStatus", delegate: prisma.thesisStatus, pk: "id" },
     { name: "UserRole", delegate: prisma.userRole, pk: "id" },
     { name: "ScienceGroup", delegate: prisma.scienceGroup, pk: "id" },
     { name: "Role", delegate: prisma.role, pk: "id" },

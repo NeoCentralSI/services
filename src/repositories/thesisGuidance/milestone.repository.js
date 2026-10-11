@@ -1,5 +1,17 @@
 import prisma from "../../config/prisma.js";
-import { isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
+import { normalize } from "../../constants/roles.js";
+import { THESIS_PHASE, TA_PHASE } from "../../constants/thesisStatus.js";
+
+// Helper functions for role matching
+function isPembimbing1(roleName) {
+  const n = normalize(roleName);
+  return n === "pembimbing 1" || n === "pembimbing1";
+}
+
+function isPembimbing2(roleName) {
+  const n = normalize(roleName);
+  return n === "pembimbing 2" || n === "pembimbing2";
+}
 
 // ============================================
 // Milestone Template Repository
@@ -8,8 +20,12 @@ import { isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
 /**
  * Get all milestone templates
  */
+// ThesisMilestoneTemplate is shared by both phases (K18). TA template management
+// (Kelola > Tugas Akhir > Milestone) only covers thesis-phase templates.
+const TA_TEMPLATE_PHASE = THESIS_PHASE.RESEARCH;
+
 export function findAllTemplates(isActive = true, topicId = null) {
-  const where = {};
+  const where = { phase: TA_TEMPLATE_PHASE };
   if (isActive !== null) {
     where.isActive = isActive;
   }
@@ -28,7 +44,11 @@ export function findAllTemplates(isActive = true, topicId = null) {
  */
 export function findTemplatesByTopic(topicId, isActive = true) {
   return prisma.thesisMilestoneTemplate.findMany({
-    where: { topicId, isActive },
+    where: {
+      topicId,
+      phase: TA_TEMPLATE_PHASE,
+      ...(isActive === null ? {} : { isActive }),
+    },
     orderBy: { orderIndex: "asc" },
     include: { topic: true },
   });
@@ -38,9 +58,18 @@ export function findTemplatesByTopic(topicId, isActive = true) {
  * Get template by ID
  */
 export function findTemplateById(id) {
-  return prisma.thesisMilestoneTemplate.findUnique({
-    where: { id },
+  return prisma.thesisMilestoneTemplate.findFirst({
+    where: { id, phase: TA_TEMPLATE_PHASE },
     include: { topic: true },
+  });
+}
+
+/**
+ * Get templates by IDs regardless of phase (callers validate the phase).
+ */
+export function findTemplatesByIds(ids) {
+  return prisma.thesisMilestoneTemplate.findMany({
+    where: { id: { in: ids } },
   });
 }
 
@@ -49,7 +78,7 @@ export function findTemplateById(id) {
  */
 export function createTemplate(data) {
   return prisma.thesisMilestoneTemplate.create({
-    data,
+    data: { ...data, phase: TA_TEMPLATE_PHASE },
   });
 }
 
@@ -77,7 +106,7 @@ export function deleteTemplate(id) {
  */
 export function deleteTemplatesMany(ids) {
   return prisma.thesisMilestoneTemplate.deleteMany({
-    where: { id: { in: ids } },
+    where: { id: { in: ids }, phase: TA_TEMPLATE_PHASE },
   });
 }
 
@@ -85,7 +114,7 @@ export function deleteTemplatesMany(ids) {
  * Get max order index for templates
  */
 export async function getMaxTemplateOrderIndex(topicId = null) {
-  const where = topicId ? { topicId } : {};
+  const where = topicId ? { topicId, phase: TA_TEMPLATE_PHASE } : { phase: TA_TEMPLATE_PHASE };
   const result = await prisma.thesisMilestoneTemplate.aggregate({
     where,
     _max: { orderIndex: true },
@@ -110,7 +139,7 @@ export function findAllTopics() {
  * Get all milestones for a thesis
  */
 export function findByThesisId(thesisId, status = null) {
-  const where = { thesisId };
+  const where = { thesisId, ...TA_PHASE };
   if (status) {
     where.status = status;
   }
@@ -187,10 +216,17 @@ export function findByIdAndThesisId(id, thesisId) {
 /**
  * Create new milestone
  */
-export function create(data) {
-  return prisma.thesisMilestone.create({
+export async function create(data) {
+  const result = await prisma.thesisMilestone.create({
     data,
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
@@ -206,11 +242,18 @@ export function createMany(dataArray) {
 /**
  * Update milestone by ID
  */
-export function update(id, data) {
-  return prisma.thesisMilestone.update({
+export async function update(id, data) {
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data,
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
@@ -225,24 +268,38 @@ export function remove(id) {
 /**
  * Update milestone status
  */
-export function updateStatus(id, status, additionalData = {}) {
-  return prisma.thesisMilestone.update({
+export async function updateStatus(id, status, additionalData = {}) {
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data: {
       status,
       ...additionalData,
     },
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
  * Update progress percentage
  */
-export function updateProgress(id, progressPercentage) {
-  return prisma.thesisMilestone.update({
+export async function updateProgress(id, progressPercentage) {
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data: { progressPercentage },
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
@@ -251,7 +308,7 @@ export function updateProgress(id, progressPercentage) {
 export function countByThesisAndStatus(thesisId) {
   return prisma.thesisMilestone.groupBy({
     by: ["status"],
-    where: { thesisId },
+    where: { thesisId, ...TA_PHASE },
     _count: { id: true },
   });
 }
@@ -261,7 +318,7 @@ export function countByThesisAndStatus(thesisId) {
  */
 export async function getThesisProgress(thesisId) {
   const milestones = await prisma.thesisMilestone.findMany({
-    where: { thesisId },
+    where: { thesisId, ...TA_PHASE },
     select: {
       id: true,
       status: true,
@@ -270,7 +327,10 @@ export async function getThesisProgress(thesisId) {
   });
 
   const total = milestones.length;
-  if (total === 0) return { total: 0, completed: 0, averageProgress: 0, percentComplete: 0, isComplete: false };
+  // Same shape as the non-empty result, so every summary card shows 0 (Paket C, C3).
+  if (total === 0) {
+    return { total: 0, completed: 0, inProgress: 0, notStarted: 0, pendingReview: 0, revisionNeeded: 0, averageProgress: 0, percentComplete: 0, isComplete: false };
+  }
 
   const completed = milestones.filter((m) => m.status === "completed").length;
   const totalProgress = milestones.reduce((sum, m) => sum + m.progressPercentage, 0);
@@ -295,11 +355,26 @@ export async function getThesisProgress(thesisId) {
 // ============================================
 
 /**
+ * Paket C (C9): adds `feedbackByName` to milestone rows (one user lookup for all rows).
+ * Accepts a single row or an array; rows without feedback are returned unchanged.
+ */
+export async function withFeedbackAuthor(input) {
+  const rows = (Array.isArray(input) ? input : [input]).filter(Boolean);
+  const ids = [...new Set(rows.map((m) => m.feedbackBy).filter(Boolean))];
+  const users = ids.length
+    ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true } })
+    : [];
+  const nameOf = new Map(users.map((u) => [u.id, u.fullName]));
+  const mapped = rows.map((m) => ({ ...m, feedbackByName: m.feedbackBy ? nameOf.get(m.feedbackBy) ?? null : null }));
+  return Array.isArray(input) ? mapped : mapped[0] ?? null;
+}
+
+/**
  * Get max order index for a thesis
  */
 export async function getMaxOrderIndex(thesisId) {
   const result = await prisma.thesisMilestone.aggregate({
-    where: { thesisId },
+    where: { thesisId, ...TA_PHASE },
     _max: { orderIndex: true },
   });
   return result._max.orderIndex ?? -1;
@@ -336,7 +411,7 @@ export async function updateMilestoneStatus(id, newStatus, additionalData = {}) 
  * Validate milestone by supervisor
  */
 export async function validateMilestone(id, validatorId, supervisorNotes = null) {
-  return prisma.thesisMilestone.update({
+  const result = await prisma.thesisMilestone.update({
     where: { id },
     data: {
       status: "completed",
@@ -347,6 +422,13 @@ export async function validateMilestone(id, validatorId, supervisorNotes = null)
       completedAt: new Date(),
     },
   });
+  if (result.thesisId) {
+    await prisma.thesis.update({
+      where: { id: result.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+  return result;
 }
 
 /**
@@ -358,6 +440,9 @@ export async function requestRevision(id, supervisorId, revisionNotes) {
     data: {
       status: "revision_needed",
       supervisorNotes: revisionNotes,
+      progressPercentage: {
+        decrement: 10,
+      },
     },
   });
 }
@@ -389,11 +474,17 @@ export function getThesisSeminarReadiness(thesisId) {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
-          role: { select: { name: true } },
           seminarReady: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           lecturer: {
             select: {
               user: {
@@ -420,7 +511,7 @@ export function getThesisSeminarReadiness(thesisId) {
 export async function approveSeminarReadiness(thesisId, lecturerId) {
   // Find the supervisor record for this lecturer on this thesis
   const supervisor = await prisma.thesisSupervisors.findFirst({
-    where: { thesisId, lecturerId },
+    where: { thesisId, lecturerId, status: "active" },
   });
 
   if (!supervisor) {
@@ -440,11 +531,12 @@ export async function approveSeminarReadiness(thesisId, lecturerId) {
       id: true,
       title: true,
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
-          role: { select: { name: true } },
           seminarReady: true,
+          role: { select: { name: true } },
           lecturer: {
             select: {
               user: { select: { id: true, fullName: true } },
@@ -462,7 +554,7 @@ export async function approveSeminarReadiness(thesisId, lecturerId) {
 export async function revokeSeminarReadiness(thesisId, lecturerId) {
   // Find the supervisor record
   const supervisor = await prisma.thesisSupervisors.findFirst({
-    where: { thesisId, lecturerId },
+    where: { thesisId, lecturerId, status: "active" },
   });
 
   if (!supervisor) {
@@ -482,11 +574,12 @@ export async function revokeSeminarReadiness(thesisId, lecturerId) {
       id: true,
       title: true,
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
-          role: { select: { name: true } },
           seminarReady: true,
+          role: { select: { name: true } },
           lecturer: {
             select: {
               user: { select: { id: true, fullName: true } },
@@ -506,7 +599,8 @@ export function findStudentsReadyForSeminar() {
     where: {
       thesisSupervisors: {
         every: {
-          seminarReady: true,
+          // Revival adaptation (A1): ignore non-active supervisor rows.
+          OR: [{ status: { not: "active" } }, { seminarReady: true }],
         },
       },
     },
@@ -527,9 +621,10 @@ export function findStudentsReadyForSeminar() {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
-          role: { select: { name: true } },
           seminarReady: true,
+          role: { select: { name: true } },
           lecturer: {
             select: {
               user: { select: { fullName: true } },
@@ -557,12 +652,7 @@ export function getThesisDefenceReadiness(thesisId) {
       title: true,
       finalThesisDocumentId: true,
       defenceRequestedAt: true,
-      thesisStatus: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
+      status: true,
       finalThesisDocument: {
         select: {
           id: true,
@@ -585,11 +675,17 @@ export function getThesisDefenceReadiness(thesisId) {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
           id: true,
           lecturerId: true,
-          role: { select: { name: true } },
           defenceReady: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           lecturer: {
             select: {
               user: {
@@ -601,6 +697,16 @@ export function getThesisDefenceReadiness(thesisId) {
               },
             },
           },
+        },
+      },
+      thesisSeminars: {
+        select: {
+          id: true,
+          status: true,
+          revisionFinalizedAt: true,
+        },
+        orderBy: {
+          createdAt: "desc",
         },
       },
     },
@@ -615,7 +721,7 @@ export function getThesisDefenceReadiness(thesisId) {
  */
 export async function approveDefenceReadiness(thesisId, lecturerId) {
   return prisma.thesisSupervisors.updateMany({
-    where: { thesisId, lecturerId },
+    where: { thesisId, lecturerId, status: "active" },
     data: { defenceReady: true },
   }).then(() =>
     prisma.thesis.findUnique({
@@ -624,10 +730,11 @@ export async function approveDefenceReadiness(thesisId, lecturerId) {
         id: true,
         title: true,
         thesisSupervisors: {
+          where: { status: "active" },
           select: {
             lecturerId: true,
-            role: { select: { name: true } },
             defenceReady: true,
+            role: { select: { name: true } },
           },
         },
       },
@@ -640,7 +747,7 @@ export async function approveDefenceReadiness(thesisId, lecturerId) {
  */
 export async function revokeDefenceReadiness(thesisId, lecturerId) {
   return prisma.thesisSupervisors.updateMany({
-    where: { thesisId, lecturerId },
+    where: { thesisId, lecturerId, status: "active" },
     data: { defenceReady: false },
   }).then(() =>
     prisma.thesis.findUnique({
@@ -649,10 +756,11 @@ export async function revokeDefenceReadiness(thesisId, lecturerId) {
         id: true,
         title: true,
         thesisSupervisors: {
+          where: { status: "active" },
           select: {
             lecturerId: true,
-            role: { select: { name: true } },
             defenceReady: true,
+            role: { select: { name: true } },
           },
         },
       },
@@ -694,7 +802,7 @@ export function findStudentsReadyForDefence() {
     where: {
       defenceRequestedAt: { not: null },
       thesisSupervisors: {
-        every: { defenceReady: true },
+        every: { OR: [{ status: { not: "active" } }, { defenceReady: true }] },
       },
     },
     select: {
@@ -721,9 +829,10 @@ export function findStudentsReadyForDefence() {
         },
       },
       thesisSupervisors: {
+        where: { status: "active" },
         select: {
-          role: { select: { name: true } },
           defenceReady: true,
+          role: { select: { name: true } },
           lecturer: {
             select: {
               user: { select: { fullName: true } },
@@ -733,5 +842,58 @@ export function findStudentsReadyForDefence() {
       },
     },
     orderBy: { defenceRequestedAt: "desc" },
+  });
+}
+
+/**
+ * Get all pending_review milestones for a given supervisor (by userId).
+ * Single query — avoids N+1 problem.
+ */
+export function findPendingReviewBySupervisor(userId) {
+  return prisma.thesisMilestone.findMany({
+    where: {
+      status: "pending_review",
+      ...TA_PHASE,
+      thesis: {
+        thesisSupervisors: {
+          some: {
+            status: "active",
+            lecturer: {
+              id: userId,
+            },
+          },
+        },
+      },
+    },
+    include: {
+      thesis: {
+        select: {
+          id: true,
+          title: true,
+          student: {
+            select: {
+              user: {
+                select: {
+                  fullName: true,
+                  identityNumber: true,
+                },
+              },
+            },
+          },
+          thesisSupervisors: {
+            where: { status: "active" },
+            include: {
+              role: true,
+              lecturer: {
+                include: {
+                  user: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
   });
 }

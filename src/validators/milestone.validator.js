@@ -204,10 +204,11 @@ export const validateMilestoneSchema = z.object({
 // ============================================
 
 export const requestRevisionSchema = z.object({
-  revisionNotes: z
-    .string()
-    .min(1, "Revision notes is required")
-    .max(5000, "Revision notes must be less than 5000 characters"),
+  // K20: revision notes are mandatory (Indonesian message, also when the key is missing)
+  revisionNotes: z.preprocess(
+    (v) => (v === undefined || v === null ? "" : v),
+    z.string().trim().min(1, "Catatan revisi wajib diisi").max(5000, "Catatan revisi maksimal 5000 karakter"),
+  ),
 });
 
 // ============================================
@@ -215,10 +216,10 @@ export const requestRevisionSchema = z.object({
 // ============================================
 
 export const addFeedbackSchema = z.object({
-  feedback: z
-    .string()
-    .min(1, "Feedback is required")
-    .max(5000, "Feedback must be less than 5000 characters"),
+  feedback: z.preprocess(
+    (v) => (v === undefined || v === null ? "" : v),
+    z.string().trim().min(1, "Feedback wajib diisi").max(5000, "Feedback maksimal 5000 karakter"),
+  ),
 });
 
 // ============================================

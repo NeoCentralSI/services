@@ -6,8 +6,7 @@ async function main() {
       id: true,
       title: true,
       proposalStatus: true,
-      isProposal: true,
-      thesisStatusId: true,
+      status: true,
       finalProposalVersionId: true,
       academicYearId: true,
       proposalReviewedAt: true,
@@ -27,13 +26,13 @@ async function main() {
 
   console.log(`\n📋 Total thesis (latest 30): ${theses.length}`);
   console.log("─".repeat(120));
-  console.log("proposalStatus | isProposal | takingThesisCourse | finalProposalVersionId | title");
+  console.log("proposalStatus | status      | takingThesisCourse | finalProposalVersionId | title");
   console.log("─".repeat(120));
   for (const t of theses) {
     const nim = t.student?.user?.identityNumber ?? "?";
     const name = t.student?.user?.fullName ?? "?";
     console.log(
-      `${(t.proposalStatus ?? "null").padEnd(16)} | ${String(t.isProposal).padEnd(10)} | ${String(t.student?.takingThesisCourse ?? "null").padEnd(18)} | ${(t.finalProposalVersionId ? "yes" : "NO").padEnd(20)} | ${nim} ${name} — ${(t.title ?? "(no title)").slice(0, 40)}`,
+      `${(t.proposalStatus ?? "null").padEnd(16)} | ${String(t.status).padEnd(11)} | ${String(t.student?.takingThesisCourse ?? "null").padEnd(18)} | ${(t.finalProposalVersionId ? "yes" : "NO").padEnd(20)} | ${nim} ${name} — ${(t.title ?? "(no title)").slice(0, 40)}`,
     );
   }
 
@@ -46,19 +45,13 @@ async function main() {
     console.log(`  ${s.proposalStatus ?? "null"}: ${s._count}`);
   });
 
-  // Cek thesisStatus entries
-  const thesisStatuses = await prisma.thesisStatus.findMany({ select: { id: true, name: true } });
-  console.log("\n📋 ThesisStatus entries in DB:");
-  thesisStatuses.forEach((s) => console.log(`  ${s.id} → ${s.name}`));
-  const bimbingan = thesisStatuses.find((s) => s.name === "Bimbingan");
-  console.log(`  Bimbingan exists? ${bimbingan ? "YES (id=" + bimbingan.id + ")" : "NO — accept akan throw!"}`);
 
   // Cek accepted thesis: apakah muncul di history query pattern
   const accepted = theses.filter((t) => t.proposalStatus === "accepted");
   console.log(`\n✅ Thesis accepted: ${accepted.length}`);
   accepted.forEach((t) => {
     console.log(`  ${t.student?.user?.identityNumber} ${t.student?.user?.fullName}`);
-    console.log(`    thesisStatusId: ${t.thesisStatusId ?? "(null)"} ← harus ter-set ke Bimbingan`);
+    console.log(`    status: ${t.status} ← harus research setelah promosi (K15)`);
     console.log(`    proposalReviewedAt: ${t.proposalReviewedAt?.toISOString() ?? "(null)"}`);
   });
 

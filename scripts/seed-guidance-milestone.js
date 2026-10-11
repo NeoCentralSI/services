@@ -1,204 +1,151 @@
-
-import { PrismaClient } from "../src/generated/prisma/index.js";
+/**
+ * Sample TA guidance sessions with attachments (Paket A: K6, K15, K17).
+ *
+ * For every running TA (status `research`) in the active academic year that has an
+ * active Pembimbing 1, three completed sessions are created with `phase: "research"`.
+ * Each session carries a copy of the sample PDF stored on the session row
+ * (uploads/thesis/<thesis_id>/guidance/<guidance_id>/…, no `documents` row) and is
+ * linked to an existing milestone of the thesis when there is one.
+ *
+ * Idempotent: a thesis that already has a TA-phase session with an attachment is
+ * skipped. Nothing is deleted.
+ *
+ * Usage (from app/backend): node scripts/seed-guidance-milestone.js
+ */
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
+import { fileURLToPath } from "url";
+import { PrismaClient } from "../src/generated/prisma/index.js";
+import { ROLES } from "../src/constants/roles.js";
+import { THESIS_STATUS, THESIS_PHASE, TA_PHASE } from "../src/constants/thesisStatus.js";
+import { storeGuidanceAttachment } from "../src/helpers/guidanceFile.helper.js";
 
 const prisma = new PrismaClient();
+const SAMPLE_PDF = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "Sample Laporan TA.pdf");
+const SESSIONS_PER_THESIS = 3;
+const FIRST_SESSION = new Date("2026-02-05T03:00:00.000Z");
+const DAY = 24 * 60 * 60 * 1000;
+
+const TOPICS = [
+    "Diskusi lingkup penelitian dan rumusan masalah",
+    "Review studi literatur dan landasan teori",
+    "Konsultasi metodologi penelitian dan desain sistem",
+];
+
+const FEEDBACKS = [
+    "Rumusan masalah sudah tajam. Lanjutkan ke identifikasi variabel penelitian.",
+    "Literatur review sudah cukup luas. Pastikan sitasi menggunakan format APA terbaru.",
+    "Metodologi sudah tepat. Perhatikan validitas instrumen pengumpulan data.",
+];
 
 async function main() {
-    console.log("🚀 Starting Refined Thesis Guidance Seeding...");
+    console.log("🚀 Seeding contoh bimbingan TA (dengan lampiran)...");
 
-    // 1. Get Academic Year "Genap 2025/2026"
-    const academicYear = await prisma.academicYear.findFirst({
-        where: {
-            semester: "genap",
-            year: "2025/2026",
-        },
-    });
-
-    if (!academicYear) {
-        console.error("❌ Academic Year 'Genap 2025/2026' not found!");
-        return;
+    if (!fs.existsSync(SAMPLE_PDF)) {
+        throw new Error(`PDF contoh tidak ditemukan: ${SAMPLE_PDF}`);
     }
+    const sampleBuffer = fs.readFileSync(SAMPLE_PDF);
 
-    console.log(`✅ Targeted Academic Year: ${academicYear.id} (${academicYear.semester} ${academicYear.year})`);
+    const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
+    if (!academicYear) {
+        throw new Error("Tidak ada tahun ajaran aktif. Jalankan scripts/seed-master.js lebih dulu.");
+    }
+    console.log(`✅ Tahun ajaran aktif: ${academicYear.semester} ${academicYear.year}`);
 
-    // 2. Cleanup: Delete existing guidances for these theses to allow fresh seeding
-    const thesesInAY = await prisma.thesis.findMany({
-        where: { academicYearId: academicYear.id },
-        select: { id: true },
-    });
-    const thesisIds = thesesInAY.map(t => t.id);
-
-    console.log(`🧹 Cleaning up existing guidances for ${thesisIds.length} theses...`);
-    const deleted = await prisma.thesisGuidance.deleteMany({
-        where: { thesisId: { in: thesisIds } },
-    });
-    console.log(`🗑️ Deleted ${deleted.count} existing guidance records.`);
-
-    // 3. Get all theses for this Academic Year
     const theses = await prisma.thesis.findMany({
-        where: {
-            academicYearId: academicYear.id,
-        },
+        where: { academicYearId: academicYear.id, status: THESIS_STATUS.RESEARCH },
         include: {
             student: { include: { user: true } },
             thesisSupervisors: {
-                where: {
-                    role: { name: "Pembimbing 1" },
-                },
+                where: { status: "active", role: { name: ROLES.PEMBIMBING_1 } },
             },
             thesisMilestones: {
+                where: TA_PHASE,
                 orderBy: { orderIndex: "asc" },
             },
         },
+        orderBy: { createdAt: "asc" },
     });
+    console.log(`📊 ${theses.length} TA berstatus research ditemukan.`);
 
-    console.log(`📊 Found ${theses.length} theses to seed.`);
-
-    const topics = [
-        "Diskusi lingkup penelitian dan rumusan masalah",
-        "Review studi literatur dan landasan teori",
-        "Konsultasi metodologi penelitian dan desain sistem",
-        "Review progress implementasi awal dan struktur database",
-        "Diskusi hasil pengujian fungsionalitas sistem",
-        "Review draf Bab 1 sampai Bab 3",
-        "Konsultasi analisis hasil penelitian",
-        "Persiapan draf laporan akhir dan demonstrasi",
-    ];
-
-    const feedbacks = [
-        "Rumusan masalah sudah tajam. Lanjutkan ke identifikasi variabel penelitian.",
-        "Literatur review sudah cukup luas. Pastikan sitasi menggunakan format APA terbaru.",
-        "Metodologi sudah tepat. Perhatikan validitas instrumen pengumpulan data.",
-        "Progress implementasi berjalan baik. Optimalkan query database untuk performa tinggi.",
-        "Hasil pengujian menunjukkan sistem stabil. Lakukan pengujian beban (load testing).",
-        "Struktur penulisan sudah sesuai pedoman. Perbaiki beberapa typo di draf Bab 2.",
-        "Analisis data sudah mendalam. Hubungkan hasil dengan teori yang ada di Bab 2.",
-        "Draf laporan sudah mendekati final. Persiapkan slide presentasi yang efektif.",
-    ];
-
-    let createdCount = 0;
-    const UPLOADS_BASE = "uploads/thesis";
+    const now = new Date();
+    let created = 0;
+    let skipped = 0;
 
     for (const thesis of theses) {
-        // Check actual files in the thesis directory
-        const filesDir = path.join(UPLOADS_BASE, thesis.id, "files");
-        let existingFiles = [];
-
-        if (fs.existsSync(filesDir)) {
-            existingFiles = fs.readdirSync(filesDir)
-                .filter(file => file.endsWith(".pdf"))
-                .sort(); // Sort to have some deterministic order (v1, v2, etc.)
-        }
-
-        // Determine session count: at least 3, or the number of files if more
-        const sessionCount = Math.max(3, existingFiles.length);
+        const name = thesis.student?.user?.fullName || thesis.id;
         const supervisorId = thesis.thesisSupervisors[0]?.lecturerId;
-
         if (!supervisorId) {
-            console.warn(`⚠️ No Pembimbing 1 found for thesis ${thesis.id}. Skipping...`);
+            console.warn(`⚠️  ${name}: tidak ada Pembimbing 1 aktif, dilewati.`);
+            skipped += 1;
             continue;
         }
 
-        const startDate = new Date("2026-02-05");
-        const now = new Date();
+        const alreadySeeded = await prisma.thesisGuidance.count({
+            where: { thesisId: thesis.id, ...TA_PHASE, filePath: { not: null } },
+        });
+        if (alreadySeeded > 0) {
+            console.log(`⏭️  ${name}: sudah punya sesi berlampiran, dilewati.`);
+            skipped += 1;
+            continue;
+        }
 
-        for (let i = 0; i < sessionCount; i++) {
-            // Space sessions out every ~10-14 days
-            const requestedDate = new Date(startDate.getTime() + i * 12 * 24 * 60 * 60 * 1000);
+        let createdForThesis = 0;
+        for (let i = 0; i < SESSIONS_PER_THESIS; i++) {
+            const requestedDate = new Date(FIRST_SESSION.getTime() + i * 12 * DAY);
             if (requestedDate > now) break;
-
-            const approvedDate = new Date(requestedDate.getTime() + 2 * 24 * 60 * 60 * 1000);
+            const approvedDate = new Date(requestedDate.getTime() + 2 * DAY);
             const completedAt = new Date(approvedDate.getTime() + 2 * 60 * 60 * 1000);
 
-            // Define standard names
-            const nim = thesis.student.user.identityNumber;
-            const sanitizedName = thesis.student.user.fullName.replace(/\s+/g, "_");
-            const standardFileName = `${nim}_${sanitizedName}_LaporanTA_v${i + 1}.pdf`;
-            const standardFilePath = `${UPLOADS_BASE}/${thesis.id}/files/${standardFileName}`;
-
-            // If physical file exists but has a different name (like Sample...), rename it
-            if (existingFiles[i]) {
-                const oldFile = existingFiles[i];
-                if (oldFile !== standardFileName) {
-                    const oldPath = path.join(filesDir, oldFile);
-                    const newPath = path.join(filesDir, standardFileName);
-                    try {
-                        fs.renameSync(oldPath, newPath);
-                        console.log(`  🔄 Renamed: ${oldFile} -> ${standardFileName}`);
-                    } catch (err) {
-                        console.error(`  ❌ Failed renaming ${oldFile}:`, err.message);
-                    }
-                }
-            }
-
-            // Create a Document record first to populate file history
-            const docRecord = await prisma.document.create({
-                data: {
-                    userId: thesis.student.user.id,
-                    fileName: standardFileName,
-                    filePath: standardFilePath,
-                }
+            const guidanceId = randomUUID();
+            const fileColumns = await storeGuidanceAttachment({
+                thesisId: thesis.id,
+                guidanceId,
+                file: {
+                    originalname: `Laporan TA v${i + 1}.pdf`,
+                    mimetype: "application/pdf",
+                    size: sampleBuffer.length,
+                    buffer: sampleBuffer,
+                },
+                now: requestedDate,
             });
 
-            // Link to appropriate milestone
-            const milestoneIndex = Math.min(i, thesis.thesisMilestones.length - 1);
-            const milestoneId = thesis.thesisMilestones[milestoneIndex]?.id;
+            const milestone = thesis.thesisMilestones[Math.min(i, thesis.thesisMilestones.length - 1)];
 
-            const guidance = await prisma.thesisGuidance.create({
+            await prisma.thesisGuidance.create({
                 data: {
+                    id: guidanceId,
                     thesisId: thesis.id,
-                    supervisorId: supervisorId,
+                    supervisorId,
                     requestedDate,
                     approvedDate,
                     duration: 60,
-                    documentId: docRecord.id, // Link the new document
-                    documentUrl: standardFilePath,
-                    studentNotes: topics[i % topics.length],
-                    supervisorFeedback: feedbacks[i % feedbacks.length],
-                    sessionSummary: `Bimbingan ke-${i + 1} membahas ${topics[i % topics.length].toLowerCase()}. Progress terpantau lancar.`,
+                    studentNotes: TOPICS[i % TOPICS.length],
+                    supervisorFeedback: FEEDBACKS[i % FEEDBACKS.length],
+                    sessionSummary: `Bimbingan ke-${i + 1} membahas ${TOPICS[i % TOPICS.length].toLowerCase()}. Progress terpantau lancar.`,
+                    summarySubmittedAt: completedAt,
                     status: "completed",
                     completedAt,
-                }
+                    phase: THESIS_PHASE.RESEARCH,
+                    ...fileColumns,
+                    ...(milestone ? { milestones: { create: [{ milestoneId: milestone.id }] } } : {}),
+                },
             });
-
-            if (milestoneId) {
-                await prisma.thesisGuidanceMilestone.create({
-                    data: {
-                        guidanceId: guidance.id,
-                        milestoneId: milestoneId,
-                    }
-                });
-            }
-
-            createdCount++;
+            createdForThesis += 1;
         }
 
-        // After seeding all guidances for this thesis, set the last document as the main thesis document
-        const lastGuidance = await prisma.thesisGuidance.findFirst({
-            where: { thesisId: thesis.id, documentId: { not: null } },
-            orderBy: { requestedDate: "desc" },
-            select: { documentId: true }
-        });
-
-        if (lastGuidance?.documentId) {
-            await prisma.thesis.update({
-                where: { id: thesis.id },
-                data: { documentId: lastGuidance.documentId }
-            });
-        }
-
-        console.log(`✅ Seeded ${sessionCount} guidances for student: ${thesis.student.user.fullName} (${existingFiles.length} files found)`);
+        created += createdForThesis;
+        console.log(`✅ ${name}: ${createdForThesis} sesi dibuat.`);
     }
 
-    console.log(`\n✨ REFINED SEEDING COMPLETE! Total Guidance Records Created: ${createdCount}`);
+    console.log(`\n✨ Selesai. Sesi dibuat: ${created}. TA dilewati: ${skipped}.`);
 }
 
 main()
     .catch((e) => {
         console.error("❌ Error during seeding:", e);
-        process.exit(1);
+        process.exitCode = 1;
     })
     .finally(async () => {
         await prisma.$disconnect();

@@ -10,6 +10,7 @@ import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import { ENV } from "../../config/env.js";
 import prisma from "../../config/prisma.js";
+import { OPEN_THESIS_STATUSES } from "../../constants/thesisStatus.js";
 
 const MIN_BIMBINGAN = ENV.SEMINAR_MIN_BIMBINGAN;
 const MIN_KEHADIRAN = ENV.SEMINAR_MIN_KEHADIRAN;
@@ -169,7 +170,8 @@ export async function getOverview(userId) {
 export async function getAnnouncements(userId) {
   const student = await resolveStudent(userId);
   const ownThesis = await prisma.thesis.findFirst({
-    where: { studentId: student.id },
+    where: { studentId: student.id, status: { in: OPEN_THESIS_STATUSES } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: { thesisSeminars: { select: { id: true } } },
   });
   const ownIds = new Set((ownThesis?.thesisSeminars || []).map((s) => s.id));

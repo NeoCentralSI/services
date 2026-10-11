@@ -9,15 +9,6 @@ export function authGuard(req, res, next) {
 		let token = "";
 		if (auth.startsWith("Bearer ")) {
 			token = auth.split(" ")[1];
-		} else if (req.query.token) {
-			// NOTE keamanan: token via query string dipakai untuk preview file
-			// (PDF inline, image src, dll.) di mana browser tidak mengirim
-			// header Authorization. Ini bocor di server log, browser history,
-			// dan referrer header. Akses token sudah short-lived; pertimbangkan
-			// migrasi ke signed download URL (token download terpisah, single
-			// use, TTL pendek) jika fitur preview di-perluas. Untuk sekarang
-			// dipertahankan untuk menghindari refactor besar di consumer.
-			token = req.query.token;
 		}
 		if (!token) {
 			const err = new Error("Unauthorized");

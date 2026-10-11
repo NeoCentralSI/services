@@ -27,7 +27,8 @@ import { sendFcmToUsers } from "../push.service.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import { ROLES } from "../../constants/roles.js";
-import { CLOSED_THESIS_STATUSES } from "../../constants/thesisStatus.js";
+import { CLOSED_THESIS_STATUSES, THESIS_STATUS } from "../../constants/thesisStatus.js";
+import { getThesisStatusLabel } from "../../constants/thesisLabels.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { checkQuotaAvailability, browseLecturerQuotas } from "../quota.service.js";
 
@@ -82,10 +83,10 @@ function ensureThesisOpenForSupervisor2(thesis) {
 		err.statusCode = 404;
 		throw err;
 	}
-	const statusName = thesis.thesisStatus?.name ?? null;
+	const statusName = thesis.status ?? null;
 	if (statusName && CLOSED_THESIS_STATUSES.includes(statusName)) {
 		const err = new Error(
-			`Thesis berstatus "${statusName}" sudah ditutup — penambahan Pembimbing 2 tidak tersedia.`,
+			`Tugas akhir berstatus "${getThesisStatusLabel(statusName)}" sudah ditutup — penambahan Pembimbing 2 tidak tersedia.`,
 		);
 		err.statusCode = 400;
 		throw err;
@@ -99,11 +100,10 @@ async function getThesisForValidation(thesisId) {
 		select: {
 			id: true,
 			title: true,
-			isProposal: true,
 			academicYearId: true,
 			proposalStatus: true,
 			ta04AssignmentIssuedAt: true,
-			thesisStatus: { select: { name: true } },
+			status: true,
 		},
 	});
 }
@@ -700,16 +700,17 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		});
 	}
 
-	// Notifikasi mahasiswa + dosen
+	// Notifikasi mahasiswa + dosen. "Promoted" = thesis past the proposal phase (K15).
+	const isPromoted = Boolean(thesis.status) && thesis.status !== THESIS_STATUS.PROPOSAL;
 	await createNotificationsForUsers([studentId], {
 		title: "Pembimbing 2 Disetujui",
-		message: thesis.proposalStatus === "accepted"
+		message: isPromoted
 			? `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem.`
 			: `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda.`,
 	});
 	await createNotificationsForUsers([lecturerId], {
 		title: "Penetapan Pembimbing 2",
-		message: thesis.proposalStatus === "accepted"
+		message: isPromoted
 			? "Ketua Departemen menyetujui Anda sebagai Pembimbing 2. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem."
 			: "Ketua Departemen menyetujui Anda sebagai Pembimbing 2.",
 	});
@@ -722,7 +723,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 
 	// Jika thesis sudah promoted, TA-04 awal tetap memakai snapshot batch pertama.
 	// Notifikasi KaDep bersifat informatif, bukan instruksi regenerasi dokumen.
-	if (thesis.proposalStatus === "accepted") {
+	if (isPromoted) {
 		const kadepUsers = await findUsersByActiveRole(ROLES.KETUA_DEPARTEMEN);
 		const kadepIds = (kadepUsers || []).map((u) => u.id).filter((id) => id !== kadepUserId);
 		if (kadepIds.length > 0) {

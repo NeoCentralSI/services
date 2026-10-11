@@ -275,7 +275,6 @@ export async function submitFinalProposalVersion(thesisId, versionId, userId, su
       data: {
         proposalDocumentId: null,
         finalProposalVersionId: version.id,
-        isProposal: true,
         proposalStatus: null,
         proposalReviewNotes: null,
         proposalReviewedAt: null,

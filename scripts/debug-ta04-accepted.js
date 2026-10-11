@@ -8,7 +8,7 @@ async function main() {
       title: true,
       proposalReviewedAt: true,
       finalProposalVersionId: true,
-      isProposal: true,
+      status: true,
       academicYearId: true,
       student: {
         select: {

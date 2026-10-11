@@ -8,7 +8,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockPrisma, mockPush, mockNotif, mockRoles } = vi.hoisted(() => ({
   mockPrisma: {
-    thesisStatus: { findMany: vi.fn() },
     thesis: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     thesisGuidance: { findMany: vi.fn() },
   },
@@ -33,23 +32,19 @@ describe("Module 20: CRON — Thesis Status Update", () => {
     it("processes batch with custom pageSize and logger", async () => {
       const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() };
 
-      mockPrisma.thesisStatus.findMany.mockResolvedValue([
-        { id: 1, name: "Bimbingan" },
-        { id: 2, name: "Ongoing" },
-        { id: 3, name: "Slow" },
-      ]);
       mockPrisma.thesis.findMany.mockResolvedValue([]); // no theses to process
       mockPrisma.thesisGuidance.findMany.mockResolvedValue([]);
 
       const result = await updateAllThesisStatuses({ pageSize: 50, logger: mockLogger });
 
-      expect(mockPrisma.thesisStatus.findMany).toHaveBeenCalled();
+      expect(mockPrisma.thesis.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { status: "research" }, take: 50, skip: 0 })
+      );
+      expect(mockLogger.log).toHaveBeenCalled();
+      expect(result).toEqual({ ONGOING: 0, SLOW: 0, AT_RISK: 0 });
     });
 
     it("returns without error when no theses need updating", async () => {
-      mockPrisma.thesisStatus.findMany.mockResolvedValue([
-        { id: 1, name: "Bimbingan" },
-      ]);
       mockPrisma.thesis.findMany.mockResolvedValue([]);
       mockPrisma.thesisGuidance.findMany.mockResolvedValue([]);
 
@@ -66,6 +61,8 @@ describe("Module 20: CRON — Thesis Status Update", () => {
       const count = await getFailedThesesCount();
 
       expect(count).toBe(5);
+      // K15: failed = status gagal (the rating job never writes FAILED).
+      expect(mockPrisma.thesis.count).toHaveBeenCalledWith({ where: { status: "failed" } });
     });
   });
 

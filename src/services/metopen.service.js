@@ -11,7 +11,12 @@ import {
 } from "../utils/errors.js";
 import { ROLES } from "../constants/roles.js";
 import { ENV } from "../config/env.js";
-import { THESIS_STATUS, CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { THESIS_STATUS } from "../constants/thesisStatus.js";
+
+/** Thesis is past the proposal phase (K15: status is the phase marker). */
+function isPastProposalPhase(thesis) {
+  return Boolean(thesis?.status) && thesis.status !== THESIS_STATUS.PROPOSAL;
+}
 import { getActiveAcademicYear } from "../helpers/academicYear.helper.js";
 import { generateTA04Pdf } from "../utils/ta04.pdf.js";
 import {
@@ -48,7 +53,8 @@ async function assertMetopelWriteAccess(userId) {
     );
   }
 
-  if (thesis.proposalStatus !== "accepted") {
+  // K15: Metopel writes are open only in the proposal phase (status `proposal`).
+  if (thesis.proposalStatus !== "accepted" && thesis.status === THESIS_STATUS.PROPOSAL) {
     return thesis;
   }
 
@@ -91,7 +97,7 @@ export async function createTemplate(data) {
     name: data.name,
     description: data.description || null,
     topicId: data.topicId || null,
-    phase: "metopen",
+    phase: "proposal",
     orderIndex: data.orderIndex ?? maxOrder + 1,
     isActive: data.isActive ?? true,
     defaultDueDays: data.defaultDueDays ?? null,
@@ -1105,6 +1111,7 @@ export async function publishTasks({ startDate = null, templateDeadlines = null,
         milestoneTemplateId: tmpl.id,
         targetDate,
         status: "not_started",
+        phase: "proposal",
         progressPercentage: 0,
       });
       createdForThesis++;
@@ -1374,11 +1381,6 @@ export async function syncBookingActivationForStudent(userId, activeAcademicYear
     return { synced: false, promoted: 0, released: 0, skipped: 0 };
   }
 
-  const bimbinganStatus = await prisma.thesisStatus.findFirst({
-    where: { name: THESIS_STATUS.BIMBINGAN },
-    select: { id: true },
-  });
-
   let promoted = 0;
   let released = 0;
   let skipped = 0;
@@ -1418,9 +1420,12 @@ export async function syncBookingActivationForStudent(userId, activeAcademicYear
         await tx.thesis.update({
           where: { id: request.thesisId },
           data: {
-            isProposal: false,
+            // K15: promotion moves the thesis to the TA phase. proposalStatus stays
+            // "accepted" for Metopen compatibility.
+            status: THESIS_STATUS.RESEARCH,
+            statusChangedAt: now,
+            ...(request.thesis.startDate ? {} : { startDate: now }),
             proposalStatus: "accepted",
-            thesisStatusId: bimbinganStatus?.id ?? undefined,
             activeAcademicYearId: targetAcademicYearId,
             activePromotedAt: now,
             proposalReviewedAt: now,
@@ -1478,7 +1483,8 @@ export async function syncBookingActivationForStudent(userId, activeAcademicYear
       await tx.thesis.update({
         where: { id: request.thesisId },
         data: {
-          isProposal: true,
+          // Release keeps the thesis in the proposal phase (behaviour unchanged; K2 later).
+          status: THESIS_STATUS.PROPOSAL,
           proposalStatus: null,
           activeAcademicYearId: null,
           activePromotedAt: null,
@@ -1555,7 +1561,8 @@ export async function releaseWaitingKrsBookingByAdmin(requestId, actorUserId) {
         select: {
           id: true,
           academicYearId: true,
-          isProposal: true,
+          status: true,
+          startDate: true,
           ta04AssignmentIssuedAt: true,
           researchMethodScores: {
             select: {
@@ -1744,7 +1751,7 @@ export async function getStudentProposalApprovalStatus(userId) {
     select: {
       id: true,
       title: true,
-      isProposal: true,
+      status: true,
       proposalStatus: true,
       ta04AssignmentIssuedAt: true,
       ta04AssignmentTitle: true,
@@ -1778,7 +1785,7 @@ export async function getStudentProposalApprovalStatus(userId) {
   const ta04Issued = Boolean(row?.ta04AssignmentIssuedAt);
   const hasOfficialSupervisor = hasActiveP1 && ta04Issued;
   const hasFinalProposal = Boolean(row?.finalProposalVersionId);
-  const activePromoted = row?.proposalStatus === "accepted" && row?.isProposal === false;
+  const activePromoted = row?.proposalStatus === "accepted" && isPastProposalPhase(row);
   const guidanceGateOpen = hasOfficialSupervisor;
   const guidanceGateReason = !row
     ? null
@@ -1790,14 +1797,14 @@ export async function getStudentProposalApprovalStatus(userId) {
         ? "Booking pembimbing sudah disetujui, tetapi TA-04 belum difinalisasi KaDep. Bimbingan proposal yang tercatat sistem belum dapat dimulai."
         : null;
   const canUploadProposal =
-    Boolean(row) && row.isProposal !== false && row.proposalStatus !== "accepted";
+    Boolean(row) && !isPastProposalPhase(row) && row.proposalStatus !== "accepted";
   const canUseInformalLog =
     Boolean(row) &&
     guidanceGateOpen &&
-    row.isProposal !== false &&
+    !isPastProposalPhase(row) &&
     row.student?.takingThesisCourse !== true;
   const canSubmitFinalProposal =
-    Boolean(row) && guidanceGateOpen && row.isProposal !== false && row.proposalStatus !== "accepted";
+    Boolean(row) && guidanceGateOpen && !isPastProposalPhase(row) && row.proposalStatus !== "accepted";
   const ta03GateOpen = Boolean(row) && hasFinalProposal && ta04Issued;
   // FUN-033 / KC-20260709-03: reason must name the unmet TA-03 prerequisite
   // (final proposal + TA-04 issued), not a downstream symptom such as
@@ -1823,6 +1830,8 @@ export async function getStudentProposalApprovalStatus(userId) {
     thesis: row
       ? {
           ...row,
+          // API shape kept for the Metopel UI (archive mode); derived from status (K15).
+          isProposal: row.status === THESIS_STATUS.PROPOSAL,
           thesisSupervisors: undefined,
           advisorRequests: undefined,
           student: undefined,
@@ -2012,7 +2021,7 @@ function getTa04BatchEligibilitySnapshot(thesis) {
   if (
     thesis.activePromotedAt ||
     thesis.proposalStatus === "accepted" ||
-    thesis.isProposal === false
+    isPastProposalPhase(thesis)
   ) {
     return { eligible: false, block: "already_promoted" };
   }
@@ -2053,7 +2062,7 @@ function resolveTa04ListSection(thesis, batchEligibility) {
   if (
     thesis.activePromotedAt ||
     thesis.proposalStatus === "accepted" ||
-    thesis.isProposal === false
+    isPastProposalPhase(thesis)
   ) {
     return "history_active";
   }
@@ -2649,7 +2658,7 @@ export async function getKadepTitleReportHistory({ academicYearId } = {}) {
     where: {
       AND: [
         // Masih fase Metopen — bukan beban aktif TA / arsip.
-        { isProposal: true },
+        { status: THESIS_STATUS.PROPOSAL },
         {
           OR: [
             { proposalStatus: null },
@@ -2789,7 +2798,8 @@ export async function getKadepTitleReportHistory({ academicYearId } = {}) {
       studentNim: t.student?.user?.identityNumber ?? "-",
       supervisors: resolveTa04SupervisorDisplayNames(t),
       proposalStatus: t.proposalStatus,
-      isProposal: t.isProposal,
+      // API shape kept for the Metopen UI; derived from status (K15).
+      isProposal: t.status === THESIS_STATUS.PROPOSAL,
       ta04AssignmentIssuedAt: t.ta04AssignmentIssuedAt,
       activeAcademicYear: t.activeAcademicYear,
       activePromotedAt: t.activePromotedAt,

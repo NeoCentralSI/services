@@ -2,13 +2,13 @@
  * Seed mahasiswa eligible Metopen & TA dengan data mock SIA.
  *
  * Logika:
- *  - isProposal = true  → Thesis masih fase proposal / Metopen
- *  - isProposal = false → Thesis sudah menjadi TA
+ *  - status = proposal     → Thesis masih fase proposal / Metopen (K15)
+ *  - status = research  → Thesis sudah menjadi TA
  *  - Eligible TA otomatis eligible Metopen (superset)
  *  - Eligible Metopen belum tentu eligible TA
  *
- * Grup 1 (Metopen-only): status Metopel, isProposal true, tanpa title/topic/supervisor
- * Grup 2 (Sudah TA):     status Bimbingan, isProposal false, proposalStatus accepted
+ * Grup 1 (Metopen-only): status proposal, tanpa title/topic/supervisor
+ * Grup 2 (Sudah TA):     status research, proposalStatus accepted
  * Grup 3 (Tidak eligible): dimas & john — tidak disentuh
  *
  * Script ini juga membuat MetopenClass dan enroll mahasiswa Metopen-eligible
@@ -19,6 +19,7 @@
  */
 
 import { PrismaClient } from '../src/generated/prisma/index.js';
+import { THESIS_STATUS } from '../src/constants/thesisStatus.js';
 
 const prisma = new PrismaClient();
 
@@ -203,19 +204,6 @@ async function main() {
   console.log('  Seed Mahasiswa Eligible Metopen & TA (Mock SIA)');
   console.log('='.repeat(60));
 
-  // Status TA-01..04 idealnya datang dari base seed (prisma/seed.js). Untuk membuat
-  // pipeline UAT tahan-reset, buat status kanonis bila belum ada (mirror pola
-  // seed-metopen-monitoring.mjs yang membuat "Bimbingan" sendiri).
-  let metopelStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Metopel' } });
-  if (!metopelStatus) {
-    metopelStatus = await prisma.thesisStatus.create({ data: { name: 'Metopel' } });
-    console.log('  [fix] ThesisStatus "Metopel" dibuat (tidak ada dari base seed).');
-  }
-  let bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: 'Bimbingan' } });
-  if (!bimbinganStatus) {
-    bimbinganStatus = await prisma.thesisStatus.create({ data: { name: 'Bimbingan' } });
-    console.log('  [fix] ThesisStatus "Bimbingan" dibuat (tidak ada dari base seed).');
-  }
   const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
 
   if (!academicYear) {
@@ -224,13 +212,12 @@ async function main() {
   }
 
   console.log(`  Academic year : ${academicYear.year} ${academicYear.semester}`);
-  console.log(`  Status Metopel: ${metopelStatus.id}`);
-  console.log(`  Status Bimbingan: ${bimbinganStatus.id}\n`);
+  console.log('');
 
   const stats = { studentUpdated: 0, metopen: 0, ta: 0, skipped: 0 };
   const enrollableStudentIds = [];
 
-  // ── Grup 1: Metopen-only (isProposal = true, status Metopel) ──
+  // ── Grup 1: Metopen-only (status proposal) ──
   console.log('── Grup 1: Eligible Metopen (proposal) ──');
   for (const entry of METOPEN_ONLY_STUDENTS) {
     const user = await prisma.user.findFirst({
@@ -259,8 +246,7 @@ async function main() {
     }
 
     const result = await upsertThesis(user.id, {
-      isProposal: true,
-      thesisStatusId: metopelStatus.id,
+      status: THESIS_STATUS.PROPOSAL,
       academicYearId: academicYear.id,
       title: null,
       proposalStatus: null,
@@ -269,10 +255,10 @@ async function main() {
     });
     enrollableStudentIds.push(user.id);
     stats.metopen++;
-    console.log(`  ${user.fullName} (${entry.nim}) — Metopel [isProposal=true] (${result})`);
+    console.log(`  ${user.fullName} (${entry.nim}) — Metopel [status=proposal] (${result})`);
   }
 
-  // ── Grup 2: Sudah TA (isProposal = false, status Bimbingan) ──
+  // ── Grup 2: Sudah TA (status research) ──
   console.log('\n── Grup 2: Sudah TA (bimbingan) ──');
   for (const entry of TA_STUDENTS) {
     const user = await prisma.user.findFirst({
@@ -289,8 +275,7 @@ async function main() {
     if (studentResult !== 'ok') stats.studentUpdated++;
 
     const result = await upsertThesis(user.id, {
-      isProposal: false,
-      thesisStatusId: bimbinganStatus.id,
+      status: THESIS_STATUS.RESEARCH,
       academicYearId: academicYear.id,
       title: entry.title,
       proposalStatus: 'accepted',
@@ -299,7 +284,7 @@ async function main() {
     });
     enrollableStudentIds.push(user.id);
     stats.ta++;
-    console.log(`  ${user.fullName} (${entry.nim}) — Bimbingan [isProposal=false] (${result})`);
+    console.log(`  ${user.fullName} (${entry.nim}) — Bimbingan [status=research] (${result})`);
   }
 
   // ── MetopenClass & Enrollment ──

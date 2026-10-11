@@ -1,13 +1,13 @@
 /**
- * Integration test: Trigger FAILED status for a specific thesis
+ * Integration test: a thesis past its deadline is NOT failed automatically (Paket A, K15)
  *
- * This test directly manipulates the database to simulate a thesis
- * exceeding the 1-year deadline, then runs the cron job function
- * to verify the full FAILED flow works correctly.
+ * This test directly manipulates the database to simulate a running TA
+ * (status `research`) exceeding the 1-year deadline, then runs the cron
+ * job function. The rating job may only set ONGOING/SLOW/AT_RISK: it never
+ * changes `status`, never writes FAILED and never cancels sessions.
  *
  * Usage:
- *   cd c:\Projects\Tugas Akhir\backend
- *   npx vitest run src/test/triggerFailedThesis.test.js
+ *   npx vitest run -c vitest.integration.config.js src/test/integration/nabil/triggerFailedThesis.test.js
  *
  * IMPORTANT: This hits the REAL database. Make sure .env is configured correctly.
  */
@@ -18,11 +18,10 @@ import { runCleanupIfEnabled } from "./cleanup.js";
 
 let THESIS_ID = null;
 
-describe("Trigger FAILED thesis flow", () => {
-    const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
+describe("Deadline does not fail a thesis automatically", () => {
     let originalCreatedAt = null;
     let originalRating = null;
-    let originalThesisStatusId = null;
+    let originalStatus = null;
     let originalUpdatedAt = null;
     let originalDeadlineDate = null;
 
@@ -36,7 +35,7 @@ describe("Trigger FAILED thesis flow", () => {
                     data: {
                         createdAt: originalCreatedAt,
                         rating: originalRating,
-                        thesisStatusId: originalThesisStatusId,
+                        status: originalStatus,
                         deadlineDate: originalDeadlineDate,
                     },
                 });
@@ -44,37 +43,17 @@ describe("Trigger FAILED thesis flow", () => {
                 if (originalUpdatedAt) {
                     await prisma.$executeRaw`UPDATE thesis SET updated_at = ${originalUpdatedAt} WHERE id = ${THESIS_ID}`;
                 }
-
-                // Also restore any cancelled guidances back to their original state
-                // (we can't perfectly restore these, but set them back to 'requested')
-                await prisma.thesisGuidance.updateMany({
-                    where: {
-                        thesisId: THESIS_ID,
-                        status: "cancelled",
-                    },
-                    data: {
-                        status: "requested",
-                    },
-                });
-
                 console.log("[cleanup] Thesis restored successfully.");
             }
         });
         await prisma.$disconnect();
     });
 
-    it("should mark thesis as FAILED and perform cleanup when createdAt > 1 year ago", async () => {
-        // 1. Find any active thesis in "Bimbingan" status dynamically
-        const bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: "Bimbingan" } });
-        if (!bimbinganStatus) {
-            console.warn("[test] No 'Bimbingan' status found. Skipping.");
-            return;
-        }
-
+    it("keeps status research and open sessions when createdAt and deadline are long past", async () => {
+        // 1. Find any running TA dynamically
         const thesis = await prisma.thesis.findFirst({
-            where: { thesisStatusId: bimbinganStatus.id },
+            where: { status: "research" },
             include: {
-                thesisStatus: { select: { name: true } },
                 student: {
                     select: {
                         user: { select: { id: true, fullName: true, identityNumber: true } },
@@ -83,105 +62,65 @@ describe("Trigger FAILED thesis flow", () => {
             },
         });
 
-        expect(thesis).not.toBeNull();
+        if (!thesis) {
+            console.warn("[test] No thesis with status research found. Skipping.");
+            return;
+        }
         THESIS_ID = thesis.id;
-        console.log(`[test] Found thesis: "${thesis.title}"`);
-        console.log(`[test] Student: ${thesis.student?.user?.fullName} (${thesis.student?.user?.identityNumber})`);
-        console.log(`[test] Current status: ${thesis.thesisStatus?.name}, rating: ${thesis.rating}`);
-        console.log(`[test] Current createdAt: ${thesis.createdAt.toISOString()}`);
+        console.log(`[test] Found thesis: "${thesis.title}" (status ${thesis.status}, rating ${thesis.rating})`);
 
         // Save original values for cleanup
         originalCreatedAt = thesis.createdAt;
         originalRating = thesis.rating;
-        originalThesisStatusId = thesis.thesisStatusId;
+        originalStatus = thesis.status;
         originalUpdatedAt = thesis.updatedAt;
         originalDeadlineDate = thesis.deadlineDate;
 
-        // 2. Count pending guidances before
-        const pendingGuidancesBefore = await prisma.thesisGuidance.count({
+        // 2. Count open sessions before
+        const openGuidancesBefore = await prisma.thesisGuidance.count({
             where: {
                 thesisId: THESIS_ID,
                 status: { in: ["requested", "accepted"] },
             },
         });
-        console.log(`[test] Pending guidances before: ${pendingGuidancesBefore}`);
 
         // 3. Set createdAt to > 1 year ago and deadlineDate to past
         const moreThanOneYearAgo = new Date();
         moreThanOneYearAgo.setDate(moreThanOneYearAgo.getDate() - 400);
         const deadlineInPast = new Date();
-        deadlineInPast.setDate(deadlineInPast.getDate() - 5); // deadline was 5 days ago
+        deadlineInPast.setDate(deadlineInPast.getDate() - 5);
 
         await prisma.thesis.update({
             where: { id: THESIS_ID },
             data: {
                 createdAt: moreThanOneYearAgo,
-                deadlineDate: deadlineInPast, // Ensure deadline is in the past
-                // Reset rating to ONGOING so the cron can detect the transition
+                deadlineDate: deadlineInPast,
                 rating: "ONGOING",
             },
         });
         // Prisma auto-sets updatedAt to now — reset it so it's not treated as recent activity
         await prisma.$executeRaw`UPDATE thesis SET updated_at = ${moreThanOneYearAgo} WHERE id = ${THESIS_ID}`;
-        console.log(`[test] Set createdAt to ${moreThanOneYearAgo.toISOString()} (400 days ago), deadline to ${deadlineInPast.toISOString()}`);
 
-        // 4. Also reset thesisStatusId to a non-terminal status (Bimbingan)
-        // bimbinganStatus already declared above
-        if (bimbinganStatus) {
-            await prisma.thesis.update({
-                where: { id: THESIS_ID },
-                data: { thesisStatusId: bimbinganStatus.id },
-            });
-            // Reset updatedAt again after Bimbingan status change
-            await prisma.$executeRaw`UPDATE thesis SET updated_at = ${moreThanOneYearAgo} WHERE id = ${THESIS_ID}`;
-        }
-
-        // 5. Run the cron job
-        console.log("[test] Running updateAllThesisStatuses...");
+        // 4. Run the cron job
         const summary = await updateAllThesisStatuses({ pageSize: 200, logger: console });
         console.log("[test] Cron result:", JSON.stringify(summary));
 
-        // 6. Verify: thesis should now be FAILED
-        const updatedThesis = await prisma.thesis.findUnique({
-            where: { id: THESIS_ID },
-            include: {
-                thesisStatus: { select: { name: true } },
-            },
-        });
+        // 5. Verify: status unchanged, rating never FAILED
+        const updatedThesis = await prisma.thesis.findUnique({ where: { id: THESIS_ID } });
+        expect(updatedThesis.status).toBe("research");
+        expect(updatedThesis.rating).not.toBe("FAILED");
+        expect(["ONGOING", "SLOW", "AT_RISK"]).toContain(updatedThesis.rating);
 
-        expect(updatedThesis.rating).toBe("FAILED");
-        expect(updatedThesis.thesisStatus?.name).toBe("Gagal");
-        console.log(`[test] ✅ Thesis rating: ${updatedThesis.rating}`);
-        console.log(`[test] ✅ Thesis status: ${updatedThesis.thesisStatus?.name}`);
-
-        // 7. Verify: pending guidances should be cancelled
-        const pendingGuidancesAfter = await prisma.thesisGuidance.count({
+        // 6. Verify: open sessions were not cancelled
+        const openGuidancesAfter = await prisma.thesisGuidance.count({
             where: {
                 thesisId: THESIS_ID,
                 status: { in: ["requested", "accepted"] },
             },
         });
-        console.log(`[test] Pending guidances after: ${pendingGuidancesAfter}`);
-        expect(pendingGuidancesAfter).toBe(0);
+        expect(openGuidancesAfter).toBe(openGuidancesBefore);
 
-        // 8. Verify: student notification was created
-        const studentUserId = thesis.student?.user?.id;
-        if (studentUserId) {
-            const notification = await prisma.notification.findFirst({
-                where: {
-                    userId: studentUserId,
-                    title: { contains: "Tugas Akhir Gagal" },
-                },
-                orderBy: { createdAt: "desc" },
-            });
-            console.log(`[test] Student notification found: ${!!notification}`);
-            if (notification) {
-                console.log(`[test] ✅ Notification: "${notification.title}" - "${notification.message}"`);
-            }
-        }
-
-        // 9. Summary should include at least 1 FAILED
-        expect(summary.FAILED).toBeGreaterThanOrEqual(1);
-        console.log(`[test] ✅ Summary FAILED count: ${summary.FAILED}`);
+        // 7. The summary no longer has a FAILED bucket
+        expect(summary).not.toHaveProperty("FAILED");
     }, 30000); // 30s timeout for DB operations
 });

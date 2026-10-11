@@ -1,26 +1,20 @@
 /**
  * Unit Tests — thesisStatus.service: updateAllThesisStatuses
- * Tests the CRON-driven thesis rating update logic:
- *   ONGOING / SLOW / AT_RISK / FAILED based on guidance activity age and deadline
+ * Tests the CRON-driven thesis rating update logic (Paket A, K15):
+ *   ONGOING / SLOW / AT_RISK from TA-phase activity age. The job only reads
+ *   theses with status `research`, never changes `status`, never writes
+ *   FAILED/CANCELLED and never cancels sessions.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockPrisma, mockPush, mockNotif, mockRoles } = vi.hoisted(() => ({
+const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
-    thesisStatus: { findMany: vi.fn() },
     thesis: { findMany: vi.fn(), update: vi.fn() },
     thesisGuidance: { updateMany: vi.fn() },
-    user: { findMany: vi.fn() },
   },
-  mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
-  mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
-  mockRoles: { ROLES: { KETUA_DEPARTEMEN: "Ketua Departemen" } },
 }));
 
 vi.mock("../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../services/push.service.js", () => mockPush);
-vi.mock("../services/notification.service.js", () => mockNotif);
-vi.mock("../constants/roles.js", () => mockRoles);
 
 import { updateAllThesisStatuses } from "../services/thesisStatus.service.js";
 
@@ -30,123 +24,114 @@ function daysAgo(n) {
   return d;
 }
 
-const TERMINAL_STATUSES = [
-  { id: "ts-selesai", name: "Selesai" },
-  { id: "ts-gagal", name: "Gagal" },
-  { id: "ts-lulus", name: "Lulus" },
-];
-
 const silentLogger = { log: vi.fn(), error: vi.fn(), warn: vi.fn() };
+
+function oneBatch(rows) {
+  mockPrisma.thesis.findMany.mockResolvedValueOnce(rows).mockResolvedValueOnce([]);
+  mockPrisma.thesis.update.mockResolvedValue({});
+}
 
 describe("updateAllThesisStatuses", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrisma.thesisStatus.findMany.mockResolvedValue(TERMINAL_STATUSES);
-    mockPrisma.user.findMany.mockResolvedValue([]);
-    mockPrisma.thesisGuidance.updateMany.mockResolvedValue({ count: 0 });
   });
 
   it("marks ONGOING for thesis with recent guidance activity", async () => {
-    mockPrisma.thesis.findMany
-      .mockResolvedValueOnce([{
-        id: "A", rating: null, createdAt: daysAgo(100), updatedAt: daysAgo(100), thesisStatusId: null,
-        thesisGuidances: [{ completedAt: daysAgo(10), approvedDate: daysAgo(10) }],
-        student: { user: { id: "u1", fullName: "Budi", identityNumber: "123" } },
-      }])
-      .mockResolvedValueOnce([]);
-    mockPrisma.thesis.update.mockResolvedValue({});
+    oneBatch([{
+      id: "A", rating: "SLOW", createdAt: daysAgo(100), updatedAt: daysAgo(100),
+      thesisGuidances: [{ completedAt: daysAgo(10), approvedDate: daysAgo(10) }],
+    }]);
 
     const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
-    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { rating: "ONGOING" } })
-    );
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith({ where: { id: "A" }, data: { rating: "ONGOING" } });
     expect(summary.ONGOING).toBe(1);
   });
 
   it("marks SLOW for thesis with no guidance activity > 60 days", async () => {
-    mockPrisma.thesis.findMany
-      .mockResolvedValueOnce([{
-        id: "B", rating: null, createdAt: daysAgo(200), updatedAt: daysAgo(200), thesisStatusId: null,
-        thesisGuidances: [{ completedAt: daysAgo(90), approvedDate: daysAgo(90) }],
-        student: { user: { id: "u2", fullName: "Andi", identityNumber: "456" } },
-      }])
-      .mockResolvedValueOnce([]);
-    mockPrisma.thesis.update.mockResolvedValue({});
+    oneBatch([{
+      id: "B", rating: "ONGOING", createdAt: daysAgo(200), updatedAt: daysAgo(200),
+      thesisGuidances: [{ completedAt: daysAgo(90), approvedDate: daysAgo(90) }],
+    }]);
 
     const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
-    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { rating: "SLOW" } })
-    );
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith({ where: { id: "B" }, data: { rating: "SLOW" } });
     expect(summary.SLOW).toBe(1);
   });
 
   it("marks AT_RISK for thesis with no guidance activity > 120 days", async () => {
-    mockPrisma.thesis.findMany
-      .mockResolvedValueOnce([{
-        id: "C", rating: null, createdAt: daysAgo(300), updatedAt: daysAgo(300), thesisStatusId: null,
-        thesisGuidances: [{ completedAt: daysAgo(150), approvedDate: daysAgo(150) }],
-        student: { user: { id: "u3", fullName: "Siti", identityNumber: "789" } },
-      }])
-      .mockResolvedValueOnce([]);
-    mockPrisma.thesis.update.mockResolvedValue({});
+    oneBatch([{
+      id: "C", rating: "ONGOING", createdAt: daysAgo(300), updatedAt: daysAgo(300),
+      thesisGuidances: [{ completedAt: daysAgo(150), approvedDate: daysAgo(150) }],
+    }]);
 
     const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
-    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { rating: "AT_RISK" } })
-    );
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith({ where: { id: "C" }, data: { rating: "AT_RISK" } });
     expect(summary.AT_RISK).toBe(1);
   });
 
-  it("marks FAILED for thesis older than 1 year", async () => {
-    mockPrisma.thesis.findMany
-      .mockResolvedValueOnce([{
-        id: "D", rating: "AT_RISK", createdAt: daysAgo(400), updatedAt: daysAgo(400), thesisStatusId: null,
-        thesisGuidances: [],
-        student: { user: { id: "u4", fullName: "Fadi", identityNumber: "012" } },
-      }])
-      .mockResolvedValueOnce([]);
-    mockPrisma.thesis.update.mockResolvedValue({});
+  it("never marks FAILED and never touches status or sessions, even past one year", async () => {
+    oneBatch([{
+      id: "D", rating: "SLOW", createdAt: daysAgo(400), updatedAt: daysAgo(400),
+      thesisGuidances: [],
+    }]);
 
     const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
-    expect(mockPrisma.thesis.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ rating: "FAILED" }),
-      })
-    );
-    expect(summary.FAILED).toBe(1);
+    expect(mockPrisma.thesis.update).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.thesis.update).toHaveBeenCalledWith({ where: { id: "D" }, data: { rating: "AT_RISK" } });
+    expect(mockPrisma.thesisGuidance.updateMany).not.toHaveBeenCalled();
+    expect(summary).toEqual({ ONGOING: 0, SLOW: 0, AT_RISK: 1 });
   });
 
-  it("skips theses already in terminal statuses (Selesai/Gagal)", async () => {
-    mockPrisma.thesis.findMany
-      .mockResolvedValueOnce([{
-        id: "E", rating: "ONGOING", createdAt: daysAgo(400), updatedAt: daysAgo(400), thesisStatusId: "ts-selesai",
-        thesisGuidances: [],
-        student: { user: { id: "u5", fullName: "Rini", identityNumber: "111" } },
-      }])
-      .mockResolvedValueOnce([]);
+  it("only reads TA-phase theses (status research) and TA-phase activity", async () => {
+    oneBatch([]);
+
+    await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
+
+    const args = mockPrisma.thesis.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ status: "research" });
+    expect(args.select.thesisGuidances.where).toEqual({ status: "completed", phase: "research" });
+    expect(args.select.thesisMilestones.where).toEqual({ phase: "research" });
+    expect(args.select).not.toHaveProperty("status");
+  });
+
+  it("leaves an existing FAILED/CANCELLED rating as-is", async () => {
+    oneBatch([
+      { id: "E", rating: "FAILED", createdAt: daysAgo(10), updatedAt: daysAgo(10), thesisGuidances: [] },
+      { id: "G", rating: "CANCELLED", createdAt: daysAgo(10), updatedAt: daysAgo(10), thesisGuidances: [] },
+    ]);
 
     const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
     expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
-    expect(summary).toEqual({ ONGOING: 0, SLOW: 0, AT_RISK: 0, FAILED: 0 });
+    expect(summary).toEqual({ ONGOING: 0, SLOW: 0, AT_RISK: 0 });
   });
 
   it("does not update thesis if rating hasn't changed", async () => {
-    mockPrisma.thesis.findMany
-      .mockResolvedValueOnce([{
-        id: "F", rating: "ONGOING", createdAt: daysAgo(30), updatedAt: daysAgo(30), thesisStatusId: null,
-        thesisGuidances: [{ completedAt: daysAgo(5), approvedDate: daysAgo(5) }],
-        student: { user: { id: "u6", fullName: "Joko", identityNumber: "222" } },
-      }])
-      .mockResolvedValueOnce([]);
+    oneBatch([{
+      id: "F", rating: "ONGOING", createdAt: daysAgo(30), updatedAt: daysAgo(30),
+      thesisGuidances: [{ completedAt: daysAgo(5), approvedDate: daysAgo(5) }],
+    }]);
 
     const summary = await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
 
     expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
     expect(summary.ONGOING).toBe(0);
+  });
+
+  it("never writes any field other than rating", async () => {
+    oneBatch([
+      { id: "H", rating: "ONGOING", createdAt: daysAgo(500), updatedAt: daysAgo(500), thesisGuidances: [] },
+      { id: "I", rating: "AT_RISK", createdAt: daysAgo(5), updatedAt: daysAgo(5), thesisGuidances: [] },
+    ]);
+
+    await updateAllThesisStatuses({ pageSize: 500, logger: silentLogger });
+
+    for (const [args] of mockPrisma.thesis.update.mock.calls) {
+      expect(Object.keys(args.data)).toEqual(["rating"]);
+    }
   });
 });

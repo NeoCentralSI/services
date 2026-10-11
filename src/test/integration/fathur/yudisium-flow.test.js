@@ -239,13 +239,7 @@ describe("Integration: Yudisium Flow", () => {
 
 
 
-    const thesisStatus = await prisma.thesisStatus.findFirst({
 
-      where: { name: { contains: "Bimbingan" } },
-
-    });
-
-    if (!thesisStatus) throw new Error("Seed thesis status Bimbingan tidak ditemukan");
 
 
 
@@ -257,7 +251,7 @@ describe("Integration: Yudisium Flow", () => {
 
         title: `Tugas Akhir Yudisium Flow ${ts}`,
 
-        thesisStatusId: thesisStatus.id,
+        status: "research",
 
       },
 

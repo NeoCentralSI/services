@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.js";
 import { getActiveAcademicYear, formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 import { ADVISOR_REQUEST_STATUS } from "../constants/advisorRequestStatus.js";
+import { THESIS_STATUS } from "../constants/thesisStatus.js";
 import { getSyncStatus } from "./sia.store.js";
 import { getPeriodSnapshotCoverage } from "./studentPeriodSnapshot.service.js";
 import { resolveLifecycleScoreDecision } from "./metopen.service.js";
@@ -31,7 +32,7 @@ export async function getMetopenSiaOperations() {
       where: {
         status: ADVISOR_REQUEST_STATUS.BOOKING_APPROVED,
         thesis: {
-          isProposal: true,
+          status: THESIS_STATUS.PROPOSAL,
           ta04AssignmentIssuedAt: { not: null },
         },
       },
@@ -52,7 +53,7 @@ export async function getMetopenSiaOperations() {
           select: {
             id: true,
             academicYearId: true,
-            isProposal: true,
+            status: true,
             researchMethodScores: {
               take: 1,
               orderBy: { updatedAt: "desc" },
@@ -69,7 +70,7 @@ export async function getMetopenSiaOperations() {
     }),
     prisma.thesis.findMany({
       where: {
-        isProposal: true,
+        status: THESIS_STATUS.PROPOSAL,
         researchMethodScores: {
           some: {
             OR: [
@@ -112,7 +113,7 @@ export async function getMetopenSiaOperations() {
       },
     }),
     prisma.thesis.findMany({
-      where: { isProposal: true, academicYearId: null },
+      where: { status: THESIS_STATUS.PROPOSAL, academicYearId: null },
       select: {
         id: true,
         studentId: true,

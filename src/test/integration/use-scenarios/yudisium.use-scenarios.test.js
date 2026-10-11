@@ -81,9 +81,7 @@ describe.sequential("Use Scenario Integration — Yudisium (UC-25 s.d. UC-32)", 
     student = await prisma.student.create({
       data: { id: studentUser.id, sksCompleted: 146, mandatoryCoursesCompleted: true, mkwuCompleted: true, internshipCompleted: true, kknCompleted: true },
     });
-    const thesisStatus = await prisma.thesisStatus.findFirst({ where: { name: { contains: "Bimbingan" } } });
-    if (!thesisStatus) throw new Error("Seed status thesis Bimbingan belum tersedia.");
-    thesis = await prisma.thesis.create({ data: { studentId: student.id, title: `Thesis ${marker}`, thesisStatusId: thesisStatus.id } });
+    thesis = await prisma.thesis.create({ data: { studentId: student.id, title: `Thesis ${marker}`, status: "research" } });
     defence = await prisma.thesisDefence.create({ data: { thesisId: thesis.id, status: "passed", date: new Date() } });
 
     room = await prisma.room.create({ data: { name: `Room ${marker}`, location: "Integration scenario" } });
@@ -306,8 +304,7 @@ describe.sequential("Use Scenario Integration — Yudisium (UC-25 s.d. UC-32)", 
     it("menetapkan eligible dan menolak participant registered secara batch", async () => {
       rejectedUser = await prisma.user.create({ data: { fullName: `Rejected ${marker}`, identityNumber: `NIM-rejected-${marker}`, identityType: "NIM", email: `rejected-${marker}@test.local`, password: "test" } });
       rejectedStudent = await prisma.student.create({ data: { id: rejectedUser.id, sksCompleted: 144 } });
-      const thesisStatus = await prisma.thesisStatus.findFirst({ where: { name: { contains: "Bimbingan" } } });
-      rejectedThesis = await prisma.thesis.create({ data: { studentId: rejectedStudent.id, title: `Rejected thesis ${marker}`, thesisStatusId: thesisStatus.id } });
+      rejectedThesis = await prisma.thesis.create({ data: { studentId: rejectedStudent.id, title: `Rejected thesis ${marker}`, status: "research" } });
       rejectedParticipant = await prisma.yudisiumParticipant.create({
         data: { yudisiumId: yudisium.id, thesisId: rejectedThesis.id, status: "registered", registeredAt: new Date(), exitSurveySubmittedAt: new Date(), exitSurveyFormId: form.id },
       });

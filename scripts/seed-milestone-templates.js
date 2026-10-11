@@ -1,15 +1,32 @@
 /**
- * Seed Milestone Templates per Thesis Topic
+ * Seed TA (phase "research") milestone templates per thesis topic — idempotent, never deletes.
  *
- * Jalankan dengan: node scripts/seed-milestone-templates.js
+ * Usage (from app/backend, AFTER confirming DATABASE_URL points to the intended database):
+ *   node scripts/seed-milestone-templates.js             # writes: fills the missing TA templates
+ *   node scripts/seed-milestone-templates.js --dry-run   # preview only, writes nothing
+ *
+ * For every catalogue topic that exists in ThesisTopic (exact name, case/whitespace-insensitive)
+ * and every catalogue template name, exactly one of these happens:
+ * 1. A phase "research" template with that topic + name already exists -> skipped (user edits to
+ *    its description/order/status are kept).
+ * 2. Otherwise -> a new template is created with `phase: "research"` written explicitly (the
+ *    column has no default, K18). A same-named template of the proposal phase is real data of
+ *    that phase: it is left untouched and only reported.
+ * Topics are never created; missing or ambiguous topics are reported and skipped. Templates
+ * that are not in the catalogue (custom or proposal templates) are never modified.
+ * Order: a topic without TA templates gets the catalogue order; otherwise new templates are
+ * appended after the current max, so existing (possibly reordered) ones keep their positions.
+ *
+ * Paket A: the old reclassification of legacy `phase = "metopen"` rows was removed. The
+ * `metopen` phase value no longer exists (ThesisPhase is proposal/thesis) and the database is
+ * rebuilt from empty, so such rows cannot occur.
  */
+import { pathToFileURL } from "node:url";
 
-import { PrismaClient } from "../src/generated/prisma/index.js";
+export const TA_TEMPLATE_PHASE = "research";
 
-const prisma = new PrismaClient();
-
-// Template milestone per topic
-const TEMPLATES_PER_TOPIC = {
+// Template milestone per topic (catalogue names follow scripts/sync-dsi-master.js)
+export const TEMPLATES_PER_TOPIC = {
   "Sistem Pendukung Keputusan (SPK)": [
     {
       name: "Studi Literatur SPK",
@@ -351,62 +368,138 @@ const TEMPLATES_PER_TOPIC = {
   ],
 };
 
-async function main() {
-  console.log("🌱 Seeding milestone templates per topic...\n");
-
-  // Get all topics from database
-  const topics = await prisma.thesisTopic.findMany();
-
-  if (topics.length === 0) {
-    console.log("❌ Tidak ada thesis topic di database. Jalankan seed-thesis-topics.js terlebih dahulu.");
-    return;
-  }
-
-  console.log(`📚 Ditemukan ${topics.length} thesis topics:\n`);
-  topics.forEach((t) => console.log(`   - ${t.name}`));
-  console.log();
-
-  // Delete existing templates (optional - comment out if you want to keep existing)
-  const deleteResult = await prisma.thesisMilestoneTemplate.deleteMany();
-  console.log(`🗑️  Menghapus ${deleteResult.count} template lama...\n`);
-
-  let totalCreated = 0;
-
-  for (const topic of topics) {
-    const templates = TEMPLATES_PER_TOPIC[topic.name];
-
-    if (!templates) {
-      console.log(`⚠️  Tidak ada template untuk topic: ${topic.name}`);
-      continue;
-    }
-
-    console.log(`📝 Membuat ${templates.length} template untuk: ${topic.name}`);
-
-    let orderIndexCounter = 0;
-
-    for (const template of templates) {
-      await prisma.thesisMilestoneTemplate.create({
-        data: {
-          name: template.name,
-          description: template.description,
-          topicId: topic.id,
-          orderIndex: template.orderIndex !== undefined ? template.orderIndex : orderIndexCounter,
-          isActive: true,
-        },
-      });
-      orderIndexCounter++;
-      totalCreated++;
-    }
-  }
-
-  console.log(`\n✅ Berhasil membuat ${totalCreated} milestone templates!`);
+export function normalizeName(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-main()
-  .catch((e) => {
-    console.error("❌ Error:", e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
+/**
+ * Pure planner: decides what to create/skip without touching the database.
+ * @param {{
+ *   topics: Array<{id: string, name: string}>,
+ *   existingTemplates: Array<{id: string, name: string, topicId: string|null, phase: string, orderIndex: number}>
+ * }} input
+ */
+export function planMilestoneTemplateSeed({ topics, existingTemplates }, catalogue = TEMPLATES_PER_TOPIC) {
+  const plan = {
+    toCreate: [],
+    skippedExisting: [],
+    otherPhaseKept: [],
+    missingTopics: [],
+    ambiguousTopics: [],
+    uncataloguedTopics: [],
+  };
+
+  const topicsByName = new Map();
+  for (const topic of topics) {
+    const key = normalizeName(topic.name);
+    topicsByName.set(key, [...(topicsByName.get(key) || []), topic]);
+  }
+  const catalogueKeys = new Set(Object.keys(catalogue).map(normalizeName));
+  plan.uncataloguedTopics = topics.filter((t) => !catalogueKeys.has(normalizeName(t.name))).map((t) => t.name);
+
+  for (const [topicName, entries] of Object.entries(catalogue)) {
+    const matches = topicsByName.get(normalizeName(topicName)) || [];
+    if (matches.length === 0) {
+      plan.missingTopics.push(topicName);
+      continue;
+    }
+    if (matches.length > 1) {
+      plan.ambiguousTopics.push({ topicName, topicIds: matches.map((t) => t.id) });
+      continue;
+    }
+    const topic = matches[0];
+    const sameTopic = existingTemplates.filter((t) => t.topicId === topic.id);
+    const thesisTemplates = sameTopic.filter((t) => t.phase === TA_TEMPLATE_PHASE);
+    let nextOrder = thesisTemplates.length
+      ? Math.max(...thesisTemplates.map((t) => t.orderIndex ?? 0)) + 1
+      : null;
+
+    entries.forEach((entry, index) => {
+      const key = normalizeName(entry.name);
+      const existingThesis = thesisTemplates.find((t) => normalizeName(t.name) === key);
+      if (existingThesis) {
+        plan.skippedExisting.push({ topic: topic.name, name: entry.name, id: existingThesis.id });
+        return;
+      }
+      for (const t of sameTopic) {
+        if (t.phase !== TA_TEMPLATE_PHASE && normalizeName(t.name) === key) {
+          plan.otherPhaseKept.push({ topic: topic.name, name: t.name, id: t.id, phase: t.phase });
+        }
+      }
+      plan.toCreate.push({
+        name: entry.name,
+        description: entry.description ?? null,
+        topicId: topic.id,
+        orderIndex: nextOrder === null ? entry.orderIndex ?? index : nextOrder++,
+        isActive: true,
+        phase: TA_TEMPLATE_PHASE,
+        topicName: topic.name,
+      });
+    });
+  }
+  return plan;
+}
+
+/**
+ * Loads current data, plans, and (only when apply=true) writes the plan in one transaction.
+ */
+export async function seedMilestoneTemplates({ prisma, apply = false, log = console.log } = {}) {
+  const topics = await prisma.thesisTopic.findMany({ select: { id: true, name: true } });
+  const existingTemplates = await prisma.thesisMilestoneTemplate.findMany({
+    where: { topicId: { in: topics.map((t) => t.id) } },
+    select: { id: true, name: true, topicId: true, phase: true, orderIndex: true },
   });
+  const plan = planMilestoneTemplateSeed({ topics, existingTemplates });
+
+  let created = 0;
+  if (apply && plan.toCreate.length > 0) {
+    const results = await prisma.$transaction(
+      plan.toCreate.map(({ topicName: _topicName, ...data }) => prisma.thesisMilestoneTemplate.create({ data })),
+    );
+    created = results.length;
+  }
+
+  const summary = {
+    mode: apply ? "apply" : "dry-run",
+    plannedCreate: plan.toCreate.length,
+    created,
+    skippedExisting: plan.skippedExisting.length,
+    otherPhaseKept: plan.otherPhaseKept.length,
+    missingTopics: plan.missingTopics,
+    ambiguousTopics: plan.ambiguousTopics,
+    uncataloguedTopics: plan.uncataloguedTopics,
+  };
+
+  const done = (n) => (apply ? ` (berhasil: ${n})` : " (dry-run, tidak ada yang ditulis)");
+  log(`Seed template milestone Tugas Akhir — phase "${TA_TEMPLATE_PHASE}" (${summary.mode})`);
+  log(`  Dibuat baru          : ${summary.plannedCreate}${done(created)}`);
+  log(`  Sudah ada (dilewati) : ${summary.skippedExisting}`);
+  if (plan.otherPhaseKept.length) {
+    log(`  Nama sama di phase lain, dibiarkan: ${summary.otherPhaseKept}`);
+    for (const k of plan.otherPhaseKept) log(`    - [${k.phase}] ${k.topic} :: ${k.name} (id ${k.id})`);
+  }
+  if (plan.missingTopics.length) log(`  Topik katalog tidak ditemukan: ${plan.missingTopics.join(", ")}`);
+  if (plan.ambiguousTopics.length) log(`  Topik ambigu (nama ganda): ${plan.ambiguousTopics.map((a) => a.topicName).join(", ")}`);
+  if (plan.uncataloguedTopics.length) log(`  Topik tanpa katalog: ${plan.uncataloguedTopics.join(", ")}`);
+
+  return { plan, summary };
+}
+
+async function main() {
+  const apply = !process.argv.includes("--dry-run");
+  const generated = await import("../src/generated/prisma/index.js");
+  const PrismaClient = generated.PrismaClient ?? generated.default?.PrismaClient;
+  const prisma = new PrismaClient();
+  try {
+    await seedMilestoneTemplates({ prisma, apply });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error("Seed milestone templates gagal:", error);
+    process.exitCode = 1;
+  });
+}

@@ -302,7 +302,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
             thesisGuidances: [],
             thesisSeminars: [],
             thesisDefences: [],
-            thesisStatus: { name: "Bimbingan" },
+            status: "research",
             academicYear: { id: "ay-thesis", semester: "ganjil", year: "2024/2025" },
           }],
         },
@@ -316,7 +316,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
       expect(result.theses[0]).toMatchObject({
         id: "thesis-1",
         title: "AI Research",
-        status: "Bimbingan",
+        status: "research",
       });
     });
 
@@ -381,7 +381,7 @@ describe("Module 16: Data Master Dosen", () => {
           scienceGroup: { name: "AI" },
           thesisSupervisors: [
             {
-              thesis: { id: "t1", title: "AI", thesisStatus: { name: "Bimbingan" }, student: { user: { fullName: "Budi" } } },
+              thesis: { id: "t1", title: "AI", status: "research", student: { user: { fullName: "Budi" } } },
               role: { name: "pembimbing_1" },
             },
           ],

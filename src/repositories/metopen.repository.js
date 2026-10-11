@@ -5,10 +5,10 @@ import prisma from "../config/prisma.js";
 // ============================================
 
 /**
- * Get all metopen templates (phase = 'metopen')
+ * Get all metopen templates (phase = 'proposal')
  */
 export function findAllTemplates({ isActive = null, topicId = null } = {}) {
-  const where = { phase: "metopen" };
+  const where = { phase: "proposal" };
   if (isActive !== null) where.isActive = isActive;
   if (topicId) where.topicId = topicId;
 
@@ -84,7 +84,7 @@ export function deleteTemplate(id) {
  * Get max orderIndex for metopen templates
  */
 export async function getMaxTemplateOrderIndex(topicId = null) {
-  const where = { phase: "metopen" };
+  const where = { phase: "proposal" };
   if (topicId) where.topicId = topicId;
   const result = await prisma.thesisMilestoneTemplate.aggregate({
     where,
@@ -142,7 +142,7 @@ export function findTasksByThesisId(thesisId) {
   return prisma.thesisMilestone.findMany({
     where: {
       thesisId,
-      milestoneTemplate: { phase: "metopen" },
+      milestoneTemplate: { phase: "proposal" },
     },
     include: {
       milestoneTemplate: {
@@ -205,11 +205,10 @@ export async function findStudentThesis(userId) {
       id: true,
       studentId: true,
       title: true,
-      thesisStatusId: true,
       proposalStatus: true,
       academicYearId: true,
       ta04AssignmentAcademicYearId: true,
-      thesisStatus: { select: { id: true, name: true } },
+      status: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -304,7 +303,7 @@ export function createManyTasks(dataArray) {
 export function findAllMetopenTheses(academicYearId = null) {
   const where = {
     thesisMilestones: {
-      some: { milestoneTemplate: { phase: "metopen" } },
+      some: { milestoneTemplate: { phase: "proposal" } },
     },
   };
   if (academicYearId) where.academicYearId = academicYearId;
@@ -321,7 +320,7 @@ export function findAllMetopenTheses(academicYearId = null) {
         },
       },
       thesisMilestones: {
-        where: { milestoneTemplate: { phase: "metopen" } },
+        where: { milestoneTemplate: { phase: "proposal" } },
         include: {
           milestoneTemplate: true,
         },
@@ -337,7 +336,7 @@ export function findAllMetopenTheses(academicYearId = null) {
  */
 export function findGradingQueue(status = null) {
   const where = {
-    milestoneTemplate: { phase: "metopen" },
+    milestoneTemplate: { phase: "proposal" },
   };
   if (status) {
     where.status = status;
@@ -382,10 +381,10 @@ export function findGradingQueue(status = null) {
 export async function getThesisMetopenProgress(thesisId) {
   const [total, completed] = await Promise.all([
     prisma.thesisMilestone.count({
-      where: { thesisId, milestoneTemplate: { phase: "metopen" } },
+      where: { thesisId, milestoneTemplate: { phase: "proposal" } },
     }),
     prisma.thesisMilestone.count({
-      where: { thesisId, milestoneTemplate: { phase: "metopen" }, status: "completed" },
+      where: { thesisId, milestoneTemplate: { phase: "proposal" }, status: "completed" },
     }),
   ]);
   return { total, completed };
@@ -427,7 +426,7 @@ export function findEligibleThesesForPublish(studentIds = null, academicYearId =
         }
       },
       thesisMilestones: {
-        where: { milestoneTemplate: { phase: "metopen" } },
+        where: { milestoneTemplate: { phase: "proposal" } },
         select: { milestoneTemplateId: true, status: true }
       }
     },
@@ -580,7 +579,7 @@ export function findSupervisedThesesByLecturer(lecturerId) {
             include: { user: { select: { fullName: true, identityNumber: true } } },
           },
           thesisMilestones: {
-            where: { milestoneTemplate: { phase: "metopen" } },
+            where: { milestoneTemplate: { phase: "proposal" } },
             orderBy: { orderIndex: "asc" },
             select: {
               id: true,
@@ -697,7 +696,7 @@ export function findProposalVersionsByThesisId(thesisId) {
     where: {
       milestone: {
         thesisId,
-        milestoneTemplate: { phase: "metopen" },
+        milestoneTemplate: { phase: "proposal" },
       },
     },
     select: {
@@ -728,7 +727,7 @@ export function findProposalVersionsByThesisId(thesisId) {
 export function findPublishStats() {
   return prisma.thesisMilestone.findMany({
     where: {
-      milestoneTemplate: { phase: "metopen" },
+      milestoneTemplate: { phase: "proposal" },
     },
     select: {
       id: true,

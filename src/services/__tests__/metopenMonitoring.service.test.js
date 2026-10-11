@@ -118,7 +118,7 @@ function scoreFixture(overrides = {}) {
       id: overrides.thesisId ?? "thesis-1",
       studentId: overrides.studentId ?? "stu-1",
       title: "Thesis Title",
-      isProposal: true,
+      status: "proposal",
       proposalStatus: null,
     },
     researchMethodScoreDetails: overrides.researchMethodScoreDetails ?? [],
@@ -131,7 +131,7 @@ function supervisorFixture({ studentId, lecturerId, lecturerName, role }) {
     lecturerId,
     role: { id: `role-${role}`, name: role },
     lecturer: { id: lecturerId, user: { id: lecturerId, fullName: lecturerName } },
-    thesis: { id: `thesis-${studentId}`, studentId, title: "T", proposalStatus: null, isProposal: true },
+    thesis: { id: `thesis-${studentId}`, studentId, title: "T", proposalStatus: null, status: "proposal" },
   };
 }
 

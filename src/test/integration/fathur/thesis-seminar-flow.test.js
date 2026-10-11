@@ -21,9 +21,8 @@ describe("Integration: Thesis Seminar Flow (Registration to Scheduling)", () => 
       lecturerUser = await prisma.user.create({ data: { fullName: "L " + ts, identityNumber: "NIP-" + ts, identityType: "NIP", email: `l${ts}@t.com`, password: "p" } });
       lecturer = await prisma.lecturer.create({ data: { id: lecturerUser.id } });
 
-      const status = await prisma.thesisStatus.findFirst({ where: { name: { contains: "Bimbingan" } } });
       const role = await prisma.userRole.findFirst({ where: { name: { contains: "Pembimbing" } } });
-      if (!status || !role) throw new Error(`Seeds missing`);
+      if (!role) throw new Error(`Seeds missing`);
 
       const now = new Date();
       academicYear = await prisma.academicYear.findFirst({
@@ -49,19 +48,19 @@ describe("Integration: Thesis Seminar Flow (Registration to Scheduling)", () => 
         createdRequirementIds = requirements.map((item) => item.id);
       }
 
-      thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Int Test", thesisStatusId: status.id, academicYearId: academicYear.id } });
+      thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Int Test", status: "research", academicYearId: academicYear.id } });
       supervisor = await prisma.thesisSupervisors.create({ data: { thesisId: thesis.id, lecturerId: lecturer.id, roleId: role.id, seminarReady: true } });
 
       await prisma.thesisGuidance.createMany({
         data: Array.from({ length: 8 }).map((_, i) => ({
-          thesisId: thesis.id, supervisorId: lecturer.id, requestedDate: new Date(), approvedDate: new Date(), completedAt: new Date(), studentNotes: `G ${i + 1}`, status: "completed",
+          thesisId: thesis.id, supervisorId: lecturer.id, requestedDate: new Date(), approvedDate: new Date(), completedAt: new Date(), studentNotes: `G ${i + 1}`, status: "completed", phase: "research",
         }))
       });
 
       for (let i = 0; i < 8; i++) {
         const u = await prisma.user.create({ data: { fullName: "O" + i + ts, identityNumber: "N-O-" + i + ts, identityType: "NIM", email: `o${i}${ts}@t.com`, password: "p" } });
         const s = await prisma.student.create({ data: { id: u.id, sksCompleted: 100 } });
-        const t = await prisma.thesis.create({ data: { studentId: s.id, title: "O", thesisStatusId: status.id } });
+        const t = await prisma.thesis.create({ data: { studentId: s.id, title: "O", status: "research" } });
         const sem = await prisma.thesisSeminar.create({ data: { thesisId: t.id, status: "passed", date: new Date() } });
         dummyTheses.push({ user: u, student: s, thesis: t });
         dummySeminars.push(sem);

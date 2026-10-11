@@ -33,7 +33,7 @@ async function main() {
       id: t.id,
       title: t.title,
       proposal: t.proposalStatus,
-      isProposal: t.isProposal,
+      status: t.status,
       ta04At: t.ta04AssignmentIssuedAt,
       student: t.student?.user,
       supervisors: t.thesisSupervisors.map((s) => `${s.role?.name}:${s.lecturer?.user?.email}`),

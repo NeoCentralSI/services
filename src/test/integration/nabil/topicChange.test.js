@@ -39,7 +39,7 @@ describe("IT-02: Topic Change Full Flow", () => {
   beforeAll(async () => {
     const candidates = await prisma.thesis.findMany({
       where: {
-        thesisStatus: { name: "Bimbingan" },
+        status: "research",
         thesisSupervisors: { some: {} },
         NOT: {
           title: { startsWith: "[IT-" },
@@ -47,7 +47,6 @@ describe("IT-02: Topic Change Full Flow", () => {
       },
       include: {
         student: { include: { user: { select: { id: true, fullName: true, identityNumber: true } } } },
-        thesisStatus: { select: { id: true, name: true } },
         thesisTopic: { select: { id: true, name: true } },
         thesisSupervisors: {
           include: {
@@ -89,7 +88,7 @@ describe("IT-02: Topic Change Full Flow", () => {
     testStudentUserId = testThesis.student.id;
     originalTopicId = testThesis.thesisTopicId;
     originalTitle = testThesis.title;
-    originalStatusId = testThesis.thesisStatusId;
+    originalStatusId = testThesis.status;
     originalGuidanceStates = (testThesis.thesisGuidances || []).map((g) => ({
       id: g.id,
       status: g.status,
@@ -174,7 +173,7 @@ describe("IT-02: Topic Change Full Flow", () => {
         await prisma.thesis.update({
           where: { id: testThesis.id },
           data: {
-            thesisStatusId: originalStatusId,
+            status: originalStatusId,
             title: originalTitle,
           },
         });
@@ -234,6 +233,7 @@ describe("IT-02: Topic Change Full Flow", () => {
       data: {
         thesisId: testThesis.id,
         requestedDate: new Date(),
+        phase: "research",
         studentNotes: "[IT-02 TEST] guidance for archive assertion",
       },
     });
@@ -243,6 +243,7 @@ describe("IT-02: Topic Change Full Flow", () => {
       data: {
         thesisId: testThesis.id,
         title: "[IT-02 TEST] milestone for archive assertion",
+        phase: "research",
       },
     });
     createdMilestoneId = createdMilestone.id;
@@ -272,11 +273,9 @@ describe("IT-02: Topic Change Full Flow", () => {
 
     const thesisAfterSubmit = await prisma.thesis.findUnique({
       where: { id: testThesis.id },
-      include: { thesisStatus: { select: { name: true } } },
     });
-    expect(thesisAfterSubmit.thesisStatus.name).toBe(testThesis.thesisStatus.name);
+    expect(thesisAfterSubmit.status).toBe(testThesis.status);
     expect(thesisAfterSubmit.title).toBe(originalTitle);
-    expect(thesisAfterSubmit.thesisStatusId).toBe(originalStatusId);
 
     const inventedThesis = await prisma.thesis.findFirst({
       where: {
@@ -324,13 +323,11 @@ describe("IT-02: Topic Change Full Flow", () => {
 
     const oldThesis = await prisma.thesis.findUnique({
       where: { id: testThesis.id },
-      include: { thesisStatus: { select: { name: true } } },
     });
-    expect(["Dibatalkan", "Gagal"]).toContain(oldThesis.thesisStatus.name);
-    if (oldThesis.thesisStatus.name === "Dibatalkan") {
-      expect(oldThesis.title).toBe(`${originalTitle} (Dibatalkan)`);
-    }
-    console.log(`[STEP 4a] ✅ Old thesis archived: status=${oldThesis.thesisStatus.name}`);
+    // K15: the legacy "Dibatalkan" archive maps to status gagal.
+    expect(oldThesis.status).toBe("failed");
+    expect(oldThesis.title).toBe(`${originalTitle} (Dibatalkan)`);
+    console.log(`[STEP 4a] ✅ Old thesis archived: status=${oldThesis.status}`);
 
     expect(
       await prisma.thesis.count({ where: { studentId: testStudentUserId } })

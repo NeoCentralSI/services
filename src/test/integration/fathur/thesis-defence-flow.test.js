@@ -44,11 +44,10 @@ describe("Integration: Thesis Defence Flow (Registration to Finalization)", () =
       examinerLecturer2 = await prisma.lecturer.create({ data: { id: examinerUser2.id } });
 
       // 2. Setup Thesis & Prerequisites
-      const status = await prisma.thesisStatus.findFirst({ where: { name: { contains: "Bimbingan" } } });
       const role = await prisma.userRole.findFirst({ where: { name: { contains: "Pembimbing" } } });
-      if (!status || !role) throw new Error(`Seeds missing: status=${!!status}, role=${!!role}`);
+      if (!role) throw new Error(`Seeds missing: role=${!!role}`);
 
-      thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Defence Int Test", thesisStatusId: status.id } });
+      thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Defence Int Test", status: "research" } });
       supervisor = await prisma.thesisSupervisors.create({ data: { thesisId: thesis.id, lecturerId: lecturer.id, roleId: role.id, seminarReady: true, defenceReady: true } });
       console.log("Thesis created:", thesis.id);
 

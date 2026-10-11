@@ -5,23 +5,10 @@ async function rescue() {
     console.log("🚀 Starting Rescue Operation for Incorrectly Failed Theses...");
     const now = new Date();
 
-    // 1. Get terminal status IDs and 'Bimbingan' status ID
-    const statuses = await prisma.thesisStatus.findMany({
-        where: { name: { in: ["Gagal", "Bimbingan"] } }
-    });
-
-    const gagalStatusId = statuses.find(s => s.name === "Gagal")?.id;
-    const bimbinganStatusId = statuses.find(s => s.name === "Bimbingan")?.id;
-
-    if (!gagalStatusId || !bimbinganStatusId) {
-        console.error("❌ Required statuses not found in DB.");
-        return;
-    }
-
     // 2. Find theses that are 'Gagal' status and 'FAILED' rating but deadline is in the future
     const incorrectTheses = await prisma.thesis.findMany({
         where: {
-            thesisStatusId: gagalStatusId,
+            status: 'failed',
             rating: 'FAILED',
             deadlineDate: {
                 gt: now
@@ -38,16 +25,17 @@ async function rescue() {
         console.log(`🛠️ Rescuing ${t.student.user.fullName} (${t.student.user.identityNumber})`);
         console.log(`   - Current Deadline: ${t.deadlineDate}`);
 
-        // Reset status to Bimbingan
+        // Reset status to research (K15; the rating job no longer fails theses)
         await prisma.thesis.update({
             where: { id: t.id },
             data: {
-                thesisStatusId: bimbinganStatusId,
+                status: 'research',
+                statusChangedAt: new Date(),
                 rating: 'ONGOING' // Reset to ongoing, the next cron will decide SLOW/AT_RISK
             }
         });
 
-        console.log(`   ✅ Status reset to 'Bimbingan' and rating to 'ONGOING'.`);
+        console.log(`   ✅ Status reset to 'research' and rating to 'ONGOING'.`);
     }
 
     console.log("🏁 Rescue Operation Completed.");

@@ -17,6 +17,7 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
     getAllAcademicYears: vi.fn(),
     getAllSupervisors: vi.fn(),
     getThesisDetailById: vi.fn(),
+    findLatestThesisReport: vi.fn().mockResolvedValue(null),
     getThesesForReport: vi.fn(),
     getAcademicYearById: vi.fn(),
     getTopicDistribution: vi.fn(),
@@ -27,7 +28,6 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
   },
   mockPrisma: {
     thesis: { findUnique: vi.fn(), findFirst: vi.fn() },
-    thesisStatus: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
     thesisSupervisors: { findFirst: vi.fn(), count: vi.fn() },
   },
@@ -123,7 +123,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toHaveProperty("atRiskStudents");
       expect(result).toHaveProperty("slowStudents");
       expect(result).toHaveProperty("readyForSeminar");
-      expect(result.supervisorLoads.lecturers).toEqual([
+      expect(result.supervisorLoads).toEqual([
         {
           lecturerId: "l1",
           lecturerName: "Dr. Andi",
@@ -142,9 +142,6 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
           ],
         },
       ]);
-      expect(result.supervisorLoads.uniqueThesisCount).toBe(1);
-      expect(result.supervisorLoads.definitionLabel).toMatch(/pasca-proposal/);
-      expect(result.summary.supervisorLoadThesisCount).toBe(1);
       expect(mockRepo.getProgressStatistics).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getBatchDistribution).toHaveBeenCalledWith(ACADEMIC_YEAR);
       expect(mockRepo.getGuidanceTrend).toHaveBeenCalledWith(ACADEMIC_YEAR);
@@ -163,7 +160,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
           thesisSupervisors: [], 
           student: { user: { fullName: "Budi" } }, 
           thesisTopic: { name: "ML" }, 
-          thesisStatus: { name: "Bimbingan" },
+          status: "research",
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         }],
@@ -192,7 +189,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
           thesisSupervisors: [],
           student: { id: "s1", user: { id: "u1", fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
           thesisTopic: { id: "topic-1", name: "Machine Learning" },
-          thesisStatus: { name: "Bimbingan" },
+          status: "research",
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }],
@@ -270,7 +267,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         thesisSeminars: [],
         thesisDefences: [],
         thesisGuidances: [],
-        thesisStatus: { name: "Bimbingan" },
+        status: "research",
         thesisTopic: { name: "ML" },
         academicYear: { semester: "ganjil", year: "2024/2025" },
         startDate: new Date(),
@@ -464,7 +461,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         {
           id: "t1", title: "Thesis 1", rating: "ONGOING",
           student: { user: { identityNumber: "123", fullName: "Budi" } },
-          thesisStatus: { name: "Bimbingan" },
+          status: "research",
           thesisTopic: { name: "ML" },
           thesisSupervisors: [],
           thesisMilestones: [

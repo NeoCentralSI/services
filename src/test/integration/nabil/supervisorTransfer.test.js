@@ -43,10 +43,10 @@ let kadepNotificationId = null;
 describe("IT-03: Supervisor Transfer Full Flow", () => {
   const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   beforeAll(async () => {
-    // 1. Find a thesis in "Bimbingan" with a Pembimbing 1 supervisor
+    // 1. Find a running TA (status research) with a Pembimbing 1 supervisor
     sourceThesis = await prisma.thesis.findFirst({
       where: {
-        thesisStatus: { name: "Bimbingan" },
+        status: "research",
         thesisSupervisors: {
           some: { role: { name: "Pembimbing 1" } },
         },
@@ -281,7 +281,6 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
     const thesisAfter = await prisma.thesis.findUnique({
       where: { id: sourceThesis.id },
       include: {
-        thesisStatus: { select: { name: true } },
         thesisSupervisors: {
           include: {
             lecturer: { include: { user: { select: { fullName: true } } } },
@@ -290,8 +289,8 @@ describe("IT-03: Supervisor Transfer Full Flow", () => {
         },
       },
     });
-    expect(thesisAfter.thesisStatus.name).toBe("Bimbingan"); // Status unchanged
-    console.log(`[STEP 4b] ✅ Thesis status preserved: ${thesisAfter.thesisStatus.name}`);
+    expect(thesisAfter.status).toBe("research"); // Status unchanged
+    console.log(`[STEP 4b] ✅ Thesis status preserved: ${thesisAfter.status}`);
     console.log(
       `[STEP 4b] ✅ Current supervisors: ${thesisAfter.thesisSupervisors.map((s) => `${s.role.name}: ${s.lecturer.user.fullName}`).join(", ")}`
     );

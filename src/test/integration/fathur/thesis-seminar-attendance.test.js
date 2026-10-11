@@ -19,10 +19,9 @@ describe("Integration: Thesis Seminar Attendance Flow", () => {
       lUser = await prisma.user.create({ data: { fullName: "L "+ts, identityNumber: "NIP-L-"+ts, identityType: "NIP", email: `l${ts}@t.com`, password: "p" } });
       lecturer = await prisma.lecturer.create({ data: { id: lUser.id } });
 
-      const status = await prisma.thesisStatus.findFirst({ where: { name: { contains: "Bimbingan" } } });
       const role = await prisma.userRole.findFirst({ where: { name: { contains: "Pembimbing" } } });
 
-      thesis = await prisma.thesis.create({ data: { studentId: pStudent.id, title: "T", thesisStatusId: status.id } });
+      thesis = await prisma.thesis.create({ data: { studentId: pStudent.id, title: "T", status: "research" } });
       await prisma.thesisSupervisors.create({ data: { thesisId: thesis.id, lecturerId: lecturer.id, roleId: role.id } });
 
       const tomorrow = new Date();

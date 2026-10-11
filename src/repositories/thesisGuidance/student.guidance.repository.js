@@ -1,82 +1,81 @@
 import prisma from "../../config/prisma.js";
+import { SUMMARY_SUBMITTABLE_STATUSES, byScheduledAt } from "../../constants/guidanceStatus.js";
+import {
+  OPEN_THESIS_STATUSES,
+  POST_PROPOSAL_THESIS_STATUSES,
+  TA_PHASE,
+} from "../../constants/thesisStatus.js";
 
 export function getStudentByUserId(userId) {
   // Schema baru: Student.id adalah foreign key ke User.id
   return prisma.student.findUnique({ where: { id: userId } });
 }
 
+/**
+ * TA mahasiswa yang belum berakhir (proposal, research, on_leave), terbaru lebih dulu.
+ * Dipakai bimbingan/milestone (aksi tulis wajib cek status === research) dan
+ * Metopen (proposal.service, informalLog.service) untuk TA berstatus proposal.
+ */
 export async function getActiveThesisForStudent(studentId) {
-  // Pick the most recent by startDate desc (fallback by id desc)
-  const thesis = await prisma.thesis.findFirst({
-    where: { studentId },
-    orderBy: [
-      { startDate: "desc" },
-      { id: "desc" },
-    ],
-    include: {
-      document: { select: { id: true, filePath: true, fileName: true } },
-      thesisStatus: { select: { id: true, name: true } },
-    },
+  return prisma.thesis.findFirst({
+    where: { studentId, status: { in: OPEN_THESIS_STATUSES } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
-  return thesis;
 }
 
 export async function getThesisHistory(studentId) {
   const theses = await prisma.thesis.findMany({
-    where: { studentId },
+    where: { studentId, status: { in: POST_PROPOSAL_THESIS_STATUSES } },
     orderBy: { createdAt: "desc" },
     include: {
-      thesisStatus: { select: { id: true, name: true } },
       thesisTopic: { select: { id: true, name: true } },
       academicYear: { select: { id: true, year: true, semester: true } },
-      document: { select: { id: true, filePath: true, fileName: true } },
+      thesisSupervisors: {
+        include: {
+          role: { select: { id: true, name: true } },
+          lecturer: { include: { user: { select: { id: true, fullName: true, email: true, identityNumber: true } } } },
+        }
+      },
       _count: {
         select: {
-          thesisGuidances: { where: { status: "completed" } },
-          thesisMilestones: { where: { status: { not: "deleted" } } }
+          thesisGuidances: { where: { status: "completed", ...TA_PHASE } },
         }
+      },
+      thesisMilestones: {
+        select: { status: true },
+        where: { status: { not: "deleted" }, ...TA_PHASE }
       }
     },
   });
   return theses;
 }
 
-export async function getSupervisorsForThesis(thesisId, { includeInactive = false } = {}) {
-  // Default active (FUN-030). Pass includeInactive: true only for history surfaces
-  // that must show released/terminated supervisors. The 12 production callers
-  // (guidance request, notify, my-thesis, logbook PDF) keep the default.
+export async function getSupervisorsForThesis(thesisId) {
+  // Revival adaptation (A1): only active supervisor rows grant guidance access.
   const supervisors = await prisma.thesisSupervisors.findMany({
-    where: {
-      thesisId,
-      ...(includeInactive ? {} : { status: "active" }),
-    },
+    where: { thesisId, status: "active" },
     include: {
-      role: { select: { name: true } },
-      lecturer: { include: { user: { select: { id: true, fullName: true, email: true } } } },
+      role: { select: { id: true, name: true } },
+      lecturer: { include: { user: { select: { id: true, fullName: true, email: true, identityNumber: true } } } },
     },
   });
   return supervisors;
 }
 
-export function buildGuidanceListWhere(thesisId, status, phase) {
-  const where = { thesisId };
+export function listGuidancesForThesis(thesisId, status) {
+  const where = { thesisId, ...TA_PHASE };
   if (status) {
     where.status = status;
   } else {
+    // Default: exclude deleted
     where.status = { not: "deleted" };
   }
-  if (phase === "proposal" || phase === "thesis") {
-    where.phase = phase;
-  }
-  return where;
-}
-
-export function listGuidancesForThesis(thesisId, status, phase) {
-  const where = buildGuidanceListWhere(thesisId, status, phase);
   // Schema baru: tidak ada schedule relation, gunakan requestedDate/approvedDate langsung
   return prisma.thesisGuidance.findMany({
     where,
-    include: { supervisor: { include: { user: true } } },
+    include: {
+      supervisor: { include: { user: true } },
+    },
     orderBy: [
       { requestedDate: "desc" },
       { id: "desc" },
@@ -86,7 +85,7 @@ export function listGuidancesForThesis(thesisId, status, phase) {
 
 export function getGuidanceByIdForStudent(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
-    where: { id: guidanceId, thesis: { studentId } },
+    where: { id: guidanceId, ...TA_PHASE, thesis: { studentId } },
     include: {
       supervisor: { include: { user: true } },
       milestones: { include: { milestone: { select: { id: true, title: true } } } },
@@ -118,24 +117,30 @@ export function updateGuidanceById(id, data) {
   });
 }
 
-export function listGuidanceHistoryByStudent(studentId) {
-  return prisma.thesisGuidance.findMany({
+export async function listGuidanceHistoryByStudent(studentId) {
+  const rows = await prisma.thesisGuidance.findMany({
     where: {
+      ...TA_PHASE,
       thesis: { studentId },
       status: { not: "deleted" }
     },
-    include: { supervisor: { include: { user: true } } },
+    include: {
+      supervisor: { include: { user: true } },
+    },
     orderBy: [
       { requestedDate: "desc" },
       { id: "desc" },
     ],
   });
+  // C6: newest first by the effective schedule (approvedDate ?? requestedDate)
+  return rows.sort(byScheduledAt("desc"));
 }
 
 export function listMilestones(thesisId) {
   return prisma.thesisMilestone.findMany({
     where: {
       thesisId,
+      ...TA_PHASE,
       status: { not: "deleted" }
     },
     orderBy: { orderIndex: "asc" },
@@ -143,7 +148,8 @@ export function listMilestones(thesisId) {
 }
 
 export function listMilestoneTemplates(topicId) {
-  const where = { isActive: true };
+  // Template table is shared by both phases (K18); TA guidance uses thesis-phase templates.
+  const where = { isActive: true, ...TA_PHASE };
   if (topicId) {
     where.topicId = topicId;
   }
@@ -153,14 +159,16 @@ export function listMilestoneTemplates(topicId) {
   });
 }
 
-export async function createMilestonesDirectly(thesisId, milestonesData) {
+export async function createMilestonesDirectly(thesisId, milestonesData, phase) {
   return prisma.thesisMilestone.createMany({
     data: milestonesData.map((m) => ({
       thesisId,
+      milestoneTemplateId: m.id ?? null,
       title: m.name,
       description: m.description,
       orderIndex: m.orderIndex,
       status: "not_started",
+      phase,
     })),
   });
 }
@@ -185,8 +193,8 @@ export async function upsertStudentCompletions(thesisId, componentIds = [], comp
  * Submit session summary by student
  * Changes status from 'accepted' to 'summary_pending'
  */
-export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }) {
-  return prisma.thesisGuidance.update({
+export async function submitSessionSummary(guidanceId, { sessionSummary, actionItems }) {
+  const updated = await prisma.thesisGuidance.update({
     where: { id: guidanceId },
     data: {
       sessionSummary,
@@ -199,21 +207,27 @@ export function submitSessionSummary(guidanceId, { sessionSummary, actionItems }
       milestones: { include: { milestone: { select: { id: true, title: true, status: true } } } },
     },
   });
+
+  if (updated.thesisId) {
+    await prisma.thesis.update({
+      where: { id: updated.thesisId },
+      data: { updatedAt: new Date() }
+    });
+  }
+
+  return updated;
 }
 
 /**
  * Get completed guidance history for student
  */
-export function getCompletedGuidanceHistory(studentId, phase) {
-  const where = {
-    thesis: { studentId },
-    status: "completed",
-  };
-  if (phase === "proposal" || phase === "thesis") {
-    where.phase = phase;
-  }
+export function getCompletedGuidanceHistory(studentId) {
   return prisma.thesisGuidance.findMany({
-    where,
+    where: {
+      ...TA_PHASE,
+      thesis: { studentId },
+      status: "completed",
+    },
     include: {
       supervisor: { include: { user: true } },
       milestones: { include: { milestone: { select: { id: true, title: true } } } },
@@ -239,6 +253,7 @@ export function getGuidanceForExport(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
     where: {
       id: guidanceId,
+      ...TA_PHASE,
       thesis: { studentId },
       status: "completed",
     },
@@ -265,8 +280,11 @@ export function getGuidanceForExport(guidanceId, studentId) {
 export function getGuidancesNeedingSummary(studentId) {
   return prisma.thesisGuidance.findMany({
     where: {
+      ...TA_PHASE,
       thesis: { studentId },
-      status: "accepted",
+      // K19: scheduled sessions (legacy "rescheduled" included) and summaries sent back
+      // for revision need a summary from the student.
+      status: { in: SUMMARY_SUBMITTABLE_STATUSES },
       approvedDate: { lte: new Date() }, // Jadwal sudah lewat
     },
     include: {

@@ -269,8 +269,9 @@ export async function uploadDocument(defenceId, userId, file, requirementId) {
     throwError("Dokumen ini sudah disetujui dan tidak dapat diunggah ulang.", 403);
   }
 
-  // Storage hierarchy: isolated by studentId and defenceId attempt
-  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis-defence", student.id, defence.id);
+  // Storage hierarchy: uploads/thesis/<thesisId>/defence/<defenceId>/, the same layout as
+  // seminar documents, so the /uploads/thesis guard covers them.
+  const uploadsRoot = path.join(process.cwd(), "uploads", "thesis", defence.thesisId ?? thesis.id, "defence", defence.id);
   await mkdir(uploadsRoot, { recursive: true });
   const storedName = `requirement-${requirementId}-${Date.now()}.pdf`;
   const absolutePath = path.join(uploadsRoot, storedName);

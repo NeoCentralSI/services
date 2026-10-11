@@ -7,6 +7,7 @@ import {
   getActiveThesisForStudent,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 import * as proposalRepo from "../../repositories/thesisGuidance/proposal.repository.js";
+import { THESIS_STATUS } from "../../constants/thesisStatus.js";
 import {
   assertTa04GuidanceAuthorized,
   getTa04GuidanceAuthorization,
@@ -90,7 +91,8 @@ export async function uploadProposalVersion(userId, file, description) {
 
   const { thesis } = await getStudentAndThesis(userId);
 
-  if (thesis.proposalStatus === "accepted") {
+  // K15: the proposal phase is status `proposal`; accepted proposals stay locked as before.
+  if (thesis.proposalStatus === "accepted" || thesis.status !== THESIS_STATUS.PROPOSAL) {
     throw new BadRequestError(
       "Mahasiswa sudah promosi ke beban aktif Tugas Akhir. Tidak dapat mengunggah versi proposal Metopel baru."
     );
@@ -200,7 +202,8 @@ export async function getProposalSubmissionStatus(userId) {
 export async function submitFinalProposal(userId) {
   const { thesis } = await getStudentAndThesis(userId);
 
-  if (thesis.proposalStatus === "accepted") {
+  // K15: the proposal phase is status `proposal`; accepted proposals stay locked as before.
+  if (thesis.proposalStatus === "accepted" || thesis.status !== THESIS_STATUS.PROPOSAL) {
     throw new BadRequestError(
       "Mahasiswa sudah promosi ke beban aktif Tugas Akhir. Versi final proposal Metopel tidak dapat diubah dari alur mahasiswa."
     );

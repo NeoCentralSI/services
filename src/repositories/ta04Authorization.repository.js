@@ -11,7 +11,7 @@ export function findTa04GuidanceAuthorization(thesisId) {
     where: { id: thesisId },
     select: {
       id: true,
-      isProposal: true,
+      status: true,
       ta04AssignmentIssuedAt: true,
       thesisSupervisors: {
         where: {

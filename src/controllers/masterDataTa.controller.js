@@ -13,22 +13,10 @@ export const getAllTheses = async (req, res, next) => {
     }
 };
 
-export const getAllThesisStatuses = async (req, res, next) => {
-    try {
-        const statuses = await masterDataTaService.getAllThesisStatuses();
-        res.status(200).json({
-            success: true,
-            data: statuses
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
 export const createThesis = async (req, res, next) => {
     try {
         const body = req.validated ?? req.body ?? {};
-        const data = await masterDataTaService.createThesisMasterData(body);
+        const data = await masterDataTaService.createThesisMasterData(body, { actorUserId: req.user?.sub ?? null });
         res.status(201).json({
             success: true,
             message: "Berhasil membuat data tugas akhir",
@@ -43,7 +31,7 @@ export const updateThesis = async (req, res, next) => {
     try {
         const { id } = req.params;
         const body = req.validated ?? req.body ?? {};
-        const data = await masterDataTaService.updateThesisMasterData(id, body);
+        const data = await masterDataTaService.updateThesisMasterData(id, body, { actorUserId: req.user?.sub ?? null });
         res.status(200).json({
             success: true,
             message: "Berhasil mengubah data tugas akhir",
@@ -73,7 +61,7 @@ export const importTheses = async (req, res, next) => {
         if (!rows || !Array.isArray(rows)) {
             return res.status(400).json({ success: false, message: "Invalid data format" });
         }
-        const data = await masterDataTaService.importThesesMasterData(rows);
+        const data = await masterDataTaService.importThesesMasterData(rows, { actorUserId: req.user?.sub ?? null });
         res.status(200).json({
             success: true,
             message: "Proses import selesai",

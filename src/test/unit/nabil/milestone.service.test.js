@@ -19,6 +19,7 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
     reorderMilestones: vi.fn(),
     validateMilestone: vi.fn(),
     findTemplateById: vi.fn(),
+    findTemplatesByIds: vi.fn(),
     getThesisProgress: vi.fn(),
     getThesisSeminarReadiness: vi.fn(),
     approveSeminarReadiness: vi.fn(),
@@ -35,7 +36,8 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
     thesisTopic: { findUnique: vi.fn() },
     thesisGuidance: { count: vi.fn() },
     thesisMilestone: { updateMany: vi.fn() },
-    auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
+    // Guidance revival correction: history-read lookup for former supervisors.
+    thesisSupervisors: { findFirst: vi.fn().mockResolvedValue(null) },
   },
   mockRoles: {
     ROLES: { MAHASISWA: "Mahasiswa", PEMBIMBING_1: "Pembimbing 1", PEMBIMBING_2: "Pembimbing 2" },
@@ -80,6 +82,7 @@ const SUPERVISOR_USER_ID = "user-dosen-1";
 const THESIS_WITH_STUDENT = {
   id: "thesis-1",
   title: "Sistem Monitoring TA",
+  status: "research",
   student: { userId: STUDENT_USER_ID, user: { id: STUDENT_USER_ID, fullName: "Budi", fcmToken: "fcm-1" } },
   thesisSupervisors: [
     {
@@ -174,15 +177,18 @@ describe("Module 4: Milestone Management", () => {
   // ─── Bulk create from templates ──────────────────────────
   describe("createMilestonesFromTemplates (bulk)", () => {
     it("creates milestones from templates with auto-calculated deadlines", async () => {
-      mockThesisAccess(STUDENT_USER_ID);
+      // Paket B (K20): templates follow the thesis topic; the body topicId is ignored.
+      mockPrisma.thesis.findUnique.mockResolvedValue({ ...THESIS_WITH_STUDENT, thesisTopicId: "topic-1" });
       mockMilestoneRepo.findByThesisId.mockResolvedValue([]); // no existing
-      mockMilestoneRepo.findTemplateById.mockResolvedValue({
+      mockMilestoneRepo.findTemplatesByIds.mockResolvedValue([{
         id: "tmpl-1",
         title: "Pendahuluan",
         description: "Bab 1",
         orderIndex: 1,
         topicId: "topic-1",
-      });
+        phase: "research",
+        isActive: true,
+      }]);
       mockPrisma.thesisTopic.findUnique.mockResolvedValue({ id: "topic-1", name: "Machine Learning" });
       mockPrisma.thesis.update.mockResolvedValue({});
       mockMilestoneRepo.createMany.mockResolvedValue([
@@ -192,9 +198,10 @@ describe("Module 4: Milestone Management", () => {
         .mockResolvedValueOnce([]) // no existing check
         .mockResolvedValueOnce([{ id: "ms-new-1", title: "Pendahuluan", orderIndex: 1 }]); // after creation
 
-      const result = await createMilestonesFromTemplates("thesis-1", STUDENT_USER_ID, ["tmpl-1"], "topic-1");
+      const result = await createMilestonesFromTemplates("thesis-1", STUDENT_USER_ID, ["tmpl-1"], "topic-other");
 
       expect(result.milestones).toHaveLength(1);
+      expect(mockPrisma.thesis.update).not.toHaveBeenCalled(); // topic never changed from the body
     });
 
     it("rejects (400) if thesis already has milestones", async () => {
@@ -358,7 +365,7 @@ describe("Module 4: Milestone Management", () => {
       ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it("allows Pembimbing 2 to validate milestone review", async () => {
+    it("rejects (403) if user is Pembimbing 2 (only Pembimbing 1 can validate)", async () => {
       // Mock thesis with TWO supervisors: one is P1, one is P2 (current user)
       const thesisWithTwoSup = {
         ...THESIS_WITH_STUDENT,
@@ -376,20 +383,17 @@ describe("Module 4: Milestone Management", () => {
       };
       mockMilestoneRepo.findById.mockResolvedValue(MILESTONE_PENDING_REVIEW);
       mockPrisma.thesis.findUnique.mockResolvedValue(thesisWithTwoSup);
-      mockMilestoneRepo.validateMilestone.mockResolvedValue({
-        ...MILESTONE_PENDING_REVIEW,
-        status: "completed",
-        validatedAt: new Date(),
-      });
 
       mockRoles.isSupervisorRole.mockReturnValue(true);
       mockRoles.isPembimbing1.mockImplementation((r) => r === "Pembimbing 1");
       mockRoles.isPembimbing2.mockImplementation((r) => r === "Pembimbing 2");
 
-      const result = await validateMilestone("ms-4", "pembimbing-2-id", "Notes");
-
-      expect(result.status).toBe("completed");
-      expect(mockMilestoneRepo.validateMilestone).toHaveBeenCalledWith("ms-4", "pembimbing-2-id", "Notes");
+      await expect(
+        validateMilestone("ms-4", "pembimbing-2-id", "Notes")
+      ).rejects.toMatchObject({ 
+        statusCode: 403, 
+        message: "Hanya Pembimbing 1 yang memiliki hak untuk memvalidasi milestone" 
+      });
     });
   });
 

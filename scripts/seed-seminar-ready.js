@@ -76,7 +76,8 @@ async function getStudentData(identityNumber) {
         },
       },
       thesisGuidances: {
-        where: { status: "completed" },
+        // K7: only completed TA-phase sessions count towards the seminar requirement.
+        where: { status: "completed", phase: "research" },
       },
     },
   });
@@ -150,6 +151,7 @@ async function seedGuidances(thesis) {
         supervisorFeedback: feedbacks[i % feedbacks.length],
         sessionSummary: `Bimbingan membahas ${topics[i % topics.length].toLowerCase()}. (Seeded for readiness)`,
         status: "completed",
+        phase: "research",
         completedAt: new Date(date.getTime() + 60 * 60 * 1000),
       },
     });

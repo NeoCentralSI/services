@@ -1,5 +1,7 @@
 import prisma from "../config/prisma.js";
 import { sendFcmToUsers } from "../services/push.service.js";
+import { SCHEDULED_GUIDANCE_STATUSES, getScheduledAt } from "../constants/guidanceStatus.js";
+import { formatDateTimeWib } from "../utils/date.util.js";
 
 /**
  * Job untuk mengirim FCM reminder ke mahasiswa dan dosen
@@ -20,7 +22,7 @@ export async function runGuidanceReminderJob() {
     // Find all guidance sessions scheduled for today that haven't been reminded yet
     const guidances = await prisma.thesisGuidance.findMany({
       where: {
-        status: "accepted",
+        status: { in: SCHEDULED_GUIDANCE_STATUSES },
         approvedDate: {
           gte: startOfDay,
           lte: endOfDay,
@@ -68,20 +70,14 @@ export async function runGuidanceReminderJob() {
         const supervisorName = guidance.supervisor?.user?.fullName || "Dosen";
         const milestoneName = guidance.milestones?.[0]?.milestone?.title || "bimbingan";
         
-        // Format time for notification
-        const approvedTime = guidance.approvedDate 
-          ? new Date(guidance.approvedDate).toLocaleTimeString("id-ID", { 
-              hour: "2-digit", 
-              minute: "2-digit",
-              timeZone: "Asia/Jakarta"
-            })
-          : "";
+        // Session time for the notification text (Paket C, C5/C6: agreed time, WIB)
+        const approvedTime = formatDateTimeWib(getScheduledAt(guidance));
 
         // Send to student
         if (studentUserId) {
           await sendFcmToUsers([studentUserId], {
             title: "🔔 Reminder: Bimbingan Hari Ini",
-            body: `Kamu memiliki jadwal bimbingan dengan ${supervisorName} hari ini pukul ${approvedTime}`,
+            body: `Kamu memiliki jadwal bimbingan dengan ${supervisorName} hari ini, ${approvedTime}`,
             data: {
               type: "guidance_reminder",
               guidanceId: guidance.id,
@@ -95,7 +91,7 @@ export async function runGuidanceReminderJob() {
         if (supervisorUserId) {
           await sendFcmToUsers([supervisorUserId], {
             title: "🔔 Reminder: Bimbingan Hari Ini",
-            body: `Anda memiliki jadwal bimbingan dengan ${studentName} hari ini pukul ${approvedTime}`,
+            body: `Anda memiliki jadwal bimbingan dengan ${studentName} hari ini, ${approvedTime}`,
             data: {
               type: "guidance_reminder",
               guidanceId: guidance.id,

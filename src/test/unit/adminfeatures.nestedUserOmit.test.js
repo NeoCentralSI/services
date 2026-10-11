@@ -6,7 +6,6 @@ const { mockPrisma } = vi.hoisted(() => ({
     lecturer: { findMany: vi.fn() },
     thesis: { findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
     userRole: { findMany: vi.fn() },
-    thesisStatus: { findMany: vi.fn() },
   },
 }));
 

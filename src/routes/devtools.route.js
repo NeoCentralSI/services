@@ -94,7 +94,7 @@ function buildMetopenStatusSnapshot(student, thesis = null) {
     canSubmit: eligibleMetopen === true && !readOnly,
     thesisId: thesis?.id ?? null,
     thesisTitle: thesis?.title ?? null,
-    thesisStatus: thesis?.thesisStatus?.name ?? null,
+    thesisStatus: thesis?.status ?? null,
   };
 }
 
@@ -198,7 +198,6 @@ async function deleteStudentSimptaProgress(tx, studentId) {
       data: {
         finalProposalVersionId: null,
         proposalDocumentId: null,
-        documentId: null,
         finalThesisDocumentId: null,
         titleApprovalDocumentId: null,
         proposalReviewedByUserId: null,
@@ -463,7 +462,7 @@ router.get("/students", async (req, res, next) => {
             title: true,
             rating: true,
             proposalStatus: true,
-            thesisStatus: { select: { name: true } },
+            status: true,
           },
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -495,7 +494,7 @@ router.get("/students", async (req, res, next) => {
           ? {
             id: t.id,
             title: t.title,
-            status: t.thesisStatus?.name ?? t.rating,
+            status: t.status ?? t.rating,
             proposalStatus: t.proposalStatus ?? null,
           }
           : null,
@@ -550,7 +549,7 @@ router.get("/students/:id", async (req, res, next) => {
             rating: true,
             proposalStatus: true,
             createdAt: true,
-            thesisStatus: { select: { name: true } },
+            status: true,
           },
           orderBy: { createdAt: "desc" },
         },
@@ -584,7 +583,7 @@ router.get("/students/:id", async (req, res, next) => {
         thesis: student.thesis.map((t) => ({
           id: t.id,
           title: t.title,
-          status: t.thesisStatus?.name ?? t.rating,
+          status: t.status ?? t.rating,
           createdAt: t.createdAt,
         })),
       },
@@ -769,7 +768,7 @@ router.get("/thesis/:studentId", async (req, res, next) => {
         academicYear: {
           select: { id: true, year: true, semester: true, isActive: true },
         },
-        thesisStatus: { select: { name: true } },
+        status: true,
         thesisSupervisors: {
           select: {
             role: { select: { name: true } },
@@ -783,7 +782,7 @@ router.get("/thesis/:studentId", async (req, res, next) => {
     const data = theses.map((t) => ({
       id: t.id,
       title: t.title,
-      status: t.thesisStatus?.name ?? t.rating,
+      status: t.status ?? t.rating,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       academicYearId: t.academicYearId,

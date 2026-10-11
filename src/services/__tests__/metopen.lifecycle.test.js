@@ -10,7 +10,6 @@ const { prismaMock, txMock, quotaService } = vi.hoisted(() => {
   const prisma = {
     studentAcademicYearSnapshot: { findUnique: vi.fn() },
     thesisAdvisorRequest: { findMany: vi.fn(), findUnique: vi.fn() },
-    thesisStatus: { findFirst: vi.fn() },
     $transaction: vi.fn(async (callback) => callback(tx)),
   };
   return {
@@ -110,7 +109,6 @@ describe("metopen.service — syncBookingActivationForStudent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.$transaction.mockImplementation(async (callback) => callback(txMock));
-    prismaMock.thesisStatus.findFirst.mockResolvedValue({ id: "status-bimbingan" });
     prismaMock.studentAcademicYearSnapshot.findUnique.mockResolvedValue({
       takingThesisCourse: true,
       thesisCourseSource: "sia",
@@ -127,9 +125,10 @@ describe("metopen.service — syncBookingActivationForStudent", () => {
     expect(txMock.thesis.update).toHaveBeenCalledWith({
       where: { id: "thesis-1" },
       data: expect.objectContaining({
-        isProposal: false,
+        // K15: promotion sets status research; proposalStatus stays "accepted".
+        status: "research",
+        statusChangedAt: expect.any(Date),
         proposalStatus: "accepted",
-        thesisStatusId: "status-bimbingan",
         activeAcademicYearId: "ay-active",
         activePromotedAt: expect.any(Date),
       }),

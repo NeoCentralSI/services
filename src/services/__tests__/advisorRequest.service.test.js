@@ -484,7 +484,7 @@ describe("advisorRequest.service — getMyAccessState", () => {
   it("still blocks new browsing when the student already has an active advisor request", async () => {
     repo.findStudentAdvisorAccessContext.mockResolvedValue({
       id: "student-1",
-      thesis: [{ id: "thesis-1", title: null, proposalStatus: null, thesisStatus: null, thesisSupervisors: [] }],
+      thesis: [{ id: "thesis-1", title: null, proposalStatus: null, status: "proposal", thesisSupervisors: [] }],
     });
     repo.findBlockingByStudent.mockResolvedValue({
       id: "req-1",
@@ -514,7 +514,7 @@ describe("advisorRequest.service — getMyAccessState", () => {
           title: "Rancang Bangun SIMPTA",
           proposalStatus: null,
           ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
-          thesisStatus: null,
+          status: "proposal",
           thesisSupervisors: [
             {
               id: "participant-1",
@@ -563,7 +563,7 @@ describe("advisorRequest.service — getMyAccessState", () => {
           id: "thesis-1",
           title: "Rancang Bangun SIMPTA",
           ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
-          thesisStatus: null,
+          status: "proposal",
           thesisSupervisors: [],
           advisorRequests: [],
         },
@@ -870,7 +870,7 @@ describe("advisorRequest.service — dual justification Path C", () => {
           ta04AssignmentIssuedAt: null,
           advisorRequests: [],
           thesisSupervisors: [],
-          thesisStatus: { name: "Metopel" },
+          status: "proposal",
         },
       ],
     });

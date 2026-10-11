@@ -6,7 +6,7 @@
  * that can drift when some code paths skip the counter.
  */
 
-import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { CLOSED_THESIS_STATUSES, OPEN_THESIS_STATUSES } from "../constants/thesisStatus.js";
 import { getLecturerQuotaSnapshot } from "../services/advisorQuota.service.js";
 
 export const CLOSED_THESIS_STATUS_NAMES = CLOSED_THESIS_STATUSES;
@@ -21,10 +21,7 @@ export async function countActiveSupervisionsAll(client, lecturerId) {
       lecturerId,
       status: "active",
       thesis: {
-        OR: [
-          { thesisStatusId: null },
-          { thesisStatus: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } } },
-        ],
+        status: { in: OPEN_THESIS_STATUSES },
       },
     },
   });
@@ -42,10 +39,7 @@ export async function countActiveSupervisionsForYear(client, lecturerId, academi
       status: "active",
       thesis: {
         academicYearId,
-        OR: [
-          { thesisStatusId: null },
-          { thesisStatus: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } } },
-        ],
+        status: { in: OPEN_THESIS_STATUSES },
       },
     },
   });
@@ -69,10 +63,7 @@ export async function syncQuotaCount(client, lecturerId, academicYearId) {
       status: "active",
       thesis: {
         academicYearId,
-        OR: [
-          { thesisStatusId: null },
-          { thesisStatus: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } } },
-        ],
+        status: { in: OPEN_THESIS_STATUSES },
       },
     },
   });
@@ -107,10 +98,7 @@ export async function syncAllQuotaCounts(prismaClient, academicYearId) {
       status: "active",
       thesis: {
         academicYearId,
-        OR: [
-          { thesisStatusId: null },
-          { thesisStatus: { name: { notIn: CLOSED_THESIS_STATUS_NAMES } } },
-        ],
+        status: { in: OPEN_THESIS_STATUSES },
       },
     },
     select: { lecturerId: true },

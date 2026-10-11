@@ -4,7 +4,7 @@ import * as ta04BatchRepo from "../repositories/ta04Batch.repository.js";
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError, ForbiddenError } from "../utils/errors.js";
 import { ROLES } from "../constants/roles.js";
-import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { CLOSED_THESIS_STATUSES, THESIS_STATUS } from "../constants/thesisStatus.js";
 import {
   LECTURER_OVERQUOTA_REASON_MIN_LENGTH,
   RED_QUOTA_JUSTIFICATION_MIN_LENGTH,
@@ -293,7 +293,7 @@ function resolveTa04DocumentTitle(thesis, topicBanSet = null) {
 }
 
 function isOfficialSupervisorContext(thesis) {
-  return Boolean(thesis) && !CLOSED_THESIS_STATUSES.includes(thesis?.thesisStatus?.name);
+  return Boolean(thesis) && !CLOSED_THESIS_STATUSES.includes(thesis?.status);
 }
 
 function looksLikeSupervisorRoleLabel(value) {
@@ -448,7 +448,7 @@ function buildAdvisorAccessState(
     thesisId: thesis?.id ?? null,
     thesisAcademicYearId: thesis?.academicYearId ?? null,
     thesisTitle: thesis?.title ?? null,
-    thesisStatus: thesis?.thesisStatus?.name ?? null,
+    thesisStatus: thesis?.status ?? null,
     eligibleMetopen: eligibilityState?.eligibleMetopen ?? null,
     hasExternalEligibility: eligibilityState?.hasExternalStatus ?? false,
     metopenEligibilitySource: eligibilityState?.source ?? null,
@@ -621,7 +621,8 @@ async function ensureOperationalSupervisorAssignment(tx, request, lecturerId) {
       academicYearId: request.academicYearId,
       thesisTopicId: request.topicId ?? null,
       title: request.proposedTitle || "Judul belum ditentukan",
-      isProposal: true,
+      // K15: a thesis born from the advisor-request flow starts in the proposal phase.
+      status: THESIS_STATUS.PROPOSAL,
     });
   } else {
     const thesisPatch = {};

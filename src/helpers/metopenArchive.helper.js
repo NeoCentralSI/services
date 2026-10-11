@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import { ADVISOR_REQUEST_STATUS } from "../constants/advisorRequestStatus.js";
+import { POST_PROPOSAL_THESIS_STATUSES } from "../constants/thesisStatus.js";
 
 /**
  * Bukti pernah menempuh Metopel (riwayat). Bukan predikat arsip modul.
@@ -53,7 +54,7 @@ export async function studentHasOfficialMetopenArchive(studentId, { client = pri
       where: {
         studentId,
         OR: [
-          { isProposal: false },
+          { status: { in: POST_PROPOSAL_THESIS_STATUSES } },
           { activePromotedAt: { not: null } },
         ],
       },

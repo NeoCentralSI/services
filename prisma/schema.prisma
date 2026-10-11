@@ -44,6 +44,7 @@ model User {
   guidanceEvaluationsApproved        ThesisGuidanceEvaluation[]         @relation("GuidanceEvalKadepApprover")
   proposalTitleReviews               Thesis[]                           @relation("ThesisProposalReviewedBy")
   ta04AssignmentsIssued              Thesis[]                           @relation("ThesisTa04AssignmentIssuedBy")
+  thesesTerminated                   Thesis[]                           @relation("ThesisTerminatedBy")
   researchMethodScoresFinalized      ResearchMethodScore[]              @relation("ResearchMethodScoreFinalizer")
   metopenAttendanceImportsUploaded   MetopenAttendanceImport[]          @relation("MetopenAttendanceImportUploader")
   proposalVersionsSubmittedAsFinal   ThesisProposalVersion[]            @relation("ThesisProposalVersionSubmittedBy")
@@ -829,13 +830,22 @@ model ExitSurveyOption {
 /// TA-03 final + snapshot KRS TA true; bukan hanya karena TA-04 terbit).
 /// Lihat HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-06 untuk field ownership matrix.
 model Thesis {
-  // === IDENTITAS & PHASE FLAG ===
+  // === IDENTITAS & STATUS ===
   id             String    @id @default(uuid())
-  /// Flag transisi ownership: true = SIMPTA scope; false = Modul TA scope setelah promosi aktif.
-  isProposal     Boolean   @default(true) @map("is_proposal")
   studentId      String    @map("student_id")
   thesisTopicId  String?   @map("thesis_topic_id")
-  thesisStatusId String?   @map("thesis_status_id")
+  /// Status siklus hidup TA (K15), satu-satunya penanda fase. Wajib diisi eksplisit
+  /// oleh setiap penulis (tanpa default): `proposal` = fase proposal, `research` = fase TA.
+  status          ThesisLifecycleStatus  @map("status")
+  statusChangedAt DateTime?              @map("status_changed_at")
+  /// Penghentian TA (status `failed`). Kolom disiapkan; fiturnya belum dibuat.
+  terminationReason  ThesisTerminationReason? @map("termination_reason")
+  terminationNote    String?                  @map("termination_note") @db.Text
+  terminatedAt       DateTime?                @map("terminated_at")
+  terminatedByUserId String?                  @map("terminated_by_user_id")
+  /// Berhenti Studi Sementara (status `on_leave`): status sebelumnya dan tanggal mulai.
+  statusBeforeLeave ThesisLifecycleStatus? @map("status_before_leave")
+  leaveStartedAt    DateTime?              @map("leave_started_at")
   /// NOTE: canon §5.7.4 + §5.13 expect non-null setelah TA-04. Pertimbangkan
   /// migrate ke NOT NULL di iterasi berikutnya.
   academicYearId String?   @map("academic_year_id")
@@ -865,7 +875,7 @@ model Thesis {
   activeAcademicYearId          String?   @map("active_academic_year_id")
   activePromotedAt              DateTime? @map("active_promoted_at")
 
-  // === MODUL TA SCOPE (post-promosi aktif, isProposal=false — BUKAN SIMPTA scope) ===
+  // === MODUL TA SCOPE (post-promosi aktif, status=research — BUKAN SIMPTA scope) ===
   /// out-of-SIMPTA-scope: Modul TA penuh. Rating monitoring (ONGOING/SLOW/AT_RISK/FAILED).
   rating                ThesisRating @default(ONGOING)
   /// out-of-SIMPTA-scope: Modul TA penuh — deadline absolut thesis.
@@ -880,14 +890,11 @@ model Thesis {
   /// Akan di-drop pada migration berikutnya setelah audit memastikan tidak ada read sisa.
   /// Sumber: HANDOFF §5 P0-06.
   proposalDocumentId String? @map("proposal_document_id")
-  /// @deprecated Semantic legacy unclear. Audit sebelum drop. Sumber: PRD §5.2.
-  documentId         String? @map("document_id")
 
   createdAt                  DateTime                    @default(now()) @map("created_at")
   updatedAt                  DateTime                    @updatedAt @map("updated_at")
   // Relations
   academicYear               AcademicYear?               @relation(fields: [academicYearId], references: [id])
-  document                   Document?                   @relation(fields: [documentId], references: [id])
   finalThesisDocument        Document?                   @relation("FinalThesisDocument", fields: [finalThesisDocumentId], references: [id])
   proposalDocument           Document?                   @relation("ProposalDocument", fields: [proposalDocumentId], references: [id])
   finalProposalVersion       ThesisProposalVersion?      @relation("FinalProposalVersion", fields: [finalProposalVersionId], references: [id])
@@ -897,7 +904,7 @@ model Thesis {
   ta04AssignmentAcademicYear AcademicYear?               @relation("ThesisTa04AssignmentAcademicYear", fields: [ta04AssignmentAcademicYearId], references: [id])
   activeAcademicYear         AcademicYear?               @relation("ThesisActiveAcademicYear", fields: [activeAcademicYearId], references: [id])
   student                    Student                     @relation(fields: [studentId], references: [id])
-  thesisStatus               ThesisStatus?               @relation(fields: [thesisStatusId], references: [id])
+  terminatedBy               User?                       @relation("ThesisTerminatedBy", fields: [terminatedByUserId], references: [id], onDelete: SetNull)
   thesisTopic                ThesisTopic?                @relation(fields: [thesisTopicId], references: [id])
   thesisGuidanceEvaluations  ThesisGuidanceEvaluation[]
   thesisChangeRequests       ThesisChangeRequest[]
@@ -915,7 +922,6 @@ model Thesis {
   ta04BatchMembers           Ta04BatchMember[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
-  @@index([documentId], map: "thesis_document_id_fkey")
   @@index([finalThesisDocumentId], map: "thesis_final_thesis_document_id_fkey")
   @@index([proposalDocumentId], map: "thesis_proposal_document_id_fkey")
   @@index([finalProposalVersionId], map: "thesis_final_proposal_version_id_fkey")
@@ -925,8 +931,10 @@ model Thesis {
   @@index([ta04AssignmentAcademicYearId], map: "thesis_ta04_assignment_academic_year_id_fkey")
   @@index([activeAcademicYearId], map: "thesis_active_academic_year_id_fkey")
   @@index([studentId], map: "thesis_student_id_fkey")
-  @@index([thesisStatusId], map: "thesis_thesis_status_id_fkey")
   @@index([thesisTopicId], map: "thesis_thesis_topic_id_fkey")
+  @@index([terminatedByUserId], map: "thesis_terminated_by_user_id_fkey")
+  @@index([status])
+  @@index([studentId, status])
   @@map("thesis")
 }
 
@@ -1155,17 +1163,6 @@ model ThesisTopic {
   @@map("thesis_topics")
 }
 
-model ThesisStatus {
-  id     String   @id @default(uuid())
-  /// Nama status bersifat unik: lookup master tidak boleh berisi duplikat
-  /// semantik (audit 2026-08-08 menemukan 9 baris legacy ganda, sudah dibersihkan
-  /// di migration 20260808145500_thesis_status_dedup_unique_name).
-  name   String   @unique
-  thesis Thesis[]
-
-  @@map("thesis_status")
-}
-
 // ThesisProposal model removed — fields merged into Thesis
 
 /// @deprecated Class/task Metopen flow non-scope (Canon §0).
@@ -1176,7 +1173,8 @@ model ThesisMilestoneTemplate {
   name             String
   description      String?        @db.Text
   topicId          String?        @map("topic_id")
-  phase            MilestonePhase @default(metopen)
+  /// Wajib, tanpa default (K18). Template proposal berlaku umum (topicId NULL); template TA per topik.
+  phase            ThesisPhase
   orderIndex       Int            @default(0) @map("order_index")
   isActive         Boolean        @default(true) @map("is_active")
   defaultDueDays   Int?           @map("default_due_days")
@@ -1209,6 +1207,8 @@ model ThesisMilestone {
   completedAt        DateTime?       @map("completed_at")
   submittedAt        DateTime?       @map("submitted_at")
   status             MilestoneStatus @default(not_started)
+  /// Ditetapkan server dari status TA saat milestone dibuat (K6). Tanpa default.
+  phase              ThesisPhase
   progressPercentage Int             @default(0) @map("progress_percentage")
 
   validatedBy     String?   @map("validated_by")
@@ -1216,6 +1216,10 @@ model ThesisMilestone {
   supervisorNotes String?   @map("supervisor_notes") @db.Text
   studentNotes    String?   @map("student_notes") @db.Text
   feedback        String?   @db.Text
+  /// Feedback pembimbing (P1/P2), terpisah dari catatan keputusan `supervisorNotes` (Paket C, C9).
+  /// Feedback baru menggantikan yang lama; riwayat ada di notifikasi dan audit log.
+  feedbackBy      String?   @map("feedback_by")
+  feedbackAt      DateTime? @map("feedback_at")
   assessedBy      String?   @map("assessed_by")
   assessedAt      DateTime? @map("assessed_at")
   totalScore      Int?      @map("total_score")
@@ -1231,6 +1235,7 @@ model ThesisMilestone {
 
   @@index([thesisId, orderIndex])
   @@index([thesisId, status])
+  @@index([thesisId, phase])
   @@index([milestoneTemplateId])
   @@map("thesis_milestones")
 }
@@ -1324,7 +1329,6 @@ model ThesisGuidance {
   approvedDate  DateTime? @map("approved_date")
   duration      Int       @default(60)
 
-  documentId         String? @map("document_id")
   documentUrl        String? @map("document_url")
   studentNotes       String? @map("student_notes") @db.Text
   supervisorFeedback String? @map("supervisor_feedback") @db.Text
@@ -1335,8 +1339,27 @@ model ThesisGuidance {
   summarySubmittedAt DateTime? @map("summary_submitted_at")
   completedAt        DateTime? @map("completed_at")
 
+  /// K19: waktu alternatif yang diusulkan dosen saat menolak (opsional).
+  suggestedDate    DateTime?      @map("suggested_date")
+  /// K19: perubahan jadwal oleh dosen setelah `accepted` (riwayat lengkap di audit log).
+  rescheduleReason String?        @map("reschedule_reason") @db.Text
+  rescheduledAt    DateTime?      @map("rescheduled_at")
+  /// K19: pembatalan oleh mahasiswa, dosen, atau sistem (penghentian TA), dengan alasan.
+  cancelReason     String?        @map("cancel_reason") @db.Text
+  cancelledAt      DateTime?      @map("cancelled_at")
+  cancelledBy      GuidanceActor? @map("cancelled_by")
+
   status GuidanceStatus @default(requested)
-  phase  GuidancePhase  @default(proposal)
+  /// Ditetapkan server dari status TA saat sesi dibuat (K6). Tanpa default.
+  phase  ThesisPhase
+
+  /// Lampiran sesi (K17), opsional. File di uploads/thesis/<thesis_id>/guidance/<guidance_id>/.
+  filePath       String?   @map("file_path") @db.VarChar(255)
+  fileName       String?   @map("file_name") @db.VarChar(255)
+  mimeType       String?   @map("mime_type") @db.VarChar(255)
+  fileSize       Int?      @map("file_size")
+  fileHash       String?   @map("file_hash") @db.VarChar(255)
+  fileUploadedAt DateTime? @map("file_uploaded_at")
 
   studentCalendarEventId    String? @map("student_calendar_event_id")
   supervisorCalendarEventId String? @map("supervisor_calendar_event_id")
@@ -1344,14 +1367,13 @@ model ThesisGuidance {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  document   Document? @relation(fields: [documentId], references: [id])
   supervisor Lecturer? @relation(fields: [supervisorId], references: [id])
   thesis     Thesis    @relation(fields: [thesisId], references: [id], onDelete: Cascade)
 
   milestones ThesisGuidanceMilestone[]
 
   @@index([thesisId])
-  @@index([documentId], map: "thesis_guidances_document_id_fkey")
+  @@index([thesisId, phase])
   @@index([supervisorId], map: "thesis_guidances_supervisor_id_fkey")
   @@map("thesis_guidances")
 }
@@ -2235,12 +2257,10 @@ model Document {
   internshipCompanyReportDocs         Internship[]                     @relation("InternshipCompanyReportDoc")
   internshipSeminarBeritaAcara        InternshipSeminar[]              @relation("InternshipSeminarBeritaAcara")
   internshipLogbookDoc                Internship[]                     @relation("InternshipLogbookDoc")
-  thesis                              Thesis[]
   thesisFinalDocument                 Thesis[]                         @relation("FinalThesisDocument")
   thesisProposalDocument              Thesis[]                         @relation("ProposalDocument")
   thesisProposalVersionDocs           ThesisProposalVersion[]          @relation("ThesisProposalVersionDocument")
   thesisTitleApprovalDocs             Thesis[]                         @relation("TitleApprovalDocument")
-  thesisGuidances                     ThesisGuidance[]
   seminarDocuments                    ThesisSeminarDocument[]          @relation("SeminarDocDocument")
   defenceDocuments                    ThesisDefenceDocument[]          @relation("DefenceDocDocument")
   yudisiums                           Yudisium[]
@@ -3134,7 +3154,7 @@ enum ProposalStatus {
 enum GuidanceStatus {
   requested // Mahasiswa request sesi
   accepted // Dosen accept, sesi terjadwal
-  rescheduled // Dosen reschedule sesi (canon §5.5 — new at HANDOFF P1-10)
+  rescheduled // Lama: tidak ditulis lagi (K19), diperlakukan sama dengan accepted
   rejected // Dosen reject sesi
   summary_pending // Mahasiswa submit summary, menunggu approve dosen
   summary_rejected // Dosen reject summary, mahasiswa revisi (new at HANDOFF P1-10)
@@ -3143,9 +3163,33 @@ enum GuidanceStatus {
   deleted // Soft delete
 }
 
-enum GuidancePhase {
+/// Pihak yang membatalkan sesi bimbingan (K19).
+enum GuidanceActor {
+  student
+  lecturer
+  system
+}
+
+/// Fase sesi bimbingan, milestone dan template (K6/K18). Ditetapkan server, tanpa default.
+enum ThesisPhase {
   proposal
-  thesis
+  research
+}
+
+/// Status siklus hidup TA (K15). Menggantikan tabel thesis_status dan Thesis.isProposal.
+enum ThesisLifecycleStatus {
+  proposal
+  research
+  on_leave
+  completed
+  failed
+}
+
+enum ThesisTerminationReason {
+  supervision_evaluation
+  withdrawn
+  dropped_out
+  other
 }
 
 enum MilestoneStatus {
@@ -3250,11 +3294,6 @@ enum CplScoreStatus {
 enum CplScoreSource {
   SIA
   manual
-}
-
-enum MilestonePhase {
-  metopen
-  thesis
 }
 
 enum AssessmentRole {

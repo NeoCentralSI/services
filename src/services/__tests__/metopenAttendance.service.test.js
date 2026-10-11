@@ -160,7 +160,7 @@ describe("metopenAttendance.service — uploadMetopenAttendance", () => {
         id: "thesis-1",
         studentId: "student-1",
         title: "Sistem Informasi Pengajuan Proposal",
-        isProposal: true,
+        status: "proposal",
         activePromotedAt: null,
         advisorRequests: [],
         researchMethodScores: [
@@ -222,7 +222,7 @@ describe("metopenAttendance.service — uploadMetopenAttendance", () => {
         id: "thesis-promoted",
         studentId: "student-1",
         title: "Sistem Informasi Pengajuan Proposal",
-        isProposal: false,
+        status: "research",
         activePromotedAt: new Date("2026-07-01T00:00:00.000Z"),
         advisorRequests: [{ id: "req-1", status: "active_official" }],
         researchMethodScores: [

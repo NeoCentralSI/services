@@ -194,7 +194,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [
             {
               id: "score-1",
@@ -228,7 +228,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "dropout",
             user: { id: "student-2", fullName: "Inactive Student", identityNumber: "2211523002" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [],
           thesisSupervisors: [],
         },
@@ -245,7 +245,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-3", fullName: "Closed Thesis", identityNumber: "2211523003" },
           },
-          thesisStatus: { name: "Dibatalkan" },
+          status: "failed",
           researchMethodScores: [],
           thesisSupervisors: [],
         },
@@ -262,7 +262,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-4", fullName: "No Final", identityNumber: "2211523004" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [],
           thesisSupervisors: [],
         },
@@ -279,7 +279,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-5", fullName: "Final Already", identityNumber: "2211523005" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [
             {
               id: "score-final",
@@ -308,7 +308,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-6", fullName: "Bu Cosign", identityNumber: "2211523006" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [
             {
               id: "score-cosign",
@@ -342,7 +342,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-7", fullName: "No TA04", identityNumber: "2211523007" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [],
           thesisSupervisors: [],
         },
@@ -418,7 +418,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-a", fullName: "Afriyanti", identityNumber: "2211523999" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [],
           thesisSupervisors: [],
         },
@@ -456,7 +456,7 @@ describe("assessment.service — TA-03B active flow", () => {
               identityNumber: "2211522035",
             },
           },
-          thesisStatus: null,
+          status: "proposal",
         },
       },
     ]);
@@ -495,7 +495,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [
             {
               id: "score-history",
@@ -530,7 +530,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-2", fullName: "Belum Dinilai", identityNumber: "2211523002" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [],
           thesisSupervisors: [],
         },
@@ -546,7 +546,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-3", fullName: "Masih Antrean", identityNumber: "2211523003" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [
             {
               id: "score-partial",
@@ -576,7 +576,7 @@ describe("assessment.service — TA-03B active flow", () => {
             status: "active",
             user: { id: "student-4", fullName: "Auto Zero", identityNumber: "2211523004" },
           },
-          thesisStatus: { name: "Bimbingan" },
+          status: "proposal",
           researchMethodScores: [
             {
               id: "score-auto-zero",
@@ -658,7 +658,7 @@ describe("assessment.service — TA-03B active flow", () => {
             identityNumber: "2211523001",
           },
         },
-        thesisStatus: { name: "Bimbingan" },
+        status: "proposal",
         researchMethodScores: [
           {
             id: "score-1",
@@ -736,7 +736,7 @@ describe("assessment.service — TA-03B active flow", () => {
             identityNumber: "2211522035",
           },
         },
-        thesisStatus: null,
+        status: "proposal",
       },
     ]);
 
@@ -771,7 +771,7 @@ describe("assessment.service — TA-03B active flow", () => {
           status: "active",
           user: { id: "student-1", fullName: "Ilham", identityNumber: "2211523001" },
         },
-        thesisStatus: { name: "Bimbingan" },
+        status: "proposal",
         researchMethodScores: [
           {
             id: "score-1",
@@ -798,7 +798,7 @@ describe("assessment.service — TA-03B active flow", () => {
           status: "active",
           user: { id: "student-2", fullName: "Auto Zero", identityNumber: "2211523002" },
         },
-        thesisStatus: { name: "Bimbingan" },
+        status: "proposal",
         researchMethodScores: [
           {
             id: "score-2",
@@ -823,7 +823,7 @@ describe("assessment.service — TA-03B active flow", () => {
           status: "active",
           user: { id: "student-3", fullName: "Pendahulu", identityNumber: "2211523003" },
         },
-        thesisStatus: { name: "Bimbingan" },
+        status: "proposal",
         researchMethodScores: [
           {
             id: "score-3",
@@ -919,7 +919,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       researchMethodScores: [
         {
           id: "score-1",
@@ -1000,7 +1000,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
     });
     prisma.researchMethodScore.findUnique.mockResolvedValue({
       id: "score-1",
@@ -1036,7 +1036,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",
@@ -1088,7 +1088,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "dropout" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",
@@ -1113,7 +1113,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Dibatalkan" },
+      status: "failed",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",
@@ -1138,7 +1138,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: null,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",
@@ -1164,7 +1164,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       researchMethodScores: [],
     });
     prisma.researchMethodScore.create.mockResolvedValue({
@@ -1199,7 +1199,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: null,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
     });
 
     await expect(
@@ -1218,7 +1218,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",
@@ -1248,7 +1248,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
     });
     prisma.metopenAttendanceRecord.findFirst.mockResolvedValueOnce({
       id: "attendance-record-low",
@@ -1316,7 +1316,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       researchMethodScores: [
         {
           id: "score-1",
@@ -1391,7 +1391,7 @@ describe("assessment.service — TA-03B active flow", () => {
       academicYearId: "ay-active",
       finalProposalVersionId: null,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       researchMethodScores: [
         {
           id: "score-1",
@@ -1414,7 +1414,7 @@ describe("assessment.service — TA-03B active flow", () => {
       academicYearId: "ay-active",
       finalProposalVersionId: "proposal-version-1",
       student: { status: "dropout" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
     });
 
     await expect(
@@ -1452,7 +1452,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [{ id: "participant-1" }],
     });
     prisma.researchMethodScore.findUnique.mockResolvedValue(scoreRecord);
@@ -1495,7 +1495,7 @@ describe("assessment.service — TA-03B active flow", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       researchMethodScores: [
         {
           lecturerId: "lecturer-owner",
@@ -1538,7 +1538,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         { lecturerId: "supervisor-1", status: "active", role: { name: "Pembimbing 1" } },
       ],
@@ -1578,7 +1578,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         { id: "p2-supervisors" }, // current user = P2 active
       ],
@@ -1619,7 +1619,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       academicYearId: "ay-active",
       ta04AssignmentIssuedAt: null,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         { id: "p2-supervisors" },
       ],
@@ -1638,7 +1638,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [], // bukan P2
     });
 
@@ -1654,7 +1654,7 @@ describe("assessment.service — BR-20 P1 master + P2 co-sign", () => {
       academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [{ id: "p2-supervisors" }],
     });
     prisma.researchMethodScore.findUnique.mockResolvedValue(null);
@@ -1687,7 +1687,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         { lecturerId: "supervisor-1", status: "active", role: { name: "Pembimbing 1" } },
       ],
@@ -1717,7 +1717,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         { lecturerId: "supervisor-1", status: "active", role: { name: "Pembimbing 1" } },
       ],
@@ -1748,7 +1748,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
     });
     prisma.researchMethodScore.findUnique.mockResolvedValue({
       id: "score-1",
@@ -1776,7 +1776,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
     });
     prisma.researchMethodScore.findUnique.mockResolvedValue({
       id: "score-1",
@@ -1804,7 +1804,7 @@ describe("assessment.service — BR-21 immutable post-submit", () => {
       academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [{ id: "p2-supervisors" }],
     });
     prisma.researchMethodScore.findUnique.mockResolvedValue({
@@ -1847,7 +1847,7 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
       academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [{ id: "p2-supervisors" }],
     });
     // Override attendance record menjadi <75% → gate auto-zero diterapkan.
@@ -1920,7 +1920,7 @@ describe("assessment.service — BR-28 attendance re-check on co-sign & publish"
       academicYearId: "ay-active",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
     });
     const lowAttendance = {
       id: "attendance-record-low",
@@ -2033,7 +2033,7 @@ describe("BR-29 scoring period gates", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",
@@ -2058,7 +2058,7 @@ describe("BR-29 scoring period gates", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",
@@ -2083,7 +2083,7 @@ describe("BR-29 scoring period gates", () => {
       finalProposalVersionId: "proposal-version-1",
       ta04AssignmentIssuedAt: TA04_ISSUED_AT,
       student: { status: "active" },
-      thesisStatus: { name: "Bimbingan" },
+      status: "proposal",
       thesisSupervisors: [
         {
           lecturerId: "supervisor-1",

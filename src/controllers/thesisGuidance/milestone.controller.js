@@ -1,4 +1,6 @@
+import { ROLES, normalize } from "../../constants/roles.js";
 import * as milestoneService from "../../services/thesisGuidance/milestone.service.js";
+import { getMilestoneStatusLabel } from "../../constants/thesisLabels.js";
 
 // ============================================
 // Template Controllers
@@ -8,10 +10,26 @@ import * as milestoneService from "../../services/thesisGuidance/milestone.servi
  * GET /milestone-templates
  * Get all milestone templates
  */
+/**
+ * `includeInactive=true` is for template management (Sekdep) so deactivated templates
+ * stay visible and can be re-activated. Other callers (student template selector)
+ * keep the active-only list.
+ */
+function wantsInactiveTemplates(req) {
+  return req.query.includeInactive === "true" && canManageTemplates(req);
+}
+
+function canManageTemplates(req) {
+  const roles = Array.isArray(req.userRoles) ? req.userRoles : [];
+  return roles.some((role) => normalize(role) === normalize(ROLES.SEKRETARIS_DEPARTEMEN));
+}
+
 export async function getTemplates(req, res, next) {
   try {
     const { topicId } = req.query;
-    const templates = await milestoneService.getTemplates(topicId);
+    const templates = await milestoneService.getTemplates(topicId, {
+      includeInactive: wantsInactiveTemplates(req),
+    });
     res.json({
       success: true,
       data: templates,
@@ -43,7 +61,9 @@ export async function getTopics(req, res, next) {
  */
 export async function getTemplateCategories(req, res, next) {
   try {
-    const topics = await milestoneService.getTemplateTopics();
+    const topics = await milestoneService.getTemplateTopics({
+      includeInactive: wantsInactiveTemplates(req),
+    });
     res.json({
       success: true,
       data: topics,
@@ -212,7 +232,7 @@ export async function updateStatus(req, res, next) {
     );
     res.json({
       success: true,
-      message: `Status milestone berhasil diubah menjadi ${status}`,
+      message: `Status milestone berhasil diubah menjadi "${getMilestoneStatusLabel(status)}"`,
       data: milestone,
     });
   } catch (err) {

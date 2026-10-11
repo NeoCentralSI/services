@@ -218,12 +218,11 @@ describe("E2E Test: Metopel (Metodologi Penelitian) Complete Flow", () => {
         where: { studentId: testStudent.id },
         include: {
           thesisTopic: true,
-          thesisStatus: true,
         },
       });
 
       expect(thesis).toBeDefined();
-      expect(thesis.isProposal).toBe(true);
+      expect(thesis.status).toBe("proposal");
       createdThesisId = thesis.id;
     });
 
@@ -236,6 +235,7 @@ describe("E2E Test: Metopel (Metodologi Penelitian) Complete Flow", () => {
           studentNotes: "Membahas BAB 1 dan perumusan masalah",
           sessionSummary: "Revisi rumusan masalah dengan metriks SMART",
           status: "completed",
+          phase: "proposal",
         },
       });
 

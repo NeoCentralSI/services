@@ -4,6 +4,7 @@ import { mkdir, writeFile, unlink } from "fs/promises";
 import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
 import prisma from "../../config/prisma.js";
+import { TA_PHASE } from "../../constants/thesisStatus.js";
 import { ENV } from "../../config/env.js";
 import { getActiveAcademicYear, formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
 
@@ -91,7 +92,8 @@ async function safeUnlink(relativePath) {
 async function validateRegistrationChecklist(thesis) {
   const [student, completedGuidances, seminarAttendance, supervisors] = await Promise.all([
     prisma.student.findUnique({ where: { id: thesis.studentId } }),
-    prisma.thesisGuidance.count({ where: { thesisId: thesis.id, status: "completed" } }),
+    // K7: only completed TA-phase sessions count towards the seminar requirement.
+    prisma.thesisGuidance.count({ where: { thesisId: thesis.id, status: "completed", ...TA_PHASE } }),
     coreRepo.countSeminarAttendance(thesis.studentId),
     prisma.thesisSupervisors.findMany({ where: { thesisId: thesis.id } }),
   ]);

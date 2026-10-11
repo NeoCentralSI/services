@@ -108,12 +108,6 @@ async function ensureRole(name) {
   });
 }
 
-async function ensureThesisStatus(name) {
-  const existing = await prisma.thesisStatus.findFirst({ where: { name } });
-  if (existing) return existing;
-  return prisma.thesisStatus.create({ data: { name } });
-}
-
 async function ensureDocumentType(name) {
   const existing = await prisma.documentType.findFirst({ where: { name } });
   if (existing) return existing;
@@ -171,7 +165,6 @@ async function createTa03AThesis({
   student,
   academicYearId,
   topicId,
-  thesisStatusId,
   p1Id,
   p2Id = null,
   title,
@@ -181,9 +174,8 @@ async function createTa03AThesis({
       studentId: student.id,
       academicYearId,
       thesisTopicId: topicId,
-      thesisStatusId,
       title,
-      isProposal: true,
+      status: THESIS_STATUS.PROPOSAL,
       proposalStatus: null,
       ta04AssignmentIssuedAt: new Date(),
       ta04AssignmentIssuedByUserId: p1Id,
@@ -278,12 +270,10 @@ async function ensureTa03AQueues(academicYearId, topicId) {
   await cleanupTa03AFixtures(students.map((u) => u.id));
   await ensureLatestAttendanceCoversTa03(students);
 
-  const statusBimbingan = await ensureThesisStatus(THESIS_STATUS.BIMBINGAN);
   const p1Pending = await createTa03AThesis({
     student: students[0],
     academicYearId,
     topicId,
-    thesisStatusId: statusBimbingan.id,
     p1Id: p1.id,
     title: '[UAT-PREP] TA-03A P1 pending input rubrik',
   });
@@ -293,7 +283,6 @@ async function ensureTa03AQueues(academicYearId, topicId) {
     student: students[1],
     academicYearId,
     topicId,
-    thesisStatusId: statusBimbingan.id,
     p1Id: p1.id,
     p2Id: p2.id,
     title: '[UAT-PREP] TA-03A P2 pending co-sign',
@@ -440,7 +429,7 @@ async function resetBookingForLifecycleFixture(nim, academicYearId, { takingThes
     data: {
       academicYearId,
       title: normalizedTitle,
-      isProposal: true,
+      status: THESIS_STATUS.PROPOSAL,
       proposalStatus: null,
       activeAcademicYearId: null,
       activePromotedAt: null,
@@ -559,7 +548,6 @@ async function ensureIndependentMutationFixtures(academicYear, topic) {
     data: { createdAt: new Date(Date.now() - (WITHDRAW_LOCK_HOURS + 8) * 60 * 60 * 1000) },
   });
 
-  const statusBimbingan = await ensureThesisStatus(THESIS_STATUS.BIMBINGAN);
   const roleP1 = await ensureRole(ROLES.PEMBIMBING_1);
   const batchStudent = userByNim.get('2388000017');
   const batchThesis = await prisma.thesis.create({
@@ -567,9 +555,8 @@ async function ensureIndependentMutationFixtures(academicYear, topic) {
       studentId: batchStudent.id,
       academicYearId: academicYear.id,
       thesisTopicId: topic.id,
-      thesisStatusId: statusBimbingan.id,
       title: '[UAT-PREP] Booking baru belum masuk batch TA-04',
-      isProposal: true,
+      status: THESIS_STATUS.PROPOSAL,
     },
   });
   await prisma.thesisSupervisors.create({
@@ -593,7 +580,6 @@ async function ensureIndependentMutationFixtures(academicYear, topic) {
     student: userByNim.get('2388000018'),
     academicYearId: academicYear.id,
     topicId: topic.id,
-    thesisStatusId: statusBimbingan.id,
     p1Id: pembimbing.id,
     title: '[UAT-PREP] Nilai final immutable',
   });

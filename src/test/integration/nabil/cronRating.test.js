@@ -6,12 +6,11 @@
  *   - ONGOING: last activity < 60 days
  *   - SLOW:    last activity 60-120 days (2-4 months)
  *   - AT_RISK: last activity > 120 days (4+ months)
- *   - FAILED:  past deadline (or > 1 year from createdAt)
  *
- * Also verifies:
- *   - FAILED thesis triggers: status → "Gagal", pending guidances cancelled,
- *     notifications sent to student & kadep
- *   - Terminal statuses (Selesai, Gagal, Lulus, etc.) are skipped
+ * Also verifies (Paket A, K15):
+ *   - a thesis past its deadline is NOT failed: status stays research, rating is
+ *     only ONGOING/SLOW/AT_RISK and open sessions are not cancelled
+ *   - only theses with status research are rated
  *
  * IMPORTANT: This hits the REAL database. Make sure .env points to TEST database.
  *
@@ -33,20 +32,14 @@ function daysAgo(n) {
 
 // ── Test State ──
 let testTheses = []; // Array of { thesis, originalRating, originalCreatedAt, originalUpdatedAt, originalDeadlineDate, originalStatusId }
-const LABELS = ["ONGOING_THESIS", "SLOW_THESIS", "AT_RISK_THESIS", "FAILED_THESIS"];
+const LABELS = ["ONGOING_THESIS", "SLOW_THESIS", "AT_RISK_THESIS", "PAST_DEADLINE_THESIS"];
 
 describe("IT-05: CRON Thesis Status Rating", () => {
   const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
   beforeAll(async () => {
-    // Find 4 active theses in "Bimbingan" to manipulate dates
-    const bimbinganStatus = await prisma.thesisStatus.findFirst({ where: { name: "Bimbingan" } });
-    if (!bimbinganStatus) {
-      console.warn("[IT-05] No 'Bimbingan' status found. Skipping.");
-      return;
-    }
-
+    // Find 4 running TA theses (status research) to manipulate dates
     const theses = await prisma.thesis.findMany({
-      where: { thesisStatusId: bimbinganStatus.id },
+      where: { status: "research" },
       take: 4,
       include: {
         student: { include: { user: { select: { id: true, fullName: true, identityNumber: true } } } },
@@ -70,7 +63,7 @@ describe("IT-05: CRON Thesis Status Rating", () => {
         originalCreatedAt: theses[i].createdAt,
         originalUpdatedAt: theses[i].updatedAt,
         originalDeadlineDate: theses[i].deadlineDate,
-        originalStatusId: theses[i].thesisStatusId,
+        originalStatusId: theses[i].status,
       });
     }
 
@@ -146,7 +139,7 @@ describe("IT-05: CRON Thesis Status Rating", () => {
       console.log(`[IT-05] Thesis 2 (${t.id}): set for AT_RISK (last activity 130 days ago, ${t.thesisGuidances.length} guidances updated)`);
     }
 
-    // Thesis 3: FAILED — past deadline
+    // Thesis 3: past deadline — K15: never failed automatically, rating only
     if (testTheses[3]) {
       const t = testTheses[3].thesis;
       await prisma.thesis.update({
@@ -158,7 +151,7 @@ describe("IT-05: CRON Thesis Status Rating", () => {
         },
       });
       await setAllActivityDates(t.id, t.thesisGuidances, daysAgo(130));
-      console.log(`[IT-05] Thesis 3 (${t.id}): set for FAILED (deadline 5 days ago, ${t.thesisGuidances.length} guidances updated)`);
+      console.log(`[IT-05] Thesis 3 (${t.id}): past deadline (deadline 5 days ago, ${t.thesisGuidances.length} guidances updated)`);
     }
   });
 
@@ -175,7 +168,7 @@ describe("IT-05: CRON Thesis Status Rating", () => {
               rating: originalRating,
               createdAt: originalCreatedAt,
               deadlineDate: originalDeadlineDate,
-              thesisStatusId: originalStatusId,
+              status: originalStatusId,
             },
           });
 
@@ -189,17 +182,6 @@ describe("IT-05: CRON Thesis Status Rating", () => {
               },
             });
           }
-        }
-
-        // Restore any cancelled guidances for thesis 3 (FAILED cleanup)
-        if (testTheses[3]) {
-          await prisma.thesisGuidance.updateMany({
-            where: {
-              thesisId: testTheses[3].thesis.id,
-              status: "cancelled",
-            },
-            data: { status: "requested" },
-          });
         }
 
         // Clean up test notifications
@@ -218,7 +200,7 @@ describe("IT-05: CRON Thesis Status Rating", () => {
     await prisma.$disconnect();
   });
 
-  it("should correctly classify ONGOING, SLOW, AT_RISK, and FAILED ratings", async () => {
+  it("should correctly classify ONGOING, SLOW, AT_RISK and never fail a thesis past its deadline", async () => {
     if (testTheses.length < 4) {
       console.warn(`[IT-05] Need 4 theses, only have ${testTheses.length}. Running partial test.`);
     }
@@ -243,7 +225,7 @@ describe("IT-05: CRON Thesis Status Rating", () => {
     if (testTheses[0]) {
       const t = await prisma.thesis.findUnique({
         where: { id: testTheses[0].thesis.id },
-        select: { rating: true, thesisStatus: { select: { name: true } } },
+        select: { rating: true, status: true },
       });
       expect(t.rating).toBe("ONGOING");
       console.log(`[VERIFY] Thesis 0 (${testTheses[0].label}): rating=${t.rating} ✅`);
@@ -253,7 +235,7 @@ describe("IT-05: CRON Thesis Status Rating", () => {
     if (testTheses[1]) {
       const t = await prisma.thesis.findUnique({
         where: { id: testTheses[1].thesis.id },
-        select: { rating: true, thesisStatus: { select: { name: true } } },
+        select: { rating: true, status: true },
       });
       expect(t.rating).toBe("SLOW");
       console.log(`[VERIFY] Thesis 1 (${testTheses[1].label}): rating=${t.rating} ✅`);
@@ -263,63 +245,40 @@ describe("IT-05: CRON Thesis Status Rating", () => {
     if (testTheses[2]) {
       const t = await prisma.thesis.findUnique({
         where: { id: testTheses[2].thesis.id },
-        select: { rating: true, thesisStatus: { select: { name: true } } },
+        select: { rating: true, status: true },
       });
       expect(t.rating).toBe("AT_RISK");
       console.log(`[VERIFY] Thesis 2 (${testTheses[2].label}): rating=${t.rating} ✅`);
     }
 
-    // Check Thesis 3: FAILED + "Gagal" status + cleanup
+    // Check Thesis 3: past deadline is NOT failed automatically (K15)
     if (testTheses[3]) {
+      const openBefore = await prisma.thesisGuidance.count({
+        where: { thesisId: testTheses[3].thesis.id, status: { in: ["requested", "accepted"] } },
+      });
       const t = await prisma.thesis.findUnique({
         where: { id: testTheses[3].thesis.id },
-        include: {
-          thesisStatus: { select: { name: true } },
-          student: { include: { user: { select: { id: true } } } },
-        },
+        select: { rating: true, status: true },
       });
-      expect(t.rating).toBe("FAILED");
-      expect(t.thesisStatus.name).toBe("Gagal");
-      console.log(`[VERIFY] Thesis 3 (${testTheses[3].label}): rating=${t.rating}, status=${t.thesisStatus.name} ✅`);
+      expect(t.status).toBe("research");
+      expect(t.rating).toBe("AT_RISK");
+      console.log(`[VERIFY] Thesis 3 (${testTheses[3].label}): rating=${t.rating}, status=${t.status} ✅`);
 
-      // Verify pending guidances were cancelled
-      const pendingGuidances = await prisma.thesisGuidance.count({
-        where: {
-          thesisId: testTheses[3].thesis.id,
-          status: { in: ["requested", "accepted"] },
-        },
+      // Sessions are not cancelled by the rating job anymore
+      const openAfter = await prisma.thesisGuidance.count({
+        where: { thesisId: testTheses[3].thesis.id, status: { in: ["requested", "accepted"] } },
       });
-      expect(pendingGuidances).toBe(0);
-      console.log(`[VERIFY] Thesis 3: pending guidances after FAILED = ${pendingGuidances} ✅`);
-
-      // Verify student notification was created
-      const studentNotif = await prisma.notification.findFirst({
-        where: {
-          userId: t.student.user.id,
-          title: { contains: "Tugas Akhir Gagal" },
-          createdAt: { gte: new Date(Date.now() - 60000) },
-        },
-      });
-      console.log(`[VERIFY] Thesis 3: student notification = ${!!studentNotif} ${studentNotif ? "✅" : "⚠️"}`);
-
-      // Verify kadep notification was created
-      const kadepNotif = await prisma.notification.findFirst({
-        where: {
-          title: { contains: "Tugas Akhir GAGAL" },
-          createdAt: { gte: new Date(Date.now() - 60000) },
-        },
-      });
-      console.log(`[VERIFY] Thesis 3: kadep notification = ${!!kadepNotif} ${kadepNotif ? "✅" : "⚠️"}`);
+      expect(openAfter).toBe(openBefore);
     }
 
     // Verify summary counts are reasonable
-    const totalUpdated = summary.ONGOING + summary.SLOW + summary.AT_RISK + summary.FAILED;
+    expect(summary).not.toHaveProperty("FAILED");
+    const totalUpdated = summary.ONGOING + summary.SLOW + summary.AT_RISK;
     expect(totalUpdated).toBeGreaterThanOrEqual(0);
     console.log(`\n[SUMMARY] Total ratings updated: ${totalUpdated}`);
     console.log(`  ONGOING: ${summary.ONGOING}`);
     console.log(`  SLOW: ${summary.SLOW}`);
     console.log(`  AT_RISK: ${summary.AT_RISK}`);
-    console.log(`  FAILED: ${summary.FAILED}`);
 
     console.log("\n[IT-05] ✅ CRON RATING CLASSIFICATION VERIFIED SUCCESSFULLY");
   }, 60000); // 60s timeout

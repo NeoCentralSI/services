@@ -139,7 +139,7 @@ function createStudentContext({
         proposalStatus,
         ta04AssignmentIssuedAt,
         advisorRequests,
-        thesisStatus: { id: "status-metopen", name: "Metopel" },
+        status: "proposal",
         thesisSupervisors: supervisors,
         thesisMilestones: gateStatuses.map((status, index) => ({
           id: `gate-${index + 1}`,

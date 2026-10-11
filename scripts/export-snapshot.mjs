@@ -13,7 +13,6 @@ async function exportFullDatabaseSnapshot() {
   const tables = [
     { name: "AcademicYear", fetch: () => prisma.academicYear.findMany() },
     { name: "ThesisTopic", fetch: () => prisma.thesisTopic.findMany() },
-    { name: "ThesisStatus", fetch: () => prisma.thesisStatus.findMany() },
     { name: "UserRole", fetch: () => prisma.userRole.findMany() },
     { name: "ScienceGroup", fetch: () => prisma.scienceGroup.findMany() },
     { name: "Role", fetch: () => prisma.role.findMany() },
