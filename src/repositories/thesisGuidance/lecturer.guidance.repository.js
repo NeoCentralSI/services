@@ -19,6 +19,15 @@ const pickProgress = ({ activityLevel, lastActivityAt, daysSinceActivity, superv
 /** TA fase TA yang sedang berjalan, termasuk yang ditangguhkan (BSS). */
 const RUNNING_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE];
 
+/**
+ * A thesis sent back to `proposal` by an approved guidance evaluation (E5). Its supervisors
+ * keep seeing it among their students, with the reason guidance is locked.
+ */
+const REPEATING_PROPOSAL_THESIS = Object.freeze({
+	status: THESIS_STATUS.PROPOSAL,
+	thesisGuidanceEvaluations: { some: { status: "approved", recommendation: "revise_proposal" } },
+});
+
 // Helper to resolve lecturer by userId (JWT sub)
 // Schema baru: Lecturer.id adalah foreign key ke User.id
 export async function getLecturerByUserId(userId) {
@@ -41,7 +50,10 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 		// Revival adaptation (A1): terminated supervisor rows no longer grant access.
 		// Released rows stay visible so finished/failed students remain in the history filters.
 		status: { not: "terminated" },
-		thesis: { status: { in: statuses } }
+		// A thesis that repeats its proposal is still a running one for its supervisors.
+		thesis: filter === "active" || filter === "all"
+			? { OR: [{ status: { in: statuses } }, REPEATING_PROPOSAL_THESIS] }
+			: { status: { in: statuses } }
 	};
 	if (Array.isArray(roles) && roles.length) {
 		// Filter by role.name from UserRole
@@ -444,7 +456,7 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 		where: {
 			thesisId,
 			lecturerId,
-			thesis: { status: { in: POST_PROPOSAL_THESIS_STATUSES } }
+			thesis: { OR: [{ status: { in: POST_PROPOSAL_THESIS_STATUSES } }, REPEATING_PROPOSAL_THESIS] }
 		},
 		include: { role: { select: { id: true, name: true } } },
 	});
