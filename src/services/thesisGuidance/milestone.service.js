@@ -17,6 +17,8 @@ function assertMilestoneStatus(milestone, allowed, actionText) {
   );
 }
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
+import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
+import { REPEAT_PROPOSAL_LOCK_REASON } from "../../constants/thesis-guidance-evaluation.js";
 
 // ============================================
 // Error Helpers
@@ -94,9 +96,13 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
  * Milestone writes (create, update, progress, review, validation) are only allowed for a
  * thesis in the TA phase. Proposal and BSS theses get a clear 403.
  */
-function ensureThesisWritable(thesis) {
+async function ensureThesisWritable(thesis) {
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
   if (thesis?.status === THESIS_STATUS.PROPOSAL) {
+    // A thesis sent back to the proposal by a guidance evaluation says so (E5).
+    if (await isRepeatingProposal(thesis.id)) {
+      throw forbidden(`${REPEAT_PROPOSAL_LOCK_REASON} Milestone terkunci sampai tugas akhir kembali berstatus "${THESIS_STATUS_LABELS.research}".`);
+    }
     throw forbidden("Tugas akhir masih dalam fase proposal. Milestone tugas akhir baru dapat dikelola setelah masuk fase Tugas Akhir.");
   }
   if (thesis?.status === THESIS_STATUS.ON_LEAVE) {
@@ -315,7 +321,7 @@ export async function getMilestoneDetail(milestoneId, userId) {
  */
 export async function createMilestone(thesisId, userId, data) {
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // Get next order index
   const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId);
@@ -355,7 +361,7 @@ export async function createMilestoneBySupervisor(thesisId, userId, data) {
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat membuat milestone untuk mahasiswa");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // Get next order index
   const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId);
@@ -410,7 +416,7 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   // compatibility.
   void topicId;
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
   const phase = phaseForThesisStatus(thesis.status);
 
   if (!thesis.thesisTopicId) {
@@ -485,7 +491,7 @@ export async function updateMilestone(milestoneId, userId, data) {
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah milestone");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // Prevent updating completed/validated milestones
   if (milestone.validatedBy && data.status !== "in_progress") {
@@ -513,7 +519,7 @@ export async function deleteMilestone(milestoneId, userId) {
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat menghapus milestone");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // K20: a student may delete only a milestone that is not completed.
   if (milestone.status === "completed" || milestone.validatedBy) {
@@ -538,7 +544,7 @@ export async function updateMilestoneStatus(milestoneId, userId, newStatus, note
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah status milestone");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // Validate status transition
   const currentStatus = milestone.status;
@@ -578,7 +584,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah progress milestone");
   }
-  ensureThesisWritable(milestoneThesis);
+  await ensureThesisWritable(milestoneThesis);
 
   if (milestone.status === "completed") {
     throw createError("Tidak dapat mengubah progress milestone yang sudah selesai");
@@ -658,7 +664,7 @@ export async function submitForReview(milestoneId, userId, studentNotes = null) 
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengajukan review milestone");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // K20: review is requested for work in progress or a revised milestone.
   assertMilestoneStatus(milestone, ["in_progress", "revision_needed"], "diajukan untuk review");
@@ -721,7 +727,7 @@ export async function validateMilestone(milestoneId, userId, supervisorNotes = n
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat memvalidasi milestone");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // Check if current user is Pembimbing 1 for this thesis
   const userRole = thesis.thesisSupervisors.find(
@@ -782,7 +788,7 @@ export async function requestRevision(milestoneId, userId, revisionNotes) {
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat meminta revisi");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // Check if current user is Pembimbing 1 for this thesis
   const userRole = thesis.thesisSupervisors.find(
@@ -844,7 +850,7 @@ export async function addSupervisorFeedback(milestoneId, userId, feedback) {
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat memberikan feedback");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // K20: Pembimbing 1 and 2 may both give feedback; it never changes the status.
   const text = String(feedback ?? "").trim();
@@ -920,7 +926,7 @@ export async function reorderMilestones(thesisId, userId, milestoneOrders) {
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengatur ulang urutan milestone");
   }
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // Validate that all milestone IDs belong to this thesis
   const existingMilestones = await milestoneRepo.findByThesisId(thesisId);

@@ -79,7 +79,6 @@ import {
   getStudentDetailService,
   getPendingApprovalService,
   approveThesisProposalService,
-  failStudentThesisService,
   sendWarningNotificationService,
   getGuidanceDetailService,
 } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
@@ -469,25 +468,6 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         statusCode: 403,
         message: expect.stringContaining("Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing"),
       });
-    });
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// Fail Student Thesis
-// ══════════════════════════════════════════════════════════════
-describe("Fail Student Thesis", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  describe("failStudentThesisService", () => {
-    // Paket A (K15): the endpoint read ThesisStatus rows that never existed; stopping a
-    // thesis is an Admin action (status gagal + reason). The endpoint is closed (410).
-    it("is closed (410) and writes nothing", async () => {
-      await expect(
-        failStudentThesisService("user-dosen-1", "stu-1", { reason: "Tidak aktif" })
-      ).rejects.toMatchObject({ statusCode: 410 });
-      expect(mockRepo.getStudentActiveThesis).not.toHaveBeenCalled();
-      expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
     });
   });
 });

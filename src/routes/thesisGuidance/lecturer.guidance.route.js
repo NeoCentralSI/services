@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { validate } from "../../middlewares/validation.middleware.js";
-import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, cancelGuidanceSchema, lecturerRescheduleGuidanceSchema, rejectSummarySchema } from "../../validators/lecturer.guidance.validator.js";
+import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, cancelGuidanceSchema, lecturerRescheduleGuidanceSchema, rejectSummarySchema } from "../../validators/lecturer.guidance.validator.js";
 import { ROLES } from "../../constants/roles.js";
 import {
 	myStudents,
@@ -18,7 +18,6 @@ import {
 	finalApproval,
 	guidanceHistory,
 	supervisorEligibility,
-	failStudentThesis,
 	pendingApproval,
 	approveSummary,
 	rejectSummary,
@@ -54,7 +53,9 @@ router.get("/progress", listProgress);
 router.get("/progress/:studentId", progressDetail);
 router.patch("/progress/:studentId/approve", validate(approveComponentsSchema), approveProgressComponents);
 router.patch("/progress/:studentId/final-approval", finalApproval);
-router.patch("/progress/:studentId/fail", validate(failThesisSchema), failStudentThesis);
+// A supervisor cannot stop a thesis directly. Termination by a supervisor goes through
+// Evaluasi Bimbingan (/thesis-guidance-evaluations); administrative termination stays in
+// the thesis data master.
 
 router.patch("/feedback/:guidanceId", validate(feedbackSchema), postFeedback);
 

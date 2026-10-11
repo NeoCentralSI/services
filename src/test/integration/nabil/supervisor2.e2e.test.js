@@ -31,7 +31,7 @@ import {
   getSupervisor2KadepQueueService,
   decideSupervisor2ByKadepService,
 } from "../../../services/thesisGuidance/supervisor2.service.js";
-import { findUsersByActiveRole } from "../../../repositories/thesisGuidanceEvaluation.repository.js";
+import { findUsersByActiveRole } from "../../../repositories/thesis-guidance-evaluation.repository.js";
 import { getMyStudentsService } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
 import {
   getScoresByThesisForSupervisor,

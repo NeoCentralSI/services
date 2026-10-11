@@ -81,7 +81,7 @@ const {
 
 vi.mock("../../../repositories/thesisGuidance/supervisor2.repository.js", () => mockSupervisor2Repo);
 vi.mock("../../../repositories/thesisGuidance/student.guidance.repository.js", () => mockStudentRepo);
-vi.mock("../../../repositories/thesisGuidanceEvaluation.repository.js", () => mockEvalRepo);
+vi.mock("../../../repositories/thesis-guidance-evaluation.repository.js", () => mockEvalRepo);
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../services/notification.service.js", () => mockNotif);
 vi.mock("../../../services/push.service.js", () => mockPush);

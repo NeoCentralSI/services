@@ -1123,22 +1123,37 @@ model ThesisSupervisors {
   @@map("thesis_supervisors")
 }
 
+/// Evaluasi Bimbingan (formulir TA-17). Diisi Pembimbing 1 saat masa bimbingan mencapai
+/// 6 bulan atau 1 tahun; rekomendasi selain "lanjut bimbingan" diputuskan Ketua Departemen.
 model ThesisGuidanceEvaluation {
-  id                 String                           @id @default(uuid())
-  thesisId           String                           @map("thesis_id")
-  thesisSupervisorId String                           @map("thesis_supervisor_id")
-  evaluationType     GuidanceEvaluationType           @map("evaluation_type")
-  recommendation     GuidanceEvaluationRecommendation
-  notes              String?                          @db.Text
-  status             GuidanceEvaluationStatus         @default(pending)
-  kadepApprovedBy    String?                          @map("kadep_approved_by")
-  kadepApprovedAt    DateTime?                        @map("kadep_approved_at")
-  kadepNotes         String?                          @map("kadep_notes") @db.Text
-  createdAt          DateTime                         @default(now()) @map("created_at")
-  updatedAt          DateTime                         @updatedAt @map("updated_at")
-  thesis             Thesis                           @relation(fields: [thesisId], references: [id], onDelete: Cascade)
-  thesisSupervisor   ThesisSupervisors                @relation(fields: [thesisSupervisorId], references: [id], onDelete: Cascade)
-  kadepApprover      User?                            @relation("GuidanceEvalKadepApprover", fields: [kadepApprovedBy], references: [id], onDelete: SetNull)
+  id                   String                           @id @default(uuid())
+  thesisId             String                           @map("thesis_id")
+  thesisSupervisorId   String                           @map("thesis_supervisor_id")
+  evaluationType       GuidanceEvaluationType           @map("evaluation_type")
+  /// Tindak lanjut evaluasi 6 bulan, diisi setelah perpanjangan 1 bulan berakhir.
+  isFollowUp           Boolean                          @default(false) @map("is_follow_up")
+  /// Hasil observasi pembimbing (boleh lebih dari satu).
+  observedNoGuidance   Boolean                          @default(false) @map("observed_no_guidance")
+  observedNoProgress   Boolean                          @default(false) @map("observed_no_progress")
+  observedNoResponse   Boolean                          @default(false) @map("observed_no_response")
+  observedNoRevision   Boolean                          @default(false) @map("observed_no_revision")
+  notes                String?                          @db.Text
+  /// Dasar evaluasi, disalin saat formulir diisi.
+  guidanceCount        Int                              @default(0) @map("guidance_count")
+  supervisionStartedAt DateTime?                        @map("supervision_started_at")
+  elapsedDays          Int?                             @map("elapsed_days")
+  recommendation       GuidanceEvaluationRecommendation
+  status               GuidanceEvaluationStatus         @default(pending)
+  kadepApprovedBy      String?                          @map("kadep_approved_by")
+  kadepApprovedAt      DateTime?                        @map("kadep_approved_at")
+  kadepNotes           String?                          @map("kadep_notes") @db.Text
+  /// Batas perpanjangan: tanggal keputusan + 1 bulan (rekomendasi `extend_1_month`).
+  extensionUntil       DateTime?                        @map("extension_until")
+  createdAt            DateTime                         @default(now()) @map("created_at")
+  updatedAt            DateTime                         @updatedAt @map("updated_at")
+  thesis               Thesis                           @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  thesisSupervisor     ThesisSupervisors                @relation(fields: [thesisSupervisorId], references: [id], onDelete: Cascade)
+  kadepApprover        User?                            @relation("GuidanceEvalKadepApprover", fields: [kadepApprovedBy], references: [id], onDelete: SetNull)
 
   @@index([thesisId])
   @@index([thesisSupervisorId])
@@ -3270,6 +3285,7 @@ enum GuidanceEvaluationStatus {
 }
 
 enum GuidanceEvaluationRecommendation {
+  continue
   extend_1_month
   revise_proposal
   terminate_supervision

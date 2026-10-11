@@ -71,6 +71,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 					},
 					// Read by the derived activity level (helpers/thesis-progress.helper.js)
 					thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
+					thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
 				},
 			},
 		},

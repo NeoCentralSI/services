@@ -105,6 +105,35 @@ export const SUPERVISOR_POSITION_LABELS = Object.freeze({
   pembimbing_2: "Pembimbing 2",
 });
 
+/** `GuidanceEvaluationType` (Evaluasi Bimbingan, formulir TA-17). */
+export const GUIDANCE_EVALUATION_TYPE_LABELS = Object.freeze({
+  six_month: "Evaluasi 6 Bulan",
+  one_year: "Evaluasi 1 Tahun",
+});
+
+/** `GuidanceEvaluationRecommendation`: the supervisor's decision. */
+export const GUIDANCE_EVALUATION_RECOMMENDATION_LABELS = Object.freeze({
+  continue: "Lanjut Bimbingan",
+  extend_1_month: "Peringatan dan Perpanjangan 1 Bulan",
+  revise_proposal: "Mengulang Proposal",
+  terminate_supervision: "Dihentikan",
+});
+
+/** `GuidanceEvaluationStatus` */
+export const GUIDANCE_EVALUATION_STATUS_LABELS = Object.freeze({
+  pending: "Menunggu Keputusan Ketua Departemen",
+  approved: "Disetujui",
+  rejected: "Ditolak",
+});
+
+/** The four supervisor observations of the evaluation form. */
+export const GUIDANCE_EVALUATION_OBSERVATION_LABELS = Object.freeze({
+  noGuidance: "Tidak melakukan bimbingan selama periode evaluasi",
+  noProgress: "Tidak menunjukkan kemajuan berarti",
+  noResponse: "Tidak merespons komunikasi pembimbing",
+  noRevision: "Tidak menyerahkan revisi sesuai arahan",
+});
+
 const labelOf = (labels) => (value) => (value ? labels[value] ?? String(value) : "-");
 
 export const getThesisStatusLabel = labelOf(THESIS_STATUS_LABELS);
@@ -119,3 +148,6 @@ export const getChangeRequestTypeLabel = labelOf(CHANGE_REQUEST_TYPE_LABELS);
 export const getChangeRequestStatusLabel = labelOf(CHANGE_REQUEST_STATUS_LABELS);
 export const getChangeRequestStepLabel = labelOf(CHANGE_REQUEST_STEP_LABELS);
 export const getSupervisorPositionLabel = labelOf(SUPERVISOR_POSITION_LABELS);
+export const getGuidanceEvaluationTypeLabel = labelOf(GUIDANCE_EVALUATION_TYPE_LABELS);
+export const getGuidanceEvaluationRecommendationLabel = labelOf(GUIDANCE_EVALUATION_RECOMMENDATION_LABELS);
+export const getGuidanceEvaluationStatusLabel = labelOf(GUIDANCE_EVALUATION_STATUS_LABELS);

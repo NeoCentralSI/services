@@ -2,7 +2,7 @@ import prisma from "../config/prisma.js";
 import { ROLES } from "../constants/roles.js";
 import { sendFcmToUsers } from "../services/push.service.js";
 import { createNotificationsForUsers } from "../services/notification.service.js";
-import { findUsersByActiveRole } from "../repositories/thesisGuidanceEvaluation.repository.js";
+import { findUsersByActiveRole } from "../repositories/thesis-guidance-evaluation.repository.js";
 
 const REMINDER_TYPE = "ta04_batch_finalize_reminder";
 

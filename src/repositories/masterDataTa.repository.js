@@ -35,6 +35,7 @@ export const findAllTheses = async () => {
             thesisGuidances: THESIS_PROGRESS_SELECT.thesisGuidances,
             thesisMilestones: THESIS_PROGRESS_SELECT.thesisMilestones,
             thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
+            thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
         },
         orderBy: { createdAt: "desc" }
     });

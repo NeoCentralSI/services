@@ -55,6 +55,9 @@ const TOPIC_NAME = "Pengembangan Sistem (Enterprise Application)";
  * - `openSessions`: scheduled (accepted) sessions with Pembimbing 1 a few days ahead.
  * - `changeRequest`: a pending change request submitted by the student, with
  *   `approvedSteps` lecturer steps already approved (0 = waiting for the first lecturer).
+ * - `evaluation`: a guidance evaluation filled by Pembimbing 1: `pending` waits for the
+ *   Ketua Departemen; `extensionEndedDaysAgo` stores an approved one-month extension that
+ *   already ended, so the follow-up is due.
  */
 const ACCOUNTS = [
   // ── B. Aktivitas dan Masa Bimbingan ────────────────────────────────────────────────
@@ -286,6 +289,102 @@ const ACCOUNTS = [
     // Ganti Pembimbing 1 (Aina -> Husnil): langkah dosen belum berjalan; Kadep memutuskan langsung.
     changeRequest: { requestType: "supervisor", supervisorRole: "pembimbing_1", newSupervisor: LECTURER.husnil, approvedSteps: 0 },
   },
+
+  // ── E. Evaluasi Bimbingan ──────────────────────────────────────────────────────────
+  {
+    key: "eval_lanjut",
+    email: "ta_eval_lanjut@fti.unand.ac.id",
+    fullName: "Uji TA Evaluasi Lanjut",
+    nim: "2211529019",
+    title: "Sistem Informasi Pengelolaan Beasiswa",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    startedMonthsAgo: 7, // evaluasi 6 bulan jatuh tempo -> "Lanjut Bimbingan"
+    lastActivityDaysAgo: 20,
+    completedGuidances: 5,
+    milestones: { total: 5, completed: 3 },
+  },
+  {
+    key: "eval_peringatan",
+    email: "ta_eval_peringatan@fti.unand.ac.id",
+    fullName: "Uji TA Evaluasi Peringatan",
+    nim: "2211529020",
+    title: "Aplikasi Monitoring Kegiatan Asisten Laboratorium",
+    p1: LECTURER.husnil,
+    p2: null,
+    startedMonthsAgo: 7, // evaluasi 6 bulan jatuh tempo -> "Peringatan dan Perpanjangan 1 Bulan"
+    lastActivityDaysAgo: 95,
+    completedGuidances: 2,
+    milestones: { total: 5, completed: 1 },
+  },
+  {
+    key: "eval_tindak_lanjut",
+    email: "ta_eval_tindak_lanjut@fti.unand.ac.id",
+    fullName: "Uji TA Evaluasi Tindak Lanjut",
+    nim: "2211529021",
+    title: "Sistem Informasi Tracer Study Alumni",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    startedMonthsAgo: 9,
+    lastActivityDaysAgo: 100,
+    completedGuidances: 2,
+    milestones: { total: 5, completed: 1 },
+    openSessions: 1, // dibatalkan sistem saat mengulang proposal
+    // Perpanjangan 1 bulan sudah berakhir: tindak lanjut jatuh tempo -> "Mengulang Proposal".
+    evaluation: { recommendation: "extend_1_month", extensionEndedDaysAgo: 3 },
+  },
+  {
+    key: "eval_1tahun",
+    email: "ta_eval_1tahun@fti.unand.ac.id",
+    fullName: "Uji TA Evaluasi Satu Tahun",
+    nim: "2211529022",
+    title: "Aplikasi Pengelolaan Arsip Skripsi",
+    p1: LECTURER.husnil,
+    p2: LECTURER.aina,
+    startedMonthsAgo: 13, // evaluasi 1 tahun jatuh tempo -> "Dihentikan"
+    lastActivityDaysAgo: 160,
+    completedGuidances: 3,
+    milestones: { total: 5, completed: 1 },
+    openSessions: 1, // dibatalkan sistem saat TA dihentikan
+  },
+  {
+    key: "eval_tunggu_kadep",
+    email: "ta_eval_tunggu_kadep@fti.unand.ac.id",
+    fullName: "Uji TA Evaluasi Tunggu Kadep",
+    nim: "2211529023",
+    title: "Sistem Informasi Jadwal Sidang Terpadu",
+    p1: LECTURER.husnil,
+    p2: null,
+    startedMonthsAgo: 7,
+    lastActivityDaysAgo: 90,
+    completedGuidances: 2,
+    milestones: { total: 5, completed: 1 },
+    // Evaluasi 6 bulan menunggu Ketua Departemen (untuk skenario "ditolak Kadep").
+    evaluation: { recommendation: "extend_1_month", pending: true },
+  },
+
+  // ── F. Overview: riwayat ───────────────────────────────────────────────────────────
+  {
+    key: "riwayat",
+    email: "ta_riwayat@fti.unand.ac.id",
+    fullName: "Uji TA Riwayat",
+    nim: "2211529024",
+    title: "Sistem Informasi Layanan Konseling Mahasiswa",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    startedMonthsAgo: 2,
+    lastActivityDaysAgo: 4,
+    completedGuidances: 2,
+    milestones: { total: 5, completed: 1 },
+    // TA sebelumnya dihentikan lewat evaluasi bimbingan; tampil di tab Riwayat.
+    previousThesis: {
+      title: "Aplikasi Pemesanan Kantin Kampus",
+      startedMonthsAgo: 20,
+      endedMonthsAgo: 6,
+      terminationReason: "supervision_evaluation",
+      terminationNote: "Data uji: dihentikan setelah evaluasi bimbingan 1 tahun.",
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -448,6 +547,70 @@ async function createChangeRequest(thesis, student, account, ctx) {
   });
 }
 
+/**
+ * A guidance evaluation filled by Pembimbing 1. `pending` leaves it for the Ketua
+ * Departemen; otherwise it is stored as an approved one-month extension that already ended.
+ */
+async function createEvaluation(thesis, account, p1Relation, startDate) {
+  const config = account.evaluation;
+  const kadep = await requireUser(LECTURER.kadep);
+  const filledAt = config.pending ? daysAgo(2) : daysAgo(config.extensionEndedDaysAgo + 32);
+  const decidedAt = config.pending ? null : new Date(filledAt.getTime() + DAY);
+  await prisma.thesisGuidanceEvaluation.create({
+    data: {
+      thesisId: thesis.id,
+      thesisSupervisorId: p1Relation.id,
+      evaluationType: "six_month",
+      isFollowUp: false,
+      observedNoGuidance: true,
+      observedNoProgress: true,
+      notes: "Data uji: bimbingan jarang dilakukan dan kemajuan belum berarti.",
+      guidanceCount: account.completedGuidances ?? 0,
+      supervisionStartedAt: startDate,
+      elapsedDays: Math.floor((filledAt.getTime() - startDate.getTime()) / DAY),
+      recommendation: config.recommendation,
+      status: config.pending ? "pending" : "approved",
+      createdAt: filledAt,
+      ...(config.pending
+        ? {}
+        : {
+          kadepApprovedBy: kadep.id,
+          kadepApprovedAt: decidedAt,
+          kadepNotes: "Data uji: disetujui.",
+          extensionUntil: daysAgo(config.extensionEndedDaysAgo),
+        }),
+    },
+  });
+}
+
+/** An earlier thesis of the same student that was stopped, for the Riwayat tab. */
+async function createPreviousThesis(student, account, ctx) {
+  const config = account.previousThesis;
+  const startDate = monthsAgo(config.startedMonthsAgo);
+  const endedAt = monthsAgo(config.endedMonthsAgo);
+  const thesis = await prisma.thesis.create({
+    data: {
+      studentId: student.id,
+      title: config.title,
+      thesisTopicId: ctx.topic.id,
+      academicYearId: ctx.academicYear.id,
+      startDate,
+      createdAt: startDate,
+      updatedAt: endedAt,
+      status: THESIS_STATUS.FAILED,
+      statusChangedAt: endedAt,
+      terminationReason: config.terminationReason,
+      terminationNote: config.terminationNote,
+      terminatedAt: endedAt,
+    },
+  });
+  // A stopped thesis keeps its supervisors only as history (released).
+  const p1 = await requireUser(account.p1);
+  await prisma.thesisSupervisors.create({
+    data: { thesisId: thesis.id, lecturerId: p1.id, roleId: ctx.roles.p1.id, status: "released", activeRoleKey: null },
+  });
+}
+
 async function seedAccount(account, ctx) {
   const student = await ensureStudent(account, ctx.passwordHash, ctx.roles.student);
   const existing = await prisma.thesis.findFirst({ where: { studentId: student.id } });
@@ -455,6 +618,8 @@ async function seedAccount(account, ctx) {
     console.log(`  ⏭️  ${account.email}: sudah punya tugas akhir, dilewati.`);
     return;
   }
+
+  if (account.previousThesis) await createPreviousThesis(student, account, ctx);
 
   const startDate = monthsAgo(account.startedMonthsAgo);
   const lastActivityAt = daysAgo(account.lastActivityDaysAgo);
@@ -480,9 +645,10 @@ async function seedAccount(account, ctx) {
     { email: account.p1, role: ctx.roles.p1 },
     ...(account.p2 ? [{ email: account.p2, role: ctx.roles.p2 }] : []),
   ];
+  let p1Relation = null;
   for (const supervisor of supervisors) {
     const lecturer = await requireUser(supervisor.email);
-    await prisma.thesisSupervisors.create({
+    const relation = await prisma.thesisSupervisors.create({
       data: {
         thesisId: thesis.id,
         lecturerId: lecturer.id,
@@ -491,6 +657,7 @@ async function seedAccount(account, ctx) {
         seminarReady: !!account.seminarReady,
       },
     });
+    if (supervisor.role.id === ctx.roles.p1.id) p1Relation = relation;
   }
 
   const p1 = await requireUser(account.p1);
@@ -498,6 +665,7 @@ async function seedAccount(account, ctx) {
   await createMilestones(thesis.id, account.milestones ?? { total: 0, completed: 0 }, lastActivityAt);
   if (account.openSessions) await createOpenSessions(thesis.id, p1.id, account.openSessions);
   if (account.changeRequest) await createChangeRequest(thesis, student, account, ctx);
+  if (account.evaluation) await createEvaluation(thesis, account, p1Relation, startDate);
 
   if (account.seminar) {
     const heldAt = daysAgo(account.seminar.daysAgo);

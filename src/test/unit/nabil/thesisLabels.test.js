@@ -15,6 +15,10 @@ import {
   CHANGE_REQUEST_STATUS_LABELS,
   CHANGE_REQUEST_STEP_LABELS,
   SUPERVISOR_POSITION_LABELS,
+  GUIDANCE_EVALUATION_TYPE_LABELS,
+  GUIDANCE_EVALUATION_RECOMMENDATION_LABELS,
+  GUIDANCE_EVALUATION_STATUS_LABELS,
+  GUIDANCE_EVALUATION_OBSERVATION_LABELS,
   GUIDANCE_STATUS_LABELS,
   GUIDANCE_ACTOR_LABELS,
   MILESTONE_STATUS_LABELS,
@@ -44,6 +48,10 @@ describe("label bahasa Indonesia untuk enum TA", () => {
     ["ThesisChangeRequestType", CHANGE_REQUEST_TYPE_LABELS],
     ["ThesisChangeRequestStatus", CHANGE_REQUEST_STATUS_LABELS],
     ["ThesisSupervisorPosition", SUPERVISOR_POSITION_LABELS],
+    // Paket E (E5): Evaluasi Bimbingan.
+    ["GuidanceEvaluationType", GUIDANCE_EVALUATION_TYPE_LABELS],
+    ["GuidanceEvaluationRecommendation", GUIDANCE_EVALUATION_RECOMMENDATION_LABELS],
+    ["GuidanceEvaluationStatus", GUIDANCE_EVALUATION_STATUS_LABELS],
   ])("setiap nilai %s punya label, dan tidak ada label untuk nilai yang tidak ada", (name, labels) => {
     const values = enumValues(name);
     expect(Object.keys(labels).sort()).toEqual([...values].sort());
@@ -61,6 +69,17 @@ describe("label bahasa Indonesia untuk enum TA", () => {
       kadep: "Ketua Departemen",
     });
     expect(CHANGE_REQUEST_TYPE_LABELS).toEqual({ title: "Judul", supervisor: "Pembimbing", both: "Judul dan Pembimbing" });
+  });
+
+  it("evaluasi bimbingan: label keputusan dan empat butir observasi sesuai formulir", () => {
+    expect(GUIDANCE_EVALUATION_RECOMMENDATION_LABELS).toEqual({
+      continue: "Lanjut Bimbingan",
+      extend_1_month: "Peringatan dan Perpanjangan 1 Bulan",
+      revise_proposal: "Mengulang Proposal",
+      terminate_supervision: "Dihentikan",
+    });
+    expect(GUIDANCE_EVALUATION_TYPE_LABELS).toEqual({ six_month: "Evaluasi 6 Bulan", one_year: "Evaluasi 1 Tahun" });
+    expect(Object.keys(GUIDANCE_EVALUATION_OBSERVATION_LABELS)).toEqual(["noGuidance", "noProgress", "noResponse", "noRevision"]);
   });
 
   it("konstanta nilai enum backend sama dengan schema", () => {

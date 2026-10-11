@@ -10,6 +10,7 @@ const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
     getThesesOverview: vi.fn(),
     getStatusDistribution: vi.fn(),
     getActivityDistribution: vi.fn(),
+    getEvaluationDueStudents: vi.fn().mockResolvedValue([]),
     getProgressStatistics: vi.fn(),
     getAtRiskStudents: vi.fn(),
     getSlowStudents: vi.fn(),

@@ -43,6 +43,8 @@ export const CREATABLE_THESIS_STATUSES = Object.freeze([
 
 /** Reason text written on guidance sessions cancelled by a thesis termination. */
 export const SYSTEM_CANCEL_REASON = "Dibatalkan otomatis: tugas akhir dihentikan (status Gagal).";
+/** Reason text written on guidance sessions cancelled when a thesis repeats its proposal. */
+export const REPEAT_PROPOSAL_CANCEL_REASON = "Dibatalkan otomatis: mengulang proposal berdasarkan evaluasi bimbingan.";
 
 const label = (status) => THESIS_STATUS_LABELS[status] ?? status;
 
@@ -124,6 +126,11 @@ export function statusChangeData(thesis, toStatus, { actorUserId = null, termina
     data.terminationNote = String(terminationNote ?? "").trim() || null;
     data.terminatedAt = now;
     data.terminatedByUserId = actorUserId;
+  }
+  // The supervision clock starts when a thesis enters research without a start date (a
+  // thesis that repeated its proposal had it cleared).
+  if (toStatus === THESIS_STATUS.RESEARCH && thesis?.status === THESIS_STATUS.PROPOSAL && !thesis.startDate) {
+    data.startDate = now;
   }
   if (toStatus === THESIS_STATUS.ON_LEAVE) {
     data.statusBeforeLeave = thesis?.status ?? THESIS_STATUS.RESEARCH;
@@ -209,4 +216,49 @@ export async function changeThesisStatus(tx, thesis, toStatus, options = {}) {
   });
 
   return { thesis: updated, changed: true, ...effects };
+}
+
+/**
+ * "Mengulang proposal": research -> proposal. This transition is not in
+ * `THESIS_STATUS_TRANSITIONS` on purpose: the data master cannot make it; only an approved
+ * guidance evaluation calls this function.
+ *
+ * Supervisors and the title stay. Open guidance sessions are cancelled by the system. The
+ * start date is cleared (and the leave days with it), so the supervision clock starts again
+ * when the thesis returns to research.
+ * @returns {{ thesis: object, cancelledGuidances: number }}
+ */
+export async function returnThesisToProposal(tx, thesis, { actorUserId = null, evaluationId = null, now = new Date() } = {}) {
+  if (thesis.status !== THESIS_STATUS.RESEARCH) {
+    throw badRequest(
+      `Hanya tugas akhir berstatus "${label(THESIS_STATUS.RESEARCH)}" yang dapat mengulang proposal. Status saat ini "${label(thesis.status)}".`,
+    );
+  }
+  const updated = await tx.thesis.update({
+    where: { id: thesis.id },
+    data: { status: THESIS_STATUS.PROPOSAL, statusChangedAt: now, startDate: null, totalLeaveDays: 0 },
+  });
+  const cancelled = await tx.thesisGuidance.updateMany({
+    where: { thesisId: thesis.id, status: { in: OPEN_GUIDANCE_STATUSES } },
+    data: {
+      status: GUIDANCE_STATUS.CANCELLED,
+      cancelReason: REPEAT_PROPOSAL_CANCEL_REASON,
+      cancelledAt: now,
+      cancelledBy: GUIDANCE_ACTOR.SYSTEM,
+    },
+  });
+  await tx.auditLog.create({
+    data: {
+      userId: actorUserId,
+      action: AUDIT_ACTIONS.THESIS_STATUS_CHANGED,
+      entity: ENTITY_TYPES.THESIS,
+      entityId: thesis.id,
+      changes: {
+        oldValues: { status: THESIS_STATUS.RESEARCH, startDate: thesis.startDate ?? null },
+        newValues: { status: THESIS_STATUS.PROPOSAL, startDate: null },
+        metadata: { source: "guidance-evaluation", evaluationId, cancelledGuidances: cancelled.count ?? 0 },
+      },
+    },
+  });
+  return { thesis: updated, cancelledGuidances: cancelled.count ?? 0 };
 }

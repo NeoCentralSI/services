@@ -91,6 +91,24 @@ describe("Pengajuan bimbingan fase TA (K6, K15)", () => {
     expect(newGuidances(known)).toHaveLength(0);
   });
 
+  it("TA yang mengulang proposal: alasan penolakan menyebut evaluasi bimbingan (E5)", async () => {
+    thesisRow().status = "proposal";
+    store.state.thesisGuidanceEvaluation = [
+      { id: "ev-1", thesisId: "t1", status: "approved", recommendation: "revise_proposal", thesis: { status: "proposal" } },
+    ];
+    const reason = expect.stringContaining("Mengulang proposal berdasarkan evaluasi bimbingan.");
+
+    await expect(student.requestGuidanceService("stu1", FUTURE, "Bahas bab 3", null, "p1")).rejects.toMatchObject({ statusCode: 403, message: reason });
+    await expect(milestone.createMilestone("t1", "stu1", { title: "Milestone baru" })).rejects.toMatchObject({ statusCode: 403, message: reason });
+
+    // A rejected evaluation, or another recommendation, is not a repeat: the usual message stays.
+    store.state.thesisGuidanceEvaluation[0].status = "rejected";
+    await expect(milestone.createMilestone("t1", "stu1", { title: "Milestone baru" })).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringContaining("masih dalam fase proposal"),
+    });
+  });
+
   it("TA on_leave ditolak (403) di aksi mahasiswa, dosen, dan milestone", async () => {
     thesisRow().status = "on_leave";
     const known = fixtureGuidanceIds();

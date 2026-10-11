@@ -29,6 +29,8 @@ import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { ForbiddenError } from "../../utils/errors.js";
 import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
+import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
+import { REPEAT_PROPOSAL_LOCK_REASON } from "../../constants/thesis-guidance-evaluation.js";
 import {
   THESIS_STATUS,
   POST_PROPOSAL_THESIS_STATUSES,
@@ -147,11 +149,15 @@ const NOT_WRITABLE_MESSAGES = {
 };
 
 /** Aksi tulis bimbingan/milestone fase TA hanya untuk TA berstatus `research`. */
-function ensureThesisWritable(thesis) {
+async function ensureThesisWritable(thesis) {
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
+  // A thesis sent back to the proposal by a guidance evaluation says so (E5).
+  const repeating = thesis?.status === THESIS_STATUS.PROPOSAL && (await isRepeatingProposal(thesis.id));
   const err = new Error(
-    NOT_WRITABLE_MESSAGES[thesis?.status] ||
-      "Tugas akhir ini sudah tidak aktif. Bimbingan dan milestone tidak dapat diubah.",
+    repeating
+      ? `${REPEAT_PROPOSAL_LOCK_REASON} Bimbingan dan milestone terkunci sampai tugas akhir kembali berstatus "${THESIS_STATUS_LABELS.research}".`
+      : NOT_WRITABLE_MESSAGES[thesis?.status] ||
+        "Tugas akhir ini sudah tidak aktif. Bimbingan dan milestone tidak dapat diubah.",
   );
   err.statusCode = 403;
   throw err;
@@ -161,9 +167,9 @@ function ensureThesisWritable(thesis) {
 async function ensureGuidanceThesisWritable(guidance) {
   const thesis = await prisma.thesis.findUnique({
     where: { id: guidance.thesisId },
-    select: { status: true },
+    select: { id: true, status: true },
   });
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 }
 
 async function getActiveThesisOrThrow(userId) {
@@ -295,7 +301,7 @@ export async function requestGuidanceService(
   } = options;
 
   let { student, thesis } = await getActiveThesisOrThrow(userId);
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
   thesis = await ensureThesisAcademicYear(thesis);
   // K6: phase is set by the server from the thesis status, never by the client.
   const phase = phaseForThesisStatus(thesis.status);
@@ -563,7 +569,7 @@ export async function rescheduleGuidanceService(
   const thesis = await prisma.thesis.findUnique({
     where: { id: guidance.thesisId },
   });
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   // K19: the student may move only a request the lecturer has not answered yet.
   if (guidance.status !== GUIDANCE_STATUS.REQUESTED) {
@@ -1553,6 +1559,8 @@ export async function getMyThesisDetailService(userId) {
       lastActivityAt: progress.lastActivityAt,
       daysSinceActivity: progress.daysSinceActivity,
       supervisionClock: progress.supervisionClock,
+      // True while the thesis is back in proposal because of a guidance evaluation (E5).
+      repeatingProposal: fullThesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(fullThesis.id) : false,
       startDate: fullThesis.startDate || null,
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,
@@ -1647,7 +1655,7 @@ export async function getMyThesisDetailService(userId) {
  */
 export async function updateMyThesisTitleService(userId, newTitle) {
   const { thesis } = await getActiveThesisOrThrow(userId);
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   if (!newTitle || newTitle.trim().length < 10) {
     const err = new Error("Judul tugas akhir minimal 10 karakter");

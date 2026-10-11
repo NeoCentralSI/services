@@ -20,7 +20,7 @@ import {
 	getActiveThesisForStudent,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 
-import { findUsersByActiveRole } from "../../repositories/thesisGuidanceEvaluation.repository.js";
+import { findUsersByActiveRole } from "../../repositories/thesis-guidance-evaluation.repository.js";
 
 import prisma from "../../config/prisma.js";
 import { sendFcmToUsers } from "../push.service.js";

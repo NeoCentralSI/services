@@ -38,7 +38,7 @@ function progressFields(thesis, now = new Date()) {
  * Get thesis monitoring dashboard data for management
  */
 export async function getMonitoringDashboard(academicYear) {
-  const [statusDistribution, activityDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, supervisorLoads, topicDistribution, batchDistribution, progressDistribution, guidanceTrend] = await Promise.all([
+  const [statusDistribution, activityDistribution, progressStats, atRiskStudents, readyForSeminar, slowStudents, supervisorLoads, topicDistribution, batchDistribution, progressDistribution, guidanceTrend, evaluationDueStudents] = await Promise.all([
     monitoringRepository.getStatusDistribution(academicYear),
     monitoringRepository.getActivityDistribution(academicYear),
     monitoringRepository.getProgressStatistics(academicYear),
@@ -50,11 +50,13 @@ export async function getMonitoringDashboard(academicYear) {
     monitoringRepository.getBatchDistribution(academicYear),
     monitoringRepository.getProgressDistribution(academicYear),
     monitoringRepository.getGuidanceTrend(academicYear),
+    monitoringRepository.getEvaluationDueStudents(50, academicYear),
   ]);
 
   return {
     summary: {
       ...progressStats,
+      totalEvaluationDue: evaluationDueStudents.length,
       totalReadyForSeminar: readyForSeminar.length,
       totalAtRisk: activityDistribution.find((r) => r.id === ACTIVITY_LEVEL.AT_RISK)?.count || 0,
       totalSlow: activityDistribution.find((r) => r.id === ACTIVITY_LEVEL.SLOW)?.count || 0,
@@ -67,6 +69,8 @@ export async function getMonitoringDashboard(academicYear) {
     guidanceTrend,
     atRiskStudents,
     slowStudents,
+    // "Perlu Evaluasi": theses whose guidance evaluation is due (E5).
+    evaluationDueStudents,
     supervisorLoads,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({
       thesisId: t.id,

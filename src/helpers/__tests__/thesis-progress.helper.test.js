@@ -148,6 +148,68 @@ describe("getSupervisionClock", () => {
   });
 });
 
+describe("getSupervisionClock — evaluations already recorded (E5)", () => {
+  const sevenMonths = new Date("2026-03-11T05:00:00.000Z");
+  const thirteenMonths = new Date("2025-09-11T05:00:00.000Z");
+  const thesis = (startDate, extra = {}) => ({ status: "research", startDate, totalLeaveDays: 0, ...extra });
+  const evaluation = (extra = {}) => ({
+    evaluationType: "six_month",
+    isFollowUp: false,
+    recommendation: "continue",
+    status: "approved",
+    extensionUntil: null,
+    createdAt: daysAgo(20),
+    ...extra,
+  });
+  const due = (t, evaluations) => getSupervisionClock(t, evaluations, NOW).evaluationDue;
+
+  it("six months is no longer due once an evaluation is recorded, approved or still pending", () => {
+    expect(due(thesis(sevenMonths), [])).toBe(EVALUATION_DUE.SIX_MONTH);
+    expect(due(thesis(sevenMonths), [evaluation()])).toBeNull();
+    expect(due(thesis(sevenMonths), [evaluation({ recommendation: "extend_1_month", status: "pending" })])).toBeNull();
+  });
+
+  it("a rejected evaluation does not count: the stage is due again", () => {
+    expect(due(thesis(sevenMonths), [evaluation({ recommendation: "extend_1_month", status: "rejected" })])).toBe(EVALUATION_DUE.SIX_MONTH);
+  });
+
+  it("the extension runs for its month, then the follow-up is due until it is recorded", () => {
+    const extend = (extensionUntil) => evaluation({ recommendation: "extend_1_month", extensionUntil, createdAt: daysAgo(40) });
+    const running = getSupervisionClock(thesis(sevenMonths), [extend(new Date(NOW.getTime() + 5 * DAY))], NOW);
+    expect(running.evaluationDue).toBeNull();
+    expect(running.extensionUntil).toEqual(new Date(NOW.getTime() + 5 * DAY));
+
+    const ended = [extend(daysAgo(1))];
+    expect(due(thesis(sevenMonths), ended)).toBe(EVALUATION_DUE.EXTENSION_FOLLOW_UP);
+    expect(due(thesis(sevenMonths), [...ended, evaluation({ isFollowUp: true, createdAt: daysAgo(0) })])).toBeNull();
+    expect(due(thesis(sevenMonths), [...ended, evaluation({ isFollowUp: true, status: "rejected", createdAt: daysAgo(0) })])).toBe(
+      EVALUATION_DUE.EXTENSION_FOLLOW_UP,
+    );
+  });
+
+  it("one year is due at twelve months regardless of the six-month stage, until it is recorded", () => {
+    expect(due(thesis(thirteenMonths), [])).toBe(EVALUATION_DUE.ONE_YEAR);
+    expect(due(thesis(thirteenMonths), [evaluation({ createdAt: daysAgo(150) })])).toBe(EVALUATION_DUE.ONE_YEAR);
+    expect(due(thesis(thirteenMonths), [evaluation({ evaluationType: "one_year" })])).toBeNull();
+  });
+
+  it("nothing is due after a passed results seminar", () => {
+    for (const status of ["passed", "passed_with_revision"]) {
+      expect(due(thesis(thirteenMonths, { thesisSeminars: [{ status }] }), [])).toBeNull();
+    }
+    expect(due(thesis(thirteenMonths, { thesisSeminars: [{ status: "failed" }] }), [])).toBe(EVALUATION_DUE.ONE_YEAR);
+  });
+
+  it("evaluations made before the clock started do not count (the thesis repeated its proposal)", () => {
+    expect(due(thesis(sevenMonths), [evaluation({ createdAt: new Date("2025-06-01T00:00:00.000Z") })])).toBe(EVALUATION_DUE.SIX_MONTH);
+  });
+
+  it("summarizeThesisProgress reads the evaluations carried by the thesis", () => {
+    const summary = summarizeThesisProgress({ ...thesis(sevenMonths), updatedAt: daysAgo(1), thesisGuidanceEvaluations: [evaluation()] }, NOW);
+    expect(summary.supervisionClock.evaluationDue).toBeNull();
+  });
+});
+
 describe("formatSupervisionDuration", () => {
   it("formats months and days", () => {
     expect(formatSupervisionDuration(7, 12)).toBe("7 bulan 12 hari");

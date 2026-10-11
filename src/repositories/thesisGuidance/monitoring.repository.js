@@ -161,6 +161,8 @@ export async function getThesesOverview(filters = {}) {
             updatedAt: true,
           },
         },
+        // Read by the supervision clock: which evaluation stages are already recorded.
+        thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
       },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
@@ -330,6 +332,34 @@ export async function getStudentsByActivityLevel(level, limit = 10, academicYear
       })),
     }))
     .sort((a, b) => b.daysSinceActivity - a.daysSinceActivity)
+    .slice(0, limit);
+}
+
+/**
+ * Running theses whose guidance evaluation is due (six months, extension follow-up, or one
+ * year), longest supervision first: the "Perlu Evaluasi" list of the monitoring dashboard.
+ */
+export async function getEvaluationDueStudents(limit = 50, academicYear) {
+  const rows = await findRunningThesesWithActivity(academicYear);
+  return rows
+    .filter((row) => row.progress.supervisionClock.evaluationDue)
+    .map(({ thesis: t, progress }) => ({
+      thesisId: t.id,
+      title: t.title,
+      student: {
+        name: t.student?.user?.fullName,
+        nim: t.student?.user?.identityNumber,
+        email: t.student?.user?.email,
+      },
+      activityLevel: progress.activityLevel,
+      evaluationDue: progress.supervisionClock.evaluationDue,
+      supervisionClock: progress.supervisionClock,
+      supervisors: t.thesisSupervisors.map((p) => ({
+        name: p.lecturer?.user?.fullName,
+        role: p.role?.name,
+      })),
+    }))
+    .sort((a, b) => (b.supervisionClock.elapsedDays ?? 0) - (a.supervisionClock.elapsedDays ?? 0))
     .slice(0, limit);
 }
 
@@ -572,6 +602,8 @@ export async function getThesisDetailById(thesisId) {
           updatedAt: true,
         },
       },
+      // Read by the supervision clock: which evaluation stages are already recorded.
+      thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
       thesisSeminars: {
         orderBy: { createdAt: "desc" },
         select: {
@@ -704,6 +736,7 @@ export async function getThesesForReport(options = {}) {
         orderBy: { completedAt: "desc" },
       },
       thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
+      thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
     },
     orderBy: [
       { student: { user: { fullName: "asc" } } },

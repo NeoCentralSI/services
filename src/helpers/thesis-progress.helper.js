@@ -51,7 +51,25 @@ export const THESIS_PROGRESS_SELECT = Object.freeze({
     orderBy: { updatedAt: "desc" },
     select: { status: true, updatedAt: true, revisionFinalizedAt: true },
   },
+  thesisGuidanceEvaluations: {
+    select: {
+      evaluationType: true,
+      isFollowUp: true,
+      recommendation: true,
+      status: true,
+      extensionUntil: true,
+      createdAt: true,
+    },
+  },
 });
+
+/** Seminar statuses that mean the results seminar is passed. */
+const SEMINAR_PASSED_STATUSES = ["passed", "passed_with_revision"];
+
+/** True when the thesis has a passed results seminar (evaluations no longer apply). */
+export function hasPassedSeminar(thesis) {
+  return (thesis?.thesisSeminars ?? []).some((seminar) => SEMINAR_PASSED_STATUSES.includes(seminar.status));
+}
 
 function toDate(value) {
   if (!value) return null;
@@ -152,15 +170,35 @@ export function formatSupervisionDuration(months, days) {
 }
 
 /**
+ * Evaluations that count for the running supervision clock: not rejected (a rejected
+ * evaluation has no effect and may be filled again), and made after the clock started (the
+ * clock restarts when a thesis repeats its proposal).
+ */
+function countedEvaluations(evaluations, startedAt) {
+  return (evaluations ?? [])
+    .filter((evaluation) => evaluation.status !== "rejected")
+    .filter((evaluation) => {
+      const createdAt = toDate(evaluation.createdAt);
+      return !createdAt || createdAt.getTime() >= startedAt.getTime();
+    })
+    .sort((a, b) => (toDate(a.createdAt)?.getTime() ?? 0) - (toDate(b.createdAt)?.getTime() ?? 0));
+}
+
+/**
  * Supervision clock of a thesis. It starts at `startDate`, does not count leave
  * (`totalLeaveDays` for finished leaves, and the running leave while the thesis is
  * `on_leave`), and stops when the thesis is closed.
  *
- * `evaluationDue` is set only for a thesis in `research`: `one_year` once twelve months
- * have run, `six_month` once six months have run.
+ * `evaluationDue` names the guidance evaluation the Pembimbing 1 should fill now. It is set
+ * only for a thesis in `research` that has not passed its results seminar, and only while
+ * no evaluation is recorded for that stage:
+ * - `one_year`: twelve months have run;
+ * - `six_month`: six months have run;
+ * - `extension_follow_up`: the one-month extension granted by the six-month evaluation
+ *   has ended.
  *
- * @param {object} thesis thesis with the `THESIS_CLOCK_COLUMNS`
- * @param {Array} evaluations guidance evaluations of the thesis (used from E5 on)
+ * @param {object} thesis thesis with the `THESIS_CLOCK_COLUMNS` (and `thesisSeminars`)
+ * @param {Array} evaluations guidance evaluations of the thesis
  * @param {Date} now
  */
 export function getSupervisionClock(thesis, evaluations = [], now = new Date()) {
@@ -198,10 +236,23 @@ export function getSupervisionClock(thesis, evaluations = [], now = new Date()) 
   const sixMonthAt = addDays(addMonths(startedAt, 6), leaveShift);
   const oneYearAt = addDays(addMonths(startedAt, 12), leaveShift);
 
+  const recorded = countedEvaluations(evaluations, startedAt);
+  const sixMonth = recorded.find((e) => e.evaluationType === EVALUATION_DUE.SIX_MONTH && !e.isFollowUp) ?? null;
+  const followUp = recorded.find((e) => e.evaluationType === EVALUATION_DUE.SIX_MONTH && e.isFollowUp) ?? null;
+  const oneYear = recorded.find((e) => e.evaluationType === EVALUATION_DUE.ONE_YEAR) ?? null;
+  const extensionUntil =
+    sixMonth?.status === "approved" && sixMonth.recommendation === "extend_1_month" ? toDate(sixMonth.extensionUntil) : null;
+
   let evaluationDue = null;
-  if (status === THESIS_STATUS.RESEARCH) {
-    if (now.getTime() >= oneYearAt.getTime()) evaluationDue = EVALUATION_DUE.ONE_YEAR;
-    else if (now.getTime() >= sixMonthAt.getTime()) evaluationDue = EVALUATION_DUE.SIX_MONTH;
+  if (status === THESIS_STATUS.RESEARCH && !hasPassedSeminar(thesis)) {
+    if (now.getTime() >= oneYearAt.getTime()) {
+      if (!oneYear) evaluationDue = EVALUATION_DUE.ONE_YEAR;
+    } else if (now.getTime() >= sixMonthAt.getTime()) {
+      if (!sixMonth) evaluationDue = EVALUATION_DUE.SIX_MONTH;
+      else if (extensionUntil && now.getTime() > extensionUntil.getTime() && !followUp) {
+        evaluationDue = EVALUATION_DUE.EXTENSION_FOLLOW_UP;
+      }
+    }
   }
 
   return {
@@ -211,7 +262,7 @@ export function getSupervisionClock(thesis, evaluations = [], now = new Date()) 
     elapsedLabel: formatSupervisionDuration(months, days),
     sixMonthAt,
     oneYearAt,
-    extensionUntil: null,
+    extensionUntil,
     evaluationDue,
     isPaused,
   };

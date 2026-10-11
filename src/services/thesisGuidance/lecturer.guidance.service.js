@@ -43,6 +43,7 @@ import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
 import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
 import { ACTIVITY_LEVEL, THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
+import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
@@ -244,6 +245,8 @@ export async function getStudentDetailService(userId, thesisId) {
 		lastActivityAt: progress.lastActivityAt,
 		daysSinceActivity: progress.daysSinceActivity,
 		supervisionClock: progress.supervisionClock,
+		// True while the thesis is back in proposal because of a guidance evaluation (E5).
+		repeatingProposal: thesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(thesis.id) : false,
 		startDate: thesis.startDate,
 		student: {
 			id: thesis.student?.id,
@@ -673,20 +676,6 @@ export async function supervisorEligibilityService(userId, threshold = 4) {
 	const graduatedAsSup2 = await countGraduatedAsSupervisor2(lecturer.id);
 	const eligible = graduatedAsSup2 >= threshold;
 	return { eligible, graduatedAsSup2, required: threshold };
-}
-
-// Paket A (K15): this endpoint read ThesisStatus rows "at_risk"/"failed" that never existed
-// (it always failed with 500) and has no UI caller. Stopping a thesis (status `failed` with a
-// mandatory reason) is an Admin action that is not built yet, so the endpoint is closed.
-export async function failStudentThesisService(userId, studentId, { reason } = {}) {
-	void userId;
-	void studentId;
-	void reason;
-	const err = new Error(
-		"Penghentian tugas akhir oleh pembimbing tidak tersedia. Penghentian dilakukan Admin Departemen dengan alasan yang wajib dicatat.",
-	);
-	err.statusCode = 410;
-	throw err;
 }
 
 // ==================== SESSION SUMMARY APPROVAL ====================
