@@ -1,10 +1,4 @@
 import * as monitoringService from "../../services/thesisGuidance/monitoring.service.js";
-import {
-  getKadepPendingTransfersService,
-  getKadepAllTransfersService,
-  kadepApproveTransferService,
-  kadepRejectTransferService,
-} from "../../services/thesisGuidance/lecturer.guidance.service.js";
 import { parseAcademicYearQuery } from "../../validators/monitoring.validator.js";
 
 /**
@@ -217,87 +211,6 @@ export async function downloadProgressReport(req, res, next) {
       activityLevels: Array.isArray(activityLevels) ? activityLevels : (activityLevels ? activityLevels.split(",") : []),
     };
     const result = await monitoringService.generateProgressReportPdfService(options);
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(result.filename)}"`
-    );
-    res.send(result.buffer);
-  } catch (error) {
-    next(error);
-  }
-}
-
-// ==================== KADEP TRANSFER APPROVAL ====================
-
-/**
- * Get pending transfer requests for Kadep
- * @route GET /api/thesis-guidance/monitoring/transfers/pending
- */
-export async function getKadepPendingTransfers(req, res, next) {
-  try {
-    const result = await getKadepPendingTransfersService(req.user.sub);
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Get all transfer requests for Kadep (with pagination for history)
- * @route GET /api/thesis-guidance/monitoring/transfers/all
- */
-export async function getKadepAllTransfers(req, res, next) {
-  try {
-    const { page = 1, pageSize = 10, search = "", status = "" } = req.query;
-    const result = await getKadepAllTransfersService(req.user.sub, {
-      page: Number(page),
-      pageSize: Number(pageSize),
-      search,
-      status,
-    });
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Kadep approves a transfer request
- * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/approve
- */
-export async function kadepApproveTransfer(req, res, next) {
-  try {
-    const { notificationId } = req.params;
-    const result = await kadepApproveTransferService(req.user.sub, notificationId);
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Kadep rejects a transfer request
- * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/reject
- */
-export async function kadepRejectTransfer(req, res, next) {
-  try {
-    const { notificationId } = req.params;
-    const { reason } = req.body || {};
-    const result = await kadepRejectTransferService(req.user.sub, notificationId, { reason });
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Download supervisor transfer history report as PDF
- * @route GET /api/thesis-guidance/monitoring/transfers/report/download
- */
-export async function downloadTransferReport(req, res, next) {
-  try {
-    const result = await monitoringService.generateTransferReportPdfService();
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",

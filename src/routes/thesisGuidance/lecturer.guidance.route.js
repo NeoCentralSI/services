@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../../middlewares/auth.middleware.js";
 import { validate } from "../../middlewares/validation.middleware.js";
-import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, transferStudentsSchema, rejectTransferSchema, cancelGuidanceSchema, lecturerRescheduleGuidanceSchema, rejectSummarySchema } from "../../validators/lecturer.guidance.validator.js";
+import { feedbackSchema, rejectGuidanceSchema, approveGuidanceSchema, approveComponentsSchema, failThesisSchema, cancelGuidanceSchema, lecturerRescheduleGuidanceSchema, rejectSummarySchema } from "../../validators/lecturer.guidance.validator.js";
 import { ROLES } from "../../constants/roles.js";
 import {
 	myStudents,
@@ -26,12 +26,6 @@ import {
 	guidanceDetail,
 	sendWarningNotification,
 	approveThesisProposal,
-	// Transfer
-	getTransferLecturers,
-	requestTransfer,
-	getIncomingTransfers,
-	approveTransfer,
-	rejectTransfer,
 } from "../../controllers/thesisGuidance/lecturer.guidance.controller.js";
 import {
 	getSupervisor2Requests,
@@ -83,11 +77,7 @@ router.get("/supervisor2-requests", getSupervisor2Requests);
 router.patch("/supervisor2-requests/:requestId/approve", approveSupervisor2Request);
 router.patch("/supervisor2-requests/:requestId/reject", rejectSupervisor2Request);
 
-// Student Transfer
-router.get("/transfer/eligible-lecturers", getTransferLecturers);
-router.post("/transfer/request", validate(transferStudentsSchema), requestTransfer);
-router.get("/transfer/incoming", getIncomingTransfers);
-router.patch("/transfer/:notificationId/approve", approveTransfer);
-router.patch("/transfer/:notificationId/reject", validate(rejectTransferSchema), rejectTransfer);
+// Handing students over to another lecturer is a thesis change request:
+// POST /thesis-change-requests/transfer.
 
 export default router;

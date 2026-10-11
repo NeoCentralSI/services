@@ -9,29 +9,31 @@ datasource db {
 }
 
 model User {
-  id                         String              @id @default(uuid())
-  fullName                   String              @map("full_name")
-  identityNumber             String              @unique @map("identity_number")
-  identityType               IdentityType        @map("identity_type")
-  email                      String?             @unique
-  password                   String?
-  phoneNumber                String?             @map("phone_number")
-  isVerified                 Boolean             @default(false)
-  token                      String?             @db.Text
-  refreshToken               String?             @map("refresh_token") @db.Text
-  oauthProvider              String?             @map("oauth_provider")
-  oauthId                    String?             @map("oauth_id")
-  oauthRefreshToken          String?             @map("oauth_refresh_token") @db.Text
-  avatarUrl                  String?
-  gender Boolean?
-  createdAt                  DateTime            @default(now())
-  updatedAt                  DateTime            @updatedAt
-  documents                  Document[]          @relation("UploadedDocuments")
-  internshipSeminarApprovals InternshipSeminar[] @relation("InternshipSeminarApprover")
-  lecturer                   Lecturer?
-  notifications              Notification[]
-  student                    Student?
-  userHasRoles               UserHasRole[]
+  id                            String                @id @default(uuid())
+  fullName                      String                @map("full_name")
+  identityNumber                String                @unique @map("identity_number")
+  identityType                  IdentityType          @map("identity_type")
+  email                         String?               @unique
+  password                      String?
+  phoneNumber                   String?               @map("phone_number")
+  isVerified                    Boolean               @default(false)
+  token                         String?               @db.Text
+  refreshToken                  String?               @map("refresh_token") @db.Text
+  oauthProvider                 String?               @map("oauth_provider")
+  oauthId                       String?               @map("oauth_id")
+  oauthRefreshToken             String?               @map("oauth_refresh_token") @db.Text
+  avatarUrl                     String?
+  gender                        Boolean?
+  createdAt                     DateTime              @default(now())
+  updatedAt                     DateTime              @updatedAt
+  documents                     Document[]            @relation("UploadedDocuments")
+  internshipSeminarApprovals    InternshipSeminar[]   @relation("InternshipSeminarApprover")
+  lecturer                      Lecturer?
+  notifications                 Notification[]
+  student                       Student?
+  userHasRoles                  UserHasRole[]
+  thesisChangeRequestsRequested ThesisChangeRequest[] @relation("ChangeRequestRequestedBy")
+  thesisChangeRequestsDecided   ThesisChangeRequest[] @relation("ChangeRequestDecidedBy")
 
   yudisiumReqVerifications           YudisiumParticipantRequirement[]   @relation("YudisiumReqVerifiedBy")
   yudisiumCplRecsCreated             YudisiumCplRecommendation[]        @relation("YudisiumCplRecCreatedBy")
@@ -192,7 +194,6 @@ model Lecturer {
   scienceGroup                       ScienceGroup?                     @relation(fields: [scienceGroupId], references: [id])
   user                               User                              @relation(fields: [id], references: [id], onDelete: Cascade)
   thesisChangeRequestApprovals       ThesisChangeRequestApproval[]
-  thesisChangeRequestsReviewed       ThesisChangeRequest[]
   thesisGuidances                    ThesisGuidance[]
   thesisSupervisors                  ThesisSupervisors[]
   supervisionQuotas                  LecturerSupervisionQuota[]
@@ -831,29 +832,29 @@ model ExitSurveyOption {
 /// Lihat HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-06 untuk field ownership matrix.
 model Thesis {
   // === IDENTITAS & STATUS ===
-  id             String    @id @default(uuid())
-  studentId      String    @map("student_id")
-  thesisTopicId  String?   @map("thesis_topic_id")
+  id                 String                   @id @default(uuid())
+  studentId          String                   @map("student_id")
+  thesisTopicId      String?                  @map("thesis_topic_id")
   /// Status siklus hidup TA (K15), satu-satunya penanda fase. Wajib diisi eksplisit
   /// oleh setiap penulis (tanpa default): `proposal` = fase proposal, `research` = fase TA.
-  status          ThesisLifecycleStatus  @map("status")
-  statusChangedAt DateTime?              @map("status_changed_at")
+  status             ThesisLifecycleStatus    @map("status")
+  statusChangedAt    DateTime?                @map("status_changed_at")
   /// Penghentian TA (status `failed`). Kolom disiapkan; fiturnya belum dibuat.
   terminationReason  ThesisTerminationReason? @map("termination_reason")
   terminationNote    String?                  @map("termination_note") @db.Text
   terminatedAt       DateTime?                @map("terminated_at")
   terminatedByUserId String?                  @map("terminated_by_user_id")
   /// Berhenti Studi Sementara (status `on_leave`): status sebelumnya dan tanggal mulai.
-  statusBeforeLeave ThesisLifecycleStatus? @map("status_before_leave")
-  leaveStartedAt    DateTime?              @map("leave_started_at")
+  statusBeforeLeave  ThesisLifecycleStatus?   @map("status_before_leave")
+  leaveStartedAt     DateTime?                @map("leave_started_at")
   /// Jumlah hari cuti (BSS) yang sudah selesai. Ditambah saat TA kembali dari `on_leave`,
   /// supaya masa bimbingan (dihitung dari `startDate`) tidak menghitung masa cuti.
-  totalLeaveDays    Int                    @default(0) @map("total_leave_days")
+  totalLeaveDays     Int                      @default(0) @map("total_leave_days")
   /// NOTE: canon §5.7.4 + §5.13 expect non-null setelah TA-04. Pertimbangkan
   /// migrate ke NOT NULL di iterasi berikutnya.
-  academicYearId String?   @map("academic_year_id")
-  title          String?   @db.Text
-  startDate      DateTime? @map("start_date")
+  academicYearId     String?                  @map("academic_year_id")
+  title              String?                  @db.Text
+  startDate          DateTime?                @map("start_date")
 
   // === SIMPTA SCOPE: Proposal Versioning & Submission (canon §5.6) ===
   /// Source of truth proposal final aktif. Pointer ke ThesisProposalVersion
@@ -877,7 +878,6 @@ model Thesis {
   /// Tahun akademik beban aktif setelah promosi otomatis dari booking.
   activeAcademicYearId          String?   @map("active_academic_year_id")
   activePromotedAt              DateTime? @map("active_promoted_at")
-
 
   // === LEGACY (deprecated per PRD §5.2) ===
   /// @deprecated Use `finalProposalVersionId` instead. Sumber: canon §5.6 + PRD §5.2.
@@ -1003,60 +1003,74 @@ model ThesisStudentInformalLog {
   @@map("thesis_student_informal_logs")
 }
 
-/// @deprecated TA-05 frozen — do not extend.
-/// Flow digital pergantian judul/pembimbing dibekukan untuk seluruh siklus
-/// rilis aktif (KONTEKS_KANONIS_SIMPTA.md §5.11). Schema dipertahankan untuk
-/// kompatibilitas dan regresi safety; tidak boleh dijadikan jalur operasional
-/// baru tanpa update keputusan kanonis lebih dulu.
+/// Pengajuan Perubahan Tugas Akhir (formulir TA-05, keputusan K8): perubahan judul dan/atau
+/// satu posisi pembimbing untuk TA fase penelitian. Keadaan pengajuan disimpan di sini,
+/// bukan di notifikasi. Mesin ini juga dipakai "Alihkan Mahasiswa" (`batchId` sama).
 model ThesisChangeRequest {
   id                           String                        @id @default(uuid())
   thesisId                     String?                       @map("thesis_id")
   requestType                  ThesisChangeRequestType       @map("request_type")
   reason                       String                        @db.Text
   status                       ThesisChangeRequestStatus     @default(pending)
-  reviewedBy                   String?                       @map("reviewed_by")
-  reviewNotes                  String?                       @map("review_notes") @db.Text
-  reviewedAt                   DateTime?                     @map("reviewed_at")
+  /// Pengaju: mahasiswa pemilik TA atau dosen pembimbingnya.
+  requestedByUserId            String?                       @map("requested_by_user_id")
+  /// Sama untuk pengajuan yang dibuat sekaligus lewat "Alihkan Mahasiswa".
+  batchId                      String?                       @map("batch_id")
+  /// Perubahan judul: judul baru, topik baru (opsional), dan salinan judul saat diajukan.
+  previousTitle                String?                       @map("previous_title") @db.Text
+  newTitle                     String?                       @map("new_title") @db.Text
   newTopicId                   String?                       @map("new_topic_id")
-  newTitle                     String?                       @map("new_title") @db.VarChar(500)
-  newSupervisorId              String?                       @map("new_supervisor_id")
-  supportingDocumentId         String?                       @map("supporting_document_id")
+  /// Perubahan pembimbing, satu posisi per pengajuan. `replacedSupervisorLecturerId`
+  /// kosong berarti menambah ke posisi yang masih kosong.
+  supervisorRole               ThesisSupervisorPosition?     @map("supervisor_role")
   replacedSupervisorLecturerId String?                       @map("replaced_supervisor_lecturer_id")
+  newSupervisorId              String?                       @map("new_supervisor_id")
+  /// Penutupan pengajuan: keputusan Kadep, penolakan dosen, atau pembatalan pengaju.
+  decidedByUserId              String?                       @map("decided_by_user_id")
+  decisionNotes                String?                       @map("decision_notes") @db.Text
+  decidedAt                    DateTime?                     @map("decided_at")
+  /// Diisi saat perubahan sudah diterapkan ke TA (pengajuan disetujui Kadep).
+  appliedAt                    DateTime?                     @map("applied_at")
   createdAt                    DateTime                      @default(now()) @map("created_at")
   updatedAt                    DateTime                      @updatedAt @map("updated_at")
   approvals                    ThesisChangeRequestApproval[]
-  reviewer                     Lecturer?                     @relation(fields: [reviewedBy], references: [id])
   thesis                       Thesis?                       @relation(fields: [thesisId], references: [id])
+  requestedBy                  User?                         @relation("ChangeRequestRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  decidedBy                    User?                         @relation("ChangeRequestDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
   newTopic                     ThesisTopic?                  @relation("ChangeRequestNewTopic", fields: [newTopicId], references: [id])
   newSupervisor                Lecturer?                     @relation("ChangeRequestNewSupervisor", fields: [newSupervisorId], references: [id], onDelete: SetNull)
-  supportingDocument           Document?                     @relation("ChangeRequestSupportingDocument", fields: [supportingDocumentId], references: [id], onDelete: SetNull)
   replacedSupervisor           Lecturer?                     @relation("ChangeRequestReplacedSupervisor", fields: [replacedSupervisorLecturerId], references: [id], onDelete: SetNull)
 
-  @@index([reviewedBy], map: "thesis_change_requests_reviewed_by_fkey")
-  @@index([thesisId], map: "thesis_change_requests_thesis_id_fkey")
+  @@index([thesisId, status])
+  @@index([status])
+  @@index([batchId])
+  @@index([requestedByUserId])
+  @@index([decidedByUserId])
   @@index([newTopicId])
   @@index([newSupervisorId])
-  @@index([supportingDocumentId])
   @@index([replacedSupervisorLecturerId])
   @@map("thesis_change_requests")
 }
 
+/// Langkah persetujuan dosen pada sebuah pengajuan perubahan, berurutan menurut `stepOrder`.
 model ThesisChangeRequestApproval {
-  id           String              @id @default(uuid())
-  requestId    String              @map("request_id")
-  lecturerId   String              @map("lecturer_id")
-  status       ApprovalStatus      @default(pending)
-  notes        String?             @db.Text
-  /// 1 = pembimbing saat ini (tier lama); 2 = pembimbing baru (setelah semua tier 1 disetujui)
-  approvalTier Int                 @default(1) @map("approval_tier")
-  createdAt    DateTime            @default(now()) @map("created_at")
-  updatedAt    DateTime            @updatedAt @map("updated_at")
-  lecturer     Lecturer            @relation(fields: [lecturerId], references: [id])
-  request      ThesisChangeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id         String                   @id @default(uuid())
+  requestId  String                   @map("request_id")
+  lecturerId String                   @map("lecturer_id")
+  /// Sebagai apa dosen ini menyetujui.
+  role       ThesisChangeApprovalRole
+  stepOrder  Int                      @default(1) @map("step_order")
+  status     ApprovalStatus           @default(pending)
+  notes      String?                  @db.Text
+  decidedAt  DateTime?                @map("decided_at")
+  createdAt  DateTime                 @default(now()) @map("created_at")
+  updatedAt  DateTime                 @updatedAt @map("updated_at")
+  lecturer   Lecturer                 @relation(fields: [lecturerId], references: [id])
+  request    ThesisChangeRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  @@unique([requestId, lecturerId])
-  @@index([lecturerId], map: "thesis_change_request_approvals_lecturer_id_fkey")
-  @@index([requestId, approvalTier])
+  @@unique([requestId, role])
+  @@index([lecturerId, status])
+  @@index([requestId, stepOrder])
   @@map("thesis_change_request_approvals")
 }
 
@@ -1161,20 +1175,20 @@ model ThesisTopic {
 /// Tabel milestone class-based dipertahankan untuk kompatibilitas; flow proposal
 /// aktif memakai `thesis_proposal_versions` + penilaian TA-03A/TA-03B langsung.
 model ThesisMilestoneTemplate {
-  id               String         @id @default(uuid())
+  id               String      @id @default(uuid())
   name             String
-  description      String?        @db.Text
-  topicId          String?        @map("topic_id")
+  description      String?     @db.Text
+  topicId          String?     @map("topic_id")
   /// Wajib, tanpa default (K18). Template proposal berlaku umum (topicId NULL); template TA per topik.
   phase            ThesisPhase
-  orderIndex       Int            @default(0) @map("order_index")
-  isActive         Boolean        @default(true) @map("is_active")
-  defaultDueDays   Int?           @map("default_due_days")
-  defaultDueDate   DateTime?      @map("default_due_date")
-  weightPercentage Int?           @map("weight_percentage")
-  requiresAdvisor  Boolean        @default(false) @map("requires_advisor")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  orderIndex       Int         @default(0) @map("order_index")
+  isActive         Boolean     @default(true) @map("is_active")
+  defaultDueDays   Int?        @map("default_due_days")
+  defaultDueDate   DateTime?   @map("default_due_date")
+  weightPercentage Int?        @map("weight_percentage")
+  requiresAdvisor  Boolean     @default(false) @map("requires_advisor")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
 
   topic             ThesisTopic?                  @relation(fields: [topicId], references: [id])
   milestones        ThesisMilestone[]
@@ -2260,7 +2274,6 @@ model Document {
   milestoneTemplateAttachments        MilestoneTemplateAttachment[]
   advisorRequestsAttachment           ThesisAdvisorRequest[]           @relation("AdvisorRequestAttachment")
   advisorRequestDraftAttachments      ThesisAdvisorRequestDraft[]      @relation("AdvisorRequestDraftAttachment")
-  thesisChangeRequestSupportingDocs   ThesisChangeRequest[]            @relation("ChangeRequestSupportingDocument")
   thesisStudentInformalLogAttachments ThesisStudentInformalLog[]       @relation("ThesisInformalLogDocument")
   metopenAttendanceImports            MetopenAttendanceImport[]        @relation("MetopenAttendanceImportDocument")
   ta04Batches                         Ta04Batch[]                      @relation("Ta04BatchDocument")
@@ -3114,7 +3127,7 @@ enum Semester {
 }
 
 enum ThesisChangeRequestType {
-  topic
+  title
   supervisor
   both
 }
@@ -3123,6 +3136,23 @@ enum ThesisChangeRequestStatus {
   pending
   approved
   rejected
+  cancelled
+}
+
+/// Posisi pembimbing yang diubah oleh sebuah pengajuan perubahan.
+enum ThesisSupervisorPosition {
+  pembimbing_1
+  pembimbing_2
+}
+
+/// Peran dosen pada langkah persetujuan pengajuan perubahan.
+enum ThesisChangeApprovalRole {
+  /// Pembimbing 1 yang tidak diganti (perubahan judul, atau menambah Pembimbing 2).
+  main_supervisor
+  /// Pembimbing yang digantikan.
+  previous_supervisor
+  /// Pembimbing baru.
+  new_supervisor
 }
 
 enum ProposalStatus {

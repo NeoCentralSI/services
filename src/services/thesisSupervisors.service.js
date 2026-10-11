@@ -41,6 +41,13 @@ export async function assignCoAdvisor(thesisId, lecturerId, actorUserId) {
   if (!thesis) {
     throw new NotFoundError('Tugas akhir tidak ditemukan');
   }
+  // Direct assignment is a proposal-phase path. A research thesis gets its Pembimbing 2
+  // through Pengajuan Perubahan Tugas Akhir (thesis-change-request.service.js).
+  if (thesis.status !== 'proposal') {
+    throw new BadRequestError(
+      'Penetapan langsung Pembimbing 2 hanya untuk tugas akhir berstatus "Proposal". Untuk fase penelitian, gunakan Pengajuan Perubahan Tugas Akhir.'
+    );
+  }
 
   const alreadyHas = await hasPembimbing2(thesisId);
   if (alreadyHas) {

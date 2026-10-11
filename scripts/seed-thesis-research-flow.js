@@ -52,6 +52,9 @@ const TOPIC_NAME = "Pengembangan Sistem (Enterprise Application)";
  *   ({ total, completed }).
  * - `seminar`: a results seminar row with the given status.
  * - `leave`: thesis on leave since `startedDaysAgo`.
+ * - `openSessions`: scheduled (accepted) sessions with Pembimbing 1 a few days ahead.
+ * - `changeRequest`: a pending change request submitted by the student, with
+ *   `approvedSteps` lecturer steps already approved (0 = waiting for the first lecturer).
  */
 const ACCOUNTS = [
   // ── B. Aktivitas dan Masa Bimbingan ────────────────────────────────────────────────
@@ -137,6 +140,151 @@ const ACCOUNTS = [
     milestones: { total: 5, completed: 5 },
     seminarReady: true,
     seminar: { status: "passed", daysAgo: 14 }, // lulus seminar, belum disetujui untuk sidang
+  },
+
+  // ── D. Pengajuan Perubahan Tugas Akhir ─────────────────────────────────────────────
+  {
+    key: "ubah_judul",
+    email: "ta_ubah_judul@fti.unand.ac.id",
+    fullName: "Uji TA Ubah Judul",
+    nim: "2211529007",
+    title: "Sistem Informasi Pengelolaan Alumni",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 6,
+    completedGuidances: 2,
+    milestones: { total: 5, completed: 1 },
+  },
+  {
+    key: "dua_pembimbing",
+    email: "ta_dua_pembimbing@fti.unand.ac.id",
+    fullName: "Uji TA Dua Pembimbing",
+    nim: "2211529008",
+    title: "Aplikasi Penjadwalan Praktikum Berbasis Web",
+    p1: LECTURER.husnil,
+    p2: LECTURER.aina, // ganti Pembimbing 1 dengan Pembimbing 2 yang naik posisi
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 7,
+    completedGuidances: 2,
+    milestones: { total: 5, completed: 1 },
+    openSessions: 1, // dibatalkan sistem saat Pembimbing 1 diganti
+  },
+  {
+    key: "satu_pembimbing",
+    email: "ta_satu_pembimbing@fti.unand.ac.id",
+    fullName: "Uji TA Satu Pembimbing",
+    nim: "2211529009",
+    title: "Sistem Monitoring Inventaris Laboratorium",
+    p1: LECTURER.husnil,
+    p2: null, // tambah Pembimbing 2
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 8,
+    completedGuidances: 2,
+    milestones: { total: 5, completed: 1 },
+  },
+  ...[1, 2, 3].map((n) => ({
+    key: `alih_${n}`,
+    email: `ta_alih_${n}@fti.unand.ac.id`,
+    fullName: `Uji TA Alih ${n}`,
+    nim: `221152901${n - 1}`,
+    title: `Kajian Sistem Informasi Akademik Bagian ${n}`,
+    p1: LECTURER.husnil, // dialihkan lewat "Alihkan Mahasiswa"
+    p2: null,
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 9,
+    completedGuidances: 1,
+    milestones: { total: 5, completed: 1 },
+  })),
+  {
+    key: "seminar_aktif",
+    email: "ta_seminar_aktif@fti.unand.ac.id",
+    fullName: "Uji TA Seminar Aktif",
+    nim: "2211529013",
+    title: "Sistem Informasi Layanan Surat Mahasiswa",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    startedMonthsAgo: 5,
+    lastActivityDaysAgo: 2,
+    completedGuidances: 8,
+    milestones: { total: 5, completed: 5 },
+    seminarReady: true,
+    seminar: { status: "registered", daysAgo: 2 }, // pengajuan perubahan harus ditolak
+  },
+  {
+    key: "batal",
+    email: "ta_batal@fti.unand.ac.id",
+    fullName: "Uji TA Batal Pengajuan",
+    nim: "2211529014",
+    title: "Aplikasi Pencatatan Kegiatan Organisasi",
+    p1: LECTURER.husnil,
+    p2: null,
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 5,
+    completedGuidances: 1,
+    milestones: { total: 5, completed: 1 },
+    // Menunggu Pembimbing 1; mahasiswa membatalkannya.
+    changeRequest: { requestType: "title", newTitle: "Aplikasi Pencatatan dan Pelaporan Kegiatan Organisasi", approvedSteps: 0 },
+  },
+  {
+    key: "tunggu_pembimbing_lama",
+    email: "ta_tunggu_pembimbing_lama@fti.unand.ac.id",
+    fullName: "Uji TA Tunggu Pembimbing Lama",
+    nim: "2211529015",
+    title: "Sistem Informasi Pengaduan Fasilitas Kampus",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 5,
+    completedGuidances: 1,
+    milestones: { total: 5, completed: 1 },
+    // Ganti Pembimbing 2: menunggu pembimbing sebelumnya (Afriyanti).
+    changeRequest: { requestType: "supervisor", supervisorRole: "pembimbing_2", newSupervisor: LECTURER.ullya, approvedSteps: 0 },
+  },
+  {
+    key: "tunggu_pembimbing_baru",
+    email: "ta_tunggu_pembimbing_baru@fti.unand.ac.id",
+    fullName: "Uji TA Tunggu Pembimbing Baru",
+    nim: "2211529016",
+    title: "Aplikasi Rekap Nilai Praktikum",
+    p1: LECTURER.husnil,
+    p2: null,
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 5,
+    completedGuidances: 1,
+    milestones: { total: 5, completed: 1 },
+    // Tambah Pembimbing 2: Pembimbing 1 sudah setuju, menunggu pembimbing baru (Ullya).
+    changeRequest: { requestType: "supervisor", supervisorRole: "pembimbing_2", newSupervisor: LECTURER.ullya, approvedSteps: 1 },
+  },
+  {
+    key: "tunggu_kadep",
+    email: "ta_tunggu_kadep@fti.unand.ac.id",
+    fullName: "Uji TA Tunggu Kadep",
+    nim: "2211529017",
+    title: "Sistem Informasi Bank Soal Ujian",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 5,
+    completedGuidances: 1,
+    milestones: { total: 5, completed: 1 },
+    // Perubahan judul: Pembimbing 1 sudah setuju, menunggu Ketua Departemen.
+    changeRequest: { requestType: "title", newTitle: "Sistem Informasi Bank Soal dan Analisis Butir Ujian", approvedSteps: 1 },
+  },
+  {
+    key: "putus_langsung",
+    email: "ta_putus_langsung@fti.unand.ac.id",
+    fullName: "Uji TA Putus Langsung",
+    nim: "2211529018",
+    title: "Aplikasi Manajemen Tugas Kelompok",
+    p1: LECTURER.aina,
+    p2: null,
+    startedMonthsAgo: 3,
+    lastActivityDaysAgo: 5,
+    completedGuidances: 1,
+    milestones: { total: 5, completed: 1 },
+    // Ganti Pembimbing 1 (Aina -> Husnil): langkah dosen belum berjalan; Kadep memutuskan langsung.
+    changeRequest: { requestType: "supervisor", supervisorRole: "pembimbing_1", newSupervisor: LECTURER.husnil, approvedSteps: 0 },
   },
 ];
 
@@ -231,6 +379,75 @@ async function createMilestones(thesisId, { total, completed }, lastActivityAt) 
   }
 }
 
+/** Scheduled sessions a few days ahead, so a supervisor change has something to cancel. */
+async function createOpenSessions(thesisId, supervisorId, count) {
+  for (let i = 0; i < count; i++) {
+    const scheduledAt = new Date(NOW.getTime() + (3 + i) * DAY);
+    await prisma.thesisGuidance.create({
+      data: {
+        thesisId,
+        supervisorId,
+        requestedDate: scheduledAt,
+        approvedDate: scheduledAt,
+        duration: 60,
+        studentNotes: "Bimbingan terjadwal: pembahasan bab berikutnya.",
+        status: "accepted",
+        phase: THESIS_PHASE.RESEARCH,
+      },
+    });
+  }
+}
+
+const CHANGE_REASON = "Data uji: perubahan diajukan setelah diskusi dengan pembimbing.";
+
+/**
+ * A pending change request submitted by the student. The steps follow the chain of
+ * thesis-change-request.service.js: a title change passes Pembimbing 1; a supervisor change
+ * passes the previous supervisor (or Pembimbing 1 when a position is filled for the first
+ * time) and then the new supervisor.
+ */
+async function createChangeRequest(thesis, student, account, ctx) {
+  const config = account.changeRequest;
+  const p1 = await requireUser(account.p1);
+  const steps = [];
+  const data = { requestType: config.requestType };
+
+  if (config.requestType === "title") {
+    data.previousTitle = thesis.title;
+    data.newTitle = config.newTitle;
+    steps.push({ role: "main_supervisor", lecturerId: p1.id });
+  } else {
+    const newSupervisor = await requireUser(config.newSupervisor);
+    const currentEmail = config.supervisorRole === "pembimbing_1" ? account.p1 : account.p2;
+    const current = currentEmail ? await requireUser(currentEmail) : null;
+    data.supervisorRole = config.supervisorRole;
+    data.replacedSupervisorLecturerId = current?.id ?? null;
+    data.newSupervisorId = newSupervisor.id;
+    steps.push(current ? { role: "previous_supervisor", lecturerId: current.id } : { role: "main_supervisor", lecturerId: p1.id });
+    steps.push({ role: "new_supervisor", lecturerId: newSupervisor.id });
+  }
+
+  const submittedAt = daysAgo(3);
+  await prisma.thesisChangeRequest.create({
+    data: {
+      thesisId: thesis.id,
+      reason: CHANGE_REASON,
+      requestedByUserId: student.id,
+      createdAt: submittedAt,
+      ...data,
+      approvals: {
+        create: steps.map((step, index) => ({
+          ...step,
+          stepOrder: index + 1,
+          ...(index < config.approvedSteps
+            ? { status: "approved", decidedAt: daysAgo(2 - index), notes: "Data uji: disetujui." }
+            : {}),
+        })),
+      },
+    },
+  });
+}
+
 async function seedAccount(account, ctx) {
   const student = await ensureStudent(account, ctx.passwordHash, ctx.roles.student);
   const existing = await prisma.thesis.findFirst({ where: { studentId: student.id } });
@@ -279,6 +496,8 @@ async function seedAccount(account, ctx) {
   const p1 = await requireUser(account.p1);
   await createCompletedGuidances(thesis.id, p1.id, account.completedGuidances ?? 0, lastActivityAt);
   await createMilestones(thesis.id, account.milestones ?? { total: 0, completed: 0 }, lastActivityAt);
+  if (account.openSessions) await createOpenSessions(thesis.id, p1.id, account.openSessions);
+  if (account.changeRequest) await createChangeRequest(thesis, student, account, ctx);
 
   if (account.seminar) {
     const heldAt = daysAgo(account.seminar.daysAgo);

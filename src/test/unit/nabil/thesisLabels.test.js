@@ -11,6 +11,10 @@ import {
   THESIS_TERMINATION_REASON_LABELS,
   THESIS_ACTIVITY_LABELS,
   EVALUATION_DUE_LABELS,
+  CHANGE_REQUEST_TYPE_LABELS,
+  CHANGE_REQUEST_STATUS_LABELS,
+  CHANGE_REQUEST_STEP_LABELS,
+  SUPERVISOR_POSITION_LABELS,
   GUIDANCE_STATUS_LABELS,
   GUIDANCE_ACTOR_LABELS,
   MILESTONE_STATUS_LABELS,
@@ -36,6 +40,10 @@ describe("label bahasa Indonesia untuk enum TA", () => {
     ["GuidanceStatus", GUIDANCE_STATUS_LABELS],
     ["GuidanceActor", GUIDANCE_ACTOR_LABELS],
     ["MilestoneStatus", MILESTONE_STATUS_LABELS],
+    // Paket E (E4): Pengajuan Perubahan Tugas Akhir.
+    ["ThesisChangeRequestType", CHANGE_REQUEST_TYPE_LABELS],
+    ["ThesisChangeRequestStatus", CHANGE_REQUEST_STATUS_LABELS],
+    ["ThesisSupervisorPosition", SUPERVISOR_POSITION_LABELS],
   ])("setiap nilai %s punya label, dan tidak ada label untuk nilai yang tidak ada", (name, labels) => {
     const values = enumValues(name);
     expect(Object.keys(labels).sort()).toEqual([...values].sort());
@@ -43,6 +51,16 @@ describe("label bahasa Indonesia untuk enum TA", () => {
       expect(labels[value]).toMatch(/\S/);
       expect(labels[value]).not.toBe(value);
     }
+  });
+
+  it("langkah pengajuan perubahan: setiap ThesisChangeApprovalRole dan langkah Kadep punya label (K10)", () => {
+    expect(Object.keys(CHANGE_REQUEST_STEP_LABELS).sort()).toEqual([...enumValues("ThesisChangeApprovalRole"), "kadep"].sort());
+    expect(CHANGE_REQUEST_STEP_LABELS).toMatchObject({
+      previous_supervisor: "Pembimbing Sebelumnya",
+      new_supervisor: "Pembimbing Baru",
+      kadep: "Ketua Departemen",
+    });
+    expect(CHANGE_REQUEST_TYPE_LABELS).toEqual({ title: "Judul", supervisor: "Pembimbing", both: "Judul dan Pembimbing" });
   });
 
   it("konstanta nilai enum backend sama dengan schema", () => {

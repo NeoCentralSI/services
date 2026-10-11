@@ -1,5 +1,5 @@
 import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs, getFailedThesesCount, getFailedTheses } from "../services/adminfeatures.service.js";
-import { getPendingCount } from "../services/thesisChangeRequest.service.js";
+import { countPending as getPendingCount } from "../services/thesis-change-request.service.js";
 
 export async function importStudentsCsv(req, res, next) {
 	try {

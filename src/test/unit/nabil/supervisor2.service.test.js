@@ -109,7 +109,8 @@ const THESIS = {
   title: "AI Research",
   studentId: STUDENT_ID,
   academicYearId: "ay-1",
-  status: "research",
+  // E4: this request flow is for proposal theses only.
+  status: "proposal",
   proposalStatus: "accepted",
 };
 
@@ -131,11 +132,12 @@ describe("Pembimbing 2 Service (unit)", () => {
   });
 
   describe("getAvailableSupervisor2Service", () => {
-    it("menolak jika thesis masih fase proposal (F2-2)", async () => {
-      mockActiveThesis({ status: "proposal" });
+    it("menolak TA fase penelitian dan mengarahkan ke Pengajuan Perubahan Tugas Akhir (E4)", async () => {
+      mockActiveThesis({ status: "research" });
 
       await expect(getAvailableSupervisor2Service(STUDENT_USER_ID)).rejects.toMatchObject({
         statusCode: 400,
+        message: expect.stringContaining("Pengajuan Perubahan Tugas Akhir"),
       });
     });
 

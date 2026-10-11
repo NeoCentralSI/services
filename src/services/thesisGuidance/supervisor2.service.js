@@ -73,9 +73,11 @@ async function ensurePembimbing1Exists(thesisId) {
 }
 
 /**
- * Guard status: penambahan Pembimbing 2 boleh dilakukan di fase mana pun
- * (proposal maupun pasca promosi aktif), selama thesis masih aktif/terbuka.
- * P2 dibutuhkan sejak awal agar bisa co-sign TA-03A (BR-20, canon §5.7.1).
+ * Guard status: permintaan Pembimbing 2 lewat alur ini hanya untuk TA berstatus `proposal`
+ * (P2 dibutuhkan sejak awal agar bisa co-sign TA-03A, BR-20, canon §5.7.1).
+ * Setelah TA masuk fase penelitian, Pembimbing 2 ditambahkan melalui Pengajuan Perubahan
+ * Tugas Akhir (`thesis-change-request.service.js`), yang menyimpan keadaannya di tabel
+ * pengajuan dan melewati Pembimbing 1, calon Pembimbing 2, lalu Ketua Departemen.
  */
 function ensureThesisOpenForSupervisor2(thesis) {
 	if (!thesis) {
@@ -87,6 +89,13 @@ function ensureThesisOpenForSupervisor2(thesis) {
 	if (statusName && CLOSED_THESIS_STATUSES.includes(statusName)) {
 		const err = new Error(
 			`Tugas akhir berstatus "${getThesisStatusLabel(statusName)}" sudah ditutup — penambahan Pembimbing 2 tidak tersedia.`,
+		);
+		err.statusCode = 400;
+		throw err;
+	}
+	if (statusName !== THESIS_STATUS.PROPOSAL) {
+		const err = new Error(
+			`Permintaan Pembimbing 2 ini hanya tersedia selama tugas akhir berstatus "${getThesisStatusLabel(THESIS_STATUS.PROPOSAL)}". Untuk tugas akhir berstatus "${getThesisStatusLabel(statusName)}", tambahkan Pembimbing 2 melalui Pengajuan Perubahan Tugas Akhir.`,
 		);
 		err.statusCode = 400;
 		throw err;

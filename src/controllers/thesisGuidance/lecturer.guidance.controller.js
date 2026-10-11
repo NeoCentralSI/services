@@ -21,12 +21,6 @@ import {
 	getGuidanceDetailService,
 	sendWarningNotificationService,
 	approveThesisProposalService,
-	// Transfer
-	getEligibleTransferLecturersService,
-	requestStudentTransferService,
-	getIncomingTransferRequestsService,
-	approveTransferRequestService,
-	rejectTransferRequestService,
 } from "../../services/thesisGuidance/lecturer.guidance.service.js";
 import { SUPERVISOR_ROLES } from "../../constants/roles.js";
 
@@ -302,57 +296,6 @@ export async function approveThesisProposal(req, res, next) {
 	try {
 		const { thesisId } = req.params;
 		const result = await approveThesisProposalService(req.user.sub, thesisId);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-// ==================== STUDENT TRANSFER ====================
-
-export async function getTransferLecturers(req, res, next) {
-	try {
-		const result = await getEligibleTransferLecturersService(req.user.sub);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function requestTransfer(req, res, next) {
-	try {
-		const { thesisIds, targetLecturerId, reason } = req.body;
-		const result = await requestStudentTransferService(req.user.sub, { thesisIds, targetLecturerId, reason });
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function getIncomingTransfers(req, res, next) {
-	try {
-		const result = await getIncomingTransferRequestsService(req.user.sub);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function approveTransfer(req, res, next) {
-	try {
-		const { notificationId } = req.params;
-		const result = await approveTransferRequestService(req.user.sub, notificationId);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function rejectTransfer(req, res, next) {
-	try {
-		const { notificationId } = req.params;
-		const { reason } = req.body || {};
-		const result = await rejectTransferRequestService(req.user.sub, notificationId, { reason });
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

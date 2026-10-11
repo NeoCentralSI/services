@@ -76,6 +76,35 @@ export const MILESTONE_STATUS_LABELS = Object.freeze({
   deleted: "Dihapus",
 });
 
+/** `ThesisChangeRequestType` (Pengajuan Perubahan Tugas Akhir, K10). */
+export const CHANGE_REQUEST_TYPE_LABELS = Object.freeze({
+  title: "Judul",
+  supervisor: "Pembimbing",
+  both: "Judul dan Pembimbing",
+});
+
+/** `ThesisChangeRequestStatus` */
+export const CHANGE_REQUEST_STATUS_LABELS = Object.freeze({
+  pending: "Menunggu Persetujuan",
+  approved: "Disetujui",
+  rejected: "Ditolak",
+  cancelled: "Dibatalkan",
+});
+
+/** Approval steps of a change request: `ThesisChangeApprovalRole` plus the final Kadep step. */
+export const CHANGE_REQUEST_STEP_LABELS = Object.freeze({
+  main_supervisor: "Pembimbing 1",
+  previous_supervisor: "Pembimbing Sebelumnya",
+  new_supervisor: "Pembimbing Baru",
+  kadep: "Ketua Departemen",
+});
+
+/** `ThesisSupervisorPosition` */
+export const SUPERVISOR_POSITION_LABELS = Object.freeze({
+  pembimbing_1: "Pembimbing 1",
+  pembimbing_2: "Pembimbing 2",
+});
+
 const labelOf = (labels) => (value) => (value ? labels[value] ?? String(value) : "-");
 
 export const getThesisStatusLabel = labelOf(THESIS_STATUS_LABELS);
@@ -86,3 +115,7 @@ export const getEvaluationDueLabel = labelOf(EVALUATION_DUE_LABELS);
 export const getGuidanceStatusLabel = labelOf(GUIDANCE_STATUS_LABELS);
 export const getGuidanceActorLabel = labelOf(GUIDANCE_ACTOR_LABELS);
 export const getMilestoneStatusLabel = labelOf(MILESTONE_STATUS_LABELS);
+export const getChangeRequestTypeLabel = labelOf(CHANGE_REQUEST_TYPE_LABELS);
+export const getChangeRequestStatusLabel = labelOf(CHANGE_REQUEST_STATUS_LABELS);
+export const getChangeRequestStepLabel = labelOf(CHANGE_REQUEST_STEP_LABELS);
+export const getSupervisorPositionLabel = labelOf(SUPERVISOR_POSITION_LABELS);

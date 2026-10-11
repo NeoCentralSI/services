@@ -54,9 +54,21 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
 
   const baseThesis = {
     id: "thesis-1",
+    // E4: direct assignment is a proposal-phase path.
+    status: "proposal",
     student: { user: { id: "student-1", fullName: "Mahasiswa Test" } },
     thesisSupervisors: [{ lecturerId: "lec-1", role: { name: "Pembimbing 1" } }],
   };
+
+  it("rejects (400) a research thesis: Pembimbing 2 goes through a thesis change request", async () => {
+    mockPrisma.thesis.findUnique.mockResolvedValue({ ...baseThesis, status: "research" });
+
+    await expect(assignCoAdvisor("thesis-1", "lec-2", "kadep-1")).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("Pengajuan Perubahan Tugas Akhir"),
+    });
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
 
   it("assigns Pembimbing 2 when thesis exists and has no P2", async () => {
     mockPrisma.thesis.findUnique.mockResolvedValue(baseThesis);
