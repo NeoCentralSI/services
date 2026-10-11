@@ -193,6 +193,14 @@ describe("guard /uploads/thesis dengan authGuard dan JWT asli", async () => {
     expect((await withToken("p1")).status).toBe(200);
   });
 
+  // Paket D (D3): authGuard only reads the Authorization header.
+  it("token valid di query string tanpa header Authorization → 401", async () => {
+    const res = await request(realApp).get(`/uploads/thesis/${GUIDANCE}`).query({ token: tokenOf("owner") });
+    expect(res.status).toBe(401);
+    // the same token in the header is accepted
+    expect((await withToken("owner")).status).toBe(200);
+  });
+
   it("tanpa token → 401; token tidak sah → 401", async () => {
     expect((await request(realApp).get(`/uploads/thesis/${GUIDANCE}`)).status).toBe(401);
     expect((await request(realApp).get(`/uploads/thesis/${GUIDANCE}`).set("Authorization", "Bearer bukan.token.sah")).status).toBe(401);
