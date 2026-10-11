@@ -880,10 +880,6 @@ model Thesis {
   rating                ThesisRating @default(ONGOING)
   /// out-of-SIMPTA-scope: Modul TA penuh — deadline absolut thesis.
   deadlineDate          DateTime?    @map("deadline_date")
-  /// out-of-SIMPTA-scope: Modul TA penuh — final thesis document setelah Sidang.
-  finalThesisDocumentId String?      @map("final_thesis_document_id")
-  /// out-of-SIMPTA-scope: Modul TA penuh — defence registration timestamp.
-  defenceRequestedAt    DateTime?    @map("defence_requested_at")
 
   // === LEGACY (deprecated per PRD §5.2) ===
   /// @deprecated Use `finalProposalVersionId` instead. Sumber: canon §5.6 + PRD §5.2.
@@ -895,7 +891,6 @@ model Thesis {
   updatedAt                  DateTime                    @updatedAt @map("updated_at")
   // Relations
   academicYear               AcademicYear?               @relation(fields: [academicYearId], references: [id])
-  finalThesisDocument        Document?                   @relation("FinalThesisDocument", fields: [finalThesisDocumentId], references: [id])
   proposalDocument           Document?                   @relation("ProposalDocument", fields: [proposalDocumentId], references: [id])
   finalProposalVersion       ThesisProposalVersion?      @relation("FinalProposalVersion", fields: [finalProposalVersionId], references: [id])
   titleApprovalDocument      Document?                   @relation("TitleApprovalDocument", fields: [titleApprovalDocumentId], references: [id])
@@ -922,7 +917,6 @@ model Thesis {
   ta04BatchMembers           Ta04BatchMember[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
-  @@index([finalThesisDocumentId], map: "thesis_final_thesis_document_id_fkey")
   @@index([proposalDocumentId], map: "thesis_proposal_document_id_fkey")
   @@index([finalProposalVersionId], map: "thesis_final_proposal_version_id_fkey")
   @@index([titleApprovalDocumentId])
@@ -2257,7 +2251,6 @@ model Document {
   internshipCompanyReportDocs         Internship[]                     @relation("InternshipCompanyReportDoc")
   internshipSeminarBeritaAcara        InternshipSeminar[]              @relation("InternshipSeminarBeritaAcara")
   internshipLogbookDoc                Internship[]                     @relation("InternshipLogbookDoc")
-  thesisFinalDocument                 Thesis[]                         @relation("FinalThesisDocument")
   thesisProposalDocument              Thesis[]                         @relation("ProposalDocument")
   thesisProposalVersionDocs           ThesisProposalVersion[]          @relation("ThesisProposalVersionDocument")
   thesisTitleApprovalDocs             Thesis[]                         @relation("TitleApprovalDocument")

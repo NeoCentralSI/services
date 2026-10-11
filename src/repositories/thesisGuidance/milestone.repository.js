@@ -460,6 +460,7 @@ export function getThesisSeminarReadiness(thesisId) {
     select: {
       id: true,
       title: true,
+      status: true,
       student: {
         select: {
           id: true,
@@ -650,17 +651,7 @@ export function getThesisDefenceReadiness(thesisId) {
     select: {
       id: true,
       title: true,
-      finalThesisDocumentId: true,
-      defenceRequestedAt: true,
       status: true,
-      finalThesisDocument: {
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-          createdAt: true,
-        },
-      },
       student: {
         select: {
           id: true,
@@ -769,53 +760,39 @@ export async function revokeDefenceReadiness(thesisId, lecturerId) {
 }
 
 /**
- * Update thesis with final document and request defence
+ * Latest research-phase guidance attachment of a thesis: what a supervisor reads as the
+ * current draft before approving seminar/defence readiness. Null when none was uploaded.
  */
-export function updateThesisDefenceRequest(thesisId, documentId) {
-  return prisma.thesis.update({
-    where: { id: thesisId },
-    data: {
-      finalThesisDocumentId: documentId,
-      defenceRequestedAt: new Date(),
-    },
-    select: {
-      id: true,
-      title: true,
-      finalThesisDocumentId: true,
-      defenceRequestedAt: true,
-      finalThesisDocument: {
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-        },
-      },
-    },
+export async function findLatestGuidanceAttachment(thesisId) {
+  const guidance = await prisma.thesisGuidance.findFirst({
+    where: { thesisId, ...TA_PHASE, filePath: { not: null }, status: { not: "deleted" } },
+    orderBy: [{ fileUploadedAt: "desc" }, { createdAt: "desc" }],
+    select: { id: true, fileName: true, filePath: true, fileUploadedAt: true },
   });
+  if (!guidance) return null;
+  return {
+    guidanceId: guidance.id,
+    fileName: guidance.fileName,
+    filePath: guidance.filePath,
+    uploadedAt: guidance.fileUploadedAt,
+  };
 }
 
 /**
- * Get list of students ready for defence (both supervisors approved)
+ * Get list of students ready for defence (every active supervisor approved)
  */
 export function findStudentsReadyForDefence() {
   return prisma.thesis.findMany({
     where: {
-      defenceRequestedAt: { not: null },
       thesisSupervisors: {
+        some: { status: "active", defenceReady: true },
         every: { OR: [{ status: { not: "active" } }, { defenceReady: true }] },
       },
     },
     select: {
       id: true,
       title: true,
-      defenceRequestedAt: true,
-      finalThesisDocument: {
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-        },
-      },
+      updatedAt: true,
       student: {
         select: {
           id: true,
@@ -841,7 +818,7 @@ export function findStudentsReadyForDefence() {
         },
       },
     },
-    orderBy: { defenceRequestedAt: "desc" },
+    orderBy: { updatedAt: "desc" },
   });
 }
 

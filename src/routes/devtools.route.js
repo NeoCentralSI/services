@@ -200,7 +200,6 @@ async function deleteStudentSimptaProgress(tx, studentId) {
       data: {
         finalProposalVersionId: null,
         proposalDocumentId: null,
-        finalThesisDocumentId: null,
         titleApprovalDocumentId: null,
         proposalReviewedByUserId: null,
       },

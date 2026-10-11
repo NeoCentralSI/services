@@ -285,13 +285,13 @@ router.post(
 );
 
 /**
- * POST /api/milestones/thesis/:thesisId/seminar-readiness/remind
- * Request to remind supervisors to approve seminar readiness
+ * POST /api/milestones/thesis/:thesisId/seminar-readiness/request
+ * Student asks the supervisors to approve seminar readiness (notification only)
  */
 router.post(
-  "/thesis/:thesisId/seminar-readiness/remind",
+  "/thesis/:thesisId/seminar-readiness/request",
   authGuard, requireRoles(ROLES.MAHASISWA),
-  controller.remindSeminarReadiness
+  controller.requestSeminarApproval
 );
 
 // ============================================
@@ -333,14 +333,13 @@ router.post(
 );
 
 /**
- * POST /api/milestones/thesis/:thesisId/request-defence
- * Student requests defence by uploading final thesis document
+ * POST /api/milestones/thesis/:thesisId/defence-readiness/request
+ * Student asks the supervisors to approve defence readiness (notification only)
  */
 router.post(
-  "/thesis/:thesisId/request-defence",
+  "/thesis/:thesisId/defence-readiness/request",
   authGuard, requireRoles(ROLES.MAHASISWA),
-  validate(validator.requestDefenceSchema),
-  controller.requestDefence
+  controller.requestDefenceApproval
 );
 
 /**

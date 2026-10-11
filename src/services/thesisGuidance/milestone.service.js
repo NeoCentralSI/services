@@ -938,8 +938,162 @@ export async function reorderMilestones(thesisId, userId, milestoneOrders) {
 }
 
 // ============================================
-// Seminar Readiness Approval Services
+// Seminar & Defence Readiness
 // ============================================
+// Readiness is decided from what the system can count plus the approval of every active
+// supervisor (`seminarReady` / `defenceReady`). The student uploads nothing here: supervisors
+// read the draft through guidance attachments, and seminar/defence registration has its own
+// requirement documents.
+
+/** Completed research-phase guidance sessions required before the results seminar. */
+export const MIN_COMPLETED_GUIDANCES = 8;
+
+const READINESS_KINDS = Object.freeze({
+  seminar: {
+    flag: "seminarReady",
+    noun: "seminar hasil",
+    title: "Seminar",
+    approvedAction: AUDIT_ACTIONS.SEMINAR_READINESS_APPROVED,
+    revokedAction: AUDIT_ACTIONS.SEMINAR_READINESS_REVOKED,
+    requestedAction: AUDIT_ACTIONS.SEMINAR_READINESS_REQUESTED,
+    approve: (thesisId, lecturerId) => milestoneRepo.approveSeminarReadiness(thesisId, lecturerId),
+    revoke: (thesisId, lecturerId) => milestoneRepo.revokeSeminarReadiness(thesisId, lecturerId),
+  },
+  defence: {
+    flag: "defenceReady",
+    noun: "sidang",
+    title: "Sidang",
+    approvedAction: AUDIT_ACTIONS.DEFENCE_READINESS_APPROVED,
+    revokedAction: AUDIT_ACTIONS.DEFENCE_READINESS_REVOKED,
+    requestedAction: AUDIT_ACTIONS.DEFENCE_READINESS_REQUESTED,
+    approve: (thesisId, lecturerId) => milestoneRepo.approveDefenceReadiness(thesisId, lecturerId),
+    revoke: (thesisId, lecturerId) => milestoneRepo.revokeDefenceReadiness(thesisId, lecturerId),
+  },
+});
+
+const isMainSupervisorRole = (roleName) => isPembimbing1(roleName) || isPembimbing2(roleName);
+const supervisorLabel = (roleName) => (isPembimbing1(roleName) ? "Pembimbing 1" : "Pembimbing 2");
+
+/** Seminar: >= 8 completed research-phase sessions and every milestone completed. */
+function buildSeminarRequirements(progress, completedGuidances) {
+  return [
+    {
+      key: "guidance",
+      label: `Minimal ${MIN_COMPLETED_GUIDANCES} sesi bimbingan fase penelitian berstatus Selesai`,
+      met: completedGuidances >= MIN_COMPLETED_GUIDANCES,
+      detail: `${completedGuidances} dari ${MIN_COMPLETED_GUIDANCES} sesi`,
+    },
+    {
+      key: "milestone",
+      label: "Seluruh milestone selesai (100%)",
+      met: !!progress.isComplete,
+      detail: progress.total > 0 ? `${progress.completed} dari ${progress.total} milestone selesai` : "Belum ada milestone",
+    },
+  ];
+}
+
+/**
+ * Defence: the latest results seminar is passed, and its revision is finalised when it
+ * passed with revision.
+ */
+function buildDefenceRequirements(thesisSeminars = []) {
+  const latest = thesisSeminars?.[0] ?? null;
+  const passed = latest?.status === "passed" || latest?.status === "passed_with_revision";
+  const requirements = [
+    {
+      key: "seminar",
+      label: "Seminar hasil dinyatakan lulus",
+      met: passed,
+      detail: !latest
+        ? "Belum ada seminar hasil"
+        : latest.status === "passed"
+          ? "Lulus"
+          : latest.status === "passed_with_revision"
+            ? "Lulus dengan revisi"
+            : "Belum dinyatakan lulus",
+    },
+  ];
+  if (latest?.status === "passed_with_revision") {
+    requirements.push({
+      key: "seminar_revision",
+      label: "Revisi seminar hasil sudah difinalkan",
+      met: !!latest.revisionFinalizedAt,
+      detail: latest.revisionFinalizedAt ? "Sudah difinalkan" : "Belum difinalkan",
+    });
+  }
+  return requirements;
+}
+
+const requirementsMet = (requirements) => requirements.every((item) => item.met);
+
+/** Text for an unmet requirement list, used in 400 responses. */
+function describeUnmet(requirements) {
+  return requirements.filter((item) => !item.met).map((item) => `${item.label} (${item.detail})`).join("; ");
+}
+
+/** Approval state of the active Pembimbing 1/2 relations for one readiness flag. */
+function readApprovals(thesisSupervisors = [], userId, flag) {
+  const main = thesisSupervisors.filter((p) => isMainSupervisorRole(p.role?.name));
+  const sup1 = main.find((p) => isPembimbing1(p.role?.name));
+  const sup2 = main.find((p) => isPembimbing2(p.role?.name));
+  const current = main.find((p) => p.lecturer?.user?.id === userId);
+  return {
+    supervisors: thesisSupervisors.map((p) => ({
+      id: p.lecturerId,
+      name: p.lecturer?.user?.fullName,
+      email: p.lecturer?.user?.email,
+      role: p.role?.name,
+      hasApproved: !!p[flag],
+    })),
+    approvedBySupervisor1: !!sup1?.[flag],
+    approvedBySupervisor2: !!sup2?.[flag],
+    // Every active supervisor must approve; a thesis without one is never approved.
+    isFullyApproved: main.length > 0 && main.every((p) => !!p[flag]),
+    hasSupervisor: main.length > 0,
+    currentUserRole: current?.role?.name || null,
+    currentUserHasApproved: !!current?.[flag],
+  };
+}
+
+function studentOf(thesis) {
+  return {
+    id: thesis.student?.id,
+    userId: thesis.student?.user?.id,
+    name: thesis.student?.user?.fullName,
+    nim: thesis.student?.user?.identityNumber,
+    email: thesis.student?.user?.email,
+  };
+}
+
+/** Why the readiness flow is closed for this thesis status, or null when it is open. */
+function readinessStatusBlock(thesis, kind) {
+  if (thesis?.status === THESIS_STATUS.RESEARCH) return null;
+  return `Persetujuan kesiapan ${READINESS_KINDS[kind].noun} hanya berlaku untuk tugas akhir berstatus "${THESIS_STATUS_LABELS.research}". Status saat ini "${THESIS_STATUS_LABELS[thesis?.status] ?? "-"}".`;
+}
+
+/**
+ * Reasons shown next to the disabled buttons. The same checks run again when the action is
+ * submitted (K14).
+ */
+function readinessActionReasons(thesis, kind, requirements, approvals) {
+  const statusBlock = readinessStatusBlock(thesis, kind);
+  const unmet = requirementsMet(requirements) ? null : "Syarat sistem belum terpenuhi.";
+  return {
+    requestBlockedReason:
+      statusBlock ??
+      unmet ??
+      (!approvals.hasSupervisor
+        ? "Tugas akhir belum memiliki pembimbing aktif."
+        : approvals.isFullyApproved
+          ? "Semua pembimbing sudah menyetujui."
+          : null),
+    approveBlockedReason: statusBlock ?? unmet,
+  };
+}
+
+async function countCompletedResearchGuidances(thesisId) {
+  return prisma.thesisGuidance.count({ where: { thesisId, ...TA_PHASE, status: "completed" } });
+}
 
 /**
  * Get thesis seminar readiness status
@@ -952,52 +1106,23 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
     throw notFound("Thesis tidak ditemukan");
   }
 
-  // Get milestone completion status
-  const progress = await milestoneRepo.getThesisProgress(thesisId);
+  const [progress, completedGuidancesCount, latestGuidanceAttachment] = await Promise.all([
+    milestoneRepo.getThesisProgress(thesisId),
+    countCompletedResearchGuidances(thesisId),
+    milestoneRepo.findLatestGuidanceAttachment(thesisId),
+  ]);
 
-  // Derive per-supervisor approval from thesisSupervisors
-  const sup1 = thesis.thesisSupervisors.find((p) => isPembimbing1(p.role?.name));
-  const sup2 = thesis.thesisSupervisors.find((p) => isPembimbing2(p.role?.name));
-  const approvedBySupervisor1 = sup1?.seminarReady || false;
-  const approvedBySupervisor2 = sup2?.seminarReady || false;
-  // If only 1 supervisor exists, only their approval is needed
-  const isFullyApproved = (sup1 ? approvedBySupervisor1 : true) && (sup2 ? approvedBySupervisor2 : true);
-
-  const supervisors = thesis.thesisSupervisors.map((p) => ({
-    id: p.lecturerId,
-    name: p.lecturer?.user?.fullName,
-    email: p.lecturer?.user?.email,
-    role: p.role?.name,
-    hasApproved: p.seminarReady || false,
-  }));
-
-  // Determine current user's role as supervisor
-  const currentUserParticipant = thesis.thesisSupervisors.find(
-    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
-  );
-  const currentUserRole = currentUserParticipant?.role?.name || null;
-  const currentUserHasApproved = currentUserParticipant?.seminarReady || false;
-
-  // Get guidance sessions status
-  const completedGuidancesCount = await prisma.thesisGuidance.count({
-    where: {
-      thesisId,
-      ...TA_PHASE,
-      status: "completed",
-    },
-  });
-  const isGuidanceComplete = completedGuidancesCount >= 8;
+  const requirements = buildSeminarRequirements(progress, completedGuidancesCount);
+  const approvals = readApprovals(thesis.thesisSupervisors, userId, "seminarReady");
+  const allMet = requirementsMet(requirements);
 
   return {
     thesisId: thesis.id,
     thesisTitle: thesis.title,
-    student: {
-      id: thesis.student?.id,
-      userId: thesis.student?.user?.id,
-      name: thesis.student?.user?.fullName,
-      nim: thesis.student?.user?.identityNumber,
-      email: thesis.student?.user?.email,
-    },
+    thesisStatus: thesis.status ?? null,
+    student: studentOf(thesis),
+    requirements,
+    requirementsMet: allMet,
     milestoneProgress: {
       total: progress.total,
       completed: progress.completed,
@@ -1006,312 +1131,21 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
     },
     guidanceProgress: {
       completed: completedGuidancesCount,
-      required: 8,
-      isComplete: isGuidanceComplete,
+      required: MIN_COMPLETED_GUIDANCES,
+      isComplete: completedGuidancesCount >= MIN_COMPLETED_GUIDANCES,
     },
     seminarReadiness: {
-      approvedBySupervisor1,
-      approvedBySupervisor2,
-      isFullyApproved,
+      approvedBySupervisor1: approvals.approvedBySupervisor1,
+      approvedBySupervisor2: approvals.approvedBySupervisor2,
+      isFullyApproved: approvals.isFullyApproved,
     },
-    supervisors,
-    currentUserRole,
-    currentUserHasApproved,
-    canRegisterSeminar: progress.isComplete && isGuidanceComplete && isFullyApproved,
+    supervisors: approvals.supervisors,
+    currentUserRole: approvals.currentUserRole,
+    currentUserHasApproved: approvals.currentUserHasApproved,
+    latestGuidanceAttachment: latestGuidanceAttachment ?? null,
+    ...readinessActionReasons(thesis, "seminar", requirements, approvals),
+    canRegisterSeminar: allMet && approvals.isFullyApproved,
   };
-}
-
-/**
- * Approve seminar readiness by supervisor
- */
-export async function approveSeminarReadiness(thesisId, userId, notes = null) {
-  const { thesis, isSupervisor } = await getThesisWithAccess(thesisId, userId);
-
-  if (!isSupervisor) {
-    throw forbidden("Hanya dosen pembimbing yang dapat memberikan approval");
-  }
-
-  // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisSupervisors.find(
-    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
-  );
-
-  if (!supervisorParticipant) {
-    throw forbidden("Anda bukan pembimbing dari thesis ini");
-  }
-
-  const supervisorRole = supervisorParticipant.role?.name;
-  const isSupervisor1 = isPembimbing1(supervisorRole);
-  const lecturerId = supervisorParticipant.lecturerId;
-  const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
-
-  // Check milestone completion
-  const progress = await milestoneRepo.getThesisProgress(thesisId);
-  if (!progress.isComplete) {
-    throw createError(
-      `Mahasiswa belum menyelesaikan semua milestone (${progress.completed}/${progress.total}). ` +
-      "Pastikan semua milestone sudah tervalidasi sebelum memberikan approval."
-    );
-  }
-
-  // Check minimum completed guidances (8 sessions)
-  const completedGuidancesCount = await prisma.thesisGuidance.count({
-    where: {
-      thesisId,
-      ...TA_PHASE,
-      status: "completed",
-    },
-  });
-
-  if (completedGuidancesCount < 8) {
-    throw createError(
-      `Mahasiswa baru menyelesaikan ${completedGuidancesCount} sesi bimbingan. ` +
-      "Minimal 8 sesi bimbingan yang berstatus 'completed' diperlukan sebelum menyetujui kesiapan seminar."
-    );
-  }
-
-  const updated = await milestoneRepo.approveSeminarReadiness(thesisId, lecturerId);
-
-  // Derive fully approved from all supervisors
-  const isFullyApproved = updated.thesisSupervisors.every((s) => s.seminarReady);
-
-  // Get student userId for notification
-  const studentUserId = thesis.student?.user?.id;
-
-  // Paket A (K15): "Acc Seminar" is no longer a thesis status; readiness is the
-  // supervisors' seminarReady flags. The thesis status stays `research`.
-
-  // Send notification to student
-  if (studentUserId) {
-    const notifTitle = isFullyApproved
-      ? "🎉 Kesiapan Seminar Disetujui Penuh!"
-      : `✅ Persetujuan Seminar dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"}`;
-    const notifMessage = isFullyApproved
-      ? `Selamat! Semua pembimbing telah menyetujui kesiapan seminar Anda. Anda sekarang dapat mendaftar seminar.`
-      : `${supervisorName} telah menyetujui kesiapan seminar Anda. Menunggu persetujuan dari pembimbing lainnya.`;
-
-    // Create in-app notification
-    await createNotification({
-      userId: studentUserId,
-      title: notifTitle,
-      message: notifMessage,
-    });
-
-    // Send FCM push notification
-    sendFcmToUsers([studentUserId], {
-      title: notifTitle,
-      body: notifMessage,
-      data: {
-        type: "seminar_readiness_approved",
-        thesisId,
-        isFullyApproved: String(isFullyApproved),
-      },
-    }).catch((err) => console.error("[FCM] Error sending seminar approval notification:", err));
-  }
-
-  // Derive per-role approval from updated supervisors
-  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name));
-  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name));
-
-  await logAudit({
-    actorUserId: userId,
-    action: AUDIT_ACTIONS.SEMINAR_READINESS_APPROVED,
-    entityType: ENTITY_TYPES.THESIS,
-    entityId: thesisId,
-    newValues: { supervisorRole: isSupervisor1 ? 'pembimbing_1' : 'pembimbing_2', isFullyApproved, notes },
-  });
-
-  return {
-    success: true,
-    message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil diberikan`,
-    data: {
-      thesisId: updated.id,
-      thesisTitle: updated.title,
-      approvedBySupervisor1: sup1?.seminarReady || false,
-      approvedBySupervisor2: sup2?.seminarReady || false,
-      isFullyApproved,
-    },
-  };
-}
-
-/**
- * Revoke seminar readiness approval by supervisor
- */
-export async function revokeSeminarReadiness(thesisId, userId, notes = null) {
-  const { thesis, isSupervisor } = await getThesisWithAccess(thesisId, userId);
-
-  if (!isSupervisor) {
-    throw forbidden("Hanya dosen pembimbing yang dapat mencabut approval");
-  }
-
-  // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisSupervisors.find(
-    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
-  );
-
-  if (!supervisorParticipant) {
-    throw forbidden("Anda bukan pembimbing dari thesis ini");
-  }
-
-  const supervisorRole = supervisorParticipant.role?.name;
-  const isSupervisor1 = isPembimbing1(supervisorRole);
-  const lecturerId = supervisorParticipant.lecturerId;
-  const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
-
-  const updated = await milestoneRepo.revokeSeminarReadiness(thesisId, lecturerId);
-
-  // Get student userId for notification
-  const studentUserId = thesis.student?.user?.id;
-
-  // Send notification to student
-  if (studentUserId) {
-    const notifTitle = `⚠️ Persetujuan Seminar Dicabut`;
-    const notifMessage = `${supervisorName} telah mencabut persetujuan kesiapan seminar Anda.${notes ? ` Alasan: ${notes}` : ""}`;
-
-    // Create in-app notification
-    await createNotification({
-      userId: studentUserId,
-      title: notifTitle,
-      message: notifMessage,
-    });
-
-    // Send FCM push notification
-    sendFcmToUsers([studentUserId], {
-      title: notifTitle,
-      body: notifMessage,
-      data: {
-        type: "seminar_readiness_revoked",
-        thesisId,
-      },
-    }).catch((err) => console.error("[FCM] Error sending seminar revoke notification:", err));
-  }
-
-  // Derive per-role approval from updated supervisors
-  const sup1 = updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name));
-  const sup2 = updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name));
-
-  await logAudit({
-    actorUserId: userId,
-    action: AUDIT_ACTIONS.SEMINAR_READINESS_REVOKED,
-    entityType: ENTITY_TYPES.THESIS,
-    entityId: thesisId,
-    newValues: { supervisorRole: isSupervisor1 ? 'pembimbing_1' : 'pembimbing_2', notes },
-  });
-
-  return {
-    success: true,
-    message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil dicabut`,
-    data: {
-      thesisId: updated.id,
-      thesisTitle: updated.title,
-      approvedBySupervisor1: sup1?.seminarReady || false,
-      approvedBySupervisor2: sup2?.seminarReady || false,
-      isFullyApproved: false,
-    },
-  };
-}
-
-/**
- * Get list of students ready for seminar registration
- */
-export async function getStudentsReadyForSeminar() {
-  const theses = await milestoneRepo.findStudentsReadyForSeminar();
-
-  return theses.map((t) => ({
-    thesisId: t.id,
-    thesisTitle: t.title,
-    student: {
-      name: t.student?.user?.fullName,
-      nim: t.student?.user?.identityNumber,
-      email: t.student?.user?.email,
-    },
-    supervisors: t.thesisSupervisors.map((p) => ({
-      name: p.lecturer?.user?.fullName,
-      role: p.role?.name,
-      seminarReady: p.seminarReady || false,
-    })),
-  }));
-}
-
-/**
- * Remind supervisors to approve seminar readiness
- */
-export async function remindSeminarReadiness(thesisId, userId) {
-  // Only the owning student may remind supervisors (route guard: MAHASISWA).
-  const { thesis } = await getThesisWithAccess(thesisId, userId, true);
-
-  // Get student info for notification
-  const studentName = thesis.student?.user?.fullName || "Mahasiswa";
-
-  // Identify supervisors who haven't approved yet
-  const pendingSupervisors = thesis.thesisSupervisors.filter(
-    (s) => !s.seminarReady && (isPembimbing1(s.role?.name) || isPembimbing2(s.role?.name))
-  );
-
-  if (pendingSupervisors.length === 0) {
-    return { success: false, message: "Semua pembimbing sudah menyetujui kesiapan seminar." };
-  }
-
-  const supervisorUserIds = pendingSupervisors
-    .map((s) => s.lecturer?.user?.id)
-    .filter(Boolean);
-
-  if (supervisorUserIds.length > 0) {
-    const notifTitle = "🔔 Pengingat Persetujuan Seminar";
-    const notifMessage = `${studentName} mengingatkan Anda untuk meninjau dan menyetujui kesiapan seminar nya.`;
-
-    // Create in-app notifications
-    for (const supervisorUserId of supervisorUserIds) {
-      await createNotification({
-        userId: supervisorUserId,
-        title: notifTitle,
-        message: notifMessage,
-      });
-    }
-
-    // Send FCM push notification
-    try {
-      await sendFcmToUsers(supervisorUserIds, {
-        title: notifTitle,
-        body: notifMessage,
-        data: {
-          type: "seminar_readiness_reminder",
-          thesisId,
-        },
-      });
-    } catch (err) {
-      console.error("[FCM] Error sending seminar reminder notification:", err);
-    }
-  }
-
-  return { success: true, message: "Pengingat berhasil dikirim ke pembimbing." };
-}
-
-// ============================================
-// Defence Readiness Approval Services
-// ============================================
-
-/**
- * Check if student has completed the seminar through ThesisSeminar table
- */
-function isSeminarCompleted(thesisSeminars = []) {
-  if (!thesisSeminars || thesisSeminars.length === 0) return false;
-  
-  // Get latest seminar attempt
-  const latestSeminar = thesisSeminars[0];
-  if (!latestSeminar) return false;
-
-  const { status, revisionFinalizedAt } = latestSeminar;
-
-  if (status === "passed") {
-    return true;
-  }
-  
-  if (status === "passed_with_revision" && revisionFinalizedAt) {
-    return true;
-  }
-  
-  return false;
 }
 
 /**
@@ -1325,250 +1159,232 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
     throw notFound("Thesis tidak ditemukan");
   }
 
-  const isEligibleStatus = isSeminarCompleted(thesis.thesisSeminars);
-  const hasFinalDocument = !!thesis.finalThesisDocumentId;
-  const hasRequestedDefence = !!thesis.defenceRequestedAt;
-
-  // Determine supervisor roles
-  const supervisors = thesis.thesisSupervisors.map((p) => ({
-    id: p.lecturerId,
-    name: p.lecturer?.user?.fullName,
-    email: p.lecturer?.user?.email,
-    role: p.role?.name,
-    hasApproved: p.defenceReady,
-  }));
-
-  // Determine current user's role as supervisor
-  const currentUserParticipant = thesis.thesisSupervisors.find(
-    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
-  );
-  const currentUserRole = currentUserParticipant?.role?.name || null;
-  const currentUserHasApproved = currentUserParticipant?.defenceReady || false;
-
-  const sup1Defence = thesis.thesisSupervisors.find((p) => isPembimbing1(p.role?.name));
-  const sup2Defence = thesis.thesisSupervisors.find((p) => isPembimbing2(p.role?.name));
-  const approvedBySupervisor1 = sup1Defence?.defenceReady || false;
-  const approvedBySupervisor2 = sup2Defence?.defenceReady || false;
-  // If only 1 supervisor exists, only their approval is needed
-  const isFullyApproved = (sup1Defence ? approvedBySupervisor1 : true) && (sup2Defence ? approvedBySupervisor2 : true);
+  const latestGuidanceAttachment = await milestoneRepo.findLatestGuidanceAttachment(thesisId);
+  const requirements = buildDefenceRequirements(thesis.thesisSeminars);
+  const approvals = readApprovals(thesis.thesisSupervisors, userId, "defenceReady");
+  const allMet = requirementsMet(requirements);
 
   return {
     thesisId: thesis.id,
     thesisTitle: thesis.title,
-    student: {
-      id: thesis.student?.id,
-      userId: thesis.student?.user?.id,
-      name: thesis.student?.user?.fullName,
-      nim: thesis.student?.user?.identityNumber,
-      email: thesis.student?.user?.email,
-    },
-    thesisStatus: {
-      name: thesis.status,
-      isEligible: isEligibleStatus,
-    },
-    finalDocument: thesis.finalThesisDocument ? {
-      id: thesis.finalThesisDocument.id,
-      fileName: thesis.finalThesisDocument.fileName,
-      filePath: thesis.finalThesisDocument.filePath,
-      uploadedAt: thesis.finalThesisDocument.createdAt,
-    } : null,
+    thesisStatus: thesis.status ?? null,
+    student: studentOf(thesis),
+    requirements,
+    requirementsMet: allMet,
     defenceReadiness: {
-      hasRequestedDefence,
-      requestedAt: thesis.defenceRequestedAt,
-      approvedBySupervisor1,
-      approvedBySupervisor2,
-      isFullyApproved,
+      approvedBySupervisor1: approvals.approvedBySupervisor1,
+      approvedBySupervisor2: approvals.approvedBySupervisor2,
+      isFullyApproved: approvals.isFullyApproved,
     },
-    supervisors,
-    currentUserRole,
-    currentUserHasApproved,
-    canRegisterDefence:
-      isEligibleStatus &&
-      hasFinalDocument &&
-      hasRequestedDefence &&
-      isFullyApproved,
+    supervisors: approvals.supervisors,
+    currentUserRole: approvals.currentUserRole,
+    currentUserHasApproved: approvals.currentUserHasApproved,
+    latestGuidanceAttachment: latestGuidanceAttachment ?? null,
+    ...readinessActionReasons(thesis, "defence", requirements, approvals),
+    canRegisterDefence: allMet && approvals.isFullyApproved,
   };
 }
 
-/**
- * Approve defence readiness by supervisor
- */
-export async function approveDefenceReadiness(thesisId, userId, notes = null) {
+/** System requirements of one readiness kind, read fresh from the database. */
+async function loadRequirements(kind, thesisId) {
+  if (kind === "seminar") {
+    const [progress, completedGuidancesCount] = await Promise.all([
+      milestoneRepo.getThesisProgress(thesisId),
+      countCompletedResearchGuidances(thesisId),
+    ]);
+    return buildSeminarRequirements(progress, completedGuidancesCount);
+  }
+  const thesis = await milestoneRepo.getThesisDefenceReadiness(thesisId);
+  return buildDefenceRequirements(thesis?.thesisSeminars);
+}
+
+function findOwnSupervisorRelation(thesis, userId) {
+  return thesis.thesisSupervisors.find(
+    (p) => p.lecturer?.user?.id === userId && isMainSupervisorRole(p.role?.name)
+  );
+}
+
+async function notifyUsers(userIds, { title, message, data }) {
+  for (const targetUserId of userIds) {
+    await createNotification({ userId: targetUserId, title, message });
+  }
+  sendFcmToUsers(userIds, { title, body: message, data }).catch((err) =>
+    console.error("[FCM] Error sending readiness notification:", err)
+  );
+}
+
+async function approveReadiness(kind, thesisId, userId, notes) {
+  const config = READINESS_KINDS[kind];
   const { thesis, isSupervisor } = await getThesisWithAccess(thesisId, userId);
 
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat memberikan approval");
   }
-
-  // Check thesis status eligibility directly from seminars
-  const thesisWithStatus = await milestoneRepo.getThesisDefenceReadiness(thesisId);
-  if (!isSeminarCompleted(thesisWithStatus?.thesisSeminars)) {
-    throw createError(
-      `Mahasiswa belum memenuhi syarat untuk sidang. ` +
-      `Seminar hasil belum dinyatakan lulus atau revisi belum diselesaikan.`
-    );
-  }
-
-  // Check if student has uploaded final document
-  if (!thesisWithStatus?.finalThesisDocumentId) {
-    throw createError("Mahasiswa belum mengupload dokumen thesis final. Minta mahasiswa untuk mengupload terlebih dahulu.");
-  }
-
-  // Check if student has requested defence
-  if (!thesisWithStatus?.defenceRequestedAt) {
-    throw createError("Mahasiswa belum mengajukan permintaan sidang.");
-  }
-
-  // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisSupervisors.find(
-    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
-  );
-
-  if (!supervisorParticipant) {
+  const relation = findOwnSupervisorRelation(thesis, userId);
+  if (!relation) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
 
-  const supervisorRole = supervisorParticipant.role?.name;
-  const isSupervisor1 = isPembimbing1(supervisorRole);
-  const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
+  const statusBlock = readinessStatusBlock(thesis, kind);
+  if (statusBlock) throw createError(statusBlock);
 
-  const updated = await milestoneRepo.approveDefenceReadiness(thesisId, supervisorParticipant.lecturerId);
+  const requirements = await loadRequirements(kind, thesisId);
+  if (!requirementsMet(requirements)) {
+    throw createError(
+      `Mahasiswa belum memenuhi syarat ${config.noun}: ${describeUnmet(requirements)}.`
+    );
+  }
 
-  // Get student userId for notification
+  const roleLabel = supervisorLabel(relation.role?.name);
+  const supervisorName = relation.lecturer?.user?.fullName || roleLabel;
+  const updated = await config.approve(thesisId, relation.lecturerId);
+  const main = updated.thesisSupervisors.filter((s) => isMainSupervisorRole(s.role?.name));
+  const isFullyApproved = main.length > 0 && main.every((s) => s[config.flag]);
+
+  // Paket A (K15): "Acc Seminar"/"Acc Sidang" is not a thesis status; readiness lives in the
+  // supervisors' flags and the thesis stays `research`.
   const studentUserId = thesis.student?.user?.id;
-  const isFullyApproved = updated.thesisSupervisors.every((s) => s.defenceReady);
-
-  // Paket A (K15): "Acc Sidang" is no longer a thesis status; readiness is the
-  // supervisors' defenceReady flags. The thesis status stays `research`.
-
-  // Send notification to student
   if (studentUserId) {
-    const notifTitle = isFullyApproved
-      ? "🎉 Kesiapan Sidang Disetujui Penuh!"
-      : `✅ Persetujuan Sidang dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"}`;
-    const notifMessage = isFullyApproved
-      ? `Selamat! Kedua pembimbing telah menyetujui kesiapan sidang Anda. Anda sekarang dapat mendaftar sidang.`
-      : `${supervisorName} telah menyetujui kesiapan sidang Anda. Menunggu persetujuan dari pembimbing lainnya.`;
-
-    // Create in-app notification
-    await createNotification({
-      userId: studentUserId,
-      title: notifTitle,
-      message: notifMessage,
+    await notifyUsers([studentUserId], {
+      title: isFullyApproved
+        ? `🎉 Kesiapan ${config.title} Disetujui Penuh!`
+        : `✅ Persetujuan ${config.title} dari ${roleLabel}`,
+      message: isFullyApproved
+        ? `Selamat! Semua pembimbing telah menyetujui kesiapan ${config.noun} Anda. Anda sekarang dapat mendaftar ${config.noun}.`
+        : `${supervisorName} telah menyetujui kesiapan ${config.noun} Anda. Menunggu persetujuan dari pembimbing lainnya.`,
+      data: { type: `${kind}_readiness_approved`, thesisId, isFullyApproved: String(isFullyApproved) },
     });
-
-    // Send FCM push notification
-    sendFcmToUsers([studentUserId], {
-      title: notifTitle,
-      body: notifMessage,
-      data: {
-        type: "defence_readiness_approved",
-        thesisId,
-        isFullyApproved: String(isFullyApproved),
-      },
-    }).catch((err) => console.error("[FCM] Error sending defence approval notification:", err));
   }
 
   await logAudit({
     actorUserId: userId,
-    action: AUDIT_ACTIONS.DEFENCE_READINESS_APPROVED,
+    action: config.approvedAction,
     entityType: ENTITY_TYPES.THESIS,
     entityId: thesisId,
-    newValues: { supervisorRole: isSupervisor1 ? 'pembimbing_1' : 'pembimbing_2', isFullyApproved, notes },
+    newValues: { supervisorRole: isPembimbing1(relation.role?.name) ? "pembimbing_1" : "pembimbing_2", isFullyApproved, notes },
   });
 
   return {
     success: true,
-    message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil diberikan`,
+    message: `Approval dari ${roleLabel} berhasil diberikan`,
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name))?.defenceReady || false,
-      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name))?.defenceReady || false,
+      approvedBySupervisor1: !!updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name))?.[config.flag],
+      approvedBySupervisor2: !!updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name))?.[config.flag],
       isFullyApproved,
     },
   };
 }
 
-/**
- * Revoke defence readiness approval by supervisor
- */
-export async function revokeDefenceReadiness(thesisId, userId, notes = null) {
+async function revokeReadiness(kind, thesisId, userId, notes) {
+  const config = READINESS_KINDS[kind];
   const { thesis, isSupervisor } = await getThesisWithAccess(thesisId, userId);
 
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat mencabut approval");
   }
-
-  // Determine which supervisor role the current user has
-  const supervisorParticipant = thesis.thesisSupervisors.find(
-    (p) => p.lecturer?.user?.id === userId && (isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
-  );
-
-  if (!supervisorParticipant) {
+  const relation = findOwnSupervisorRelation(thesis, userId);
+  if (!relation) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
 
-  const supervisorRole = supervisorParticipant.role?.name;
-  const isSupervisor1 = isPembimbing1(supervisorRole);
-  const supervisorName = supervisorParticipant.lecturer?.user?.fullName || (isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2");
+  const roleLabel = supervisorLabel(relation.role?.name);
+  const supervisorName = relation.lecturer?.user?.fullName || roleLabel;
+  const updated = await config.revoke(thesisId, relation.lecturerId);
 
-  const updated = await milestoneRepo.revokeDefenceReadiness(thesisId, supervisorParticipant.lecturerId);
-
-  // Get student userId for notification
   const studentUserId = thesis.student?.user?.id;
-
-  // Send notification to student
   if (studentUserId) {
-    const notifTitle = `⚠️ Persetujuan Sidang Dicabut`;
-    const notifMessage = `${supervisorName} telah mencabut persetujuan kesiapan sidang Anda.${notes ? ` Alasan: ${notes}` : ""}`;
-
-    // Create in-app notification
-    await createNotification({
-      userId: studentUserId,
-      title: notifTitle,
-      message: notifMessage,
+    await notifyUsers([studentUserId], {
+      title: `⚠️ Persetujuan ${config.title} Dibatalkan`,
+      message: `${supervisorName} telah membatalkan persetujuan kesiapan ${config.noun} Anda.${notes ? ` Alasan: ${notes}` : ""}`,
+      data: { type: `${kind}_readiness_revoked`, thesisId },
     });
-
-    // Send FCM push notification
-    sendFcmToUsers([studentUserId], {
-      title: notifTitle,
-      body: notifMessage,
-      data: {
-        type: "defence_readiness_revoked",
-        thesisId,
-      },
-    }).catch((err) => console.error("[FCM] Error sending defence revoke notification:", err));
   }
 
   await logAudit({
     actorUserId: userId,
-    action: AUDIT_ACTIONS.DEFENCE_READINESS_REVOKED,
+    action: config.revokedAction,
     entityType: ENTITY_TYPES.THESIS,
     entityId: thesisId,
-    newValues: { supervisorRole: isSupervisor1 ? 'pembimbing_1' : 'pembimbing_2', notes },
+    newValues: { supervisorRole: isPembimbing1(relation.role?.name) ? "pembimbing_1" : "pembimbing_2", notes },
   });
 
   return {
     success: true,
-    message: `Approval dari ${isSupervisor1 ? "Pembimbing 1" : "Pembimbing 2"} berhasil dicabut`,
+    message: `Approval dari ${roleLabel} berhasil dicabut`,
     data: {
       thesisId: updated.id,
       thesisTitle: updated.title,
-      approvedBySupervisor1: updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name))?.defenceReady || false,
-      approvedBySupervisor2: updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name))?.defenceReady || false,
+      approvedBySupervisor1: !!updated.thesisSupervisors.find((s) => isPembimbing1(s.role?.name))?.[config.flag],
+      approvedBySupervisor2: !!updated.thesisSupervisors.find((s) => isPembimbing2(s.role?.name))?.[config.flag],
       isFullyApproved: false,
     },
   };
 }
 
 /**
- * Get list of students ready for defence registration
+ * "Minta Persetujuan": the student asks the supervisors who have not approved yet. Only a
+ * notification is sent; nothing is uploaded and no flag changes.
  */
-export async function getStudentsReadyForDefence() {
-  const theses = await milestoneRepo.findStudentsReadyForDefence();
+async function requestReadinessApproval(kind, thesisId, userId) {
+  const config = READINESS_KINDS[kind];
+  // Only the owning student may ask (route guard: MAHASISWA).
+  const { thesis } = await getThesisWithAccess(thesisId, userId, true);
 
-  return theses.map((t) => ({
+  const statusBlock = readinessStatusBlock(thesis, kind);
+  if (statusBlock) throw createError(statusBlock);
+
+  const requirements = await loadRequirements(kind, thesisId);
+  if (!requirementsMet(requirements)) {
+    throw createError(
+      `Persetujuan ${config.noun} belum dapat diminta. Syarat yang belum terpenuhi: ${describeUnmet(requirements)}.`
+    );
+  }
+
+  const main = thesis.thesisSupervisors.filter((p) => isMainSupervisorRole(p.role?.name));
+  if (main.length === 0) {
+    throw createError("Tugas akhir belum memiliki pembimbing aktif.");
+  }
+  const pending = main.filter((p) => !p[config.flag]);
+  if (pending.length === 0) {
+    throw createError(`Semua pembimbing sudah menyetujui kesiapan ${config.noun}.`);
+  }
+
+  const supervisorUserIds = pending.map((p) => p.lecturer?.user?.id).filter(Boolean);
+  const studentName = thesis.student?.user?.fullName || "Mahasiswa";
+  if (supervisorUserIds.length > 0) {
+    await notifyUsers(supervisorUserIds, {
+      title: `🔔 Permintaan Persetujuan ${config.title}`,
+      message: `${studentName} meminta persetujuan kesiapan ${config.noun}. Syarat sistem sudah terpenuhi.`,
+      data: { type: `${kind}_readiness_requested`, thesisId },
+    });
+  }
+
+  await logAudit({
+    actorUserId: userId,
+    action: config.requestedAction,
+    entityType: ENTITY_TYPES.THESIS,
+    entityId: thesisId,
+    newValues: { notifiedSupervisors: pending.map((p) => p.lecturerId) },
+  });
+
+  return {
+    success: true,
+    message: "Permintaan persetujuan berhasil dikirim ke pembimbing.",
+    data: { thesisId, notifiedSupervisors: pending.length },
+  };
+}
+
+export const approveSeminarReadiness = (thesisId, userId, notes = null) => approveReadiness("seminar", thesisId, userId, notes);
+export const revokeSeminarReadiness = (thesisId, userId, notes = null) => revokeReadiness("seminar", thesisId, userId, notes);
+export const requestSeminarApproval = (thesisId, userId) => requestReadinessApproval("seminar", thesisId, userId);
+export const approveDefenceReadiness = (thesisId, userId, notes = null) => approveReadiness("defence", thesisId, userId, notes);
+export const revokeDefenceReadiness = (thesisId, userId, notes = null) => revokeReadiness("defence", thesisId, userId, notes);
+export const requestDefenceApproval = (thesisId, userId) => requestReadinessApproval("defence", thesisId, userId);
+
+function mapReadyThesis(t, flag) {
+  return {
     thesisId: t.id,
     thesisTitle: t.title,
     student: {
@@ -1579,119 +1395,25 @@ export async function getStudentsReadyForDefence() {
     supervisors: t.thesisSupervisors.map((p) => ({
       name: p.lecturer?.user?.fullName,
       role: p.role?.name,
+      [flag]: p[flag] || false,
     })),
-    finalDocument: t.finalThesisDocument ? {
-      fileName: t.finalThesisDocument.fileName,
-      filePath: t.finalThesisDocument.filePath,
-    } : null,
-    requestedAt: t.defenceRequestedAt,
-  }));
+  };
 }
 
 /**
- * Request defence (student uploads final thesis and requests defence)
+ * Get list of students ready for seminar registration
  */
-export async function requestDefence(thesisId, userId, documentId) {
-  // Validate thesis access for student
-  const thesis = await prisma.thesis.findUnique({
-    where: { id: thesisId },
-    include: {
-      student: {
-        select: { id: true, user: { select: { id: true, fullName: true } } },
-      },
-      thesisSupervisors: {
-        where: { status: "active" },
-        include: {
-          lecturer: { select: { id: true, user: { select: { id: true, fullName: true } } } },
-          role: { select: { id: true, name: true } },
-        },
-      },
-      thesisSeminars: {
-        select: { id: true, status: true, revisionFinalizedAt: true },
-        orderBy: { createdAt: "desc" },
-      },
-    },
-  });
+export async function getStudentsReadyForSeminar() {
+  const theses = await milestoneRepo.findStudentsReadyForSeminar();
+  return theses.map((t) => mapReadyThesis(t, "seminarReady"));
+}
 
-  if (!thesis) {
-    throw notFound("Thesis tidak ditemukan");
-  }
-
-  // Check if user is the student owner
-  if (thesis.student?.user?.id !== userId) {
-    throw forbidden("Anda tidak memiliki akses ke thesis ini");
-  }
-
-  // Check thesis eligibility via seminar completion
-  if (!isSeminarCompleted(thesis.thesisSeminars)) {
-    throw createError(
-      `Mahasiswa belum memenuhi syarat untuk sidang. ` +
-      `Seminar hasil belum dinyatakan lulus atau revisi belum diselesaikan.`
-    );
-  }
-
-  // Check if document exists
-  const document = await prisma.document.findUnique({
-    where: { id: documentId },
-    select: { id: true, userId: true, fileName: true },
-  });
-
-  if (!document) {
-    throw notFound("Dokumen tidak ditemukan");
-  }
-
-  // Update thesis with final document
-  const updated = await milestoneRepo.updateThesisDefenceRequest(thesisId, documentId);
-
-  // Notify supervisors
-  const supervisorUserIds = thesis.thesisSupervisors
-    .filter((p) => isPembimbing1(p.role?.name) || isPembimbing2(p.role?.name))
-    .map((p) => p.lecturer?.user?.id)
-    .filter(Boolean);
-
-  if (supervisorUserIds.length > 0) {
-    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
-    const notifTitle = "📄 Permintaan Persetujuan Sidang";
-    const notifMessage = `${studentName} telah mengupload dokumen thesis final dan mengajukan permintaan sidang.`;
-
-    // Create in-app notifications
-    for (const supervisorUserId of supervisorUserIds) {
-      await createNotification({
-        userId: supervisorUserId,
-        title: notifTitle,
-        message: notifMessage,
-      });
-    }
-
-    // Send FCM push notification
-    sendFcmToUsers(supervisorUserIds, {
-      title: notifTitle,
-      body: notifMessage,
-      data: {
-        type: "defence_request",
-        thesisId,
-      },
-    }).catch((err) => console.error("[FCM] Error sending defence request notification:", err));
-  }
-
-  await logAudit({
-    actorUserId: userId,
-    action: AUDIT_ACTIONS.DEFENCE_REQUESTED,
-    entityType: ENTITY_TYPES.THESIS,
-    entityId: thesisId,
-    newValues: { documentId, finalDocument: updated.finalThesisDocument, requestedAt: updated.defenceRequestedAt },
-  });
-
-  return {
-    success: true,
-    message: "Permintaan sidang berhasil diajukan",
-    data: {
-      thesisId: updated.id,
-      thesisTitle: updated.title,
-      finalDocument: updated.finalThesisDocument,
-      requestedAt: updated.defenceRequestedAt,
-    },
-  };
+/**
+ * Get list of students ready for defence registration
+ */
+export async function getStudentsReadyForDefence() {
+  const theses = await milestoneRepo.findStudentsReadyForDefence();
+  return theses.map((t) => mapReadyThesis(t, "defenceReady"));
 }
 
 /**

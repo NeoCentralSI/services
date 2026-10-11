@@ -321,10 +321,3 @@ export const defenceReadinessNotesSchema = z.object({
     .optional()
     .nullable(),
 });
-
-export const requestDefenceSchema = z.object({
-  documentId: z
-    .string()
-    .uuid("Document ID must be a valid UUID")
-    .min(1, "Document ID is required"),
-});

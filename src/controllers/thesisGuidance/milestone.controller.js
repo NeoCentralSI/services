@@ -568,13 +568,13 @@ export async function getStudentsReadyForSeminar(req, res, next) {
 }
 
 /**
- * POST /thesis/:thesisId/seminar-readiness/remind
- * Send reminder to supervisors to approve seminar readiness
+ * POST /thesis/:thesisId/seminar-readiness/request
+ * Student asks the supervisors to approve seminar readiness (notification only)
  */
-export async function remindSeminarReadiness(req, res, next) {
+export async function requestSeminarApproval(req, res, next) {
   try {
     const { thesisId } = req.params;
-    const result = await milestoneService.remindSeminarReadiness(thesisId, req.user.sub);
+    const result = await milestoneService.requestSeminarApproval(thesisId, req.user.sub);
     res.json(result);
   } catch (err) {
     next(err);
@@ -650,14 +650,13 @@ export async function getStudentsReadyForDefence(req, res, next) {
 }
 
 /**
- * POST /thesis/:thesisId/request-defence
- * Student requests defence by uploading final thesis
+ * POST /thesis/:thesisId/defence-readiness/request
+ * Student asks the supervisors to approve defence readiness (notification only)
  */
-export async function requestDefence(req, res, next) {
+export async function requestDefenceApproval(req, res, next) {
   try {
     const { thesisId } = req.params;
-    const { documentId } = req.validated ?? req.body ?? {};
-    const result = await milestoneService.requestDefence(thesisId, req.user.sub, documentId);
+    const result = await milestoneService.requestDefenceApproval(thesisId, req.user.sub);
     res.json(result);
   } catch (err) {
     next(err);

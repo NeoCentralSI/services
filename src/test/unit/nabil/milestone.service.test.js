@@ -23,6 +23,7 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
     getThesisProgress: vi.fn(),
     getThesisSeminarReadiness: vi.fn(),
     approveSeminarReadiness: vi.fn(),
+    findLatestGuidanceAttachment: vi.fn(),
     // Template functions
     findTemplates: vi.fn(),
     findTemplatesByTopicId: vi.fn(),
