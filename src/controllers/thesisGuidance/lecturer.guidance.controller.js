@@ -268,8 +268,8 @@ export async function guidanceDetail(req, res, next) {
 export async function sendWarningNotification(req, res, next) {
 	try {
 		const { thesisId } = req.params;
-		const { warningType } = req.body;
-		const result = await sendWarningNotificationService(req.user.sub, thesisId, warningType);
+		// The warning level is derived from the thesis; `warningType` in the body is ignored.
+		const result = await sendWarningNotificationService(req.user.sub, thesisId);
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

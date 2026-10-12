@@ -154,8 +154,8 @@ export async function getThesisDetail(req, res, next) {
 export async function sendWarningNotification(req, res, next) {
   try {
     const { thesisId } = req.params;
-    const { warningType } = req.body;
-    const result = await monitoringService.sendWarningNotificationService(req.user.sub, thesisId, warningType);
+    // The warning level is derived from the thesis; `warningType` in the body is ignored.
+    const result = await monitoringService.sendWarningNotificationService(req.user.sub, thesisId);
     res.json(result);
   } catch (error) {
     next(error);
@@ -168,8 +168,9 @@ export async function sendWarningNotification(req, res, next) {
  */
 export async function sendBatchWarnings(req, res, next) {
   try {
-    const { thesisIds, warningType } = req.body;
-    const result = await monitoringService.sendBatchWarningNotificationService(req.user.sub, thesisIds, warningType);
+    // The warning level is derived per thesis; `warningType` in the body is ignored.
+    const { thesisIds } = req.body;
+    const result = await monitoringService.sendBatchWarningNotificationService(req.user.sub, thesisIds);
     res.json(result);
   } catch (error) {
     next(error);

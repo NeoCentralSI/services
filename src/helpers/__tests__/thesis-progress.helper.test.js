@@ -7,7 +7,10 @@ import {
   getActivityLevel,
   getLastActivityAt,
   getSupervisionClock,
+  resolveProgressWarning,
   summarizeThesisProgress,
+  WARNING_SKIP_LABELS,
+  WARNING_SKIP_REASON,
 } from "../thesis-progress.helper.js";
 
 const NOW = new Date("2026-10-11T05:00:00.000Z");
@@ -301,5 +304,35 @@ describe("summarizeThesisProgress", () => {
       activityLevel: ACTIVITY_LEVEL.AT_RISK,
     });
     expect(summary.supervisionClock.evaluationDue).toBe(EVALUATION_DUE.ONE_YEAR);
+  });
+});
+
+describe("resolveProgressWarning", () => {
+  const research = (daysIdle, overrides = {}) => ({ status: "research", startDate: daysAgo(daysIdle), createdAt: daysAgo(daysIdle), ...overrides });
+
+  it("gives the level of the thesis itself: Lambat from 60 days, Berisiko after 120", () => {
+    expect(resolveProgressWarning(research(60), NOW)).toEqual({ level: "slow", skipReason: null, daysSinceActivity: 60 });
+    expect(resolveProgressWarning(research(120), NOW)).toEqual({ level: "slow", skipReason: null, daysSinceActivity: 120 });
+    expect(resolveProgressWarning(research(121), NOW)).toEqual({ level: "at_risk", skipReason: null, daysSinceActivity: 121 });
+  });
+
+  it("gives no warning to a Lancar thesis", () => {
+    expect(resolveProgressWarning(research(59), NOW)).toEqual({ level: null, skipReason: WARNING_SKIP_REASON.ACTIVE, daysSinceActivity: 59 });
+    // Long since the start, but a session was completed last week.
+    const thesis = research(300, { thesisGuidances: [{ approvedDate: daysAgo(7), completedAt: daysAgo(7) }] });
+    expect(resolveProgressWarning(thesis, NOW)).toMatchObject({ level: null, skipReason: "active" });
+  });
+
+  it.each(["proposal", "on_leave", "completed", "failed"])("gives no warning to a thesis with status %s", (status) => {
+    expect(resolveProgressWarning(research(300, { status }), NOW)).toMatchObject({ level: null, skipReason: "not_research" });
+  });
+
+  it("gives no warning when the activity cannot be derived", () => {
+    expect(resolveProgressWarning({ status: "research" }, NOW)).toEqual({ level: null, skipReason: "active", daysSinceActivity: null });
+    expect(resolveProgressWarning(null, NOW)).toMatchObject({ level: null, skipReason: "not_research" });
+  });
+
+  it("has a label for every reason", () => {
+    expect(Object.keys(WARNING_SKIP_LABELS).sort()).toEqual(Object.values(WARNING_SKIP_REASON).sort());
   });
 });

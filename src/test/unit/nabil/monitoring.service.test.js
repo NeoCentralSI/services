@@ -69,6 +69,26 @@ const THESIS_DETAIL = {
   updatedAt: new Date().toISOString(),
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (days) => new Date(Date.now() - days * DAY_MS);
+
+/** A thesis as the warning services read it: `daysIdle` whole days without any activity. */
+const warningThesis = (id, daysIdle, overrides = {}) => ({
+  id,
+  status: "research",
+  startDate: daysAgo(daysIdle),
+  statusChangedAt: null,
+  createdAt: daysAgo(daysIdle),
+  totalLeaveDays: 0,
+  leaveStartedAt: null,
+  thesisGuidances: [],
+  thesisMilestones: [],
+  thesisSeminars: [],
+  thesisGuidanceEvaluations: [],
+  student: { user: { id: `user-${id}`, fullName: `MAHASISWA ${id.toUpperCase()}` } },
+  ...overrides,
+});
+
 // ══════════════════════════════════════════════════════════════
 describe("Module 11: Monitoring Tugas Akhir", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -389,39 +409,78 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
   // ─── Warning Notification ─────────────────────────────────
   describe("sendWarningNotificationService", () => {
-    it("sends FCM + in-app notification for SLOW warning", async () => {
+    const asKadep = () =>
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1",
-        title: "AI Research",
-        student: { user: { id: "user-1", fullName: "Budi" } },
-      });
 
-      await sendWarningNotificationService("user-1", "thesis-1", "slow");
+    it("warns a Lambat thesis with the Lambat wording, from the level derived on the server", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(warningThesis("thesis-1", 90));
 
-      expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
+      // A client value is not a parameter any more; an extra argument changes nothing.
+      const result = await sendWarningNotificationService("user-1", "thesis-1", "at_risk");
+
+      expect(result).toMatchObject({ success: true, warningType: "slow" });
+      const [recipients, push] = mockPush.sendFcmToUsers.mock.calls[0];
+      expect(recipients).toEqual(["user-thesis-1"]);
+      expect(push.title).toBe("⚠️ Peringatan Progress Tugas Akhir");
+      expect(push.body).toContain("terdeteksi lambat");
+      expect(push.data.warningType).toBe("slow");
+      expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("terdeteksi lambat");
     });
 
-    it("sends notification for AT_RISK warning type", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1",
-        title: "AI Research",
-        student: { user: { id: "user-1", fullName: "Budi" } },
-      });
+    it("warns a Berisiko thesis with the Berisiko wording", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(warningThesis("thesis-1", 200));
 
-      await sendWarningNotificationService("user-1", "thesis-1", "at_risk");
+      const result = await sendWarningNotificationService("user-1", "thesis-1", "slow");
 
-      expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
+      expect(result.warningType).toBe("at_risk");
+      const push = mockPush.sendFcmToUsers.mock.calls[0][1];
+      expect(push.title).toBe("🚨 Peringatan Serius: Progress Tugas Akhir");
+      expect(push.body).toContain("Berisiko");
+      expect(push.data.warningType).toBe("at_risk");
+    });
+
+    it("reads the activity of the thesis with the columns of the progress helper", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(warningThesis("thesis-1", 90));
+
+      await sendWarningNotificationService("user-1", "thesis-1");
+
+      const { select } = mockPrisma.thesis.findUnique.mock.calls[0][0];
+      expect(select).toMatchObject({ status: true, startDate: true, statusChangedAt: true });
+      expect(select.thesisGuidances.where).toEqual({ status: "completed", phase: "research" });
+    });
+
+    it.each([
+      ["Lancar", warningThesis("thesis-1", 10), "Peringatan tidak dikirim: Aktivitas tugas akhir Lancar."],
+      ["not in Penelitian (BSS)", warningThesis("thesis-1", 200, { status: "on_leave" }), "Peringatan tidak dikirim: Tugas akhir tidak berstatus Penelitian."],
+      ["Selesai", warningThesis("thesis-1", 200, { status: "completed" }), "Peringatan tidak dikirim: Tugas akhir tidak berstatus Penelitian."],
+    ])("sends nothing for a thesis that is %s (400)", async (_label, thesis, message) => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(thesis);
+
+      await expect(sendWarningNotificationService("user-1", "thesis-1", "at_risk")).rejects.toMatchObject({ statusCode: 400, message });
+
+      expect(mockPush.sendFcmToUsers).not.toHaveBeenCalled();
+      expect(mockNotif.createNotificationsForUsers).not.toHaveBeenCalled();
+    });
+
+    it("counts a recent completed guidance session as activity", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(
+        warningThesis("thesis-1", 200, { thesisGuidances: [{ approvedDate: daysAgo(5), completedAt: daysAgo(5) }] }),
+      );
+
+      await expect(sendWarningNotificationService("user-1", "thesis-1")).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it("throws 404 if thesis not found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
+      asKadep();
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
-        sendWarningNotificationService("user-1", "nonexistent", "slow")
+        sendWarningNotificationService("user-1", "nonexistent")
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
@@ -470,38 +529,129 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
   // ─── Batch Warning Notification ─────────────────────
   describe("sendBatchWarningNotificationService", () => {
-    it("sends batch SLOW warnings to multiple students", async () => {
+    const asKadep = () =>
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
+    const pushFor = (userId) => mockPush.sendFcmToUsers.mock.calls.find(([recipients]) => recipients[0] === userId)?.[1];
+    const notifFor = (userId) => mockNotif.createNotificationsForUsers.mock.calls.find(([recipients]) => recipients[0] === userId)?.[1];
+
+    it("gives a mix of Lambat and Berisiko theses each their own wording and skips the Lancar one", async () => {
+      asKadep();
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([
-        {
-          id: "thesis-1", daysSinceActivity: 65,
-          student: { user: { id: "user-1", fullName: "Budi" } },
-        },
-        {
-          id: "thesis-2", daysSinceActivity: 70,
-          student: { user: { id: "user-2", fullName: "Andi" } },
-        },
+        warningThesis("t-slow", 90, { student: { user: { id: "u-slow", fullName: "BUDI SANTOSO" } } }),
+        warningThesis("t-risk", 200, { student: { user: { id: "u-risk", fullName: "ANDI WIJAYA" } } }),
+        warningThesis("t-active", 10, { student: { user: { id: "u-active", fullName: "CITRA LESTARI" } } }),
       ]);
 
-      const result = await sendBatchWarningNotificationService("admin-user", ["thesis-1", "thesis-2"], "slow");
+      // The client asks for "slow" for everyone; the level of each thesis decides.
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-slow", "t-risk", "t-active"], "slow");
 
-      expect(result.success).toBe(true);
       expect(mockPush.sendFcmToUsers).toHaveBeenCalledTimes(2);
       expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledTimes(2);
+
+      expect(pushFor("u-slow")).toMatchObject({
+        title: "⚠️ Peringatan: Progress Tugas Akhir",
+        body: "Halo Budi Santoso, Anda sudah tidak ada update progress tugas akhir selama 90 hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.",
+        data: { thesisId: "t-slow", warningType: "slow" },
+      });
+      expect(notifFor("u-slow")).toMatchObject({ title: "⚠️ Peringatan: Progress Tugas Akhir", referenceId: "t-slow" });
+      expect(notifFor("u-slow").message).not.toContain("Berisiko");
+
+      expect(pushFor("u-risk")).toMatchObject({
+        title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+        body: "Halo Andi Wijaya, Anda sudah tidak ada update progress tugas akhir selama 200 hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.",
+        data: { thesisId: "t-risk", warningType: "at_risk" },
+      });
+      expect(notifFor("u-risk").message).toBe("Progress Anda terhenti selama 200 hari (aktivitas: Berisiko). Segera hubungi dosen pembimbing Anda.");
+
+      // The Lancar thesis got nothing and is reported.
+      expect(pushFor("u-active")).toBeUndefined();
+      expect(notifFor("u-active")).toBeUndefined();
+      expect(result).toEqual({
+        success: true,
+        message: "Peringatan dikirim ke 2 mahasiswa (1 Berisiko, 1 Lambat). 1 tidak dikirim.",
+        sentCount: 2,
+        sentCounts: { slow: 1, at_risk: 1 },
+        sent: [
+          { thesisId: "t-slow", studentName: "Budi Santoso", warningType: "slow" },
+          { thesisId: "t-risk", studentName: "Andi Wijaya", warningType: "at_risk" },
+        ],
+        notSent: [
+          { thesisId: "t-active", studentName: "Citra Lestari", reason: "active", reasonLabel: "Aktivitas tugas akhir Lancar" },
+        ],
+      });
+    });
+
+    it("does not let the client turn a Lambat warning into a Berisiko one", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([warningThesis("t-slow", 90)]);
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-slow"], "at_risk");
+
+      expect(result.sent).toEqual([{ thesisId: "t-slow", studentName: "Mahasiswa T-slow", warningType: "slow" }]);
+      expect(mockPush.sendFcmToUsers.mock.calls[0][1].title).toBe("⚠️ Peringatan: Progress Tugas Akhir");
+    });
+
+    it("skips theses that are not in Penelitian, unknown ids and theses without a student account", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([
+        warningThesis("t-risk", 130),
+        warningThesis("t-leave", 200, { status: "on_leave" }),
+        warningThesis("t-done", 200, { status: "completed" }),
+        warningThesis("t-orphan", 200, { student: null }),
+      ]);
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-risk", "t-leave", "t-done", "t-orphan", "t-gone", "t-risk"]);
+
+      // Duplicate ids are one thesis.
+      expect(mockPrisma.thesis.findMany.mock.calls[0][0].where).toEqual({ id: { in: ["t-risk", "t-leave", "t-done", "t-orphan", "t-gone"] } });
+      expect(mockPush.sendFcmToUsers).toHaveBeenCalledTimes(1);
+      expect(result.sentCount).toBe(1);
+      expect(result.sentCounts).toEqual({ slow: 0, at_risk: 1 });
+      expect(result.notSent.map(({ thesisId, reason, reasonLabel }) => [thesisId, reason, reasonLabel])).toEqual([
+        ["t-leave", "not_research", "Tugas akhir tidak berstatus Penelitian"],
+        ["t-done", "not_research", "Tugas akhir tidak berstatus Penelitian"],
+        ["t-orphan", "no_student", "Akun mahasiswa tidak ditemukan"],
+        ["t-gone", "not_found", "Tugas akhir tidak ditemukan"],
+      ]);
+      expect(result.message).toBe("Peringatan dikirim ke 1 mahasiswa (1 Berisiko, 0 Lambat). 4 tidak dikirim.");
+    });
+
+    it("reports it when nothing at all is sent", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([warningThesis("t-active", 3)]);
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-active"]);
+
+      expect(result).toMatchObject({ success: true, sentCount: 0, sent: [], message: "Tidak ada peringatan yang dikirim. 1 tidak dikirim." });
+      expect(mockPush.sendFcmToUsers).not.toHaveBeenCalled();
+      expect(mockNotif.createNotificationsForUsers).not.toHaveBeenCalled();
+    });
+
+    it("reports a thesis whose notification could not be sent, and still sends the others", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([warningThesis("t-a", 90), warningThesis("t-b", 90)]);
+      mockPush.sendFcmToUsers.mockRejectedValueOnce(new Error("FCM down"));
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-a", "t-b"]);
+
+      expect(result.sent.map((item) => item.thesisId)).toEqual(["t-b"]);
+      expect(result.notSent).toEqual([
+        { thesisId: "t-a", studentName: "Mahasiswa T-a", reason: "failed", reasonLabel: "Notifikasi gagal dikirim" },
+      ]);
     });
 
     it("throws error if thesisIds is empty", async () => {
       await expect(
-        sendBatchWarningNotificationService("admin-user", [], "slow")
+        sendBatchWarningNotificationService("admin-user", [])
       ).rejects.toThrow();
     });
 
     it("throws error if no theses are found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
+      asKadep();
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([]);
 
       await expect(
-        sendBatchWarningNotificationService("admin-user", ["nonexistent"], "slow")
+        sendBatchWarningNotificationService("admin-user", ["nonexistent"])
       ).rejects.toThrow();
     });
   });

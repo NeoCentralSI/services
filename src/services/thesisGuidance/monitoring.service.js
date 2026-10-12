@@ -5,7 +5,13 @@ import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import { THESIS_STATUS } from "../../constants/thesisStatus.js";
 import { getThesisStatusLabel, getThesisActivityLabel, getEvaluationDueLabel } from "../../constants/thesisLabels.js";
-import { ACTIVITY_LEVEL, THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
+import {
+  ACTIVITY_LEVEL,
+  THESIS_PROGRESS_SELECT,
+  WARNING_SKIP_LABELS,
+  resolveProgressWarning,
+  summarizeThesisProgress,
+} from "../../helpers/thesis-progress.helper.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
@@ -525,15 +531,12 @@ export async function getThesisDetail(thesisId) {
   };
 }
 
-/** Warning level from the client: `slow` or `at_risk` (anything else falls back to `slow`). */
-function normalizeWarningLevel(warningType) {
-  return String(warningType || "").toLowerCase() === ACTIVITY_LEVEL.AT_RISK ? ACTIVITY_LEVEL.AT_RISK : ACTIVITY_LEVEL.SLOW;
-}
-
 /**
- * Send warning notification to student about thesis progress (for department roles: Kadep, Sekdep, GKM)
+ * Send warning notification to student about thesis progress (for department roles: Kadep, Sekdep, GKM).
+ * The wording follows the activity level of the thesis, derived here: the client does not
+ * choose it. A thesis that is not `research`, or whose activity is Lancar, gets no warning (400).
  */
-export async function sendWarningNotificationService(userId, thesisId, warningType) {
+export async function sendWarningNotificationService(userId, thesisId) {
   // Get user info and roles for authorization
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -564,12 +567,14 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     throw err;
   }
 
-  // Get thesis with student info
+  // Get thesis with student info and what the activity helper reads
   const thesis = await prisma.thesis.findUnique({
     where: { id: thesisId },
-    include: {
+    select: {
+      id: true,
+      ...THESIS_PROGRESS_SELECT,
       student: {
-        include: {
+        select: {
           user: { select: { id: true, fullName: true } }
         }
       }
@@ -591,6 +596,13 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     throw err;
   }
 
+  const { level, skipReason } = resolveProgressWarning(thesis);
+  if (!level) {
+    const err = new Error(`Peringatan tidak dikirim: ${WARNING_SKIP_LABELS[skipReason]}.`);
+    err.statusCode = 400;
+    throw err;
+  }
+
   // Warning text per activity level (`slow` | `at_risk`).
   const warningMessages = {
     slow: {
@@ -605,7 +617,6 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
     },
   };
 
-  const level = normalizeWarningLevel(warningType);
   const message = warningMessages[level];
 
   // Send FCM notification
@@ -629,14 +640,27 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 
   return {
     success: true,
-    message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`
+    message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`,
+    warningType: level
   };
 }
 
+/** Reasons a thesis of a batch gets no warning, besides those of `resolveProgressWarning`. */
+const BATCH_NOT_SENT_LABELS = Object.freeze({
+  ...WARNING_SKIP_LABELS,
+  not_found: "Tugas akhir tidak ditemukan",
+  no_student: "Akun mahasiswa tidak ditemukan",
+  failed: "Notifikasi gagal dikirim",
+});
+
 /**
- * Send batch warning notifications to multiple students
+ * Send batch warning notifications to multiple students.
+ *
+ * Each thesis is warned with the wording of its own activity level (Lambat or Berisiko),
+ * derived here: the client does not choose it. A thesis that is not `research`, or whose
+ * activity is Lancar, is skipped and listed in `notSent` with the reason.
  */
-export async function sendBatchWarningNotificationService(userId, thesisIds, warningType) {
+export async function sendBatchWarningNotificationService(userId, thesisIds) {
   if (!Array.isArray(thesisIds) || thesisIds.length === 0) {
     throw new Error("Daftar mahasiswa (thesisId) tidak boleh kosong");
   }
@@ -657,9 +681,10 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
     (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
   );
 
+  const uniqueThesisIds = [...new Set(thesisIds)];
+
   // If not kadep, ensure the user is an ACTIVE supervisor of ALL (distinct) theses.
   if (!isKadep) {
-    const uniqueThesisIds = [...new Set(thesisIds)];
     const activeRelations = await prisma.thesisSupervisors.findMany({
       where: { thesisId: { in: uniqueThesisIds }, lecturerId: userId, status: "active" },
       select: { thesisId: true },
@@ -674,7 +699,7 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
 
   // Get all theses with student user info and what the activity helper reads
   const theses = await prisma.thesis.findMany({
-    where: { id: { in: thesisIds } },
+    where: { id: { in: uniqueThesisIds } },
     select: {
       id: true,
       ...THESIS_PROGRESS_SELECT,
@@ -704,43 +729,67 @@ export async function sendBatchWarningNotificationService(userId, thesisIds, war
     }
   };
 
-  const level = normalizeWarningLevel(warningType);
-  const messageConfig = warningMessages[level];
   const now = new Date();
 
-  // Process notifications in batches
-  const results = await Promise.allSettled(theses.map(async (thesis) => {
+  // One notification per thesis, worded for the level of that thesis
+  const outcomes = await Promise.all(theses.map(async (thesis) => {
     const studentUserId = thesis.student?.user?.id;
-    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
-    const daysSinceActivity = summarizeThesisProgress(thesis, now).daysSinceActivity ?? 0;
+    const studentName = toTitleCaseName(thesis.student?.user?.fullName || "Mahasiswa");
+    const outcome = { thesisId: thesis.id, studentName };
+    if (!studentUserId) return { ...outcome, reason: "no_student" };
 
-    if (!studentUserId) return;
+    const { level, skipReason, daysSinceActivity } = resolveProgressWarning(thesis, now);
+    if (!level) return { ...outcome, reason: skipReason };
 
-    // Send FCM notification
-    await sendFcmToUsers([studentUserId], {
-      title: messageConfig.title,
-      body: typeof messageConfig.body === 'function' ? messageConfig.body(studentName, daysSinceActivity) : messageConfig.body,
-      data: {
+    const messageConfig = warningMessages[level];
+    const days = daysSinceActivity ?? 0;
+    try {
+      // Send FCM notification
+      await sendFcmToUsers([studentUserId], {
+        title: messageConfig.title,
+        body: messageConfig.body(studentName, days),
+        data: {
+          type: "thesis_warning",
+          thesisId: thesis.id,
+          warningType: level
+        }
+      });
+
+      // Create in-app notification
+      await createNotificationsForUsers([studentUserId], {
+        title: messageConfig.title,
+        message: messageConfig.notifBody(days),
         type: "thesis_warning",
-        thesisId: thesis.id,
-        warningType: level
-      }
-    });
-
-    // Create in-app notification
-    await createNotificationsForUsers([studentUserId], {
-      title: messageConfig.title,
-      message: typeof messageConfig.notifBody === 'function' ? messageConfig.notifBody(daysSinceActivity) : messageConfig.notifBody,
-      type: "thesis_warning",
-      referenceId: thesis.id
-    });
+        referenceId: thesis.id
+      });
+      return { ...outcome, warningType: level };
+    } catch {
+      return { ...outcome, reason: "failed" };
+    }
   }));
 
-  const successfulCount = results.filter(r => r.status === 'fulfilled').length;
+  const foundIds = new Set(theses.map((thesis) => thesis.id));
+  const missing = uniqueThesisIds
+    .filter((thesisId) => !foundIds.has(thesisId))
+    .map((thesisId) => ({ thesisId, studentName: null, reason: "not_found" }));
+
+  const sent = outcomes.filter((outcome) => outcome.warningType);
+  const notSent = [...outcomes.filter((outcome) => outcome.reason), ...missing]
+    .map((outcome) => ({ ...outcome, reasonLabel: BATCH_NOT_SENT_LABELS[outcome.reason] }));
+
+  const countOf = (level) => sent.filter((item) => item.warningType === level).length;
+  const sentCounts = { [ACTIVITY_LEVEL.SLOW]: countOf(ACTIVITY_LEVEL.SLOW), [ACTIVITY_LEVEL.AT_RISK]: countOf(ACTIVITY_LEVEL.AT_RISK) };
+  const sentText = sent.length > 0
+    ? `Peringatan dikirim ke ${sent.length} mahasiswa (${sentCounts.at_risk} Berisiko, ${sentCounts.slow} Lambat).`
+    : "Tidak ada peringatan yang dikirim.";
 
   return {
     success: true,
-    message: `Peringatan berhasil dikirim ke ${successfulCount} mahasiswa.`
+    message: notSent.length > 0 ? `${sentText} ${notSent.length} tidak dikirim.` : sentText,
+    sentCount: sent.length,
+    sentCounts,
+    sent,
+    notSent
   };
 }
 

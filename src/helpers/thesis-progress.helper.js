@@ -288,3 +288,31 @@ export function summarizeThesisProgress(thesis, now = new Date()) {
     supervisionClock: getSupervisionClock(thesis, thesis?.thesisGuidanceEvaluations ?? [], now),
   };
 }
+
+/** Why a thesis receives no progress warning. */
+export const WARNING_SKIP_REASON = Object.freeze({ NOT_RESEARCH: "not_research", ACTIVE: "active" });
+
+export const WARNING_SKIP_LABELS = Object.freeze({
+  [WARNING_SKIP_REASON.NOT_RESEARCH]: "Tugas akhir tidak berstatus Penelitian",
+  [WARNING_SKIP_REASON.ACTIVE]: "Aktivitas tugas akhir Lancar",
+});
+
+/**
+ * Progress warning a thesis may receive. The level is the activity level of the thesis
+ * itself (`slow` or `at_risk`), never a value sent by the client. A thesis outside
+ * `research`, or one whose activity is `active` (or cannot be derived), receives none and
+ * `skipReason` says why.
+ *
+ * @param {object} thesis thesis selected with `THESIS_PROGRESS_SELECT`
+ * @returns {{ level: string|null, skipReason: string|null, daysSinceActivity: number|null }}
+ */
+export function resolveProgressWarning(thesis, now = new Date()) {
+  const { activityLevel, daysSinceActivity } = summarizeThesisProgress(thesis, now);
+  if (thesis?.status !== THESIS_STATUS.RESEARCH) {
+    return { level: null, skipReason: WARNING_SKIP_REASON.NOT_RESEARCH, daysSinceActivity };
+  }
+  if (activityLevel === ACTIVITY_LEVEL.SLOW || activityLevel === ACTIVITY_LEVEL.AT_RISK) {
+    return { level: activityLevel, skipReason: null, daysSinceActivity };
+  }
+  return { level: null, skipReason: WARNING_SKIP_REASON.ACTIVE, daysSinceActivity };
+}

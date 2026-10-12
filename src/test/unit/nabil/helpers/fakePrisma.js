@@ -3,7 +3,7 @@
  *
  * Unlike "always allow" mocks, queries are evaluated against fixture rows using the
  * real `where` arguments (equality, `in`, `not`, nested relation objects, `some`), and
- * `include: { relation: { where } }` filters array relations. This lets tests prove
+ * `include: { relation: { where } }` (or the same under `select`) filters array relations. This lets tests prove
  * that authorization queries (e.g. ThesisSupervisors `status: "active"`) actually
  * exclude released/terminated relations. Top-level scalar `orderBy` (object or array
  * of objects, asc/desc) is applied, so "latest row" lookups are meaningful.
@@ -105,9 +105,9 @@ function makeDelegate(state, name) {
   const rows = () => state[name] || (state[name] = []);
   const select = (args = {}) => applyOrderBy(rows().filter((r) => matches(r, args.where)), args.orderBy);
   return {
-    findFirst: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include),
-    findUnique: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include),
-    findMany: async (args = {}) => select(args).map((r) => applyInclude(r, args.include)),
+    findFirst: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include ?? args.select),
+    findUnique: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include ?? args.select),
+    findMany: async (args = {}) => select(args).map((r) => applyInclude(r, args.include ?? args.select)),
     count: async (args = {}) => select(args).length,
     aggregate: async (args = {}) => {
       const list = select(args);

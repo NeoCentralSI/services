@@ -31,6 +31,10 @@ const milestone = await import("../../../services/thesisGuidance/milestone.servi
 const monitoring = await import("../../../services/thesisGuidance/monitoring.service.js");
 
 const guidanceRow = (id) => store.state.thesisGuidance.find((g) => g.id === id);
+/** A warning is only sent for a Lambat or Berisiko thesis: 90 days without activity is Lambat. */
+const makeThesisSlow = () => {
+  store.state.thesis[0].startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+};
 const milestoneRow = (id) => store.state.thesisMilestone.find((m) => m.id === id);
 
 beforeEach(() => {
@@ -142,10 +146,19 @@ describe("3. Validasi milestone dan relasi pembimbing aktif", () => {
   });
 
   it("pembimbing released tidak bisa mengirim peringatan dari halaman dosen", async () => {
-    await expect(lecturer.sendWarningNotificationService("rel", "t1", "slow")).rejects.toMatchObject({
+    makeThesisSlow();
+    await expect(lecturer.sendWarningNotificationService("rel", "t1")).rejects.toMatchObject({
       statusCode: 403,
     });
-    await expect(lecturer.sendWarningNotificationService("p1", "t1", "slow")).resolves.toBeTruthy();
+    await expect(lecturer.sendWarningNotificationService("p1", "t1")).resolves.toMatchObject({ warningType: "slow" });
+  });
+
+  it("pembimbing aktif tidak bisa memperingatkan TA yang aktivitasnya Lancar (400)", async () => {
+    store.state.thesis[0].startDate = new Date();
+    await expect(lecturer.sendWarningNotificationService("p1", "t1")).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Peringatan tidak dikirim: Aktivitas tugas akhir Lancar.",
+    });
   });
 });
 
@@ -156,7 +169,8 @@ describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
     ["pembimbing released", "rel"],
     ["pembimbing terminated", "term"],
   ])("%s ditolak (403)", async (_label, userId) => {
-    await expect(monitoring.sendWarningNotificationService(userId, "t1", "slow")).rejects.toMatchObject({
+    makeThesisSlow();
+    await expect(monitoring.sendWarningNotificationService(userId, "t1")).rejects.toMatchObject({
       statusCode: 403,
     });
   });
@@ -165,20 +179,24 @@ describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
     ["Ketua Departemen", "kadep"],
     ["Pembimbing 1 aktif", "p1"],
   ])("%s diizinkan", async (_label, userId) => {
-    await expect(monitoring.sendWarningNotificationService(userId, "t1", "slow")).resolves.toMatchObject({
+    makeThesisSlow();
+    await expect(monitoring.sendWarningNotificationService(userId, "t1")).resolves.toMatchObject({
       success: true,
+      warningType: "slow",
     });
   });
 
   it("peringatan massal: duplikat ID tidak meloloskan / menggagalkan pembimbing aktif; GKM ditolak", async () => {
+    makeThesisSlow();
+    // The duplicate is one thesis: one warning, not two.
     await expect(
-      monitoring.sendBatchWarningNotificationService("p1", ["t1", "t1"], "slow"),
-    ).resolves.toBeTruthy();
+      monitoring.sendBatchWarningNotificationService("p1", ["t1", "t1"]),
+    ).resolves.toMatchObject({ sentCount: 1, notSent: [] });
     await expect(
-      monitoring.sendBatchWarningNotificationService("gkm", ["t1"], "slow"),
+      monitoring.sendBatchWarningNotificationService("gkm", ["t1"]),
     ).rejects.toMatchObject({ statusCode: 403 });
     await expect(
-      monitoring.sendBatchWarningNotificationService("rel", ["t1"], "slow"),
+      monitoring.sendBatchWarningNotificationService("rel", ["t1"]),
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 });

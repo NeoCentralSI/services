@@ -42,7 +42,12 @@ import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
 import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
-import { ACTIVITY_LEVEL, THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
+import {
+	THESIS_PROGRESS_SELECT,
+	WARNING_SKIP_LABELS,
+	resolveProgressWarning,
+	summarizeThesisProgress,
+} from "../../helpers/thesis-progress.helper.js";
 import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
 
 function ensureLecturer(lecturer) {
@@ -1028,25 +1033,29 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 }
 
 /**
- * Send warning notification to student about thesis progress
+ * Send warning notification to student about thesis progress.
+ * The wording follows the activity level of the thesis, derived here: the client does not
+ * choose it. A thesis that is not `research`, or whose activity is Lancar, gets no warning (400).
  */
-export async function sendWarningNotificationService(userId, thesisId, warningType) {
+export async function sendWarningNotificationService(userId, thesisId) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
-	// Get thesis with student info
+	// Get thesis with student info and what the activity helper reads
 	const thesis = await prisma.thesis.findUnique({
 		where: { id: thesisId },
-		include: {
+		select: {
+			id: true,
+			...THESIS_PROGRESS_SELECT,
 			student: {
-				include: {
+				select: {
 					user: { select: { id: true, fullName: true } }
 				}
 			},
 			thesisSupervisors: {
 				// Only an ACTIVE supervisor relation may send a warning as supervisor.
 				where: { lecturerId: lecturer.id, status: "active" },
-				include: {
+				select: {
 					role: { select: { name: true } }
 				}
 			}
@@ -1076,6 +1085,13 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 		throw err;
 	}
 
+	const { level, skipReason } = resolveProgressWarning(thesis);
+	if (!level) {
+		const err = new Error(`Peringatan tidak dikirim: ${WARNING_SKIP_LABELS[skipReason]}.`);
+		err.statusCode = 400;
+		throw err;
+	}
+
 	// Warning text per activity level (`slow` | `at_risk`).
 	const warningMessages = {
 		slow: {
@@ -1090,7 +1106,6 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 		},
 	};
 
-	const level = String(warningType || "").toLowerCase() === ACTIVITY_LEVEL.AT_RISK ? ACTIVITY_LEVEL.AT_RISK : ACTIVITY_LEVEL.SLOW;
 	const message = warningMessages[level];
 
 	// Send FCM notification
@@ -1114,7 +1129,8 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 
 	return {
 		success: true,
-		message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`
+		message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`,
+		warningType: level
 	};
 }
 

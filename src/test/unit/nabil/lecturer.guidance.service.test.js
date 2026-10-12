@@ -479,46 +479,88 @@ describe("Lecturer Warning Notification", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("sendWarningNotificationService (Lecturer)", () => {
-    it("sends SLOW warning to student via FCM and in-app", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", title: "AI Research",
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-        thesisSupervisors: [{ lecturerId: "lec-1", role: { name: "pembimbing_1" } }],
-      });
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-
-      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "slow");
-
-      expect(result.success).toBe(true);
-      expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    /** A supervised research thesis with `daysIdle` whole days without any activity. */
+    const supervisedThesis = (daysIdle, overrides = {}) => ({
+      id: "thesis-1",
+      status: "research",
+      startDate: new Date(Date.now() - daysIdle * DAY_MS),
+      statusChangedAt: null,
+      createdAt: new Date(Date.now() - daysIdle * DAY_MS),
+      totalLeaveDays: 0,
+      leaveStartedAt: null,
+      thesisGuidances: [],
+      thesisMilestones: [],
+      thesisSeminars: [],
+      thesisGuidanceEvaluations: [],
+      student: { user: { id: "user-mhs-1", fullName: "Budi" } },
+      thesisSupervisors: [{ role: { name: "pembimbing_1" } }],
+      ...overrides,
     });
 
-    it("sends AT_RISK warning to student", async () => {
+    it("sends the Lambat warning to a Lambat thesis via FCM and in-app, whatever the client asks", async () => {
       mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", title: "AI Research",
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-        thesisSupervisors: [{ lecturerId: "lec-1", role: { name: "pembimbing_1" } }],
-      });
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(90));
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
 
       const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "at_risk");
 
-      expect(result.success).toBe(true);
+      expect(result).toMatchObject({ success: true, warningType: "slow" });
+      const [recipients, push] = mockPush.sendFcmToUsers.mock.calls[0];
+      expect(recipients).toEqual(["user-mhs-1"]);
+      expect(push.title).toBe("⚠️ Peringatan Progress Tugas Akhir");
+      expect(push.data.warningType).toBe("slow");
+      expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("terdeteksi lambat");
+    });
+
+    it("sends the Berisiko warning to a Berisiko thesis", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(200));
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+
+      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "slow");
+
+      expect(result).toMatchObject({ success: true, warningType: "at_risk" });
+      const push = mockPush.sendFcmToUsers.mock.calls[0][1];
+      expect(push.title).toBe("🚨 Peringatan Serius: Progress Tugas Akhir");
+      expect(push.data.warningType).toBe("at_risk");
+      expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("Berisiko");
+    });
+
+    it.each([
+      ["Lancar", supervisedThesis(10), "Peringatan tidak dikirim: Aktivitas tugas akhir Lancar."],
+      ["on leave (BSS)", supervisedThesis(200, { status: "on_leave" }), "Peringatan tidak dikirim: Tugas akhir tidak berstatus Penelitian."],
+    ])("sends nothing for a thesis that is %s (400)", async (_label, thesis, message) => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockPrisma.thesis.findUnique.mockResolvedValue(thesis);
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+
+      await expect(
+        sendWarningNotificationService("user-dosen-1", "thesis-1", "at_risk")
+      ).rejects.toMatchObject({ statusCode: 400, message });
+
+      expect(mockPush.sendFcmToUsers).not.toHaveBeenCalled();
+      expect(mockNotif.createNotificationsForUsers).not.toHaveBeenCalled();
+    });
+
+    it("keeps the active-supervisor filter on the thesis query", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(90));
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+
+      await sendWarningNotificationService("user-dosen-1", "thesis-1");
+
+      const { select } = mockPrisma.thesis.findUnique.mock.calls[0][0];
+      expect(select.thesisSupervisors.where).toEqual({ lecturerId: "lec-1", status: "active" });
+      expect(select).toMatchObject({ status: true, startDate: true });
     });
 
     it("rejects (403) if lecturer is not a supervisor of the thesis", async () => {
       mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", title: "AI Research",
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-        thesisSupervisors: [], // empty = not a supervisor
-      });
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(90, { thesisSupervisors: [] })); // empty = not a supervisor
 
       await expect(
-        sendWarningNotificationService("user-dosen-1", "thesis-1", "slow")
+        sendWarningNotificationService("user-dosen-1", "thesis-1")
       ).rejects.toMatchObject({ statusCode: 403 });
     });
 
@@ -527,7 +569,7 @@ describe("Lecturer Warning Notification", () => {
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
-        sendWarningNotificationService("user-dosen-1", "nonexistent", "slow")
+        sendWarningNotificationService("user-dosen-1", "nonexistent")
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
