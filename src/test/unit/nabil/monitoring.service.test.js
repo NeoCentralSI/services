@@ -287,6 +287,62 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toHaveProperty("title", "AI Research");
     });
 
+    it("gives the Seminar and Sidang cards room, assigned examiners and revision progress", async () => {
+      const examiner = (order, name, extra = {}) => ({
+        id: `ex-${order}`, order, lecturerId: `l-${order}`, assessmentScore: null,
+        availabilityStatus: "available", lecturer: { user: { fullName: name } }, ...extra,
+      });
+      mockRepo.getThesisDetailById.mockResolvedValue({
+        ...THESIS_DETAIL,
+        thesisSeminars: [{
+          id: "sem-1", status: "passed_with_revision", finalScore: 81.5,
+          date: new Date("2026-10-14T00:00:00.000Z"), startTime: new Date("1970-01-01T09:00:00.000Z"),
+          endTime: new Date("1970-01-01T11:00:00.000Z"), updatedAt: new Date(),
+          resultFinalizedAt: new Date("2026-10-14T05:00:00.000Z"), revisionFinalizedAt: null,
+          room: { name: "Ruang Seminar 1" },
+          examiners: [
+            examiner(1, "Penguji Satu", {
+              assessmentScore: 80,
+              thesisSeminarRevisions: [
+                { id: "r1", supervisorApprovedAt: new Date() },
+                { id: "r2", supervisorApprovedAt: null },
+              ],
+            }),
+            examiner(2, "Penguji Dua", { assessmentScore: 83, thesisSeminarRevisions: [{ id: "r3", supervisorApprovedAt: new Date() }] }),
+            // A declined examiner stays in the table but is not shown.
+            examiner(3, "Penguji Menolak", { availabilityStatus: "unavailable", thesisSeminarRevisions: [] }),
+          ],
+        }],
+        thesisDefences: [{
+          id: "def-1", status: "scheduled", finalScore: null, grade: null,
+          date: null, startTime: null, endTime: null, updatedAt: new Date(),
+          examiners: [],
+        }],
+      });
+
+      const result = await getThesisDetail("thesis-1");
+
+      expect(result.seminars[0]).toMatchObject({
+        id: "sem-1",
+        status: "passed_with_revision",
+        finalScore: 81.5,
+        room: "Ruang Seminar 1",
+        examiners: [{ order: 1, name: "Penguji Satu" }, { order: 2, name: "Penguji Dua" }],
+        revisions: { total: 3, completed: 2 },
+        revisionFinalizedAt: null,
+      });
+      expect(result.seminars[0].resultFinalizedAt).toEqual(new Date("2026-10-14T05:00:00.000Z"));
+      // Without a room, examiners or revisions the card fields are empty, never undefined.
+      expect(result.defences[0]).toMatchObject({
+        id: "def-1",
+        room: null,
+        examiners: [],
+        resultFinalizedAt: null,
+        revisionFinalizedAt: null,
+        revisions: { total: 0, completed: 0 },
+      });
+    });
+
     it("calculates lastActivity correctly prioritizing the newest date from multiple sources", async () => {
       const now = new Date();
       const yesterday = new Date(now.getTime() - 86400000);

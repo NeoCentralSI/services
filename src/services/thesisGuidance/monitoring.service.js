@@ -345,6 +345,26 @@ export async function getStudentsReadyForSeminarFull(academicYear) {
 }
 
 /**
+ * What the Seminar and Sidang cards of the monitoring detail show besides status, schedule
+ * and score: room, the examiners that are still assigned, and revision progress (a revision
+ * is done once a supervisor has approved it, as in the seminar and defence modules).
+ */
+function eventCardFields(event, revisionsKey) {
+  const assigned = (event.examiners || []).filter((e) => e.availabilityStatus !== "unavailable");
+  const revisions = assigned.flatMap((e) => e[revisionsKey] || []);
+  return {
+    room: event.room?.name ?? null,
+    examiners: assigned.map((e) => ({ order: e.order ?? null, name: e.lecturer?.user?.fullName ?? null })),
+    resultFinalizedAt: event.resultFinalizedAt ?? null,
+    revisionFinalizedAt: event.revisionFinalizedAt ?? null,
+    revisions: {
+      total: revisions.length,
+      completed: revisions.filter((r) => r.supervisorApprovedAt).length,
+    },
+  };
+}
+
+/**
  * Get detailed thesis information by thesis ID for monitoring
  */
 export async function getThesisDetail(thesisId) {
@@ -397,6 +417,7 @@ export async function getThesisDetail(thesisId) {
       startTime: s.startTime,
       endTime: s.endTime,
       finalScore: s.finalScore,
+      ...eventCardFields(s, "thesisSeminarRevisions"),
       examinerCount: examiners.length,
       scoredCount: scoredExaminers.length,
       averageScore: scoredExaminers.length > 0
@@ -419,6 +440,7 @@ export async function getThesisDetail(thesisId) {
       grade: d.grade,
       examinerAverageScore: d.examinerAverageScore,
       supervisorScore: d.supervisorScore,
+      ...eventCardFields(d, "thesisDefenceRevisions"),
       examinerCount: examiners.length,
       scoredCount: scoredExaminers.length,
       averageScore: scoredExaminers.length > 0

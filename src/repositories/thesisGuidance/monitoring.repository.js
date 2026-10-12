@@ -537,6 +537,17 @@ export async function getAllSupervisors() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Read-only extras for the Seminar and Sidang cards of the monitoring detail.
+const EVENT_EXAMINER_SELECT = {
+  id: true,
+  assessmentScore: true,
+  lecturerId: true,
+  order: true,
+  availabilityStatus: true,
+  lecturer: { select: { user: { select: { fullName: true } } } },
+};
+const REVISION_PROGRESS_SELECT = { id: true, supervisorApprovedAt: true };
+
 /**
  * Get detailed thesis information by thesis ID for monitoring
  */
@@ -617,12 +628,14 @@ export async function getThesisDetailById(thesisId) {
           endTime: true,
           createdAt: true,
           updatedAt: true,
+          resultFinalizedAt: true,
+          revisionFinalizedAt: true,
+          room: { select: { name: true } },
           examiners: {
+            orderBy: { order: "asc" },
             select: {
-              id: true,
-              assessmentScore: true,
-              lecturerId: true,
-              order: true,
+              ...EVENT_EXAMINER_SELECT,
+              thesisSeminarRevisions: { select: REVISION_PROGRESS_SELECT },
             },
           },
         },
@@ -642,12 +655,14 @@ export async function getThesisDetailById(thesisId) {
           endTime: true,
           createdAt: true,
           updatedAt: true,
+          resultFinalizedAt: true,
+          revisionFinalizedAt: true,
+          room: { select: { name: true } },
           examiners: {
+            orderBy: { order: "asc" },
             select: {
-              id: true,
-              assessmentScore: true,
-              lecturerId: true,
-              order: true,
+              ...EVENT_EXAMINER_SELECT,
+              thesisDefenceRevisions: { select: REVISION_PROGRESS_SELECT },
             },
           },
         },
