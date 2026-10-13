@@ -219,6 +219,13 @@ export async function downloadProgressReport(req, res, next) {
     );
     res.send(result.buffer);
   } catch (error) {
+    // The service answers 503 with a message written for the user (PDF converter not
+    // running). The global error handler replaces the message of every 5xx, so this one is
+    // sent here.
+    if (error?.statusCode === 503) {
+      res.status(503).json({ success: false, status: 503, message: error.message });
+      return;
+    }
     next(error);
   }
 }

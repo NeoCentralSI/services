@@ -17,7 +17,9 @@ import {
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
+import axios from "axios";
 import PizZip from "pizzip";
+import { ENV } from "../../config/env.js";
 import { convertDocxToPdf } from "../../utils/pdf.util.js";
 
 const readFile = promisify(fs.readFile);
@@ -29,6 +31,17 @@ function toTitleCaseName(str) {
     .split(" ")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+/** A lecturer's name: title-cased, with the degrees after the first comma kept as written ("M.Sc"). */
+function formatLecturerName(name) {
+  if (!name) return "";
+  const text = String(name).trim();
+  const comma = text.indexOf(",");
+  if (comma === -1) return toTitleCaseName(text);
+  const person = toTitleCaseName(text.slice(0, comma).trim());
+  const degrees = text.slice(comma + 1).trim();
+  return degrees ? `${person}, ${degrees}` : person;
 }
 
 /** Derived progress fields of a thesis, shaped for API responses. */
@@ -791,9 +804,16 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
 export async function getProgressReportService(options = {}) {
   const { academicYearId } = options;
   // Get academic year info
-  const academicYear = academicYearId && academicYearId !== 'all'
+  const forOneSemester = Boolean(academicYearId) && academicYearId !== 'all';
+  const academicYear = forOneSemester
     ? await monitoringRepository.getAcademicYearById(academicYearId)
     : null;
+  if (forOneSemester && !academicYear) {
+    // The rows would be filtered by a semester the report cannot name.
+    const err = new Error("Semester tidak ditemukan");
+    err.statusCode = 404;
+    throw err;
+  }
 
   // Get all theses for the academic year with filters
   const theses = await monitoringRepository.getThesesForReport(options);
@@ -833,6 +853,8 @@ export async function getProgressReportService(options = {}) {
 
     // Get last guidance
     const lastGuidance = guidances.find(g => g.status === "completed");
+    const activityLevel = t.progress?.activityLevel ?? null;
+    const evaluationDue = t.progress?.supervisionClock?.evaluationDue ?? null;
 
     return {
       no: index + 1,
@@ -840,12 +862,16 @@ export async function getProgressReportService(options = {}) {
       name: toTitleCaseName(t.student?.user?.fullName || "-"),
       title: t.title || "-",
       topic: t.thesisTopic?.name || "-",
+      // The codes, and beside each the text the report prints (never the code itself).
       status: t.status || "-",
-      activityLevel: t.progress?.activityLevel ?? null,
+      statusLabel: getThesisStatusLabel(t.status),
+      activityLevel,
+      activityLabel: getThesisActivityLabel(activityLevel),
       supervisionLabel: t.progress?.supervisionClock?.elapsedLabel ?? "-",
-      evaluationDue: t.progress?.supervisionClock?.evaluationDue ?? null,
-      pembimbing1: toTitleCaseName(pembimbing1?.lecturer?.user?.fullName || "-"),
-      pembimbing2: toTitleCaseName(pembimbing2?.lecturer?.user?.fullName || "-"),
+      evaluationDue,
+      evaluationDueLabel: evaluationDue ? getEvaluationDueLabel(evaluationDue) : null,
+      pembimbing1: formatLecturerName(pembimbing1?.lecturer?.user?.fullName) || "-",
+      pembimbing2: formatLecturerName(pembimbing2?.lecturer?.user?.fullName) || "-",
       guidanceTotal: guidances.length,
       guidanceCompleted: completedGuidanceCount,
       lastGuidanceDate: lastGuidance?.completedAt || null,
@@ -872,13 +898,21 @@ export async function getProgressReportService(options = {}) {
       : 0,
   };
 
+  const semesterLabel = academicYear
+    ? `${academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${academicYear.year}`
+    : null;
+
   return {
-    academicYear: academicYear
-      ? `${academicYear.semester === "ganjil" ? "Ganjil" : "Genap"} ${academicYear.year}`
-      : "Semua Semester",
+    academicYear: semesterLabel ?? "Semua Semester",
+    // Subtitle of the report. The semester filter keeps the theses that RUN in the semester,
+    // not the ones that started in it.
+    periodTitle: semesterLabel
+      ? `Tugas Akhir yang Berjalan pada Semester ${semesterLabel}`
+      : "Tugas Akhir dari Semua Semester",
     generatedAt: new Date().toISOString(),
     summary,
-    statusDistribution,
+    // `name` is the label shown to people; `id` stays the status value.
+    statusDistribution: statusDistribution.map((row) => ({ ...row, name: getThesisStatusLabel(row.id) })),
     activityDistribution,
     theses: reportData,
   };
@@ -925,7 +959,7 @@ function makeCell(text, opts = {}) {
  * Build the monitoring report content as OOXML
  */
 function buildMonitoringReportXml(reportData) {
-  const { academicYear, generatedAt, theses } = reportData;
+  const { periodTitle, generatedAt, theses } = reportData;
 
   const formatDateLong = (dateString) => {
     if (!dateString) return "-";
@@ -960,7 +994,7 @@ function buildMonitoringReportXml(reportData) {
       </w:pPr>
       <w:r>
         <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
-        <w:t>Periode Semester ${escapeXml(academicYear)}</w:t>
+        <w:t>${escapeXml(periodTitle)}</w:t>
       </w:r>
     </w:p>`;
 
@@ -983,15 +1017,13 @@ function buildMonitoringReportXml(reportData) {
       if (t.pembimbing2 && t.pembimbing2 !== "-") {
         pembimbingText += `\n${t.pembimbing2}`;
       }
-      // §2.2b: enum values are never printed raw in the report.
-      const activityLabel = getThesisActivityLabel(t.activityLevel);
-
+      // §2.2b: enum values are never printed raw in the report; the rows carry the labels.
       const identity = `${t.name}\n${t.nim}`;
       const info = `${t.title}\n(${t.topic})`;
-      const dueLabel = t.evaluationDue ? `\n${getEvaluationDueLabel(t.evaluationDue)}` : "";
+      const dueLabel = t.evaluationDueLabel ? `\n${t.evaluationDueLabel}` : "";
       const dates = `${formatDateLong(t.startDate)}\n${t.supervisionLabel}${dueLabel}`;
-      const statusInfo = `${getThesisStatusLabel(t.status)}\n${formatDateLong(t.lastGuidanceDate)}`;
-      const progressInfo = `${activityLabel}\n${t.progressPercent}%`;
+      const statusInfo = `${t.statusLabel}\n${formatDateLong(t.lastGuidanceDate)}`;
+      const progressInfo = `${t.activityLabel}\n${t.progressPercent}%`;
 
       return `
       <w:tr>
@@ -1022,9 +1054,9 @@ function buildMonitoringReportXml(reportData) {
         <w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
       </w:tblPr>
       <w:tblGrid>
-        <w:gridCol w:w="500"/>
+        <w:gridCol w:w="650"/>
         <w:gridCol w:w="2500"/>
-        <w:gridCol w:w="3500"/>
+        <w:gridCol w:w="3350"/>
         <w:gridCol w:w="2500"/>
         <w:gridCol w:w="1800"/>
         <w:gridCol w:w="1500"/>
@@ -1132,6 +1164,40 @@ function extractHeaderFromDocXml(body) {
   return body.substring(0, bestCut);
 }
 
+const PDF_SERVICE_DOWN_MESSAGE = "Layanan pembuat PDF sedang tidak aktif. Hubungi admin sistem.";
+
+/**
+ * True when the PDF converter (Gotenberg) answers and reports itself up. The address is the
+ * one utils/pdf.util.js posts to.
+ */
+async function isPdfConverterUp() {
+  try {
+    const response = await axios.get(`${ENV.GOTENBERG_URL || "http://localhost:3001"}/health`, {
+      timeout: 5000,
+      validateStatus: () => true,
+    });
+    return response.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Converts the report to PDF. `convertDocxToPdf` reports every failure with the same error,
+ * so after a failure the converter itself is asked whether it is up: when it is not, the
+ * answer is a 503 with a message for the user; any other failure is passed on as it is.
+ */
+export async function convertReportToPdf(docxBuffer, filename) {
+  try {
+    return await convertDocxToPdf(docxBuffer, filename);
+  } catch (error) {
+    if (await isPdfConverterUp()) throw error;
+    const err = new Error(PDF_SERVICE_DOWN_MESSAGE);
+    err.statusCode = 503;
+    throw err;
+  }
+}
+
 /**
  * Generate progress report PDF using the catatan template header
  * @param {Object} options - Filter options (academicYearId, statusIds, activityLevels)
@@ -1210,7 +1276,7 @@ export async function generateProgressReportPdfService(options = {}) {
   // Convert to PDF via Gotenberg
   const semester = reportData.academicYear.replace(/\s+/g, "_");
   const docxFilename = `Laporan_Progress_TA_${semester}.docx`;
-  const pdfBuffer = await convertDocxToPdf(docxBuffer, docxFilename);
+  const pdfBuffer = await convertReportToPdf(docxBuffer, docxFilename);
 
   return {
     buffer: pdfBuffer,
