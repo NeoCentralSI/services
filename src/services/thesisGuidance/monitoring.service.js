@@ -4,6 +4,8 @@ import { ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import { THESIS_STATUS } from "../../constants/thesisStatus.js";
+import { getActiveAcademicYearId } from "../../helpers/academicYear.helper.js";
+import { getSemesterRange, getThesisStartedAt, isDateInSemester } from "../../helpers/semester-scope.helper.js";
 import { getThesisStatusLabel, getThesisActivityLabel, getEvaluationDueLabel } from "../../constants/thesisLabels.js";
 import {
   ACTIVITY_LEVEL,
@@ -172,27 +174,13 @@ export async function getThesesList(filters) {
     const pembimbing1 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 1");
     const pembimbing2 = t.thesisSupervisors?.find((p) => p.role?.name === "Pembimbing 2");
 
-    // Determine Semester Mulai TA
-    let startSemester = t.academicYear?.name;
-    if (t.startDate) {
-      const ts = new Date(t.startDate).getTime();
-      let matchedAy = null;
-      for (const ay of allAcademicYears) {
-        if (ay.startDate && ay.endDate) {
-          const start = new Date(ay.startDate).getTime();
-          const end = new Date(ay.endDate).getTime();
-          // 30 days margin before start date
-          const margin = 30 * 24 * 60 * 60 * 1000;
-          if (ts >= (start - margin) && ts <= end) {
-            matchedAy = ay;
-            break;
-          }
-        }
-      }
-      if (matchedAy) {
-        startSemester = matchedAy.name;
-      }
-    }
+    // Column "Mulai": the semester whose dates hold the start of the thesis (no margin,
+    // like the semester filter); null when it started outside every listed semester.
+    const startedAt = getThesisStartedAt(t);
+    const startSemester = allAcademicYears.find((ay) => {
+      const range = getSemesterRange(ay);
+      return range && isDateInSemester(startedAt, range);
+    })?.name?.trim() ?? null;
 
     return {
       id: t.id,
@@ -283,11 +271,14 @@ export async function getThesesList(filters) {
  * Get filter options for monitoring page
  */
 export async function getFilterOptions() {
-  const [statusDistribution, supervisors, academicYears, topicDistribution] = await Promise.all([
+  const [statusDistribution, supervisors, academicYears, topicDistribution, currentSemesterId] = await Promise.all([
     monitoringRepository.getStatusDistribution(),
     monitoringRepository.getAllSupervisors(),
     monitoringRepository.getAllAcademicYears(),
     monitoringRepository.getTopicDistribution(),
+    // The semester that is running now, decided the way the rest of the app decides it. An
+    // ambiguous calendar (overlapping semesters) leaves the stored flag in charge.
+    getActiveAcademicYearId().catch(() => undefined),
   ]);
 
   return {
@@ -310,7 +301,7 @@ export async function getFilterOptions() {
     academicYears: academicYears.map((ay) => ({
       value: ay.id,
       label: ay.name,
-      isActive: ay.isActive,
+      isActive: currentSemesterId === undefined ? ay.isActive : ay.id === currentSemesterId,
     })),
   };
 }

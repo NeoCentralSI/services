@@ -5,7 +5,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
+const { mockRepo, mockPrisma, mockPush, mockNotif, mockAcademicYear } = vi.hoisted(() => ({
+  mockAcademicYear: { getActiveAcademicYearId: vi.fn().mockResolvedValue(null) },
   mockRepo: {
     getThesesOverview: vi.fn(),
     getStatusDistribution: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("../../../repositories/thesisGuidance/monitoring.repository.js", () => m
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../services/push.service.js", () => mockPush);
 vi.mock("../../../services/notification.service.js", () => mockNotif);
+vi.mock("../../../helpers/academicYear.helper.js", () => mockAcademicYear);
 
 import {
   getMonitoringDashboard,
@@ -240,6 +242,48 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         name: "Machine Learning",
       });
     });
+
+    it("labels the start semester by the semester that holds the start, without a 30-day margin", async () => {
+      const row = (id, studentId, startDate) => ({
+        id,
+        title: `Thesis ${id}`,
+        thesisMilestones: [],
+        thesisSupervisors: [],
+        student: { id: studentId, user: { id: studentId, fullName: "Budi", identityNumber: "123" } },
+        status: "research",
+        startDate: startDate ? new Date(startDate) : null,
+        statusChangedAt: null,
+        createdAt: new Date("2025-03-03T00:00:00.000Z"),
+      });
+      mockRepo.getThesesOverview.mockResolvedValue({
+        theses: [
+          row("t1", "s1", "2026-08-13T00:00:00.000Z"),
+          // 20 days before Ganjil starts: still the Genap semester.
+          row("t2", "s2", "2026-07-12T00:00:00.000Z"),
+          // No start date: the creation date decides.
+          row("t3", "s3", null),
+          // Before every listed semester.
+          row("t4", "s4", "2019-01-01T00:00:00.000Z"),
+        ],
+        total: 4,
+        page: 1,
+        pageSize: 10,
+      });
+      mockRepo.getAllAcademicYears.mockResolvedValue([
+        { id: "ay3", name: "Ganjil 2026/2027 ", startDate: new Date("2026-08-01"), endDate: new Date("2027-01-31") },
+        { id: "ay2", name: "Genap 2025/2026 ", startDate: new Date("2026-02-01"), endDate: new Date("2026-07-31") },
+        { id: "ay1", name: "Genap 2024/2025 ", startDate: new Date("2025-02-01"), endDate: new Date("2025-07-31") },
+      ]);
+
+      const result = await getThesesList({ page: 1, pageSize: 10 });
+
+      expect(result.data.map((thesis) => [thesis.id, thesis.startSemester])).toEqual([
+        ["t1", "Ganjil 2026/2027"],
+        ["t2", "Genap 2025/2026"],
+        ["t3", "Genap 2024/2025"],
+        ["t4", null],
+      ]);
+    });
   });
 
   // ─── Filter Options ───────────────────────────────────────
@@ -258,6 +302,41 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         { value: "topic-1", label: "Machine Learning", count: 2 },
       ]);
       expect(result).toHaveProperty("academicYears");
+    });
+
+    describe("the running semester", () => {
+      const semesters = [
+        { id: "ay-old", name: "Genap 2025/2026 ", isActive: true }, // stale stored flag
+        { id: "ay-now", name: "Ganjil 2026/2027 ", isActive: false },
+      ];
+
+      beforeEach(() => {
+        mockRepo.getStatusDistribution.mockResolvedValue([]);
+        mockRepo.getAllSupervisors.mockResolvedValue([]);
+        mockRepo.getTopicDistribution.mockResolvedValue([]);
+        mockRepo.getAllAcademicYears.mockResolvedValue(semesters);
+      });
+
+      it("is the one the academic year helper resolves, not the stored flag", async () => {
+        mockAcademicYear.getActiveAcademicYearId.mockResolvedValue("ay-now");
+
+        expect((await getFilterOptions()).academicYears).toEqual([
+          { value: "ay-old", label: "Genap 2025/2026 ", isActive: false },
+          { value: "ay-now", label: "Ganjil 2026/2027 ", isActive: true },
+        ]);
+      });
+
+      it("is none when no semester is running", async () => {
+        mockAcademicYear.getActiveAcademicYearId.mockResolvedValue(null);
+
+        expect((await getFilterOptions()).academicYears.map((ay) => ay.isActive)).toEqual([false, false]);
+      });
+
+      it("follows the stored flag when the calendar is ambiguous", async () => {
+        mockAcademicYear.getActiveAcademicYearId.mockRejectedValue(new Error("Konfigurasi tahun akademik overlap."));
+
+        expect((await getFilterOptions()).academicYears.map((ay) => ay.isActive)).toEqual([true, false]);
+      });
     });
   });
 

@@ -35,6 +35,8 @@ export function matches(row, where = {}) {
       } else if ("contains" in cond) {
         if (typeof value !== "string" || !value.toLowerCase().includes(String(cond.contains).toLowerCase())) return false;
       } else if ("lte" in cond || "gte" in cond) {
+        // SQL: a comparison with NULL is never true.
+        if (value === undefined || value === null) return false;
         const v = value instanceof Date ? value.getTime() : new Date(value).getTime();
         if ("lte" in cond && !(v <= new Date(cond.lte).getTime())) return false;
         if ("gte" in cond && !(v >= new Date(cond.gte).getTime())) return false;
@@ -45,6 +47,9 @@ export function matches(row, where = {}) {
       } else {
         if (!isPlainObject(value) || !matches(value, cond)) return false;
       }
+    } else if (cond === null) {
+      // `{ column: null }` matches a row that has no value there.
+      if (value !== undefined && value !== null) return false;
     } else if (value !== cond) {
       return false;
     }

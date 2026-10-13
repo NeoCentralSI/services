@@ -13,6 +13,7 @@ import {
 } from "../../helpers/thesis-progress.helper.js";
 import { findLatestThesisReport as findLatestReport } from "../../helpers/guidanceFile.helper.js";
 import { SCHEDULED_GUIDANCE_STATUSES, getScheduledAt } from "../../constants/guidanceStatus.js";
+import { buildThesisSemesterWhere, getSemesterRange, isDateInSemester } from "../../helpers/semester-scope.helper.js";
 
 /** Monitoring aggregates cover running TA-phase theses only (K15). */
 const RUNNING_TA = THESIS_STATUS.RESEARCH;
@@ -26,19 +27,24 @@ function statusFilter(values) {
 }
 
 /**
- * Helper to build a dynamic start date filter based on academic year
+ * The semester chosen on the monitoring page: `{ academicYearId, academicYear }`, or null for
+ * "Semua Semester".
  */
-async function buildAcademicYearFilter(academicYearId) {
-  if (!academicYearId) return null;
-  const ay = await prisma.academicYear.findUnique({ where: { id: academicYearId } });
-  if (ay && ay.startDate && ay.endDate) {
-    const margin = 30 * 24 * 60 * 60 * 1000;
-    const start = new Date(new Date(ay.startDate).getTime() - margin);
-    return {
-      startDate: { gte: start, lte: ay.endDate }
-    };
-  }
-  return { academicYearId }; // fallback
+export async function findSemester(academicYearId) {
+  if (!academicYearId || academicYearId === "all") return null;
+  const academicYear = await prisma.academicYear.findUnique({ where: { id: academicYearId } });
+  return { academicYearId, academicYear };
+}
+
+/** `where` narrowed to the theses that run in the semester (see semester-scope.helper.js). */
+export function thesesInSemester(where, semester) {
+  if (!semester) return where;
+  return { AND: [where, buildThesisSemesterWhere(semester.academicYearId, semester.academicYear)] };
+}
+
+/** Every thesis query of the monitoring page takes its semester filter from here. */
+async function inSemester(where, academicYearId) {
+  return thesesInSemester(where, await findSemester(academicYearId));
 }
 
 /**
@@ -79,11 +85,6 @@ export async function getThesesOverview(filters = {}) {
     where.thesisTopicId = topicId;
   }
 
-  // Filter by academic year
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
-
   // Search by student name, NIM, or thesis title
   if (search) {
     where.OR = [
@@ -93,9 +94,12 @@ export async function getThesesOverview(filters = {}) {
     ];
   }
 
+  // Semester: theses that run in it
+  const scopedWhere = await inSemester(where, academicYear);
+
   const [theses, total] = await Promise.all([
     prisma.thesis.findMany({
-      where,
+      where: scopedWhere,
       select: {
         id: true,
         title: true,
@@ -169,7 +173,7 @@ export async function getThesesOverview(filters = {}) {
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
-    prisma.thesis.count({ where }),
+    prisma.thesis.count({ where: scopedWhere }),
   ]);
 
   return { theses, total, page, pageSize };
@@ -179,8 +183,7 @@ export async function getThesesOverview(filters = {}) {
  * Get thesis status distribution summary
  */
 export async function getStatusDistribution(academicYear) {
-  const where = academicYear ? await buildAcademicYearFilter(academicYear) : {};
-  where.status = { in: POST_PROPOSAL_THESIS_STATUSES };
+  const where = await inSemester({ status: { in: POST_PROPOSAL_THESIS_STATUSES } }, academicYear);
 
   const grouped = await prisma.thesis.groupBy({
     by: ["status"],
@@ -201,10 +204,7 @@ export async function getStatusDistribution(academicYear) {
  * this result (the number of running theses is small).
  */
 async function findRunningThesesWithActivity(academicYear) {
-  const where = { status: RUNNING_TA };
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
+  const where = await inSemester({ status: RUNNING_TA }, academicYear);
   const theses = await prisma.thesis.findMany({
     where,
     select: {
@@ -250,11 +250,7 @@ export async function getActivityDistribution(academicYear) {
  */
 export async function getProgressStatistics(academicYear) {
   // Running theses only (status `research`).
-  const where = { status: RUNNING_TA };
-
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
+  const where = await inSemester({ status: RUNNING_TA }, academicYear);
 
   // Get all theses with milestones
   const theses = await prisma.thesis.findMany({
@@ -378,17 +374,13 @@ export const getSlowStudents = (limit = 10, academicYear) =>
 export async function getStudentsReadyForSeminar(academicYear) {
   // "Acc Seminar" is no longer a thesis status (K15): ready = running TA whose active
   // supervisors (at least one) all gave seminarReady.
-  const where = {
+  const where = await inSemester({
     status: RUNNING_TA,
     AND: [
       { thesisSupervisors: { every: { OR: [{ status: { not: "active" } }, { seminarReady: true }] } } },
       { thesisSupervisors: { some: { status: "active", seminarReady: true } } },
     ],
-  };
-
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
+  }, academicYear);
 
   return prisma.thesis.findMany({
     where,
@@ -427,13 +419,9 @@ export async function getStudentsReadyForSeminar(academicYear) {
  * Get thesis supervisor assignment rows for lecturer workload summary
  */
 export async function getSupervisorWorkloadRows(academicYear) {
-  const thesisWhere = {
+  const thesisWhere = await inSemester({
     status: { in: [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE] },
-  };
-
-  if (academicYear) {
-    Object.assign(thesisWhere, await buildAcademicYearFilter(academicYear));
-  }
+  }, academicYear);
 
   return prisma.thesisSupervisors.findMany({
     where: {
@@ -479,12 +467,15 @@ export async function getSupervisorWorkloadRows(academicYear) {
   });
 }
 
-/** * Get all academic years for filter options
+/**
+ * Semesters of the filter: every semester that has started (a thesis may have run in it
+ * without having started in it), plus the ones flagged active or stored on a thesis.
  */
 export async function getAllAcademicYears() {
   const academicYears = await prisma.academicYear.findMany({
     where: {
       OR: [
+        { startDate: { lte: new Date() } },
         { thesis: { some: {} } },
         { isActive: true }
       ]
@@ -688,15 +679,13 @@ export function findLatestThesisReport(thesisId) {
  */
 export async function getThesesForReport(options = {}) {
   const { academicYearId, statusIds, activityLevels } = options;
-  const where = { status: { in: POST_PROPOSAL_THESIS_STATUSES } };
-
-  if (academicYearId && academicYearId !== 'all') {
-    Object.assign(where, await buildAcademicYearFilter(academicYearId));
-  }
+  const statusWhere = { status: { in: POST_PROPOSAL_THESIS_STATUSES } };
 
   if (statusIds && Array.isArray(statusIds) && statusIds.length > 0) {
-    where.status = statusFilter(statusIds);
+    statusWhere.status = statusFilter(statusIds);
   }
+
+  const where = await inSemester(statusWhere, academicYearId);
 
   const theses = await prisma.thesis.findMany({
     where,
@@ -780,10 +769,7 @@ export async function getAcademicYearById(academicYearId) {
  * Get topic distribution - count of theses per topic
  */
 export async function getTopicDistribution(academicYear) {
-  const where = { status: { in: POST_PROPOSAL_THESIS_STATUSES } };
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
+  const where = await inSemester({ status: { in: POST_PROPOSAL_THESIS_STATUSES } }, academicYear);
 
   const topics = await prisma.thesisTopic.findMany({
     include: {
@@ -810,12 +796,7 @@ export async function getTopicDistribution(academicYear) {
  * Get batch/angkatan distribution - count of theses grouped by student enrollment year
  */
 export async function getBatchDistribution(academicYear) {
-  const where = {
-    status: { in: NOT_FAILED_TA_STATUSES },
-  };
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
+  const where = await inSemester({ status: { in: NOT_FAILED_TA_STATUSES } }, academicYear);
 
   const theses = await prisma.thesis.findMany({
     where,
@@ -847,10 +828,7 @@ export async function getBatchDistribution(academicYear) {
  * Get progress distribution - count of theses per progress bucket
  */
 export async function getProgressDistribution(academicYear) {
-  const where = { status: RUNNING_TA };
-  if (academicYear) {
-    Object.assign(where, await buildAcademicYearFilter(academicYear));
-  }
+  const where = await inSemester({ status: RUNNING_TA }, academicYear);
 
   const theses = await prisma.thesis.findMany({
     where,
@@ -888,17 +866,15 @@ export async function getProgressDistribution(academicYear) {
 }
 
 /**
- * Get monthly guidance session trend - count of completed/accepted guidances per month
+ * Get monthly guidance session trend - count of completed/accepted guidances per month.
+ * With a semester chosen, only the sessions scheduled inside that semester are counted.
  */
 export async function getGuidanceTrend(academicYear) {
-  const thesisWhere = {
-    status: { in: NOT_FAILED_TA_STATUSES },
-  };
-  if (academicYear) {
-    Object.assign(thesisWhere, await buildAcademicYearFilter(academicYear));
-  }
+  const semester = await findSemester(academicYear);
+  const thesisWhere = thesesInSemester({ status: { in: NOT_FAILED_TA_STATUSES } }, semester);
+  const range = getSemesterRange(semester?.academicYear);
 
-  const guidances = await prisma.thesisGuidance.findMany({
+  const sessions = await prisma.thesisGuidance.findMany({
     where: {
       ...TA_PHASE,
       status: { in: ["completed", ...SCHEDULED_GUIDANCE_STATUSES, "summary_pending"] },
@@ -907,6 +883,7 @@ export async function getGuidanceTrend(academicYear) {
     select: { requestedDate: true, approvedDate: true },
     orderBy: { requestedDate: "asc" },
   });
+  const guidances = range ? sessions.filter((g) => isDateInSemester(getScheduledAt(g), range)) : sessions;
 
   // C6: a session counts in the month of its effective schedule (approvedDate ?? requestedDate)
   const monthMap = new Map();
