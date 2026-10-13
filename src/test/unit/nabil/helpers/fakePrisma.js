@@ -44,6 +44,8 @@ export function matches(row, where = {}) {
         if (!Array.isArray(value) || !value.some((item) => matches(item, cond.some))) return false;
       } else if ("every" in cond) {
         if (!Array.isArray(value) || !value.every((item) => matches(item, cond.every))) return false;
+      } else if ("none" in cond) {
+        if (Array.isArray(value) && value.some((item) => matches(item, cond.none))) return false;
       } else {
         if (!isPlainObject(value) || !matches(value, cond)) return false;
       }

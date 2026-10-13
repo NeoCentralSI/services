@@ -14,6 +14,8 @@ import {
 import { findLatestThesisReport as findLatestReport } from "../../helpers/guidanceFile.helper.js";
 import { SCHEDULED_GUIDANCE_STATUSES, getScheduledAt } from "../../constants/guidanceStatus.js";
 import { buildThesisSemesterWhere, getSemesterRange, isDateInSemester } from "../../helpers/semester-scope.helper.js";
+import { EVENT_KIND } from "../../constants/thesis-event-monitoring.js";
+import { buildReadyToRegisterWhere } from "../../helpers/thesis-event-monitoring.helper.js";
 
 /** Monitoring aggregates cover running TA-phase theses only (K15). */
 const RUNNING_TA = THESIS_STATUS.RESEARCH;
@@ -373,14 +375,9 @@ export const getSlowStudents = (limit = 10, academicYear) =>
  */
 export async function getStudentsReadyForSeminar(academicYear) {
   // "Acc Seminar" is no longer a thesis status (K15): ready = running TA whose active
-  // supervisors (at least one) all gave seminarReady.
-  const where = await inSemester({
-    status: RUNNING_TA,
-    AND: [
-      { thesisSupervisors: { every: { OR: [{ status: { not: "active" } }, { seminarReady: true }] } } },
-      { thesisSupervisors: { some: { status: "active", seminarReady: true } } },
-    ],
-  }, academicYear);
+  // supervisors (at least one) all gave seminarReady, and that has no seminar registration
+  // that still stands. One rule with "Siap Mendaftar" of the Seminar Hasil tab.
+  const where = await inSemester(buildReadyToRegisterWhere(EVENT_KIND.SEMINAR), academicYear);
 
   return prisma.thesis.findMany({
     where,

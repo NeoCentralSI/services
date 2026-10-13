@@ -1,7 +1,8 @@
 /**
  * Semester scope of the monitoring pages (Paket E3): the single source for "this thesis runs
- * in that semester". Pure: every monitoring query takes its `where` from here, and the
- * predicate states the same rule for one row.
+ * in that semester" and "this seminar or defence belongs to that semester". Pure: every
+ * monitoring query takes its `where` from here, and the predicates state the same rules for
+ * one row.
  */
 import { CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
 
@@ -75,4 +76,40 @@ export function buildThesisRunningInSemesterWhere(range) {
 export function buildThesisSemesterWhere(academicYearId, academicYear) {
   const range = getSemesterRange(academicYear);
   return range ? buildThesisRunningInSemesterWhere(range) : { academicYearId };
+}
+
+// ── Seminar Hasil and Sidang ────────────────────────────────────────────────────────────
+
+/**
+ * The date that places a seminar or defence in a semester: the day it is held (`date`);
+ * while it has no schedule, `registeredAt`; else `createdAt`.
+ */
+export function getEventReferenceDate(event) {
+  return event?.date ?? event?.registeredAt ?? event?.createdAt ?? null;
+}
+
+/** A seminar or defence belongs to the semester its reference date falls in. */
+export function isEventInSemester(event, range) {
+  return isDateInSemester(getEventReferenceDate(event), range);
+}
+
+/** `isEventInSemester` as a Prisma `where` of `ThesisSeminar` / `ThesisDefence`. */
+export function buildEventInSemesterWhere(range) {
+  const inRange = { gte: range.start, lte: range.end };
+  return {
+    OR: [
+      { date: inRange },
+      { date: null, registeredAt: inRange },
+      { date: null, registeredAt: null, createdAt: inRange },
+    ],
+  };
+}
+
+/**
+ * Semester filter of a seminar or defence query. Without semester dates it falls back to
+ * the semester stored on the thesis, like the thesis filter.
+ */
+export function buildEventSemesterWhere(academicYearId, academicYear) {
+  const range = getSemesterRange(academicYear);
+  return range ? buildEventInSemesterWhere(range) : { thesis: { academicYearId } };
 }

@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEventInSemesterWhere,
+  buildEventSemesterWhere,
   buildThesisRunningInSemesterWhere,
   buildThesisSemesterWhere,
+  getEventReferenceDate,
   getSemesterRange,
   getThesisEndedAt,
   getThesisStartedAt,
   isDateInSemester,
+  isEventInSemester,
   isThesisRunningInSemester,
 } from "../semester-scope.helper.js";
 import { matches } from "../../test/unit/nabil/helpers/fakePrisma.js";
@@ -160,5 +164,62 @@ describe("buildThesisSemesterWhere", () => {
   it("falls back to academicYearId when the semester has no dates or is unknown", () => {
     expect(buildThesisSemesterWhere("ay-1", { id: "ay-1", startDate: null, endDate: null })).toEqual({ academicYearId: "ay-1" });
     expect(buildThesisSemesterWhere("ay-missing", null)).toEqual({ academicYearId: "ay-missing" });
+  });
+});
+
+describe("a seminar or defence of a semester", () => {
+  const event = (overrides = {}) => ({
+    status: "registered",
+    date: null,
+    registeredAt: null,
+    createdAt: at("2026-09-01T03:00:00.000Z"),
+    ...overrides,
+  });
+
+  /** The predicate and the Prisma `where` must give the same answer for every row. */
+  function belongsTo(row, academicYear) {
+    const range = getSemesterRange(academicYear);
+    const byPredicate = isEventInSemester(row, range);
+    expect(matches(row, buildEventInSemesterWhere(range))).toBe(byPredicate);
+    return byPredicate;
+  }
+
+  it("is placed by the day it is held, then registeredAt, then createdAt", () => {
+    const date = at("2026-10-20T00:00:00.000Z");
+    const registeredAt = at("2026-09-25T02:00:00.000Z");
+    const createdAt = at("2026-09-24T02:00:00.000Z");
+    expect(getEventReferenceDate({ date, registeredAt, createdAt })).toBe(date);
+    expect(getEventReferenceDate({ date: null, registeredAt, createdAt })).toBe(registeredAt);
+    expect(getEventReferenceDate({ date: null, registeredAt: null, createdAt })).toBe(createdAt);
+  });
+
+  it("belongs to the semester its date falls in, both ends included", () => {
+    expect(belongsTo(event({ status: "scheduled", date: at("2026-10-20T00:00:00.000Z") }), CURRENT)).toBe(true);
+    expect(belongsTo(event({ status: "passed", date: CURRENT.startDate }), CURRENT)).toBe(true);
+    expect(belongsTo(event({ status: "passed", date: CURRENT.endDate }), CURRENT)).toBe(true);
+    expect(belongsTo(event({ status: "passed", date: at("2026-07-31T00:00:00.000Z") }), CURRENT)).toBe(false);
+    expect(belongsTo(event({ status: "scheduled", date: at("2027-02-01T00:00:00.000Z") }), CURRENT)).toBe(false);
+  });
+
+  it("follows the schedule, not the registration, once it has a date", () => {
+    // Registered last semester, held this semester.
+    const row = event({ status: "passed", date: at("2026-08-10T00:00:00.000Z"), registeredAt: at("2026-07-20T02:00:00.000Z"), createdAt: at("2026-07-20T02:00:00.000Z") });
+    expect(belongsTo(row, CURRENT)).toBe(true);
+    expect(belongsTo(row, PREVIOUS)).toBe(false);
+  });
+
+  it("uses registeredAt while it has no schedule, and createdAt when that is missing too", () => {
+    const registeredLastSemester = event({ registeredAt: at("2026-07-10T02:00:00.000Z"), createdAt: at("2026-08-05T02:00:00.000Z") });
+    expect(belongsTo(registeredLastSemester, PREVIOUS)).toBe(true);
+    expect(belongsTo(registeredLastSemester, CURRENT)).toBe(false);
+
+    expect(belongsTo(event({ createdAt: at("2026-09-01T03:00:00.000Z") }), CURRENT)).toBe(true);
+    expect(belongsTo(event({ createdAt: at("2026-05-01T03:00:00.000Z") }), CURRENT)).toBe(false);
+  });
+
+  it("falls back to the semester of the thesis when the semester has no dates", () => {
+    expect(buildEventSemesterWhere(CURRENT.id, CURRENT)).toEqual(buildEventInSemesterWhere(getSemesterRange(CURRENT)));
+    expect(buildEventSemesterWhere("ay-1", { id: "ay-1", startDate: null, endDate: null })).toEqual({ thesis: { academicYearId: "ay-1" } });
+    expect(buildEventSemesterWhere("ay-missing", null)).toEqual({ thesis: { academicYearId: "ay-missing" } });
   });
 });

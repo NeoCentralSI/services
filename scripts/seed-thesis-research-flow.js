@@ -9,6 +9,7 @@
  *   node scripts/seed-milestone-templates.js
  *   node scripts/seed-guidance-milestone.js
  *   node scripts/seed-thesis-research-flow.js
+ *   node scripts/seed-thesis-monitoring.js   (Paket E3: seminar, sidang, and semester data)
  *
  * Dates are relative to the day the seeder runs, so "7 months ago" stays 7 months ago.
  * Idempotent: an account that already has a thesis is left as it is. Nothing is deleted.
@@ -666,19 +667,27 @@ async function seedAccount(account, ctx) {
   if (account.evaluation) await createEvaluation(thesis, account, p1Relation, startDate);
 
   if (account.seminar) {
-    const heldAt = daysAgo(account.seminar.daysAgo);
+    // `daysAgo` is the day the seminar was held, or the day of a registration that has not
+    // been held yet: that one has no schedule, score or result.
+    const at = daysAgo(account.seminar.daysAgo);
+    const wasHeld = account.seminar.status !== "registered";
+    const registeredAt = wasHeld ? new Date(at.getTime() - 14 * DAY) : at;
     await prisma.thesisSeminar.create({
       data: {
         thesisId: thesis.id,
         status: account.seminar.status,
-        registeredAt: new Date(heldAt.getTime() - 14 * DAY),
-        verifiedAt: new Date(heldAt.getTime() - 10 * DAY),
-        scheduledAt: heldAt,
-        date: heldAt,
-        finalScore: 82,
-        resultFinalizedAt: heldAt,
-        createdAt: new Date(heldAt.getTime() - 14 * DAY),
-        updatedAt: heldAt,
+        registeredAt,
+        createdAt: registeredAt,
+        updatedAt: at,
+        ...(wasHeld
+          ? {
+            verifiedAt: new Date(at.getTime() - 10 * DAY),
+            scheduledAt: at,
+            date: at,
+            finalScore: 82,
+            resultFinalizedAt: at,
+          }
+          : {}),
       },
     });
   }
