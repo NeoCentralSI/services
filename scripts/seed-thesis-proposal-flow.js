@@ -224,7 +224,7 @@ const ACCOUNTS = [
     flags: { current: { eligibleResearchMethod: true } },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, hoursAgo: 24 * 54, title: "Aplikasi Pelacakan Alumni Program Studi" },
     thesis: { p1: LECTURER.ullya, semester: "current", assigned: true },
-    attempt: { semester: "current", proposalDaysAgo: 5, supervisor: [20, 16, 24] },
+    attempt: { semester: "current", proposalDaysAgo: 5, supervisor: [16, 32, 12] },
     attendance: { present: 16, total: 16 },
   },
   {
@@ -234,7 +234,7 @@ const ACCOUNTS = [
     flags: { current: { eligibleResearchMethod: true, takingThesisCourse: false } },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, hoursAgo: 24 * 55, title: "Sistem Informasi Pengelolaan Magang Mahasiswa" },
     thesis: { p1: LECTURER.ullya, semester: "current", assigned: true },
-    attempt: { semester: "current", proposalDaysAgo: 8, supervisor: [22, 17, 25], coordinator: [8, 12] },
+    attempt: { semester: "current", proposalDaysAgo: 8, supervisor: [18, 34, 12], coordinator: [20] },
     attendance: { present: 13, total: 16 },
   },
 
@@ -249,7 +249,7 @@ const ACCOUNTS = [
     },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.aina, semester: "previous", title: "Aplikasi Penjadwalan Ruang Seminar Departemen" },
     thesis: { p1: LECTURER.aina, semester: "previous", assigned: true },
-    attempt: { semester: "previous", supervisor: [20, 15, 22], coordinator: [8, 11] },
+    attempt: { semester: "previous", supervisor: [16, 30, 11], coordinator: [19] },
     previousAttendance: { present: 14, total: 16 },
   },
   {
@@ -262,7 +262,7 @@ const ACCOUNTS = [
     },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, semester: "previous", title: "Sistem Informasi Rekap Nilai Praktikum" },
     thesis: { p1: LECTURER.ullya, semester: "previous", assigned: true },
-    attempt: { semester: "previous", supervisor: [12, 10, 15], coordinator: [4, 6] },
+    attempt: { semester: "previous", supervisor: [9, 18, 10], coordinator: [10] },
     previousAttendance: { present: 13, total: 16 },
     attendance: { present: 14, total: 16 },
   },
@@ -276,7 +276,7 @@ const ACCOUNTS = [
     },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, semester: "previous", title: "Aplikasi Manajemen Proyek Mahasiswa Berbasis Kanban" },
     thesis: { p1: LECTURER.ullya, semester: "previous", assigned: true, promotedDaysAgo: 60 },
-    attempt: { semester: "previous", supervisor: [21, 16, 24], coordinator: [9, 12] },
+    attempt: { semester: "previous", supervisor: [18, 33, 12], coordinator: [19] },
     previousAttendance: { present: 16, total: 16 },
     guidances: [
       { status: "completed", daysAgo: 150, phase: THESIS_PHASE.PROPOSAL, withDraft: true },
@@ -301,15 +301,15 @@ const CPMKS = [
   { code: "CPMK-02", description: "Mampu menyusun kajian pustaka dan metodologi penelitian" },
   { code: "CPMK-03", description: "Mampu menyajikan rencana penelitian secara tertulis dan lisan" },
 ];
-// Supervisor 25 + 20 + 30 = 75; coordinator 10 + 15 = 25 (K31: total 100).
+// Laid out like the SIA score template (export: Presentasi, Proposal konten, Proposal
+// struktur, Kemampuan merespon): supervisor 20 + 40 + 15 = 75; coordinator 25 (10.2: total 100).
 const SUPERVISOR_CRITERIA = [
-  { cpmk: "CPMK-01", name: "Latar belakang dan rumusan masalah", maxScore: 25 },
-  { cpmk: "CPMK-02", name: "Tinjauan pustaka", maxScore: 20 },
-  { cpmk: "CPMK-02", name: "Metodologi penelitian", maxScore: 30 },
+  { cpmk: "CPMK-01", name: "Presentasi rencana penelitian", maxScore: 20 },
+  { cpmk: "CPMK-02", name: "Konten proposal (latar belakang, pustaka, metodologi)", maxScore: 40 },
+  { cpmk: "CPMK-03", name: "Kemampuan merespon pertanyaan", maxScore: 15 },
 ];
 const COORDINATOR_CRITERIA = [
-  { cpmk: "CPMK-03", name: "Kelengkapan dan format proposal", maxScore: 10 },
-  { cpmk: "CPMK-03", name: "Presentasi rencana penelitian di kelas", maxScore: 15 },
+  { cpmk: "CPMK-02", name: "Struktur dan format proposal", maxScore: 25 },
 ];
 
 /** Three rubric levels covering 0..max. */

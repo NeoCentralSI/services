@@ -10,15 +10,16 @@ const routePath = join(
 );
 
 describe("research-method route RBAC", () => {
-  it("membatasi pengelolaan ke Sekretaris Departemen dan Koordinator Metopen", () => {
+  it("membatasi pengelolaan data master ke Sekretaris Departemen dan Koordinator Metode Penelitian", () => {
     const source = readFileSync(routePath, "utf8");
 
     expect(source).toContain("router.use(authGuard)");
-    expect(source).toContain("ROLES.SEKRETARIS_DEPARTEMEN");
-    expect(source).toContain("ROLES.KOORDINATOR_METOPEN");
-    expect(source).toContain("router.use(requireAnyRole(MANAGER_ROLES))");
-    expect(source).not.toContain("ROLES.ADMIN");
-    expect(source).not.toContain("ROLES.KETUA_DEPARTEMEN");
+    // P5 split the router: master data keeps its two roles per route; Presensi, Penilaian
+    // Proposal, kelulusan, ekspor and monitoring carry their own guards.
+    expect(source).toContain("const MANAGE = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_METOPEN]);");
+    for (const route of ['"/cpmks", MANAGE', '"/assessment-configuration", MANAGE', '"/criteria", MANAGE', '"/criteria/:criteriaId/rubrics", MANAGE', '"/weight-summary", MANAGE']) {
+      expect(source).toContain(route);
+    }
   });
 
   it("menyediakan endpoint CPMK, konfigurasi, kriteria, rubrik, dan ringkasan bobot", () => {

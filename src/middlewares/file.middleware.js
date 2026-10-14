@@ -75,8 +75,8 @@ const guideUpload = multer({ storage, fileFilter: guideFileFilter, limits: { fil
 
 export const uploadCsv = upload.single("file");
 export const uploadExcelFile = excelUpload.single("file");
-/** Metopel attendance: legacy `file` (1) and/or `files` (1–2) multipart fields. */
-export const uploadExcelAttendance = excelUpload.fields([
+/** Research Method attendance: `file` (1) and/or `files` (1–2) multipart fields. */
+export const uploadAttendanceFiles = excelUpload.fields([
 	{ name: "file", maxCount: 1 },
 	{ name: "files", maxCount: 2 },
 ]);

@@ -7,6 +7,7 @@ import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js"
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 import { runSupervisorRequestReminderJob } from "../jobs/supervisor-request-reminder.job.js";
 import { runSupervisorAssignmentReminderJob } from "../jobs/supervisor-assignment-reminder.job.js";
+import { runResearchMethodPromotionJob } from "../jobs/research-method-promotion.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
@@ -118,6 +119,20 @@ export async function scheduleSupervisorAssignmentReminder() {
     backoff: { type: "exponential", delay: 5000 },
   });
   if (ok) console.log(`🗓️  Scheduled repeatable supervisor-assignment-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
+/** Naik ke Penelitian (K13): half an hour after each SIA sync slot. */
+export async function scheduleResearchMethodPromotion() {
+  const pattern = process.env.RESEARCH_METHOD_PROMOTION_CRON || "30 */6 * * *";
+  const tz = process.env.RESEARCH_METHOD_PROMOTION_TZ || "Asia/Jakarta";
+  const ok = await safeAdd("research-method-promotion", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+  if (ok) console.log(`🗓️  Scheduled repeatable research-method-promotion job with cron: "${pattern}" tz="${tz}"`);
 }
 
 export async function scheduleSiaSync() {
@@ -281,6 +296,9 @@ export const maintenanceWorker = MAINTENANCE_ENABLED
             break;
           case "supervisor-assignment-reminder":
             await runSupervisorAssignmentReminderJob();
+            break;
+          case "research-method-promotion":
+            await runResearchMethodPromotionJob();
             break;
           case "guidance-reminder":
             await runGuidanceReminderJob();
