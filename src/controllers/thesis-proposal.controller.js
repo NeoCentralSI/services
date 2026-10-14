@@ -1,6 +1,7 @@
 import * as requests from "../services/thesis-proposal/supervisor-request.service.js";
 import * as assignments from "../services/thesis-proposal/supervisor-assignment.service.js";
 import * as student from "../services/thesis-proposal/student.service.js";
+import * as finalProposal from "../services/thesis-proposal/final-proposal.service.js";
 
 const ok = (res, data, message = undefined, status = 200) =>
   res.status(status).json({ success: true, ...(message ? { message } : {}), data });
@@ -87,3 +88,9 @@ export const issueAssignment = handle(async (req, res) => {
 });
 /** GET /thesis-proposals/supervisor-assignments/batches/:id/file */
 export const getBatchFile = handle(async (req, res) => sendPdf(res, await assignments.getBatchFile(req.params.id, req.user.sub)));
+
+/** POST /thesis-proposals/me/final-proposal (multipart `file`, PDF) */
+export const submitFinalProposal = handle(async (req, res) => {
+  const data = await finalProposal.submitFinalProposal(req.user.sub, req.file);
+  ok(res, data, data.replaced ? "Proposal final diganti" : "Proposal final diajukan");
+});

@@ -31,6 +31,7 @@ import { ForbiddenError } from "../../utils/errors.js";
 import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
 import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
 import { REPEAT_PROPOSAL_LOCK_REASON } from "../../constants/thesis-guidance-evaluation.js";
+import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 import {
   THESIS_STATUS,
   POST_PROPOSAL_THESIS_STATUSES,
@@ -142,17 +143,19 @@ function ensureStudent(student) {
 }
 
 const NOT_WRITABLE_MESSAGES = {
-  [THESIS_STATUS.PROPOSAL]:
-    "Tugas akhir Anda masih dalam fase proposal. Bimbingan dan milestone tugas akhir baru dapat dipakai setelah masuk fase Tugas Akhir.",
+  [THESIS_STATUS.PROPOSAL]: PROPOSAL_NOT_ASSIGNED_REASON,
   [THESIS_STATUS.ON_LEAVE]:
     `Tugas akhir Anda sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Bimbingan dan milestone tidak dapat diubah.`,
 };
 
-/** Aksi tulis bimbingan/milestone fase TA hanya untuk TA berstatus `research`. */
+/**
+ * Aksi tulis bimbingan/milestone: TA berstatus `research`, atau `proposal` setelah Penetapan
+ * Pembimbing (K27). TA yang dikembalikan ke proposal oleh evaluasi bimbingan tetap terkunci (E5).
+ */
 async function ensureThesisWritable(thesis) {
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
-  // A thesis sent back to the proposal by a guidance evaluation says so (E5).
-  const repeating = thesis?.status === THESIS_STATUS.PROPOSAL && (await isRepeatingProposal(thesis.id));
+  const { open, repeating } = await getProposalPhaseAccess(thesis);
+  if (open) return;
   const err = new Error(
     repeating
       ? `${REPEAT_PROPOSAL_LOCK_REASON} Bimbingan dan milestone terkunci sampai tugas akhir kembali berstatus "${THESIS_STATUS_LABELS.research}".`
@@ -163,11 +166,11 @@ async function ensureThesisWritable(thesis) {
   throw err;
 }
 
-/** Aksi pada sesi yang sudah ada: TA pemilik sesi harus berstatus `research`. */
+/** Aksi pada sesi yang sudah ada: TA pemilik sesi harus bisa ditulis (fase sesi mana pun). */
 async function ensureGuidanceThesisWritable(guidance) {
   const thesis = await prisma.thesis.findUnique({
     where: { id: guidance.thesisId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, supervisorAssignedAt: true },
   });
   await ensureThesisWritable(thesis);
 }
@@ -211,6 +214,8 @@ export async function listMyGuidancesService(userId, status) {
   const items = rows.map((g) => ({
     id: g.id,
     status: g.status,
+    // K27: Jenis (Proposal / Tugas Akhir), fixed when the session was created
+    phase: g.phase,
     // Schema baru: gunakan requestedDate/approvedDate
     scheduledAt: g.approvedDate || g.requestedDate || null,
     scheduledAtFormatted:
@@ -257,6 +262,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
   const flat = {
     id: guidance.id,
     status: guidance.status,
+    phase: guidance.phase,
     scheduledAt: guidance.approvedDate || guidance.requestedDate || null,
     scheduledAtFormatted:
       guidance.approvedDate || guidance.requestedDate
@@ -957,6 +963,7 @@ export async function guidanceHistoryService(userId) {
   const items = rows.map((g) => ({
     id: g.id,
     status: g.status,
+    phase: g.phase,
     requestedDate: g.requestedDate || null,
     requestedDateFormatted: g.requestedDate
       ? formatDateTimeJakarta(g.requestedDate, { withDay: true })
@@ -1303,7 +1310,6 @@ export async function getCompletedGuidanceHistoryService(userId) {
   const guidances = await prisma.thesisGuidance.findMany({
     where: {
       thesisId: thesis.id,
-      ...TA_PHASE,
       status: "completed",
     },
     include: {
@@ -1328,6 +1334,7 @@ export async function getCompletedGuidanceHistoryService(userId) {
   return {
     guidances: guidances.map((g) => ({
       id: g.id,
+      phase: g.phase,
       supervisorName: g.supervisor?.user?.fullName || null,
       approvedDate: g.approvedDate,
       approvedDateFormatted: g.approvedDate
@@ -1561,6 +1568,8 @@ export async function getMyThesisDetailService(userId) {
       supervisionClock: progress.supervisionClock,
       // True while the thesis is back in proposal because of a guidance evaluation (E5).
       repeatingProposal: fullThesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(fullThesis.id) : false,
+      // K27 / 10.7: current phase, Penetapan Pembimbing, and per-phase counts for display.
+      ...(await getPhaseSummary(fullThesis)),
       startDate: fullThesis.startDate || null,
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,

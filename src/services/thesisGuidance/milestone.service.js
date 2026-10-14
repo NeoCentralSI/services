@@ -3,8 +3,9 @@ import prisma from "../../config/prisma.js";
 import { ROLES, isSupervisorRole, normalize, isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotification } from "../../repositories/notification.repository.js";
-import { THESIS_STATUS, TA_PHASE, phaseForThesisStatus } from "../../constants/thesisStatus.js";
-import { THESIS_STATUS_LABELS, MILESTONE_STATUS_LABELS } from "../../constants/thesisLabels.js";
+import { THESIS_PHASE, THESIS_STATUS, TA_PHASE, currentPhaseOf, phaseForThesisStatus } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS_LABELS, THESIS_PHASE_LABELS, MILESTONE_STATUS_LABELS } from "../../constants/thesisLabels.js";
+import { getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 
 const milestoneStatusLabel = (status) => MILESTONE_STATUS_LABELS[status] ?? status;
 
@@ -93,22 +94,41 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
 }
 
 /**
- * Milestone writes (create, update, progress, review, validation) are only allowed for a
- * thesis in the TA phase. Proposal and BSS theses get a clear 403.
+ * Milestone writes (create, update, progress, review, validation): a thesis in the TA phase,
+ * or in the proposal phase once Penetapan Pembimbing is issued (K27). BSS, closed theses and a
+ * thesis repeating its proposal (E5) get a clear 403.
  */
 async function ensureThesisWritable(thesis) {
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
   if (thesis?.status === THESIS_STATUS.PROPOSAL) {
+    const { open, repeating } = await getProposalPhaseAccess(thesis);
+    if (open) return;
     // A thesis sent back to the proposal by a guidance evaluation says so (E5).
-    if (await isRepeatingProposal(thesis.id)) {
+    if (repeating) {
       throw forbidden(`${REPEAT_PROPOSAL_LOCK_REASON} Milestone terkunci sampai tugas akhir kembali berstatus "${THESIS_STATUS_LABELS.research}".`);
     }
-    throw forbidden("Tugas akhir masih dalam fase proposal. Milestone tugas akhir baru dapat dikelola setelah masuk fase Tugas Akhir.");
+    throw forbidden(PROPOSAL_NOT_ASSIGNED_REASON);
   }
   if (thesis?.status === THESIS_STATUS.ON_LEAVE) {
     throw forbidden(`Tugas akhir sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Milestone tidak dapat diubah.`);
   }
   throw forbidden("Tugas akhir sudah tidak aktif. Milestone tidak dapat diubah.");
+}
+
+/** Why a milestone of another phase is read-only (10.7), or null when it is the current one. */
+export function otherPhaseReason(milestonePhase, thesisStatus) {
+  const current = currentPhaseOf(thesisStatus);
+  if (!milestonePhase || milestonePhase === current) return null;
+  return milestonePhase === THESIS_PHASE.PROPOSAL
+    ? "Fase proposal sudah selesai. Milestone fase proposal hanya dapat dibaca."
+    : `Milestone fase ${THESIS_PHASE_LABELS[milestonePhase] ?? milestonePhase} hanya dapat dibaca selama tugas akhir berada di fase ${THESIS_PHASE_LABELS[current] ?? current}.`;
+}
+
+/** A write on an existing milestone: the thesis is writable and the milestone is of its current phase. */
+async function ensureMilestoneWritable(milestone, thesis) {
+  await ensureThesisWritable(thesis);
+  const reason = otherPhaseReason(milestone?.phase, thesis?.status);
+  if (reason) throw forbidden(reason);
 }
 
 /**
@@ -135,9 +155,13 @@ async function getMilestoneWithAccess(milestoneId, userId) {
 /**
  * Get all milestone templates
  */
-export async function getTemplates(topicId = null, { includeInactive = false } = {}) {
-  // isActive=null means "no isActive filter" in the repository (phase stays "research").
+export async function getTemplates(topicId = null, { includeInactive = false, phase = THESIS_PHASE.RESEARCH } = {}) {
+  // isActive=null means "no isActive filter" in the repository.
   const isActive = includeInactive ? null : true;
+  // Proposal templates are general, without a topic (K18).
+  if (phase === THESIS_PHASE.PROPOSAL) {
+    return milestoneRepo.findAllTemplates(isActive, null, THESIS_PHASE.PROPOSAL);
+  }
   if (topicId) {
     return milestoneRepo.findTemplatesByTopic(topicId, isActive);
   }
@@ -295,16 +319,22 @@ export async function bulkDeleteTemplates(userId, templateIds) {
 /**
  * Get all milestones for a thesis
  */
-export async function getMilestones(thesisId, userId, status = null) {
-  await getThesisWithAccess(thesisId, userId);
+export async function getMilestones(thesisId, userId, status = null, phase = null) {
+  const { thesis } = await getThesisWithAccess(thesisId, userId);
+  // 10.7: one phase at a time, the current phase by default; the other phase is read-only.
+  const currentPhase = currentPhaseOf(thesis.status);
+  const listPhase = Object.values(THESIS_PHASE).includes(phase) ? phase : currentPhase;
 
   // C9: each milestone carries the feedback author's name
-  const milestones = await milestoneRepo.withFeedbackAuthor(await milestoneRepo.findByThesisId(thesisId, status));
-  const progress = await milestoneRepo.getThesisProgress(thesisId);
+  const milestones = await milestoneRepo.withFeedbackAuthor(await milestoneRepo.findByThesisId(thesisId, status, listPhase));
+  const progress = await milestoneRepo.getThesisProgress(thesisId, listPhase);
 
   return {
     milestones,
     progress,
+    phase: listPhase,
+    currentPhase,
+    readOnlyReason: otherPhaseReason(listPhase, thesis.status),
   };
 }
 
@@ -324,7 +354,7 @@ export async function createMilestone(thesisId, userId, data) {
   await ensureThesisWritable(thesis);
 
   // Get next order index
-  const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId);
+  const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId, phaseForThesisStatus(thesis.status));
 
   const milestoneData = {
     thesisId,
@@ -364,7 +394,7 @@ export async function createMilestoneBySupervisor(thesisId, userId, data) {
   await ensureThesisWritable(thesis);
 
   // Get next order index
-  const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId);
+  const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId, phaseForThesisStatus(thesis.status));
 
   const milestoneData = {
     thesisId,
@@ -419,14 +449,15 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   await ensureThesisWritable(thesis);
   const phase = phaseForThesisStatus(thesis.status);
 
-  if (!thesis.thesisTopicId) {
+  // Proposal templates are general (K18); only thesis-phase templates come from the topic.
+  if (phase === THESIS_PHASE.RESEARCH && !thesis.thesisTopicId) {
     throw createError(
       "Tugas akhir Anda belum memiliki topik, sehingga template milestone belum dapat dipasang. Topik diisi oleh Admin/Sekretaris Departemen melalui Data Master Tugas Akhir."
     );
   }
 
-  // Templates are only applied while the TA-phase milestones are still empty.
-  const existing = await milestoneRepo.findByThesisId(thesisId);
+  // Templates are only applied while the milestones of the current phase are still empty.
+  const existing = await milestoneRepo.findByThesisId(thesisId, null, phase);
   if (existing.length > 0) {
     throw createError("Tugas akhir sudah memiliki milestone. Template hanya dapat dipasang saat milestone masih kosong; tambahkan milestone baru secara manual.");
   }
@@ -491,7 +522,7 @@ export async function updateMilestone(milestoneId, userId, data) {
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah milestone");
   }
-  await ensureThesisWritable(thesis);
+  await ensureMilestoneWritable(milestone, thesis);
 
   // Prevent updating completed/validated milestones
   if (milestone.validatedBy && data.status !== "in_progress") {
@@ -519,7 +550,7 @@ export async function deleteMilestone(milestoneId, userId) {
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat menghapus milestone");
   }
-  await ensureThesisWritable(thesis);
+  await ensureMilestoneWritable(milestone, thesis);
 
   // K20: a student may delete only a milestone that is not completed.
   if (milestone.status === "completed" || milestone.validatedBy) {
@@ -544,7 +575,7 @@ export async function updateMilestoneStatus(milestoneId, userId, newStatus, note
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah status milestone");
   }
-  await ensureThesisWritable(thesis);
+  await ensureMilestoneWritable(milestone, thesis);
 
   // Validate status transition
   const currentStatus = milestone.status;
@@ -584,7 +615,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah progress milestone");
   }
-  await ensureThesisWritable(milestoneThesis);
+  await ensureMilestoneWritable(milestone, milestoneThesis);
 
   if (milestone.status === "completed") {
     throw createError("Tidak dapat mengubah progress milestone yang sudah selesai");
@@ -664,7 +695,7 @@ export async function submitForReview(milestoneId, userId, studentNotes = null) 
   if (!isOwner) {
     throw forbidden("Hanya mahasiswa yang dapat mengajukan review milestone");
   }
-  await ensureThesisWritable(thesis);
+  await ensureMilestoneWritable(milestone, thesis);
 
   // K20: review is requested for work in progress or a revised milestone.
   assertMilestoneStatus(milestone, ["in_progress", "revision_needed"], "diajukan untuk review");
@@ -727,7 +758,7 @@ export async function validateMilestone(milestoneId, userId, supervisorNotes = n
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat memvalidasi milestone");
   }
-  await ensureThesisWritable(thesis);
+  await ensureMilestoneWritable(milestone, thesis);
 
   // Check if current user is Pembimbing 1 for this thesis
   const userRole = thesis.thesisSupervisors.find(
@@ -788,7 +819,7 @@ export async function requestRevision(milestoneId, userId, revisionNotes) {
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat meminta revisi");
   }
-  await ensureThesisWritable(thesis);
+  await ensureMilestoneWritable(milestone, thesis);
 
   // Check if current user is Pembimbing 1 for this thesis
   const userRole = thesis.thesisSupervisors.find(
@@ -850,7 +881,7 @@ export async function addSupervisorFeedback(milestoneId, userId, feedback) {
   if (!isSupervisor) {
     throw forbidden("Hanya dosen pembimbing yang dapat memberikan feedback");
   }
-  await ensureThesisWritable(thesis);
+  await ensureMilestoneWritable(milestone, thesis);
 
   // K20: Pembimbing 1 and 2 may both give feedback; it never changes the status.
   const text = String(feedback ?? "").trim();

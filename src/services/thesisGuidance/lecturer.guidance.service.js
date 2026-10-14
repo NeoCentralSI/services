@@ -19,7 +19,7 @@ import {
 	findScheduledGuidances,
 	findActiveSupervisorRelation,
 } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
-import { THESIS_STATUS, TA_PHASE } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS } from "../../constants/thesisStatus.js";
 import { THESIS_STATUS_LABELS, GUIDANCE_STATUS_LABELS } from "../../constants/thesisLabels.js";
 import {
 	GUIDANCE_STATUS,
@@ -48,6 +48,7 @@ import {
 	summarizeThesisProgress,
 } from "../../helpers/thesis-progress.helper.js";
 import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
+import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
@@ -69,13 +70,18 @@ async function assertActiveSupervisorForThesis(lecturerId, thesisId) {
 		err.statusCode = 403;
 		throw err;
 	}
-	// Session actions only for a thesis in the TA phase (not proposal, BSS, or closed).
+	// Session actions: research, or proposal after Penetapan Pembimbing (K27); not BSS or closed.
 	const thesisStatus = relation.thesis?.status;
+	if (thesisStatus === THESIS_STATUS.PROPOSAL && (await getProposalPhaseAccess(relation.thesis)).open) {
+		return relation;
+	}
 	if (thesisStatus !== THESIS_STATUS.RESEARCH) {
 		const err = new Error(
 			thesisStatus === THESIS_STATUS.ON_LEAVE
 				? `Tugas akhir mahasiswa sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Aksi bimbingan tidak dapat dilakukan.`
-				: "Aksi bimbingan hanya dapat dilakukan untuk tugas akhir yang sedang berjalan.",
+				: thesisStatus === THESIS_STATUS.PROPOSAL && !(await isRepeatingProposal(relation.thesis.id))
+					? PROPOSAL_NOT_ASSIGNED_REASON
+					: "Aksi bimbingan hanya dapat dilakukan untuk tugas akhir yang sedang berjalan.",
 		);
 		err.statusCode = 403;
 		throw err;
@@ -121,6 +127,8 @@ function toFlatGuidance(g) {
 		studentNim: g.thesis?.student?.user?.identityNumber || null,
 		supervisorName: g?.supervisor?.user?.fullName || null,
 		status: g.status,
+		// K27: Jenis (Proposal / Tugas Akhir)
+		phase: g.phase,
 		requestedDate: g.requestedDate || null,
 		requestedDateFormatted: g.requestedDate ? formatDateTimeJakarta(g.requestedDate, { withDay: true }) : null,
 		approvedDate: g.approvedDate || null,
@@ -218,14 +226,15 @@ export async function getStudentDetailService(userId, thesisId) {
 	}
 
 	// Fetch per-guidance uploaded documents (file versioning), stored on session rows (K17)
+	// Attachments of both phases: proposal drafts travel as session attachments (10.3).
 	const guidanceDocuments = await prisma.thesisGuidance.findMany({
 		where: {
 			thesisId: thesis.id,
-			...TA_PHASE,
 			filePath: { not: null },
 		},
 		select: {
 			id: true,
+			phase: true,
 			requestedDate: true,
 			approvedDate: true,
 			filePath: true,
@@ -251,6 +260,8 @@ export async function getStudentDetailService(userId, thesisId) {
 		supervisionClock: progress.supervisionClock,
 		// True while the thesis is back in proposal because of a guidance evaluation (E5).
 		repeatingProposal: thesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(thesis.id) : false,
+		// K27 / 10.7: current phase, Penetapan Pembimbing, and per-phase counts for display.
+		...(await getPhaseSummary(thesis)),
 		startDate: thesis.startDate,
 		student: {
 			id: thesis.student?.id,
@@ -273,6 +284,7 @@ export async function getStudentDetailService(userId, thesisId) {
 		})(),
 		uploadedFiles: guidanceDocuments.map((g) => ({
 			id: g.id,
+			phase: g.phase,
 			fileName: g.fileName || path.basename(g.filePath || ""),
 			filePath: g.filePath,
 			uploadedAt: g.fileUploadedAt,
@@ -282,6 +294,7 @@ export async function getStudentDetailService(userId, thesisId) {
 			id: m.id,
 			title: m.title,
 			status: m.status,
+			phase: m.phase,
 			// C9: decision notes and supervisor feedback are separate
 			supervisorNotes: m.supervisorNotes || null,
 			feedback: m.feedback || null,
@@ -693,6 +706,7 @@ export async function getPendingApprovalService(userId, { page = 1, pageSize = 1
 
 	const guidances = rows.map((g) => ({
 		id: g.id,
+		phase: g.phase,
 		studentName: g.thesis?.student?.user?.fullName || null,
 		studentId: g.thesis?.student?.user?.identityNumber || null,
 		approvedDate: g.approvedDate,
@@ -969,6 +983,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 	const flat = {
 		id: guidance.id,
 		status: guidance.status,
+		phase: guidance.phase,
 		studentId: guidance.thesis?.studentId || guidance.thesis?.student?.id || null,
 		studentName: guidance.thesis?.student?.user?.fullName || null,
 		studentNim: guidance.thesis?.student?.user?.identityNumber || null,

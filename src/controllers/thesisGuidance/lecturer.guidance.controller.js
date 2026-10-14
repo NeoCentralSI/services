@@ -37,8 +37,8 @@ export async function myStudents(req, res, next) {
 			roles = SUPERVISOR_ROLES;
 		}
 
-		// K21: ?status=active (default) | completed | failed | all
-		const filter = ["active", "completed", "failed", "all"].includes(req.query?.status) ? req.query.status : "active";
+		// K21: ?status=active (default) | proposal (K27) | completed | failed | all
+		const filter = ["active", "proposal", "completed", "failed", "all"].includes(req.query?.status) ? req.query.status : "active";
 		const result = await getMyStudentsService(req.user.sub, roles, { filter });
 		res.json({ success: true, ...result });
 	} catch (err) {

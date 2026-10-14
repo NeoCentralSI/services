@@ -46,13 +46,10 @@ describe("findMyStudents", () => {
 });
 
 describe("findThesisDetailForLecturer", () => {
-  it("lets a supervisor open a thesis that repeats its proposal, but no other proposal-phase thesis", async () => {
+  it("lets a supervisor open any thesis they supervise, proposal phase included (K27)", async () => {
     await repo.findThesisDetailForLecturer("thesis-1", "lec-1");
     const where = prismaMock.thesisSupervisors.findFirst.mock.calls[0][0].where;
-    expect(where).toMatchObject({ thesisId: "thesis-1", lecturerId: "lec-1" });
-    expect(where.thesis).toEqual({
-      OR: [{ status: { in: ["research", "on_leave", "completed", "failed"] } }, REPEATING],
-    });
+    expect(where).toEqual({ thesisId: "thesis-1", lecturerId: "lec-1" });
     expect(prismaMock.thesis.findUnique).not.toHaveBeenCalled();
   });
 });

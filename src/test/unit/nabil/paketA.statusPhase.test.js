@@ -101,11 +101,12 @@ describe("Pengajuan bimbingan fase TA (K6, K15)", () => {
     await expect(student.requestGuidanceService("stu1", FUTURE, "Bahas bab 3", null, "p1")).rejects.toMatchObject({ statusCode: 403, message: reason });
     await expect(milestone.createMilestone("t1", "stu1", { title: "Milestone baru" })).rejects.toMatchObject({ statusCode: 403, message: reason });
 
-    // A rejected evaluation, or another recommendation, is not a repeat: the usual message stays.
+    // A rejected evaluation, or another recommendation, is not a repeat: without Penetapan
+    // Pembimbing the proposal phase is still closed (K27, Paket P).
     store.state.thesisGuidanceEvaluation[0].status = "rejected";
     await expect(milestone.createMilestone("t1", "stu1", { title: "Milestone baru" })).rejects.toMatchObject({
       statusCode: 403,
-      message: expect.stringContaining("masih dalam fase proposal"),
+      message: expect.stringContaining("setelah Ketua Departemen menerbitkan Penetapan Pembimbing"),
     });
   });
 

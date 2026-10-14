@@ -20,12 +20,13 @@ function isPembimbing2(roleName) {
 /**
  * Get all milestone templates
  */
-// ThesisMilestoneTemplate is shared by both phases (K18). TA template management
-// (Kelola > Tugas Akhir > Milestone) only covers thesis-phase templates.
+// ThesisMilestoneTemplate is shared by both phases (K18). Without a phase argument the
+// functions read thesis-phase templates (Kelola > Tugas Akhir > Milestone); the general
+// proposal templates (Kelola > Metode Penelitian) pass THESIS_PHASE.PROPOSAL.
 const TA_TEMPLATE_PHASE = THESIS_PHASE.RESEARCH;
 
-export function findAllTemplates(isActive = true, topicId = null) {
-  const where = { phase: TA_TEMPLATE_PHASE };
+export function findAllTemplates(isActive = true, topicId = null, phase = TA_TEMPLATE_PHASE) {
+  const where = { phase };
   if (isActive !== null) {
     where.isActive = isActive;
   }
@@ -57,9 +58,9 @@ export function findTemplatesByTopic(topicId, isActive = true) {
 /**
  * Get template by ID
  */
-export function findTemplateById(id) {
+export function findTemplateById(id, phase = TA_TEMPLATE_PHASE) {
   return prisma.thesisMilestoneTemplate.findFirst({
-    where: { id, phase: TA_TEMPLATE_PHASE },
+    where: { id, phase },
     include: { topic: true },
   });
 }
@@ -76,9 +77,9 @@ export function findTemplatesByIds(ids) {
 /**
  * Create template
  */
-export function createTemplate(data) {
+export function createTemplate(data, phase = TA_TEMPLATE_PHASE) {
   return prisma.thesisMilestoneTemplate.create({
-    data: { ...data, phase: TA_TEMPLATE_PHASE },
+    data: { ...data, phase },
   });
 }
 
@@ -113,8 +114,8 @@ export function deleteTemplatesMany(ids) {
 /**
  * Get max order index for templates
  */
-export async function getMaxTemplateOrderIndex(topicId = null) {
-  const where = topicId ? { topicId, phase: TA_TEMPLATE_PHASE } : { phase: TA_TEMPLATE_PHASE };
+export async function getMaxTemplateOrderIndex(topicId = null, phase = TA_TEMPLATE_PHASE) {
+  const where = topicId ? { topicId, phase } : { phase };
   const result = await prisma.thesisMilestoneTemplate.aggregate({
     where,
     _max: { orderIndex: true },
@@ -138,8 +139,8 @@ export function findAllTopics() {
 /**
  * Get all milestones for a thesis
  */
-export function findByThesisId(thesisId, status = null) {
-  const where = { thesisId, ...TA_PHASE };
+export function findByThesisId(thesisId, status = null, phase = THESIS_PHASE.RESEARCH) {
+  const where = { thesisId, phase };
   if (status) {
     where.status = status;
   }
@@ -305,10 +306,10 @@ export async function updateProgress(id, progressPercentage) {
 /**
  * Count milestones by status for a thesis
  */
-export function countByThesisAndStatus(thesisId) {
+export function countByThesisAndStatus(thesisId, phase = THESIS_PHASE.RESEARCH) {
   return prisma.thesisMilestone.groupBy({
     by: ["status"],
-    where: { thesisId, ...TA_PHASE },
+    where: { thesisId, phase },
     _count: { id: true },
   });
 }
@@ -316,9 +317,9 @@ export function countByThesisAndStatus(thesisId) {
 /**
  * Get overall progress for a thesis
  */
-export async function getThesisProgress(thesisId) {
+export async function getThesisProgress(thesisId, phase = THESIS_PHASE.RESEARCH) {
   const milestones = await prisma.thesisMilestone.findMany({
-    where: { thesisId, ...TA_PHASE },
+    where: { thesisId, phase },
     select: {
       id: true,
       status: true,
@@ -372,9 +373,9 @@ export async function withFeedbackAuthor(input) {
 /**
  * Get max order index for a thesis
  */
-export async function getMaxOrderIndex(thesisId) {
+export async function getMaxOrderIndex(thesisId, phase = THESIS_PHASE.RESEARCH) {
   const result = await prisma.thesisMilestone.aggregate({
-    where: { thesisId, ...TA_PHASE },
+    where: { thesisId, phase },
     _max: { orderIndex: true },
   });
   return result._max.orderIndex ?? -1;

@@ -26,9 +26,10 @@ function canManageTemplates(req) {
 
 export async function getTemplates(req, res, next) {
   try {
-    const { topicId } = req.query;
+    const { topicId, phase } = req.query;
     const templates = await milestoneService.getTemplates(topicId, {
       includeInactive: wantsInactiveTemplates(req),
+      ...(phase === "proposal" || phase === "research" ? { phase } : {}),
     });
     res.json({
       success: true,
@@ -84,12 +85,16 @@ export async function getTemplateCategories(req, res, next) {
 export async function getMilestones(req, res, next) {
   try {
     const { thesisId } = req.params;
-    const { status } = req.query;
-    const result = await milestoneService.getMilestones(thesisId, req.user.sub, status);
+    const { status, phase } = req.query;
+    const result = await milestoneService.getMilestones(thesisId, req.user.sub, status, phase);
     res.json({
       success: true,
       data: result.milestones,
       progress: result.progress,
+      // 10.7: the listed phase, the thesis's current phase, and why the list is read-only
+      phase: result.phase,
+      currentPhase: result.currentPhase,
+      readOnlyReason: result.readOnlyReason,
     });
   } catch (err) {
     next(err);

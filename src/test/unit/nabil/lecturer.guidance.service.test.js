@@ -7,7 +7,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // ── hoisted mocks ──────────────────────────────────────────────
 const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles } = vi.hoisted(() => ({
   mockPrisma: {
-    thesisGuidance: { update: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
+    thesisGuidance: { update: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn().mockResolvedValue([]) },
+    thesisMilestone: { groupBy: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     user: { findUnique: vi.fn() },

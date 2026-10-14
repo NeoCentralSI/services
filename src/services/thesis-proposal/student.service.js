@@ -1,42 +1,24 @@
 import prisma from "../../config/prisma.js";
 import { ROLES } from "../../constants/roles.js";
-import { OPEN_THESIS_STATUSES } from "../../constants/thesisStatus.js";
 import { formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
 import { semesterLabel } from "../../helpers/supervisor-assignment.helper.js";
 import { NotFoundError } from "../../utils/errors.js";
 import { findLatestBatchOfThesis } from "../../repositories/thesis-proposal/supervisor-assignment.repository.js";
+import { findStudentThesis } from "../../repositories/thesis-proposal/student-thesis.repository.js";
+import { getFinalProposalState } from "./final-proposal.service.js";
 
 const ROLE_ORDER = { [ROLES.PEMBIMBING_1]: 1, [ROLES.PEMBIMBING_2]: 2 };
 
-/** The thesis a student's Proposal page is about: the open one, else the latest. */
-export function findStudentThesis(studentId, client = prisma) {
-  const select = {
-    id: true,
-    title: true,
-    status: true,
-    startDate: true,
-    supervisorAssignedAt: true,
-    academicYear: { select: { id: true, semester: true, year: true } },
-    thesisTopic: { select: { id: true, name: true } },
-    thesisSupervisors: {
-      where: { status: "active" },
-      select: { lecturerId: true, role: { select: { name: true } }, lecturer: { select: { user: { select: { fullName: true, identityNumber: true } } } } },
-    },
-  };
-  return client.thesis
-    .findFirst({ where: { studentId, status: { in: OPEN_THESIS_STATUSES } }, select, orderBy: { createdAt: "desc" } })
-    .then((open) => open ?? client.thesis.findFirst({ where: { studentId }, select, orderBy: { createdAt: "desc" } }));
-}
-
 /**
- * Sections 2–4 of Tugas Akhir > Proposal for the student: the thesis and its supervisors, and
- * the status of Penetapan Pembimbing (no PDF: the batch file stays with the department).
+ * Sections 2–4 of Tugas Akhir > Proposal for the student: the thesis and its supervisors, the
+ * status of Penetapan Pembimbing (no PDF: the batch file stays with the department), and the
+ * final proposal of the current attempt.
  */
 export async function getStudentProposalOverview(userId) {
   const student = await prisma.student.findUnique({ where: { id: userId }, select: { id: true } });
   if (!student) throw new NotFoundError("Data mahasiswa tidak ditemukan.");
   const thesis = await findStudentThesis(student.id);
-  if (!thesis) return { thesis: null, assignment: null };
+  if (!thesis) return { thesis: null, assignment: null, finalProposal: await getFinalProposalState(null) };
 
   const supervisors = thesis.thesisSupervisors
     .map((row) => ({
@@ -72,5 +54,6 @@ export async function getStudentProposalOverview(userId) {
       version: batch?.version ?? null,
       waitingReason,
     },
+    finalProposal: await getFinalProposalState(thesis),
   };
 }

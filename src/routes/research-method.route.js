@@ -33,6 +33,12 @@ import {
   requireAnyRole,
 } from "../middlewares/auth.middleware.js";
 import { ROLES } from "../constants/roles.js";
+import * as milestoneTemplates from "../controllers/research-method-milestone-template.controller.js";
+import {
+  createMilestoneTemplateSchema,
+  reorderMilestoneTemplatesSchema,
+  updateMilestoneTemplateSchema,
+} from "../validators/research-method-milestone-template.validator.js";
 
 const router = express.Router();
 const MANAGER_ROLES = [
@@ -82,5 +88,13 @@ router.patch(
 router.delete("/rubrics/:rubricId", deleteRubric);
 
 router.get("/weight-summary", getWeightSummary);
+
+// General proposal milestone templates (K18): Sekdep manages, the coordinator reads.
+const SEKDEP_ONLY = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]);
+router.get("/milestone-templates", milestoneTemplates.listTemplates);
+router.post("/milestone-templates", SEKDEP_ONLY, validate(createMilestoneTemplateSchema), milestoneTemplates.createTemplate);
+router.patch("/milestone-templates/reorder", SEKDEP_ONLY, validate(reorderMilestoneTemplatesSchema), milestoneTemplates.reorderTemplates);
+router.patch("/milestone-templates/:id", SEKDEP_ONLY, validate(updateMilestoneTemplateSchema), milestoneTemplates.updateTemplate);
+router.delete("/milestone-templates/:id", SEKDEP_ONLY, milestoneTemplates.deleteTemplate);
 
 export default router;

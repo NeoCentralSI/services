@@ -1,11 +1,12 @@
 /**
  * Proposal Tugas Akhir — mounted at /thesis-proposals (Paket P).
- * Pengajuan Pembimbing (P2) and Penetapan Pembimbing (P3); the final proposal follows in P4.
+ * Pengajuan Pembimbing (P2), Penetapan Pembimbing (P3) and the final proposal (P4).
  * Who may act on a given request is checked again in the service.
  */
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
+import { uploadThesisFile } from "../middlewares/file.middleware.js";
 import { ROLES, SUPERVISOR_ROLES } from "../constants/roles.js";
 import * as controller from "../controllers/thesis-proposal.controller.js";
 import * as validator from "../validators/thesis-proposal.validator.js";
@@ -18,6 +19,7 @@ const KADEP = [ROLES.KETUA_DEPARTEMEN];
 
 // Student
 router.get("/me", requireAnyRole(STUDENT), controller.getMyOverview);
+router.post("/me/final-proposal", requireAnyRole(STUDENT), uploadThesisFile, controller.submitFinalProposal);
 router.get("/me/supervisor-requests", requireAnyRole(STUDENT), controller.getMySupervisorRequests);
 router.put("/me/supervisor-request-draft", requireAnyRole(STUDENT), validate(validator.saveDraftSchema), controller.saveMyDraft);
 router.get("/catalog", requireAnyRole(STUDENT), controller.getCatalog);

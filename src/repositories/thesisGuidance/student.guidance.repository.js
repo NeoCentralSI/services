@@ -63,7 +63,8 @@ export async function getSupervisorsForThesis(thesisId) {
 }
 
 export function listGuidancesForThesis(thesisId, status) {
-  const where = { thesisId, ...TA_PHASE };
+  // K27: the list shows both phases; each row carries its phase (Jenis).
+  const where = { thesisId };
   if (status) {
     where.status = status;
   } else {
@@ -85,7 +86,8 @@ export function listGuidancesForThesis(thesisId, status) {
 
 export function getGuidanceByIdForStudent(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
-    where: { id: guidanceId, ...TA_PHASE, thesis: { studentId } },
+    // K27: a session of either phase belongs to the student's guidance log.
+    where: { id: guidanceId, thesis: { studentId } },
     include: {
       supervisor: { include: { user: true } },
       milestones: { include: { milestone: { select: { id: true, title: true } } } },
@@ -120,7 +122,6 @@ export function updateGuidanceById(id, data) {
 export async function listGuidanceHistoryByStudent(studentId) {
   const rows = await prisma.thesisGuidance.findMany({
     where: {
-      ...TA_PHASE,
       thesis: { studentId },
       status: { not: "deleted" }
     },
@@ -224,7 +225,6 @@ export async function submitSessionSummary(guidanceId, { sessionSummary, actionI
 export function getCompletedGuidanceHistory(studentId) {
   return prisma.thesisGuidance.findMany({
     where: {
-      ...TA_PHASE,
       thesis: { studentId },
       status: "completed",
     },
@@ -253,7 +253,6 @@ export function getGuidanceForExport(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
     where: {
       id: guidanceId,
-      ...TA_PHASE,
       thesis: { studentId },
       status: "completed",
     },
@@ -280,7 +279,6 @@ export function getGuidanceForExport(guidanceId, studentId) {
 export function getGuidancesNeedingSummary(studentId) {
   return prisma.thesisGuidance.findMany({
     where: {
-      ...TA_PHASE,
       thesis: { studentId },
       // K19: scheduled sessions (legacy "rescheduled" included) and summaries sent back
       // for revision need a summary from the student.

@@ -56,6 +56,11 @@ export const THESIS_TERMINATION_REASON = {
  */
 export const TA_PHASE = Object.freeze({ phase: THESIS_PHASE.RESEARCH });
 
+/** Fase berjalan untuk tampilan (tidak melempar): BSS dan TA yang sudah berakhir dibaca `research`. */
+export function currentPhaseOf(status) {
+  return status === THESIS_STATUS.PROPOSAL ? THESIS_PHASE.PROPOSAL : THESIS_PHASE.RESEARCH;
+}
+
 /**
  * Fase sesi/milestone baru ditetapkan server dari status TA (K6).
  * `on_leave`, `completed`, `failed`: sesi dan milestone baru tidak boleh dibuat.
