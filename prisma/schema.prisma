@@ -42,15 +42,13 @@ model User {
   seminarRequirementDocVerifications ThesisSeminarRequirementDocument[] @relation("SeminarRequirementDocVerifiedBy")
   defenceDocVerifications            ThesisDefenceDocument[]            @relation("DefenceDocVerifiedBy")
   defenceRequirementDocVerifications ThesisDefenceRequirementDocument[] @relation("DefenceRequirementDocVerifiedBy")
-  advisorRequestsReviewed            ThesisAdvisorRequest[]             @relation("AdvisorRequestReviewer")
+  supervisorRequestsReviewed         ThesisSupervisorRequest[]          @relation("SupervisorRequestReviewer")
   guidanceEvaluationsApproved        ThesisGuidanceEvaluation[]         @relation("GuidanceEvalKadepApprover")
-  proposalTitleReviews               Thesis[]                           @relation("ThesisProposalReviewedBy")
-  ta04AssignmentsIssued              Thesis[]                           @relation("ThesisTa04AssignmentIssuedBy")
   thesesTerminated                   Thesis[]                           @relation("ThesisTerminatedBy")
-  researchMethodScoresFinalized      ResearchMethodScore[]              @relation("ResearchMethodScoreFinalizer")
-  metopenAttendanceImportsUploaded   MetopenAttendanceImport[]          @relation("MetopenAttendanceImportUploader")
-  proposalVersionsSubmittedAsFinal   ThesisProposalVersion[]            @relation("ThesisProposalVersionSubmittedBy")
-  ta04BatchesGenerated               Ta04Batch[]                        @relation("Ta04BatchGeneratedBy")
+  researchMethodAssessmentsFinalized ResearchMethodAssessment[]         @relation("ResearchMethodAssessmentFinalizer")
+  researchMethodAttendanceUploads    ResearchMethodAttendanceImport[]   @relation("ResearchMethodAttendanceImportUploader")
+  supervisorAssignmentBatches        ThesisSupervisorAssignmentBatch[]  @relation("SupervisorAssignmentBatchGeneratedBy")
+  supervisionQuotasUpdated           SupervisionQuota[]                 @relation("SupervisionQuotaUpdatedBy")
 
   internshipSupLetterSigned InternshipSupervisorLetter[] @relation("InternshipSupLetterSigner")
 
@@ -86,36 +84,29 @@ model UserHasRole {
 }
 
 model Student {
-  id                              String                          @id @map("user_id")
-  status                          StudentStatus                   @default(active) @map("student_status")
-  enrollmentYear                  Int?                            @map("enrollment_year")
-  sksCompleted                    Int                             @map("skscompleted")
-  mandatoryCoursesCompleted       Boolean                         @default(false) @map("mandatory_courses_completed")
-  mkwuCompleted                   Boolean                         @default(false) @map("mkwu_completed")
-  internshipCompleted             Boolean                         @default(false) @map("internship_completed")
-  kknCompleted                    Boolean                         @default(false) @map("kkn_completed")
-  researchMethodCompleted         Boolean                         @default(false) @map("research_method_completed")
-  currentSemester                 Int?                            @map("current_semester")
-  eligibleMetopen                 Boolean?                        @map("eligible_metopen")
-  metopenEligibilitySource        ExternalAcademicSnapshotSource? @map("metopen_eligibility_source")
-  metopenEligibilityUpdatedAt     DateTime?                       @map("metopen_eligibility_updated_at")
-  takingThesisCourse              Boolean?                        @map("taking_thesis_course")
-  thesisCourseEnrollmentSource    ExternalAcademicSnapshotSource? @map("thesis_course_enrollment_source")
-  thesisCourseEnrollmentUpdatedAt DateTime?                       @map("thesis_course_enrollment_updated_at")
-  createdAt                       DateTime                        @default(now()) @map("created_at")
-  updatedAt                       DateTime                        @updatedAt @map("updated_at")
+  id                              String                           @id @map("user_id")
+  status                          StudentStatus                    @default(active) @map("student_status")
+  enrollmentYear                  Int?                             @map("enrollment_year")
+  sksCompleted                    Int                              @map("skscompleted")
+  mandatoryCoursesCompleted       Boolean                          @default(false) @map("mandatory_courses_completed")
+  mkwuCompleted                   Boolean                          @default(false) @map("mkwu_completed")
+  internshipCompleted             Boolean                          @default(false) @map("internship_completed")
+  kknCompleted                    Boolean                          @default(false) @map("kkn_completed")
+  researchMethodCompleted         Boolean                          @default(false) @map("research_method_completed")
+  currentSemester                 Int?                             @map("current_semester")
+  createdAt                       DateTime                         @default(now()) @map("created_at")
+  updatedAt                       DateTime                         @updatedAt @map("updated_at")
   internships                     Internship[]
   internshipProposalsCoordinated  InternshipProposal[]
-  internshipSeminarModerator      InternshipSeminar[]             @relation("InternshipSeminarModerator")
-  internshipSeminarAudiences      InternshipSeminarAudience[]     @relation("InternshipSeminarAudience")
+  internshipSeminarModerator      InternshipSeminar[]              @relation("InternshipSeminarModerator")
+  internshipSeminarAudiences      InternshipSeminarAudience[]      @relation("InternshipSeminarAudience")
   studentCplScores                StudentCplScore[]
-  user                            User                            @relation(fields: [id], references: [id], onDelete: Cascade)
+  user                            User                             @relation(fields: [id], references: [id], onDelete: Cascade)
   thesis                          Thesis[]
   thesisSeminarAudiences          ThesisSeminarAudience[]
-  advisorRequests                 ThesisAdvisorRequest[]
-  advisorRequestDraft             ThesisAdvisorRequestDraft?
-  thesisStudentInformalLogs       ThesisStudentInformalLog[]
-  metopenAttendanceRecords        MetopenAttendanceRecord[]       @relation("MetopenAttendanceRecordStudent")
+  supervisorRequests              ThesisSupervisorRequest[]
+  supervisorRequestDraft          ThesisSupervisorRequestDraft?
+  researchMethodAttendanceRecords ResearchMethodAttendanceRecord[]
   academicYearSnapshots           StudentAcademicYearSnapshot[]
 
   gpa                 Float?
@@ -182,35 +173,32 @@ model StudentCplScore {
 }
 
 model Lecturer {
-  id                                 String                            @id @map("user_id")
-  scienceGroupId                     String?                           @map("science_group_id")
+  id                                 String                         @id @map("user_id")
+  scienceGroupId                     String?                        @map("science_group_id")
   data                               Json?
-  acceptingRequests                  Boolean                           @default(true) @map("accepting_requests")
-  createdAt                          DateTime                          @default(now()) @map("created_at")
-  updatedAt                          DateTime                          @updatedAt @map("updated_at")
-  internshipAppLettersSigned         InternshipProposal[]              @relation("InternshipAppLetterSigner")
-  internshipAssignLettersSigned      InternshipProposal[]              @relation("InternshipAssignLetterSigner")
-  internshipsSupervisored            Internship[]                      @relation("InternshipSupervisor")
-  scienceGroup                       ScienceGroup?                     @relation(fields: [scienceGroupId], references: [id])
-  user                               User                              @relation(fields: [id], references: [id], onDelete: Cascade)
+  acceptingRequests                  Boolean                        @default(true) @map("accepting_requests")
+  createdAt                          DateTime                       @default(now()) @map("created_at")
+  updatedAt                          DateTime                       @updatedAt @map("updated_at")
+  internshipAppLettersSigned         InternshipProposal[]           @relation("InternshipAppLetterSigner")
+  internshipAssignLettersSigned      InternshipProposal[]           @relation("InternshipAssignLetterSigner")
+  internshipsSupervisored            Internship[]                   @relation("InternshipSupervisor")
+  scienceGroup                       ScienceGroup?                  @relation(fields: [scienceGroupId], references: [id])
+  user                               User                           @relation(fields: [id], references: [id], onDelete: Cascade)
   thesisChangeRequestApprovals       ThesisChangeRequestApproval[]
   thesisGuidances                    ThesisGuidance[]
   thesisSupervisors                  ThesisSupervisors[]
-  supervisionQuotas                  LecturerSupervisionQuota[]
-  milestoneAssessmentDetails         ThesisMilestoneAssessmentDetail[]
-  advisorRequestsReceived            ThesisAdvisorRequest[]            @relation("AdvisorRequestTarget")
-  advisorRequestsRedirected          ThesisAdvisorRequest[]            @relation("AdvisorRequestRedirect")
-  advisorRequestsForwarded           ThesisAdvisorRequest[]            @relation("AdvisorRequestForwarder")
+  supervisorRequestsReceived         ThesisSupervisorRequest[]      @relation("SupervisorRequestTarget")
+  supervisorRequestsRedirected       ThesisSupervisorRequest[]      @relation("SupervisorRequestRedirect")
+  supervisorRequestsForwarded        ThesisSupervisorRequest[]      @relation("SupervisorRequestForwarder")
   availabilities                     LecturerAvailability[]
-  seminarExaminers                   ThesisSeminarExaminer[]           @relation("SeminarExaminerLecturer")
-  defenceExaminers                   ThesisDefenceExaminer[]           @relation("DefenceExaminerLecturer")
-  offeredTopics                      ThesisTopic[]                     @relation("TopicOfferedByLecturer")
-  changeRequestsAsNewSupervisor      ThesisChangeRequest[]             @relation("ChangeRequestNewSupervisor")
-  changeRequestsAsReplacedSupervisor ThesisChangeRequest[]             @relation("ChangeRequestReplacedSupervisor")
-  researchMethodScoresAsSupervisor   ResearchMethodScore[]             @relation("ResearchMethodScoreSupervisor")
-  researchMethodScoresAsLecturer     ResearchMethodScore[]             @relation("ResearchMethodScoreLecturer")
-  researchMethodScoresAsCoSigner     ResearchMethodScore[]             @relation("ResearchMethodScoreCoSigner")
-  advisorRequestDrafts               ThesisAdvisorRequestDraft[]
+  seminarExaminers                   ThesisSeminarExaminer[]        @relation("SeminarExaminerLecturer")
+  defenceExaminers                   ThesisDefenceExaminer[]        @relation("DefenceExaminerLecturer")
+  offeredTopics                      ThesisTopic[]                  @relation("TopicOfferedByLecturer")
+  changeRequestsAsNewSupervisor      ThesisChangeRequest[]          @relation("ChangeRequestNewSupervisor")
+  changeRequestsAsReplacedSupervisor ThesisChangeRequest[]          @relation("ChangeRequestReplacedSupervisor")
+  researchMethodSupervisorScores     ResearchMethodAssessment[]     @relation("ResearchMethodAssessmentSupervisor")
+  researchMethodCoordinatorScores    ResearchMethodAssessment[]     @relation("ResearchMethodAssessmentCoordinator")
+  supervisorRequestDrafts            ThesisSupervisorRequestDraft[]
 
   internshipSupervisorLetters InternshipSupervisorLetter[]
 
@@ -274,46 +262,41 @@ model AcademicYear {
   thesisCpmks                        ThesisCpmk[]
   thesisSeminarRequirements          ThesisSeminarRequirement[]
   thesisDefenceRequirements          ThesisDefenceRequirement[]
-  supervisionQuotaDefault            SupervisionQuotaDefault?
-  lecturerQuotas                     LecturerSupervisionQuota[]
-  advisorRequests                    ThesisAdvisorRequest[]
-  advisorRequestsReleased            ThesisAdvisorRequest[]               @relation("AdvisorRequestReleasedAcademicYear")
+  supervisionQuotas                  SupervisionQuota[]
+  supervisorRequests                 ThesisSupervisorRequest[]
   yudisiums                          Yudisium[]
-  metopenAttendanceImports           MetopenAttendanceImport[]
-  metopenCpmks                       MetopenCpmk[]
-  metopenScoreComposition            MetopenScoreComposition?
+  researchMethodAttendanceImports    ResearchMethodAttendanceImport[]
   researchMethodCpmks                ResearchMethodCpmk[]
-  ta04Batches                        Ta04Batch[]
-  ta04AssignmentTheses               Thesis[]                             @relation("ThesisTa04AssignmentAcademicYear")
-  activeTheses                       Thesis[]                             @relation("ThesisActiveAcademicYear")
+  researchMethodAssessments          ResearchMethodAssessment[]
+  supervisorAssignmentBatches        ThesisSupervisorAssignmentBatch[]
   studentSnapshots                   StudentAcademicYearSnapshot[]
 
-  thesisSeminarMinimumScore Float? @map("thesis_seminar_minimum_score")
-  thesisDefenceMinimumScore Float? @map("thesis_defence_minimum_score")
+  thesisSeminarMinimumScore  Float? @map("thesis_seminar_minimum_score")
+  thesisDefenceMinimumScore  Float? @map("thesis_defence_minimum_score")
+  /// Nilai akhir Metode Penelitian minimum untuk lulus (K31), sejajar dua kolom di atas.
+  researchMethodMinimumScore Float? @map("research_method_minimum_score")
 
   @@unique([year, semester])
   @@index([startDate, endDate])
   @@map("academic_years")
 }
 
-/// Snapshot observasi akademik per mahasiswa dan tahun ajaran aktif saat observasi.
-/// `eligibleMetopen` first-write-wins per periode. `takingThesisCourse` ditimpa
-/// setiap observasi SIA/devtools (KC-20260814-02). SIA tidak mengirim
-/// academicYearId; baris menempel ke ember kalender yang sedang aktif.
+/// Penanda akademik SIA per mahasiswa per semester (10.6): mengambil Metode Penelitian
+/// dan mengambil Tugas Akhir pada semester itu, beserta sumber dan waktunya. SIA hanya
+/// dibaca; `research_method_completed` hanya ada di `students`.
 model StudentAcademicYearSnapshot {
-  id                      String                          @id @default(uuid()) @db.VarChar(191)
-  studentId               String                          @map("student_id") @db.VarChar(191)
-  academicYearId          String                          @map("academic_year_id") @db.VarChar(191)
-  eligibleMetopen         Boolean?                        @map("eligible_metopen")
-  researchMethodCompleted Boolean?                        @map("research_method_completed")
-  takingThesisCourse      Boolean?                        @map("taking_thesis_course")
-  eligibilitySource       ExternalAcademicSnapshotSource? @map("eligibility_source")
-  eligibilityCapturedAt   DateTime?                       @map("eligibility_captured_at")
-  thesisCourseSource      ExternalAcademicSnapshotSource? @map("thesis_course_source")
-  thesisCourseCapturedAt  DateTime?                       @map("thesis_course_captured_at")
-  capturedAt              DateTime                        @map("captured_at")
-  createdAt               DateTime                        @default(now()) @map("created_at")
-  updatedAt               DateTime                        @updatedAt @map("updated_at")
+  id                     String                          @id @default(uuid()) @db.VarChar(191)
+  studentId              String                          @map("student_id") @db.VarChar(191)
+  academicYearId         String                          @map("academic_year_id") @db.VarChar(191)
+  eligibleResearchMethod Boolean?                        @map("eligible_research_method")
+  takingThesisCourse     Boolean?                        @map("taking_thesis_course")
+  eligibilitySource      ExternalAcademicSnapshotSource? @map("eligibility_source")
+  eligibilityCapturedAt  DateTime?                       @map("eligibility_captured_at")
+  thesisCourseSource     ExternalAcademicSnapshotSource? @map("thesis_course_source")
+  thesisCourseCapturedAt DateTime?                       @map("thesis_course_captured_at")
+  capturedAt             DateTime                        @map("captured_at")
+  createdAt              DateTime                        @default(now()) @map("created_at")
+  updatedAt              DateTime                        @updatedAt @map("updated_at")
 
   student      Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
@@ -552,88 +535,8 @@ model ThesisDefenceSupervisorAssessmentRubric {
   @@map("thesis_defence_supervisor_assessment_rubrics")
 }
 
-/// CPMK khusus modul Metode Penelitian (Metopen).
-model MetopenCpmk {
-  id             String   @id @default(uuid()) @db.VarChar(191)
-  academicYearId String   @map("academic_year_id") @db.VarChar(191)
-  code           String   @db.VarChar(255)
-  description    String   @db.VarChar(255)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  academicYear               AcademicYear                @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  metopenAssessmentCriterias MetopenAssessmentCriteria[]
-
-  @@unique([academicYearId, code], map: "metopen_cpmks_period_code_key")
-  @@index([academicYearId], map: "metopen_cpmks_academic_year_id_fkey")
-  @@map("metopen_cpmks")
-}
-
-/// Komposisi batas poin TA-03A:TA-03B per tahun akademik (default 75:25).
-/// Formula tetap additive: finalScore = supervisorScore + lecturerScore.
-/// Sekdep dapat mengubah selama belum ada ResearchMethodScore finalized
-/// pada thesis di tahun akademik yang sama. Cap ≠ bobot persen.
-model MetopenScoreComposition {
-  id             String   @id @default(uuid()) @db.VarChar(191)
-  academicYearId String   @unique @map("academic_year_id") @db.VarChar(191)
-  /// Batas poin TA-03A (role supervisor). Default 75.
-  ta03aCap       Int      @default(75) @map("ta03a_cap")
-  /// Batas poin TA-03B (role default / Koordinator Metopen). Default 25.
-  ta03bCap       Int      @default(25) @map("ta03b_cap")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
-
-  @@map("metopen_score_compositions")
-}
-
-/// Kriteria penilaian Metopen (TA-03A supervisor / TA-03B koordinator).
-/// Batas peran (cap) per tahun akademik ada di MetopenScoreComposition
-/// (default 75:25). Tabel ini hard-delete sesuai desain pengelolaan rubrik Metopen.
-/// Canon §5.7.1 (P1+P2 co-sign) + §5.7 (TA-03B koordinator).
-model MetopenAssessmentCriteria {
-  id            String         @id @default(uuid()) @db.VarChar(191)
-  metopenCpmkId String         @map("metopen_cpmk_id") @db.VarChar(191)
-  name          String?        @db.VarChar(255)
-  role          AssessmentRole @default(default)
-  maxScore      Int?           @map("max_score")
-  displayOrder  Int            @default(0) @map("display_order")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-
-  metopenCpmk                MetopenCpmk                 @relation(fields: [metopenCpmkId], references: [id])
-  metopenAssessmentRubrics   MetopenAssessmentRubric[]
-  milestoneTemplateCriterias MilestoneTemplateCriteria[]
-  researchMethodScoreDetails ResearchMethodScoreDetail[]
-
-  @@index([metopenCpmkId], map: "metopen_assessment_criterias_metopen_cpmk_id_fkey")
-  @@map("metopen_assessment_criterias")
-}
-
-/// Level rubrik penilaian Metopen.
-/// Dipakai oleh RubricGradingForm
-/// untuk selection descriptor saat supervisor/koordinator input nilai.
-model MetopenAssessmentRubric {
-  id                          String   @id @default(uuid()) @db.VarChar(191)
-  metopenAssessmentCriteriaId String   @map("metopen_assessment_criteria_id") @db.VarChar(191)
-  minScore                    Int      @default(0) @map("min_score")
-  maxScore                    Int      @default(0) @map("max_score")
-  description                 String   @db.Text
-  displayOrder                Int      @default(0) @map("display_order")
-  createdAt                   DateTime @default(now()) @map("created_at")
-  updatedAt                   DateTime @updatedAt @map("updated_at")
-
-  metopenAssessmentCriteria  MetopenAssessmentCriteria         @relation(fields: [metopenAssessmentCriteriaId], references: [id])
-  milestoneAssessmentDetails ThesisMilestoneAssessmentDetail[]
-  researchMethodScoreDetails ResearchMethodScoreDetail[]
-
-  @@index([metopenAssessmentCriteriaId], map: "metopen_assessment_rubrics_metopen_assessment_criteria_id_fkey")
-  @@map("metopen_assessment_rubrics")
-}
-
-/// Katalog CPMK Metode Penelitian versi baru. Model ini sengaja berdiri
-/// independen dari MetopenCpmk dan belum dipakai oleh alur operasional TA-03.
+/// CPMK Metode Penelitian per periode. Bobot tiap pihak = jumlah `max_score`
+/// kriterianya (K31); jumlah kedua pihak paling banyak 100.
 model ResearchMethodCpmk {
   id             String   @id @default(uuid()) @db.VarChar(191)
   academicYearId String   @map("academic_year_id") @db.VarChar(191)
@@ -662,6 +565,7 @@ model ResearchMethodSupervisorAssessmentCriteria {
 
   researchMethodCpmk ResearchMethodCpmk                         @relation(fields: [researchMethodCpmkId], references: [id], onDelete: Restrict, map: "rm_supervisor_criterias_cpmk_fkey")
   assessmentRubrics  ResearchMethodSupervisorAssessmentRubric[]
+  assessmentDetails  ResearchMethodSupervisorAssessmentDetail[]
 
   @@index([researchMethodCpmkId], map: "rm_supervisor_criterias_cpmk_id_fkey")
   @@map("research_method_supervisor_assessment_criterias")
@@ -678,6 +582,7 @@ model ResearchMethodSupervisorAssessmentRubric {
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   assessmentCriteria ResearchMethodSupervisorAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id], onDelete: Cascade, map: "rm_supervisor_rubrics_criteria_fkey")
+  assessmentDetails  ResearchMethodSupervisorAssessmentDetail[]
 
   @@index([assessmentCriteriaId], map: "rm_supervisor_rubrics_criteria_id_fkey")
   @@map("research_method_supervisor_assessment_rubrics")
@@ -694,6 +599,7 @@ model ResearchMethodCoordinatorAssessmentCriteria {
 
   researchMethodCpmk ResearchMethodCpmk                          @relation(fields: [researchMethodCpmkId], references: [id], onDelete: Restrict, map: "rm_coordinator_criterias_cpmk_fkey")
   assessmentRubrics  ResearchMethodCoordinatorAssessmentRubric[]
+  assessmentDetails  ResearchMethodCoordinatorAssessmentDetail[]
 
   @@index([researchMethodCpmkId], map: "rm_coordinator_criterias_cpmk_id_fkey")
   @@map("research_method_coordinator_assessment_criterias")
@@ -710,6 +616,7 @@ model ResearchMethodCoordinatorAssessmentRubric {
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   assessmentCriteria ResearchMethodCoordinatorAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id], onDelete: Cascade, map: "rm_coordinator_rubrics_criteria_fkey")
+  assessmentDetails  ResearchMethodCoordinatorAssessmentDetail[]
 
   @@index([assessmentCriteriaId], map: "rm_coordinator_rubrics_criteria_id_fkey")
   @@map("research_method_coordinator_assessment_rubrics")
@@ -850,55 +757,22 @@ model Thesis {
   /// Jumlah hari cuti (BSS) yang sudah selesai. Ditambah saat TA kembali dari `on_leave`,
   /// supaya masa bimbingan (dihitung dari `startDate`) tidak menghitung masa cuti.
   totalLeaveDays     Int                      @default(0) @map("total_leave_days")
-  /// NOTE: canon §5.7.4 + §5.13 expect non-null setelah TA-04. Pertimbangkan
-  /// migrate ke NOT NULL di iterasi berikutnya.
+  /// Periode saat TA lahir (pengajuan pembimbing diterima).
   academicYearId     String?                  @map("academic_year_id")
   title              String?                  @db.Text
   startDate          DateTime?                @map("start_date")
 
-  // === SIMPTA SCOPE: Proposal Versioning & Submission (canon §5.6) ===
-  /// Source of truth proposal final aktif. Pointer ke ThesisProposalVersion
-  /// yang ditetapkan via aksi "Submit Final" eksplisit oleh mahasiswa.
-  finalProposalVersionId String?         @map("final_proposal_version_id") @db.VarChar(191)
-  proposalStatus         ProposalStatus? @map("proposal_status")
+  /// Waktu Penetapan Pembimbing pertama (formulir TA-04), menggantikan kolom `ta04_assignment_*`.
+  /// Membuka bimbingan proposal dan pengajuan proposal final (K3: tanpa lapisan reservasi).
+  supervisorAssignedAt DateTime? @map("supervisor_assigned_at")
 
-  // === SIMPTA SCOPE: TA-04 KaDep Decision Audit (canon §5.8, §5.13) ===
-  titleApprovalDocumentId       String?   @map("title_approval_document_id")
-  proposalReviewNotes           String?   @map("proposal_review_notes") @db.Text
-  proposalReviewedAt            DateTime? @map("proposal_reviewed_at")
-  proposalReviewedByUserId      String?   @map("proposal_reviewed_by_user_id") @db.VarChar(191)
-  /// TA-04 awal = SK penugasan resmi setelah TA-01/TA-02 booking disetujui.
-  /// Metadata ini membekukan judul + nama pembimbing yang tampil pada batch
-  /// pertama; promosi beban aktif tetap menunggu TA-03 final + KRS TA.
-  ta04AssignmentIssuedAt        DateTime? @map("ta04_assignment_issued_at")
-  ta04AssignmentIssuedByUserId  String?   @map("ta04_assignment_issued_by_user_id") @db.VarChar(191)
-  ta04AssignmentTitle           String?   @map("ta04_assignment_title") @db.Text
-  ta04AssignmentSupervisorNames String?   @map("ta04_assignment_supervisor_names") @db.Text
-  ta04AssignmentAcademicYearId  String?   @map("ta04_assignment_academic_year_id")
-  /// Tahun akademik beban aktif setelah promosi otomatis dari booking.
-  activeAcademicYearId          String?   @map("active_academic_year_id")
-  activePromotedAt              DateTime? @map("active_promoted_at")
-
-  // === LEGACY (deprecated per PRD §5.2) ===
-  /// @deprecated Use `finalProposalVersionId` instead. Sumber: canon §5.6 + PRD §5.2.
-  /// Akan di-drop pada migration berikutnya setelah audit memastikan tidak ada read sisa.
-  /// Sumber: HANDOFF §5 P0-06.
-  proposalDocumentId String? @map("proposal_document_id")
-
-  createdAt                  DateTime                    @default(now()) @map("created_at")
-  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  createdAt                  DateTime                                @default(now()) @map("created_at")
+  updatedAt                  DateTime                                @updatedAt @map("updated_at")
   // Relations
-  academicYear               AcademicYear?               @relation(fields: [academicYearId], references: [id])
-  proposalDocument           Document?                   @relation("ProposalDocument", fields: [proposalDocumentId], references: [id])
-  finalProposalVersion       ThesisProposalVersion?      @relation("FinalProposalVersion", fields: [finalProposalVersionId], references: [id])
-  titleApprovalDocument      Document?                   @relation("TitleApprovalDocument", fields: [titleApprovalDocumentId], references: [id])
-  proposalReviewedBy         User?                       @relation("ThesisProposalReviewedBy", fields: [proposalReviewedByUserId], references: [id])
-  ta04AssignmentIssuedBy     User?                       @relation("ThesisTa04AssignmentIssuedBy", fields: [ta04AssignmentIssuedByUserId], references: [id], onDelete: SetNull)
-  ta04AssignmentAcademicYear AcademicYear?               @relation("ThesisTa04AssignmentAcademicYear", fields: [ta04AssignmentAcademicYearId], references: [id])
-  activeAcademicYear         AcademicYear?               @relation("ThesisActiveAcademicYear", fields: [activeAcademicYearId], references: [id])
-  student                    Student                     @relation(fields: [studentId], references: [id])
-  terminatedBy               User?                       @relation("ThesisTerminatedBy", fields: [terminatedByUserId], references: [id], onDelete: SetNull)
-  thesisTopic                ThesisTopic?                @relation(fields: [thesisTopicId], references: [id])
+  academicYear               AcademicYear?                           @relation(fields: [academicYearId], references: [id])
+  student                    Student                                 @relation(fields: [studentId], references: [id])
+  terminatedBy               User?                                   @relation("ThesisTerminatedBy", fields: [terminatedByUserId], references: [id], onDelete: SetNull)
+  thesisTopic                ThesisTopic?                            @relation(fields: [thesisTopicId], references: [id])
   thesisGuidanceEvaluations  ThesisGuidanceEvaluation[]
   thesisChangeRequests       ThesisChangeRequest[]
   thesisDefences             ThesisDefence[]
@@ -908,20 +782,11 @@ model Thesis {
   thesisSeminars             ThesisSeminar[]
   yudisiumParticipants       YudisiumParticipant[]
   studentExitSurveyResponses StudentExitSurveyResponse[]
-  researchMethodScores       ResearchMethodScore[]
-  advisorRequests            ThesisAdvisorRequest[]
-  proposalVersions           ThesisProposalVersion[]
-  studentInformalLogs        ThesisStudentInformalLog[]
-  ta04BatchMembers           Ta04BatchMember[]
+  researchMethodAssessments  ResearchMethodAssessment[]
+  supervisorRequests         ThesisSupervisorRequest[]
+  supervisorAssignments      ThesisSupervisorAssignmentBatchMember[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
-  @@index([proposalDocumentId], map: "thesis_proposal_document_id_fkey")
-  @@index([finalProposalVersionId], map: "thesis_final_proposal_version_id_fkey")
-  @@index([titleApprovalDocumentId])
-  @@index([proposalReviewedByUserId], map: "thesis_proposal_reviewed_by_user_id_fkey")
-  @@index([ta04AssignmentIssuedByUserId], map: "thesis_ta04_assignment_issued_by_user_id_fkey")
-  @@index([ta04AssignmentAcademicYearId], map: "thesis_ta04_assignment_academic_year_id_fkey")
-  @@index([activeAcademicYearId], map: "thesis_active_academic_year_id_fkey")
   @@index([studentId], map: "thesis_student_id_fkey")
   @@index([thesisTopicId], map: "thesis_thesis_topic_id_fkey")
   @@index([terminatedByUserId], map: "thesis_terminated_by_user_id_fkey")
@@ -930,77 +795,49 @@ model Thesis {
   @@map("thesis")
 }
 
-/// Formulir TA-04 resmi per periode. Source of truth dokumen batch current
-/// disimpan di sini, bukan disimpulkan dari pointer per-thesis yang bisa stale.
-model Ta04Batch {
+/// Penetapan Pembimbing satu periode (formulir TA-04). PDF batch disimpan di baris ini
+/// dan menjadi bukti beku susunan judul dan pembimbing (10.4).
+model ThesisSupervisorAssignmentBatch {
   id                String   @id @default(uuid())
   academicYearId    String   @map("academic_year_id")
-  documentId        String   @map("document_id")
   version           Int      @default(1)
-  /// String status sengaja dipakai untuk menghindari enum DB baru.
-  /// Nilai aktif: current, superseded.
+  /// Nilai: current, superseded.
   status            String   @default("current") @db.VarChar(32)
   cohortHash        String   @map("cohort_hash") @db.VarChar(64)
   generatedByUserId String?  @map("generated_by_user_id")
   generatedAt       DateTime @default(now()) @map("generated_at")
+  filePath          String   @map("file_path") @db.VarChar(255)
+  fileName          String   @map("file_name") @db.VarChar(255)
+  mimeType          String   @map("mime_type") @db.VarChar(255)
+  fileSize          Int      @map("file_size")
+  fileHash          String?  @map("file_hash") @db.VarChar(255)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  academicYear AcademicYear      @relation(fields: [academicYearId], references: [id])
-  document     Document          @relation("Ta04BatchDocument", fields: [documentId], references: [id])
-  generatedBy  User?             @relation("Ta04BatchGeneratedBy", fields: [generatedByUserId], references: [id], onDelete: SetNull)
-  members      Ta04BatchMember[]
+  academicYear AcademicYear                            @relation(fields: [academicYearId], references: [id])
+  generatedBy  User?                                   @relation("SupervisorAssignmentBatchGeneratedBy", fields: [generatedByUserId], references: [id], onDelete: SetNull)
+  members      ThesisSupervisorAssignmentBatchMember[]
 
   @@unique([academicYearId, version])
   @@index([academicYearId, status])
-  @@index([documentId])
   @@index([generatedByUserId])
-  @@index([cohortHash])
-  @@map("ta04_batches")
+  @@map("thesis_supervisor_assignment_batches")
 }
 
-/// Snapshot anggota yang masuk ke Formulir TA-04 pada saat batch dibuat.
-/// Snapshot menjaga isi PDF tetap audit-able walaupun nama/judul/pembimbing
-/// berubah setelahnya.
-model Ta04BatchMember {
-  id              String   @id @default(uuid())
-  batchId         String   @map("batch_id")
-  thesisId        String   @map("thesis_id")
-  studentName     String   @map("student_name")
-  studentNim      String   @map("student_nim") @db.VarChar(50)
-  title           String   @db.Text
-  supervisorNames String   @map("supervisor_names") @db.Text
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+/// Anggota penetapan: hanya merujuk TA. Nama dan judul diambil dari data hidup;
+/// salinan bekunya ada di PDF batch.
+model ThesisSupervisorAssignmentBatchMember {
+  id        String   @id @default(uuid())
+  batchId   String   @map("batch_id")
+  thesisId  String   @map("thesis_id")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  batch  Ta04Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  thesis Thesis    @relation(fields: [thesisId], references: [id])
+  batch  ThesisSupervisorAssignmentBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  thesis Thesis                          @relation(fields: [thesisId], references: [id])
 
   @@unique([batchId, thesisId])
   @@index([thesisId])
-  @@map("ta04_batch_members")
-}
-
-/// Catatan bimbingan informal fase Metopen: mahasiswa membuat/mengubah catatan;
-/// P1/P2 aktif dapat membaca read-only setelah TA-04. Tidak memiliki workflow
-/// approval dan tidak menggantikan thesis_guidances (alur sesi formal pasca-promosi).
-model ThesisStudentInformalLog {
-  id         String   @id @default(uuid())
-  thesisId   String   @map("thesis_id")
-  studentId  String   @map("student_id")
-  content    String   @db.Text
-  documentId String?  @map("document_id")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  thesis   Thesis    @relation(fields: [thesisId], references: [id], onDelete: Cascade)
-  student  Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  document Document? @relation("ThesisInformalLogDocument", fields: [documentId], references: [id], onDelete: SetNull)
-
-  @@index([thesisId], map: "thesis_student_informal_logs_thesis_id_fkey")
-  @@index([studentId], map: "thesis_student_informal_logs_student_id_fkey")
-  @@index([documentId], map: "thesis_student_informal_logs_document_id_fkey")
-  @@map("thesis_student_informal_logs")
+  @@map("thesis_supervisor_assignment_batch_members")
 }
 
 /// Pengajuan Perubahan Tugas Akhir (formulir TA-05, keputusan K8): perubahan judul dan/atau
@@ -1171,13 +1008,13 @@ model ThesisTopic {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  scienceGroup           ScienceGroup?               @relation(fields: [scienceGroupId], references: [id])
-  lecturer               Lecturer?                   @relation("TopicOfferedByLecturer", fields: [lecturerId], references: [id])
-  thesis                 Thesis[]
-  milestoneTemplates     ThesisMilestoneTemplate[]
-  advisorRequests        ThesisAdvisorRequest[]
-  advisorRequestDrafts   ThesisAdvisorRequestDraft[]
-  changeRequestsNewTopic ThesisChangeRequest[]       @relation("ChangeRequestNewTopic")
+  scienceGroup            ScienceGroup?                  @relation(fields: [scienceGroupId], references: [id])
+  lecturer                Lecturer?                      @relation("TopicOfferedByLecturer", fields: [lecturerId], references: [id])
+  thesis                  Thesis[]
+  milestoneTemplates      ThesisMilestoneTemplate[]
+  supervisorRequests      ThesisSupervisorRequest[]
+  supervisorRequestDrafts ThesisSupervisorRequestDraft[]
+  changeRequestsNewTopic  ThesisChangeRequest[]          @relation("ChangeRequestNewTopic")
 
   @@index([scienceGroupId])
   @@index([lecturerId])
@@ -1186,9 +1023,8 @@ model ThesisTopic {
 
 // ThesisProposal model removed — fields merged into Thesis
 
-/// @deprecated Class/task Metopen flow non-scope (Canon §0).
-/// Tabel milestone class-based dipertahankan untuk kompatibilitas; flow proposal
-/// aktif memakai `thesis_proposal_versions` + penilaian TA-03A/TA-03B langsung.
+/// Template milestone kedua fase (K18): fase proposal berlaku umum (`topic_id` NULL),
+/// fase penelitian per topik.
 model ThesisMilestoneTemplate {
   id               String      @id @default(uuid())
   name             String
@@ -1201,14 +1037,11 @@ model ThesisMilestoneTemplate {
   defaultDueDays   Int?        @map("default_due_days")
   defaultDueDate   DateTime?   @map("default_due_date")
   weightPercentage Int?        @map("weight_percentage")
-  requiresAdvisor  Boolean     @default(false) @map("requires_advisor")
   createdAt        DateTime    @default(now()) @map("created_at")
   updatedAt        DateTime    @updatedAt @map("updated_at")
 
-  topic             ThesisTopic?                  @relation(fields: [topicId], references: [id])
-  milestones        ThesisMilestone[]
-  templateCriterias MilestoneTemplateCriteria[]
-  attachments       MilestoneTemplateAttachment[]
+  topic      ThesisTopic?      @relation(fields: [topicId], references: [id])
+  milestones ThesisMilestone[]
 
   @@index([topicId], map: "thesis_milestone_templates_topic_id_fkey")
   @@index([phase])
@@ -1241,18 +1074,14 @@ model ThesisMilestone {
   /// Feedback baru menggantikan yang lama; riwayat ada di notifikasi dan audit log.
   feedbackBy      String?   @map("feedback_by")
   feedbackAt      DateTime? @map("feedback_at")
-  assessedBy      String?   @map("assessed_by")
-  assessedAt      DateTime? @map("assessed_at")
-  totalScore      Int?      @map("total_score")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  thesis             Thesis                            @relation(fields: [thesisId], references: [id], onDelete: Cascade)
-  milestoneTemplate  ThesisMilestoneTemplate?          @relation(fields: [milestoneTemplateId], references: [id])
+  thesis             Thesis                    @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  milestoneTemplate  ThesisMilestoneTemplate?  @relation(fields: [milestoneTemplateId], references: [id])
   guidances          ThesisGuidanceMilestone[]
   milestoneDocuments ThesisMilestoneDocument[]
-  assessmentDetails  ThesisMilestoneAssessmentDetail[]
 
   @@index([thesisId, orderIndex])
   @@index([thesisId, status])
@@ -1273,36 +1102,6 @@ model ThesisGuidanceMilestone {
   @@map("thesis_guidance_milestones")
 }
 
-// ==================== Metopen Supporting Models ====================
-
-model MilestoneTemplateCriteria {
-  milestoneTemplateId  String   @map("milestone_template_id")
-  assessmentCriteriaId String   @map("assessment_criteria_id")
-  weightPercentage     Int?     @map("weight_percentage")
-  createdAt            DateTime @default(now()) @map("created_at")
-
-  milestoneTemplate  ThesisMilestoneTemplate   @relation(fields: [milestoneTemplateId], references: [id], onDelete: Cascade)
-  assessmentCriteria MetopenAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id])
-
-  @@id([milestoneTemplateId, assessmentCriteriaId])
-  @@index([assessmentCriteriaId])
-  @@map("milestone_template_criterias")
-}
-
-model MilestoneTemplateAttachment {
-  id         String   @id @default(uuid())
-  templateId String   @map("template_id")
-  documentId String   @map("document_id")
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  template ThesisMilestoneTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  document Document                @relation(fields: [documentId], references: [id])
-
-  @@index([templateId])
-  @@index([documentId])
-  @@map("milestone_template_attachments")
-}
-
 model ThesisMilestoneDocument {
   id          String   @id @default(uuid())
   milestoneId String   @map("milestone_id")
@@ -1319,26 +1118,6 @@ model ThesisMilestoneDocument {
 
   @@index([milestoneId])
   @@map("thesis_milestone_documents")
-}
-
-model ThesisMilestoneAssessmentDetail {
-  id          String   @id @default(uuid())
-  milestoneId String   @map("milestone_id")
-  lecturerId  String   @map("lecturer_id")
-  rubricId    String?  @map("rubric_id")
-  score       Int
-  notes       String?  @db.Text
-  assessedAt  DateTime @default(now()) @map("assessed_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  milestone ThesisMilestone          @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  lecturer  Lecturer                 @relation(fields: [lecturerId], references: [id])
-  rubric    MetopenAssessmentRubric? @relation(fields: [rubricId], references: [id])
-
-  @@index([milestoneId])
-  @@index([lecturerId])
-  @@map("thesis_milestone_assessment_details")
 }
 
 model ThesisGuidance {
@@ -2278,20 +2057,11 @@ model Document {
   internshipCompanyReportDocs         Internship[]                     @relation("InternshipCompanyReportDoc")
   internshipSeminarBeritaAcara        InternshipSeminar[]              @relation("InternshipSeminarBeritaAcara")
   internshipLogbookDoc                Internship[]                     @relation("InternshipLogbookDoc")
-  thesisProposalDocument              Thesis[]                         @relation("ProposalDocument")
-  thesisProposalVersionDocs           ThesisProposalVersion[]          @relation("ThesisProposalVersionDocument")
-  thesisTitleApprovalDocs             Thesis[]                         @relation("TitleApprovalDocument")
   seminarDocuments                    ThesisSeminarDocument[]          @relation("SeminarDocDocument")
   defenceDocuments                    ThesisDefenceDocument[]          @relation("DefenceDocDocument")
   yudisiums                           Yudisium[]
   yudisiumCplRecommendationDocuments  YudisiumCplRecommendation[]      @relation("YudisiumCplRecommendationDocument")
   yudisiumCplSettlementDocuments      YudisiumCplRecommendation[]      @relation("YudisiumCplSettlementDocument")
-  milestoneTemplateAttachments        MilestoneTemplateAttachment[]
-  advisorRequestsAttachment           ThesisAdvisorRequest[]           @relation("AdvisorRequestAttachment")
-  advisorRequestDraftAttachments      ThesisAdvisorRequestDraft[]      @relation("AdvisorRequestDraftAttachment")
-  thesisStudentInformalLogAttachments ThesisStudentInformalLog[]       @relation("ThesisInformalLogDocument")
-  metopenAttendanceImports            MetopenAttendanceImport[]        @relation("MetopenAttendanceImportDocument")
-  ta04Batches                         Ta04Batch[]                      @relation("Ta04BatchDocument")
   yudisiumParticipantRequirements     YudisiumParticipantRequirement[] @relation("YudisiumParticipantRequirementDocument")
 
   @@index([documentTypeId], map: "documents_document_type_id_fkey")
@@ -2849,7 +2619,9 @@ model YudisiumParticipantExitSurveySelectedOption {
   @@map("yudisium_participant_exit_survey_selected_options")
 }
 
-model ThesisAdvisorRequestDraft {
+/// Draf Pengajuan Pembimbing yang belum dikirim, satu per mahasiswa. Disimpan juga saat
+/// pengajuan ditolak atau diminta revisi, supaya bisa dipakai ulang.
+model ThesisSupervisorRequestDraft {
   id                   String                @id @default(uuid()) @db.VarChar(191)
   studentId            String                @unique @map("student_id") @db.VarChar(191)
   lecturerId           String?               @map("lecturer_id") @db.VarChar(191)
@@ -2860,210 +2632,181 @@ model ThesisAdvisorRequestDraft {
   proposedSolution     String?               @map("proposed_solution") @db.Text
   researchObject       String?               @map("research_object") @db.VarChar(255)
   researchPermitStatus ResearchPermitStatus? @map("research_permit_status")
-  /// @deprecated Use `studentJustification` instead. Sumber: canon §5.2.1 v2.1.
-  /// Akan di-drop pada migration berikutnya (Tahap 2) setelah audit memastikan
-  /// tidak ada read sisa di service/UI. Backfill di Migration C sudah copy
-  /// data ke studentJustification. Sumber: HANDOFF §5 P0-05.
-  justificationText    String?               @map("justification_text") @db.Text
   studentJustification String?               @map("student_justification") @db.Text
-  attachmentId         String?               @map("attachment_id") @db.VarChar(191)
   lastSubmittedAt      DateTime?             @map("last_submitted_at")
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")
 
-  student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  lecturer   Lecturer?    @relation(fields: [lecturerId], references: [id])
-  topic      ThesisTopic? @relation(fields: [topicId], references: [id])
-  attachment Document?    @relation("AdvisorRequestDraftAttachment", fields: [attachmentId], references: [id])
+  student  Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lecturer Lecturer?    @relation(fields: [lecturerId], references: [id])
+  topic    ThesisTopic? @relation(fields: [topicId], references: [id])
 
   @@index([lecturerId])
   @@index([topicId])
-  @@index([attachmentId])
-  @@map("thesis_advisor_request_draft")
+  @@map("thesis_supervisor_request_drafts")
 }
 
-// ==================== Thesis Advisor Request ====================
-model ThesisAdvisorRequest {
-  id                      String                     @id @default(uuid()) @db.VarChar(191)
-  studentId               String                     @map("student_id") @db.VarChar(191)
-  lecturerId              String?                    @map("lecturer_id") @db.VarChar(191)
-  academicYearId          String                     @map("academic_year_id") @db.VarChar(191)
-  topicId                 String?                    @map("topic_id") @db.VarChar(191)
-  thesisId                String?                    @map("thesis_id") @db.VarChar(191)
-  proposedTitle           String?                    @map("proposed_title") @db.VarChar(255)
-  backgroundSummary       String?                    @map("background_summary") @db.Text
-  problemStatement        String?                    @map("problem_statement") @db.Text
-  proposedSolution        String?                    @map("proposed_solution") @db.Text
-  researchObject          String?                    @map("research_object") @db.VarChar(255)
-  researchPermitStatus    ResearchPermitStatus?      @map("research_permit_status")
-  /// @deprecated Use `studentJustification` instead. Sumber: canon §5.2.1 v2.1.
-  /// Akan di-drop pada migration berikutnya (Tahap 2) setelah audit memastikan
-  /// tidak ada read sisa di service/UI. Backfill di Migration C sudah copy
-  /// data ke studentJustification. Sumber: HANDOFF §5 P0-05.
-  justificationText       String?                    @map("justification_text") @db.Text
-  studentJustification    String?                    @map("student_justification") @db.Text
-  requestType             AdvisorRequestType         @default(ta_01) @map("request_type")
-  status                  ThesisAdvisorRequestStatus @default(pending)
-  routeType               AdvisorRequestRoute        @default(normal) @map("route_type")
-  lecturerApprovalNote    String?                    @map("lecturer_approval_note") @db.Text
-  lecturerOverquotaReason String?                    @map("lecturer_overquota_reason") @db.Text
-  rejectionReason         String?                    @map("rejection_reason") @db.Text
-  reviewedBy              String?                    @map("reviewed_by") @db.VarChar(191)
-  reviewedAt              DateTime?                  @map("reviewed_at")
-  lecturerRespondedAt     DateTime?                  @map("lecturer_responded_at")
-  withdrawnAt             DateTime?                  @map("withdrawn_at")
-  releasedAt              DateTime?                  @map("released_at")
-  releaseReason           String?                    @map("release_reason") @db.VarChar(64)
-  releasedAcademicYearId  String?                    @map("released_academic_year_id") @db.VarChar(191)
-  withdrawCount           Int                        @default(0) @map("withdraw_count")
-  redirectedTo            String?                    @map("redirected_to") @db.VarChar(191)
-  kadepNotes              String?                    @map("kadep_notes") @db.Text
-  attachmentId            String?                    @map("attachment_id") @db.VarChar(191) // TA-01 or Draft Proposal
-  // BR-26 Path C dual-justification audit (canon §5.2.1).
-  // forwardedToKadepAt + forwardedByLecturerId menandai kapan/oleh siapa dosen
-  // forward overquota request ke KaDep. Wajib di-set bersamaan dengan
-  // lecturerOverquotaReason di service `advisorRequest.forwardOverquotaToKadep`.
-  forwardedToKadepAt      DateTime?                  @map("forwarded_to_kadep_at")
-  forwardedByLecturerId   String?                    @map("forwarded_by_lecturer_id") @db.VarChar(191)
-  // BR-06 + canon §7.3: flag eksplisit untuk computed "Overquota Sah".
-  // Di-set true saat KaDep override Path C escalated → status=booking_approved.
-  // Hindari computed gabungan routeType+status yang fragile.
-  acceptedOverNormal      Boolean                    @default(false) @map("accepted_over_normal")
-  createdAt               DateTime                   @default(now()) @map("created_at")
-  updatedAt               DateTime                   @updatedAt @map("updated_at")
+/// Pengajuan Pembimbing (formulir TA-01/TA-02). Paling banyak satu pengajuan aktif per
+/// mahasiswa. TA lahir berstatus `proposal` saat pengajuan diterima.
+model ThesisSupervisorRequest {
+  id                      String                        @id @default(uuid()) @db.VarChar(191)
+  studentId               String                        @map("student_id") @db.VarChar(191)
+  /// Dosen yang dipilih mahasiswa; kosong pada jalur departemen.
+  lecturerId              String?                       @map("lecturer_id") @db.VarChar(191)
+  academicYearId          String                        @map("academic_year_id") @db.VarChar(191)
+  topicId                 String?                       @map("topic_id") @db.VarChar(191)
+  /// Diisi saat pengajuan diterima.
+  thesisId                String?                       @map("thesis_id") @db.VarChar(191)
+  proposedTitle           String?                       @map("proposed_title") @db.VarChar(255)
+  backgroundSummary       String?                       @map("background_summary") @db.Text
+  problemStatement        String?                       @map("problem_statement") @db.Text
+  proposedSolution        String?                       @map("proposed_solution") @db.Text
+  researchObject          String?                       @map("research_object") @db.VarChar(255)
+  researchPermitStatus    ResearchPermitStatus?         @map("research_permit_status")
+  studentJustification    String?                       @map("student_justification") @db.Text
+  status                  ThesisSupervisorRequestStatus @default(pending)
+  route                   SupervisorRequestRoute        @default(direct)
+  lecturerApprovalNote    String?                       @map("lecturer_approval_note") @db.Text
+  lecturerOverquotaReason String?                       @map("lecturer_overquota_reason") @db.Text
+  rejectionReason         String?                       @map("rejection_reason") @db.Text
+  reviewedBy              String?                       @map("reviewed_by") @db.VarChar(191)
+  reviewedAt              DateTime?                     @map("reviewed_at")
+  lecturerRespondedAt     DateTime?                     @map("lecturer_responded_at")
+  withdrawnAt             DateTime?                     @map("withdrawn_at")
+  withdrawCount           Int                           @default(0) @map("withdraw_count")
+  /// Dosen tujuan pengalihan oleh Ketua Departemen.
+  redirectedTo            String?                       @map("redirected_to") @db.VarChar(191)
+  kadepNotes              String?                       @map("kadep_notes") @db.Text
+  forwardedToKadepAt      DateTime?                     @map("forwarded_to_kadep_at")
+  forwardedByLecturerId   String?                       @map("forwarded_by_lecturer_id") @db.VarChar(191)
+  /// Diterima walaupun dosen sudah di atas batas keras (disahkan Ketua Departemen).
+  acceptedOverNormal      Boolean                       @default(false) @map("accepted_over_normal")
+  createdAt               DateTime                      @default(now()) @map("created_at")
+  updatedAt               DateTime                      @updatedAt @map("updated_at")
 
-  student              Student       @relation(fields: [studentId], references: [id])
-  lecturer             Lecturer?     @relation("AdvisorRequestTarget", fields: [lecturerId], references: [id])
-  topic                ThesisTopic?  @relation(fields: [topicId], references: [id])
-  thesis               Thesis?       @relation(fields: [thesisId], references: [id])
-  academicYear         AcademicYear  @relation(fields: [academicYearId], references: [id])
-  releasedAcademicYear AcademicYear? @relation("AdvisorRequestReleasedAcademicYear", fields: [releasedAcademicYearId], references: [id])
-  reviewer             User?         @relation("AdvisorRequestReviewer", fields: [reviewedBy], references: [id])
-  redirectTarget       Lecturer?     @relation("AdvisorRequestRedirect", fields: [redirectedTo], references: [id])
-  forwardedByLecturer  Lecturer?     @relation("AdvisorRequestForwarder", fields: [forwardedByLecturerId], references: [id])
-  attachment           Document?     @relation("AdvisorRequestAttachment", fields: [attachmentId], references: [id])
+  student             Student      @relation(fields: [studentId], references: [id])
+  lecturer            Lecturer?    @relation("SupervisorRequestTarget", fields: [lecturerId], references: [id])
+  topic               ThesisTopic? @relation(fields: [topicId], references: [id])
+  thesis              Thesis?      @relation(fields: [thesisId], references: [id])
+  academicYear        AcademicYear @relation(fields: [academicYearId], references: [id])
+  reviewer            User?        @relation("SupervisorRequestReviewer", fields: [reviewedBy], references: [id])
+  redirectTarget      Lecturer?    @relation("SupervisorRequestRedirect", fields: [redirectedTo], references: [id])
+  forwardedByLecturer Lecturer?    @relation("SupervisorRequestForwarder", fields: [forwardedByLecturerId], references: [id])
 
-  @@index([studentId])
   @@index([studentId, status])
-  @@index([lecturerId])
   @@index([lecturerId, academicYearId, status])
   @@index([academicYearId, status])
-  @@index([thesisId])
   @@index([status, createdAt])
-  @@index([status])
-  @@index([releasedAcademicYearId])
+  @@index([thesisId])
   @@index([reviewedBy])
   @@index([redirectedTo])
   @@index([forwardedByLecturerId])
-  @@index([attachmentId])
-  @@map("thesis_advisor_request")
+  @@map("thesis_supervisor_requests")
 }
 
-// ThesisSupervisionDecree, ThesisProposalNew, ThesisProposalHistory removed — dead models
+/// Satu percobaan Metode Penelitian sebuah TA pada satu semester (K32): proposal final,
+/// nilai pembimbing dan koordinator, kaitan presensi, dan hasilnya. Mahasiswa yang tidak
+/// lulus mendapat baris baru pada semester berikutnya (K2).
+/// Berkas proposal final di uploads/thesis/<thesis_id>/proposal/<assessment_id>/.
+model ResearchMethodAssessment {
+  id                       String                          @id @default(uuid()) @db.VarChar(191)
+  thesisId                 String                          @map("thesis_id") @db.VarChar(191)
+  academicYearId           String                          @map("academic_year_id") @db.VarChar(191)
+  proposalFilePath         String?                         @map("proposal_file_path") @db.VarChar(255)
+  proposalFileName         String?                         @map("proposal_file_name") @db.VarChar(255)
+  proposalMimeType         String?                         @map("proposal_mime_type") @db.VarChar(255)
+  proposalFileSize         Int?                            @map("proposal_file_size")
+  proposalFileHash         String?                         @map("proposal_file_hash") @db.VarChar(255)
+  proposalSubmittedAt      DateTime?                       @map("proposal_submitted_at")
+  /// Pembimbing yang mengirim nilai: Pembimbing 1, atau Pembimbing 2 sebagai cadangan (K9).
+  supervisorId             String?                         @map("supervisor_id") @db.VarChar(191)
+  supervisorScore          Int?                            @map("supervisor_score")
+  supervisorScoredAt       DateTime?                       @map("supervisor_scored_at")
+  coordinatorId            String?                         @map("coordinator_id") @db.VarChar(191)
+  coordinatorScore         Int?                            @map("coordinator_score")
+  coordinatorScoredAt      DateTime?                       @map("coordinator_scored_at")
+  /// Nilai pembimbing + nilai koordinator.
+  finalScore               Int?                            @map("final_score")
+  isFinalized              Boolean                         @default(false) @map("is_finalized")
+  finalizedBy              String?                         @map("finalized_by") @db.VarChar(191)
+  finalizedAt              DateTime?                       @map("finalized_at")
+  /// Diisi saat difinalkan: lulus bila presensi memenuhi dan nilai >= nilai minimum periode.
+  result                   ResearchMethodAssessmentResult?
+  attendanceRecordId       String?                         @map("attendance_record_id") @db.VarChar(191)
+  /// Presensi di bawah 75%: nilai otomatis 0.
+  attendanceAutoZeroedAt   DateTime?                       @map("attendance_auto_zeroed_at")
+  attendanceAutoZeroReason String?                         @map("attendance_auto_zero_reason") @db.Text
+  createdAt                DateTime                        @default(now()) @map("created_at")
+  updatedAt                DateTime                        @updatedAt @map("updated_at")
 
-model ThesisProposalVersion {
-  id                       String    @id @default(uuid()) @db.VarChar(191)
-  thesisId                 String    @map("thesis_id") @db.VarChar(191)
-  documentId               String    @map("document_id") @db.VarChar(191)
-  version                  Int
-  description              String?   @db.Text
-  isLatest                 Boolean   @default(true) @map("is_latest")
-  submittedAsFinalAt       DateTime? @map("submitted_as_final_at")
-  submittedAsFinalByUserId String?   @map("submitted_as_final_by_user_id") @db.VarChar(191)
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
+  thesis             Thesis                                      @relation(fields: [thesisId], references: [id], onDelete: Restrict)
+  academicYear       AcademicYear                                @relation(fields: [academicYearId], references: [id])
+  supervisor         Lecturer?                                   @relation("ResearchMethodAssessmentSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  coordinator        Lecturer?                                   @relation("ResearchMethodAssessmentCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
+  finalizer          User?                                       @relation("ResearchMethodAssessmentFinalizer", fields: [finalizedBy], references: [id], onDelete: SetNull)
+  attendanceRecord   ResearchMethodAttendanceRecord?             @relation(fields: [attendanceRecordId], references: [id], onDelete: SetNull)
+  supervisorDetails  ResearchMethodSupervisorAssessmentDetail[]
+  coordinatorDetails ResearchMethodCoordinatorAssessmentDetail[]
 
-  thesis             Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
-  document           Document @relation("ThesisProposalVersionDocument", fields: [documentId], references: [id], onDelete: Cascade)
-  submittedAsFinalBy User?    @relation("ThesisProposalVersionSubmittedBy", fields: [submittedAsFinalByUserId], references: [id], onDelete: SetNull)
-  activeFinalFor     Thesis[] @relation("FinalProposalVersion")
-
-  @@unique([thesisId, version])
-  @@index([documentId])
-  @@index([thesisId, isLatest])
-  @@index([submittedAsFinalAt])
-  @@index([submittedAsFinalByUserId])
-  @@map("thesis_proposal_versions")
-}
-
-// ==================== Research Method Scores ====================
-model ResearchMethodScore {
-  id                       String    @id @default(uuid()) @db.VarChar(191)
-  thesisId                 String    @unique @map("thesis_id") @db.VarChar(191)
-  supervisorId             String?   @map("supervisor_id") @db.VarChar(191)
-  supervisorScore          Int?      @map("supervisor_score")
-  lecturerId               String?   @map("lecturer_id") @db.VarChar(191)
-  lecturerScore            Int?      @map("lecturer_score")
-  finalScore               Int?      @map("final_score")
-  isFinalized              Boolean   @default(false) @map("is_finalized")
-  finalizedBy              String?   @map("finalized_by") @db.VarChar(191)
-  finalizedAt              DateTime? @map("finalized_at")
-  calculatedAt             DateTime? @map("calculated_at")
-  attendanceRecordId       String?   @map("attendance_record_id") @db.VarChar(191)
-  attendanceAutoZeroedAt   DateTime? @map("attendance_auto_zeroed_at")
-  attendanceAutoZeroReason String?   @map("attendance_auto_zero_reason") @db.Text
-  // BR-29 (canon v3.4 §5.7.5): tutup periode Metopel. Terpisah dari auto-zero presensi.
-  periodClosedAt           DateTime? @map("period_closed_at")
-  periodClosedReason       String?   @map("period_closed_reason") @db.VarChar(64)
-  // BR-20 (canon §5.7.1): TA-03A konsensus P1 master + P2 co-sign.
-  // P1 mengisi rubrik utuh (supervisorScore + supervisorId di atas);
-  // P2 melakukan co-sign sebagai persetujuan tanpa modifikasi nilai.
-  // Field opsional — bila thesis hanya punya 1 pembimbing (P1 saja),
-  // co-sign di-skip dan field-field ini tetap null.
-  coSignedByLecturerId     String?   @map("co_signed_by_lecturer_id") @db.VarChar(191)
-  coSignedAt               DateTime? @map("co_signed_at")
-  coSignNote               String?   @map("co_sign_note") @db.Text
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
-
-  // Restrict: hapus thesis tidak boleh menghapus jejak nilai TA-03 (BR-21 / audit).
-  thesis                     Thesis                      @relation(fields: [thesisId], references: [id], onDelete: Restrict)
-  supervisor                 Lecturer?                   @relation("ResearchMethodScoreSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
-  lecturerAssessor           Lecturer?                   @relation("ResearchMethodScoreLecturer", fields: [lecturerId], references: [id], onDelete: SetNull)
-  coSigner                   Lecturer?                   @relation("ResearchMethodScoreCoSigner", fields: [coSignedByLecturerId], references: [id], onDelete: SetNull)
-  finalizer                  User?                       @relation("ResearchMethodScoreFinalizer", fields: [finalizedBy], references: [id], onDelete: SetNull)
-  attendanceRecord           MetopenAttendanceRecord?    @relation("ResearchMethodAttendanceRecord", fields: [attendanceRecordId], references: [id], onDelete: SetNull)
-  researchMethodScoreDetails ResearchMethodScoreDetail[]
-
+  @@unique([thesisId, academicYearId])
+  @@index([academicYearId, isFinalized])
   @@index([supervisorId])
-  @@index([lecturerId])
-  @@index([isFinalized])
-  @@index([coSignedByLecturerId])
+  @@index([coordinatorId])
   @@index([finalizedBy])
   @@index([attendanceRecordId])
-  @@index([periodClosedAt])
-  @@map("research_method_scores")
+  @@map("research_method_assessments")
 }
 
-model ResearchMethodScoreDetail {
-  researchMethodScoreId String   @map("research_method_score_id") @db.VarChar(191)
-  assessmentCriteriaId  String   @map("assessment_criteria_id") @db.VarChar(191)
-  assessmentRubricId    String?  @map("assessment_rubric_id") @db.VarChar(191)
-  score                 Int
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+/// Rincian nilai pembimbing per kriteria (pola `thesis_defence_supervisor_assessment_details`).
+model ResearchMethodSupervisorAssessmentDetail {
+  assessmentId         String   @map("assessment_id") @db.VarChar(191)
+  assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(191)
+  assessmentRubricId   String?  @map("assessment_rubric_id") @db.VarChar(191)
+  score                Int
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
-  researchMethodScore ResearchMethodScore       @relation(fields: [researchMethodScoreId], references: [id], onDelete: Cascade)
-  criteria            MetopenAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id])
-  assessmentRubric    MetopenAssessmentRubric?  @relation(fields: [assessmentRubricId], references: [id], onDelete: SetNull)
+  assessment ResearchMethodAssessment                   @relation(fields: [assessmentId], references: [id], onDelete: Cascade, map: "rm_supervisor_details_assessment_fkey")
+  criteria   ResearchMethodSupervisorAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id], onDelete: Restrict, map: "rm_supervisor_details_criteria_fkey")
+  rubric     ResearchMethodSupervisorAssessmentRubric?  @relation(fields: [assessmentRubricId], references: [id], onDelete: SetNull, map: "rm_supervisor_details_rubric_fkey")
 
-  @@id([researchMethodScoreId, assessmentCriteriaId])
-  @@index([assessmentCriteriaId], map: "research_method_score_details_criteria_id_fkey")
-  @@index([assessmentRubricId], map: "research_method_score_details_rubric_id_fkey")
-  @@map("research_method_score_details")
+  @@id([assessmentId, assessmentCriteriaId])
+  @@index([assessmentCriteriaId], map: "rm_supervisor_details_criteria_id_idx")
+  @@index([assessmentRubricId], map: "rm_supervisor_details_rubric_id_idx")
+  @@map("research_method_supervisor_assessment_details")
 }
 
-model MetopenAttendanceImport {
+/// Rincian nilai koordinator per kriteria.
+model ResearchMethodCoordinatorAssessmentDetail {
+  assessmentId         String   @map("assessment_id") @db.VarChar(191)
+  assessmentCriteriaId String   @map("assessment_criteria_id") @db.VarChar(191)
+  assessmentRubricId   String?  @map("assessment_rubric_id") @db.VarChar(191)
+  score                Int
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  assessment ResearchMethodAssessment                    @relation(fields: [assessmentId], references: [id], onDelete: Cascade, map: "rm_coordinator_details_assessment_fkey")
+  criteria   ResearchMethodCoordinatorAssessmentCriteria @relation(fields: [assessmentCriteriaId], references: [id], onDelete: Restrict, map: "rm_coordinator_details_criteria_fkey")
+  rubric     ResearchMethodCoordinatorAssessmentRubric?  @relation(fields: [assessmentRubricId], references: [id], onDelete: SetNull, map: "rm_coordinator_details_rubric_fkey")
+
+  @@id([assessmentId, assessmentCriteriaId])
+  @@index([assessmentCriteriaId], map: "rm_coordinator_details_criteria_id_idx")
+  @@index([assessmentRubricId], map: "rm_coordinator_details_rubric_id_idx")
+  @@map("research_method_coordinator_assessment_details")
+}
+
+/// Unggahan berkas presensi kelas Metode Penelitian (10.5). Berkas sumber di
+/// uploads/research-method/attendance/<import_id>/, dicatat di `source_files`.
+model ResearchMethodAttendanceImport {
   id                    String   @id @default(uuid()) @db.VarChar(191)
   academicYearId        String   @map("academic_year_id") @db.VarChar(191)
-  documentId            String?  @map("document_id")
   uploadedByUserId      String   @map("uploaded_by_user_id")
   classCode             String?  @map("class_code") @db.VarChar(100)
   courseName            String?  @map("course_name") @db.VarChar(255)
   semesterLabel         String?  @map("semester_label") @db.VarChar(100)
   filterLabel           String?  @map("filter_label") @db.VarChar(100)
   lecturerNames         Json?    @map("lecturer_names")
-  /// Optional dual-class upload metadata: [{ originalName, classCode, filePath, fileHash }, ...]
+  /// [{ originalName, classCode, filePath, fileHash, fileSize }, ...]
   sourceFiles           Json?    @map("source_files")
   thresholdPercent      Float    @default(0.75) @map("threshold_percent")
   totalRows             Int      @default(0) @map("total_rows")
@@ -3076,25 +2819,22 @@ model MetopenAttendanceImport {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
-  academicYear AcademicYear              @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  document     Document?                 @relation("MetopenAttendanceImportDocument", fields: [documentId], references: [id], onDelete: SetNull)
-  // Restrict: hapus user uploader tidak boleh menghapus jejak import presensi (BR-28 audit).
-  uploadedBy   User                      @relation("MetopenAttendanceImportUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
-  records      MetopenAttendanceRecord[]
+  academicYear AcademicYear                     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  uploadedBy   User                             @relation("ResearchMethodAttendanceImportUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  records      ResearchMethodAttendanceRecord[]
 
-  @@index([academicYearId])
-  @@index([documentId])
+  @@index([academicYearId, uploadedAt])
   @@index([uploadedByUserId])
-  @@index([uploadedAt])
-  @@map("metopen_attendance_imports")
+  @@map("research_method_attendance_imports")
 }
 
-model MetopenAttendanceRecord {
+/// Satu baris presensi dari berkas yang diunggah. Nama mahasiswa diambil dari `students`;
+/// nama di berkas tetap ada di `raw_row` untuk baris yang tidak cocok dengan mahasiswa mana pun.
+model ResearchMethodAttendanceRecord {
   id                   String   @id @default(uuid()) @db.VarChar(191)
   importId             String   @map("import_id") @db.VarChar(191)
   studentId            String?  @map("student_id")
   identityNumber       String   @map("identity_number") @db.VarChar(50)
-  studentName          String?  @map("student_name") @db.VarChar(255)
   presentCount         Int      @default(0) @map("present_count")
   absentCount          Int      @default(0) @map("absent_count")
   sickCount            Int      @default(0) @map("sick_count")
@@ -3106,15 +2846,14 @@ model MetopenAttendanceRecord {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  import               MetopenAttendanceImport @relation(fields: [importId], references: [id], onDelete: Cascade)
-  student              Student?                @relation("MetopenAttendanceRecordStudent", fields: [studentId], references: [id], onDelete: SetNull)
-  researchMethodScores ResearchMethodScore[]   @relation("ResearchMethodAttendanceRecord")
+  import      ResearchMethodAttendanceImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  student     Student?                       @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  assessments ResearchMethodAssessment[]
 
   @@unique([importId, identityNumber])
   @@index([identityNumber])
   @@index([studentId])
-  @@index([isEligible])
-  @@map("metopen_attendance_records")
+  @@map("research_method_attendance_records")
 }
 
 enum IdentityType {
@@ -3168,13 +2907,6 @@ enum ThesisChangeApprovalRole {
   previous_supervisor
   /// Pembimbing baru.
   new_supervisor
-}
-
-enum ProposalStatus {
-  submitted
-  accepted
-  rejected
-  revision_in_progress
 }
 
 /// Status lifecycle sesi logbook proposal (SIMPTA phase='proposal') atau
@@ -3305,13 +3037,6 @@ enum ExaminerAvailabilityStatus {
   unavailable
 }
 
-enum BookingStatus {
-  requested
-  approved
-  cancelled
-  completed
-}
-
 enum CplScoreStatus {
   calculated
 
@@ -3325,64 +3050,38 @@ enum CplScoreSource {
   manual
 }
 
-enum AssessmentRole {
-  default
-  examiner
-  supervisor
-}
-
-/// Status enum lifecycle pengajuan pembimbing. Canon §5.2 + skill system-design.
-/// === ACTIVE STATES (canon-aligned) ===
-/// pending, under_review, pending_kadep, booking_approved, active_official,
-/// released, revision_requested, rejected_by_dosen, rejected_by_kadep, redirected,
-/// withdrawn, canceled, closed.
-/// `closed` kanonis untuk pra-booking yang ditutup sistem saat periode Metopel
-/// berakhir (BR-29 / canon §5.7.5). Bukan cabut mahasiswa (`canceled`).
-/// === LEGACY (deprecated, read-only untuk backward compat) ===
-/// approved, rejected, override_approved, assigned, escalated.
-/// Service layer baru WAJIB pakai canonical states; legacy hanya untuk read
-/// historical rows. Backfill di migration B sudah konversi rows aktif ke
-/// canonical state. Sumber: HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-03.
-enum ThesisAdvisorRequestStatus {
-  // === ACTIVE STATES (canon-aligned) ===
+/// Status Pengajuan Pembimbing.
+/// pending → under_review → accepted (atau pending_kadep bila di atas batas keras);
+/// jalur departemen langsung pending_kadep; Kadep menyetujui (accepted), mengalihkan
+/// (redirected), meminta revisi (revision_requested, diganti pengajuan baru → closed), atau
+/// menolak. accepted/redirected menjadi assigned saat Penetapan Pembimbing.
+/// withdrawn = ditarik mahasiswa sebelum diputuskan; cancelled = dibatalkan setelah diterima.
+enum ThesisSupervisorRequestStatus {
   pending
   under_review
   pending_kadep
-  booking_approved
-  active_official
-  released
   revision_requested
-  rejected_by_dosen
+  accepted
+  assigned
+  rejected_by_lecturer
   rejected_by_kadep
   redirected
   withdrawn
-  canceled
+  cancelled
   closed
-  // === LEGACY (deprecated — JANGAN ditulis service baru) ===
-  /// @deprecated Use `pending_kadep` + `routeType=escalated` instead.
-  escalated
-  /// @deprecated Use `booking_approved` instead.
-  approved
-  /// @deprecated Use `rejected_by_dosen` atau `rejected_by_kadep` instead.
-  rejected
-  /// @deprecated Use `booking_approved` + `acceptedOverNormal=true` instead.
-  override_approved
-  /// @deprecated Use `active_official` instead.
-  assigned
 }
 
-/// 3-path routing canon §5.2 + BPMN Diagram 2 Gateway_TargetOverload.
-/// Path A=dept (TA-02), Path B=normal (TA-01 kuota hijau/kuning),
-/// Path C=escalated (TA-01 kuota merah + mahasiswa kokoh).
-enum AdvisorRequestRoute {
-  normal // Path B: TA-01 normal (kuota dosen hijau/kuning)
-  escalated // Path C: TA-01 escalated (kuota dosen merah, mahasiswa kokoh)
-  dept // Path A: TA-02 (jalur departemen, mahasiswa belum punya calon)
+/// Jalur Pengajuan Pembimbing: Pilih Dosen Sendiri, Pengajuan di Atas Kuota, Ditetapkan Departemen.
+enum SupervisorRequestRoute {
+  direct
+  over_quota
+  department
 }
 
-enum AdvisorRequestType {
-  ta_01
-  ta_02
+/// Hasil percobaan Metode Penelitian.
+enum ResearchMethodAssessmentResult {
+  passed
+  failed
 }
 
 enum ResearchPermitStatus {
@@ -3605,42 +3304,23 @@ enum ExitSurveyQuestionType {
 
 // ==================== Supervision Quota ====================
 
-model SupervisionQuotaDefault {
-  id             String   @id @default(uuid())
-  academicYearId String   @unique @map("academic_year_id")
-  quotaMax       Int      @default(10) @map("quota_max")
-  quotaSoftLimit Int      @default(8) @map("quota_soft_limit")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+/// Batas bimbingan dosen (10.1). `academic_year_id` kosong = batas umum; terisi = batas
+/// periode yang menimpa batas umum untuk satu semester. Batas lunak hanya peringatan;
+/// melewati batas keras berarti Pengajuan di Atas Kuota yang disahkan Ketua Departemen.
+model SupervisionQuota {
+  id              String   @id @default(uuid())
+  academicYearId  String?  @unique @map("academic_year_id")
+  softLimit       Int      @map("soft_limit")
+  hardLimit       Int      @map("hard_limit")
+  updatedByUserId String?  @map("updated_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id])
+  updatedBy    User?         @relation("SupervisionQuotaUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
-  @@map("supervision_quota_defaults")
-}
-
-model LecturerSupervisionQuota {
-  id             String   @id @default(uuid())
-  lecturerId     String   @map("lecturer_id")
-  academicYearId String   @map("academic_year_id")
-  quotaMax       Int      @default(10) @map("quota_max")
-  quotaSoftLimit Int      @default(8) @map("quota_soft_limit")
-  /// @deprecated Field snapshot legacy. Source of truth aktual untuk 6 angka
-  /// kuota (Beban Aktif, Booking, Pending KaDep, Overquota Sah, Sisa Normal)
-  /// adalah computed-query di `services/src/repositories/quota.repository.js`.
-  /// Boleh dipakai untuk fast lookup tapi WAJIB di-validate ulang dengan query
-  /// computed sebelum decision making (mis. validasi kuota saat dosen accept
-  /// atau saat KaDep override Path C). Lihat canon §7.3 + BR-06 + HANDOFF §5 P1-07.
-  currentCount   Int      @default(0) @map("current_count")
-  notes          String?  @db.Text
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  lecturer     Lecturer     @relation(fields: [lecturerId], references: [id])
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
-
-  @@unique([lecturerId, academicYearId])
-  @@index([academicYearId])
-  @@map("lecturer_supervision_quotas")
+  @@index([updatedByUserId])
+  @@map("supervision_quotas")
 }
 
 // ==================== Audit Log ====================

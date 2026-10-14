@@ -5,7 +5,6 @@ import {
   scheduleAcademicEventDayReminder,
   scheduleAcademicEventHMinusOneReminder,
   scheduleAcademicYearSync,
-  scheduleQuotaCurrentCountSync,
   scheduleDailyInternshipStatus,
   scheduleDailyThesisReminder,
   scheduleExaminerNoResponseReminder,
@@ -32,7 +31,6 @@ async function startServer() {
     // Schedule daily maintenance jobs (non-fatal — server runs even if queue unavailable)
     const schedulers = [
       scheduleAcademicYearSync,
-      scheduleQuotaCurrentCountSync,
       scheduleSiaSync,
       scheduleGuidanceReminder,
       scheduleDailyThesisReminder,

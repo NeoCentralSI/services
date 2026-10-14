@@ -17,13 +17,7 @@ import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { ROLES, isStudentRole, isLecturerRole } from "../constants/roles.js";
 import prisma from "../config/prisma.js";
 import { NotFoundError, BadRequestError } from "../utils/errors.js";
-import {
-  resolveMetopenEligibilityState,
-  setStudentMetopenEligibility,
-  setStudentThesisCourseEnrollment,
-} from "../services/metopenEligibility.service.js";
-import { syncLecturerQuotaCurrentCount } from "../services/advisorQuota.service.js";
-import { closeUnfinishedMetopenForYear, assertDevtoolsMetopenPeriodCloseAllowed } from "../services/metopenPeriodClose.service.js";
+import { setStudentPeriodFlags, ACADEMIC_FLAG_SOURCE } from "../services/research-method/eligibility.service.js";
 import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 import { GUIDANCE_STATUS } from "../constants/guidanceStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../services/auditLog.service.js";
@@ -39,12 +33,6 @@ const INITIAL_STUDENT_STATE = {
   kknCompleted: false,
   researchMethodCompleted: false,
   currentSemester: 1,
-  eligibleMetopen: null,
-  metopenEligibilitySource: null,
-  metopenEligibilityUpdatedAt: null,
-  takingThesisCourse: null,
-  thesisCourseEnrollmentSource: null,
-  thesisCourseEnrollmentUpdatedAt: null,
 };
 
 const STUDENT_RESET_SELECT = {
@@ -56,12 +44,6 @@ const STUDENT_RESET_SELECT = {
   internshipCompleted: true,
   kknCompleted: true,
   currentSemester: true,
-  eligibleMetopen: true,
-  metopenEligibilitySource: true,
-  metopenEligibilityUpdatedAt: true,
-  takingThesisCourse: true,
-  thesisCourseEnrollmentSource: true,
-  thesisCourseEnrollmentUpdatedAt: true,
 };
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -81,35 +63,30 @@ if (isProduction && !devtoolsExplicitlyEnabled) {
   router.use(requireAnyRole([ROLES.ADMIN]));
 }
 
-function buildMetopenStatusSnapshot(student, thesis = null) {
-  const eligibleMetopen =
-    typeof student?.eligibleMetopen === "boolean" ? student.eligibleMetopen : null;
-  const readOnly = thesis?.proposalStatus === "accepted";
+/** Select of the SIA flags of the running semester (plan 10.6). */
+const ACTIVE_PERIOD_FLAGS_SELECT = {
+  where: { academicYear: { isActive: true } },
+  take: 1,
+  select: {
+    academicYearId: true,
+    eligibleResearchMethod: true,
+    eligibilitySource: true,
+    eligibilityCapturedAt: true,
+    takingThesisCourse: true,
+    thesisCourseSource: true,
+    thesisCourseCapturedAt: true,
+  },
+};
 
+function buildPeriodFlags(row) {
   return {
-    eligibleMetopen,
-    hasExternalStatus: eligibleMetopen !== null,
-    source: student?.metopenEligibilitySource ?? null,
-    updatedAt: student?.metopenEligibilityUpdatedAt ?? null,
-    readOnly,
-    canAccess: eligibleMetopen === true || readOnly,
-    canSubmit: eligibleMetopen === true && !readOnly,
-    thesisId: thesis?.id ?? null,
-    thesisTitle: thesis?.title ?? null,
-    thesisStatus: thesis?.status ?? null,
-  };
-}
-
-function buildThesisCourseStatusSnapshot(student) {
-  const takingThesisCourse =
-    typeof student?.takingThesisCourse === "boolean" ? student.takingThesisCourse : null;
-
-  return {
-    takingThesisCourse,
-    hasExternalStatus: takingThesisCourse !== null,
-    source: student?.thesisCourseEnrollmentSource ?? null,
-    updatedAt: student?.thesisCourseEnrollmentUpdatedAt ?? null,
-    canAccess: takingThesisCourse === true,
+    academicYearId: row?.academicYearId ?? null,
+    eligibleResearchMethod: row?.eligibleResearchMethod ?? null,
+    eligibilitySource: row?.eligibilitySource ?? null,
+    eligibilityCapturedAt: row?.eligibilityCapturedAt ?? null,
+    takingThesisCourse: row?.takingThesisCourse ?? null,
+    thesisCourseSource: row?.thesisCourseSource ?? null,
+    thesisCourseCapturedAt: row?.thesisCourseCapturedAt ?? null,
   };
 }
 
@@ -126,43 +103,8 @@ function parseNullableBoolean(value, label = "Nilai boolean") {
   throw new BadRequestError(`${label} harus true, false, atau null.`);
 }
 
-function addQuotaPair(pairs, lecturerId, academicYearId) {
-  if (!lecturerId || !academicYearId) return;
-  pairs.set(`${lecturerId}:${academicYearId}`, { lecturerId, academicYearId });
-}
-
-async function collectAffectedQuotaPairs(tx, studentId) {
-  const pairs = new Map();
-  const [requests, participants] = await Promise.all([
-    tx.thesisAdvisorRequest.findMany({
-      where: { studentId },
-      select: {
-        lecturerId: true,
-        redirectedTo: true,
-        academicYearId: true,
-      },
-    }),
-    tx.thesisSupervisors.findMany({
-      where: { thesis: { studentId } },
-      select: {
-        lecturerId: true,
-        thesis: { select: { academicYearId: true } },
-      },
-    }),
-  ]);
-
-  for (const request of requests) {
-    addQuotaPair(pairs, request.lecturerId, request.academicYearId);
-    addQuotaPair(pairs, request.redirectedTo, request.academicYearId);
-  }
-  for (const participant of participants) {
-    addQuotaPair(pairs, participant.lecturerId, participant.thesis?.academicYearId);
-  }
-
-  return [...pairs.values()];
-}
-
 async function resetStudentSnapshot(tx, studentId) {
+  await tx.studentAcademicYearSnapshot.deleteMany({ where: { studentId } });
   return tx.student.update({
     where: { id: studentId },
     data: INITIAL_STUDENT_STATE,
@@ -185,26 +127,15 @@ async function deleteStudentSimptaProgress(tx, studentId) {
   const participantIds = participantRows.map((row) => row.id);
 
   const counts = {
-    advisorRequests: 0,
-    advisorDrafts: 0,
+    supervisorRequests: 0,
+    supervisorRequestDrafts: 0,
     theses: thesisIds.length,
-    thesisProposalVersions: 0,
-    researchMethodScores: 0,
-    ta04BatchMembers: 0,
-    metopenAttendanceRecordsDetached: 0,
+    researchMethodAssessments: 0,
+    supervisorAssignmentMembers: 0,
+    attendanceRecordsDetached: 0,
   };
 
   if (thesisIds.length > 0) {
-    await tx.thesis.updateMany({
-      where: { id: { in: thesisIds } },
-      data: {
-        finalProposalVersionId: null,
-        proposalDocumentId: null,
-        titleApprovalDocumentId: null,
-        proposalReviewedByUserId: null,
-      },
-    });
-
     await tx.thesisChangeRequest.updateMany({
       where: { thesisId: { in: thesisIds } },
       data: { thesisId: null },
@@ -250,28 +181,23 @@ async function deleteStudentSimptaProgress(tx, studentId) {
   }
 
   if (thesisIds.length > 0) {
-    counts.thesisProposalVersions = (
-      await tx.thesisProposalVersion.deleteMany({
+    counts.researchMethodAssessments = (
+      await tx.researchMethodAssessment.deleteMany({
         where: { thesisId: { in: thesisIds } },
       })
     ).count;
-    counts.researchMethodScores = (
-      await tx.researchMethodScore.deleteMany({
-        where: { thesisId: { in: thesisIds } },
-      })
-    ).count;
-    counts.ta04BatchMembers = (
-      await tx.ta04BatchMember.deleteMany({
+    counts.supervisorAssignmentMembers = (
+      await tx.thesisSupervisorAssignmentBatchMember.deleteMany({
         where: { thesisId: { in: thesisIds } },
       })
     ).count;
   }
 
-  counts.advisorDrafts = (
-    await tx.thesisAdvisorRequestDraft.deleteMany({ where: { studentId } })
+  counts.supervisorRequestDrafts = (
+    await tx.thesisSupervisorRequestDraft.deleteMany({ where: { studentId } })
   ).count;
-  counts.advisorRequests = (
-    await tx.thesisAdvisorRequest.deleteMany({
+  counts.supervisorRequests = (
+    await tx.thesisSupervisorRequest.deleteMany({
       where: {
         OR: [
           { studentId },
@@ -286,8 +212,8 @@ async function deleteStudentSimptaProgress(tx, studentId) {
     await tx.thesis.deleteMany({ where: { id: { in: thesisIds } } });
   }
 
-  counts.metopenAttendanceRecordsDetached = (
-    await tx.metopenAttendanceRecord.updateMany({
+  counts.attendanceRecordsDetached = (
+    await tx.researchMethodAttendanceRecord.updateMany({
       where: { studentId },
       data: { studentId: null },
     })
@@ -306,17 +232,10 @@ async function resetStudentSimptaProgress(studentId) {
   if (!existing) throw new NotFoundError("Mahasiswa tidak ditemukan");
 
   return prisma.$transaction(async (tx) => {
-    const affectedQuotaPairs = await collectAffectedQuotaPairs(tx, studentId);
     const counts = await deleteStudentSimptaProgress(tx, studentId);
     const updated = await resetStudentSnapshot(tx, studentId);
-
-    for (const pair of affectedQuotaPairs) {
-      await syncLecturerQuotaCurrentCount(pair.lecturerId, pair.academicYearId, { client: tx });
-    }
-
     return {
       student: updated,
-      affectedQuotaPairs,
       counts,
     };
   });
@@ -333,11 +252,10 @@ async function cleanupUserBeforeDelete(tx, userId) {
   });
   if (!user) throw new NotFoundError("User tidak ditemukan");
 
-  let affectedQuotaPairs = [];
   let studentCleanup = null;
 
   if (user.student) {
-    affectedQuotaPairs = await collectAffectedQuotaPairs(tx, user.student.id);
+    await tx.studentAcademicYearSnapshot.deleteMany({ where: { studentId: user.student.id } });
     studentCleanup = await deleteStudentSimptaProgress(tx, user.student.id);
     await tx.internshipSeminar.deleteMany({
       where: { moderatorStudentId: user.student.id },
@@ -347,21 +265,13 @@ async function cleanupUserBeforeDelete(tx, userId) {
   await Promise.all([
     tx.notification.deleteMany({ where: { userId } }),
     tx.document.updateMany({ where: { userId }, data: { userId: null } }),
-    tx.thesis.updateMany({
-      where: { proposalReviewedByUserId: userId },
-      data: { proposalReviewedByUserId: null },
-    }),
-    tx.thesisAdvisorRequest.updateMany({
+    tx.thesisSupervisorRequest.updateMany({
       where: { reviewedBy: userId },
       data: { reviewedBy: null },
     }),
-    tx.researchMethodScore.updateMany({
+    tx.researchMethodAssessment.updateMany({
       where: { finalizedBy: userId },
       data: { finalizedBy: null },
-    }),
-    tx.thesisProposalVersion.updateMany({
-      where: { submittedAsFinalByUserId: userId },
-      data: { submittedAsFinalByUserId: null },
     }),
     tx.thesisGuidanceEvaluation.updateMany({
       where: { kadepApprovedBy: userId },
@@ -409,7 +319,7 @@ async function cleanupUserBeforeDelete(tx, userId) {
     }),
   ]);
 
-  return { affectedQuotaPairs, studentCleanup, hasLecturerProfile: Boolean(user.lecturer) };
+  return { studentCleanup, hasLecturerProfile: Boolean(user.lecturer) };
 }
 
 // GET /devtools/students — List all students with user + roles + thesis info
@@ -443,12 +353,7 @@ router.get("/students", async (req, res, next) => {
         internshipCompleted: true,
         kknCompleted: true,
         currentSemester: true,
-        eligibleMetopen: true,
-        metopenEligibilitySource: true,
-        metopenEligibilityUpdatedAt: true,
-        takingThesisCourse: true,
-        thesisCourseEnrollmentSource: true,
-        thesisCourseEnrollmentUpdatedAt: true,
+        academicYearSnapshots: ACTIVE_PERIOD_FLAGS_SELECT,
         user: {
           select: {
             fullName: true,
@@ -461,7 +366,6 @@ router.get("/students", async (req, res, next) => {
           select: {
             id: true,
             title: true,
-            proposalStatus: true,
             status: true,
           },
           orderBy: { createdAt: "desc" },
@@ -488,14 +392,12 @@ router.get("/students", async (req, res, next) => {
         internshipCompleted: s.internshipCompleted,
         kknCompleted: s.kknCompleted,
         currentSemester: s.currentSemester,
-        metopenEligibility: buildMetopenStatusSnapshot(s, t),
-        thesisCourseEligibility: buildThesisCourseStatusSnapshot(s),
+        periodFlags: buildPeriodFlags(s.academicYearSnapshots[0]),
         latestThesis: t
           ? {
             id: t.id,
             title: t.title,
             status: t.status,
-            proposalStatus: t.proposalStatus ?? null,
           }
           : null,
       };
@@ -522,12 +424,7 @@ router.get("/students/:id", async (req, res, next) => {
         internshipCompleted: true,
         kknCompleted: true,
         currentSemester: true,
-        eligibleMetopen: true,
-        metopenEligibilitySource: true,
-        metopenEligibilityUpdatedAt: true,
-        takingThesisCourse: true,
-        thesisCourseEnrollmentSource: true,
-        thesisCourseEnrollmentUpdatedAt: true,
+        academicYearSnapshots: ACTIVE_PERIOD_FLAGS_SELECT,
         user: {
           select: {
             fullName: true,
@@ -546,7 +443,6 @@ router.get("/students/:id", async (req, res, next) => {
           select: {
             id: true,
             title: true,
-            proposalStatus: true,
             createdAt: true,
             status: true,
           },
@@ -569,8 +465,7 @@ router.get("/students/:id", async (req, res, next) => {
         internshipCompleted: student.internshipCompleted,
         kknCompleted: student.kknCompleted,
         currentSemester: student.currentSemester,
-        metopenEligibility: buildMetopenStatusSnapshot(student, student.thesis[0] ?? null),
-        thesisCourseEligibility: buildThesisCourseStatusSnapshot(student),
+        periodFlags: buildPeriodFlags(student.academicYearSnapshots[0]),
         fullName: student.user.fullName,
         identityNumber: student.user.identityNumber,
         email: student.user.email,
@@ -693,11 +588,6 @@ router.delete("/users/:id", async (req, res, next) => {
     try {
       cleanup = await prisma.$transaction(async (tx) => {
         const cleanupResult = await cleanupUserBeforeDelete(tx, id);
-
-        for (const pair of cleanupResult.affectedQuotaPairs) {
-          await syncLecturerQuotaCurrentCount(pair.lecturerId, pair.academicYearId, { client: tx });
-        }
-
         await tx.user.delete({ where: { id } });
         return cleanupResult;
       });
@@ -819,95 +709,39 @@ router.delete("/thesis/:id", async (req, res, next) => {
 });
 
 // ============================================
-// Metopen Eligibility
+// SIA flags per semester (plan 10.6)
 // ============================================
 
-// GET /devtools/metopen-status/:studentId — Check external Metopen eligibility snapshot
-router.get("/metopen-status/:studentId", async (req, res, next) => {
+// PATCH /devtools/students/:studentId/period-flags — set "taking Metode Penelitian" and/or
+// "taking Tugas Akhir" for one semester (default: the running one). null clears a flag.
+router.patch("/students/:studentId/period-flags", async (req, res, next) => {
   try {
     const { studentId } = req.params;
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
-      select: { id: true },
-    });
+    const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true } });
     if (!student) throw new NotFoundError("Mahasiswa tidak ditemukan");
 
-    const data = await resolveMetopenEligibilityState(studentId);
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-});
+    const requestedYearId = typeof req.body?.academicYearId === "string" ? req.body.academicYearId.trim() : "";
+    const year = requestedYearId
+      ? await prisma.academicYear.findUnique({ where: { id: requestedYearId } })
+      : await prisma.academicYear.findFirst({ where: { isActive: true } });
+    if (!year) throw new NotFoundError("Tahun ajaran tidak ditemukan");
 
-// PATCH /devtools/metopen-eligibility/:studentId — Simulate external eligibility snapshot
-router.patch("/metopen-eligibility/:studentId", async (req, res, next) => {
-  try {
-    const { studentId } = req.params;
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
-      select: { id: true },
-    });
-    if (!student) throw new NotFoundError("Mahasiswa tidak ditemukan");
+    const flags = {};
+    if (req.body?.eligibleResearchMethod !== undefined) {
+      flags.eligibleResearchMethod = parseNullableBoolean(req.body.eligibleResearchMethod, "Mengambil Metode Penelitian");
+    }
+    if (req.body?.takingThesisCourse !== undefined) {
+      flags.takingThesisCourse = parseNullableBoolean(req.body.takingThesisCourse, "Mengambil Tugas Akhir");
+    }
+    if (Object.keys(flags).length === 0) {
+      throw new BadRequestError("Isi eligibleResearchMethod dan/atau takingThesisCourse.");
+    }
 
-    const eligibleMetopen = parseNullableBoolean(req.body?.eligibleMetopen, "Nilai eligibleMetopen");
-
-    await setStudentMetopenEligibility(
-      studentId,
-      {
-        eligibleMetopen,
-        source: "devtools",
-        updatedAt: new Date(),
-      },
-      { client: prisma },
-    );
-
-    const data = await resolveMetopenEligibilityState(studentId);
+    const row = await setStudentPeriodFlags(studentId, year.id, flags, { source: ACADEMIC_FLAG_SOURCE.DEVTOOLS });
     res.json({
       success: true,
-      data,
-      message:
-        eligibleMetopen === null
-          ? "Snapshot eligibility Metopen dummy berhasil dikosongkan"
-          : `Snapshot eligibility Metopen dummy diubah menjadi ${eligibleMetopen ? "eligible" : "tidak eligible"}`,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// PATCH /devtools/thesis-course-eligibility/:studentId — Simulate SIA MK Tugas Akhir snapshot
-router.patch("/thesis-course-eligibility/:studentId", async (req, res, next) => {
-  try {
-    const { studentId } = req.params;
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
-      select: { id: true },
-    });
-    if (!student) throw new NotFoundError("Mahasiswa tidak ditemukan");
-
-    const takingThesisCourse = parseNullableBoolean(
-      req.body?.takingThesisCourse,
-      "Nilai takingThesisCourse",
-    );
-
-    await setStudentThesisCourseEnrollment(
-      studentId,
-      {
-        takingThesisCourse,
-        source: "devtools",
-        updatedAt: new Date(),
-      },
-      { client: prisma },
-    );
-
-    const data = await resolveMetopenEligibilityState(studentId);
-    res.json({
-      success: true,
-      data,
-      message:
-        takingThesisCourse === null
-          ? "Snapshot MK Tugas Akhir dummy berhasil dikosongkan"
-          : `Snapshot MK Tugas Akhir dummy diubah menjadi ${takingThesisCourse ? "aktif" : "tidak aktif"}`,
+      data: { ...buildPeriodFlags(row), academicYearLabel: formatAcademicYearLabel(year) },
+      message: `Penanda SIA ${formatAcademicYearLabel(year)} diperbarui.`,
     });
   } catch (err) {
     next(err);
@@ -1132,44 +966,6 @@ router.patch("/thesis/:id/academic-year", async (req, res, next) => {
         academicYearLabel: formatAcademicYearLabel(updated.academicYear),
       },
       message: `Thesis diikat ke ${formatAcademicYearLabel(year)} untuk merakit skenario. Ini bukan perbaikan data operasional.`,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /devtools/scenarios/close-metopen-period — same production closer as year-sync
-router.post("/scenarios/close-metopen-period", async (req, res, next) => {
-  try {
-    const closedAcademicYearId = typeof req.body?.closedAcademicYearId === "string"
-      ? req.body.closedAcademicYearId.trim()
-      : "";
-    const dryRun = req.body?.dryRun !== false && req.body?.dryRun !== "false";
-    const force = req.body?.force === true || req.body?.force === "true";
-    if (!closedAcademicYearId) {
-      throw new BadRequestError("closedAcademicYearId wajib diisi.");
-    }
-
-    const year = await prisma.academicYear.findUnique({
-      where: { id: closedAcademicYearId },
-      select: { id: true, isActive: true },
-    });
-    if (!year) throw new NotFoundError("Tahun ajaran tidak ditemukan.");
-    assertDevtoolsMetopenPeriodCloseAllowed({
-      isActive: year.isActive,
-      dryRun: Boolean(dryRun),
-      force,
-    });
-
-    const data = await closeUnfinishedMetopenForYear(closedAcademicYearId, {
-      dryRun: Boolean(dryRun),
-    });
-    res.json({
-      success: true,
-      data,
-      message: data.dryRun
-        ? `Dry-run tutup periode ${data.yearLabel} selesai.`
-        : `Periode ${data.yearLabel} ditutup.`,
     });
   } catch (err) {
     next(err);

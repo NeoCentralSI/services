@@ -1438,12 +1438,12 @@ export async function getMyThesisDetailService(userId) {
       },
       thesisTopic: true,
       academicYear: true,
-      // Revival adaptation (A2): baseline `thesisProposal` relation no longer exists.
-      proposalDocument: true,
-      finalProposalVersion: {
-        include: {
-          document: true,
-        },
+      // Final proposal of the latest Research Method attempt (K32).
+      researchMethodAssessments: {
+        where: { proposalFilePath: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { id: true, proposalFilePath: true, proposalFileName: true },
       },
       thesisSupervisors: {
         // Revival adaptation (A1): show only active supervisors.
@@ -1590,18 +1590,14 @@ export async function getMyThesisDetailService(userId) {
         : null,
       // Document: latest report from the guidance sessions
       document: guidanceDocument(latestReport),
-      // Proposal Document (A2: final proposal version, fallback legacy proposal document)
+      // Final proposal of the latest Research Method attempt (K32).
       proposalDocument: (() => {
-        const proposalDoc =
-          fullThesis.finalProposalVersion?.document ??
-          fullThesis.proposalDocument ??
-          null;
-        if (!proposalDoc) return null;
+        const attempt = fullThesis.researchMethodAssessments?.[0];
+        if (!attempt?.proposalFilePath) return null;
         return {
-          id: proposalDoc.id,
-          fileName:
-            path.basename(proposalDoc.filePath || "") || proposalDoc.fileName,
-          filePath: proposalDoc.filePath,
+          id: attempt.id,
+          fileName: attempt.proposalFileName || path.basename(attempt.proposalFilePath),
+          filePath: attempt.proposalFilePath,
         };
       })(),
       // Per-guidance uploaded file versions

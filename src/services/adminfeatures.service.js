@@ -644,15 +644,7 @@ export async function createAcademicYear(payload, actor = {}) {
 			throw new ConflictError("Tahun akademik untuk semester tersebut sudah ada");
 		}
 
-		const row = await tx.academicYear.create({ data });
-		await tx.metopenScoreComposition.create({
-			data: {
-				academicYearId: row.id,
-				ta03aCap: 75,
-				ta03bCap: 25,
-			},
-		});
-		return row;
+		return tx.academicYear.create({ data });
 	}, { isolationLevel: "Serializable" });
 
 	await logAudit({

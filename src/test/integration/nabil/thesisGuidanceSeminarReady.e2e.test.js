@@ -77,7 +77,6 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
           create: {
             enrollmentYear: 2022,
             sksCompleted: 125,
-            takingThesisCourse: true,
             researchMethodCompleted: true,
             status: "active",
           },
@@ -95,7 +94,6 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
         status: "research",
         academicYearId: activeAcademicYear.id,
         title: "Rancang Bangun Sistem Realtime IoT Menggunakan WebSockets",
-        proposalStatus: "accepted",
         startDate: new Date(),
         thesisSupervisors: {
           create: [

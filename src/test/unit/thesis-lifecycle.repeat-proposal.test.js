@@ -4,7 +4,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../utils/quotaSync.js", () => ({ syncQuotaCount: vi.fn() }));
 
 const {
   THESIS_STATUS_TRANSITIONS,

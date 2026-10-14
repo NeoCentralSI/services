@@ -21,7 +21,6 @@ import {
 import { THESIS_STATUS_LABELS, THESIS_TERMINATION_REASON_LABELS } from "../constants/thesisLabels.js";
 import { GUIDANCE_STATUS, GUIDANCE_ACTOR, OPEN_GUIDANCE_STATUSES } from "../constants/guidanceStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
 import { wholeDaysBetween } from "../helpers/thesis-progress.helper.js";
 
 /** K15: allowed status transitions. `on_leave` may only return to `statusBeforeLeave`. */
@@ -188,12 +187,6 @@ export async function changeThesisStatus(tx, thesis, toStatus, options = {}) {
   let effects = { releasedLecturerIds: [], cancelledGuidances: 0 };
   if (toStatus === THESIS_STATUS.FAILED) {
     effects = await applyTerminationSideEffects(tx, thesis.id, { now });
-    const ayId = updated.academicYearId;
-    if (ayId) {
-      for (const lecturerId of effects.releasedLecturerIds) {
-        await syncQuotaCount(tx, lecturerId, ayId);
-      }
-    }
   }
 
   await tx.auditLog.create({

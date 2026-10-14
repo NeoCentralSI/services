@@ -1,5 +1,4 @@
 import prisma from "../config/prisma.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
 import {
     createSupervisorAssignments,
     replaceSupervisorAssignments,
@@ -86,15 +85,9 @@ export const createThesis = async (data) => {
         });
 
         if (data.supervisors && data.supervisors.length > 0) {
-            const supervisorResult = await createSupervisorAssignments(tx, thesis.id, data.supervisors, {
+            await createSupervisorAssignments(tx, thesis.id, data.supervisors, {
                 requireP1: true,
             });
-
-            if (data.academicYearId) {
-                for (const lecturerId of supervisorResult.affectedLecturerIds) {
-                    await syncQuotaCount(tx, lecturerId, data.academicYearId);
-                }
-            }
         }
 
         return thesis;
@@ -103,13 +96,6 @@ export const createThesis = async (data) => {
 
 export const updateThesis = async (id, data) => {
     return await prisma.$transaction(async (tx) => {
-        const oldSupervisors = data.supervisors
-            ? await tx.thesisSupervisors.findMany({
-                  where: { thesisId: id },
-                  select: { lecturerId: true },
-              })
-            : [];
-
         const thesis = await tx.thesis.update({
             where: { id },
             data: {
@@ -123,20 +109,9 @@ export const updateThesis = async (id, data) => {
         });
 
         if (data.supervisors) {
-            const supervisorResult = await replaceSupervisorAssignments(tx, id, data.supervisors, {
+            await replaceSupervisorAssignments(tx, id, data.supervisors, {
                 requireP1: data.supervisors.length > 0,
             });
-
-            const ayId = data.academicYearId || thesis.academicYearId;
-            if (ayId) {
-                const affectedIds = new Set([
-                    ...oldSupervisors.map((s) => s.lecturerId),
-                    ...supervisorResult.affectedLecturerIds,
-                ]);
-                for (const lecturerId of affectedIds) {
-                    await syncQuotaCount(tx, lecturerId, ayId);
-                }
-            }
         }
 
         return thesis;

@@ -123,7 +123,6 @@ const tx = {
 };
 
 vi.mock("../../config/prisma.js", () => ({ default: { $transaction: async (fn) => fn(tx) } }));
-vi.mock("../../utils/quotaSync.js", () => ({ syncQuotaCount: vi.fn().mockResolvedValue(0) }));
 vi.mock("../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../services/notification.service.js", () => ({
   createNotificationsForUsers: vi.fn(async (userIds, payload) => {
@@ -133,7 +132,6 @@ vi.mock("../../services/notification.service.js", () => ({
 }));
 
 const service = await import("../../services/thesis-change-request.service.js");
-const { syncQuotaCount } = await import("../../utils/quotaSync.js");
 
 // People: one student per thesis, lecturers with their supervisor roles.
 const STUDENT = "stu-1";
@@ -343,7 +341,6 @@ describe("approval chain", () => {
     expect(guidanceStatus("g-p2-requested")).toBe("requested");
     // The supervision clock is not restarted.
     expect(thesis("T1").startDate).toEqual(new Date("2026-01-01"));
-    expect(vi.mocked(syncQuotaCount).mock.calls.map((call) => call[1]).sort()).toEqual([AFRI, HUSNIL].sort());
   });
 
   it("add Pembimbing 2: Pembimbing 1 -> new -> Ketua Departemen", async () => {

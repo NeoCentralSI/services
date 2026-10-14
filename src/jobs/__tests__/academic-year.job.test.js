@@ -1,18 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { prismaMock, closeService, snapshotService, notificationService } = vi.hoisted(() => ({
+const { prismaMock, eligibilityService, notificationService } = vi.hoisted(() => ({
   prismaMock: {
     academicYear: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
     userHasRole: { findMany: vi.fn() },
   },
-  closeService: { closeUnfinishedMetopenForYear: vi.fn() },
-  snapshotService: { getPeriodSnapshotCoverage: vi.fn() },
+  eligibilityService: { getPeriodFlagCoverage: vi.fn() },
   notificationService: { createNotificationEventForUsers: vi.fn() },
 }));
 
 vi.mock("../../config/prisma.js", () => ({ default: prismaMock }));
-vi.mock("../../services/metopenPeriodClose.service.js", () => closeService);
-vi.mock("../../services/studentPeriodSnapshot.service.js", () => snapshotService);
+vi.mock("../../services/research-method/eligibility.service.js", () => eligibilityService);
 vi.mock("../../services/notification.service.js", () => notificationService);
 vi.mock("../../helpers/academicYear.helper.js", () => ({
   formatAcademicYearLabel: (year) => year?.id ?? "year",
@@ -21,78 +19,50 @@ vi.mock("../../helpers/academicYear.helper.js", () => ({
 
 const { syncActiveAcademicYear } = await import("../academic-year.job.js");
 
-describe("syncActiveAcademicYear — period close hook", () => {
+const fullCoverage = { totalStudents: 2, studentsWithFlags: 2, studentsWithoutFlags: 0 };
+
+describe("syncActiveAcademicYear", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.academicYear.findUnique.mockResolvedValue({ id: "ay-new", year: "2026/2027", semester: "ganjil" });
-    prismaMock.academicYear.findMany.mockResolvedValue([]);
     prismaMock.userHasRole.findMany.mockResolvedValue([]);
-    snapshotService.getPeriodSnapshotCoverage.mockResolvedValue({
-      complete: true,
-      studentsWithSnapshot: 1,
-      totalStudents: 1,
-      pendingCreate: 0,
-      pendingFill: 0,
-      coverageLabel: "1/1",
-    });
-    closeService.closeUnfinishedMetopenForYear.mockResolvedValue({
-      closedAcademicYearId: "ay-old",
-      counts: { examined: 1, zeroed: 1, released: 1, closed: 0, skipped: 0 },
-    });
+    eligibilityService.getPeriodFlagCoverage.mockResolvedValue(fullCoverage);
   });
 
-  it("closes leftover Metopel on inactive years when the operational year changes", async () => {
+  it("reports the change and the SIA flag coverage of the new period", async () => {
     prismaMock.academicYear.findFirst.mockResolvedValue({ id: "ay-old" });
-    prismaMock.academicYear.findMany.mockResolvedValue([
-      { id: "ay-old", year: "2025/2026", semester: "genap" },
-    ]);
 
     const result = await syncActiveAcademicYear();
 
-    expect(closeService.closeUnfinishedMetopenForYear).toHaveBeenCalledTimes(1);
-    expect(closeService.closeUnfinishedMetopenForYear).toHaveBeenCalledWith("ay-old");
     expect(result.changed).toBe(true);
-    expect(result.periodClose.closedAcademicYearId).toBe("ay-old");
+    expect(result.activeAcademicYearId).toBe("ay-new");
+    expect(result.snapshotCoverage).toEqual({ studentsWithFlags: 2, totalStudents: 2, complete: true });
+    // K2: no period close; unfinished attempts stay as they are.
+    expect(result).not.toHaveProperty("periodClose");
   });
 
-  it("retries leftover close even when the operational year is unchanged", async () => {
+  it("tells Admin to run the SIA sync when the new period has students without flags", async () => {
+    prismaMock.academicYear.findFirst.mockResolvedValue({ id: "ay-old" });
+    prismaMock.userHasRole.findMany.mockResolvedValue([{ userId: "admin-1" }]);
+    eligibilityService.getPeriodFlagCoverage.mockResolvedValue({ totalStudents: 3, studentsWithFlags: 1, studentsWithoutFlags: 2 });
+
+    const result = await syncActiveAcademicYear();
+
+    expect(result.snapshotCoverage.complete).toBe(false);
+    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
+      ["admin-1"],
+      expect.objectContaining({ type: "simpta_period_snapshot_incomplete" }),
+      expect.anything(),
+    );
+  });
+
+  it("does not notify when the period did not change", async () => {
     prismaMock.academicYear.findFirst.mockResolvedValue({ id: "ay-new" });
-    prismaMock.academicYear.findMany.mockResolvedValue([
-      { id: "ay-old", year: "2025/2026", semester: "genap" },
-    ]);
+    eligibilityService.getPeriodFlagCoverage.mockResolvedValue({ totalStudents: 3, studentsWithFlags: 1, studentsWithoutFlags: 2 });
 
     const result = await syncActiveAcademicYear();
 
     expect(result.changed).toBe(false);
-    expect(closeService.closeUnfinishedMetopenForYear).toHaveBeenCalledWith("ay-old");
-    expect(result.periodClose.closedAcademicYearId).toBe("ay-old");
-  });
-
-  it("does not close when no inactive year still has leftover proposal theses", async () => {
-    prismaMock.academicYear.findFirst.mockResolvedValue({ id: "ay-new" });
-    prismaMock.academicYear.findMany.mockResolvedValue([]);
-
-    const result = await syncActiveAcademicYear();
-
-    expect(closeService.closeUnfinishedMetopenForYear).not.toHaveBeenCalled();
-    expect(result.periodClose).toBeNull();
-  });
-
-  it("alerts Admin and throws when leftover close fails", async () => {
-    prismaMock.academicYear.findFirst.mockResolvedValue({ id: "ay-old" });
-    prismaMock.academicYear.findMany.mockResolvedValue([
-      { id: "ay-old", year: "2025/2026", semester: "genap" },
-    ]);
-    prismaMock.userHasRole.findMany.mockResolvedValue([{ userId: "admin-1" }]);
-    closeService.closeUnfinishedMetopenForYear.mockRejectedValue(new Error("db down"));
-
-    await expect(syncActiveAcademicYear()).rejects.toThrow("db down");
-    expect(notificationService.createNotificationEventForUsers).toHaveBeenCalledWith(
-      ["admin-1"],
-      expect.objectContaining({
-        type: "simpta_metopen_period_close_failed",
-      }),
-      expect.anything(),
-    );
+    expect(notificationService.createNotificationEventForUsers).not.toHaveBeenCalled();
   });
 });

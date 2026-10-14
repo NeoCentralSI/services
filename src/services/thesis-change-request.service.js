@@ -40,7 +40,6 @@ import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { createNotificationsForUsers } from "./notification.service.js";
 import { sendFcmToUsers } from "./push.service.js";
 import { getCanonicalSupervisorRoles } from "../utils/supervisorIntegrity.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../utils/errors.js";
 
 /** Quota used when a lecturer has no quota row for the active academic year. */
@@ -686,11 +685,6 @@ export async function applyApprovedChange(tx, request, now = new Date()) {
         },
       });
       effects.cancelledGuidances = cancelled.count ?? 0;
-    }
-    if (thesis.academicYearId) {
-      for (const lecturerId of new Set([...effects.releasedLecturerIds, request.newSupervisorId])) {
-        await syncQuotaCount(tx, lecturerId, thesis.academicYearId);
-      }
     }
   }
 

@@ -17,7 +17,6 @@ const {
   mockPush,
   mockQuota,
   mockAudit,
-  mockMetopen,
 } = vi.hoisted(() => ({
   mockSupervisor2Repo: {
     findAvailableSupervisor2Lecturers: vi.fn(),
@@ -49,14 +48,13 @@ const {
     user: { findUnique: vi.fn() },
     thesis: { findUnique: vi.fn(), update: vi.fn() },
     thesisSupervisors: { findFirst: vi.fn().mockResolvedValue(null) },
-    researchMethodScore: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() },
+    lecturer: { findUnique: vi.fn(), findMany: vi.fn() },
     $transaction: vi.fn(async (cb) => cb(mockPrisma)),
   },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
   mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
   mockQuota: {
-    checkQuotaAvailability: vi.fn().mockResolvedValue({ allowed: true }),
-    browseLecturerQuotas: vi.fn().mockResolvedValue([]),
+    getLecturerLoads: vi.fn(),
   },
   mockAudit: {
     logAudit: vi.fn().mockResolvedValue({ id: "audit-1" }),
@@ -73,10 +71,6 @@ const {
       SUPERVISOR2_REQUEST: "SUPERVISOR2_REQUEST",
     },
   },
-  mockMetopen: {
-    generateTitleApprovalLetter: vi.fn().mockResolvedValue(undefined),
-    syncKadepProposalQueueByThesisId: vi.fn().mockResolvedValue({ dequeued: false }),
-  },
 }));
 
 vi.mock("../../../repositories/thesisGuidance/supervisor2.repository.js", () => mockSupervisor2Repo);
@@ -85,9 +79,8 @@ vi.mock("../../../repositories/thesis-guidance-evaluation.repository.js", () => 
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../services/notification.service.js", () => mockNotif);
 vi.mock("../../../services/push.service.js", () => mockPush);
-vi.mock("../../../services/quota.service.js", () => mockQuota);
+vi.mock("../../../services/thesis-proposal/supervision-quota.service.js", () => mockQuota);
 vi.mock("../../../services/auditLog.service.js", () => mockAudit);
-vi.mock("../../../services/metopen.service.js", () => mockMetopen);
 
 import {
   requestSupervisor2Service,
@@ -126,7 +119,12 @@ function mockThesisForValidation(overrides = {}) {
 describe("Pembimbing 2 Service (unit)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockQuota.checkQuotaAvailability.mockResolvedValue({ allowed: true });
+    // Plan 10.1: a full lecturer is not blocked; only a lecturer who closed intake is.
+    mockQuota.getLecturerLoads.mockImplementation(async (ids) => new Map(
+      ids.map((id) => [id, { activeCount: 1, softLimit: 8, hardLimit: 10, limitSource: "default", level: "available" }]),
+    ));
+    mockPrisma.lecturer.findUnique.mockResolvedValue({ acceptingRequests: true });
+    mockPrisma.lecturer.findMany.mockResolvedValue([]);
     mockEvalRepo.findUsersByActiveRole.mockResolvedValue([{ id: KADEP_USER_ID }]);
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
   });
@@ -165,23 +163,18 @@ describe("Pembimbing 2 Service (unit)", () => {
       mockSupervisor2Repo.findAvailableSupervisor2Lecturers.mockResolvedValue([
         { id: LECTURER_ID, fullName: "Dr. Andi" },
       ]);
-      mockQuota.browseLecturerQuotas.mockResolvedValue([
-        {
-          lecturerId: LECTURER_ID,
-          trafficLight: "green",
-          normalAvailable: 2,
-          activeCount: 1,
-          acceptingRequests: true,
-          booking: 99,
-          pendingKadep: 5,
-        },
-      ]);
+      mockQuota.getLecturerLoads.mockResolvedValue(new Map([
+        [LECTURER_ID, { activeCount: 1, softLimit: 2, hardLimit: 3, limitSource: "general", level: "available" }],
+      ]));
+      mockPrisma.lecturer.findMany.mockResolvedValue([{ id: LECTURER_ID, acceptingRequests: true }]);
 
       const list = await getAvailableSupervisor2Service(STUDENT_USER_ID);
       expect(list[0].trafficLight).toBe("green");
       expect(list[0].normalAvailable).toBe(2);
-      expect(list[0]).not.toHaveProperty("booking");
-      expect(list[0]).not.toHaveProperty("pendingKadep");
+      expect(list[0].acceptingRequests).toBe(true);
+      expect(Object.keys(list[0]).sort()).toEqual(
+        ["acceptingRequests", "activeCount", "fullName", "id", "normalAvailable", "trafficLight"],
+      );
     });
   });
 
@@ -206,10 +199,10 @@ describe("Pembimbing 2 Service (unit)", () => {
         [LECTURER_ID],
         expect.objectContaining({ title: "Permintaan Pembimbing 2" }),
       );
-      expect(mockQuota.checkQuotaAvailability).toHaveBeenCalledWith(LECTURER_ID, "ay-1");
+      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "ay-1");
     });
 
-    it("mengizinkan request saat fase proposal (BR-20: P2 untuk co-sign TA-03A)", async () => {
+    it("mengizinkan request saat fase proposal", async () => {
       mockActiveThesis({ status: "proposal" });
       mockSupervisor2Repo.hasPembimbing1.mockResolvedValue(true);
       mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(false);
@@ -236,7 +229,7 @@ describe("Pembimbing 2 Service (unit)", () => {
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("menolak (400) jika kuota dosen penuh", async () => {
+    it("menolak (400) jika dosen menutup penerimaan; dosen penuh tetap boleh dipilih", async () => {
       mockActiveThesis();
       mockSupervisor2Repo.hasPembimbing1.mockResolvedValue(true);
       mockSupervisor2Repo.hasPembimbing2.mockResolvedValue(false);
@@ -244,14 +237,19 @@ describe("Pembimbing 2 Service (unit)", () => {
       mockSupervisor2Repo.findAvailableSupervisor2Lecturers.mockResolvedValue([
         { id: LECTURER_ID, fullName: "Dr. Andi" },
       ]);
-      mockQuota.checkQuotaAvailability.mockResolvedValue({
-        allowed: false,
-        reason: "Kuota penuh",
-      });
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Budi" });
+      mockSupervisor2Repo.createSupervisor2Request.mockResolvedValue({ id: "req-new" });
+      mockQuota.getLecturerLoads.mockResolvedValue(new Map([
+        [LECTURER_ID, { activeCount: 12, softLimit: 8, hardLimit: 10, limitSource: "default", level: "full" }],
+      ]));
 
+      const allowed = await requestSupervisor2Service(STUDENT_USER_ID, { lecturerId: LECTURER_ID });
+      expect(allowed.requestId).toBe("req-new");
+
+      mockPrisma.lecturer.findUnique.mockResolvedValue({ acceptingRequests: false });
       await expect(
         requestSupervisor2Service(STUDENT_USER_ID, { lecturerId: LECTURER_ID }),
-      ).rejects.toMatchObject({ statusCode: 400 });
+      ).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("menutup penerimaan") });
     });
   });
 
@@ -338,12 +336,12 @@ describe("Pembimbing 2 Service (unit)", () => {
         mockPrisma,
       );
       // re-check kuota di titik kesediaan dosen (F2-3)
-      expect(mockQuota.checkQuotaAvailability).toHaveBeenCalledWith(LECTURER_ID, "ay-1");
+      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "ay-1");
     });
 
-    it("menolak (400) bila kuota penuh saat dosen bersedia (F2-3)", async () => {
+    it("menolak (400) bila dosen menutup penerimaan saat bersedia (F2-3)", async () => {
       mockLecturerStageRequest();
-      mockQuota.checkQuotaAvailability.mockResolvedValue({ allowed: false, reason: "Kuota penuh" });
+      mockPrisma.lecturer.findUnique.mockResolvedValue({ acceptingRequests: false });
 
       await expect(approveSupervisor2RequestService(LECTURER_ID, "req-1")).rejects.toMatchObject({
         statusCode: 400,
@@ -412,7 +410,7 @@ describe("Pembimbing 2 Service (unit)", () => {
       });
     });
 
-    it("approve → membuat participant P2 dan menandai Formulir TA-04 batch perlu diperbarui", async () => {
+    it("approve → membuat participant P2; penetapan yang sudah terbit tidak dibatalkan (K3, K9)", async () => {
       mockKadepStageRequest();
 
       const result = await decideSupervisor2ByKadepService(KADEP_USER_ID, "req-kadep-1", {
@@ -430,38 +428,9 @@ describe("Pembimbing 2 Service (unit)", () => {
         THESIS.id,
         mockPrisma,
       );
-      expect(mockPrisma.thesis.update).toHaveBeenCalledWith({
-        where: { id: THESIS.id },
-        data: { titleApprovalDocumentId: null },
-      });
-      expect(mockMetopen.generateTitleApprovalLetter).not.toHaveBeenCalled();
+      expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
       // re-check kuota di titik keputusan KaDep (F2-3)
-      expect(mockQuota.checkQuotaAvailability).toHaveBeenCalledWith(LECTURER_ID, "ay-1");
-    });
-
-    it("membatalkan penerbitan TA-04 saat P2 disetujui agar batch terbaru wajib difinalisasi", async () => {
-      mockKadepStageRequest();
-      mockThesisForValidation({
-        status: "proposal",
-        proposalStatus: null,
-        ta04AssignmentIssuedAt: new Date("2026-07-10T00:00:00.000Z"),
-      });
-
-      await decideSupervisor2ByKadepService(KADEP_USER_ID, "req-kadep-1", {
-        approve: true,
-      });
-
-      expect(mockPrisma.thesis.update).toHaveBeenCalledWith({
-        where: { id: THESIS.id },
-        data: {
-          ta04AssignmentIssuedAt: null,
-          ta04AssignmentIssuedByUserId: null,
-          ta04AssignmentSupervisorNames: null,
-          ta04AssignmentAcademicYearId: null,
-          titleApprovalDocumentId: null,
-        },
-      });
-      expect(mockMetopen.generateTitleApprovalLetter).not.toHaveBeenCalled();
+      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "ay-1");
     });
 
     it("approve menolak (400) bila thesis sudah ditutup (F2-2)", async () => {

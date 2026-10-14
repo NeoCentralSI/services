@@ -15,7 +15,6 @@ import {
     replaceSupervisorAssignments,
     getCanonicalSupervisorRoles,
 } from "../utils/supervisorIntegrity.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { summarizeThesisProgress } from "../helpers/thesis-progress.helper.js";
 
@@ -175,13 +174,10 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
             },
         });
 
-        const result = await createSupervisorAssignments(tx, thesis.id, supervisors, { requireP1: true });
+        await createSupervisorAssignments(tx, thesis.id, supervisors, { requireP1: true });
         // A thesis created as failed keeps its supervisors only as history (released).
         if (status === THESIS_STATUS.FAILED) {
             await applyTerminationSideEffects(tx, thesis.id, { now });
-        }
-        for (const lecturerId of result.affectedLecturerIds) {
-            await syncQuotaCount(tx, lecturerId, activeYear.id);
         }
         await tx.auditLog.create({
             data: {
@@ -227,15 +223,9 @@ export const updateThesisMasterData = async (id, data, { actorUserId = null, cli
             thesis = await tx.thesis.update({ where: { id }, data: fields });
         }
 
-        const ayId = thesis.academicYearId;
         if (wantsSupervisorChange && !closed) {
             const supervisors = await buildSupervisors(tx, data, { requireP1: true });
-            const result = await replaceSupervisorAssignments(tx, id, supervisors, { requireP1: true });
-            if (ayId) {
-                for (const lecturerId of result.affectedLecturerIds) {
-                    await syncQuotaCount(tx, lecturerId, ayId);
-                }
-            }
+            await replaceSupervisorAssignments(tx, id, supervisors, { requireP1: true });
         }
 
         if (data.status && data.status !== existing.status) {

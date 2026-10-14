@@ -15,7 +15,6 @@ vi.mock("../../../config/prisma.js", async () => ({
   default: (await import("./helpers/fakePrisma.js")).prismaFake,
 }));
 // Quota recount reads the quota tables; its behaviour is covered elsewhere.
-vi.mock("../../../utils/quotaSync.js", () => ({ syncQuotaCount: vi.fn().mockResolvedValue(undefined) }));
 
 const {
   getAllThesesMasterData,

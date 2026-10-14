@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { getLecturerLoad } from "../services/thesis-proposal/supervision-quota.service.js";
 import { CHANGE_REQUEST_STATUS } from "../constants/thesis-change-request.js";
 
 const USER_NAME = { select: { id: true, fullName: true, identityNumber: true } };
@@ -161,16 +162,9 @@ export async function userHasActiveRole(userId, roleName, client = prisma) {
   return Boolean(row);
 }
 
-/** Active supervisions on open theses, and the lecturer's quota in the active year. */
+/** Active supervisions on open theses, and the hard limit that applies in the active year (10.1). */
 export async function getSupervisorLoad(lecturerId, client = prisma) {
-  const [activeCount, quota] = await Promise.all([
-    client.thesisSupervisors.count({
-      where: { lecturerId, status: "active", thesis: { status: { in: ["proposal", "research", "on_leave"] } } },
-    }),
-    client.lecturerSupervisionQuota.findFirst({
-      where: { lecturerId, academicYear: { isActive: true } },
-      select: { quotaMax: true },
-    }),
-  ]);
-  return { activeCount, quotaMax: quota?.quotaMax ?? null };
+  const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
+  const load = await getLecturerLoad(lecturerId, activeYear?.id ?? null, { client });
+  return { activeCount: load.activeCount, quotaMax: load.hardLimit };
 }

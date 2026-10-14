@@ -225,46 +225,7 @@ export async function assertSimptaSchemaCompatibility(client = basePrisma) {
   );
 }
 
-/**
- * After TA-03A/TA-03B rows change, run early TA-04 promotion/release lifecycle.
- * Dynamic import avoids circular dependency with metopen.service (which imports prisma).
- */
-async function afterResearchMethodScoreWrite(thesisId) {
-  if (!thesisId) return;
-  try {
-    const { syncKadepProposalQueueByThesisId } = await import(
-      "../services/metopen.service.js"
-    );
-    await syncKadepProposalQueueByThesisId(thesisId);
-  } catch (err) {
-    console.error(
-      "[Prisma] TA-04 lifecycle sync failed:",
-      err?.message ?? err
-    );
-  }
-}
-
-const prisma = basePrisma.$extends({
-  query: {
-    researchMethodScore: {
-      async create({ args, query }) {
-        const result = await query(args);
-        await afterResearchMethodScoreWrite(result?.thesisId);
-        return result;
-      },
-      async update({ args, query }) {
-        const result = await query(args);
-        await afterResearchMethodScoreWrite(result?.thesisId);
-        return result;
-      },
-      async upsert({ args, query }) {
-        const result = await query(args);
-        await afterResearchMethodScoreWrite(result?.thesisId);
-        return result;
-      },
-    },
-  },
-});
+const prisma = basePrisma;
 
 export async function checkDatabaseConnection() {
   try {

@@ -16,7 +16,6 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
     studentCplScore: { findMany: vi.fn() },
     lecturer: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
     academicYear: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
-    metopenScoreComposition: { create: vi.fn() },
     userRole: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
     studentCplScore: { findMany: vi.fn() },
     $transaction: vi.fn(),
@@ -451,13 +450,6 @@ describe("Module 18: Tahun Ajaran", () => {
       });
 
       expect(result).toHaveProperty("semester", "ganjil");
-      expect(mockPrisma.metopenScoreComposition.create).toHaveBeenCalledWith({
-        data: {
-          academicYearId: "ay-new",
-          ta03aCap: 75,
-          ta03bCap: 25,
-        },
-      });
     });
 
     it("rejects (400) if startDate is after endDate", async () => {

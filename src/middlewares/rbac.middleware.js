@@ -109,37 +109,6 @@ export function documentAccessGuard() {
               },
             },
           },
-          thesisProposalDocument: {
-            select: {
-              id: true,
-              student: { select: { user: { select: { id: true } } } },
-              thesisSupervisors: {
-                select: { lecturer: { select: { user: { select: { id: true } } } } },
-              },
-            },
-          },
-          thesisProposalVersionDocs: {
-            select: {
-              thesis: {
-                select: {
-                  id: true,
-                  student: { select: { user: { select: { id: true } } } },
-                  thesisSupervisors: {
-                    select: { lecturer: { select: { user: { select: { id: true } } } } },
-                  },
-                },
-              },
-            },
-          },
-          thesisTitleApprovalDocs: {
-            select: {
-              id: true,
-              student: { select: { user: { select: { id: true } } } },
-              thesisSupervisors: {
-                select: { lecturer: { select: { user: { select: { id: true } } } } },
-              },
-            },
-          },
           thesisGuidances: {
             select: {
               id: true,
@@ -167,11 +136,6 @@ export function documentAccessGuard() {
       const thesisRelations = [
         ...(document.thesis || []),
         ...(document.thesisFinalDocument || []),
-        ...(document.thesisProposalDocument || []),
-        ...((document.thesisProposalVersionDocs || [])
-          .map((version) => version.thesis)
-          .filter(Boolean)),
-        ...(document.thesisTitleApprovalDocs || []),
         ...((document.thesisGuidances || []).map((guidance) => guidance.thesis).filter(Boolean)),
       ];
 

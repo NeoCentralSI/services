@@ -7,7 +7,6 @@
  * Excludes:
  * - node_modules / generated
  * - internship / KP paths (out of SIMPTA module ownership)
- * - obsolete seed-metopen-dummy.js (intentionally deprecated)
  *
  * Usage (from services/):
  *   node scripts/lint-prisma-delegates.mjs
@@ -34,11 +33,10 @@ const EXCLUDE_DIR_NAMES = new Set([
   ".git",
 ]);
 
-/** Path fragments to skip (KP / internship + obsolete seed). */
+/** Path fragments to skip (KP / internship). */
 const EXCLUDE_PATH_FRAGMENTS = [
   `${path.sep}insternship${path.sep}`,
   `${path.sep}internship${path.sep}`,
-  `${path.sep}seed-metopen-dummy.js`,
 ];
 
 const DELEGATE_CALL_RE =

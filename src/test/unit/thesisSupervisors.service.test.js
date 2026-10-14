@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockHasPembimbing2, mockCreateThesisSupervisors, mockMarkProcessed, mockPrisma, mockSyncQuotaCount } = vi.hoisted(() => ({
+const { mockHasPembimbing2, mockCreateThesisSupervisors, mockMarkProcessed, mockPrisma } = vi.hoisted(() => ({
   mockHasPembimbing2: vi.fn(),
   mockCreateThesisSupervisors: vi.fn(),
   mockMarkProcessed: vi.fn().mockResolvedValue({ count: 0 }),
@@ -12,10 +12,9 @@ const { mockHasPembimbing2, mockCreateThesisSupervisors, mockMarkProcessed, mock
     lecturer: { findUnique: vi.fn() },
     thesisSupervisors: { findFirst: vi.fn() },
     notification: { updateMany: vi.fn() },
-    researchMethodScore: { findFirst: vi.fn(), update: vi.fn() },
+    researchMethodAssessment: { findFirst: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(async (fn) => fn(mockPrisma)),
   },
-  mockSyncQuotaCount: vi.fn(),
 }));
 
 vi.mock("../../repositories/thesisGuidance/supervisor2.repository.js", () => ({
@@ -24,10 +23,6 @@ vi.mock("../../repositories/thesisGuidance/supervisor2.repository.js", () => ({
   markSupervisor2RequestsProcessedForThesis: (...args) => mockMarkProcessed(...args),
 }));
 vi.mock("../../config/prisma.js", () => ({ default: mockPrisma }));
-vi.mock("../../utils/quotaSync.js", () => ({ syncQuotaCount: (...args) => mockSyncQuotaCount(...args) }));
-vi.mock("../../services/metopen.service.js", () => ({
-  syncKadepProposalQueueByThesisId: vi.fn().mockResolvedValue({ synced: false }),
-}));
 vi.mock("../../services/notification.service.js", () => ({
   createNotificationsForUsers: vi.fn().mockResolvedValue(undefined),
 }));
@@ -48,7 +43,6 @@ import { assignCoAdvisor } from "../../services/thesisSupervisors.service.js";
 describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrisma.researchMethodScore.findFirst.mockResolvedValue(null);
     mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
   });
 
@@ -87,7 +81,7 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
     expect(mockCreateThesisSupervisors).toHaveBeenCalledWith("thesis-1", "lec-2", mockPrisma);
   });
 
-  it("resets isFinalized when score was finalized without P2 co-sign", async () => {
+  it("leaves an existing Research Method assessment untouched (no co-sign step, K9)", async () => {
     mockPrisma.thesis.findUnique.mockResolvedValue(baseThesis);
     mockHasPembimbing2.mockResolvedValue(false);
     mockPrisma.lecturer.findUnique.mockResolvedValue({
@@ -95,40 +89,11 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
       user: { fullName: "Dr. Budi" },
     });
     mockCreateThesisSupervisors.mockResolvedValue({ id: "ts-1" });
-    mockPrisma.researchMethodScore.findFirst.mockResolvedValue({
-      id: "score-1",
-      isFinalized: true,
-      coSignedAt: null,
-      supervisorScore: 60,
-    });
-    mockPrisma.researchMethodScore.update.mockResolvedValue({});
 
     await assignCoAdvisor("thesis-1", "lec-2", "kadep-1");
 
-    expect(mockPrisma.researchMethodScore.update).toHaveBeenCalledWith({
-      where: { id: "score-1" },
-      data: { isFinalized: false, finalizedBy: null, finalizedAt: null },
-    });
-  });
-
-  it("does NOT reset isFinalized when score already has co-sign", async () => {
-    mockPrisma.thesis.findUnique.mockResolvedValue(baseThesis);
-    mockHasPembimbing2.mockResolvedValue(false);
-    mockPrisma.lecturer.findUnique.mockResolvedValue({
-      id: "lec-2",
-      user: { fullName: "Dr. Budi" },
-    });
-    mockCreateThesisSupervisors.mockResolvedValue({ id: "ts-1" });
-    mockPrisma.researchMethodScore.findFirst.mockResolvedValue({
-      id: "score-1",
-      isFinalized: true,
-      coSignedAt: new Date(),
-      supervisorScore: 60,
-    });
-
-    await assignCoAdvisor("thesis-1", "lec-2", "kadep-1");
-
-    expect(mockPrisma.researchMethodScore.update).not.toHaveBeenCalled();
+    expect(mockPrisma.researchMethodAssessment.update).not.toHaveBeenCalled();
+    expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
   });
 
   it("rejects (400) when thesis already has Pembimbing 2", async () => {

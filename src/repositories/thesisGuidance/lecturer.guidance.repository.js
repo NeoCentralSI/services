@@ -477,10 +477,12 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 					}
 				}
 			},
-			// Revival adaptation (A2): baseline `thesisProposal` relation no longer exists.
-			proposalDocument: true,
-			finalProposalVersion: {
-				include: { document: true }
+			// Final proposal of the latest Research Method attempt (K32).
+			researchMethodAssessments: {
+				where: { proposalFilePath: { not: null } },
+				orderBy: { createdAt: "desc" },
+				take: 1,
+				select: { id: true, proposalFilePath: true, proposalFileName: true },
 			},
 			thesisMilestones: {
 				where: TA_PHASE,

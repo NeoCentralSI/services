@@ -41,7 +41,6 @@ import path from "path";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
-import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
 import {
 	THESIS_PROGRESS_SELECT,
 	WARNING_SKIP_LABELS,
@@ -262,16 +261,14 @@ export async function getStudentDetailService(userId, thesisId) {
 		document: latestReportDocument
 			? { id: latestReportDocument.id, fileName: latestReportDocument.fileName, url: latestReportDocument.url }
 			: null,
-		// Revival adaptation (A2): final proposal version, fallback legacy proposal document.
+		// Final proposal of the latest Research Method attempt (K32).
 		proposalDocument: (() => {
-			const doc = thesis.finalProposalVersion?.document ?? thesis.proposalDocument ?? null;
-			if (!doc) return null;
-			const docPath = doc.filePath || "";
+			const attempt = thesis.researchMethodAssessments?.[0];
+			if (!attempt?.proposalFilePath) return null;
 			return {
-				id: doc.id,
-				fileName: path.basename(docPath) || doc.fileName,
-				// Documents without a stored file have no URL.
-				url: uploadUrl(docPath),
+				id: attempt.id,
+				fileName: attempt.proposalFileName || path.basename(attempt.proposalFilePath),
+				url: uploadUrl(attempt.proposalFilePath),
 			};
 		})(),
 		uploadedFiles: guidanceDocuments.map((g) => ({

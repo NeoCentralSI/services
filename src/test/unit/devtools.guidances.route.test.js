@@ -20,15 +20,9 @@ vi.mock("../../middlewares/auth.middleware.js", () => ({
   requireAnyRole: (roles) => (req, res, next) =>
     roles.includes(req.user.role) ? next() : res.status(403).json({ success: false, message: "Forbidden" }),
 }));
-vi.mock("../../services/metopenEligibility.service.js", () => ({
-  resolveMetopenEligibilityState: vi.fn(),
-  setStudentMetopenEligibility: vi.fn(),
-  setStudentThesisCourseEnrollment: vi.fn(),
-}));
-vi.mock("../../services/advisorQuota.service.js", () => ({ syncLecturerQuotaCurrentCount: vi.fn() }));
-vi.mock("../../services/metopenPeriodClose.service.js", () => ({
-  closeUnfinishedMetopenForYear: vi.fn(),
-  assertDevtoolsMetopenPeriodCloseAllowed: vi.fn(),
+vi.mock("../../services/research-method/eligibility.service.js", () => ({
+  setStudentPeriodFlags: vi.fn(),
+  ACADEMIC_FLAG_SOURCE: { SIA: "sia", DEVTOOLS: "devtools" },
 }));
 vi.mock("../../services/auditLog.service.js", () => ({
   logAudit,

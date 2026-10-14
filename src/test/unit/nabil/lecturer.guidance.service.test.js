@@ -4,10 +4,6 @@
  *              Module 8: Dashboard Dosen (My Students)
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-vi.mock("../../../services/ta04Authorization.service.js", () => ({
-  assertTa04GuidanceAuthorized: vi.fn().mockResolvedValue(true)
-}));
-
 // ── hoisted mocks ──────────────────────────────────────────────
 const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles } = vi.hoisted(() => ({
   mockPrisma: {
@@ -410,7 +406,8 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         id: "thesis-1", title: "AI Research",
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         status: "research",
-        proposalDocument: { id: "doc-2", fileName: "lama.pdf", filePath: null },
+        // Final proposal of the latest Research Method attempt (K32).
+        researchMethodAssessments: [{ id: "rma-2", proposalFileName: "proposal.pdf", proposalFilePath: "uploads/thesis/thesis-1/proposal/rma-2/proposal.pdf" }],
         startDate: new Date(),
         thesisMilestones: [],
         studentId: "stu-1",
@@ -435,7 +432,11 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         fileName: "bab3.pdf",
         url: "/uploads/thesis/thesis-1/guidance/g-9/1700000000000-bab3.pdf",
       });
-      expect(result.proposalDocument).toEqual({ id: "doc-2", fileName: "lama.pdf", url: null });
+      expect(result.proposalDocument).toEqual({
+        id: "rma-2",
+        fileName: "proposal.pdf",
+        url: "/uploads/thesis/thesis-1/proposal/rma-2/proposal.pdf",
+      });
 
       mockPrisma.thesisGuidance.findFirst.mockResolvedValue(null);
       const empty = await getStudentDetailService("user-dosen-1", "thesis-1");

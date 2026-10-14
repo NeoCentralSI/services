@@ -2,42 +2,11 @@ import { fetchStudentsFull, hashStudent } from "./sia.client.js";
 import { saveStudents, saveSyncStatus, cleanupObsoleteStudents } from "./sia.store.js";
 import prisma from "../config/prisma.js";
 import {
+  buildObservationPatch,
+  buildObservationRow,
   normalizeSiaObservation,
-} from "./metopenEligibility.service.js";
-import { syncBookingActivationForStudent } from "./metopen.service.js";
-import { buildRuntimeSnapshotObservationPatch } from "./studentPeriodSnapshot.service.js";
-import { getActiveAcademicYear, resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
-
-async function syncBookingLifecycleForStudents(studentIds, academicYearId) {
-  const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
-  if (uniqueStudentIds.length === 0) {
-    return { attempted: 0, succeeded: 0 };
-  }
-
-  const results = await Promise.allSettled(
-    uniqueStudentIds.map((studentId) =>
-      syncBookingActivationForStudent(studentId, academicYearId),
-    ),
-  );
-
-  const failures = [];
-  results.forEach((result, index) => {
-    if (result.status === "rejected") {
-      failures.push(result.reason);
-      console.warn(
-        `Failed to sync advisor booking lifecycle for student ${uniqueStudentIds[index]}:`,
-        result.reason?.message ?? result.reason,
-      );
-    }
-  });
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures,
-      `Sinkronisasi lifecycle booking gagal untuk ${failures.length} mahasiswa.`,
-    );
-  }
-  return { attempted: uniqueStudentIds.length, succeeded: uniqueStudentIds.length };
-}
+} from "./research-method/eligibility.service.js";
+import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 /**
  * Main SIA sync job - fetches student data and updates cache + database
@@ -51,7 +20,6 @@ export async function runSiaSync() {
     skipped: 0,
     dbUpdated: 0,
     periodSnapshotsCreated: 0,
-    bookingLifecycleSynced: 0,
     cplFetched: 0,
     cplCreated: 0,
     cplUpdated: 0,
@@ -108,7 +76,6 @@ export async function runSiaSync() {
     const dbResult = await updateStudentAcademicBatch(stamped);
     summary.dbUpdated = dbResult.updated;
     summary.periodSnapshotsCreated = dbResult.snapshotsCreated;
-    summary.bookingLifecycleSynced = dbResult.lifecycleSynced;
     console.log(`🗄️  Database: ${dbResult.updated} students updated`);
 
     // Batch upsert student CPL scores from same SIA payload
@@ -199,7 +166,7 @@ async function updateStudentAcademicBatch(stamped) {
       internshipCompleted: Boolean(entry.data?.internshipCompleted),
       kknCompleted: Boolean(entry.data?.kknCompleted),
       researchMethodCompleted: Boolean(entry.data?.researchMethodCompleted),
-      eligibleMetopen: observation.eligibleMetopen,
+      eligibleResearchMethod: observation.eligibleResearchMethod,
       currentSemester:
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
@@ -214,10 +181,9 @@ async function updateStudentAcademicBatch(stamped) {
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
   if (updates.length === 0) {
-    return { updated: 0, snapshotsCreated: 0, lifecycleSynced: 0 };
+    return { updated: 0, snapshotsCreated: 0 };
   }
 
-  let matchedStudentIds = [];
   let batchResult = null;
   try {
     // Get all matching users in one query
@@ -232,7 +198,6 @@ async function updateStudentAcademicBatch(stamped) {
 
     // Batch update with transaction
     const matchedUpdates = updates.filter((u) => nimToUserId.has(u.nim));
-    matchedStudentIds = matchedUpdates.map((u) => nimToUserId.get(u.nim));
     const updatePromises = matchedUpdates
       .map((u) =>
         prisma.student.updateMany({
@@ -244,38 +209,19 @@ async function updateStudentAcademicBatch(stamped) {
             internshipCompleted: u.internshipCompleted,
             kknCompleted: u.kknCompleted,
             researchMethodCompleted: u.researchMethodCompleted,
-            eligibleMetopen:
-              typeof u.eligibleMetopen === "boolean" ? u.eligibleMetopen : undefined,
-            metopenEligibilitySource:
-              typeof u.eligibleMetopen === "boolean" ? "sia" : undefined,
-            metopenEligibilityUpdatedAt:
-              typeof u.eligibleMetopen === "boolean" ? startedAt : undefined,
             currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
-            takingThesisCourse: u.takingThesisCourse,
-            thesisCourseEnrollmentSource: "sia",
-            thesisCourseEnrollmentUpdatedAt: startedAt,
           },
         })
       );
 
+    // Per-semester flags (10.6): taking Metode Penelitian / Tugas Akhir, from SIA only.
     const candidateSnapshotRows = matchedUpdates.flatMap((u) => {
-      const hasEligibility = typeof u.eligibleMetopen === "boolean";
-      const hasThesisCourse = typeof u.takingThesisCourse === "boolean";
-      if (!hasEligibility && !hasThesisCourse) return [];
-      return [{
-        studentId: nimToUserId.get(u.nim),
-        academicYearId: academicYear.id,
-        eligibleMetopen: hasEligibility ? u.eligibleMetopen : null,
-        researchMethodCompleted: hasEligibility
-          ? u.researchMethodCompleted
-          : null,
-        takingThesisCourse: hasThesisCourse ? u.takingThesisCourse : null,
-        eligibilitySource: hasEligibility ? "sia" : null,
-        eligibilityCapturedAt: hasEligibility ? startedAt : null,
-        thesisCourseSource: hasThesisCourse ? "sia" : null,
-        thesisCourseCapturedAt: hasThesisCourse ? startedAt : null,
+      const row = buildObservationRow(nimToUserId.get(u.nim), academicYear.id, {
+        eligibleResearchMethod: u.eligibleResearchMethod,
+        takingThesisCourse: u.takingThesisCourse,
         capturedAt: startedAt,
-      }];
+      });
+      return row ? [row] : [];
     });
     const existingSnapshots = candidateSnapshotRows.length > 0
       ? await prisma.studentAcademicYearSnapshot.findMany({
@@ -288,7 +234,7 @@ async function updateStudentAcademicBatch(stamped) {
         select: {
           id: true,
           studentId: true,
-          eligibleMetopen: true,
+          eligibleResearchMethod: true,
           takingThesisCourse: true,
         },
       })
@@ -302,14 +248,9 @@ async function updateStudentAcademicBatch(stamped) {
     const snapshotFillOperations = candidateSnapshotRows.flatMap((row) => {
       const existing = existingSnapshotByStudent.get(row.studentId);
       if (!existing) return [];
-      const data = buildRuntimeSnapshotObservationPatch(existing, {
-        eligibleMetopen: row.eligibleMetopen,
-        researchMethodCompleted: row.researchMethodCompleted,
-        eligibilitySource: row.eligibilitySource,
-        eligibilityCapturedAt: row.eligibilityCapturedAt,
+      const data = buildObservationPatch(existing, {
+        eligibleResearchMethod: row.eligibleResearchMethod,
         takingThesisCourse: row.takingThesisCourse,
-        thesisCourseSource: row.thesisCourseSource,
-        thesisCourseCapturedAt: row.thesisCourseCapturedAt,
         capturedAt: row.capturedAt,
       });
       if (Object.keys(data).length === 0) return [];
@@ -349,14 +290,8 @@ async function updateStudentAcademicBatch(stamped) {
     );
   }
 
-  const lifecycle = await syncBookingLifecycleForStudents(
-    matchedStudentIds,
-    academicYear.id,
-  );
-  return {
-    ...batchResult,
-    lifecycleSynced: lifecycle.succeeded,
-  };
+  // Moving theses to the research phase is a separate step after the sync (K13).
+  return batchResult;
 }
 
 /**
@@ -369,7 +304,6 @@ async function updateStudentAcademicIndividual(
 ) {
   let updated = 0;
   let snapshotsCreated = 0;
-  const updatedStudentIds = [];
   for (const {
     nim,
     sks,
@@ -378,7 +312,7 @@ async function updateStudentAcademicIndividual(
     internshipCompleted,
     kknCompleted,
     researchMethodCompleted,
-    eligibleMetopen,
+    eligibleResearchMethod,
     currentSemester,
     gpa,
     graduationPredicate,
@@ -401,25 +335,12 @@ async function updateStudentAcademicIndividual(
             internshipCompleted,
             kknCompleted,
             researchMethodCompleted,
-            eligibleMetopen:
-              typeof eligibleMetopen === "boolean" ? eligibleMetopen : undefined,
-            metopenEligibilitySource:
-              typeof eligibleMetopen === "boolean" ? "sia" : undefined,
-            metopenEligibilityUpdatedAt:
-              typeof eligibleMetopen === "boolean" ? updatedAt : undefined,
             currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
             gpa,
             graduationPredicate,
-            takingThesisCourse,
-            thesisCourseEnrollmentSource: "sia",
-            thesisCourseEnrollmentUpdatedAt: updatedAt,
           },
         });
-        const hasEligibility = typeof eligibleMetopen === "boolean";
-        const hasThesisCourse = typeof takingThesisCourse === "boolean";
-        if (!hasEligibility && !hasThesisCourse) {
-          return 0;
-        }
+        const observation = { eligibleResearchMethod, takingThesisCourse, capturedAt: updatedAt };
         const existing = await tx.studentAcademicYearSnapshot.findUnique({
           where: {
             studentId_academicYearId: {
@@ -429,36 +350,12 @@ async function updateStudentAcademicIndividual(
           },
         });
         if (!existing) {
-          await tx.studentAcademicYearSnapshot.create({
-            data: {
-              studentId: user.id,
-              academicYearId,
-              eligibleMetopen: hasEligibility ? eligibleMetopen : null,
-              researchMethodCompleted: hasEligibility
-                ? researchMethodCompleted
-                : null,
-              takingThesisCourse: hasThesisCourse
-                ? takingThesisCourse
-                : null,
-              eligibilitySource: hasEligibility ? "sia" : null,
-              eligibilityCapturedAt: hasEligibility ? updatedAt : null,
-              thesisCourseSource: hasThesisCourse ? "sia" : null,
-              thesisCourseCapturedAt: hasThesisCourse ? updatedAt : null,
-              capturedAt: updatedAt,
-            },
-          });
+          const row = buildObservationRow(user.id, academicYearId, observation);
+          if (!row) return 0;
+          await tx.studentAcademicYearSnapshot.create({ data: row });
           return 1;
         }
-        const fillData = buildRuntimeSnapshotObservationPatch(existing, {
-          eligibleMetopen: hasEligibility ? eligibleMetopen : null,
-          researchMethodCompleted: hasEligibility ? researchMethodCompleted : null,
-          eligibilitySource: hasEligibility ? "sia" : null,
-          eligibilityCapturedAt: hasEligibility ? updatedAt : null,
-          takingThesisCourse: hasThesisCourse ? takingThesisCourse : null,
-          thesisCourseSource: hasThesisCourse ? "sia" : null,
-          thesisCourseCapturedAt: hasThesisCourse ? updatedAt : null,
-          capturedAt: updatedAt,
-        });
+        const fillData = buildObservationPatch(existing, observation);
         if (Object.keys(fillData).length > 0) {
           await tx.studentAcademicYearSnapshot.update({
             where: { id: existing.id },
@@ -468,20 +365,14 @@ async function updateStudentAcademicIndividual(
         return 0;
       });
       snapshotsCreated += created;
-      updatedStudentIds.push(user.id);
       updated++;
     } catch (err) {
       console.warn(`⚠️  Failed to update student academic fields for NIM ${nim}:`, err.message);
     }
   }
-  const lifecycle = await syncBookingLifecycleForStudents(
-    updatedStudentIds,
-    academicYearId,
-  );
   return {
     updated,
     snapshotsCreated,
-    lifecycleSynced: lifecycle.succeeded,
   };
 }
 

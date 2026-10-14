@@ -99,7 +99,6 @@ const tx = {
 };
 
 vi.mock("../../config/prisma.js", () => ({ default: { $transaction: async (fn) => fn(tx), thesisSupervisors: tx.thesisSupervisors } }));
-vi.mock("../../utils/quotaSync.js", () => ({ syncQuotaCount: vi.fn().mockResolvedValue(0) }));
 vi.mock("../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../services/notification.service.js", () => ({
   createNotificationsForUsers: vi.fn(async (userIds, payload) => {

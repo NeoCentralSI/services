@@ -2,14 +2,12 @@ import express from "express";
 import lecturerRouter from "./thesisGuidance/lecturer.guidance.route.js";
 import studentRouter from "./thesisGuidance/student.guidance.route.js";
 import monitoringRouter from "./thesisGuidance/monitoring.route.js";
-import metopelRouter from "./thesisGuidance/metopel.route.js";
+import kadepRouter from "./thesisGuidance/kadep.guidance.route.js";
 
 const router = express.Router();
 
-// Guidance revival: Metopel/Proposal and KaDep Pembimbing 2 endpoints that the active
-// app still consumes. Mounted first so the baseline role guards of the sub-routers
-// below do not intercept them.
-router.use("/", metopelRouter);
+// Pembimbing 2 requests in the proposal phase, decided by the Head of Department.
+router.use("/kadep", kadepRouter);
 
 // Mount under a stable path: /thesis-guidance/lecturer
 router.use("/lecturer", lecturerRouter);

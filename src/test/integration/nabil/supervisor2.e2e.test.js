@@ -1,11 +1,10 @@
 /**
- * IT-P2: End-to-end Pembimbing 2 matching + TA-03B read-only (Pembimbing 2)
+ * IT-P2: End-to-end Pembimbing 2 matching (fase proposal)
  *
  * Menguji alur bisnis lengkap terhadap database nyata (sama pola IT-03/IT-04):
  *   A. Katalog dosen P2 + visibilitas kuota mahasiswa (tanpa booking/pending KaDep)
  *   B. Siklus permintaan: ajukan → pending → batalkan
  *   C. Siklus persetujuan: ajukan → setujui → ThesisSupervisors P2 → bersihkan
- *   D. Pembimbing 2 membaca nilai TA-03A/TA-03B (getScoresByThesisForSupervisor)
  *   E. Daftar mahasiswa arsip (scope=archive) untuk thesis Selesai
  *
  * Jalankan:
@@ -33,10 +32,6 @@ import {
 } from "../../../services/thesisGuidance/supervisor2.service.js";
 import { findUsersByActiveRole } from "../../../repositories/thesis-guidance-evaluation.repository.js";
 import { getMyStudentsService } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
-import {
-  getScoresByThesisForSupervisor,
-  getSupervisorContextForThesis,
-} from "../../../services/assessment.service.js";
 import { hasPembimbing2 } from "../../../repositories/thesisGuidance/supervisor2.repository.js";
 import { ForbiddenError } from "../../../utils/errors.js";
 
@@ -60,7 +55,6 @@ const createdNotificationIds = [];
 /** @type {string | null} */
 let createdParticipantId = null;
 /** @type {{ thesisId: string, p2LecturerId: string, previousFinalProposalVersionId: string | null } | null} */
-let scoreReadFixture = null;
 
 async function findEligibleStudentFixture() {
   const pembimbing1Role = await prisma.userRole.findFirst({
@@ -154,49 +148,13 @@ async function pickTargetP2Lecturer(thesisId, excludeLecturerIds = []) {
   return lecturer?.id ?? null;
 }
 
-async function findScoreReadFixture() {
-  const row = await prisma.researchMethodScore.findFirst({
-    where: {
-      lecturerScore: { not: null },
-      thesis: {
-        thesisSupervisors: {
-          some: { status: "active", role: { name: ROLES.PEMBIMBING_2 } },
-        },
-      },
-    },
-    select: { thesisId: true },
-  });
-  if (!row) return null;
 
-  const p2 = await prisma.thesisSupervisors.findFirst({
-    where: {
-      thesisId: row.thesisId,
-      status: "active",
-      role: { name: ROLES.PEMBIMBING_2 },
-    },
-    select: { lecturerId: true },
-  });
-  if (!p2) return null;
-
-  const thesis = await prisma.thesis.findUnique({
-    where: { id: row.thesisId },
-    select: { finalProposalVersionId: true },
-  });
-
-  return {
-    thesisId: row.thesisId,
-    p2LecturerId: p2.lecturerId,
-    previousFinalProposalVersionId: thesis?.finalProposalVersionId ?? null,
-  };
-}
-
-describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
+describe("IT-P2: Pembimbing 2 E2E (matching)", () => {
   beforeAll(async () => {
     fixture = await findEligibleStudentFixture();
     if (fixture) {
       targetP2LecturerId = await pickTargetP2Lecturer(fixture.thesisId, [fixture.p1LecturerId]);
     }
-    scoreReadFixture = await findScoreReadFixture();
   });
 
   afterAll(async () => {
@@ -386,87 +344,6 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
     console.log("[IT-P2/C] ✅ Dua tahap (dosen + KaDep) membuat ThesisSupervisors P2:", p2Row.id);
   });
 
-  it("D1 — guard: P2 tidak bisa baca skor jika proposal final belum ada", async () => {
-    if (!scoreReadFixture) {
-      console.warn("[IT-P2/D1] Tidak ada thesis P2 + ResearchMethodScore. Lewati.");
-      return;
-    }
-
-    if (scoreReadFixture.previousFinalProposalVersionId) {
-      await prisma.thesis.update({
-        where: { id: scoreReadFixture.thesisId },
-        data: { finalProposalVersionId: null },
-      });
-    }
-
-    await expect(
-      getScoresByThesisForSupervisor(scoreReadFixture.thesisId, scoreReadFixture.p2LecturerId),
-    ).rejects.toBeInstanceOf(ForbiddenError);
-
-    console.log("[IT-P2/D1] ✅ Guard proposal final aktif untuk pembimbing P2");
-  });
-
-  it("D2 — P2 membaca skor + detail rubrik TA-03B (setelah proposal final tersedia)", async () => {
-    if (!scoreReadFixture) {
-      console.warn("[IT-P2/D2] Tidak ada thesis P2 + skor. Lewati.");
-      return;
-    }
-
-    let versionId = scoreReadFixture.previousFinalProposalVersionId;
-    if (!versionId) {
-      const version = await prisma.thesisProposalVersion.findFirst({
-        where: { thesisId: scoreReadFixture.thesisId },
-        orderBy: { version: "desc" },
-        select: { id: true },
-      });
-      versionId = version?.id ?? null;
-    }
-
-    if (!versionId) {
-      console.warn("[IT-P2/D2] Tidak ada versi proposal untuk dipasang sebagai final. Lewati.");
-      return;
-    }
-
-    await prisma.thesis.update({
-      where: { id: scoreReadFixture.thesisId },
-      data: { finalProposalVersionId: versionId },
-    });
-
-    try {
-      const ctx = await getSupervisorContextForThesis(
-        scoreReadFixture.thesisId,
-        scoreReadFixture.p2LecturerId,
-      );
-      expect(ctx.role).toBe("P2");
-
-      const scores = await getScoresByThesisForSupervisor(
-        scoreReadFixture.thesisId,
-        scoreReadFixture.p2LecturerId,
-      );
-      expect(scores).toBeDefined();
-      expect(scores.thesisId).toBe(scoreReadFixture.thesisId);
-      expect(scores.supervisorScore).toBeTypeOf("number");
-      expect(scores.lecturerScore).toBeTypeOf("number");
-
-      if (scores.researchMethodScoreDetails?.length) {
-        const ta03bCriteria = scores.researchMethodScoreDetails.filter(
-          (d) => d.criteria?.role === "default" || d.criteria?.role === "metopen",
-        );
-        expect(ta03bCriteria.length).toBeGreaterThan(0);
-        console.log(
-          `[IT-P2/D2] ✅ Baca skor OK; TA-03A=${scores.supervisorScore}, TA-03B=${scores.lecturerScore}, detail=${ta03bCriteria.length}`,
-        );
-      } else {
-        console.log("[IT-P2/D2] ✅ Baca skor agregat OK; detail rubrik kosong di DB");
-      }
-    } finally {
-      await prisma.thesis.update({
-        where: { id: scoreReadFixture.thesisId },
-        data: { finalProposalVersionId: scoreReadFixture.previousFinalProposalVersionId },
-      });
-    }
-  });
-
   it("E — arsip: Pembimbing 2 melihat mahasiswa thesis Selesai di scope archive", async () => {
     const p2OnFinished = await prisma.thesisSupervisors.findFirst({
       where: {
@@ -490,34 +367,6 @@ describe("IT-P2: Pembimbing 2 E2E (matching + TA-03B read-only)", () => {
     });
 
     expect(archiveList.some((s) => s.thesisId === p2OnFinished.thesisId)).toBe(true);
-  });
-
-  it("F — baca skor thesis Selesai tidak ditolak karena status tutup (read-only arsip)", async () => {
-    const row = await prisma.thesisSupervisors.findFirst({
-      where: {
-        status: "active",
-        role: { name: ROLES.PEMBIMBING_2 },
-        thesis: {
-          status: "completed",
-          finalProposalVersionId: { not: null },
-        },
-      },
-      select: {
-        lecturerId: true,
-        thesis: { select: { id: true, finalProposalVersionId: true } },
-      },
-    });
-
-    if (!row?.thesis?.finalProposalVersionId) {
-      console.warn("[IT-P2/F] Tidak ada thesis Selesai + P2 + proposal final. Lewati.");
-      return;
-    }
-
-    await expect(
-      getScoresByThesisForSupervisor(row.thesis.id, row.lecturerId),
-    ).resolves.toBeDefined();
-
-    console.log("[IT-P2/F] ✅ P2 dapat membaca skor pada thesis Selesai (arsip)");
   });
 
 });
