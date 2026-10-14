@@ -1984,31 +1984,6 @@ export async function decideByKadep(requestId, kadepUserId, { action, targetLect
 }
 
 /**
- * DEPRECATED (canon v3.3 / §5.8 / §5.10): jalur mandiri assign→active_official
- * ditutup. Happy path = decideByKadep (booking_approved) → finalizeBatchTA04 →
- * promosi otomatis ke active_official. Dipertahankan sebagai stub throw agar
- * klien legacy mendapat pesan jelas (pola sama regenerateTitleApprovalLetter).
- */
-export async function assignAdvisor(_requestId, _kadepUserId) {
-  throw new BadRequestError(
-    "Penetapan pembimbing mandiri sudah dinonaktifkan. Gunakan keputusan KaDep (setujui/alihkan) lalu finalisasi Formulir TA-04 batch; beban aktif dipromosikan otomatis setelah penilaian dan konfirmasi KRS Tugas Akhir.",
-  );
-}
-
-/**
- * Legacy helper. Formulir TA-04 resmi tidak diterbitkan per mahasiswa; gunakan
- * `finalizeBatchTA04` untuk menerbitkan satu dokumen batch periode.
- */
-export async function generateTA04Letter(thesisId, lecturerId, request) {
-  void thesisId;
-  void lecturerId;
-  void request;
-  throw new BadRequestError(
-    "Formulir TA-04 resmi hanya diterbitkan melalui finalisasi batch periode.",
-  );
-}
-
-/**
  * Get request detail by ID with actor-based access control.
  * Allowed actors: the requesting student, the target lecturer,
  * the redirect target lecturer, or a KaDep/Sekdep/Admin.

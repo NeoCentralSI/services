@@ -159,17 +159,6 @@ export async function decideByKadep(req, res, next) {
   }
 }
 
-export async function assignAdvisor(req, res, next) {
-  try {
-    const kadepUserId = req.user.sub;
-    const { id } = req.params;
-    const data = await service.assignAdvisor(id, kadepUserId);
-    res.status(200).json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
-
 export async function getRequestDetail(req, res, next) {
   try {
     const { id } = req.params;

@@ -107,11 +107,6 @@ router.get(
 
 // Revision loop pasca-KaDep reject judul (BPMN: Task_RevisiAfterKadep → Task_ReviewRevisionAfterKadep)
 router.post(
-  "/thesis/:thesisId/revision-after-kadep/submit",
-  requireAnyRole([ROLES.MAHASISWA]),
-  controller.postSubmitRevisionAfterKadep,
-);
-router.post(
   "/thesis/:thesisId/revision-after-kadep/approve",
   requireAnyRole([ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]),
   validate(approveRevisionAfterKadepSchema),

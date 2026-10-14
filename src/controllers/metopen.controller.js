@@ -217,20 +217,6 @@ export async function postKadepRegenerateTitleReport(req, res, next) {
 }
 
 /**
- * POST /metopen/thesis/:thesisId/revision-after-kadep/submit
- * Mahasiswa menandai revisi proposal telah selesai sesuai catatan KaDep.
- */
-export async function postSubmitRevisionAfterKadep(req, res, next) {
-  try {
-    const { thesisId } = req.params;
-    const data = await service.submitRevisionAfterKadepReject(thesisId, req.user.sub);
-    res.status(200).json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
  * POST /metopen/thesis/:thesisId/revision-after-kadep/approve
  * Pembimbing menelaah dan menyetujui revisi pasca-KaDep reject → re-queue ke KaDep.
  */

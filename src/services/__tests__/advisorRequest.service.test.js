@@ -1078,15 +1078,6 @@ describe("advisorRequest.service — dual justification Path C", () => {
   });
 });
 
-describe("advisorRequest.service — assignAdvisor deprecated", () => {
-  it("selalu menolak POST /assign (pintu belakang active_official)", async () => {
-    const { assignAdvisor } = await import("../advisorRequest.service.js");
-    await expect(assignAdvisor("req-1", "kadep-1")).rejects.toMatchObject({
-      message: expect.stringMatching(/dinonaktifkan|TA-04 batch|promosi otomatis/i),
-    });
-  });
-});
-
 describe("advisorRequest.service — reject notifications (canon v2.6)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

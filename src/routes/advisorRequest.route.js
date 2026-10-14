@@ -57,12 +57,6 @@ router.post(
   validate(kadepDecideSchema),
   controller.decideByKadep,
 );
-// Deprecated: selalu 400 — lihat assignAdvisor() di service (canon §5.8/§5.10).
-router.post(
-  "/:id/assign",
-  requireAnyRole([ROLES.KETUA_DEPARTEMEN]),
-  controller.assignAdvisor,
-);
 
 // ── Formulir TA-04 batch per periode ───────────────────
 router.get(
