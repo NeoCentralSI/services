@@ -6,6 +6,7 @@ import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
 import { runSupervisorRequestReminderJob } from "../jobs/supervisor-request-reminder.job.js";
+import { runSupervisorAssignmentReminderJob } from "../jobs/supervisor-assignment-reminder.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
@@ -94,8 +95,8 @@ export async function scheduleAcademicYearSync() {
 }
 
 export async function scheduleSupervisorRequestReminder() {
-  const pattern = ENV.SUPERVISOR_REQUEST_REMINDER_CRON || "30 7 * * *";
-  const tz = ENV.SUPERVISOR_REQUEST_REMINDER_TZ || "Asia/Jakarta";
+  const pattern = process.env.SUPERVISOR_REQUEST_REMINDER_CRON || "30 7 * * *";
+  const tz = process.env.SUPERVISOR_REQUEST_REMINDER_TZ || "Asia/Jakarta";
   const ok = await safeAdd("supervisor-request-reminder", {
     repeat: { pattern, tz },
     removeOnComplete: 50,
@@ -104,6 +105,19 @@ export async function scheduleSupervisorRequestReminder() {
     backoff: { type: "exponential", delay: 5000 },
   });
   if (ok) console.log(`🗓️  Scheduled repeatable supervisor-request-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
+export async function scheduleSupervisorAssignmentReminder() {
+  const pattern = process.env.SUPERVISOR_ASSIGNMENT_REMINDER_CRON || "0 8 * * *";
+  const tz = process.env.SUPERVISOR_ASSIGNMENT_REMINDER_TZ || "Asia/Jakarta";
+  const ok = await safeAdd("supervisor-assignment-reminder", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+  if (ok) console.log(`🗓️  Scheduled repeatable supervisor-assignment-reminder job with cron: "${pattern}" tz="${tz}"`);
 }
 
 export async function scheduleSiaSync() {
@@ -264,6 +278,9 @@ export const maintenanceWorker = MAINTENANCE_ENABLED
             break;
           case "supervisor-request-reminder":
             await runSupervisorRequestReminderJob();
+            break;
+          case "supervisor-assignment-reminder":
+            await runSupervisorAssignmentReminderJob();
             break;
           case "guidance-reminder":
             await runGuidanceReminderJob();

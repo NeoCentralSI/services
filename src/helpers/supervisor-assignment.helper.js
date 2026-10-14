@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { ROLES } from "../constants/roles.js";
 import { UNTITLED_THESIS } from "../constants/thesis-proposal.js";
-import { generateTA04Pdf } from "../utils/ta04.pdf.js";
+import { generateSupervisorAssignmentPdf } from "../utils/supervisor-assignment.pdf.js";
 
 /**
  * Penetapan Pembimbing (formulir TA-04): who is in a period's batch and what its PDF says.
@@ -58,7 +58,7 @@ export function assignmentPdfFileName(academicYear, version) {
 
 /** The PDF of a batch, titled "Formulir TA-04" (K10: the form code only in the PDF). */
 export async function renderAssignmentPdf({ academicYear, entries, kadep, now = new Date() }) {
-  return generateTA04Pdf({
+  return generateSupervisorAssignmentPdf({
     semester: semesterLabel(academicYear),
     entries: entries.map((entry) => ({
       studentName: entry.studentName,

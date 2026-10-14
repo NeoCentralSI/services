@@ -42,9 +42,6 @@ COPY --from=prod-deps /app/src/generated ./src/generated
 
 # Copy source
 COPY src ./src
-# TA-04 generation still reads this official runtime template from /app/guide.
-# Other guide files remain excluded by .dockerignore.
-COPY ["guide/TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf", "./guide/TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf"]
 COPY package.json ./
 
 RUN mkdir -p uploads && chown -R appuser:appgroup /app

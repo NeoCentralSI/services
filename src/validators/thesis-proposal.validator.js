@@ -33,3 +33,7 @@ export const kadepDecisionSchema = z.object({
   targetLecturerId: text(191),
   notes: text(2000),
 });
+
+export const issueAssignmentSchema = z.object({
+  academicYearId: text(191),
+});

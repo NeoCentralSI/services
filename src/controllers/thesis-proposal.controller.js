@@ -1,4 +1,6 @@
 import * as requests from "../services/thesis-proposal/supervisor-request.service.js";
+import * as assignments from "../services/thesis-proposal/supervisor-assignment.service.js";
+import * as student from "../services/thesis-proposal/student.service.js";
 
 const ok = (res, data, message = undefined, status = 200) =>
   res.status(status).json({ success: true, ...(message ? { message } : {}), data });
@@ -63,3 +65,25 @@ export const decideAsKadep = handle(async (req, res) => {
 
 /** GET /thesis-proposals/supervisor-requests/:id */
 export const getRequestDetail = handle(async (req, res) => ok(res, await requests.getRequestDetail(req.params.id, req.user.sub)));
+
+// ── Penetapan Pembimbing ─────────────────────────────────────────────────────────────
+const yearOf = (req) => (typeof req.query.academicYearId === "string" && req.query.academicYearId ? req.query.academicYearId : null);
+const sendPdf = (res, { buffer, fileName, mimeType = "application/pdf" }) => {
+  res.setHeader("Content-Type", mimeType);
+  res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(fileName)}"`);
+  res.send(buffer);
+};
+
+/** GET /thesis-proposals/me — thesis, supervisors and Penetapan Pembimbing status of the student */
+export const getMyOverview = handle(async (req, res) => ok(res, await student.getStudentProposalOverview(req.user.sub)));
+/** GET /thesis-proposals/supervisor-assignments[?academicYearId=] */
+export const getAssignmentOverview = handle(async (req, res) => ok(res, await assignments.getAssignmentOverview(yearOf(req))));
+/** GET /thesis-proposals/supervisor-assignments/preview[?academicYearId=] — PDF of the current cohort */
+export const previewAssignment = handle(async (req, res) => sendPdf(res, await assignments.previewAssignmentPdf(yearOf(req))));
+/** POST /thesis-proposals/supervisor-assignments { academicYearId } */
+export const issueAssignment = handle(async (req, res) => {
+  const data = await assignments.issueAssignment(req.validated.academicYearId ?? null, req.user.sub);
+  ok(res, data, data.alreadyIssued ? "Susunan tidak berubah; Penetapan Pembimbing yang berlaku tetap dipakai" : "Penetapan Pembimbing diterbitkan");
+});
+/** GET /thesis-proposals/supervisor-assignments/batches/:id/file */
+export const getBatchFile = handle(async (req, res) => sendPdf(res, await assignments.getBatchFile(req.params.id, req.user.sub)));

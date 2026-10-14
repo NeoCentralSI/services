@@ -4,9 +4,9 @@ import { join } from "path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   assertStrictSectionOrder,
-  generateTA04Pdf,
-  planTa04DocumentStructure,
-} from "../../utils/ta04.pdf.js";
+  generateSupervisorAssignmentPdf,
+  planAssignmentDocumentStructure,
+} from "../../utils/supervisor-assignment.pdf.js";
 
 function buildEntries(count) {
   return Array.from({ length: count }, (_, index) => {
@@ -27,7 +27,7 @@ function buildEntries(count) {
 }
 
 async function generateSample(entryCount, overrides = {}) {
-  return generateTA04Pdf({
+  return generateSupervisorAssignmentPdf({
     semester: "Genap 2025/2026",
     entries: buildEntries(entryCount),
     dateGenerated: "20 Juli 2026",
@@ -68,9 +68,9 @@ describe("assertStrictSectionOrder", () => {
   });
 });
 
-describe("planTa04DocumentStructure", () => {
+describe("planAssignmentDocumentStructure", () => {
   it("keeps embedded B. Ketentuan on page 1 when there is no overflow", () => {
-    const plan = planTa04DocumentStructure(7);
+    const plan = planAssignmentDocumentStructure(7);
     expect(plan.hasOverflow).toBe(false);
     expect(plan.cropKetentuanOnPage1).toBe(false);
     expect(plan.continuationPageCount).toBe(0);
@@ -81,7 +81,7 @@ describe("planTa04DocumentStructure", () => {
   });
 
   it("schedules all A continuation pages before any B/C pages", () => {
-    const plan8 = planTa04DocumentStructure(8);
+    const plan8 = planAssignmentDocumentStructure(8);
     expect(plan8.cropKetentuanOnPage1).toBe(true);
     expect(plan8.continuationPageCount).toBe(1);
     expect(plan8.sectionSequence[0]).toBe("A");
@@ -94,7 +94,7 @@ describe("planTa04DocumentStructure", () => {
     );
     expect(isMonotonicABC(plan8.sectionSequence)).toBe(true);
 
-    const plan27 = planTa04DocumentStructure(27);
+    const plan27 = planAssignmentDocumentStructure(27);
     expect(plan27.continuationPageCount).toBe(2);
     expect(plan27.sectionSequence.filter((s) => s === "A")).toHaveLength(3);
     expect(plan27.sectionSequence.indexOf("B")).toBeGreaterThan(
@@ -107,7 +107,7 @@ describe("planTa04DocumentStructure", () => {
     const longBullets = Array.from({ length: 12 }, (_, i) => (
       `Ketentuan panjang nomor ${i + 1}: ${"isi detail ".repeat(20)}`
     ));
-    const plan = planTa04DocumentStructure(8, {
+    const plan = planAssignmentDocumentStructure(8, {
       ketentuanBullets: longBullets,
       pageHeight: 792,
       regularFont: {
@@ -128,7 +128,7 @@ describe("planTa04DocumentStructure", () => {
   });
 });
 
-describe("generateTA04Pdf", () => {
+describe("generateSupervisorAssignmentPdf", () => {
   it("uses a compact layout for up to 7 entries", async () => {
     const pdfBuffer = await generateSample(7);
     const pdfDoc = await PDFDocument.load(pdfBuffer);
@@ -137,7 +137,7 @@ describe("generateTA04Pdf", () => {
 
   it("keeps section order A* → B* → C* for multi-page A overflow", async () => {
     for (const count of [8, 18, 27, 37]) {
-      const plan = planTa04DocumentStructure(count);
+      const plan = planAssignmentDocumentStructure(count);
       expect(isMonotonicABC(plan.sectionSequence)).toBe(true);
       expect(plan.sectionSequence.indexOf("B")).toBeGreaterThan(
         plan.sectionSequence.lastIndexOf("A"),
@@ -153,12 +153,12 @@ describe("generateTA04Pdf", () => {
   });
 
   it("writes verification PDFs for visual/section-order checks", async () => {
-    const outDir = join(process.cwd(), "uploads", "documents", "ta04");
+    const outDir = join(process.cwd(), "uploads", "documents", "supervisor-assignment");
     await mkdir(outDir, { recursive: true });
 
     for (const count of [7, 8, 27]) {
       const pdfBuffer = await generateSample(count);
-      await writeFile(join(outDir, `TA04_SECTION_ORDER_${count}.pdf`), pdfBuffer);
+      await writeFile(join(outDir, `SECTION_ORDER_${count}.pdf`), pdfBuffer);
     }
 
     const doc = await PDFDocument.create();

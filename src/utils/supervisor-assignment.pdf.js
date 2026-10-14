@@ -1,24 +1,11 @@
-import { accessSync } from "fs";
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_FILENAME = "TA-04_PENUGASAN DOSEN PEMBIMBING TUGAS AKHIR.pdf";
-// Prefer in-repo template (services/guide) so CI on the standalone services
-// checkout does not depend on the monorepo sibling `../guide`.
-const TEMPLATE_PATH = [
-  join(__dirname, "..", "..", "guide", TEMPLATE_FILENAME),
-  join(__dirname, "..", "..", "..", "guide", TEMPLATE_FILENAME),
-].find((candidate) => {
-  try {
-    accessSync(candidate);
-    return true;
-  } catch {
-    return false;
-  }
-}) ?? join(__dirname, "..", "..", "guide", TEMPLATE_FILENAME);
+// Official "Formulir TA-04" template (Penugasan Dosen Pembimbing Tugas Akhir), shipped with src.
+const TEMPLATE_PATH = join(__dirname, "..", "assets", "supervisor-assignment-template.pdf");
 
 const ROWS_PER_FIRST_PAGE = 7;
 const ROWS_PER_CONTINUATION_PAGE = 10;
@@ -40,7 +27,7 @@ const KETENTUAN_BULLETS = [
 // Coordinates measured from the official TA-04 PDF using PyMuPDF.
 // They use the template's native top-left coordinate system and are converted
 // to pdf-lib's bottom-left coordinates at draw time.
-const TA04_COORDS = {
+const TEMPLATE_COORDS = {
   page1: {
     semesterTailBox: { x0: 321.8, y0: 214.8, x1: 542.6, y1: 231.2 },
     columns: {
@@ -338,8 +325,8 @@ async function copyTemplatePage1WithoutKetentuan(outputDoc, templateDoc, keepUnt
 }
 
 function drawRowNumber(page, rowIndex, globalRowNumber, font) {
-  const row = TA04_COORDS.page1.rows[rowIndex];
-  const noColumn = TA04_COORDS.page1.columns.no;
+  const row = TEMPLATE_COORDS.page1.rows[rowIndex];
+  const noColumn = TEMPLATE_COORDS.page1.columns.no;
   const box = getRowCellBox(noColumn, row, 4);
 
   // The official template already contains static 1..7 row numbers, so mask
@@ -359,8 +346,8 @@ function drawRowNumber(page, rowIndex, globalRowNumber, font) {
 }
 
 function drawEntryCells(page, rowIndex, entry, font) {
-  const row = TA04_COORDS.page1.rows[rowIndex];
-  const { name, nim, title, supervisor } = TA04_COORDS.page1.columns;
+  const row = TEMPLATE_COORDS.page1.rows[rowIndex];
+  const { name, nim, title, supervisor } = TEMPLATE_COORDS.page1.columns;
 
   drawTextInBox(page, entry.studentName, getRowCellBox(name, row), font, {
     align: "left",
@@ -408,7 +395,7 @@ function drawEntryCells(page, rowIndex, entry, font) {
 }
 
 function overlayPageOne(page, entries, startIndex, semester, font) {
-  drawTextInBox(page, `semester ${semester}, maka melalui formulir`, TA04_COORDS.page1.semesterTailBox, font, {
+  drawTextInBox(page, `semester ${semester}, maka melalui formulir`, TEMPLATE_COORDS.page1.semesterTailBox, font, {
     align: "left",
     textPaddingX: 0,
     textPaddingY: 2,
@@ -831,7 +818,7 @@ function planKetentuanAndPengesahanPages(bullets, pageHeight, regularFont) {
  * @param {number} [options.pageHeight]
  * @param {{widthOfTextAtSize: Function}} [options.regularFont]
  */
-export function planTa04DocumentStructure(entryCount, options = {}) {
+export function planAssignmentDocumentStructure(entryCount, options = {}) {
   const safeCount = Math.max(0, Number(entryCount) || 0);
   const overflowCount = Math.max(0, safeCount - ROWS_PER_FIRST_PAGE);
   const hasOverflow = overflowCount > 0;
@@ -932,7 +919,7 @@ function drawKetentuanPage(page, planPage, {
  * @param {string} opts.kadepNip
  * @returns {Promise<Buffer>}
  */
-export async function generateTA04Pdf(opts) {
+export async function generateSupervisorAssignmentPdf(opts) {
   const {
     semester,
     entries = [],
@@ -953,7 +940,7 @@ export async function generateTA04Pdf(opts) {
   const hasOverflow = entries.length > ROWS_PER_FIRST_PAGE;
   const ketentuanBullets = hasOverflow ? [...KETENTUAN_BULLETS] : [KETENTUAN_BULLETS[2]];
 
-  const plan = planTa04DocumentStructure(entries.length, {
+  const plan = planAssignmentDocumentStructure(entries.length, {
     ketentuanBullets,
     pageHeight,
     regularFont,
