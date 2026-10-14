@@ -613,11 +613,11 @@ async function main() {
         },
       });
       await prisma.thesisSupervisors.create({
-        data: { thesisId: thesis.id, lecturerId: lecturers[account.thesis.p1].id, roleId: p1Role.id, status: "active" },
+        data: { thesisId: thesis.id, lecturerId: lecturers[account.thesis.p1].id, roleId: p1Role.id, status: "active", activeRoleKey: `${thesis.id}:${p1Role.id}` },
       });
       if (account.thesis.p2) {
         await prisma.thesisSupervisors.create({
-          data: { thesisId: thesis.id, lecturerId: lecturers[account.thesis.p2].id, roleId: p2Role.id, status: "active" },
+          data: { thesisId: thesis.id, lecturerId: lecturers[account.thesis.p2].id, roleId: p2Role.id, status: "active", activeRoleKey: `${thesis.id}:${p2Role.id}` },
         });
       }
       thesisByKey.set(account.key, { thesis, account, user });
@@ -647,7 +647,6 @@ async function main() {
           : null,
         status: req.status,
         route: req.route,
-        reviewedAt: req.status === STATUS.UNDER_REVIEW ? hoursAgo(req.hoursAgo - 4) : null,
         createdAt,
         ...forwarded,
         ...decided,

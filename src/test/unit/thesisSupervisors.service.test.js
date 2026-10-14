@@ -31,7 +31,7 @@ vi.mock("../../services/push.service.js", () => ({
 }));
 vi.mock("../../services/auditLog.service.js", () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
-  AUDIT_ACTIONS: { REQUEST_ADVISOR_KADEP_APPROVED: "REQUEST_ADVISOR_KADEP_APPROVED" },
+  AUDIT_ACTIONS: { SUPERVISOR_REQUEST_KADEP_APPROVED: "SUPERVISOR_REQUEST_KADEP_APPROVED" },
   ENTITY_TYPES: { SUPERVISOR2_REQUEST: "SUPERVISOR2_REQUEST" },
 }));
 vi.mock("../../utils/global.util.js", () => ({

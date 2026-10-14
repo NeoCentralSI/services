@@ -109,7 +109,7 @@ export async function assignCoAdvisor(thesisId, lecturerId, actorUserId) {
   // Celah #7: Audit trail.
   await logAudit({
     actorUserId: actorUserId || null,
-    action: AUDIT_ACTIONS.REQUEST_ADVISOR_KADEP_APPROVED,
+    action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_KADEP_APPROVED,
     entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
     entityId: thesisId,
     newValues: { thesisId, lecturerId, lecturerName, role: 'pembimbing_2', viaJalurB: true },

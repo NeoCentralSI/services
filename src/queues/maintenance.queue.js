@@ -5,6 +5,7 @@ import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
+import { runSupervisorRequestReminderJob } from "../jobs/supervisor-request-reminder.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
@@ -90,6 +91,19 @@ export async function scheduleAcademicYearSync() {
     backoff: { type: "exponential", delay: 5000 },
   });
   if (ok) console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
+}
+
+export async function scheduleSupervisorRequestReminder() {
+  const pattern = ENV.SUPERVISOR_REQUEST_REMINDER_CRON || "30 7 * * *";
+  const tz = ENV.SUPERVISOR_REQUEST_REMINDER_TZ || "Asia/Jakarta";
+  const ok = await safeAdd("supervisor-request-reminder", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+  if (ok) console.log(`🗓️  Scheduled repeatable supervisor-request-reminder job with cron: "${pattern}" tz="${tz}"`);
 }
 
 export async function scheduleSiaSync() {
@@ -247,6 +261,9 @@ export const maintenanceWorker = MAINTENANCE_ENABLED
             break;
           case "academic-year-sync":
             await syncActiveAcademicYear();
+            break;
+          case "supervisor-request-reminder":
+            await runSupervisorRequestReminderJob();
             break;
           case "guidance-reminder":
             await runGuidanceReminderJob();

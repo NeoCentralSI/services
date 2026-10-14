@@ -35,3 +35,51 @@ export async function countActiveSupervisions(lecturerIds = null, client = prism
   });
   return new Map(rows.map((row) => [row.lecturerId, row._count._all]));
 }
+
+/** Active supervisor relations on open theses, with what the load screen breaks down. */
+export function findActiveSupervisionRows(lecturerIds = null, client = prisma) {
+  return client.thesisSupervisors.findMany({
+    where: {
+      status: "active",
+      ...(lecturerIds ? { lecturerId: { in: lecturerIds } } : {}),
+      thesis: { status: { in: OPEN_THESIS_STATUSES } },
+    },
+    select: {
+      lecturerId: true,
+      role: { select: { name: true } },
+      thesis: { select: { status: true, supervisorAssignedAt: true } },
+    },
+  });
+}
+
+/** Lecturers shown on the load screen: every lecturer with an active supervisor role. */
+export function findLecturersForLoadScreen(client = prisma) {
+  return client.lecturer.findMany({
+    where: { user: { userHasRoles: { some: { status: "active", role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } } } } } },
+    select: {
+      id: true,
+      acceptingRequests: true,
+      scienceGroup: { select: { id: true, name: true } },
+      user: { select: { fullName: true, identityNumber: true } },
+    },
+    orderBy: { user: { fullName: "asc" } },
+  });
+}
+
+export function upsertGeneralQuota(existingId, data, client = prisma) {
+  return existingId
+    ? client.supervisionQuota.update({ where: { id: existingId }, data })
+    : client.supervisionQuota.create({ data: { academicYearId: null, ...data } });
+}
+
+export function upsertPeriodQuota(academicYearId, data, client = prisma) {
+  return client.supervisionQuota.upsert({
+    where: { academicYearId },
+    create: { academicYearId, ...data },
+    update: data,
+  });
+}
+
+export function deletePeriodQuota(academicYearId, client = prisma) {
+  return client.supervisionQuota.deleteMany({ where: { academicYearId } });
+}

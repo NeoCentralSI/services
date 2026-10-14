@@ -12,6 +12,7 @@ import {
   scheduleInternshipLogbookReminder,
   scheduleInternshipSeminarReminder,
   scheduleSiaSync,
+  scheduleSupervisorRequestReminder,
   scheduleYudisiumRegistrationClosedReminder,
   scheduleYudisiumRegistrationClosingReminder,
   scheduleYudisiumRegistrationOpenReminder,
@@ -32,6 +33,7 @@ async function startServer() {
     const schedulers = [
       scheduleAcademicYearSync,
       scheduleSiaSync,
+      scheduleSupervisorRequestReminder,
       scheduleGuidanceReminder,
       scheduleDailyThesisReminder,
       scheduleDailyInternshipStatus,

@@ -134,6 +134,42 @@ export const GUIDANCE_EVALUATION_OBSERVATION_LABELS = Object.freeze({
   noRevision: "Tidak menyerahkan revisi sesuai arahan",
 });
 
+/** `ThesisSupervisorRequestStatus` (Pengajuan Pembimbing, K10). */
+export const SUPERVISOR_REQUEST_STATUS_LABELS = Object.freeze({
+  pending: "Menunggu Dosen",
+  under_review: "Sedang Ditinjau Dosen",
+  pending_kadep: "Menunggu Ketua Departemen",
+  revision_requested: "Perlu Revisi",
+  accepted: "Disetujui, Menunggu Penetapan Pembimbing",
+  assigned: "Pembimbing Ditetapkan",
+  rejected_by_lecturer: "Ditolak Dosen",
+  rejected_by_kadep: "Ditolak Ketua Departemen",
+  redirected: "Dialihkan Ketua Departemen, Menunggu Penetapan Pembimbing",
+  withdrawn: "Ditarik",
+  cancelled: "Dibatalkan",
+  closed: "Ditutup",
+});
+
+/** `SupervisorRequestRoute` */
+export const SUPERVISOR_REQUEST_ROUTE_LABELS = Object.freeze({
+  direct: "Pilih Dosen Sendiri",
+  over_quota: "Pengajuan di Atas Kuota",
+  department: "Ditetapkan Departemen",
+});
+
+/** Supervision load against the applicable limits (computed, plan 10.1). */
+export const SUPERVISION_LOAD_LEVEL_LABELS = Object.freeze({
+  available: "Tersedia",
+  near_limit: "Mendekati Batas",
+  full: "Penuh",
+});
+
+/** `ResearchMethodAssessmentResult` */
+export const RESEARCH_METHOD_RESULT_LABELS = Object.freeze({
+  passed: "Lulus",
+  failed: "Tidak Lulus",
+});
+
 const labelOf = (labels) => (value) => (value ? labels[value] ?? String(value) : "-");
 
 export const getThesisStatusLabel = labelOf(THESIS_STATUS_LABELS);
@@ -151,3 +187,7 @@ export const getSupervisorPositionLabel = labelOf(SUPERVISOR_POSITION_LABELS);
 export const getGuidanceEvaluationTypeLabel = labelOf(GUIDANCE_EVALUATION_TYPE_LABELS);
 export const getGuidanceEvaluationRecommendationLabel = labelOf(GUIDANCE_EVALUATION_RECOMMENDATION_LABELS);
 export const getGuidanceEvaluationStatusLabel = labelOf(GUIDANCE_EVALUATION_STATUS_LABELS);
+export const getSupervisorRequestStatusLabel = labelOf(SUPERVISOR_REQUEST_STATUS_LABELS);
+export const getSupervisorRequestRouteLabel = labelOf(SUPERVISOR_REQUEST_ROUTE_LABELS);
+export const getSupervisionLoadLevelLabel = labelOf(SUPERVISION_LOAD_LEVEL_LABELS);
+export const getResearchMethodResultLabel = labelOf(RESEARCH_METHOD_RESULT_LABELS);

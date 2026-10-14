@@ -278,7 +278,7 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 	// Audit log: supervisor-2 request created
 	await logAudit({
 		actorUserId: userId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_CREATED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_CREATED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: request.id,
 		newValues: { thesisId: thesis.id, lecturerId, lecturerName: selectedLecturer.fullName },
@@ -335,7 +335,7 @@ export async function cancelSupervisor2RequestService(userId) {
 	// Audit log: supervisor-2 request cancelled
 	await logAudit({
 		actorUserId: userId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_CANCELLED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_CANCELLED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: pending.id,
 		newValues: { thesisId: thesis.id, stage: pending.title === SUPERVISOR2_STAGE_TITLES.KADEP ? "kadep" : "lecturer" },
@@ -468,7 +468,7 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 	// Audit log: lecturer bersedia → forwarded to KaDep
 	await logAudit({
 		actorUserId: lecturerId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_ACCEPTED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_ACCEPTED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: requestId,
 		newValues: { thesisId, studentId, lecturerId, lecturerName, role: "pembimbing_2", forwardedToKadep: true },
@@ -515,7 +515,7 @@ export async function rejectSupervisor2RequestService(lecturerId, requestId, { r
 	// Audit log: supervisor-2 request rejected by lecturer
 	await logAudit({
 		actorUserId: lecturerId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_REJECTED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_REJECTED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: requestId,
 		newValues: { thesisId, studentId, reason: reason || null },
@@ -613,7 +613,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 
 		await logAudit({
 			actorUserId: kadepUserId,
-			action: AUDIT_ACTIONS.REQUEST_ADVISOR_KADEP_REJECTED,
+			action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_KADEP_REJECTED,
 			entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 			entityId: requestId,
 			newValues: { thesisId, studentId, lecturerId, reason: reason || null },
@@ -679,7 +679,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 
 	await logAudit({
 		actorUserId: kadepUserId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_KADEP_APPROVED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_KADEP_APPROVED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: requestId,
 		newValues: { thesisId, studentId, lecturerId, lecturerName, role: "pembimbing_2" },
