@@ -9,12 +9,12 @@ const router = express.Router();
 
 router.use(authGuard);
 
-/** POST /thesis-supervisors/co-advisor — KaDep/Admin assigns Pembimbing 2 (FR-CHG-02) */
+/** POST /thesis-supervisors/supervisor-2 — KaDep/Admin assigns Pembimbing 2 (FR-CHG-02) */
 router.post(
-  '/co-advisor',
+  '/supervisor-2',
   requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN]),
-  validate(supervisorValidator.assignCoAdvisorSchema),
-  supervisorController.assignCoAdvisor
+  validate(supervisorValidator.assignSupervisor2Schema),
+  supervisorController.assignSupervisor2
 );
 
 // Evaluasi Bimbingan (formulir TA-17) has its own routes: /thesis-guidance-evaluations.

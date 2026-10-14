@@ -1,5 +1,5 @@
 import express from "express";
-import { getAllTheses, createThesis, updateThesis, syncSia, importTheses } from "../controllers/masterDataTa.controller.js";
+import { getAllTheses, createThesis, updateThesis, importTheses } from "../controllers/masterDataTa.controller.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createThesisSchema, importThesesSchema, updateThesisSchema } from "../validators/masterDataTa.validator.js";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
@@ -11,7 +11,6 @@ router.use(authGuard);
 router.use(requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]));
 
 router.get("/", getAllTheses);
-router.post("/sync-sia", syncSia);
 router.post("/import", validate(importThesesSchema), importTheses);
 router.post("/", validate(createThesisSchema), createThesis);
 router.patch("/:id", validate(updateThesisSchema), updateThesis);

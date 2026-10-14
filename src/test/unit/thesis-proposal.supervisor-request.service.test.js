@@ -1,5 +1,5 @@
 /**
- * Pengajuan Pembimbing (Paket P, P2). Ports the rules covered by the old advisorRequest tests
+ * Pengajuan Pembimbing (Paket P, P2). Ports the rules covered by the old module's tests
  * (R1–R14 in PROPOSAL_FLOW_RESULT.md) to the new service and the two-tier limits of plan 10.1.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

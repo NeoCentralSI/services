@@ -781,7 +781,7 @@ describe("Module 6b: Propose New Thesis", () => {
   beforeEach(() => vi.clearAllMocks());
 
   // Guidance revival (decision e6): the baseline flow (new Thesis + copied supervisor
-  // rows) bypasses the TA-01/TA-02 advisor and quota flow, so the active block is kept.
+  // rows) bypasses Pengajuan Pembimbing and the quota flow, so the active block is kept.
   describe("proposeThesisService", () => {
     it("rejects (400) because direct thesis proposal is no longer facilitated", async () => {
       await expect(

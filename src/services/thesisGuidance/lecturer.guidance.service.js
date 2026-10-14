@@ -1153,10 +1153,10 @@ export async function sendWarningNotificationService(userId, thesisId) {
  */
 export async function approveThesisProposalService(userId, thesisId) {
 	// Revival decision (e3): baseline let a supervisor activate a proposal directly
-	// (thesisStatusId=null). That would bypass TA-03/TA-04 promotion, so the lock is kept.
+	// (thesisStatusId=null). That would bypass Penilaian Proposal and Naik ke Penelitian, so the lock is kept.
 	void userId;
 	void thesisId;
 	throw new ForbiddenError(
-		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan proses melalui penilaian TA-03; promosi aktif berjalan otomatis setelah TA-03 final dan KRS Tugas Akhir terkonfirmasi.",
+		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan lewat Nilai Proposal di Tugas Akhir > Proposal; mahasiswa naik ke fase Penelitian setelah lulus Metode Penelitian dan KRS Tugas Akhir terkonfirmasi.",
 	);
 }

@@ -351,7 +351,7 @@ export async function getCoordinatorQueue(academicYearId = null) {
 export async function getAttemptForUser(assessmentId, userId, roles) {
   const attempt = await repo.findAttempt(assessmentId);
   if (!attempt) throw new NotFoundError("Penilaian proposal tidak ditemukan.");
-  const privileged = roles.some((r) => [ROLES.KOORDINATOR_METOPEN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN].includes(r));
+  const privileged = roles.some((r) => [ROLES.KOORDINATOR_METODE_PENELITIAN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN].includes(r));
   if (privileged || activeSupervisor(attempt, userId)) return toView(await withAttendance(attempt));
   if (attempt.thesis.student?.id === userId) {
     const view = toView(attempt);

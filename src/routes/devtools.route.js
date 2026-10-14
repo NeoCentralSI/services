@@ -748,6 +748,114 @@ router.patch("/students/:studentId/period-flags", async (req, res, next) => {
   }
 });
 
+// GET /devtools/students/:studentId/period-flags — the semester flags of every period (Proposal tab)
+router.get("/students/:studentId/period-flags", async (req, res, next) => {
+  try {
+    const { studentId } = req.params;
+    const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true } });
+    if (!student) throw new NotFoundError("Mahasiswa tidak ditemukan");
+    const [years, rows] = await Promise.all([
+      prisma.academicYear.findMany({ orderBy: { startDate: "desc" } }),
+      prisma.studentAcademicYearSnapshot.findMany({ where: { studentId } }),
+    ]);
+    const byYear = new Map(rows.map((row) => [row.academicYearId, row]));
+    res.json({
+      success: true,
+      data: years.map((year) => ({
+        ...buildPeriodFlags(byYear.get(year.id) ?? { academicYearId: year.id }),
+        academicYearId: year.id,
+        academicYearLabel: formatAcademicYearLabel(year),
+        isActive: year.isActive,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// Proposal tab (Paket P, plan 10.8): supervisor request times for the 72-hour rule
+// ============================================
+
+const SUPERVISOR_REQUEST_LIST_SELECT = {
+  id: true,
+  status: true,
+  route: true,
+  createdAt: true,
+  proposedTitle: true,
+  academicYear: { select: { semester: true, year: true } },
+  student: { select: { user: { select: { fullName: true, identityNumber: true } } } },
+  lecturer: { select: { user: { select: { fullName: true } } } },
+};
+const WITHDRAW_LOCK_MS = 72 * 60 * 60 * 1000;
+
+const mapSupervisorRequestRow = (row) => ({
+  id: row.id,
+  status: row.status,
+  route: row.route,
+  createdAt: row.createdAt,
+  withdrawAvailableAt: new Date(new Date(row.createdAt).getTime() + WITHDRAW_LOCK_MS),
+  proposedTitle: row.proposedTitle,
+  academicYearLabel: row.academicYear ? formatAcademicYearLabel(row.academicYear) : null,
+  student: { fullName: row.student?.user?.fullName ?? null, nim: row.student?.user?.identityNumber ?? null },
+  lecturerName: row.lecturer?.user?.fullName ?? null,
+});
+
+// GET /devtools/supervisor-requests — Pengajuan Pembimbing with search and pagination
+router.get("/supervisor-requests", async (req, res, next) => {
+  try {
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const pageSize = Math.min(Math.max(Number(req.query.pageSize) || 20, 1), 100);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const where = search
+      ? { student: { user: { OR: [{ fullName: { contains: search } }, { identityNumber: { contains: search } }] } } }
+      : {};
+    const [rows, total] = await Promise.all([
+      prisma.thesisSupervisorRequest.findMany({
+        where,
+        select: SUPERVISOR_REQUEST_LIST_SELECT,
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.thesisSupervisorRequest.count({ where }),
+    ]);
+    res.json({
+      success: true,
+      data: rows.map(mapSupervisorRequestRow),
+      meta: { page, pageSize, total, totalPages: Math.max(Math.ceil(total / pageSize), 1) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /devtools/supervisor-requests/:id — move the sending time back (no status change, no notification)
+router.patch("/supervisor-requests/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const raw = req.body?.createdAt;
+    const createdAt = raw ? new Date(raw) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) throw new BadRequestError("Waktu pengajuan wajib berupa tanggal yang valid.");
+    if (createdAt > new Date()) throw new BadRequestError("Waktu pengajuan tidak boleh di masa depan.");
+    const existing = await prisma.thesisSupervisorRequest.findUnique({ where: { id }, select: SUPERVISOR_REQUEST_LIST_SELECT });
+    if (!existing) throw new NotFoundError("Pengajuan pembimbing tidak ditemukan");
+    const updated = await prisma.thesisSupervisorRequest.update({ where: { id }, data: { createdAt }, select: SUPERVISOR_REQUEST_LIST_SELECT });
+    await logAudit({
+      actorUserId: req.user?.sub ?? null,
+      action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_TIME_OVERRIDDEN,
+      entityType: ENTITY_TYPES.THESIS_SUPERVISOR_REQUEST,
+      entityId: id,
+      oldValues: { createdAt: existing.createdAt },
+      newValues: { createdAt: updated.createdAt },
+      metadata: { source: "devtools" },
+    });
+    res.json({ success: true, data: mapSupervisorRequestRow(updated), message: "Waktu pengajuan pembimbing diubah" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ============================================
 // Password Management
 // ============================================

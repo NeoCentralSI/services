@@ -27,6 +27,7 @@ import {
 	getActiveAcademicYear,
 	resolveOperationalAcademicYear,
 	ensureOperationalAcademicYearWindow,
+	formatAcademicYearLabel,
 } from "../helpers/academicYear.helper.js";
 import {
 	BadRequestError,
@@ -394,7 +395,8 @@ export function normalizeRoleInputName(name) {
 	if (lower === "sekretaris departemen" || lower === "sekdep") return [ROLES.SEKRETARIS_DEPARTEMEN];
 	if (lower === "gkm") return [ROLES.GKM];
 	if (lower === "admin") return [ROLES.ADMIN];
-	if (lower === "koordinator matkul metopen" || lower === "koordinator metopen") return [ROLES.KOORDINATOR_METOPEN];
+	// The stored role value keeps the old name; the import also accepts the UI label.
+	if (["koordinator matkul metopen", "koordinator metopen", "koordinator metode penelitian"].includes(lower)) return [ROLES.KOORDINATOR_METODE_PENELITIAN];
 	if (lower === "koordinator yudisium") return [ROLES.KOORDINATOR_YUDISIUM];
 	if (lower === "tim pengelola cpl" || lower === "pengelola cpl") return [ROLES.TIM_PENGELOLA_CPL];
 	return [raw];
@@ -1077,14 +1079,59 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 }
 
 // Get all Students with detailed information
-export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined, sortBy = undefined, sortOrder = "desc" } = {}) {
+const SEMESTER_FLAGS_SELECT = {
+	academicYearId: true,
+	eligibleResearchMethod: true,
+	takingThesisCourse: true,
+	eligibilitySource: true,
+	thesisCourseSource: true,
+	capturedAt: true,
+};
+
+/** SIA flags of one period for the student master data (Paket P, plan 10.6). */
+function toSemesterFlags(snapshot, academicYear) {
+	if (!academicYear) return null;
+	return {
+		academicYearId: academicYear.id,
+		academicYearLabel: formatAcademicYearLabel(academicYear),
+		takingResearchMethod: snapshot?.eligibleResearchMethod ?? null,
+		takingThesisCourse: snapshot?.takingThesisCourse ?? null,
+		source: snapshot?.thesisCourseSource ?? snapshot?.eligibilitySource ?? null,
+		capturedAt: snapshot?.capturedAt ?? null,
+	};
+}
+
+/**
+ * "Program" filter of the student list (Paket P, plan 10.6): the SIA flags of the operational
+ * period — taking Metode Penelitian and/or Tugas Akhir.
+ */
+const NOT_TRUE = [false, null];
+const PROGRAM_SNAPSHOT_FILTERS = {
+	"research-method": { eligibleResearchMethod: true, OR: NOT_TRUE.map((takingThesisCourse) => ({ takingThesisCourse })) },
+	thesis: { takingThesisCourse: true, OR: NOT_TRUE.map((eligibleResearchMethod) => ({ eligibleResearchMethod })) },
+	both: { eligibleResearchMethod: true, takingThesisCourse: true },
+};
+
+export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined, sortBy = undefined, sortOrder = "desc", program = undefined, academicYearId = undefined } = {}) {
 	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;
 	const take = pageSize > 0 ? pageSize : undefined;
+	// SIA flags and the program filter follow the chosen period, else the operational one.
+	const period = academicYearId
+		? await prisma.academicYear.findUnique({ where: { id: academicYearId } })
+		: await resolveOperationalAcademicYear();
 
 	// Build student filter: always require student exists, optionally filter by enrollmentYear
 	const studentFilter = enrollmentYear
 		? { isNot: null, enrollmentYear: parseInt(enrollmentYear) }
 		: { isNot: null };
+	if (period && program && (PROGRAM_SNAPSHOT_FILTERS[program] || program === "none")) {
+		studentFilter.is = program === "none"
+			? { academicYearSnapshots: { none: { academicYearId: period.id, OR: [{ eligibleResearchMethod: true }, { takingThesisCourse: true }] } } }
+			: { academicYearSnapshots: { some: { academicYearId: period.id, ...PROGRAM_SNAPSHOT_FILTERS[program] } } };
+		if (enrollmentYear) studentFilter.is.enrollmentYear = parseInt(enrollmentYear);
+		delete studentFilter.isNot;
+		delete studentFilter.enrollmentYear;
+	}
 
 	const where = {
 		student: studentFilter,
@@ -1120,6 +1167,10 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 			include: {
 				student: {
 					include: {
+						academicYearSnapshots: {
+							where: { academicYearId: period?.id ?? "" },
+							select: SEMESTER_FLAGS_SELECT,
+						},
 						thesis: {
 							where: {
 								status: { in: OPEN_THESIS_STATUSES },
@@ -1176,6 +1227,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 				researchMethodCompleted: user.student.researchMethodCompleted,
 				currentSemester: user.student.currentSemester,
 				status: user.student.status || null,
+				semesterFlags: toSemesterFlags(user.student.academicYearSnapshots[0], period),
 				activeTheses: user.student.thesis.map((thesis) => ({
 					title: thesis.title,
 					supervisors: thesis.thesisSupervisors
@@ -1196,6 +1248,15 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 
 	return {
 		students: transformedStudents,
+		academicYearContext: period
+			? {
+				id: period.id,
+				year: period.year,
+				semester: period.semester,
+				label: formatAcademicYearLabel(period),
+				isActive: Boolean(period.isActive),
+			}
+			: null,
 		meta: {
 			page,
 			pageSize,
@@ -1490,6 +1551,10 @@ export async function getStudentDetail(userId) {
 		include: {
 			student: {
 				include: {
+					academicYearSnapshots: {
+						select: { ...SEMESTER_FLAGS_SELECT, academicYear: { select: { id: true, year: true, semester: true } } },
+						orderBy: { academicYear: { startDate: "desc" } },
+					},
 					thesis: {
 						include: {
 							thesisTopic: true,
@@ -1653,6 +1718,7 @@ export async function getStudentDetail(userId) {
 			researchMethodCompleted: user.student.researchMethodCompleted,
 			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
+			semesterFlags: user.student.academicYearSnapshots.map((row) => toSemesterFlags(row, row.academicYear)),
 		},
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,

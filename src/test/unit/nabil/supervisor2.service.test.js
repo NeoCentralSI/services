@@ -1,5 +1,5 @@
 /**
- * Unit Tests — Pembimbing 2 (Co-Advisor) Service
+ * Unit Tests — Pembimbing 2 Service
  * Selaras alur audit pass 2 (2026-06-10):
  *  - guard fase/status thesis (F2-2)
  *  - re-check kuota di tiap titik keputusan (F2-3)

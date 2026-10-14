@@ -15,7 +15,7 @@ const router = express.Router();
 router.use(authGuard);
 
 const MANAGERS = [ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN];
-const READERS = [...MANAGERS, ROLES.ADMIN, ROLES.KOORDINATOR_METOPEN];
+const READERS = [...MANAGERS, ROLES.ADMIN, ROLES.KOORDINATOR_METODE_PENELITIAN];
 
 router.get("/", requireAnyRole(READERS), controller.getOverview);
 router.put("/general", requireAnyRole(MANAGERS), validate(validator.limitsSchema), controller.setGeneral);

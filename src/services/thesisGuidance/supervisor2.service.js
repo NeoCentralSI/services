@@ -648,13 +648,13 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	await createNotificationsForUsers([studentId], {
 		title: "Pembimbing 2 Disetujui",
 		message: isPromoted
-			? `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem.`
+			? `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda. Penetapan Pembimbing yang sudah terbit tetap berlaku sampai Ketua Departemen menerbitkan versi barunya; relasi pembimbing terbaru tercatat di sistem.`
 			: `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda.`,
 	});
 	await createNotificationsForUsers([lecturerId], {
 		title: "Penetapan Pembimbing 2",
 		message: isPromoted
-			? "Ketua Departemen menyetujui Anda sebagai Pembimbing 2. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem."
+			? "Ketua Departemen menyetujui Anda sebagai Pembimbing 2. Penetapan Pembimbing yang sudah terbit tetap berlaku sampai Ketua Departemen menerbitkan versi barunya; relasi pembimbing terbaru tercatat di sistem."
 			: "Ketua Departemen menyetujui Anda sebagai Pembimbing 2.",
 	});
 	await sendFcmToUsers([studentId, lecturerId], {
@@ -664,7 +664,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		dataOnly: true,
 	});
 
-	// Jika thesis sudah promoted, TA-04 awal tetap memakai snapshot batch pertama.
+	// Jika thesis sudah promoted, PDF Penetapan Pembimbing yang terbit tetap berlaku sampai versi baru terbit (R17).
 	// Notifikasi KaDep bersifat informatif, bukan instruksi regenerasi dokumen.
 	if (isPromoted) {
 		const kadepUsers = await findUsersByActiveRole(ROLES.KETUA_DEPARTEMEN);
@@ -672,7 +672,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		if (kadepIds.length > 0) {
 			await createNotificationsForUsers(kadepIds, {
 				title: "Pembimbing 2 Ditambahkan Pasca-Promosi",
-				message: `Pembimbing 2 (${lecturerName}) ditambahkan pada thesis yang sudah aktif. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem.`,
+				message: `Pembimbing 2 (${lecturerName}) ditambahkan pada thesis yang sudah aktif. Penetapan Pembimbing yang sudah terbit tetap berlaku sampai Ketua Departemen menerbitkan versi barunya; relasi pembimbing terbaru tercatat di sistem.`,
 			});
 		}
 	}

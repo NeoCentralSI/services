@@ -91,7 +91,7 @@ export function createDetails(party, assessmentId, details, client = prisma) {
 
 export function findCoordinatorUserIds(client = prisma) {
   return client.userHasRole
-    .findMany({ where: { status: "active", role: { name: ROLES.KOORDINATOR_METOPEN } }, select: { userId: true } })
+    .findMany({ where: { status: "active", role: { name: ROLES.KOORDINATOR_METODE_PENELITIAN } }, select: { userId: true } })
     .then((rows) => rows.map((r) => r.userId));
 }
 

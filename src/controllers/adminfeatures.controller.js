@@ -132,7 +132,9 @@ export async function getStudentsController(req, res, next) {
 		const enrollmentYear = req.query.enrollmentYear || req.query.enrollmentYearFilter || undefined;
 		const sortBy = req.query.sortBy || undefined;
 		const sortOrder = req.query.sortOrder || "desc";
-		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder });
+		const program = req.query.programFilter || undefined;
+		const academicYearId = req.query.academicYearFilter || undefined;
+		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder, program, academicYearId });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);

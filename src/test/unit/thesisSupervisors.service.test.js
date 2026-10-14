@@ -1,5 +1,5 @@
 /**
- * Unit Tests — Co-advisor assignment (FR-CHG-02)
+ * Unit Tests — Pembimbing 2 assignment (FR-CHG-02)
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -38,9 +38,9 @@ vi.mock("../../utils/global.util.js", () => ({
   toTitleCaseName: (name) => name || "Dosen",
 }));
 
-import { assignCoAdvisor } from "../../services/thesisSupervisors.service.js";
+import { assignSupervisor2 } from "../../services/thesisSupervisors.service.js";
 
-describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
+describe("ThesisSupervisors: assignSupervisor2 (FR-CHG-02)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
@@ -57,7 +57,7 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
   it("rejects (400) a research thesis: Pembimbing 2 goes through a thesis change request", async () => {
     mockPrisma.thesis.findUnique.mockResolvedValue({ ...baseThesis, status: "research" });
 
-    await expect(assignCoAdvisor("thesis-1", "lec-2", "kadep-1")).rejects.toMatchObject({
+    await expect(assignSupervisor2("thesis-1", "lec-2", "kadep-1")).rejects.toMatchObject({
       statusCode: 400,
       message: expect.stringContaining("Pengajuan Perubahan Tugas Akhir"),
     });
@@ -73,7 +73,7 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
     });
     mockCreateThesisSupervisors.mockResolvedValue({ id: "ts-1" });
 
-    const result = await assignCoAdvisor("thesis-1", "lec-2", "kadep-1");
+    const result = await assignSupervisor2("thesis-1", "lec-2", "kadep-1");
 
     expect(result.message).toBe("Pembimbing 2 berhasil ditetapkan");
     expect(result.thesisId).toBe("thesis-1");
@@ -90,7 +90,7 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
     });
     mockCreateThesisSupervisors.mockResolvedValue({ id: "ts-1" });
 
-    await assignCoAdvisor("thesis-1", "lec-2", "kadep-1");
+    await assignSupervisor2("thesis-1", "lec-2", "kadep-1");
 
     expect(mockPrisma.researchMethodAssessment.update).not.toHaveBeenCalled();
     expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
@@ -100,7 +100,7 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
     mockPrisma.thesis.findUnique.mockResolvedValue({ ...baseThesis, thesisSupervisors: [] });
     mockHasPembimbing2.mockResolvedValue(true);
 
-    await expect(assignCoAdvisor("thesis-1", "lec-2", "kadep-1")).rejects.toMatchObject({
+    await expect(assignSupervisor2("thesis-1", "lec-2", "kadep-1")).rejects.toMatchObject({
       message: expect.stringContaining("sudah memiliki Pembimbing 2"),
       statusCode: 400,
     });
@@ -110,7 +110,7 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
   it("rejects (404) when thesis not found", async () => {
     mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
-    await expect(assignCoAdvisor("nonexistent", "lec-2", "kadep-1")).rejects.toMatchObject({
+    await expect(assignSupervisor2("nonexistent", "lec-2", "kadep-1")).rejects.toMatchObject({
       message: expect.stringContaining("tidak ditemukan"),
       statusCode: 404,
     });
@@ -124,7 +124,7 @@ describe("ThesisSupervisors: assignCoAdvisor (FR-CHG-02)", () => {
     mockHasPembimbing2.mockResolvedValue(false);
     mockPrisma.lecturer.findUnique.mockResolvedValue({ id: "lec-2", user: {} });
 
-    await expect(assignCoAdvisor("thesis-1", "lec-2", "kadep-1")).rejects.toMatchObject({
+    await expect(assignSupervisor2("thesis-1", "lec-2", "kadep-1")).rejects.toMatchObject({
       message: expect.stringContaining("sudah terdaftar"),
       statusCode: 400,
     });

@@ -25,7 +25,7 @@ describe("error.middleware", () => {
         clientVersion: "test",
       }
     );
-    const req = { originalUrl: "/advisorRequest/access-state" };
+    const req = { originalUrl: "/thesis-proposals/me" };
     const res = createResponse();
 
     vi.spyOn(console, "error").mockImplementation(() => {});

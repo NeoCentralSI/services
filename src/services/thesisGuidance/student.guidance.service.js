@@ -1740,13 +1740,13 @@ export async function getThesisHistoryService(userId) {
 export async function proposeThesisService(userId, { title, topicId }) {
   // Revival decision (GUIDANCE_REVIVAL_PLAN e6): the baseline created a new Thesis and
   // copied supervisor rows using fields that no longer exist (`thesisRoleId`,
-  // status "assigned"), bypassing the TA-01/TA-02 advisor and quota flow. The active
+  // status "assigned"), bypassing Pengajuan Pembimbing and the quota flow. The active
   // app's block is kept until the Proposal module is rebuilt.
   void userId;
   void title;
   void topicId;
   const err = new Error(
-    "Pengajuan thesis langsung sudah tidak difasilitasi. Gunakan alur TA-01/TA-02 melalui pengajuan dosen pembimbing.",
+    "Pengajuan tugas akhir langsung sudah tidak difasilitasi. Ajukan pembimbing di Tugas Akhir > Proposal.",
   );
   err.statusCode = 400;
   throw err;

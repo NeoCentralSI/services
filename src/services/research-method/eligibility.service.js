@@ -9,89 +9,40 @@ import prisma from "../../config/prisma.js";
 /** Value of `ExternalAcademicSnapshotSource`. */
 export const ACADEMIC_FLAG_SOURCE = Object.freeze({ SIA: "sia", DEVTOOLS: "devtools" });
 
-const RESEARCH_METHOD_COURSE_HINTS = ["metodologi penelitian", "metode penelitian"];
-const THESIS_COURSE_HINTS = ["tugas akhir", "skripsi"];
-
-function courseNames(raw) {
-  return Array.isArray(raw?.currentSemesterCourses)
-    ? raw.currentSemesterCourses.map((course) => String(course?.name ?? "").toLowerCase())
-    : null;
-}
-
 /**
- * Whether the SIA record says the student takes Metode Penelitian. The dummy-SIA contract
- * still calls the field `eligibleMetopen`; a course list is the fallback. Null = unknown.
+ * Write the semester flags SIA reports for one period (`GET /enrollments` of the dummy-SIA
+ * contract: nim, takesResearchMethod, takesThesis). SIA is the authority for the students it
+ * lists: both flags are overwritten with source `sia`. Students SIA does not list keep theirs.
+ * @returns {Promise<{ fetched: number, created: number, updated: number, unknownStudents: number }>}
  */
-export function deriveResearchMethodFlag(raw = null) {
-  if (!raw || typeof raw !== "object") return null;
-  if (typeof raw.eligibleResearchMethod === "boolean") return raw.eligibleResearchMethod;
-  if (typeof raw.eligibleMetopen === "boolean") return raw.eligibleMetopen;
-  const names = courseNames(raw);
-  if (!names) return null;
-  return names.some((name) => RESEARCH_METHOD_COURSE_HINTS.some((hint) => name.includes(hint))) ? true : null;
-}
-
-/** Whether the SIA record says the student takes Tugas Akhir. Null = unknown. */
-export function deriveThesisCourseFlag(raw = null) {
-  if (!raw || typeof raw !== "object") return null;
-  if (typeof raw.takingThesisCourse === "boolean") return raw.takingThesisCourse;
-  const names = courseNames(raw);
-  if (!names) return null;
-  return names.some((name) => THESIS_COURSE_HINTS.some((hint) => name.includes(hint)));
-}
-
-/** The internal academic record of one SIA student row (K11). */
-export function normalizeSiaObservation(raw = {}) {
-  return {
-    nim: String(raw?.nim ?? "").trim(),
-    name: raw?.name ? String(raw.name).trim() : null,
-    eligibleResearchMethod: deriveResearchMethodFlag(raw),
-    takingThesisCourse: deriveThesisCourseFlag(raw),
-  };
-}
-
-/**
- * Patch for an existing semester row from a SIA observation. The Metode Penelitian flag is
- * written once per semester (the first observation wins); the Tugas Akhir flag follows every
- * observation, because KRS changes during the semester.
- */
-export function buildObservationPatch(existing, observation = {}) {
-  const data = {};
-  const capturedAt = observation.capturedAt ?? new Date();
-  const source = observation.source ?? ACADEMIC_FLAG_SOURCE.SIA;
-
-  if (existing.eligibleResearchMethod == null && typeof observation.eligibleResearchMethod === "boolean") {
-    data.eligibleResearchMethod = observation.eligibleResearchMethod;
-    data.eligibilitySource = source;
-    data.eligibilityCapturedAt = capturedAt;
+export async function applySiaEnrollments(academicYearId, rows = [], { capturedAt = new Date(), client = prisma } = {}) {
+  const valid = rows.filter((r) => r?.nim && (typeof r.takesResearchMethod === "boolean" || typeof r.takesThesis === "boolean"));
+  const users = valid.length
+    ? await client.user.findMany({ where: { identityNumber: { in: valid.map((r) => String(r.nim)) }, student: { isNot: null } }, select: { id: true, identityNumber: true } })
+    : [];
+  const userOf = new Map(users.map((u) => [u.identityNumber, u.id]));
+  const existing = users.length
+    ? await client.studentAcademicYearSnapshot.findMany({ where: { academicYearId, studentId: { in: users.map((u) => u.id) } }, select: { studentId: true } })
+    : [];
+  const has = new Set(existing.map((e) => e.studentId));
+  let created = 0;
+  let updated = 0;
+  for (const row of valid) {
+    const studentId = userOf.get(String(row.nim));
+    if (!studentId) continue;
+    await setStudentPeriodFlags(
+      studentId,
+      academicYearId,
+      {
+        ...(typeof row.takesResearchMethod === "boolean" ? { eligibleResearchMethod: row.takesResearchMethod } : {}),
+        ...(typeof row.takesThesis === "boolean" ? { takingThesisCourse: row.takesThesis } : {}),
+      },
+      { source: ACADEMIC_FLAG_SOURCE.SIA, client, now: capturedAt },
+    );
+    if (has.has(studentId)) updated += 1;
+    else created += 1;
   }
-  if (typeof observation.takingThesisCourse === "boolean") {
-    data.takingThesisCourse = observation.takingThesisCourse;
-    data.thesisCourseSource = source;
-    data.thesisCourseCapturedAt = capturedAt;
-  }
-  if (Object.keys(data).length > 0) data.capturedAt = capturedAt;
-  return data;
-}
-
-/** New semester row from an observation, or null when the observation carries no flag. */
-export function buildObservationRow(studentId, academicYearId, observation = {}) {
-  const hasResearchMethod = typeof observation.eligibleResearchMethod === "boolean";
-  const hasThesisCourse = typeof observation.takingThesisCourse === "boolean";
-  if (!hasResearchMethod && !hasThesisCourse) return null;
-  const capturedAt = observation.capturedAt ?? new Date();
-  const source = observation.source ?? ACADEMIC_FLAG_SOURCE.SIA;
-  return {
-    studentId,
-    academicYearId,
-    eligibleResearchMethod: hasResearchMethod ? observation.eligibleResearchMethod : null,
-    takingThesisCourse: hasThesisCourse ? observation.takingThesisCourse : null,
-    eligibilitySource: hasResearchMethod ? source : null,
-    eligibilityCapturedAt: hasResearchMethod ? capturedAt : null,
-    thesisCourseSource: hasThesisCourse ? source : null,
-    thesisCourseCapturedAt: hasThesisCourse ? capturedAt : null,
-    capturedAt,
-  };
+  return { fetched: rows.length, created, updated, unknownStudents: valid.length - users.length };
 }
 
 /** The flags of one student in one semester (null fields when unknown). */

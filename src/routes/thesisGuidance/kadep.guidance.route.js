@@ -5,7 +5,7 @@ import * as supervisor2Service from "../../services/thesisGuidance/supervisor2.s
 
 /**
  * Final approval of a Pembimbing 2 request by the Head of Department (proposal phase).
- * Moved out of the former Metopel router in Paket P; paths and behaviour are unchanged.
+ * Moved out of the former research-method router in Paket P; paths and behaviour are unchanged.
  */
 const router = express.Router();
 

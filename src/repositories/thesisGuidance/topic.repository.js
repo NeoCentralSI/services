@@ -134,7 +134,7 @@ export function findByLecturerId(lecturerId) {
       _count: {
         select: {
           thesis: true,
-          advisorRequests: true,
+          supervisorRequests: true,
         },
       },
     },

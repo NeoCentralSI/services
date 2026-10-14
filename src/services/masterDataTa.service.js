@@ -241,51 +241,6 @@ export const updateThesisMasterData = async (id, data, { actorUserId = null, cli
     return client === prisma ? prisma.$transaction(run) : run(client);
 };
 
-export const syncSia = async () => {
-    const theses = await masterDataTaRepository.findAllTheses();
-
-    // Format JSON needed for SIA Snapshot
-    const syncData = theses.map((thesis) => ({
-        id: thesis.id,
-        judul: thesis.title || "Belum Ada Judul",
-        mahasiswa: {
-            nim: thesis.student?.user?.identityNumber,
-            nama: thesis.student?.user?.fullName
-        },
-        pembimbing: thesis.thesisSupervisors.map(ts => ({
-            nama: ts.lecturer?.user?.fullName,
-            peran: ts.role?.name
-        }))
-    }));
-
-    try {
-        const siaBase = process.env.SIA_BASE_URL || "http://localhost:4000";
-        const response = await fetch(`${siaBase}/sync-ta`, {
-            method: "POST",
-            body: JSON.stringify({ data: syncData }),
-            headers: {
-                "x-api-token": process.env.SIA_API_TOKEN || "dev-sia-token",
-                "Content-Type": "application/json"
-            }
-        });
-
-        if (!response.ok) {
-            let errBody;
-            try {
-                errBody = await response.json();
-            } catch (e) {
-                errBody = { message: response.statusText };
-            }
-            throw new Error(errBody.message || "Request failed");
-        }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        throw new Error("Gagal melakukan sinkronisasi dengan SIA: " + error.message);
-    }
-};
-
 /** Lecturer by full name (exact, case-insensitive), else a unique partial match. */
 async function findLecturerByName(name) {
     const exact = await prisma.lecturer.findMany({

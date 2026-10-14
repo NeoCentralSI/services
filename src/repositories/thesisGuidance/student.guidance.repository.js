@@ -14,7 +14,7 @@ export function getStudentByUserId(userId) {
 /**
  * TA mahasiswa yang belum berakhir (proposal, research, on_leave), terbaru lebih dulu.
  * Dipakai bimbingan/milestone (aksi tulis wajib cek status === research) dan
- * Metopen (proposal.service, informalLog.service) untuk TA berstatus proposal.
+ * fase proposal (K27) untuk TA berstatus proposal.
  */
 export async function getActiveThesisForStudent(studentId) {
   return prisma.thesis.findFirst({

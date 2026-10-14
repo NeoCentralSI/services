@@ -33,7 +33,7 @@ describe("notification.service — createNotificationEventForUsers", () => {
       {
         title: "Pengajuan Baru",
         message: "Ada pengajuan yang perlu ditinjau.",
-        type: "simpta_advisor_request_submitted",
+        type: "supervisor_request_submitted",
         data: {
           route: "/dosen/inbox-pembimbing",
           requestId: "req-1",
@@ -47,22 +47,22 @@ describe("notification.service — createNotificationEventForUsers", () => {
         userId: "user-1",
         title: "Pengajuan Baru",
         message: "Ada pengajuan yang perlu ditinjau.",
-        type: "simpta_advisor_request_submitted",
+        type: "supervisor_request_submitted",
         data: {
           route: "/dosen/inbox-pembimbing",
           requestId: "req-1",
-          type: "simpta_advisor_request_submitted",
+          type: "supervisor_request_submitted",
         },
       },
       {
         userId: "user-2",
         title: "Pengajuan Baru",
         message: "Ada pengajuan yang perlu ditinjau.",
-        type: "simpta_advisor_request_submitted",
+        type: "supervisor_request_submitted",
         data: {
           route: "/dosen/inbox-pembimbing",
           requestId: "req-1",
-          type: "simpta_advisor_request_submitted",
+          type: "supervisor_request_submitted",
         },
       },
     ]);
@@ -75,7 +75,7 @@ describe("notification.service — createNotificationEventForUsers", () => {
         data: expect.objectContaining({
           route: "/dosen/inbox-pembimbing",
           requestId: "req-1",
-          type: "simpta_advisor_request_submitted",
+          type: "supervisor_request_submitted",
         }),
       }),
     );
@@ -89,7 +89,7 @@ describe("notification.service — createNotificationEventForUsers", () => {
         title: "Status berubah",
         message: "Status sudah diperbarui.",
         type: "simpta_status_updated",
-        data: { route: "/metopel" },
+        data: { route: "/tugas-akhir/proposal" },
       },
       { push: false },
     );

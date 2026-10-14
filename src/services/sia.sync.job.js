@@ -1,11 +1,7 @@
-import { fetchStudentsFull, hashStudent } from "./sia.client.js";
+import { fetchSemesterEnrollments, fetchStudentsFull, hashStudent } from "./sia.client.js";
 import { saveStudents, saveSyncStatus, cleanupObsoleteStudents } from "./sia.store.js";
 import prisma from "../config/prisma.js";
-import {
-  buildObservationPatch,
-  buildObservationRow,
-  normalizeSiaObservation,
-} from "./research-method/eligibility.service.js";
+import { applySiaEnrollments } from "./research-method/eligibility.service.js";
 import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 /**
@@ -20,6 +16,9 @@ export async function runSiaSync() {
     skipped: 0,
     dbUpdated: 0,
     periodSnapshotsCreated: 0,
+    periodFlagsUpdated: 0,
+    periodFlagsUnknownStudents: 0,
+    periodFlagsError: "",
     cplFetched: 0,
     cplCreated: 0,
     cplUpdated: 0,
@@ -75,8 +74,20 @@ export async function runSiaSync() {
     // Batch update database student academic fields
     const dbResult = await updateStudentAcademicBatch(stamped);
     summary.dbUpdated = dbResult.updated;
-    summary.periodSnapshotsCreated = dbResult.snapshotsCreated;
     console.log(`🗄️  Database: ${dbResult.updated} students updated`);
+
+    // Per-semester flags (plan 10.6): read from SIA's semester endpoint for the operational
+    // period. A failure here never stops the rest of the sync.
+    try {
+      const flags = await syncPeriodFlags(startedAt);
+      summary.periodSnapshotsCreated = flags.created;
+      summary.periodFlagsUpdated = flags.updated;
+      summary.periodFlagsUnknownStudents = flags.unknownStudents;
+      console.log(`🗓️  Semester flags ${flags.period}: ${flags.created} created, ${flags.updated} updated, ${flags.unknownStudents} NIM unknown`);
+    } catch (flagErr) {
+      summary.periodFlagsError = flagErr?.message || String(flagErr);
+      console.warn("⚠️  Semester flags from SIA failed (continuing sync):", summary.periodFlagsError);
+    }
 
     // Batch upsert student CPL scores from same SIA payload
     const cplResult = await updateStudentCplScoresBatch(stamped);
@@ -147,7 +158,6 @@ const parseGpa = (value) => {
 };
 
 async function updateStudentAcademicBatch(stamped) {
-  const startedAt = new Date();
   const academicYear = await resolveOperationalAcademicYear();
   if (!academicYear) {
     throw new Error(
@@ -157,16 +167,14 @@ async function updateStudentAcademicBatch(stamped) {
   // Prepare updates data
   const updates = stamped
     .map((entry) => {
-      const observation = normalizeSiaObservation(entry.data);
       return {
-      nim: observation.nim || entry.nim,
+      nim: String(entry.data?.nim ?? "").trim() || entry.nim,
       sks: Number(entry.data?.sksCompleted),
       mandatoryCoursesCompleted: Boolean(entry.data?.mandatoryCoursesCompleted),
       mkwuCompleted: Boolean(entry.data?.mkwuCompleted),
       internshipCompleted: Boolean(entry.data?.internshipCompleted),
       kknCompleted: Boolean(entry.data?.kknCompleted),
       researchMethodCompleted: Boolean(entry.data?.researchMethodCompleted),
-      eligibleResearchMethod: observation.eligibleResearchMethod,
       currentSemester:
         entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
           ? null
@@ -175,13 +183,12 @@ async function updateStudentAcademicBatch(stamped) {
       graduationPredicate: entry.data?.graduationPredicate
         ? String(entry.data.graduationPredicate).trim()
         : null,
-      takingThesisCourse: observation.takingThesisCourse,
     };
     })
     .filter((e) => e.nim && !Number.isNaN(e.sks));
 
   if (updates.length === 0) {
-    return { updated: 0, snapshotsCreated: 0 };
+    return { updated: 0 };
   }
 
   let batchResult = null;
@@ -214,80 +221,15 @@ async function updateStudentAcademicBatch(stamped) {
         })
       );
 
-    // Per-semester flags (10.6): taking Metode Penelitian / Tugas Akhir, from SIA only.
-    const candidateSnapshotRows = matchedUpdates.flatMap((u) => {
-      const row = buildObservationRow(nimToUserId.get(u.nim), academicYear.id, {
-        eligibleResearchMethod: u.eligibleResearchMethod,
-        takingThesisCourse: u.takingThesisCourse,
-        capturedAt: startedAt,
-      });
-      return row ? [row] : [];
-    });
-    const existingSnapshots = candidateSnapshotRows.length > 0
-      ? await prisma.studentAcademicYearSnapshot.findMany({
-        where: {
-          academicYearId: academicYear.id,
-          studentId: {
-            in: candidateSnapshotRows.map((row) => row.studentId),
-          },
-        },
-        select: {
-          id: true,
-          studentId: true,
-          eligibleResearchMethod: true,
-          takingThesisCourse: true,
-        },
-      })
-      : [];
-    const existingSnapshotByStudent = new Map(
-      existingSnapshots.map((snapshot) => [snapshot.studentId, snapshot]),
-    );
-    const snapshotRows = candidateSnapshotRows.filter(
-      (row) => !existingSnapshotByStudent.has(row.studentId),
-    );
-    const snapshotFillOperations = candidateSnapshotRows.flatMap((row) => {
-      const existing = existingSnapshotByStudent.get(row.studentId);
-      if (!existing) return [];
-      const data = buildObservationPatch(existing, {
-        eligibleResearchMethod: row.eligibleResearchMethod,
-        takingThesisCourse: row.takingThesisCourse,
-        capturedAt: row.capturedAt,
-      });
-      if (Object.keys(data).length === 0) return [];
-      return [prisma.studentAcademicYearSnapshot.update({
-        where: { id: existing.id },
-        data,
-      })];
-    });
     const transactionOperations = [...updatePromises];
-    if (snapshotRows.length > 0) {
-      transactionOperations.push(
-        prisma.studentAcademicYearSnapshot.createMany({
-          data: snapshotRows,
-          skipDuplicates: true,
-        }),
-      );
-    }
-    transactionOperations.push(...snapshotFillOperations);
 
     const results = await prisma.$transaction(transactionOperations);
-    const updateResults = results.slice(0, updatePromises.length);
-    const totalUpdated = updateResults.reduce((sum, r) => sum + r.count, 0);
-    const snapshotsCreated = snapshotRows.length > 0
-      ? results[updatePromises.length]?.count ?? 0
-      : 0;
-    batchResult = {
-      updated: totalUpdated,
-      snapshotsCreated,
-    };
+    const totalUpdated = results.reduce((sum, r) => sum + r.count, 0);
+    batchResult = { updated: totalUpdated };
   } catch (err) {
     console.error("❌ Failed to batch update student academic fields:", err.message);
     // Fallback to individual updates if batch fails
-    return await updateStudentAcademicIndividual(
-      updates,
-      startedAt,
-      academicYear.id,
-    );
+    return await updateStudentAcademicIndividual(updates);
   }
 
   // Moving theses to the research phase is a separate step after the sync (K13).
@@ -297,13 +239,8 @@ async function updateStudentAcademicBatch(stamped) {
 /**
  * Fallback: Individual updates if batch update fails
  */
-async function updateStudentAcademicIndividual(
-  updates,
-  updatedAt = new Date(),
-  academicYearId,
-) {
+async function updateStudentAcademicIndividual(updates) {
   let updated = 0;
-  let snapshotsCreated = 0;
   for (const {
     nim,
     sks,
@@ -312,11 +249,9 @@ async function updateStudentAcademicIndividual(
     internshipCompleted,
     kknCompleted,
     researchMethodCompleted,
-    eligibleResearchMethod,
     currentSemester,
     gpa,
     graduationPredicate,
-    takingThesisCourse,
   } of updates) {
     try {
       const user = await prisma.user.findUnique({
@@ -325,55 +260,38 @@ async function updateStudentAcademicIndividual(
       });
       if (!user) continue;
 
-      const created = await prisma.$transaction(async (tx) => {
-        await tx.student.update({
-          where: { id: user.id },
-          data: {
-            sksCompleted: sks,
-            mandatoryCoursesCompleted,
-            mkwuCompleted,
-            internshipCompleted,
-            kknCompleted,
-            researchMethodCompleted,
-            currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
-            gpa,
-            graduationPredicate,
-          },
-        });
-        const observation = { eligibleResearchMethod, takingThesisCourse, capturedAt: updatedAt };
-        const existing = await tx.studentAcademicYearSnapshot.findUnique({
-          where: {
-            studentId_academicYearId: {
-              studentId: user.id,
-              academicYearId,
-            },
-          },
-        });
-        if (!existing) {
-          const row = buildObservationRow(user.id, academicYearId, observation);
-          if (!row) return 0;
-          await tx.studentAcademicYearSnapshot.create({ data: row });
-          return 1;
-        }
-        const fillData = buildObservationPatch(existing, observation);
-        if (Object.keys(fillData).length > 0) {
-          await tx.studentAcademicYearSnapshot.update({
-            where: { id: existing.id },
-            data: fillData,
-          });
-        }
-        return 0;
+      await prisma.student.update({
+        where: { id: user.id },
+        data: {
+          sksCompleted: sks,
+          mandatoryCoursesCompleted,
+          mkwuCompleted,
+          internshipCompleted,
+          kknCompleted,
+          researchMethodCompleted,
+          currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
+          gpa,
+          graduationPredicate,
+        },
       });
-      snapshotsCreated += created;
       updated++;
     } catch (err) {
       console.warn(`⚠️  Failed to update student academic fields for NIM ${nim}:`, err.message);
     }
   }
-  return {
-    updated,
-    snapshotsCreated,
-  };
+  return { updated };
+}
+
+/**
+ * Semester flags of the operational period from SIA (plan 10.6): taking Metode Penelitian,
+ * taking Tugas Akhir. SIA is the authority for its students; other students are left alone.
+ */
+async function syncPeriodFlags(capturedAt) {
+  const academicYear = await resolveOperationalAcademicYear();
+  if (!academicYear) throw new Error("Tidak ada periode akademik berjalan untuk penanda semester.");
+  const rows = await fetchSemesterEnrollments({ academicYear: academicYear.year, semester: academicYear.semester });
+  const result = await applySiaEnrollments(academicYear.id, rows, { capturedAt });
+  return { ...result, period: `${academicYear.year} ${academicYear.semester}` };
 }
 
 const normalizeName = (value) =>

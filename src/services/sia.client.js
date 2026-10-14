@@ -20,11 +20,10 @@ export async function fetchStudentsFull(retries = 3) {
   if (ENV.SIA_MOCK) {
     console.log("⚡ SIA MOCK MODE: Returning dummy student data");
     return [
-      // ── Grup 1: Eligible Metopen
+      // ── Grup 1: mengambil Metode Penelitian
       {
         nim: "2211522029",
         name: "Nofaldi",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -39,7 +38,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522055",
         name: "Eka Fitriani",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -53,7 +51,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211521054",
         name: "Dedi Kurniawan",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -67,7 +64,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211523053",
         name: "Cindy Permata Sari",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -81,7 +77,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522052",
         name: "Budi Hartono",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -95,7 +90,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211523034",
         name: "Muhammad Fariz",
-        eligibleMetopen: true,
         sksCompleted: 122,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -109,7 +103,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522018",
         name: "Nabil Rizki Navisa",
-        eligibleMetopen: true,
         sksCompleted: 137,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -124,7 +117,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211523030",
         name: "Khalied Nauly Maturino",
-        eligibleMetopen: true,
         sksCompleted: 141,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -138,7 +130,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522036",
         name: "Mustafa Fathur Rahman",
-        eligibleMetopen: true,
         sksCompleted: 137,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -152,7 +143,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211521020",
         name: "Muhammad Nouval Habibie",
-        eligibleMetopen: true,
         sksCompleted: 137,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -166,7 +156,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211523012",
         name: "Syauqi",
-        eligibleMetopen: true,
         sksCompleted: 125,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -180,7 +169,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522103",
         name: "Test Tanpa Thesis",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -191,11 +179,10 @@ export async function fetchStudentsFull(retries = 3) {
           { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
         ],
       },
-      // ── Grup 2: Sudah TA (mengambil Tugas Akhir + Metopen) ──
+      // ── Grup 2: Sudah TA (mengambil Tugas Akhir + Metode Penelitian) ──
       {
         nim: "2211523022",
         name: "Daffa Agustian Saadi",
-        eligibleMetopen: true,
         sksCompleted: 137,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -210,7 +197,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522028",
         name: "Ilham",
-        eligibleMetopen: true,
         sksCompleted: 137,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -225,7 +211,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522101",
         name: "Test Ganti Topik",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -240,7 +225,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2211522102",
         name: "Test Ganti Dospem",
-        eligibleMetopen: true,
         sksCompleted: 130,
         mandatoryCoursesCompleted: true,
         mkwuCompleted: true,
@@ -256,7 +240,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2311523026",
         name: "Dimas",
-        eligibleMetopen: false,
         sksCompleted: 99,
         mandatoryCoursesCompleted: false,
         mkwuCompleted: false,
@@ -268,7 +251,6 @@ export async function fetchStudentsFull(retries = 3) {
       {
         nim: "2411522001",
         name: "John",
-        eligibleMetopen: false,
         sksCompleted: 60,
         mandatoryCoursesCompleted: false,
         mkwuCompleted: false,
@@ -321,6 +303,44 @@ export async function fetchStudentsFull(retries = 3) {
     }
   }
   
+  throw lastError;
+}
+
+/**
+ * Per-semester academic data (plan 10.6): `GET /enrollments?academicYear=&semester=` returns,
+ * per student of that semester, whether they take Metode Penelitian and Tugas Akhir. Read only.
+ * In mock mode the course lists of the mock students stand in for the semester data.
+ * @returns {Promise<Array<{ nim: string, studentStatus?: string, takesResearchMethod: boolean, takesThesis: boolean }>>}
+ */
+export async function fetchSemesterEnrollments({ academicYear, semester }, retries = 3) {
+  if (ENV.SIA_MOCK) {
+    const students = await fetchStudentsFull(1);
+    const takes = (s, re) => (s.currentSemesterCourses ?? []).some((c) => re.test(String(c?.name ?? "")));
+    return students.map((s) => ({
+      nim: s.nim,
+      studentStatus: "aktif",
+      takesResearchMethod: takes(s, /metod(e|ologi) penelitian/i),
+      takesThesis: takes(s, /tugas akhir|skripsi/i),
+    }));
+  }
+  if (!ENV.SIA_BASE_URL || !ENV.SIA_API_TOKEN) {
+    throw new Error("SIA_BASE_URL or SIA_API_TOKEN not configured");
+  }
+  const query = new URLSearchParams({ academicYear: String(academicYear), semester: String(semester) });
+  const url = `${ENV.SIA_BASE_URL.replace(/\/$/, "")}/enrollments?${query}`;
+  let lastError;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await withTimeout(fetch(url, { headers: { ...defaultHeaders, "x-api-token": ENV.SIA_API_TOKEN } }), ENV.SIA_FETCH_TIMEOUT || 10000);
+      if (!res.ok) throw new Error(`SIA enrollments failed (${res.status}): ${await res.text()}`);
+      const json = await res.json();
+      if (!Array.isArray(json?.data)) throw new Error("SIA enrollments response missing data");
+      return json.data;
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 10000)));
+    }
+  }
   throw lastError;
 }
 

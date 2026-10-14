@@ -38,7 +38,7 @@ async function seedRoles() {
   console.log("\n" + "=".repeat(60));
   console.log("📋 STEP 1: Seeding Roles...");
   console.log("=".repeat(60));
-  // Hapus alias Metopen lama hanya ketika belum pernah diberikan kepada user.
+  // Hapus nama peran pengampu Metode Penelitian yang lama hanya ketika belum pernah diberikan kepada user.
   await prisma.userRole.deleteMany({
     where: {
       name: { in: ["Dosen Metodologi Penelitian", "Dosen Pengampu Metopel"] },
@@ -178,7 +178,7 @@ async function seedUsers(roleMap) {
       fullName: "Husnil Kamil, MT",
       identityType: "NIP",
       identityNumber: "198201182008121002",
-      roles: [ROLES.KOORDINATOR_METOPEN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
+      roles: [ROLES.KOORDINATOR_METODE_PENELITIAN, ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2, ROLES.PENGUJI],
       isLecturer: true,
     },
     {

@@ -17,8 +17,8 @@
  * Order: a topic without TA templates gets the catalogue order; otherwise new templates are
  * appended after the current max, so existing (possibly reordered) ones keep their positions.
  *
- * Paket A: the old reclassification of legacy `phase = "metopen"` rows was removed. The
- * `metopen` phase value no longer exists (ThesisPhase is proposal/thesis) and the database is
+ * Paket A: the old reclassification of legacy proposal-phase rows was removed. That old
+ * phase value no longer exists (ThesisPhase is proposal/thesis) and the database is
  * rebuilt from empty, so such rows cannot occur.
  */
 import { pathToFileURL } from "node:url";

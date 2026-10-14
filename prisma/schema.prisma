@@ -762,7 +762,7 @@ model Thesis {
   title              String?                  @db.Text
   startDate          DateTime?                @map("start_date")
 
-  /// Waktu Penetapan Pembimbing pertama (formulir TA-04), menggantikan kolom `ta04_assignment_*`.
+  /// Waktu Penetapan Pembimbing pertama (formulir TA-04); bukti bekunya berkas PDF batch.
   /// Membuka bimbingan proposal dan pengajuan proposal final (K3: tanpa lapisan reservasi).
   supervisorAssignedAt DateTime? @map("supervisor_assigned_at")
 

@@ -1,5 +1,5 @@
 /**
- * Thesis supervisors service — FR-CHG-02: KaDep/Admin assigns Pembimbing 2 (co-advisor)
+ * Thesis supervisors service — FR-CHG-02: KaDep/Admin assigns Pembimbing 2
  */
 import { hasPembimbing2, createThesisSupervisors, markSupervisor2RequestsProcessedForThesis } from '../repositories/thesisGuidance/supervisor2.repository.js';
 import prisma from '../config/prisma.js';
@@ -26,7 +26,7 @@ class BadRequestError extends Error {
  * KaDep or Admin assigns Pembimbing 2 to a proposal-phase thesis directly (bypasses the
  * supervision limit; prerogative of the Head of Department). No co-sign step (K9).
  */
-export async function assignCoAdvisor(thesisId, lecturerId, actorUserId) {
+export async function assignSupervisor2(thesisId, lecturerId, actorUserId) {
   const thesis = await prisma.thesis.findUnique({
     where: { id: thesisId },
     include: {

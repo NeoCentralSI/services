@@ -16,7 +16,7 @@ describe("research-method route RBAC", () => {
     expect(source).toContain("router.use(authGuard)");
     // P5 split the router: master data keeps its two roles per route; Presensi, Penilaian
     // Proposal, kelulusan, ekspor and monitoring carry their own guards.
-    expect(source).toContain("const MANAGE = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_METOPEN]);");
+    expect(source).toContain("const MANAGE = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_METODE_PENELITIAN]);");
     for (const route of ['"/cpmks", MANAGE', '"/assessment-configuration", MANAGE', '"/criteria", MANAGE', '"/criteria/:criteriaId/rubrics", MANAGE', '"/weight-summary", MANAGE']) {
       expect(source).toContain(route);
     }

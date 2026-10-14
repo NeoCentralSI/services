@@ -1,6 +1,6 @@
 /**
  * Milestone template endpoints (route level, real router/guards/controller/service/repo,
- * in-memory Prisma). Covers TA vs Metopen separation, includeInactive scoping and
+ * in-memory Prisma). Covers research vs proposal-phase separation, includeInactive scoping and
  * count/list consistency used by TemplateManagementPanel.
  */
 import express from "express";
@@ -52,8 +52,8 @@ beforeEach(() => {
     thesisMilestoneTemplate: [
       { id: "ps-active", name: "TA aktif", topicId: "t-ps", phase: "research", isActive: true, orderIndex: 0, topic: topicPs },
       { id: "ps-inactive", name: "TA nonaktif", topicId: "t-ps", phase: "research", isActive: false, orderIndex: 1, topic: topicPs },
-      // Old-seeder output / Metopen template on the BI topic: must stay hidden from TA views.
-      { id: "bi-metopen", name: "Studi Literatur BI & Data Warehouse", topicId: "t-bi", phase: "proposal", isActive: true, orderIndex: 0, topic: topicBi },
+      // Proposal-phase template on the BI topic: must stay hidden from TA (research) views.
+      { id: "bi-proposal", name: "Studi Literatur BI & Data Warehouse", topicId: "t-bi", phase: "proposal", isActive: true, orderIndex: 0, topic: topicBi },
     ],
   });
 });
@@ -67,7 +67,7 @@ describe("GET /milestones/templates", () => {
     expect(ids(res)).toEqual(["ps-active"]);
   });
 
-  it("never returns Metopen templates, even on a topic that only has Metopen rows", async () => {
+  it("never returns proposal-phase templates, even on a topic that only has proposal rows", async () => {
     const res = await request(app).get("/milestones/templates?topicId=t-bi&includeInactive=true").set(as("sekdep"));
     expect(res.status).toBe(200);
     expect(ids(res)).toEqual([]);

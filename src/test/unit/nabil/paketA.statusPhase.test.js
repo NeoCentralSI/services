@@ -194,7 +194,7 @@ describe("Milestone fase TA (K6, K18)", () => {
     store.state.thesisMilestone = [];
     store.state.thesisMilestoneTemplate = [
       { id: "tpl-ta", name: "Bab 1", description: "Pendahuluan", phase: "research", topicId: "topic-1", orderIndex: 0, isActive: true },
-      { id: "tpl-prop", name: "Proposal Bab 1", description: "Metopen", phase: "proposal", topicId: null, orderIndex: 0, isActive: true },
+      { id: "tpl-prop", name: "Proposal Bab 1", description: "Proposal", phase: "proposal", topicId: null, orderIndex: 0, isActive: true },
     ];
   });
 
