@@ -5,14 +5,16 @@
  *   A. Katalog dosen P2 + visibilitas kuota mahasiswa (tanpa booking/pending KaDep)
  *   B. Siklus permintaan: ajukan → pending → batalkan
  *   C. Siklus persetujuan: ajukan → setujui → ThesisSupervisors P2 → bersihkan
- *   E. Daftar mahasiswa arsip (scope=archive) untuk thesis Selesai
+ *   E. Daftar mahasiswa bimbingan berfilter Selesai untuk thesis Selesai
  *
  * Jalankan:
  *   cd app/backend
  *   pnpm test:integration:nabil -- src/test/integration/nabil/supervisor2.e2e.test.js
  *
  * Prasyarat data (otomatis dicari; tes dilewati jika tidak ada):
- *   - Mahasiswa dengan thesis aktif, Pembimbing 1 aktif, belum ada P2, tidak ada pending REQUEST_SUPERVISOR_2
+ *   - Mahasiswa dengan TA berstatus Proposal, Pembimbing 1 aktif, belum ada P2, tidak ada pending
+ *     REQUEST_SUPERVISOR_2 (seed: akun `prop_…` dari seed-thesis-proposal-flow.js). Aturan Paket E (E4):
+ *     permintaan Pembimbing 2 ini hanya untuk TA Proposal; TA Penelitian lewat Pengajuan Perubahan TA.
  *   - Minimal satu dosen dengan role Pembimbing 2 di katalog (kuota boleh penuh — tes C dilewati)
  *   - Opsional: thesis Selesai + P2 untuk E
  */
@@ -54,7 +56,6 @@ let targetP2LecturerId = null;
 const createdNotificationIds = [];
 /** @type {string | null} */
 let createdParticipantId = null;
-/** @type {{ thesisId: string, p2LecturerId: string, previousFinalProposalVersionId: string | null } | null} */
 
 async function findEligibleStudentFixture() {
   const pembimbing1Role = await prisma.userRole.findFirst({
@@ -69,8 +70,8 @@ async function findEligibleStudentFixture() {
 
   const theses = await prisma.thesis.findMany({
     where: {
-      // Guard F2-2: P2 hanya untuk thesis fase TA (post-TA-04) yang masih berjalan.
-      status: "research",
+      // Paket E (E4): permintaan Pembimbing 2 hanya untuk TA berstatus Proposal.
+      status: "proposal",
       thesisSupervisors: {
         some: {
           status: "active",
@@ -94,7 +95,7 @@ async function findEligibleStudentFixture() {
         select: { lecturerId: true },
       },
     },
-    orderBy: { startDate: "desc" },
+    orderBy: { createdAt: "desc" },
     take: 30,
   });
 
@@ -137,6 +138,8 @@ async function pickTargetP2Lecturer(thesisId, excludeLecturerIds = []) {
   const lecturer = await prisma.lecturer.findFirst({
     where: {
       id: { notIn: [...exclude] },
+      // A lecturer who closed intake refuses requests (ensureLecturerQuotaAvailable).
+      acceptingRequests: true,
       user: {
         userHasRoles: {
           some: { roleId: pembimbing2Role.id, status: "active" },
@@ -317,7 +320,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching)", () => {
     const pendingKadep = await getPendingSupervisor2RequestService(fixture.studentUserId);
     expect(pendingKadep?.stage).toBe("kadep");
 
-    // Tahap 2: KaDep menyetujui → participant P2 dibuat; Formulir TA-04 batch perlu difinalisasi ulang.
+    // Tahap 2: KaDep menyetujui → participant P2 dibuat (Penetapan Pembimbing yang terbit perlu versi baru).
     const queue = await getSupervisor2KadepQueueService(kadepUserId);
     const queueItem = queue.find((q) => q.thesisId === fixture.thesisId);
     expect(queueItem).toBeTruthy();
@@ -344,7 +347,7 @@ describe("IT-P2: Pembimbing 2 E2E (matching)", () => {
     console.log("[IT-P2/C] ✅ Dua tahap (dosen + KaDep) membuat ThesisSupervisors P2:", p2Row.id);
   });
 
-  it("E — arsip: Pembimbing 2 melihat mahasiswa thesis Selesai di scope archive", async () => {
+  it("E — riwayat: Pembimbing 2 melihat mahasiswa thesis Selesai di filter Selesai", async () => {
     const p2OnFinished = await prisma.thesisSupervisors.findFirst({
       where: {
         status: "active",
@@ -359,14 +362,13 @@ describe("IT-P2: Pembimbing 2 E2E (matching)", () => {
       return;
     }
 
-    const activeList = await getMyStudentsService(p2OnFinished.lecturerId, [ROLES.PEMBIMBING_2], {
-      scope: "active",
-    });
-    const archiveList = await getMyStudentsService(p2OnFinished.lecturerId, [ROLES.PEMBIMBING_2], {
-      scope: "archive",
-    });
+    // The list is filtered by thesis status (filter=active|proposal|completed|failed|all) and
+    // returns { count, students }.
+    const active = await getMyStudentsService(p2OnFinished.lecturerId, [ROLES.PEMBIMBING_2], { filter: "active" });
+    const completed = await getMyStudentsService(p2OnFinished.lecturerId, [ROLES.PEMBIMBING_2], { filter: "completed" });
 
-    expect(archiveList.some((s) => s.thesisId === p2OnFinished.thesisId)).toBe(true);
+    expect(completed.students.some((s) => s.thesisId === p2OnFinished.thesisId)).toBe(true);
+    expect(active.students.some((s) => s.thesisId === p2OnFinished.thesisId)).toBe(false);
   });
 
 });
