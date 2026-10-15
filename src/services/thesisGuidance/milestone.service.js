@@ -1063,6 +1063,55 @@ function buildDefenceRequirements(thesisSeminars = []) {
 
 const requirementsMet = (requirements) => requirements.every((item) => item.met);
 
+const PASSED_EVENT_STATUSES = ["passed", "passed_with_revision"];
+
+/**
+ * Paket E4 (3.2): the passed results seminar (or defence) of a thesis, newest first, or null.
+ * Its date is the result finalisation, else the day it was held.
+ */
+function passedEventOf(rows = []) {
+  const passed = (rows ?? []).find((row) => PASSED_EVENT_STATUSES.includes(row.status));
+  return passed ? { passedAt: passed.resultFinalizedAt ?? passed.date ?? null } : null;
+}
+
+/** Why readiness approvals can no longer change once the event is passed, or null. */
+function passedBlock(kind, passed) {
+  if (!passed) return null;
+  return kind === "seminar"
+    ? "Seminar hasil sudah lulus. Persetujuan kesiapan seminar tidak dapat diubah lagi."
+    : "Sidang sudah lulus. Persetujuan kesiapan sidang tidak dapat diubah lagi.";
+}
+
+/** The passed event of one readiness kind, read fresh from the database. */
+async function loadPassedEvent(kind, thesisId) {
+  if (kind === "seminar") {
+    const thesis = await milestoneRepo.getThesisSeminarReadiness(thesisId);
+    return passedEventOf(thesis?.thesisSeminars);
+  }
+  const thesis = await milestoneRepo.getThesisDefenceReadiness(thesisId);
+  return passedEventOf(thesis?.thesisDefences);
+}
+
+/**
+ * When each supervisor last approved (the flags carry no date): the latest approval in the
+ * audit log per lecturer. Missing for approvals given before the audit trail existed.
+ */
+async function readApprovalDates(thesisId, action) {
+  const rows = await prisma.auditLog.findMany({
+    where: { entity: ENTITY_TYPES.THESIS, entityId: thesisId, action },
+    select: { userId: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const dates = new Map();
+  for (const row of rows ?? []) {
+    if (row.userId && !dates.has(row.userId)) dates.set(row.userId, row.createdAt);
+  }
+  return dates;
+}
+
+const withApprovalDates = (supervisors, dates) =>
+  supervisors.map((supervisor) => ({ ...supervisor, approvedAt: supervisor.hasApproved ? dates.get(supervisor.id) ?? null : null }));
+
 /** Text for an unmet requirement list, used in 400 responses. */
 function describeUnmet(requirements) {
   return requirements.filter((item) => !item.met).map((item) => `${item.label} (${item.detail})`).join("; ");
@@ -1112,11 +1161,13 @@ function readinessStatusBlock(thesis, kind) {
  * Reasons shown next to the disabled buttons. The same checks run again when the action is
  * submitted (K14).
  */
-function readinessActionReasons(thesis, kind, requirements, approvals) {
+function readinessActionReasons(thesis, kind, requirements, approvals, passed = null) {
+  const closed = passedBlock(kind, passed);
   const statusBlock = readinessStatusBlock(thesis, kind);
   const unmet = requirementsMet(requirements) ? null : "Syarat sistem belum terpenuhi.";
   return {
     requestBlockedReason:
+      closed ??
       statusBlock ??
       unmet ??
       (!approvals.hasSupervisor
@@ -1124,7 +1175,8 @@ function readinessActionReasons(thesis, kind, requirements, approvals) {
         : approvals.isFullyApproved
           ? "Semua pembimbing sudah menyetujui."
           : null),
-    approveBlockedReason: statusBlock ?? unmet,
+    approveBlockedReason: closed ?? statusBlock ?? unmet,
+    revokeBlockedReason: closed,
   };
 }
 
@@ -1152,6 +1204,8 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
   const requirements = buildSeminarRequirements(progress, completedGuidancesCount);
   const approvals = readApprovals(thesis.thesisSupervisors, userId, "seminarReady");
   const allMet = requirementsMet(requirements);
+  const passed = passedEventOf(thesis.thesisSeminars);
+  const approvalDates = await readApprovalDates(thesisId, READINESS_KINDS.seminar.approvedAction);
 
   return {
     thesisId: thesis.id,
@@ -1176,12 +1230,15 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
       approvedBySupervisor2: approvals.approvedBySupervisor2,
       isFullyApproved: approvals.isFullyApproved,
     },
-    supervisors: approvals.supervisors,
+    supervisors: withApprovalDates(approvals.supervisors, approvalDates),
     currentUserRole: approvals.currentUserRole,
     currentUserHasApproved: approvals.currentUserHasApproved,
     latestGuidanceAttachment: latestGuidanceAttachment ?? null,
-    ...readinessActionReasons(thesis, "seminar", requirements, approvals),
-    canRegisterSeminar: allMet && approvals.isFullyApproved,
+    // Paket E4 (3.2): passed seminar → read-only card ("Seminar hasil lulus pada …").
+    isPassed: Boolean(passed),
+    passedAt: passed?.passedAt ?? null,
+    ...readinessActionReasons(thesis, "seminar", requirements, approvals, passed),
+    canRegisterSeminar: !passed && allMet && approvals.isFullyApproved,
   };
 }
 
@@ -1200,6 +1257,8 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
   const requirements = buildDefenceRequirements(thesis.thesisSeminars);
   const approvals = readApprovals(thesis.thesisSupervisors, userId, "defenceReady");
   const allMet = requirementsMet(requirements);
+  const passed = passedEventOf(thesis.thesisDefences);
+  const approvalDates = await readApprovalDates(thesisId, READINESS_KINDS.defence.approvedAction);
 
   return {
     thesisId: thesis.id,
@@ -1213,12 +1272,17 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
       approvedBySupervisor2: approvals.approvedBySupervisor2,
       isFullyApproved: approvals.isFullyApproved,
     },
-    supervisors: approvals.supervisors,
+    supervisors: withApprovalDates(approvals.supervisors, approvalDates),
     currentUserRole: approvals.currentUserRole,
     currentUserHasApproved: approvals.currentUserHasApproved,
     latestGuidanceAttachment: latestGuidanceAttachment ?? null,
-    ...readinessActionReasons(thesis, "defence", requirements, approvals),
-    canRegisterDefence: allMet && approvals.isFullyApproved,
+    // Paket E4 (3.2/3.3): passed defence → read-only card; before the seminar passes the card
+    // only shows the unmet requirement ("Menunggu seminar hasil lulus").
+    isPassed: Boolean(passed),
+    passedAt: passed?.passedAt ?? null,
+    seminarPassed: Boolean(passedEventOf(thesis.thesisSeminars)),
+    ...readinessActionReasons(thesis, "defence", requirements, approvals, passed),
+    canRegisterDefence: !passed && allMet && approvals.isFullyApproved,
   };
 }
 
@@ -1261,6 +1325,9 @@ async function approveReadiness(kind, thesisId, userId, notes) {
   if (!relation) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
+
+  const closed = passedBlock(kind, await loadPassedEvent(kind, thesisId));
+  if (closed) throw createError(closed);
 
   const statusBlock = readinessStatusBlock(thesis, kind);
   if (statusBlock) throw createError(statusBlock);
@@ -1326,6 +1393,9 @@ async function revokeReadiness(kind, thesisId, userId, notes) {
     throw forbidden("Anda bukan pembimbing dari thesis ini");
   }
 
+  const closed = passedBlock(kind, await loadPassedEvent(kind, thesisId));
+  if (closed) throw createError(closed);
+
   const roleLabel = supervisorLabel(relation.role?.name);
   const supervisorName = relation.lecturer?.user?.fullName || roleLabel;
   const updated = await config.revoke(thesisId, relation.lecturerId);
@@ -1368,6 +1438,9 @@ async function requestReadinessApproval(kind, thesisId, userId) {
   const config = READINESS_KINDS[kind];
   // Only the owning student may ask (route guard: MAHASISWA).
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
+
+  const closed = passedBlock(kind, await loadPassedEvent(kind, thesisId));
+  if (closed) throw createError(closed);
 
   const statusBlock = readinessStatusBlock(thesis, kind);
   if (statusBlock) throw createError(statusBlock);

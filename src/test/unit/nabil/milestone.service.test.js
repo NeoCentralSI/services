@@ -39,6 +39,8 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
     thesisMilestone: { updateMany: vi.fn() },
     // Guidance revival correction: history-read lookup for former supervisors.
     thesisSupervisors: { findFirst: vi.fn().mockResolvedValue(null) },
+    // Paket E4 (3.2): approval dates are read from the audit log.
+    auditLog: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockRoles: {
     ROLES: { MAHASISWA: "Mahasiswa", PEMBIMBING_1: "Pembimbing 1", PEMBIMBING_2: "Pembimbing 2" },

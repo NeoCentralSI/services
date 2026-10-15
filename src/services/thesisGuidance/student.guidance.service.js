@@ -187,6 +187,28 @@ async function getActiveThesisOrThrow(userId) {
   return { student, thesis };
 }
 
+/**
+ * Paket E4 (7): reading needs no running thesis. Without one, the latest thesis (e.g. failed)
+ * is read so its sessions stay visible, read-only (K14: content is not hidden). Writes still
+ * use getActiveThesisOrThrow.
+ */
+async function getReadableThesisOrThrow(userId) {
+  const student = await getStudentByUserId(userId);
+  ensureStudent(student);
+  const thesis =
+    (await getActiveThesisForStudent(student.id)) ??
+    (await prisma.thesis.findFirst({
+      where: { studentId: student.id, status: { in: POST_PROPOSAL_THESIS_STATUSES } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }));
+  if (!thesis) {
+    const err = new Error("Active thesis not found for this student");
+    err.statusCode = 404;
+    throw err;
+  }
+  return { student, thesis };
+}
+
 /** K19 fields shown to the student: rejection with suggested time, lecturer reschedule, cancellation. */
 function k19Fields(g) {
   const fmt = (d) => (d ? formatDateTimeJakarta(d, { withDay: true }) : null);
@@ -205,7 +227,7 @@ function k19Fields(g) {
 
 // Schema baru: gunakan requestedDate/approvedDate langsung, bukan schedule relation
 export async function listMyGuidancesService(userId, status) {
-  const { thesis } = await getActiveThesisOrThrow(userId);
+  const { thesis } = await getReadableThesisOrThrow(userId);
   // List guidances even if thesis is archived/cancelled (for history view)
   const rows = await listGuidancesForThesis(thesis.id, status);
   // C6: newest first by the effective schedule (approvedDate ?? requestedDate), so a session
@@ -1571,6 +1593,8 @@ export async function getMyThesisDetailService(userId) {
       // K27 / 10.7: current phase, Penetapan Pembimbing, and per-phase counts for display.
       ...(await getPhaseSummary(fullThesis)),
       startDate: fullThesis.startDate || null,
+      // Paket E4 (7): "Tugas akhir ini dihentikan pada <tanggal>" on the read-only guidance page.
+      terminatedAt: fullThesis.terminatedAt ?? (fullThesis.status === THESIS_STATUS.FAILED ? fullThesis.statusChangedAt ?? null : null),
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,
       // Student info

@@ -5,6 +5,7 @@ import {
 	THESIS_STATUS,
 	THESIS_PHASE,
 	TA_PHASE,
+	CLOSED_THESIS_STATUSES,
 	currentPhaseOf,
 } from "../../constants/thesisStatus.js";
 import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
@@ -35,6 +36,26 @@ export async function getLecturerByUserId(userId) {
 	return prisma.lecturer.findUnique({ where: { id: userId } });
 }
 
+/** A release at the same moment the thesis was closed (same transaction) counts as "at closing". */
+const CLOSE_TOLERANCE_MS = 60 * 1000;
+
+/**
+ * Paket E4 (1.1): where a supervisor relation stands for "Mahasiswa Bimbingan".
+ * - `active`: supervising now (or still active on a completed thesis);
+ * - `closed`: released together with the closing of a failed/completed thesis, so the
+ *   lecturer was supervising when it ended (history filters Selesai/Gagal);
+ * - `ended`: released earlier (replaced through a change request, cancelled request, Admin):
+ *   the lecturer no longer supervises; only "Semua" shows it, read-only.
+ */
+export function supervisorRelationState(relation, thesis) {
+	if (relation?.status === "active") return "active";
+	if (relation?.status !== "released") return "ended";
+	if (!CLOSED_THESIS_STATUSES.includes(thesis?.status)) return "ended";
+	const closedAt = thesis.terminatedAt ?? thesis.statusChangedAt;
+	if (!closedAt || !relation.updatedAt) return "closed";
+	return new Date(relation.updatedAt).getTime() >= new Date(closedAt).getTime() - CLOSE_TOLERANCE_MS ? "closed" : "ended";
+}
+
 // List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
 /**
  * K21: "Mahasiswa Bimbingan" filters. Default = active (research + on_leave). `proposal` lists
@@ -52,9 +73,9 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 	const statuses = MY_STUDENTS_FILTERS[filter] ?? MY_STUDENTS_FILTERS.active;
 	const where = {
 		lecturerId,
-		// Revival adaptation (A1): terminated supervisor rows no longer grant access.
-		// Released rows stay visible so finished/failed students remain in the history filters.
-		status: { not: "terminated" },
+		// Paket E4 (1.1): running theses count active relations only; the history filters also
+		// read released rows and keep those released at closing (supervisorRelationState).
+		status: filter === "active" || filter === "proposal" ? "active" : { in: ["active", "released"] },
 		// A thesis that repeats its proposal is still a running one for its supervisors.
 		thesis: filter === "active" || filter === "all"
 			? { OR: [{ status: { in: statuses } }, REPEATING_PROPOSAL_THESIS] }
@@ -95,12 +116,18 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 		},
 	});
 
-	// One row per thesis (a student may have a failed thesis and a new one under "Semua")
+	// One row per thesis (a student may have a failed thesis and a new one under "Semua"); a
+	// lecturer with several relations to one thesis is represented by the active one first.
+	const STATE_ORDER = { active: 0, closed: 1, ended: 2 };
+	const rows = participants
+		.filter((p) => p.thesis && p.thesis.student)
+		.map((p) => ({ p, state: supervisorRelationState(p, p.thesis) }))
+		.filter(({ state }) => filter === "all" || state !== "ended")
+		.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]);
 	const now = new Date();
 	const seen = new Set();
 	const result = [];
-	for (const p of participants) {
-		if (!p.thesis || !p.thesis.student) continue;
+	for (const { p, state } of rows) {
 		const sid = p.thesis.student.id;
 		if (seen.has(p.thesis.id)) continue;
 		seen.add(p.thesis.id);
@@ -140,6 +167,8 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			role: p.role?.name || null,
 			// Relation status (active/released) so the UI only offers actions to active supervisors.
 			supervisorStatus: p.status || null,
+			// Released before the thesis closed (e.g. replaced): "Tidak lagi membimbing", read-only.
+			noLongerSupervising: state === "ended",
 			latestMilestone: latestMilestone ? latestMilestone.title : "Belum mulai",
 			// New fields for progress info
 			totalMilestones,
@@ -294,7 +323,7 @@ export function findActiveSupervisorRelation(thesisId, lecturerId) {
 
 export async function getLecturerTheses(lecturerId) {
 	const parts = await prisma.thesisSupervisors.findMany({
-		where: { lecturerId, status: { not: "terminated" }, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } }, thesis: { status: { in: RUNNING_TA_STATUSES } } },
+		where: { lecturerId, status: "active", role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } }, thesis: { status: { in: RUNNING_TA_STATUSES } } },
 		select: { thesisId: true },
 	});
 	return parts.map((p) => p.thesisId);

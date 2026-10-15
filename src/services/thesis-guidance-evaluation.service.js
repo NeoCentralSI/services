@@ -200,6 +200,34 @@ export async function listForDepartment({ scope = "pending", search = "", page =
   };
 }
 
+/**
+ * Paket E4 (4.3) "Evaluasi" page for a supervisor: research theses whose evaluation is due and
+ * not filled yet (Pembimbing 1 may fill it; Pembimbing 2 reads), and the evaluations of their
+ * students (waiting for the Ketua Departemen, or decided).
+ */
+export async function listForSupervisor(userId) {
+  const [theses, evaluations] = await Promise.all([repo.findSupervisedThesesForEvaluation(userId), repo.findForSupervisor(userId)]);
+  const due = [];
+  for (const thesis of theses) {
+    const progress = summarizeThesisProgress(thesis);
+    const clock = progress.supervisionClock;
+    const stage = clock?.evaluationDue ?? null;
+    const hasPending = evaluations.some((evaluation) => evaluation.thesisId === thesis.id && evaluation.status === EVALUATION_STATUS.PENDING);
+    if (!stage || hasPending || hasPassedSeminar(thesis)) continue;
+    const viewerRole = viewerRoleOn(thesis, userId);
+    const blockReason = getSubmitBlockReason(thesis, clock, { viewerRole, hasPending });
+    due.push({
+      thesis: { id: thesis.id, title: thesis.title, status: thesis.status, student: person(thesis.student?.user) },
+      viewerRole,
+      stage,
+      supervision: { startedAt: clock.startedAt ?? null, elapsedDays: clock.elapsedDays ?? null, elapsedLabel: clock.elapsedLabel ?? null },
+      canSubmit: !blockReason,
+      blockReason,
+    });
+  }
+  return { due, evaluations: evaluations.map(toDto) };
+}
+
 export function countPending() {
   return repo.countPending();
 }

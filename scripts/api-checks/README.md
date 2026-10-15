@@ -14,6 +14,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `e2e.mjs` | Paket E: skenario API `PANDUAN_UJI_MANUAL_ALUR_TA.md` (DevTools, aktivitas, kesiapan, perubahan TA, evaluasi, overview) | tujuh seeder |
 | `e3-api.mjs` | Paket E3: Monitoring per semester (baca-saja) | **enam** seeder (tanpa `seed-thesis-proposal-flow.js`) |
 | `e3-ready-api.mjs` | Paket E3: kartu "Siap Mendaftar" seminar/sidang berubah saat kesiapan disetujui atau dibatalkan (menulis persetujuan) | enam seeder |
+| `e4-api.mjs` | Paket E4: pembimbing yang diganti (1.1), kesiapan setelah lulus (3.2/3.3), daftar Evaluasi dosen (4.3), Peringatkan oleh Sekdep/GKM (8), bimbingan TA yang dihentikan (7) | tujuh seeder |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 
@@ -30,7 +31,7 @@ Tujuh seeder: `seed-master`, `seed-thesis-topics`, `seed-milestone-templates`, `
 Dari `app/backend`:
 
 ```bash
-scripts/api-checks/run-all.sh            # p1 … p7, e2e, e3, e3r — masing-masing setelah bangun ulang + seed
+scripts/api-checks/run-all.sh            # p1 … p7, e2e, e3, e3r, e4 — masing-masing setelah bangun ulang + seed
 scripts/api-checks/run-all.sh p4 p7      # hanya yang disebut
 ```
 

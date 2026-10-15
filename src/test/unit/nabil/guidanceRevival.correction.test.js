@@ -162,10 +162,8 @@ describe("3. Validasi milestone dan relasi pembimbing aktif", () => {
   });
 });
 
-describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
+describe("4. Peringatan monitoring: peran departemen dan pembimbing aktif (Paket E4, 8)", () => {
   it.each([
-    ["GKM saja", "gkm"],
-    ["Sekdep saja", "sekdep"],
     ["pembimbing released", "rel"],
     ["pembimbing terminated", "term"],
   ])("%s ditolak (403)", async (_label, userId) => {
@@ -177,6 +175,8 @@ describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
 
   it.each([
     ["Ketua Departemen", "kadep"],
+    ["Sekretaris Departemen", "sekdep"],
+    ["GKM", "gkm"],
     ["Pembimbing 1 aktif", "p1"],
   ])("%s diizinkan", async (_label, userId) => {
     makeThesisSlow();
@@ -186,7 +186,7 @@ describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
     });
   });
 
-  it("peringatan massal: duplikat ID tidak meloloskan / menggagalkan pembimbing aktif; GKM ditolak", async () => {
+  it("peringatan massal: duplikat ID tidak meloloskan / menggagalkan pembimbing aktif; GKM boleh; pembimbing lepas ditolak", async () => {
     makeThesisSlow();
     // The duplicate is one thesis: one warning, not two.
     await expect(
@@ -194,7 +194,7 @@ describe("4. Peringatan monitoring: GKM saja tidak berwenang", () => {
     ).resolves.toMatchObject({ sentCount: 1, notSent: [] });
     await expect(
       monitoring.sendBatchWarningNotificationService("gkm", ["t1"]),
-    ).rejects.toMatchObject({ statusCode: 403 });
+    ).resolves.toMatchObject({ sentCount: 1 });
     await expect(
       monitoring.sendBatchWarningNotificationService("rel", ["t1"]),
     ).rejects.toMatchObject({ statusCode: 403 });

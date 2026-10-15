@@ -164,13 +164,16 @@ describe("Otorisasi pembimbing dan GKM lewat route", () => {
     expect(res.status).toBe(403);
   });
 
-  it("peringatan monitoring: mahasiswa 403 (guard), GKM 403 (service), KaDep 200", async () => {
+  it("peringatan monitoring: mahasiswa 403 (guard); KaDep, Sekdep, dan GKM 200 (Paket E4, 8)", async () => {
     // 90 days without activity: Lambat, so a warning may be sent.
     store.state.thesis[0].startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     const path = "/thesisGuidance/monitoring/theses/t1/send-warning";
     expect((await request(app).post(path).set(as("stu1")).send({ warningType: "slow" })).status).toBe(403);
-    expect((await request(app).post(path).set(as("gkm")).send({ warningType: "slow" })).status).toBe(403);
+    expect((await request(app).post(path).set(as("gkm")).send({ warningType: "slow" })).status).toBe(200);
+    expect((await request(app).post(path).set(as("sekdep")).send({ warningType: "slow" })).status).toBe(200);
     expect((await request(app).post(path).set(as("kadep")).send({ warningType: "slow" })).status).toBe(200);
+    // An unrelated lecturer without a department role is still refused (router guard).
+    expect((await request(app).post(path).set(as("other")).send({ warningType: "slow" })).status).toBe(403);
   });
 
   it("peringatan: tingkat dihitung server, `warningType` dari klien diabaikan; TA Lancar ditolak 400", async () => {

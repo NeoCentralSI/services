@@ -613,12 +613,27 @@ describe("List Guidances & Supervisors", () => {
       expect(result.items[0].id).toBe("g2");
     });
 
-    it("rejects (404) if no active thesis", async () => {
+    it("rejects (404) if the student has no thesis at all", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getActiveThesisForStudent.mockResolvedValue(null);
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
+      mockPrisma.thesis.findFirst.mockResolvedValue(null);
 
       await expect(listMyGuidancesService("user-1")).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("Paket E4 (7): a stopped thesis keeps its sessions readable, system cancellations with their reason", async () => {
+      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
+      mockRepo.getActiveThesisForStudent.mockResolvedValue(null);
+      mockPrisma.thesis.findFirst.mockResolvedValue({ id: "thesis-failed", status: "failed" });
+      mockRepo.listGuidancesForThesis.mockResolvedValue([
+        { id: "g9", status: "cancelled", requestedDate: new Date("2026-01-10"), duration: 60, cancelledBy: "system", cancelReason: "Dibatalkan otomatis: tugas akhir dihentikan (status Gagal)." },
+      ]);
+
+      const result = await listMyGuidancesService("user-1");
+
+      expect(mockRepo.listGuidancesForThesis).toHaveBeenCalledWith("thesis-failed", undefined);
+      expect(result.items[0]).toMatchObject({ id: "g9", status: "cancelled", cancelledBy: "system", cancelReason: expect.stringContaining("dihentikan") });
     });
   });
 

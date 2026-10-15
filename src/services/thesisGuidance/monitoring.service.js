@@ -1,6 +1,6 @@
 import * as monitoringRepository from "../../repositories/thesisGuidance/monitoring.repository.js";
 import { sendFcmToUsers } from "../push.service.js";
-import { ROLES } from "../../constants/roles.js";
+import { DEPARTMENT_ROLES, ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
 import { THESIS_STATUS } from "../../constants/thesisStatus.js";
@@ -553,9 +553,10 @@ export async function sendWarningNotificationService(userId, thesisId) {
   }
   const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
 
-  // Authorization: only Ketua Departemen or supervisors may send warnings
+  // Authorization (Paket E4, 8): Ketua Departemen, Sekretaris Departemen, GKM, or an active
+  // supervisor of the thesis may send warnings.
   const isKadep = (user.userHasRoles || []).some(
-    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+    (uhr) => DEPARTMENT_ROLES.includes(uhr.role?.name) && uhr.status === 'active'
   );
 
   // Check if user is an ACTIVE supervisor of this thesis (Lecturer.id is user id).
@@ -566,7 +567,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
   const isSupervisor = Boolean(supRecord);
 
   if (!isKadep && !isSupervisor) {
-    const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang dapat mengirim peringatan tugas akhir");
+    const err = new Error("Hanya Ketua Departemen, Sekretaris Departemen, GKM, atau Dosen Pembimbing yang dapat mengirim peringatan tugas akhir");
     err.statusCode = 403;
     throw err;
   }
@@ -681,8 +682,9 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
   }
   const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
 
+  // Paket E4 (8): the department roles (Kadep, Sekdep, GKM) may warn any thesis.
   const isKadep = (user.userHasRoles || []).some(
-    (uhr) => uhr.role?.name === ROLES.KETUA_DEPARTEMEN && uhr.status === 'active'
+    (uhr) => DEPARTMENT_ROLES.includes(uhr.role?.name) && uhr.status === 'active'
   );
 
   const uniqueThesisIds = [...new Set(thesisIds)];
@@ -695,7 +697,7 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
     });
     const supervisedCount = new Set(activeRelations.map((r) => r.thesisId)).size;
     if (supervisedCount !== uniqueThesisIds.length) {
-      const err = new Error("Hanya Ketua Departemen atau Dosen Pembimbing yang mengawasi tesis tersebut yang dapat mengirim peringatan massal");
+      const err = new Error("Hanya Ketua Departemen, Sekretaris Departemen, GKM, atau Dosen Pembimbing yang mengawasi tugas akhir tersebut yang dapat mengirim peringatan massal");
       err.statusCode = 403;
       throw err;
     }

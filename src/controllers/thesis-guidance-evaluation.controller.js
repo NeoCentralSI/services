@@ -28,6 +28,15 @@ export async function submitEvaluation(req, res, next) {
   }
 }
 
+/** GET /thesis-guidance-evaluations/lecturer — supervisor's due theses and evaluations (Paket E4, 4.3) */
+export async function listForSupervisor(req, res, next) {
+  try {
+    res.json({ success: true, data: await service.listForSupervisor(req.user.sub) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET /thesis-guidance-evaluations/department?scope=pending|history&search=&page=&pageSize= */
 export async function listForDepartment(req, res, next) {
   try {

@@ -64,6 +64,18 @@ vi.mock("../../repositories/thesis-guidance-evaluation.repository.js", () => ({
     return { rows, total: rows.length };
   },
   countPending: async () => evaluations().filter((e) => e.status === "pending").length,
+  findSupervisedThesesForEvaluation: async (lecturerId) =>
+    world.state.theses
+      .filter((t) => t.status === "research" && world.state.supervisors.some((s) => s.thesisId === t.id && s.lecturerId === lecturerId && s.status === "active"))
+      .map(thesisView),
+  findForSupervisor: async (lecturerId) =>
+    evaluations()
+      .filter((e) =>
+        world.state.supervisors.some((s) => s.id === e.thesisSupervisorId && s.lecturerId === lecturerId) ||
+        world.state.supervisors.some((s) => s.thesisId === e.thesisId && s.lecturerId === lecturerId && s.status === "active"))
+      .slice()
+      .reverse()
+      .map(evaluationView),
   findUsersByActiveRole: async () => [{ id: "kadep" }],
 }));
 
@@ -375,5 +387,32 @@ describe("clock restart", () => {
     const context = await service.getEvaluationContext(P1, "T1");
     expect(context.stage).toBe("six_month");
     expect(context.history).toHaveLength(1);
+  });
+});
+
+
+describe("Evaluasi page of a supervisor (Paket E4, 4.3)", () => {
+  it("lists the due thesis: Pembimbing 1 may fill it, Pembimbing 2 reads with the reason, others see nothing", async () => {
+    const p1 = await service.listForSupervisor(P1);
+    expect(p1.due).toHaveLength(1);
+    expect(p1.due[0]).toMatchObject({ thesis: { id: "T1", title: "Judul TA" }, viewerRole: "pembimbing_1", stage: "six_month", canSubmit: true, blockReason: null });
+    expect(p1.due[0].supervision.elapsedLabel).toBe("7 bulan 1 hari");
+
+    const p2 = await service.listForSupervisor(P2);
+    expect(p2.due[0]).toMatchObject({ viewerRole: "pembimbing_2", canSubmit: false, blockReason: "Evaluasi bimbingan diisi oleh Pembimbing 1." });
+
+    expect(await service.listForSupervisor("lec-other")).toEqual({ due: [], evaluations: [] });
+  });
+
+  it("once filled, the thesis leaves the due list and the evaluation waits for the Ketua Departemen", async () => {
+    await submit("extend_1_month", { observations: { noProgress: true } });
+    const p1 = await service.listForSupervisor(P1);
+    expect(p1.due).toEqual([]);
+    expect(p1.evaluations.map((e) => [e.status, e.recommendation, e.stage])).toEqual([["pending", "extend_1_month", "six_month"]]);
+  });
+
+  it("a thesis whose seminar is passed is never due", async () => {
+    world.state.seminars.push({ thesisId: "T1", status: "passed", updatedAt: daysAgo(1), revisionFinalizedAt: null });
+    expect((await service.listForSupervisor(P1)).due).toEqual([]);
   });
 });

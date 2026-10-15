@@ -96,7 +96,7 @@ describe("label bahasa Indonesia untuk enum TA", () => {
       completed: "Selesai",
       failed: "Gagal",
     });
-    expect(THESIS_PHASE_LABELS).toEqual({ proposal: "Proposal", research: "Tugas Akhir" });
+    expect(THESIS_PHASE_LABELS).toEqual({ proposal: "Proposal", research: "Penelitian" });
     expect(getThesisStatusLabel("on_leave")).toBe("Berhenti Studi Sementara (BSS)");
   });
 

@@ -20,6 +20,7 @@ const { repo, prismaMock, push, notif, audit } = vi.hoisted(() => ({
     thesis: { findUnique: vi.fn() },
     thesisGuidance: { count: vi.fn() },
     thesisSupervisors: { findFirst: vi.fn() },
+    auditLog: { findMany: vi.fn(async () => []) },
   },
   push: { sendFcmToUsers: vi.fn() },
   notif: { createNotification: vi.fn() },
@@ -297,5 +298,73 @@ describe("defence readiness", () => {
       student: { name: "Mahasiswa Uji", nim: "2211", email: "m@x.test" },
       supervisors: [{ name: "Dosen", role: "Pembimbing 1", defenceReady: true }],
     }]);
+  });
+});
+
+describe("after the event is passed (Paket E4, 3.2/3.3)", () => {
+  const PASSED_AT = new Date("2026-09-10T05:00:00Z");
+  const passedSeminar = { id: "s1", status: "passed", date: new Date("2026-09-09T00:00:00Z"), resultFinalizedAt: PASSED_AT, revisionFinalizedAt: null };
+  const approvedBoth = [supervisor(P1, "Pembimbing 1", { seminarReady: true }), supervisor(P2, "Pembimbing 2", { seminarReady: true })];
+  const SEMINAR_CLOSED = "Seminar hasil sudah lulus. Persetujuan kesiapan seminar tidak dapat diubah lagi.";
+  const DEFENCE_CLOSED = "Sidang sudah lulus. Persetujuan kesiapan sidang tidak dapat diubah lagi.";
+
+  it("seminar card turns read-only: passed date, approval dates from the audit log, every action blocked", async () => {
+    useThesis(thesis({ supervisors: approvedBoth, seminars: [passedSeminar] }));
+    useSeminarNumbers();
+    prismaMock.auditLog.findMany.mockResolvedValue([
+      { userId: P1, createdAt: new Date("2026-08-20T03:00:00Z") },
+      { userId: P1, createdAt: new Date("2026-08-01T03:00:00Z") },
+      { userId: P2, createdAt: new Date("2026-08-21T03:00:00Z") },
+    ]);
+
+    const result = await service.getThesisSeminarReadiness("t1", P1);
+
+    expect(result).toMatchObject({ isPassed: true, passedAt: PASSED_AT, canRegisterSeminar: false });
+    expect(result.requestBlockedReason).toBe(SEMINAR_CLOSED);
+    expect(result.approveBlockedReason).toBe(SEMINAR_CLOSED);
+    expect(result.revokeBlockedReason).toBe(SEMINAR_CLOSED);
+    expect(result.supervisors.map((s) => [s.id, s.approvedAt?.toISOString()])).toEqual([
+      [P1, "2026-08-20T03:00:00.000Z"],
+      [P2, "2026-08-21T03:00:00.000Z"],
+    ]);
+    expect(prismaMock.auditLog.findMany.mock.calls[0][0].where).toEqual({ entity: "THESIS", entityId: "t1", action: "SEMINAR_READINESS_APPROVED" });
+  });
+
+  it("before passing nothing is blocked by it and approval dates stay empty for unapproved supervisors", async () => {
+    useThesis(thesis({ supervisors: [supervisor(P1, "Pembimbing 1", { seminarReady: true }), supervisor(P2, "Pembimbing 2")] }));
+    useSeminarNumbers();
+    prismaMock.auditLog.findMany.mockResolvedValue([{ userId: P2, createdAt: new Date() }]);
+    const result = await service.getThesisSeminarReadiness("t1", P1);
+    expect(result).toMatchObject({ isPassed: false, passedAt: null, revokeBlockedReason: null });
+    expect(result.supervisors.find((s) => s.id === P2).approvedAt).toBeNull();
+    expect(result.supervisors.find((s) => s.id === P1).approvedAt).toBeNull();
+  });
+
+  it("seminar approve, revoke and request are refused after the seminar passed", async () => {
+    useThesis(thesis({ supervisors: approvedBoth, seminars: [passedSeminar] }));
+    useSeminarNumbers();
+    await expect(service.approveSeminarReadiness("t1", P1)).rejects.toMatchObject({ statusCode: 400, message: SEMINAR_CLOSED });
+    await expect(service.revokeSeminarReadiness("t1", P1, "x")).rejects.toMatchObject({ statusCode: 400, message: SEMINAR_CLOSED });
+    await expect(service.requestSeminarApproval("t1", STUDENT)).rejects.toMatchObject({ statusCode: 400, message: SEMINAR_CLOSED });
+    expect(repo.approveSeminarReadiness).not.toHaveBeenCalled();
+    expect(repo.revokeSeminarReadiness).not.toHaveBeenCalled();
+  });
+
+  it("defence: waiting for the seminar shows the unmet requirement; after the defence passed every action is refused", async () => {
+    useThesis({ ...thesis({ seminars: [] }), thesisDefences: [] });
+    const waiting = await service.getThesisDefenceReadiness("t1", P1);
+    expect(waiting).toMatchObject({ seminarPassed: false, isPassed: false, requirementsMet: false });
+    expect(waiting.requirements[0]).toMatchObject({ key: "seminar", met: false });
+
+    const defenceApproved = [supervisor(P1, "Pembimbing 1", { defenceReady: true }), supervisor(P2, "Pembimbing 2", { defenceReady: true })];
+    useThesis({
+      ...thesis({ status: "completed", supervisors: defenceApproved, seminars: [passedSeminar] }),
+      thesisDefences: [{ id: "d1", status: "passed_with_revision", date: new Date("2026-10-01T00:00:00Z"), resultFinalizedAt: null }],
+    });
+    const done = await service.getThesisDefenceReadiness("t1", P1);
+    expect(done).toMatchObject({ seminarPassed: true, isPassed: true, passedAt: new Date("2026-10-01T00:00:00Z"), canRegisterDefence: false, approveBlockedReason: DEFENCE_CLOSED });
+    await expect(service.approveDefenceReadiness("t1", P1)).rejects.toMatchObject({ statusCode: 400, message: DEFENCE_CLOSED });
+    await expect(service.revokeDefenceReadiness("t1", P1)).rejects.toMatchObject({ statusCode: 400, message: DEFENCE_CLOSED });
+    expect(repo.revokeDefenceReadiness).not.toHaveBeenCalled();
   });
 });

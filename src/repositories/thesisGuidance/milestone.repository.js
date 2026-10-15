@@ -500,6 +500,11 @@ export function getThesisSeminarReadiness(thesisId) {
           },
         },
       },
+      // Paket E4 (3.2): once the results seminar is passed the card turns read-only.
+      thesisSeminars: {
+        select: { id: true, status: true, date: true, resultFinalizedAt: true },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 }
@@ -695,11 +700,18 @@ export function getThesisDefenceReadiness(thesisId) {
         select: {
           id: true,
           status: true,
+          date: true,
+          resultFinalizedAt: true,
           revisionFinalizedAt: true,
         },
         orderBy: {
           createdAt: "desc",
         },
+      },
+      // Paket E4 (3.2): once the defence is passed the card turns read-only.
+      thesisDefences: {
+        select: { id: true, status: true, date: true, resultFinalizedAt: true },
+        orderBy: { createdAt: "desc" },
       },
     },
   });

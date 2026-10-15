@@ -6,6 +6,7 @@ import {
 	approveGuidanceById,
 	rejectGuidanceById,
 	getLecturerTheses,
+	supervisorRelationState,
 	countTotalProgressComponents,
 	getValidatedCompletionsByThesis,
 	getStudentActiveThesis,
@@ -193,6 +194,7 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		thesisStatus: s.thesisStatus ?? null,
 		roles: s.role ? [s.role] : [],
 		supervisorStatus: s.supervisorStatus || null,
+		noLongerSupervising: Boolean(s.noLongerSupervising),
 		// Derived when read (E3)
 		activityLevel: s.activityLevel ?? null,
 		lastActivityAt: s.lastActivityAt ?? null,
@@ -318,6 +320,14 @@ export async function getStudentDetailService(userId, thesisId) {
 		})(),
 		startDateFormatted: thesis.startDate ? formatDateTimeJakarta(thesis.startDate) : null,
 		userRole: thesis.thesisSupervisors?.find(p => p.lecturer?.user?.id === userId)?.role?.name || null,
+		// Paket E4 (1.1): a lecturer whose relation ended before the thesis closed reads only.
+		noLongerSupervising: await (async () => {
+			const relations = (await prisma.thesisSupervisors.findMany({
+				where: { thesisId: thesis.id, lecturerId: lecturer.id },
+				select: { status: true, updatedAt: true },
+			})) ?? [];
+			return relations.length > 0 && relations.every((relation) => supervisorRelationState(relation, thesis) === "ended");
+		})(),
 	};
 }
 

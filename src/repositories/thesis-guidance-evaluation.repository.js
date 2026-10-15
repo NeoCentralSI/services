@@ -102,6 +102,49 @@ export async function findForDepartment({ scope = "pending", search = "", page =
   return { rows, total };
 }
 
+/**
+ * Paket E4 (4.3): research theses this lecturer supervises now (active Pembimbing 1/2), with
+ * what the evaluation rules read, for the "Evaluasi" page.
+ */
+export function findSupervisedThesesForEvaluation(lecturerId, client = prisma) {
+  return client.thesis.findMany({
+    where: {
+      status: "research",
+      thesisSupervisors: { some: { lecturerId, status: "active", role: { name: { in: ["Pembimbing 1", "Pembimbing 2"] } } } },
+    },
+    select: {
+      id: true,
+      title: true,
+      studentId: true,
+      academicYearId: true,
+      ...THESIS_PROGRESS_SELECT,
+      student: { select: { id: true, user: USER_NAME } },
+      thesisSupervisors: {
+        where: { status: "active" },
+        select: { id: true, lecturerId: true, role: { select: { name: true } } },
+      },
+    },
+    orderBy: [{ startDate: "asc" }, { id: "asc" }],
+  });
+}
+
+/**
+ * Evaluations a lecturer may follow on the "Evaluasi" page: the ones they filled, and those of
+ * theses they supervise now. A supervisor replaced earlier no longer sees them (Paket E4, 1.1).
+ */
+export function findForSupervisor(lecturerId, client = prisma) {
+  return client.thesisGuidanceEvaluation.findMany({
+    where: {
+      OR: [
+        { thesisSupervisor: { lecturerId } },
+        { thesis: { thesisSupervisors: { some: { lecturerId, status: "active" } } } },
+      ],
+    },
+    include: EVALUATION_INCLUDE,
+    orderBy: NEWEST_FIRST,
+  });
+}
+
 export function countPending(client = prisma) {
   return client.thesisGuidanceEvaluation.count({ where: { status: EVALUATION_STATUS.PENDING } });
 }

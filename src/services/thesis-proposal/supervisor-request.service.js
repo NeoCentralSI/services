@@ -34,7 +34,8 @@ import { classifyLoad, getApplicableLimits, getLecturerLoads } from "./supervisi
 
 const ROUTES = {
   student: "/tugas-akhir/proposal",
-  lecturer: "/tugas-akhir/bimbingan/lecturer/my-students",
+  // Paket E4 (4.1): Tugas Akhir > Permohonan.
+  lecturer: "/tugas-akhir/permohonan",
   kadepDepartment: "/kelola/tugas-akhir/kadep/penetapan-pembimbing?tab=departemen",
   kadepOverQuota: "/kelola/tugas-akhir/kadep/penetapan-pembimbing?tab=atas-kuota",
 };

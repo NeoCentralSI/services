@@ -17,6 +17,7 @@ vi.mock("../../controllers/thesis-guidance-evaluation.controller.js", () => ({
   getContext: passThrough,
   submitEvaluation: passThrough,
   listForDepartment: passThrough,
+  listForSupervisor: passThrough,
   decideAsKadep: passThrough,
 }));
 vi.mock("../../controllers/thesisGuidance/lecturer.guidance.controller.js", async (importOriginal) => {
@@ -44,6 +45,7 @@ describe("thesis guidance evaluation routes", () => {
     expect(allowedRoles("/", "post")).toEqual(["Pembimbing 1"]);
     expect(allowedRoles("/:id/decision", "post")).toEqual(["Ketua Departemen"]);
     expect(allowedRoles("/department", "get")).toEqual(["Ketua Departemen"]);
+    expect(allowedRoles("/lecturer", "get")).toEqual(["Pembimbing 1", "Pembimbing 2"]);
     expect(allowedRoles("/context", "get")).toEqual(["Mahasiswa", "Pembimbing 1", "Pembimbing 2", "Ketua Departemen"]);
   });
 

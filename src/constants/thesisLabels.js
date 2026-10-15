@@ -17,7 +17,7 @@ export const THESIS_STATUS_LABELS = Object.freeze({
 /** `ThesisPhase` */
 export const THESIS_PHASE_LABELS = Object.freeze({
   proposal: "Proposal",
-  research: "Tugas Akhir",
+  research: "Penelitian",
 });
 
 /** `ThesisTerminationReason` */
