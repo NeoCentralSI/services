@@ -15,6 +15,7 @@ vi.mock("../../middlewares/auth.middleware.js", () => ({
 }));
 vi.mock("../../controllers/thesis-change-request.controller.js", () => ({
   getContext: passThrough,
+  listInbox: passThrough,
   getSupervisorOptions: passThrough,
   submitRequest: passThrough,
   submitTransfer: passThrough,
@@ -56,6 +57,10 @@ describe("thesis change request routes", () => {
     expect(allowedRoles("/department", "get")).toEqual(KADEP);
     expect(allowedRoles("/:id/decision", "post")).toEqual(KADEP);
     expect(allowedRoles("/batch/:batchId/decision", "post")).toEqual(KADEP);
+  });
+
+  it("Lanjutan Paket E4: the Perubahan page inbox is for supervisors and the Ketua Departemen", () => {
+    expect(allowedRoles("/inbox", "get")).toEqual([...SUPERVISORS, ...KADEP]);
   });
 
   it("registers the batch route before the :id routes", () => {

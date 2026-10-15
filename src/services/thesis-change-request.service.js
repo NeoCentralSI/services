@@ -393,6 +393,82 @@ export async function listForLecturer(userId) {
   };
 }
 
+// ── Tugas Akhir > Perubahan (Lanjutan Paket E4) ──────────────────────────────────────
+
+export const INBOX_SCOPES = Object.freeze(["awaitingMe", "inProgress", "history"]);
+const INBOX_MAX_PAGE_SIZE = 100;
+
+/** Name or NIM of the student. */
+function studentSearchWhere(search) {
+  const keyword = String(search ?? "").trim();
+  if (!keyword) return {};
+  return { thesis: { student: { user: { OR: [{ fullName: { contains: keyword } }, { identityNumber: { contains: keyword } }] } } } };
+}
+
+export function pageOf({ page, pageSize } = {}) {
+  const size = Math.min(Math.max(Number(pageSize) || 10, 1), INBOX_MAX_PAGE_SIZE);
+  const number = Math.max(Number(page) || 1, 1);
+  return { page: number, pageSize: size, skip: (number - 1) * size, take: size };
+}
+
+const INBOX_ORDER = Object.freeze({
+  // Open requests: oldest first (a queue). Closed: latest closing first.
+  awaitingMe: [{ createdAt: "asc" }, { id: "asc" }],
+  inProgress: [{ createdAt: "asc" }, { id: "asc" }],
+  history: [{ decidedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+});
+
+/**
+ * The three filters of the Perubahan page for one viewer, as database conditions. "Menunggu
+ * Saya" = the viewer's own lecturer step and, for the Ketua Departemen, every request at the
+ * department step; "Sedang Berjalan" = the other open requests the viewer may see; "Riwayat" =
+ * the closed ones. A supervisor sees the requests they are part of; the Ketua Departemen all.
+ */
+async function inboxFilters(userId) {
+  const [isKadep, isSupervisor] = await Promise.all([
+    repo.userHasActiveRole(userId, ROLES.KETUA_DEPARTEMEN),
+    Promise.all([repo.userHasActiveRole(userId, ROLES.PEMBIMBING_1), repo.userHasActiveRole(userId, ROLES.PEMBIMBING_2)]).then((roles) => roles.some(Boolean)),
+  ]);
+  const myStepIds = isSupervisor ? await repo.findIdsAtLecturerStep(userId) : [];
+  const waitingParts = [
+    ...(myStepIds.length > 0 ? [{ id: { in: myStepIds } }] : []),
+    ...(isKadep ? [{ status: CHANGE_REQUEST_STATUS.PENDING, approvals: { every: { status: "approved" } } }] : []),
+  ];
+  const visible = isKadep ? {} : { OR: [{ approvals: { some: { lecturerId: userId } } }, { requestedByUserId: userId }] };
+  const awaitingMe = waitingParts.length > 0 ? { OR: waitingParts } : { id: { in: [] } };
+  return {
+    isKadep,
+    awaitingMe,
+    inProgress: { AND: [{ status: CHANGE_REQUEST_STATUS.PENDING }, visible, ...(waitingParts.length > 0 ? [{ NOT: awaitingMe }] : [])] },
+    history: { AND: [{ status: { not: CHANGE_REQUEST_STATUS.PENDING } }, visible] },
+    pendingVisible: { AND: [{ status: CHANGE_REQUEST_STATUS.PENDING }, visible] },
+  };
+}
+
+/**
+ * Tugas Akhir > Perubahan: one page of a filter, searched by the student's name or NIM, with
+ * the number of open requests per filter for the filter labels. No row limit: the database
+ * pages. `batchId` lists the open requests of one "Alihkan Mahasiswa" batch instead.
+ */
+export async function listInbox(userId, { scope, search = "", page = 1, pageSize = 10, batchId = null } = {}) {
+  const filters = await inboxFilters(userId);
+  const paging = pageOf({ page, pageSize });
+  const safeScope = INBOX_SCOPES.includes(scope) ? scope : "awaitingMe";
+  const where = batchId
+    ? { AND: [filters.pendingVisible, { batchId: String(batchId) }] }
+    : { AND: [filters[safeScope], studentSearchWhere(search)] };
+  const [{ rows, total }, awaitingMe, inProgress] = await Promise.all([
+    repo.findPage(where, batchId ? INBOX_ORDER.awaitingMe : INBOX_ORDER[safeScope], paging),
+    repo.countWhere(filters.awaitingMe),
+    repo.countWhere(filters.inProgress),
+  ]);
+  return {
+    data: await Promise.all(rows.map((request) => toDtoFor(request, userId, { showLoad: filters.isKadep }))),
+    meta: { page: paging.page, pageSize: paging.pageSize, total, totalPages: Math.max(Math.ceil(total / paging.pageSize), 1) },
+    counts: { awaitingMe, inProgress },
+  };
+}
+
 /** Department queue (Ketua Departemen): pending requests or the closed ones. */
 export async function listForDepartment(userId, { scope = "pending", search = "", page = 1, pageSize = 20 } = {}) {
   const safeScope = scope === "history" ? "history" : "pending";

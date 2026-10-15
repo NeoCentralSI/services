@@ -547,7 +547,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
     include: { userHasRoles: { include: { role: true } } }
   });
   if (!user) {
-    const err = new Error("User not found");
+    const err = new Error("Pengguna tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -587,7 +587,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
   });
 
   if (!thesis) {
-    const err = new Error("Thesis not found");
+    const err = new Error("Tugas akhir tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -596,7 +596,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
   const studentName = thesis.student?.user?.fullName || "Mahasiswa";
 
   if (!studentUserId) {
-    const err = new Error("Student not found for this thesis");
+    const err = new Error("Mahasiswa pada tugas akhir ini tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -612,12 +612,12 @@ export async function sendWarningNotificationService(userId, thesisId) {
   const warningMessages = {
     slow: {
       title: "⚠️ Peringatan Progress Tugas Akhir",
-      body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
+      body: `Halo ${studentName}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
       notifBody: `Progress tugas akhir Anda terdeteksi lambat. Departemen mengingatkan Anda untuk segera menjadwalkan bimbingan.`
     },
     at_risk: {
       title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-      body: `Halo ${toTitleCaseName(studentName)}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
+      body: `Halo ${studentName}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
       notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Departemen meminta Anda segera menghubungi dosen pembimbing.`
     },
   };
@@ -645,7 +645,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
 
   return {
     success: true,
-    message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`,
+    message: `Peringatan telah dikirim ke ${studentName}`,
     warningType: level
   };
 }
@@ -676,7 +676,7 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
     include: { userHasRoles: { include: { role: true } } }
   });
   if (!user) {
-    const err = new Error("User not found");
+    const err = new Error("Pengguna tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -725,12 +725,12 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
   const warningMessages = {
     slow: {
       title: "⚠️ Peringatan: Progress Tugas Akhir",
-      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
+      body: (name, days) => `Halo ${name}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
       notifBody: (days) => `Anda tidak ada update progress selama ${days} hari. Segera hubungi dosen pembimbing Anda.`
     },
     at_risk: {
       title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-      body: (name, days) => `Halo ${toTitleCaseName(name)}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
+      body: (name, days) => `Halo ${name}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
       notifBody: (days) => `Progress Anda terhenti selama ${days} hari (aktivitas: Berisiko). Segera hubungi dosen pembimbing Anda.`
     }
   };
@@ -740,7 +740,8 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
   // One notification per thesis, worded for the level of that thesis
   const outcomes = await Promise.all(theses.map(async (thesis) => {
     const studentUserId = thesis.student?.user?.id;
-    const studentName = toTitleCaseName(thesis.student?.user?.fullName || "Mahasiswa");
+    // Paket E4 lanjutan: the student's name as stored (e.g. "Uji TA Lambat"), not re-cased.
+    const studentName = thesis.student?.user?.fullName || "Mahasiswa";
     const outcome = { thesisId: thesis.id, studentName };
     if (!studentUserId) return { ...outcome, reason: "no_student" };
 

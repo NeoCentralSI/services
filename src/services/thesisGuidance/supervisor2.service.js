@@ -40,7 +40,7 @@ import { getLecturerLoads } from "../thesis-proposal/supervision-quota.service.j
 
 function ensureStudent(student) {
 	if (!student) {
-		const err = new Error("Student profile not found for this user");
+		const err = new Error("Data mahasiswa untuk akun ini tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -51,7 +51,7 @@ async function getActiveThesisOrThrow(userId) {
 	ensureStudent(student);
 	const thesis = await getActiveThesisForStudent(student.id);
 	if (!thesis) {
-		const err = new Error("Active thesis not found for this student");
+		const err = new Error("Tugas akhir aktif tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}

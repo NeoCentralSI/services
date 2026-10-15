@@ -207,12 +207,18 @@ export async function listForDepartment({ scope = "pending", search = "", page =
  */
 export async function listForSupervisor(userId) {
   const [theses, evaluations] = await Promise.all([repo.findSupervisedThesesForEvaluation(userId), repo.findForSupervisor(userId)]);
+  const pendingThesisIds = new Set(evaluations.filter((evaluation) => evaluation.status === EVALUATION_STATUS.PENDING).map((evaluation) => evaluation.thesisId));
+  return { due: dueOf(theses, userId, pendingThesisIds), evaluations: evaluations.map(toDto) };
+}
+
+/** Theses of a supervisor whose evaluation is due and not filled yet (no pending evaluation). */
+function dueOf(theses, userId, pendingThesisIds) {
   const due = [];
   for (const thesis of theses) {
     const progress = summarizeThesisProgress(thesis);
     const clock = progress.supervisionClock;
     const stage = clock?.evaluationDue ?? null;
-    const hasPending = evaluations.some((evaluation) => evaluation.thesisId === thesis.id && evaluation.status === EVALUATION_STATUS.PENDING);
+    const hasPending = pendingThesisIds.has(thesis.id);
     if (!stage || hasPending || hasPassedSeminar(thesis)) continue;
     const viewerRole = viewerRoleOn(thesis, userId);
     const blockReason = getSubmitBlockReason(thesis, clock, { viewerRole, hasPending });
@@ -225,7 +231,94 @@ export async function listForSupervisor(userId) {
       blockReason,
     });
   }
-  return { due, evaluations: evaluations.map(toDto) };
+  return due;
+}
+
+// ── Tugas Akhir > Evaluasi (Lanjutan Paket E4) ───────────────────────────────────────
+
+export const EVALUATION_INBOX_SCOPES = Object.freeze(["action", "kadep", "history"]);
+const EVALUATION_INBOX_MAX_PAGE_SIZE = 100;
+
+const matchesStudent = (student, keyword) =>
+  !keyword || [student?.name, student?.identityNumber].some((value) => String(value ?? "").toLowerCase().includes(keyword.toLowerCase()));
+
+function evaluationSearchWhere(keyword) {
+  if (!keyword) return {};
+  return { thesis: { student: { user: { OR: [{ fullName: { contains: keyword } }, { identityNumber: { contains: keyword } }] } } } };
+}
+
+/**
+ * Rows `[offset, offset + size)` of "due rows, then database rows": how much comes from each.
+ * Exported for the tests of pages beyond the first hundred rows.
+ */
+export function splitPage(dueCount, offset, size) {
+  const dueTake = Math.max(Math.min(dueCount - offset, size), 0);
+  return { dueSkip: Math.min(offset, dueCount), dueTake, dbSkip: Math.max(offset - dueCount, 0), dbTake: size - dueTake };
+}
+
+/**
+ * Tugas Akhir > Evaluasi: one page of a filter for the viewer, searched by the student's name
+ * or NIM, with the counts of the two open filters. "Perlu Tindakan" = due theses of a supervisor
+ * (computed from the supervision clock), then, for the Ketua Departemen, every evaluation
+ * waiting for a decision; "Menunggu Kadep" = waiting evaluations the viewer may see; "Riwayat" =
+ * decided or recorded ones. No row limit: the database pages the evaluations.
+ */
+export async function listInbox(userId, { scope, search = "", page = 1, pageSize = 10 } = {}) {
+  const safeScope = EVALUATION_INBOX_SCOPES.includes(scope) ? scope : "action";
+  const size = Math.min(Math.max(Number(pageSize) || 10, 1), EVALUATION_INBOX_MAX_PAGE_SIZE);
+  const number = Math.max(Number(page) || 1, 1);
+  const keyword = String(search ?? "").trim();
+  const [isKadep, isSupervisor] = await Promise.all([
+    repo.userHasAnyActiveRole(userId, [ROLES.KETUA_DEPARTEMEN]),
+    repo.userHasAnyActiveRole(userId, [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2]),
+  ]);
+
+  const visible = repo.supervisorVisibleWhere(userId);
+  const pending = { status: EVALUATION_STATUS.PENDING };
+  const filters = {
+    // Database part of "Perlu Tindakan": the department's queue.
+    action: isKadep ? pending : null,
+    kadep: isKadep ? pending : isSupervisor ? { AND: [pending, visible] } : null,
+    history: {
+      OR: [
+        // What the department decided ("Lanjut Bimbingan" never reaches it).
+        ...(isKadep ? [{ status: { not: EVALUATION_STATUS.PENDING }, recommendation: { not: EVALUATION_RECOMMENDATION.CONTINUE } }] : []),
+        ...(isSupervisor ? [{ AND: [{ status: { not: EVALUATION_STATUS.PENDING } }, visible] }] : []),
+      ],
+    },
+  };
+  if (filters.history.OR.length === 0) filters.history = null;
+  const ORDER = { action: [{ createdAt: "asc" }, { id: "asc" }], kadep: [{ createdAt: "asc" }, { id: "asc" }], history: [{ createdAt: "desc" }, { id: "desc" }] };
+
+  let allDue = [];
+  if (isSupervisor) {
+    const [theses, pendingRows] = await Promise.all([
+      repo.findSupervisedThesesForEvaluation(userId),
+      prisma.thesisGuidanceEvaluation.findMany({ where: { ...pending, ...visible }, select: { thesisId: true } }),
+    ]);
+    allDue = dueOf(theses, userId, new Set(pendingRows.map((row) => row.thesisId)));
+  }
+  const due = safeScope === "action" ? allDue.filter((item) => matchesStudent(item.thesis.student, keyword)) : [];
+  const dbWhere = filters[safeScope] ? { AND: [filters[safeScope], evaluationSearchWhere(keyword)] } : null;
+
+  const offset = (number - 1) * size;
+  const part = splitPage(due.length, offset, size);
+  const [dbRows, dbTotal, actionDbCount, kadepCount] = await Promise.all([
+    dbWhere ? repo.findEvaluationPage(dbWhere, ORDER[safeScope], { skip: part.dbSkip, take: part.dbTake }) : [],
+    dbWhere ? repo.countEvaluations(dbWhere) : 0,
+    filters.action ? repo.countEvaluations(filters.action) : 0,
+    filters.kadep ? repo.countEvaluations(filters.kadep) : 0,
+  ]);
+  const total = due.length + dbTotal;
+  return {
+    data: [
+      ...due.slice(part.dueSkip, part.dueSkip + part.dueTake).map((item) => ({ kind: "due", id: `due-${item.thesis.id}`, due: item })),
+      ...dbRows.map((evaluation) => ({ kind: "evaluation", id: evaluation.id, evaluation: toDto(evaluation) })),
+    ],
+    meta: { page: number, pageSize: size, total, totalPages: Math.max(Math.ceil(total / size), 1) },
+    counts: { action: allDue.length + actionDbCount, kadep: kadepCount },
+    viewer: { isKadep, isSupervisor },
+  };
 }
 
 export function countPending() {

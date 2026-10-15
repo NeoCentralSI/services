@@ -31,7 +31,7 @@ function createError(message, statusCode = 400) {
   return err;
 }
 
-function notFound(message = "Resource not found") {
+function notFound(message = "Data tidak ditemukan") {
   return createError(message, 404);
 }
 

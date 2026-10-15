@@ -53,7 +53,7 @@ import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON }
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
-		const err = new Error("Lecturer profile not found for this user");
+		const err = new Error("Data dosen untuk akun ini tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -222,7 +222,7 @@ export async function getStudentDetailService(userId, thesisId) {
 
 	const thesis = await findThesisDetailForLecturer(thesisId, lecturer.id);
 	if (!thesis) {
-		const err = new Error("Thesis not found or you are not a supervisor");
+		const err = new Error("Tugas akhir tidak ditemukan atau Anda bukan pembimbingnya");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -616,7 +616,7 @@ export async function getStudentProgressDetailService(userId, studentId) {
 	ensureLecturer(lecturer);
 	const thesis = await getStudentActiveThesis(studentId, lecturer.id);
 	if (!thesis) {
-		const err = new Error("Student thesis not found for this lecturer");
+		const err = new Error("Tugas akhir mahasiswa ini tidak ada di daftar bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -652,7 +652,7 @@ export async function postGuidanceFeedbackService(userId, guidanceId, { feedback
 	ensureLecturer(lecturer);
 	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
 	if (!guidance) {
-		const err = new Error("Guidance not found or not assigned to you");
+		const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -667,7 +667,7 @@ export async function finalApprovalService(userId, studentId) {
 	ensureLecturer(lecturer);
 	const thesis = await getStudentActiveThesis(studentId, lecturer.id);
 	if (!thesis) {
-		const err = new Error("Student thesis not found for this lecturer");
+		const err = new Error("Tugas akhir mahasiswa ini tidak ada di daftar bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -982,7 +982,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 	});
 
 	if (!guidance) {
-		const err = new Error("Guidance not found or not assigned to you");
+		const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -1085,7 +1085,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
 	});
 
 	if (!thesis) {
-		const err = new Error("Thesis not found");
+		const err = new Error("Tugas akhir tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -1102,7 +1102,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
 	const lecturerName = toTitleCaseName((await prisma.user.findUnique({ where: { id: userId } }))?.fullName || "Dosen");
 
 	if (!studentUserId) {
-		const err = new Error("Student not found for this thesis");
+		const err = new Error("Mahasiswa pada tugas akhir ini tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -1118,12 +1118,12 @@ export async function sendWarningNotificationService(userId, thesisId) {
 	const warningMessages = {
 		slow: {
 			title: "⚠️ Peringatan Progress Tugas Akhir",
-			body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
+			body: `Halo ${studentName}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
 			notifBody: `Progress tugas akhir Anda terdeteksi lambat. Dosen pembimbing ${lecturerName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`
 		},
 		at_risk: {
 			title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-			body: `Halo ${toTitleCaseName(studentName)}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
+			body: `Halo ${studentName}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
 			notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Dosen pembimbing ${lecturerName} meminta Anda segera menghubungi beliau.`
 		},
 	};
@@ -1151,7 +1151,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
 
 	return {
 		success: true,
-		message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`,
+		message: `Peringatan telah dikirim ke ${studentName}`,
 		warningType: level
 	};
 }

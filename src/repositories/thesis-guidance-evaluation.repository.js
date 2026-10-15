@@ -145,6 +145,35 @@ export function findForSupervisor(lecturerId, client = prisma) {
   });
 }
 
+/** Lanjutan Paket E4: evaluations a supervisor follows (same rule as `findForSupervisor`). */
+export function supervisorVisibleWhere(lecturerId) {
+  return {
+    OR: [
+      { thesisSupervisor: { lecturerId } },
+      { thesis: { thesisSupervisors: { some: { lecturerId, status: "active" } } } },
+    ],
+  };
+}
+
+/** One page of evaluations for a filter built by the service. */
+export function findEvaluationPage(where, orderBy, { skip, take }, client = prisma) {
+  if (take <= 0) return Promise.resolve([]);
+  return client.thesisGuidanceEvaluation.findMany({ where, include: EVALUATION_INCLUDE, orderBy, skip, take });
+}
+
+export function countEvaluations(where, client = prisma) {
+  return client.thesisGuidanceEvaluation.count({ where });
+}
+
+/** True when the user holds any of these roles (active assignment). */
+export async function userHasAnyActiveRole(userId, roleNames, client = prisma) {
+  const row = await client.userHasRole.findFirst({
+    where: { userId, status: "active", role: { name: { in: roleNames } } },
+    select: { userId: true },
+  });
+  return Boolean(row);
+}
+
 export function countPending(client = prisma) {
   return client.thesisGuidanceEvaluation.count({ where: { status: EVALUATION_STATUS.PENDING } });
 }

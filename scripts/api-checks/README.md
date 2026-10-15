@@ -14,7 +14,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `e2e.mjs` | Paket E: skenario API `PANDUAN_UJI_MANUAL_ALUR_TA.md` (DevTools, aktivitas, kesiapan, perubahan TA, evaluasi, overview) | tujuh seeder |
 | `e3-api.mjs` | Paket E3: Monitoring per semester (baca-saja) | **enam** seeder (tanpa `seed-thesis-proposal-flow.js`) |
 | `e3-ready-api.mjs` | Paket E3: kartu "Siap Mendaftar" seminar/sidang berubah saat kesiapan disetujui atau dibatalkan (menulis persetujuan) | enam seeder |
-| `e4-api.mjs` | Paket E4: pembimbing yang diganti (1.1), kesiapan setelah lulus (3.2/3.3), daftar Evaluasi dosen (4.3), Peringatkan oleh Sekdep/GKM (8), bimbingan TA yang dihentikan (7) | tujuh seeder |
+| `e4-api.mjs` | Paket E4: pembimbing yang diganti (1.1), kesiapan setelah lulus (3.2/3.3), daftar Evaluasi dosen (4.3), Peringatkan oleh Sekdep/GKM (8), bimbingan TA yang dihentikan (7); Lanjutan: halaman Perubahan dan Evaluasi lebih dari 100 baris (menyisipkan lalu menghapus 120 baris uji), tanggal persetujuan kesiapan dari seed, bimbingan TA Selesai, nama di pesan peringatan, pesan 404 berbahasa Indonesia | tujuh seeder |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 

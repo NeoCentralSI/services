@@ -3,6 +3,8 @@
 //   node scripts/api-checks/e4-api.mjs
 import { api, check, ids, login, run, summary } from "./lib-api.mjs";
 
+const prisma = (await import(process.cwd() + "/src/config/prisma.js")).default;
+
 const HUSNIL = "pembimbing_si", AFRI = "sekdep_si", AINA = "penguji_si", ULLYA = "gkm_si", KADEP = "kadep_si";
 const R = "Data uji E4: alasan pengajuan yang cukup panjang.";
 const myThesis = async (who) => (await api(who, "GET", "/thesisGuidance/student/my-thesis")).json?.thesis;
@@ -69,6 +71,10 @@ await run("8 Peringatkan untuk Sekdep dan GKM", async () => {
   for (const who of [AFRI, ULLYA, KADEP]) {
     const res = await api(who, "POST", `/thesisGuidance/monitoring/theses/${lambat.id}/send-warning`, {});
     check(`${who} dapat memperingatkan dari Monitoring`, res.status === 200, `${res.status} ${res.json?.message ?? ""}`);
+    if (who === KADEP) {
+      // Lanjutan Paket E4 (6): the student's name as stored, not re-cased.
+      check("pesan memakai nama mahasiswa apa adanya", res.json?.message === "Peringatan telah dikirim ke Uji TA Lambat", res.json?.message);
+    }
   }
   const batch = await api(ULLYA, "POST", "/thesisGuidance/monitoring/batch-warning", { thesisIds: [lambat.id] });
   check("GKM dapat memperingatkan sekaligus", batch.status === 200 && (batch.data?.sentCount ?? batch.json?.sentCount) >= 1, `${batch.status} ${batch.json?.message ?? ""}`);
@@ -94,6 +100,8 @@ await run("7 bimbingan TA yang dihentikan", async () => {
   });
   // The request is valid in form; the stopped thesis is what refuses it (not the validator).
   check("mengajukan bimbingan tetap ditolak", request.status >= 400 && !/Data tidak valid/.test(request.json?.message ?? ""), `${request.status} ${request.json?.message ?? ""}`);
+  // Lanjutan Paket E4 (6): 404 messages of the thesis services are Indonesian.
+  check("pesan 404 berbahasa Indonesia", request.status === 404 && request.json?.message === "Tugas akhir aktif tidak ditemukan", `${request.status} ${request.json?.message ?? ""}`);
   const milestones = await api("ta_dua_pembimbing", "GET", `/milestones/thesis/${thesis.id}`);
   check("milestone tetap terbaca", milestones.status === 200, milestones.status);
 
@@ -101,6 +109,81 @@ await run("7 bimbingan TA yang dihentikan", async () => {
   const failed = rowOf(await myStudents(HUSNIL, "failed"), name);
   check("Husnil: di filter Gagal, relasi saat TA ditutup", failed?.noLongerSupervising === false, failed && `${failed.supervisorStatus} ${failed.noLongerSupervising}`);
   check("Husnil: tidak di filter Aktif", !rowOf(await myStudents(HUSNIL, "active"), name), null);
+});
+
+// ── Lanjutan Paket E4 ────────────────────────────────────────────────────────────────
+
+const MARKER = "Data uji E4 lanjutan: baris paging.";
+const DAY = 24 * 60 * 60 * 1000;
+
+await run("L1 Perubahan dan Evaluasi lebih dari 100 baris", async () => {
+  // 120 closed requests and 120 decided evaluations on Uji TA Lancar (P1 Husnil), inserted
+  // directly and removed again at the end: the pages must reach rows past the first hundred.
+  const thesis = await myThesis("ta_lancar");
+  const studentUserId = (await login("ta_lancar"), ids.ta_lancar);
+  await login(HUSNIL);
+  const nim = thesis.student?.nim;
+  const relation = await prisma.thesisSupervisors.findFirst({ where: { thesisId: thesis.id, lecturerId: ids[HUSNIL], status: "active" } });
+  const base = Date.now() - 400 * DAY;
+  for (let i = 0; i < 120; i += 1) {
+    await prisma.thesisChangeRequest.create({
+      data: {
+        thesisId: thesis.id, requestType: "title", reason: MARKER, status: "cancelled", requestedByUserId: studentUserId,
+        previousTitle: thesis.title, newTitle: `Judul uji paging ${i + 1}`, decidedByUserId: studentUserId,
+        decidedAt: new Date(base + i * DAY), createdAt: new Date(base + i * DAY - 3600_000),
+        approvals: { create: [{ lecturerId: ids[HUSNIL], role: "main_supervisor", stepOrder: 1, status: "pending" }] },
+      },
+    });
+  }
+  await prisma.thesisGuidanceEvaluation.createMany({
+    data: Array.from({ length: 120 }, (_, i) => ({
+      thesisId: thesis.id, thesisSupervisorId: relation.id, evaluationType: "six_month", recommendation: "extend_1_month",
+      status: "rejected", notes: MARKER, kadepNotes: MARKER, kadepApprovedAt: new Date(base + i * DAY), createdAt: new Date(base + i * DAY - 3600_000),
+    })),
+  });
+
+  for (const who of [KADEP, HUSNIL]) {
+    const page3 = await api(who, "GET", `/thesis-change-requests/inbox?scope=history&search=${nim}&page=3&pageSize=50`);
+    check(`Perubahan (${who}): Riwayat 120 baris, halaman 3 berisi baris 101-120`, page3.status === 200 && page3.json?.meta?.total === 120 && page3.json?.meta?.totalPages === 3 && page3.json?.data?.length === 20, `${page3.status} ${JSON.stringify(page3.json?.meta)} ${page3.json?.data?.length}`);
+    const evalPage3 = await api(who, "GET", `/thesis-guidance-evaluations/inbox?scope=history&search=${nim}&page=3&pageSize=50`);
+    check(`Evaluasi (${who}): Riwayat 120 baris, halaman 3 berisi baris 101-120`, evalPage3.status === 200 && evalPage3.json?.meta?.total === 120 && evalPage3.json?.data?.length === 20 && evalPage3.json?.data?.every((row) => row.kind === "evaluation"), `${evalPage3.status} ${JSON.stringify(evalPage3.json?.meta)} ${evalPage3.json?.data?.length}`);
+  }
+  const all = await api(KADEP, "GET", "/thesis-change-requests/inbox?scope=history&page=1&pageSize=500");
+  check("satu halaman paling banyak 100 baris, daftarnya tidak terpotong", all.json?.meta?.pageSize === 100 && all.json?.data?.length === 100 && all.json?.meta?.total > 120, JSON.stringify(all.json?.meta));
+  const counts = await api(KADEP, "GET", "/thesis-change-requests/inbox?scope=awaitingMe");
+  check("Kadep: Menunggu Saya memuat langkah Ketua Departemen (Uji TA Tunggu Kadep)", counts.json?.counts?.awaitingMe >= 1 && (counts.json?.data ?? []).some((row) => row.student?.name === "Uji TA Tunggu Kadep"), JSON.stringify(counts.json?.counts));
+  const lecturerAction = await api(HUSNIL, "GET", "/thesis-guidance-evaluations/inbox?scope=action&search=Uji%20TA%20Lambat");
+  check("Evaluasi (Husnil): Perlu Tindakan dicari di server", lecturerAction.json?.meta?.total === 1 && lecturerAction.json?.data?.[0]?.kind === "due", JSON.stringify(lecturerAction.json?.meta));
+  const student = await api("ta_lancar", "GET", "/thesis-change-requests/inbox");
+  check("mahasiswa ditolak (403)", student.status === 403, student.status);
+
+  await prisma.thesisChangeRequest.deleteMany({ where: { reason: MARKER } });
+  await prisma.thesisGuidanceEvaluation.deleteMany({ where: { notes: MARKER } });
+});
+
+await run("L2 tanggal persetujuan kesiapan dari seed", async () => {
+  const passed = await myThesis("ta_lulus_seminar");
+  const seminar = await api(HUSNIL, "GET", `/milestones/thesis/${passed.id}/seminar-readiness`);
+  const dates = (seminar.data?.supervisors ?? []).map((s) => s.approvedAt);
+  check("kartu seminar Uji TA Lulus Seminar: kedua persetujuan bertanggal", dates.length === 2 && dates.every(Boolean), JSON.stringify(dates));
+  const ready = await prisma.user.findFirst({ where: { email: "ta_mon_siap_sidang@fti.unand.ac.id" }, select: { student: { select: { thesis: { select: { id: true } } } } } });
+  const thesisId = ready?.student?.thesis?.[0]?.id;
+  // Read as the student: the readiness status is for the student and the thesis supervisors.
+  const defence = await api("ta_mon_siap_sidang", "GET", `/milestones/thesis/${thesisId}/defence-readiness`);
+  const defenceDates = (defence.data?.supervisors ?? []).map((s) => s.approvedAt);
+  check("kartu sidang Uji Mon Siap Daftar Sidang: kedua persetujuan bertanggal", defenceDates.length === 2 && defenceDates.every(Boolean), `${defence.status} ${JSON.stringify(defenceDates)}`);
+});
+
+await run("L3 bimbingan TA Selesai", async () => {
+  const finished = await myThesis("test_selesai");
+  check("my-thesis: status Selesai dengan tanggal selesai", finished?.status === "completed" && !!finished?.completedAt, `${finished?.status} ${finished?.completedAt}`);
+  const list = await api("test_selesai", "GET", "/thesisGuidance/student/guidance");
+  check("daftar sesi TA Selesai terbaca", list.status === 200 && Array.isArray(list.data?.items ?? list.json?.items), list.status);
+});
+
+await run("L6 pesan 404 berbahasa Indonesia", async () => {
+  const missing = await api(HUSNIL, "GET", `/thesisGuidance/lecturer/my-students/${crypto.randomUUID()}`);
+  check("detail mahasiswa yang tidak ada: 404 berbahasa Indonesia", missing.status === 404 && /tidak/i.test(missing.json?.message ?? "") && !/not found/i.test(missing.json?.message ?? ""), `${missing.status} ${missing.json?.message}`);
 });
 
 process.exit(summary() ? 1 : 0);

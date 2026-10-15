@@ -629,7 +629,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
       expect(pushFor("u-slow")).toMatchObject({
         title: "⚠️ Peringatan: Progress Tugas Akhir",
-        body: "Halo Budi Santoso, Anda sudah tidak ada update progress tugas akhir selama 90 hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.",
+        body: "Halo BUDI SANTOSO, Anda sudah tidak ada update progress tugas akhir selama 90 hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.",
         data: { thesisId: "t-slow", warningType: "slow" },
       });
       expect(notifFor("u-slow")).toMatchObject({ title: "⚠️ Peringatan: Progress Tugas Akhir", referenceId: "t-slow" });
@@ -637,7 +637,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
       expect(pushFor("u-risk")).toMatchObject({
         title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-        body: "Halo Andi Wijaya, Anda sudah tidak ada update progress tugas akhir selama 200 hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.",
+        body: "Halo ANDI WIJAYA, Anda sudah tidak ada update progress tugas akhir selama 200 hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.",
         data: { thesisId: "t-risk", warningType: "at_risk" },
       });
       expect(notifFor("u-risk").message).toBe("Progress Anda terhenti selama 200 hari (aktivitas: Berisiko). Segera hubungi dosen pembimbing Anda.");
@@ -651,11 +651,11 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         sentCount: 2,
         sentCounts: { slow: 1, at_risk: 1 },
         sent: [
-          { thesisId: "t-slow", studentName: "Budi Santoso", warningType: "slow" },
-          { thesisId: "t-risk", studentName: "Andi Wijaya", warningType: "at_risk" },
+          { thesisId: "t-slow", studentName: "BUDI SANTOSO", warningType: "slow" },
+          { thesisId: "t-risk", studentName: "ANDI WIJAYA", warningType: "at_risk" },
         ],
         notSent: [
-          { thesisId: "t-active", studentName: "Citra Lestari", reason: "active", reasonLabel: "Aktivitas tugas akhir Lancar" },
+          { thesisId: "t-active", studentName: "CITRA LESTARI", reason: "active", reasonLabel: "Aktivitas tugas akhir Lancar" },
         ],
       });
     });
@@ -666,7 +666,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
       const result = await sendBatchWarningNotificationService("admin-user", ["t-slow"], "at_risk");
 
-      expect(result.sent).toEqual([{ thesisId: "t-slow", studentName: "Mahasiswa T-slow", warningType: "slow" }]);
+      expect(result.sent).toEqual([{ thesisId: "t-slow", studentName: "MAHASISWA T-SLOW", warningType: "slow" }]);
       expect(mockPush.sendFcmToUsers.mock.calls[0][1].title).toBe("⚠️ Peringatan: Progress Tugas Akhir");
     });
 
@@ -715,7 +715,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
       expect(result.sent.map((item) => item.thesisId)).toEqual(["t-b"]);
       expect(result.notSent).toEqual([
-        { thesisId: "t-a", studentName: "Mahasiswa T-a", reason: "failed", reasonLabel: "Notifikasi gagal dikirim" },
+        { thesisId: "t-a", studentName: "MAHASISWA T-A", reason: "failed", reasonLabel: "Notifikasi gagal dikirim" },
       ]);
     });
 

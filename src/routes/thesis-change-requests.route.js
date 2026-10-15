@@ -26,6 +26,8 @@ router.post("/", requireAnyRole(REQUESTERS), validate(validator.submitChangeRequ
 router.post("/transfer", requireAnyRole(SUPERVISOR_ROLES), validate(validator.submitTransferSchema), controller.submitTransfer);
 
 router.get("/lecturer", requireAnyRole(SUPERVISOR_ROLES), controller.listForLecturer);
+// Tugas Akhir > Perubahan: filters, search and paging on the server, content by role.
+router.get("/inbox", requireAnyRole([...SUPERVISOR_ROLES, ...KADEP]), controller.listInbox);
 router.get("/department", requireAnyRole(KADEP), controller.listForDepartment);
 
 router.post("/batch/:batchId/decision", requireAnyRole(KADEP), validate(validator.decisionSchema), controller.decideBatchAsKadep);

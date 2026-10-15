@@ -136,7 +136,7 @@ export async function ensureSupervisorAvailability({
 
 function ensureStudent(student) {
   if (!student) {
-    const err = new Error("Student profile not found for this user");
+    const err = new Error("Data mahasiswa untuk akun ini tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -180,7 +180,7 @@ async function getActiveThesisOrThrow(userId) {
   ensureStudent(student);
   const thesis = await getActiveThesisForStudent(student.id);
   if (!thesis) {
-    const err = new Error("Active thesis not found for this student");
+    const err = new Error("Tugas akhir aktif tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -202,7 +202,7 @@ async function getReadableThesisOrThrow(userId) {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }));
   if (!thesis) {
-    const err = new Error("Active thesis not found for this student");
+    const err = new Error("Tugas akhir aktif tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -271,7 +271,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
   ensureStudent(student);
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
@@ -588,7 +588,7 @@ export async function rescheduleGuidanceService(
 
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
@@ -728,7 +728,7 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
 
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
@@ -860,7 +860,7 @@ export async function updateStudentNotesService(
 
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
@@ -1016,7 +1016,7 @@ export async function listSupervisorsService(userId) {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     if (!thesis) {
-      const err = new Error("Active thesis not found for this student");
+      const err = new Error("Tugas akhir aktif tidak ditemukan");
       err.statusCode = 404;
       throw err;
     }
@@ -1178,7 +1178,7 @@ export async function getSupervisorAvailabilityPublic(
 export async function getGuidancesNeedingSummaryService(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1209,7 +1209,7 @@ export async function submitSessionSummaryService(
 ) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1217,7 +1217,7 @@ export async function submitSessionSummaryService(
   // Check guidance exists and belongs to student
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found");
+    const err = new Error("Bimbingan tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1318,7 +1318,7 @@ export async function markSessionCompleteService(
 export async function getCompletedGuidanceHistoryService(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1382,14 +1382,14 @@ export async function getCompletedGuidanceHistoryService(userId) {
 export async function getGuidanceForExportService(userId, guidanceId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
 
   const guidance = await getGuidanceForExport(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found or not completed");
+    const err = new Error("Bimbingan tidak ditemukan atau belum selesai");
     err.statusCode = 404;
     throw err;
   }
@@ -1443,7 +1443,7 @@ export async function getMyThesisDetailService(userId) {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     if (!thesis) {
-      const err = new Error("Active thesis not found for this student");
+      const err = new Error("Tugas akhir aktif tidak ditemukan");
       err.statusCode = 404;
       throw err;
     }
@@ -1501,7 +1501,7 @@ export async function getMyThesisDetailService(userId) {
   });
 
   if (!fullThesis) {
-    const err = new Error("Thesis not found");
+    const err = new Error("Tugas akhir tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1595,6 +1595,8 @@ export async function getMyThesisDetailService(userId) {
       startDate: fullThesis.startDate || null,
       // Paket E4 (7): "Tugas akhir ini dihentikan pada <tanggal>" on the read-only guidance page.
       terminatedAt: fullThesis.terminatedAt ?? (fullThesis.status === THESIS_STATUS.FAILED ? fullThesis.statusChangedAt ?? null : null),
+      // Lanjutan Paket E4: "Tugas akhir ini selesai pada <tanggal>" for a finished thesis.
+      completedAt: fullThesis.status === THESIS_STATUS.COMPLETED ? fullThesis.statusChangedAt ?? fullThesis.updatedAt ?? null : null,
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,
       // Student info
@@ -1718,7 +1720,7 @@ export async function updateMyThesisTitleService(userId, newTitle) {
 export async function getThesisHistoryService(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }

@@ -24,6 +24,7 @@ import bcrypt from "bcrypt";
 import { PrismaClient } from "../src/generated/prisma/index.js";
 import { ROLES } from "../src/constants/roles.js";
 import { THESIS_STATUS, THESIS_PHASE } from "../src/constants/thesisStatus.js";
+import { seedReadinessApprovals } from "./lib/readiness-audit.js";
 
 const prisma = new PrismaClient();
 
@@ -413,6 +414,29 @@ async function seedAccount(account, ctx) {
       },
     });
     if (role.id === ctx.roles.p1.id) p1Relation = relation;
+  }
+
+  // The audit rows the app writes on "Setujui", two days before the registration they led to
+  // (or three days ago when the student has not registered yet), so the readiness cards show
+  // when each supervisor approved (Lanjutan Paket E4).
+  const approvers = [
+    { lecturerId: p1.id, position: "pembimbing_1" },
+    { lecturerId: p2.id, position: "pembimbing_2" },
+  ];
+  const beforeRegistration = (config, kind) => new Date(eventColumns(config, ctx, kind).registeredAt.getTime() - 2 * DAY);
+  if (seminarReady) {
+    const seminarConfig = isDefenceTrack
+      ? { status: "passed", heldOn: new Date(previous.endDate.getTime() - (finishedLastSemester ? 110 : 10) * DAY) }
+      : account.seminar;
+    const approvedAt = seminarConfig ? beforeRegistration(seminarConfig, "seminar") : ago(3);
+    await seedReadinessApprovals(prisma, { thesisId: thesis.id, kind: "seminar", approvedAt, supervisors: approvers });
+  }
+  if (defenceReady) {
+    const defenceConfig = finishedLastSemester
+      ? { status: "passed", heldOn: new Date(previous.endDate.getTime() - 35 * DAY) }
+      : account.defence;
+    const approvedAt = defenceConfig ? beforeRegistration(defenceConfig, "defence") : ago(3);
+    await seedReadinessApprovals(prisma, { thesisId: thesis.id, kind: "defence", approvedAt, supervisors: approvers });
   }
 
   await createResearchHistory(thesis.id, p1.id, lastActivityAt);

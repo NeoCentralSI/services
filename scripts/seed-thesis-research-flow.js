@@ -19,6 +19,7 @@ import bcrypt from "bcrypt";
 import { PrismaClient } from "../src/generated/prisma/index.js";
 import { ROLES } from "../src/constants/roles.js";
 import { THESIS_STATUS, THESIS_PHASE } from "../src/constants/thesisStatus.js";
+import { seedReadinessApprovals } from "./lib/readiness-audit.js";
 
 const prisma = new PrismaClient();
 
@@ -645,8 +646,10 @@ async function seedAccount(account, ctx) {
     ...(account.p2 ? [{ email: account.p2, role: ctx.roles.p2 }] : []),
   ];
   let p1Relation = null;
+  const approvers = [];
   for (const supervisor of supervisors) {
     const lecturer = await requireUser(supervisor.email);
+    approvers.push({ lecturerId: lecturer.id, position: supervisor.role.id === ctx.roles.p1.id ? "pembimbing_1" : "pembimbing_2" });
     const relation = await prisma.thesisSupervisors.create({
       data: {
         thesisId: thesis.id,
@@ -666,12 +669,22 @@ async function seedAccount(account, ctx) {
   if (account.changeRequest) await createChangeRequest(thesis, student, account, ctx);
   if (account.evaluation) await createEvaluation(thesis, account, p1Relation, startDate);
 
+  // `daysAgo` is the day the seminar was held, or the day of a registration that has not
+  // been held yet: that one has no schedule, score or result.
+  const seminarAt = account.seminar ? daysAgo(account.seminar.daysAgo) : null;
+  const seminarHeld = !!account.seminar && account.seminar.status !== "registered";
+  const seminarRegisteredAt = seminarAt && (seminarHeld ? new Date(seminarAt.getTime() - 14 * DAY) : seminarAt);
+  if (account.seminarReady) {
+    // The audit rows the app writes on "Setujui", two days before the registration (or the
+    // last activity), so the readiness card shows when each supervisor approved.
+    const approvedAt = new Date((seminarRegisteredAt ?? lastActivityAt).getTime() - 2 * DAY);
+    await seedReadinessApprovals(prisma, { thesisId: thesis.id, kind: "seminar", approvedAt, supervisors: approvers });
+  }
+
   if (account.seminar) {
-    // `daysAgo` is the day the seminar was held, or the day of a registration that has not
-    // been held yet: that one has no schedule, score or result.
-    const at = daysAgo(account.seminar.daysAgo);
-    const wasHeld = account.seminar.status !== "registered";
-    const registeredAt = wasHeld ? new Date(at.getTime() - 14 * DAY) : at;
+    const at = seminarAt;
+    const wasHeld = seminarHeld;
+    const registeredAt = seminarRegisteredAt;
     await prisma.thesisSeminar.create({
       data: {
         thesisId: thesis.id,

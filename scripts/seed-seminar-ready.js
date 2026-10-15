@@ -21,6 +21,7 @@
  */
 
 import { PrismaClient } from "../src/generated/prisma/index.js";
+import { READINESS_APPROVED_ACTION, THESIS_ENTITY, seedReadinessApprovals } from "./lib/readiness-audit.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -71,8 +72,10 @@ async function getStudentData(identityNumber) {
     where: { studentId: user.student.id },
     include: {
       thesisSupervisors: {
+        where: { status: "active" },
         include: {
           lecturer: { include: { user: true } },
+          role: { select: { name: true } },
         },
       },
       thesisGuidances: {
@@ -174,6 +177,16 @@ async function setSupervisorReady(thesis) {
     where: { thesisId: thesis.id },
     data: { seminarReady: true },
   });
+  // The audit rows the app writes on "Setujui", so the readiness card shows the dates.
+  await seedReadinessApprovals(prisma, {
+    thesisId: thesis.id,
+    kind: "seminar",
+    approvedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    supervisors: supervisors.map((supervisor) => ({
+      lecturerId: supervisor.lecturerId,
+      position: /2/.test(supervisor.role?.name ?? "") ? "pembimbing_2" : "pembimbing_1",
+    })),
+  });
 
   console.log(`    ✅ All ${supervisors.length} supervisors marked as seminarReady = true`);
 }
@@ -197,6 +210,7 @@ async function resetSeminarReady(student, thesis) {
     where: { thesisId: thesis.id },
     data: { seminarReady: false },
   });
+  await prisma.auditLog.deleteMany({ where: { entity: THESIS_ENTITY, entityId: thesis.id, action: READINESS_APPROVED_ACTION.seminar } });
   console.log(`  🗑️  Reset all supervisors seminarReady = false`);
 }
 

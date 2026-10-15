@@ -94,6 +94,33 @@ export async function findForDepartment({ scope = "pending", search = "", page =
   return { rows, total };
 }
 
+/**
+ * Lanjutan Paket E4: ids of the pending requests whose current step (the first pending
+ * approval) belongs to this lecturer. "First pending" compares rows, so it is read here.
+ */
+export async function findIdsAtLecturerStep(lecturerId, client = prisma) {
+  const rows = await client.thesisChangeRequest.findMany({
+    where: { status: CHANGE_REQUEST_STATUS.PENDING, approvals: { some: { lecturerId, status: "pending" } } },
+    select: { id: true, approvals: { orderBy: { stepOrder: "asc" }, select: { lecturerId: true, status: true } } },
+  });
+  return rows
+    .filter((row) => row.approvals.find((approval) => approval.status === "pending")?.lecturerId === lecturerId)
+    .map((row) => row.id);
+}
+
+/** One page of requests for a filter built by the service, and the total of that filter. */
+export async function findPage(where, orderBy, { skip, take }, client = prisma) {
+  const [rows, total] = await Promise.all([
+    client.thesisChangeRequest.findMany({ where, include: REQUEST_INCLUDE, orderBy, skip, take }),
+    client.thesisChangeRequest.count({ where }),
+  ]);
+  return { rows, total };
+}
+
+export function countWhere(where, client = prisma) {
+  return client.thesisChangeRequest.count({ where });
+}
+
 export function findPendingByBatchId(batchId, client = prisma) {
   return client.thesisChangeRequest.findMany({
     where: { batchId, status: CHANGE_REQUEST_STATUS.PENDING },
