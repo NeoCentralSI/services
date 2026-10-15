@@ -1,6 +1,7 @@
 /**
  * Proposal Tugas Akhir — mounted at /thesis-proposals (Paket P).
- * Pengajuan Pembimbing (P2), Penetapan Pembimbing (P3) and the final proposal (P4).
+ * Pengajuan Pembimbing (P2), Penetapan Pembimbing (P3), the final proposal (P4) and the proposal
+ * revision of a thesis repeating its proposal (Lanjutan).
  * Who may act on a given request is checked again in the service.
  */
 import express from "express";
@@ -20,6 +21,7 @@ const KADEP = [ROLES.KETUA_DEPARTEMEN];
 // Student
 router.get("/me", requireAnyRole(STUDENT), controller.getMyOverview);
 router.post("/me/final-proposal", requireAnyRole(STUDENT), uploadThesisFile, controller.submitFinalProposal);
+router.post("/me/proposal-revision", requireAnyRole(STUDENT), uploadThesisFile, controller.submitProposalRevision);
 router.get("/me/supervisor-requests", requireAnyRole(STUDENT), controller.getMySupervisorRequests);
 router.put("/me/supervisor-request-draft", requireAnyRole(STUDENT), validate(validator.saveDraftSchema), controller.saveMyDraft);
 router.get("/catalog", requireAnyRole(STUDENT), controller.getCatalog);
@@ -30,6 +32,11 @@ router.post("/supervisor-requests/:id/withdraw", requireAnyRole(STUDENT), contro
 router.get("/supervisor-requests/inbox", requireAnyRole(SUPERVISOR_ROLES), controller.getLecturerInbox);
 router.post("/supervisor-requests/:id/review", requireAnyRole(SUPERVISOR_ROLES), controller.markUnderReview);
 router.post("/supervisor-requests/:id/respond", requireAnyRole(SUPERVISOR_ROLES), validate(validator.lecturerResponseSchema), controller.respondAsLecturer);
+
+// Proposal revisi: the Pembimbing 1 reviews (checked in the service); Kadep, Sekdep and Admin read
+const REVISION_READERS = [...SUPERVISOR_ROLES, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN];
+router.get("/theses/:thesisId/proposal-revision", requireAnyRole(REVISION_READERS), controller.getProposalRevisionForLecturer);
+router.post("/proposal-revisions/:id/review", requireAnyRole(SUPERVISOR_ROLES), validate(validator.proposalRevisionReviewSchema), controller.reviewProposalRevision);
 
 // Head of Department
 router.get("/supervisor-requests/kadep-queue", requireAnyRole(KADEP), controller.getKadepQueue);

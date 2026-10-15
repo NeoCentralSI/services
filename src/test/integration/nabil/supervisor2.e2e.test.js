@@ -8,13 +8,13 @@
  *   E. Daftar mahasiswa arsip (scope=archive) untuk thesis Selesai
  *
  * Jalankan:
- *   cd services
+ *   cd app/backend
  *   pnpm test:integration:nabil -- src/test/integration/nabil/supervisor2.e2e.test.js
  *
  * Prasyarat data (otomatis dicari; tes dilewati jika tidak ada):
  *   - Mahasiswa dengan thesis aktif, Pembimbing 1 aktif, belum ada P2, tidak ada pending REQUEST_SUPERVISOR_2
  *   - Minimal satu dosen dengan role Pembimbing 2 di katalog (kuota boleh penuh — tes C dilewati)
- *   - Opsional: thesis Selesai + P2 + finalProposalVersionId + ResearchMethodScore untuk D/E
+ *   - Opsional: thesis Selesai + P2 untuk E
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import prisma from "../../../config/prisma.js";

@@ -7,12 +7,19 @@ import { safeUploadName } from "./guidanceFile.helper.js";
  * Where proposal-domain files live (K17: file columns in the owner table).
  * - final proposal of one attempt: uploads/thesis/<thesis_id>/proposal/<assessment_id>/
  *   (served by /uploads/thesis with checkThesisFileAccess);
+ * - proposal revision of a thesis repeating its proposal: uploads/thesis/<thesis_id>/proposal/revisions/<revision_id>/
+ *   (same route and rule);
  * - Penetapan Pembimbing PDF of a batch: uploads/thesis-proposal/supervisor-assignments/<batch_id>/
  *   (served only through an authenticated endpoint);
  * - attendance files: uploads/research-method/attendance/<import_id>/ (same).
  */
 export function proposalFileDir(thesisId, assessmentId) {
   return path.posix.join("uploads", "thesis", thesisId, "proposal", assessmentId);
+}
+
+/** Proposal revision of a thesis repeating its proposal (same access rule as the final proposal). */
+export function proposalRevisionDir(thesisId, revisionId) {
+  return path.posix.join("uploads", "thesis", thesisId, "proposal", "revisions", revisionId);
 }
 
 export function assignmentBatchDir(batchId) {

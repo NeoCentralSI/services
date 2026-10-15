@@ -6,19 +6,23 @@ import { NotFoundError } from "../../utils/errors.js";
 import { findLatestBatchOfThesis } from "../../repositories/thesis-proposal/supervisor-assignment.repository.js";
 import { findStudentThesis } from "../../repositories/thesis-proposal/student-thesis.repository.js";
 import { getFinalProposalState } from "./final-proposal.service.js";
+import { getProposalRevisionState } from "./proposal-revision.service.js";
 
 const ROLE_ORDER = { [ROLES.PEMBIMBING_1]: 1, [ROLES.PEMBIMBING_2]: 2 };
 
 /**
  * Sections 2–4 of Tugas Akhir > Proposal for the student: the thesis and its supervisors, the
- * status of Penetapan Pembimbing (no PDF: the batch file stays with the department), and the
- * final proposal of the current attempt.
+ * status of Penetapan Pembimbing (no PDF: the batch file stays with the department), the
+ * final proposal of the current attempt, and the proposal revision of a thesis repeating its
+ * proposal (Lanjutan Paket P).
  */
 export async function getStudentProposalOverview(userId) {
   const student = await prisma.student.findUnique({ where: { id: userId }, select: { id: true } });
   if (!student) throw new NotFoundError("Data mahasiswa tidak ditemukan.");
   const thesis = await findStudentThesis(student.id);
-  if (!thesis) return { thesis: null, assignment: null, finalProposal: await getFinalProposalState(null) };
+  if (!thesis) {
+    return { thesis: null, assignment: null, finalProposal: await getFinalProposalState(null), proposalRevision: await getProposalRevisionState(null) };
+  }
 
   const supervisors = thesis.thesisSupervisors
     .map((row) => ({
@@ -55,5 +59,6 @@ export async function getStudentProposalOverview(userId) {
       waitingReason,
     },
     finalProposal: await getFinalProposalState(thesis),
+    proposalRevision: await getProposalRevisionState(thesis),
   };
 }

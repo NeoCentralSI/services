@@ -158,7 +158,7 @@ async function ensureThesisWritable(thesis) {
   if (open) return;
   const err = new Error(
     repeating
-      ? `${REPEAT_PROPOSAL_LOCK_REASON} Bimbingan dan milestone terkunci sampai tugas akhir kembali berstatus "${THESIS_STATUS_LABELS.research}".`
+      ? `${REPEAT_PROPOSAL_LOCK_REASON} Bimbingan dan milestone terkunci sampai Pembimbing 1 menyetujui proposal revisi (Tugas Akhir > Proposal).`
       : NOT_WRITABLE_MESSAGES[thesis?.status] ||
         "Tugas akhir ini sudah tidak aktif. Bimbingan dan milestone tidak dapat diubah.",
   );

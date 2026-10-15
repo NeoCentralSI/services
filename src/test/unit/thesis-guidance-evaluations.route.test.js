@@ -30,7 +30,6 @@ vi.mock("../../controllers/thesisGuidance/supervisor2.controller.js", async (imp
 
 const { default: router } = await import("../../routes/thesis-guidance-evaluations.route.js");
 const { default: lecturerRouter } = await import("../../routes/thesisGuidance/lecturer.guidance.route.js");
-const { default: supervisorsRouter } = await import("../../routes/thesis-supervisors.route.js");
 const validator = await import("../../validators/thesis-guidance-evaluation.validator.js");
 
 function allowedRoles(path, method) {
@@ -48,8 +47,9 @@ describe("thesis guidance evaluation routes", () => {
     expect(allowedRoles("/context", "get")).toEqual(["Mahasiswa", "Pembimbing 1", "Pembimbing 2", "Ketua Departemen"]);
   });
 
-  it("the old evaluation routes and the direct fail route are gone", () => {
-    expect(paths(supervisorsRouter).filter((path) => path.includes("evaluations"))).toEqual([]);
+  it("the old evaluation routes and the direct fail route are gone", async () => {
+    // The whole /thesis-supervisors router (old evaluations, then Pembimbing 2 by Kadep) is removed.
+    await expect(import("../../routes/thesis-supervisors.route.js")).rejects.toThrow();
     expect(paths(lecturerRouter).filter((path) => path.includes("/fail"))).toEqual([]);
   });
 });

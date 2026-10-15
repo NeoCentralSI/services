@@ -110,6 +110,24 @@ export function countPending(client = prisma) {
  * True while a thesis is back in `proposal` because an approved evaluation asked the
  * student to repeat the proposal. Guidance and milestone actions show this as their reason.
  */
+/**
+ * The approved "Mengulang Proposal" evaluation a thesis in `proposal` is repeating under, latest
+ * first (Lanjutan Paket P: its proposal revisions belong to this cycle), or null.
+ */
+export function findRepeatProposalEvaluation(thesisId, client = prisma) {
+  if (!thesisId) return Promise.resolve(null);
+  return client.thesisGuidanceEvaluation.findFirst({
+    where: {
+      thesisId,
+      status: EVALUATION_STATUS.APPROVED,
+      recommendation: EVALUATION_RECOMMENDATION.REVISE_PROPOSAL,
+      thesis: { status: "proposal" },
+    },
+    select: { id: true, kadepApprovedAt: true, createdAt: true },
+    orderBy: [{ kadepApprovedAt: "desc" }, { createdAt: "desc" }],
+  });
+}
+
 export async function isRepeatingProposal(thesisId, client = prisma) {
   if (!thesisId) return false;
   const evaluation = await client.thesisGuidanceEvaluation.findFirst({

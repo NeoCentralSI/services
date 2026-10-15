@@ -44,6 +44,7 @@ model User {
   defenceRequirementDocVerifications ThesisDefenceRequirementDocument[] @relation("DefenceRequirementDocVerifiedBy")
   supervisorRequestsReviewed         ThesisSupervisorRequest[]          @relation("SupervisorRequestReviewer")
   guidanceEvaluationsApproved        ThesisGuidanceEvaluation[]         @relation("GuidanceEvalKadepApprover")
+  proposalRevisionsReviewed          ThesisProposalRevision[]           @relation("ProposalRevisionReviewer")
   thesesTerminated                   Thesis[]                           @relation("ThesisTerminatedBy")
   researchMethodAssessmentsFinalized ResearchMethodAssessment[]         @relation("ResearchMethodAssessmentFinalizer")
   researchMethodAttendanceUploads    ResearchMethodAttendanceImport[]   @relation("ResearchMethodAttendanceImportUploader")
@@ -785,6 +786,7 @@ model Thesis {
   researchMethodAssessments  ResearchMethodAssessment[]
   supervisorRequests         ThesisSupervisorRequest[]
   supervisorAssignments      ThesisSupervisorAssignmentBatchMember[]
+  proposalRevisions          ThesisProposalRevision[]
 
   @@index([academicYearId], map: "thesis_academic_year_id_fkey")
   @@index([studentId], map: "thesis_student_id_fkey")
@@ -991,11 +993,50 @@ model ThesisGuidanceEvaluation {
   thesis               Thesis                           @relation(fields: [thesisId], references: [id], onDelete: Cascade)
   thesisSupervisor     ThesisSupervisors                @relation(fields: [thesisSupervisorId], references: [id], onDelete: Cascade)
   kadepApprover        User?                            @relation("GuidanceEvalKadepApprover", fields: [kadepApprovedBy], references: [id], onDelete: SetNull)
+  proposalRevisions    ThesisProposalRevision[]
 
   @@index([thesisId])
   @@index([thesisSupervisorId])
   @@index([status])
   @@map("thesis_guidance_evaluations")
+}
+
+/// Proposal revisi TA yang mengulang proposal lewat Evaluasi Bimbingan (Lanjutan Paket P).
+/// Satu baris per unggahan dalam satu siklus (`evaluationId` = evaluasi "Mengulang Proposal"
+/// yang disetujui). Berkas di uploads/thesis/<thesis_id>/proposal/revisions/<id>/ (aturan akses
+/// berkas proposal). Pembimbing 1 menyetujui (TA kembali ke Penelitian) atau meminta revisi.
+model ThesisProposalRevision {
+  id           String                       @id @default(uuid())
+  thesisId     String                       @map("thesis_id")
+  evaluationId String                       @map("evaluation_id")
+  filePath     String                       @map("file_path")
+  fileName     String                       @map("file_name")
+  mimeType     String                       @map("mime_type")
+  fileSize     Int                          @map("file_size")
+  fileHash     String                       @map("file_hash") @db.VarChar(64)
+  submittedAt  DateTime                     @map("submitted_at")
+  status       ThesisProposalRevisionStatus @default(submitted)
+  /// Catatan Pembimbing 1 (wajib saat meminta revisi).
+  reviewNotes  String?                      @map("review_notes") @db.Text
+  reviewedBy   String?                      @map("reviewed_by")
+  reviewedAt   DateTime?                    @map("reviewed_at")
+  createdAt    DateTime                     @default(now()) @map("created_at")
+  updatedAt    DateTime                     @updatedAt @map("updated_at")
+
+  thesis     Thesis                   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  evaluation ThesisGuidanceEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  reviewer   User?                    @relation("ProposalRevisionReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([thesisId, createdAt])
+  @@index([evaluationId])
+  @@index([reviewedBy])
+  @@map("thesis_proposal_revisions")
+}
+
+enum ThesisProposalRevisionStatus {
+  submitted
+  revision_requested
+  approved
 }
 
 model ThesisTopic {
@@ -1081,7 +1122,6 @@ model ThesisMilestone {
   thesis             Thesis                    @relation(fields: [thesisId], references: [id], onDelete: Cascade)
   milestoneTemplate  ThesisMilestoneTemplate?  @relation(fields: [milestoneTemplateId], references: [id])
   guidances          ThesisGuidanceMilestone[]
-  milestoneDocuments ThesisMilestoneDocument[]
 
   @@index([thesisId, orderIndex])
   @@index([thesisId, status])
@@ -1100,24 +1140,6 @@ model ThesisGuidanceMilestone {
   @@id([guidanceId, milestoneId])
   @@index([milestoneId])
   @@map("thesis_guidance_milestones")
-}
-
-model ThesisMilestoneDocument {
-  id          String   @id @default(uuid())
-  milestoneId String   @map("milestone_id")
-  filePath    String?  @map("file_path")
-  fileName    String?  @map("file_name")
-  fileSize    Int?     @map("file_size")
-  mimeType    String?  @map("mime_type")
-  description String?  @db.Text
-  version     Int      @default(1)
-  isLatest    Boolean  @default(true) @map("is_latest")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  milestone ThesisMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-
-  @@index([milestoneId])
-  @@map("thesis_milestone_documents")
 }
 
 model ThesisGuidance {

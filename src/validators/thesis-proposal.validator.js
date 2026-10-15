@@ -26,6 +26,11 @@ export const lecturerResponseSchema = z.object({
   rejectionReason: text(1000),
 });
 
+export const proposalRevisionReviewSchema = z.object({
+  action: z.enum(["approve", "request_revision"], { message: "Pilih setujui atau minta revisi." }),
+  notes: text(2000),
+});
+
 export const kadepDecisionSchema = z.object({
   action: z.enum(["approve", "redirect", "request_revision", "reject"], {
     message: "Keputusan harus setujui, alihkan, minta revisi, atau tolak.",

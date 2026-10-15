@@ -105,7 +105,7 @@ async function ensureThesisWritable(thesis) {
     if (open) return;
     // A thesis sent back to the proposal by a guidance evaluation says so (E5).
     if (repeating) {
-      throw forbidden(`${REPEAT_PROPOSAL_LOCK_REASON} Milestone terkunci sampai tugas akhir kembali berstatus "${THESIS_STATUS_LABELS.research}".`);
+      throw forbidden(`${REPEAT_PROPOSAL_LOCK_REASON} Milestone terkunci sampai Pembimbing 1 menyetujui proposal revisi (Tugas Akhir > Proposal).`);
     }
     throw forbidden(PROPOSAL_NOT_ASSIGNED_REASON);
   }

@@ -393,7 +393,7 @@ export async function decideAsKadep(userId, evaluationId, { approve, notes }) {
   } else {
     const consequence =
       evaluation.recommendation === EVALUATION_RECOMMENDATION.REVISE_PROPOSAL
-        ? "Tugas akhir kembali ke tahap proposal; bimbingan dan milestone terkunci sampai proposal diulang."
+        ? "Tugas akhir kembali ke tahap proposal. Unggah proposal revisi di Tugas Akhir > Proposal; bimbingan dan milestone terbuka lagi setelah Pembimbing 1 menyetujuinya."
         : "Tugas akhir dihentikan.";
     await notify([studentUserId, ...lecturerIds], "Evaluasi Bimbingan Disetujui", `${stageLabel(evaluation)} untuk ${studentName} disetujui Ketua Departemen: ${decisionLabel}. ${consequence}`, data);
   }

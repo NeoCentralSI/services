@@ -2,6 +2,7 @@ import * as requests from "../services/thesis-proposal/supervisor-request.servic
 import * as assignments from "../services/thesis-proposal/supervisor-assignment.service.js";
 import * as student from "../services/thesis-proposal/student.service.js";
 import * as finalProposal from "../services/thesis-proposal/final-proposal.service.js";
+import * as proposalRevision from "../services/thesis-proposal/proposal-revision.service.js";
 
 const ok = (res, data, message = undefined, status = 200) =>
   res.status(status).json({ success: true, ...(message ? { message } : {}), data });
@@ -93,4 +94,19 @@ export const getBatchFile = handle(async (req, res) => sendPdf(res, await assign
 export const submitFinalProposal = handle(async (req, res) => {
   const data = await finalProposal.submitFinalProposal(req.user.sub, req.file);
   ok(res, data, data.replaced ? "Proposal final diganti" : "Proposal final diajukan");
+});
+
+// ── Proposal revisi (TA yang mengulang proposal, Lanjutan Paket P) ─────────────────────
+/** POST /thesis-proposals/me/proposal-revision — upload (or replace, before review) a revised proposal */
+export const submitProposalRevision = handle(async (req, res) => {
+  const data = await proposalRevision.submitProposalRevision(req.user.sub, req.file);
+  ok(res, data, data.replaced ? "Proposal revisi diganti" : "Proposal revisi diajukan");
+});
+/** GET /thesis-proposals/theses/:thesisId/proposal-revision — supervisors and department readers */
+export const getProposalRevisionForLecturer = handle(async (req, res) =>
+  ok(res, await proposalRevision.getProposalRevisionForLecturer(req.user.sub, req.params.thesisId)));
+/** POST /thesis-proposals/proposal-revisions/:id/review — Pembimbing 1: approve or request a revision */
+export const reviewProposalRevision = handle(async (req, res) => {
+  const data = await proposalRevision.reviewProposalRevision(req.user.sub, req.params.id, req.body);
+  ok(res, data, data.thesis ? "Proposal revisi disetujui; tugas akhir kembali ke fase Penelitian" : "Revisi proposal diminta");
 });

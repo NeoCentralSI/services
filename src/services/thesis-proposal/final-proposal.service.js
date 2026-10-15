@@ -83,7 +83,7 @@ async function thesisBlockReason(thesis) {
     return "Tugas akhir Anda sudah tidak berada di fase proposal. Proposal final tidak dapat diubah.";
   }
   const { open, repeating } = await getProposalPhaseAccess(thesis);
-  if (repeating) return `${REPEAT_PROPOSAL_LOCK_REASON} Proposal final terkunci sampai keputusan berikutnya.`;
+  if (repeating) return `${REPEAT_PROPOSAL_LOCK_REASON} Unggah proposal revisi di bagian Proposal Revisi; mengulang proposal tidak memerlukan proposal final maupun Penilaian Proposal.`;
   if (!open) return "Proposal final dapat diajukan setelah Ketua Departemen menerbitkan Penetapan Pembimbing.";
   const hasSupervisor = thesis.thesisSupervisors?.some((s) => s.role?.name === ROLES.PEMBIMBING_1);
   if (!hasSupervisor) return "Mahasiswa harus memiliki Pembimbing 1 aktif sebelum mengajukan proposal final.";
