@@ -49,6 +49,7 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
       PEMBIMBING_2: "pembimbing_2",
       KETUA_DEPARTEMEN: "ketua_departemen",
       ADMIN: "admin",
+      KOORDINATOR_METODE_PENELITIAN: "Koordinator Matkul Metopen",
     },
     SUPERVISOR_ROLES: ["pembimbing_1", "pembimbing_2"],
     LECTURER_ROLES: ["pembimbing_1", "pembimbing_2", "penguji"],
@@ -107,6 +108,7 @@ import {
   getAcademicYears,
   adminUpdateLecturer,
   adminUpdateStudent,
+  normalizeRoleInputName,
 } from "../../../services/adminfeatures.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
@@ -219,6 +221,15 @@ describe("Module 17: Data Master Akun User", () => {
       expect(result).toHaveProperty("users");
       expect(result).toHaveProperty("meta");
     });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+describe("normalizeRoleInputName (import)", () => {
+  it("maps the UI label and the stored name of the research method coordinator to the same role", () => {
+    for (const name of ["Koordinator Metode Penelitian", "Koordinator Matkul Metopen", "koordinator metopen"]) {
+      expect(normalizeRoleInputName(name)).toEqual(["Koordinator Matkul Metopen"]);
+    }
   });
 });
 
