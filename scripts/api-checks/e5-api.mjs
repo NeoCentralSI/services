@@ -43,8 +43,9 @@ await run("1.4 Permohonan: kotak masuk persetujuan dosen", async () => {
   const old = await api(ULLYA, "GET", "/thesis-proposals/supervisor-requests/inbox");
   check("badge: menunggu = pengajuan pembimbing + langkah perubahan", inbox.json?.counts?.waiting === 3 && inbox.json?.counts?.waitingRequests === old.data?.waiting?.length && inbox.json?.counts?.waitingChanges === 1, JSON.stringify(inbox.json?.counts));
 
-  const onlyChanges = await api(ULLYA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_request");
-  check("filter Jenis Perubahan TA", (onlyChanges.json?.data ?? []).length === 2 && onlyChanges.json.data.every((r) => r.kind === "change_request"), onlyChanges.json?.meta);
+  // Paket E6: Jenis is one of four; both seed requests waiting around Ullya change a supervisor.
+  const onlyChanges = await api(ULLYA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_supervisor");
+  check("filter Jenis Perubahan Pembimbing", (onlyChanges.json?.data ?? []).length === 2 && onlyChanges.json.data.every((r) => r.kind === "change_request"), onlyChanges.json?.meta);
   const onlyAssigned = await api(ULLYA, "GET", "/thesis-proposals/lecturer-inbox?status=assigned");
   check("filter Status Ditetapkan", (onlyAssigned.json?.data ?? []).length > 0 && onlyAssigned.json.data.every((r) => r.viewStatus === "assigned"), onlyAssigned.json?.meta);
   const search = await api(ULLYA, "GET", "/thesis-proposals/lecturer-inbox?search=Tunggu%20Pembimbing%20Baru");
@@ -52,8 +53,8 @@ await run("1.4 Permohonan: kotak masuk persetujuan dosen", async () => {
 
   // Husnil: Pembimbing 1 for the title of "Uji TA Batal Pengajuan" (waiting), the new supervisor
   // of "Uji TA Putus Langsung" (not his turn yet), and approved steps that now wait elsewhere.
-  const husnil = await api(HUSNIL, "GET", "/thesis-proposals/lecturer-inbox?kind=change_request&pageSize=50");
-  const byName = Object.fromEntries((husnil.json?.data ?? []).map((r) => [r.changeRequest.student.name, r.viewStatus]));
+  const husnil = await api(HUSNIL, "GET", "/thesis-proposals/lecturer-inbox?pageSize=50");
+  const byName = Object.fromEntries((husnil.json?.data ?? []).filter((r) => r.kind === "change_request").map((r) => [r.changeRequest.student.name, r.viewStatus]));
   check("Husnil: judul menunggu Anda; langkah lain Sedang Berjalan", byName["Uji TA Batal Pengajuan"] === "awaiting_me" && byName["Uji TA Putus Langsung"] === "in_progress" && byName["Uji TA Tunggu Kadep"] === "in_progress", byName);
   check("mahasiswa ditolak (403)", (await api("ta_lancar", "GET", "/thesis-proposals/lecturer-inbox")).status === 403);
 });
@@ -110,9 +111,12 @@ await run("3.2/3.3 aksi Mahasiswa Bimbingan", async () => {
   const requestId = transfer.data?.requests?.[0]?.id;
   const marked = rowOf(await myStudents(AFRI), p2.fullName);
   check("baris kini bertanda pengajuan berjalan", marked?.changeRequest?.hasOpenRequest === true && marked.changeRequest.canTransfer === false, marked?.changeRequest);
-  const aina = await api(AINA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_request&status=awaiting_me");
+  const aina = await api(AINA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_supervisor&status=awaiting_me");
   const step = (aina.json?.data ?? []).find((r) => r.id === requestId);
   check("Aina (pembimbing baru): Menunggu Persetujuan Anda di Permohonan", step?.changeRequest?.batchId && step.changeRequest.viewer.canDecideAsLecturer === true, aina.json?.meta);
+  // Paket E6: the requester's own step was approved on submission, so the batch is not in her Permohonan.
+  const afriInbox = await api(AFRI, "GET", "/thesis-proposals/lecturer-inbox?pageSize=100");
+  check("Afriyanti (pengaju) tidak melihat pengalihannya sendiri di Permohonan", !(afriInbox.json?.data ?? []).some((r) => r.id === requestId), afriInbox.json?.meta);
   const kadepTransfer = await api(KADEP, "GET", "/thesis-change-requests/inbox?kind=transfer");
   check("Kadep: Jenis Alihkan, Sedang Berjalan", (kadepTransfer.json?.data ?? []).some((r) => r.id === requestId && r.viewStatus === "in_progress"), kadepTransfer.json?.meta);
   const approve = await api(AINA, "POST", `/thesis-change-requests/${requestId}/lecturer-decision`, { approve: true });
@@ -120,7 +124,7 @@ await run("3.2/3.3 aksi Mahasiswa Bimbingan", async () => {
   const kadep = await api(KADEP, "GET", "/thesis-change-requests/inbox?pageSize=5");
   const first = (kadep.json?.data ?? []).filter((r) => r.viewStatus === "awaiting_decision").map((r) => r.id);
   check("Kadep: pengalihan naik ke Menunggu Keputusan Anda, di atas", first.includes(requestId) && kadep.json?.data?.[0]?.viewStatus === "awaiting_decision", kadep.json?.data?.map((r) => r.viewStatus));
-  const after = await api(AINA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_request");
+  const after = await api(AINA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_supervisor");
   check("Aina: langkahnya kini Sedang Berjalan (menunggu Ketua Departemen)", (after.json?.data ?? []).some((r) => r.id === requestId && r.viewStatus === "in_progress"), null);
 });
 

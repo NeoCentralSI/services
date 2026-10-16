@@ -16,8 +16,6 @@ vi.mock("../../middlewares/auth.middleware.js", () => ({
 vi.mock("../../controllers/thesis-guidance-evaluation.controller.js", () => ({
   getContext: passThrough,
   submitEvaluation: passThrough,
-  listForDepartment: passThrough,
-  listForSupervisor: passThrough,
   listInbox: passThrough,
   decideAsKadep: passThrough,
 }));
@@ -45,10 +43,12 @@ describe("thesis guidance evaluation routes", () => {
   it("lets Pembimbing 1 fill, the Ketua Departemen decide, and the others read", () => {
     expect(allowedRoles("/", "post")).toEqual(["Pembimbing 1"]);
     expect(allowedRoles("/:id/decision", "post")).toEqual(["Ketua Departemen"]);
-    expect(allowedRoles("/department", "get")).toEqual(["Ketua Departemen"]);
-    expect(allowedRoles("/lecturer", "get")).toEqual(["Pembimbing 1", "Pembimbing 2"]);
-    // Paket E5 (3.4): the Evaluasi page is the Ketua Departemen's decision table only.
+    // Paket E5 (3.4): the Evaluasi page is the Ketua Departemen's decision table only; Paket E6
+    // removed the old /department and /lecturer lists.
     expect(allowedRoles("/inbox", "get")).toEqual(["Ketua Departemen"]);
+    const paths = router.stack.filter((layer) => layer.route).map((layer) => layer.route.path);
+    expect(paths).not.toContain("/department");
+    expect(paths).not.toContain("/lecturer");
     expect(allowedRoles("/context", "get")).toEqual(["Mahasiswa", "Pembimbing 1", "Pembimbing 2", "Ketua Departemen"]);
   });
 

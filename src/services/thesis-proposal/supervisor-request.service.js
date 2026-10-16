@@ -19,7 +19,7 @@ import {
 } from "../../constants/thesis-proposal.js";
 import { SUPERVISION_LOAD_LEVEL } from "../../constants/supervisionQuota.js";
 import { pageAcrossGroups, pageMeta, pageWindow } from "../../helpers/priority-paging.helper.js";
-import { LECTURER_INBOX_PRIORITY } from "../../constants/lecturer-inbox.js";
+import { LECTURER_INBOX_JENIS, LECTURER_INBOX_PRIORITY } from "../../constants/lecturer-inbox.js";
 import { CHANGE_REQUEST_VIEW_STATUS } from "../../constants/thesis-change-request.js";
 import * as changeRepo from "../../repositories/thesis-change-request.repository.js";
 import { changeRequestSearchWhere, lecturerStepFilters, toLecturerStepRow } from "../thesis-change-request.service.js";
@@ -541,7 +541,8 @@ export async function getLecturerInbox(userId) {
  * and the "Perubahan TA" requests with a step of this lecturer (previous supervisor, new
  * supervisor, or Pembimbing 1 for a title). "Semua" by default, sorted on the server by
  * `LECTURER_INBOX_PRIORITY` (what waits for the viewer first, newest first inside a group);
- * the Jenis and Status filters and the search by name, NIM or title narrow it. `counts.waiting`
+ * the Jenis (`LECTURER_INBOX_JENIS`) and Status filters and the search by name, NIM or title
+ * narrow it. `counts.waiting`
  * is what waits for the viewer, of both kinds (the sidebar badge).
  */
 export async function listLecturerInbox(userId, { kind = null, status = null, search = "", page = 1, pageSize = 10 } = {}) {
@@ -560,7 +561,10 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
     }
     : {};
   const changeSearch = changeRequestSearchWhere(keyword);
-  const wanted = (inboxKind, member) => (!kind || kind === inboxKind) && (!status || status === member);
+  // Paket E6: Jenis is Pengajuan Pembimbing or one kind of change; an unknown value is no filter.
+  const jenis = LECTURER_INBOX_JENIS[kind] ?? null;
+  const changeTypeWhere = jenis?.requestType ? { requestType: jenis.requestType } : {};
+  const wanted = (inboxKind, member) => (!jenis || jenis.kind === inboxKind) && (!status || status === member);
 
   const levels = [...new Set(Object.values(LECTURER_INBOX_PRIORITY).flatMap((map) => Object.values(map)))].sort((a, b) => a - b);
   const groups = levels.flatMap((level) => {
@@ -575,7 +579,7 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
       key: `level-${level}`,
       where: {
         request: requestStatuses.length > 0 ? { AND: [visible, { status: { in: requestStatuses } }, requestSearch] } : null,
-        change: changeStatuses.length > 0 ? { AND: [{ OR: changeStatuses.map((member) => changeWhere[member]) }, changeSearch] } : null,
+        change: changeStatuses.length > 0 ? { AND: [{ OR: changeStatuses.map((member) => changeWhere[member]) }, changeSearch, changeTypeWhere] } : null,
       },
     }];
   });

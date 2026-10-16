@@ -28,32 +28,12 @@ export async function submitEvaluation(req, res, next) {
   }
 }
 
-/** GET /thesis-guidance-evaluations/lecturer — supervisor's due theses and evaluations (Paket E4, 4.3) */
 /** GET /thesis-guidance-evaluations/inbox (Ketua Departemen; Paket E5: status priority) */
 export async function listInbox(req, res, next) {
   try {
     const { status, search, page, pageSize } = req.query;
     const result = await service.listInbox(req.user.sub, { status, search, page, pageSize });
     res.json({ success: true, data: result.data, meta: result.meta, counts: result.counts });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listForSupervisor(req, res, next) {
-  try {
-    res.json({ success: true, data: await service.listForSupervisor(req.user.sub) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/** GET /thesis-guidance-evaluations/department?scope=pending|history&search=&page=&pageSize= */
-export async function listForDepartment(req, res, next) {
-  try {
-    const { scope, search, page, pageSize } = req.query;
-    const result = await service.listForDepartment({ scope, search, page, pageSize });
-    res.json({ success: true, data: result.data, meta: result.meta });
   } catch (err) {
     next(err);
   }

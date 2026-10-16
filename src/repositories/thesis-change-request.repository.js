@@ -1,5 +1,5 @@
 import prisma from "../config/prisma.js";
-import { getLecturerLoad } from "../services/thesis-proposal/supervision-quota.service.js";
+import { getLecturerLoad, getLecturerLoads } from "../services/thesis-proposal/supervision-quota.service.js";
 import { CHANGE_REQUEST_STATUS } from "../constants/thesis-change-request.js";
 
 const USER_NAME = { select: { id: true, fullName: true, identityNumber: true } };
@@ -15,6 +15,9 @@ export const REQUEST_INCLUDE = Object.freeze({
       academicYearId: true,
       thesisTopic: { select: { id: true, name: true } },
       student: { select: { id: true, user: USER_NAME } },
+      // Paket E6: whether an open request may still be approved now (K34, K8).
+      thesisSeminars: { select: { status: true } },
+      thesisDefences: { select: { status: true } },
       thesisSupervisors: {
         where: { status: "active" },
         select: {
@@ -53,45 +56,6 @@ export function findOpenByThesisId(thesisId, client = prisma) {
 
 export function findByThesisId(thesisId, client = prisma) {
   return client.thesisChangeRequest.findMany({ where: { thesisId }, include: REQUEST_INCLUDE, orderBy: NEWEST_FIRST });
-}
-
-/** Requests a lecturer is part of: an approval step is theirs, or they submitted it. */
-export function findForLecturer(lecturerId, client = prisma) {
-  return client.thesisChangeRequest.findMany({
-    where: { OR: [{ approvals: { some: { lecturerId } } }, { requestedByUserId: lecturerId }] },
-    include: REQUEST_INCLUDE,
-    orderBy: NEWEST_FIRST,
-  });
-}
-
-/** Department queue: `pending` requests, or the closed ones (history), with search. */
-export async function findForDepartment({ scope = "pending", search = "", page = 1, pageSize = 20 } = {}, client = prisma) {
-  const where = {
-    status: scope === "pending" ? CHANGE_REQUEST_STATUS.PENDING : { not: CHANGE_REQUEST_STATUS.PENDING },
-    ...(search
-      ? {
-        thesis: {
-          OR: [
-            { title: { contains: search } },
-            { student: { user: { fullName: { contains: search } } } },
-            { student: { user: { identityNumber: { contains: search } } } },
-          ],
-        },
-      }
-      : {}),
-  };
-  const [rows, total] = await Promise.all([
-    client.thesisChangeRequest.findMany({
-      where,
-      include: REQUEST_INCLUDE,
-      // Pending: oldest first (queue). History: latest decision first.
-      orderBy: scope === "pending" ? [{ createdAt: "asc" }, { id: "asc" }] : [{ decidedAt: "desc" }, { id: "desc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    client.thesisChangeRequest.count({ where }),
-  ]);
-  return { rows, total };
 }
 
 /**
@@ -147,6 +111,8 @@ export function findThesisForChange(thesisId, client = prisma) {
       thesisTopic: { select: { id: true, name: true } },
       student: { select: { id: true, user: USER_NAME } },
       thesisSeminars: { select: { id: true, status: true } },
+      // K34 (Paket E6): a title-only change waits while the defence is in process.
+      thesisDefences: { select: { id: true, status: true } },
       thesisSupervisors: {
         where: { status: "active" },
         select: {
@@ -194,4 +160,11 @@ export async function getSupervisorLoad(lecturerId, client = prisma) {
   const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
   const load = await getLecturerLoad(lecturerId, activeYear?.id ?? null, { client });
   return { activeCount: load.activeCount, quotaMax: load.hardLimit };
+}
+
+/** Paket E6: the loads of several lecturers at once (the supervisor picker). */
+export async function getSupervisorLoads(lecturerIds, client = prisma) {
+  const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
+  const loads = await getLecturerLoads(lecturerIds, activeYear?.id ?? null, { client });
+  return new Map([...loads].map(([id, load]) => [id, { activeCount: load.activeCount, quotaMax: load.hardLimit }]));
 }

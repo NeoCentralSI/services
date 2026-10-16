@@ -191,52 +191,6 @@ export async function getEvaluationContext(userId, thesisId = null, { asDepartme
   };
 }
 
-/** Department queue (Ketua Departemen): evaluations waiting for a decision, or decided. */
-export async function listForDepartment({ scope = "pending", search = "", page = 1, pageSize = 20 } = {}) {
-  const safeScope = scope === "history" ? "history" : "pending";
-  const safePageSize = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
-  const safePage = Math.max(Number(page) || 1, 1);
-  const { rows, total } = await repo.findForDepartment({ scope: safeScope, search: String(search || "").trim(), page: safePage, pageSize: safePageSize });
-  return {
-    data: rows.map(toDto),
-    meta: { page: safePage, pageSize: safePageSize, total, totalPages: Math.max(Math.ceil(total / safePageSize), 1) },
-  };
-}
-
-/**
- * Paket E4 (4.3) "Evaluasi" page for a supervisor: research theses whose evaluation is due and
- * not filled yet (Pembimbing 1 may fill it; Pembimbing 2 reads), and the evaluations of their
- * students (waiting for the Ketua Departemen, or decided).
- */
-export async function listForSupervisor(userId) {
-  const [theses, evaluations] = await Promise.all([repo.findSupervisedThesesForEvaluation(userId), repo.findForSupervisor(userId)]);
-  const pendingThesisIds = new Set(evaluations.filter((evaluation) => evaluation.status === EVALUATION_STATUS.PENDING).map((evaluation) => evaluation.thesisId));
-  return { due: dueOf(theses, userId, pendingThesisIds), evaluations: evaluations.map(toDto) };
-}
-
-/** Theses of a supervisor whose evaluation is due and not filled yet (no pending evaluation). */
-function dueOf(theses, userId, pendingThesisIds) {
-  const due = [];
-  for (const thesis of theses) {
-    const progress = summarizeThesisProgress(thesis);
-    const clock = progress.supervisionClock;
-    const stage = clock?.evaluationDue ?? null;
-    const hasPending = pendingThesisIds.has(thesis.id);
-    if (!stage || hasPending || hasPassedSeminar(thesis)) continue;
-    const viewerRole = viewerRoleOn(thesis, userId);
-    const blockReason = getSubmitBlockReason(thesis, clock, { viewerRole, hasPending });
-    due.push({
-      thesis: { id: thesis.id, title: thesis.title, status: thesis.status, student: person(thesis.student?.user) },
-      viewerRole,
-      stage,
-      supervision: { startedAt: clock.startedAt ?? null, elapsedDays: clock.elapsedDays ?? null, elapsedLabel: clock.elapsedLabel ?? null },
-      canSubmit: !blockReason,
-      blockReason,
-    });
-  }
-  return due;
-}
-
 // ── Tugas Akhir > Evaluasi (Lanjutan Paket E4, Paket E5) ─────────────────────────────
 
 function evaluationSearchWhere(keyword) {

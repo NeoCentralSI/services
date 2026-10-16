@@ -19,8 +19,6 @@ vi.mock("../../controllers/thesis-change-request.controller.js", () => ({
   getSupervisorOptions: passThrough,
   submitRequest: passThrough,
   submitTransfer: passThrough,
-  listForLecturer: passThrough,
-  listForDepartment: passThrough,
   decideAsLecturer: passThrough,
   cancelRequest: passThrough,
   decideAsKadep: passThrough,
@@ -49,18 +47,22 @@ describe("thesis change request routes", () => {
 
   it("keeps lecturer steps and student handover to supervisors", () => {
     expect(allowedRoles("/transfer", "post")).toEqual(SUPERVISORS);
-    expect(allowedRoles("/lecturer", "get")).toEqual(SUPERVISORS);
     expect(allowedRoles("/:id/lecturer-decision", "post")).toEqual(SUPERVISORS);
   });
 
   it("keeps the department queue and the final decision to the Ketua Departemen", () => {
-    expect(allowedRoles("/department", "get")).toEqual(KADEP);
     expect(allowedRoles("/:id/decision", "post")).toEqual(KADEP);
     expect(allowedRoles("/batch/:batchId/decision", "post")).toEqual(KADEP);
   });
 
   it("Paket E5 (3.2): the Perubahan page is the Ketua Departemen's; a lecturer's steps are in Permohonan", () => {
     expect(allowedRoles("/inbox", "get")).toEqual(KADEP);
+  });
+
+  it("Paket E6: the old lecturer and department lists are gone (Permohonan and the Kadep inbox replace them)", () => {
+    const paths = router.stack.filter((layer) => layer.route).map((layer) => layer.route.path);
+    expect(paths).not.toContain("/lecturer");
+    expect(paths).not.toContain("/department");
   });
 
   it("registers the batch route before the :id routes", () => {

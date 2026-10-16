@@ -145,7 +145,8 @@ await run("4 alihkan tiga mahasiswa, satu ditolak", async () => {
   check("tiga pengajuan dalam satu kelompok", t.status < 300 && requests.length === 3 && !!batchId, `${t.status} ${t.json?.message ?? ""}`);
   check("langkah pengaju disetujui otomatis", requests.every((r) => r.steps[0].key === "previous_supervisor" && r.steps[0].status === "approved" && r.currentStep === "new_supervisor"), requests[0]?.steps?.map((s) => `${s.key}:${s.status}`));
   for (const r of requests) check(`Aina menyetujui ${r.student?.name}`, (await lecturerDecide(AINA, r.id)).status < 300);
-  const dept = await api(KADEP, "GET", "/thesis-change-requests/department?scope=pending&pageSize=100");
+  // Paket E6: the Kadep's Tugas Akhir > Perubahan (the old /department list is gone).
+  const dept = await api(KADEP, "GET", "/thesis-change-requests/inbox?kind=transfer&pageSize=100");
   const rows = (dept.data?.data ?? dept.data ?? []);
   check("Kadep melihat ketiganya dengan batchId yang sama", (Array.isArray(rows) ? rows : []).filter((r) => r.batchId === batchId).length === 3, Array.isArray(rows) ? rows.length : rows);
   const third = requests.find((r) => r.thesisId === theses[2].id);
@@ -163,7 +164,7 @@ await run("4 alihkan tiga mahasiswa, satu ditolak", async () => {
 
 await run("5 Kadep memutuskan langsung", async () => {
   const husnil = await login(HUSNIL);
-  const dept = await api(KADEP, "GET", "/thesis-change-requests/department?scope=pending&pageSize=100&search=Putus");
+  const dept = await api(KADEP, "GET", "/thesis-change-requests/inbox?status=in_progress&pageSize=100&search=Putus");
   const rows = dept.data?.data ?? dept.data ?? [];
   const req = (Array.isArray(rows) ? rows : []).find((r) => r.student?.name === "Uji TA Putus Langsung");
   check("pengajuan tampil di Kadep walau langkah dosen belum berjalan", !!req && req.currentStep === "previous_supervisor", req?.currentStep);
@@ -182,19 +183,24 @@ await run("5b batal, ditolak dosen, tunggu kadep", async () => {
   check("ta_batal punya pengajuan berjalan", !!open?.id, Object.keys(ctx.data ?? {}));
   const c = await api("ta_batal", "POST", `/thesis-change-requests/${open?.id}/cancel`);
   check("mahasiswa membatalkan", c.data?.status === "cancelled", `${c.status} ${c.json?.message ?? ""}`);
-  const lec = await api(AFRI, "GET", "/thesis-change-requests/lecturer");
-  const mine = (lec.data?.awaitingMe ?? []).find((r) => r.student?.name === "Uji TA Tunggu Pembimbing Lama");
-  check("Afriyanti melihat pengajuan menunggu dirinya", !!mine, (lec.data?.awaitingMe ?? []).map((r) => r.student?.name));
+  // Paket E6: a lecturer's steps are rows of Tugas Akhir > Permohonan (the old /lecturer list is gone).
+  const awaitingFor = async (who) =>
+    ((await api(who, "GET", "/thesis-proposals/lecturer-inbox?status=awaiting_me&pageSize=100")).data ?? [])
+      .filter((row) => row.kind === "change_request")
+      .map((row) => row.changeRequest);
+  const lec = await awaitingFor(AFRI);
+  const mine = lec.find((r) => r.student?.name === "Uji TA Tunggu Pembimbing Lama");
+  check("Afriyanti melihat pengajuan menunggu dirinya", !!mine, lec.map((r) => r.student?.name));
   const r0 = await lecturerDecide(AFRI, mine.id, false);
   check("menolak tanpa alasan 400", r0.status === 400, r0.json?.message);
   const r1 = await lecturerDecide(AFRI, mine.id, false, "Data uji: belum ada alasan kuat.");
   check("ditolak dosen menutup pengajuan", r1.data?.status === "rejected", `${r1.status} ${r1.json?.message ?? ""}`);
-  const lu = await api(ULLYA, "GET", "/thesis-change-requests/lecturer");
-  const forUllya = (lu.data?.awaitingMe ?? []).find((r) => r.student?.name === "Uji TA Tunggu Pembimbing Baru");
-  check("Ullya melihat pengajuan menunggu dirinya", !!forUllya, (lu.data?.awaitingMe ?? []).map((r) => r.student?.name));
+  const lu = await awaitingFor(ULLYA);
+  const forUllya = lu.find((r) => r.student?.name === "Uji TA Tunggu Pembimbing Baru");
+  check("Ullya melihat pengajuan menunggu dirinya", !!forUllya, lu.map((r) => r.student?.name));
   const a = await lecturerDecide(ULLYA, forUllya.id);
   check("Ullya menyetujui, giliran Kadep", a.data?.currentStep === "kadep", a.data?.currentStep);
-  const dept = await api(KADEP, "GET", "/thesis-change-requests/department?scope=pending&pageSize=100");
+  const dept = await api(KADEP, "GET", "/thesis-change-requests/inbox?status=awaiting_decision&pageSize=100");
   const rows = dept.data?.data ?? dept.data ?? [];
   const tk = (Array.isArray(rows) ? rows : []).find((r) => r.student?.name === "Uji TA Tunggu Kadep");
   const before = await myThesis("ta_tunggu_kadep");
@@ -255,7 +261,7 @@ await run("7 evaluasi 1 tahun > dihentikan", async () => {
   check("Lanjut Bimbingan tanpa keterangan ditolak (400)", noNotes.status === 400, noNotes.json?.message);
   const ev = await api(HUSNIL, "POST", "/thesis-guidance-evaluations", { thesisId: t.id, recommendation: "terminate_supervision", observations: { noGuidance: true, noProgress: true, noResponse: true }, notes: "Data uji E2E." });
   check("Dihentikan menunggu Kadep", ev.data?.status === "pending", `${ev.status} ${ev.json?.message ?? ""}`);
-  const list = await api(KADEP, "GET", "/thesis-guidance-evaluations/department?scope=pending&pageSize=100");
+  const list = await api(KADEP, "GET", "/thesis-guidance-evaluations/inbox?status=awaiting_decision&pageSize=100");
   const rows = list.data?.data ?? list.data ?? [];
   check("tampil di daftar Kadep", (Array.isArray(rows) ? rows : []).some((r) => r.id === ev.data?.id), Array.isArray(rows) ? rows.map((r) => r.student?.name) : rows);
   const k = await api(KADEP, "POST", `/thesis-guidance-evaluations/${ev.data?.id}/decision`, { approve: true, notes: null });
@@ -276,7 +282,7 @@ await run("7 evaluasi 1 tahun > dihentikan", async () => {
   const lctx = await api(HUSNIL, "GET", `/thesis-guidance-evaluations/context?thesisId=${l.id}`);
   check("tidak ada lagi yang jatuh tempo", lctx.data?.stage === null && lctx.data?.history?.length === 1, `${lctx.data?.stage} ${lctx.data?.blockReason}`);
   const w = await myThesis("ta_eval_tunggu_kadep");
-  const wl = await api(KADEP, "GET", "/thesis-guidance-evaluations/department?scope=pending&pageSize=100");
+  const wl = await api(KADEP, "GET", "/thesis-guidance-evaluations/inbox?status=awaiting_decision&pageSize=100");
   const wrow = (wl.data?.data ?? wl.data ?? []).find((r) => r.thesisId === w.id);
   const r0 = await api(KADEP, "POST", `/thesis-guidance-evaluations/${wrow?.id}/decision`, { approve: false });
   check("menolak tanpa catatan 400", r0.status === 400, r0.json?.message);

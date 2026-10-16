@@ -53,17 +53,16 @@ await run("3.2/3.3 kesiapan setelah lulus", async () => {
   check("sebelum seminar lulus: kartu sidang menunggu seminar", before.data?.seminarPassed === false && before.data?.requirementsMet === false, `${before.data?.seminarPassed} ${before.data?.requirementsMet}`);
 });
 
-await run("4.3 halaman Evaluasi", async () => {
-  const p1 = await api(HUSNIL, "GET", "/thesis-guidance-evaluations/lecturer");
-  const lambat = (p1.data?.due ?? []).find((item) => item.thesis?.student?.name === "Uji TA Lambat");
-  check("Husnil: Uji TA Lambat jatuh tempo 6 bulan, dapat diisi", p1.status === 200 && lambat?.stage === "six_month" && lambat?.canSubmit === true && lambat?.viewerRole === "pembimbing_1", lambat && `${lambat.stage} ${lambat.canSubmit} ${lambat.viewerRole}`);
-  check("daftar evaluasi yang diikuti terbaca", Array.isArray(p1.data?.evaluations), p1.data?.evaluations?.length);
-  const p2 = await api(AFRI, "GET", "/thesis-guidance-evaluations/lecturer");
+await run("4.3 Isi Evaluasi (Paket E6: dari konteks; daftar dosen /lecturer dihapus)", async () => {
+  const lambat = await myThesis("ta_lambat");
+  const p1 = (await api(HUSNIL, "GET", `/thesis-guidance-evaluations/context?thesisId=${lambat.id}`)).data;
+  check("Husnil: Uji TA Lambat jatuh tempo 6 bulan, dapat diisi", p1?.stage === "six_month" && p1?.canSubmit === true && p1?.viewerRole === "pembimbing_1", p1 && `${p1.stage} ${p1.canSubmit} ${p1.viewerRole}`);
   // Uji TA Evaluasi Lanjut: P1 Husnil, P2 Afriyanti, evaluasi 6 bulan jatuh tempo.
-  const asP2 = (p2.data?.due ?? []).find((item) => item.thesis?.student?.name === "Uji TA Evaluasi Lanjut");
+  const lanjut = await myThesis("ta_eval_lanjut");
+  const asP2 = (await api(AFRI, "GET", `/thesis-guidance-evaluations/context?thesisId=${lanjut.id}`)).data;
   check("Afriyanti (Pembimbing 2): melihat, tidak dapat mengisi, dengan alasan", asP2?.viewerRole === "pembimbing_2" && asP2?.canSubmit === false && !!asP2?.blockReason, asP2 && `${asP2.viewerRole} ${asP2.blockReason}`);
-  const student = await api("ta_lambat", "GET", "/thesis-guidance-evaluations/lecturer");
-  check("mahasiswa ditolak (403)", student.status === 403, student.status);
+  const old = await api(HUSNIL, "GET", "/thesis-guidance-evaluations/lecturer");
+  check("daftar lama /lecturer sudah tidak ada (404)", old.status === 404, old.status);
 });
 
 await run("8 Peringatkan untuk Sekdep dan GKM", async () => {
@@ -146,7 +145,7 @@ await run("L1 Perubahan dan Evaluasi lebih dari 100 baris", async () => {
   // Departemen's, and a lecturer's own steps are rows of Permohonan.
   const page3 = await api(KADEP, "GET", `/thesis-change-requests/inbox?status=cancelled&search=${nim}&page=3&pageSize=50`);
   check("Perubahan (Kadep): Dibatalkan 120 baris, halaman 3 berisi baris 101-120", page3.status === 200 && page3.json?.meta?.total === 120 && page3.json?.meta?.totalPages === 3 && page3.json?.data?.length === 20, `${page3.status} ${JSON.stringify(page3.json?.meta)} ${page3.json?.data?.length}`);
-  const lecturerPage3 = await api(HUSNIL, "GET", `/thesis-proposals/lecturer-inbox?kind=change_request&status=cancelled&search=${nim}&page=3&pageSize=50`);
+  const lecturerPage3 = await api(HUSNIL, "GET", `/thesis-proposals/lecturer-inbox?kind=change_title&status=cancelled&search=${nim}&page=3&pageSize=50`);
   check("Permohonan (Husnil): Perubahan TA Dibatalkan 120 baris, halaman 3 berisi baris 101-120", lecturerPage3.status === 200 && lecturerPage3.json?.meta?.total === 120 && lecturerPage3.json?.data?.length === 20 && lecturerPage3.json?.data?.every((row) => row.kind === "change_request"), `${lecturerPage3.status} ${JSON.stringify(lecturerPage3.json?.meta)} ${lecturerPage3.json?.data?.length}`);
   const evalPage3 = await api(KADEP, "GET", `/thesis-guidance-evaluations/inbox?status=rejected&search=${nim}&page=3&pageSize=50`);
   check("Evaluasi (Kadep): Ditolak 120 baris, halaman 3 berisi baris 101-120", evalPage3.status === 200 && evalPage3.json?.meta?.total === 120 && evalPage3.json?.data?.length === 20 && evalPage3.json?.data?.every((row) => row.viewStatus === "rejected"), `${evalPage3.status} ${JSON.stringify(evalPage3.json?.meta)} ${evalPage3.json?.data?.length}`);

@@ -9,6 +9,17 @@
 import { CHANGE_REQUEST_LECTURER_STATUS_PRIORITY } from "./thesis-change-request.js";
 import { LECTURER_INBOX_KIND, SUPERVISOR_REQUEST_STATUS_PRIORITY } from "./thesis-proposal.js";
 
+/**
+ * Paket E6 (3): the Jenis filter of Permohonan, one badge per row: "Pengajuan Pembimbing",
+ * "Perubahan Judul", "Perubahan Pembimbing" (also "Alihkan"), "Perubahan Judul & Pembimbing".
+ */
+export const LECTURER_INBOX_JENIS = Object.freeze({
+  supervisor_request: Object.freeze({ kind: LECTURER_INBOX_KIND.SUPERVISOR_REQUEST }),
+  change_title: Object.freeze({ kind: LECTURER_INBOX_KIND.CHANGE_REQUEST, requestType: "title" }),
+  change_supervisor: Object.freeze({ kind: LECTURER_INBOX_KIND.CHANGE_REQUEST, requestType: "supervisor" }),
+  change_both: Object.freeze({ kind: LECTURER_INBOX_KIND.CHANGE_REQUEST, requestType: "both" }),
+});
+
 export const LECTURER_INBOX_PRIORITY = Object.freeze({
   [LECTURER_INBOX_KIND.SUPERVISOR_REQUEST]: SUPERVISOR_REQUEST_STATUS_PRIORITY,
   [LECTURER_INBOX_KIND.CHANGE_REQUEST]: CHANGE_REQUEST_LECTURER_STATUS_PRIORITY,

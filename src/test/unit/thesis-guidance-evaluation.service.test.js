@@ -57,25 +57,7 @@ vi.mock("../../repositories/thesis-guidance-evaluation.repository.js", () => ({
   countCompletedGuidances: async (thesisId) => world.state.guidances.filter((g) => g.thesisId === thesisId && g.status === "completed").length,
   findById: async (id) => evaluationView(evaluations().find((e) => e.id === id)),
   findByThesisId: async (thesisId) => evaluations().filter((e) => e.thesisId === thesisId).slice().reverse().map(evaluationView),
-  findForDepartment: async ({ scope }) => {
-    const rows = evaluations()
-      .filter((e) => (scope === "pending" ? e.status === "pending" : e.status !== "pending" && e.recommendation !== "continue"))
-      .map(evaluationView);
-    return { rows, total: rows.length };
-  },
   countPending: async () => evaluations().filter((e) => e.status === "pending").length,
-  findSupervisedThesesForEvaluation: async (lecturerId) =>
-    world.state.theses
-      .filter((t) => t.status === "research" && world.state.supervisors.some((s) => s.thesisId === t.id && s.lecturerId === lecturerId && s.status === "active"))
-      .map(thesisView),
-  findForSupervisor: async (lecturerId) =>
-    evaluations()
-      .filter((e) =>
-        world.state.supervisors.some((s) => s.id === e.thesisSupervisorId && s.lecturerId === lecturerId) ||
-        world.state.supervisors.some((s) => s.thesisId === e.thesisId && s.lecturerId === lecturerId && s.status === "active"))
-      .slice()
-      .reverse()
-      .map(evaluationView),
   findUsersByActiveRole: async () => [{ id: "kadep" }],
 }));
 
@@ -236,8 +218,9 @@ describe("six-month evaluation", () => {
       basis: { guidanceCount: 2 },
     });
     expect(dto.basis.elapsedDays).toBeGreaterThan(200);
-    expect((await service.listForDepartment({ scope: "pending" })).data).toHaveLength(0);
-    expect((await service.listForDepartment({ scope: "history" })).data).toHaveLength(0);
+    // Tugas Akhir > Evaluasi (Kadep): recorded, nothing waits for a decision.
+    expect(await service.countPending()).toBe(0);
+    expect(service.evaluationViewStatusOf(evaluations()[0])).toBe("recorded");
     // Recorded: the six-month evaluation is no longer due.
     const context = await service.getEvaluationContext(P1, "T1");
     expect(context.stage).toBeNull();
@@ -254,7 +237,8 @@ describe("six-month evaluation", () => {
     const waiting = await service.getEvaluationContext(P1, "T1");
     expect(waiting).toMatchObject({ canSubmit: false, blockReason: "Masih ada evaluasi yang menunggu keputusan Ketua Departemen.", openEvaluation: { id: dto.id } });
     await expect(submit("continue")).rejects.toMatchObject({ statusCode: 400 });
-    expect((await service.listForDepartment({ scope: "pending" })).data).toHaveLength(1);
+    expect(await service.countPending()).toBe(1);
+    expect(service.evaluationViewStatusOf(evaluations()[0])).toBe("awaiting_decision");
 
     world.notifications = [];
     const before = Date.now();
@@ -286,7 +270,7 @@ describe("six-month evaluation", () => {
     const context = await service.getEvaluationContext(P1, "T1");
     expect(context).toMatchObject({ stage: "six_month", canSubmit: true, academicWarning: null });
     expect(context.history).toHaveLength(1);
-    expect((await service.listForDepartment({ scope: "history" })).data).toHaveLength(1);
+    expect(service.evaluationViewStatusOf(evaluations()[0])).toBe("rejected");
   });
 });
 
@@ -391,28 +375,24 @@ describe("clock restart", () => {
 });
 
 
-describe("Evaluasi page of a supervisor (Paket E4, 4.3)", () => {
-  it("lists the due thesis: Pembimbing 1 may fill it, Pembimbing 2 reads with the reason, others see nothing", async () => {
-    const p1 = await service.listForSupervisor(P1);
-    expect(p1.due).toHaveLength(1);
-    expect(p1.due[0]).toMatchObject({ thesis: { id: "T1", title: "Judul TA" }, viewerRole: "pembimbing_1", stage: "six_month", canSubmit: true, blockReason: null });
-    expect(p1.due[0].supervision.elapsedLabel).toBe("7 bulan 1 hari");
+describe("Isi Evaluasi from Mahasiswa Bimbingan and the student detail (Paket E6: no supervisor list)", () => {
+  it("the due thesis: Pembimbing 1 may fill it, Pembimbing 2 reads with the reason", async () => {
+    const p1 = await service.getEvaluationContext(P1, "T1");
+    expect(p1).toMatchObject({ viewerRole: "pembimbing_1", stage: "six_month", canSubmit: true, blockReason: null });
 
-    const p2 = await service.listForSupervisor(P2);
-    expect(p2.due[0]).toMatchObject({ viewerRole: "pembimbing_2", canSubmit: false, blockReason: "Evaluasi bimbingan diisi oleh Pembimbing 1." });
-
-    expect(await service.listForSupervisor("lec-other")).toEqual({ due: [], evaluations: [] });
+    const p2 = await service.getEvaluationContext(P2, "T1");
+    expect(p2).toMatchObject({ viewerRole: "pembimbing_2", canSubmit: false, blockReason: "Evaluasi bimbingan diisi oleh Pembimbing 1." });
   });
 
-  it("once filled, the thesis leaves the due list and the evaluation waits for the Ketua Departemen", async () => {
-    await submit("extend_1_month", { observations: { noProgress: true } });
-    const p1 = await service.listForSupervisor(P1);
-    expect(p1.due).toEqual([]);
-    expect(p1.evaluations.map((e) => [e.status, e.recommendation, e.stage])).toEqual([["pending", "extend_1_month", "six_month"]]);
+  it("once filled, the evaluation waits for the Ketua Departemen and nothing more is due", async () => {
+    const dto = await submit("extend_1_month", { observations: { noProgress: true } });
+    const p1 = await service.getEvaluationContext(P1, "T1");
+    expect(p1).toMatchObject({ canSubmit: false, openEvaluation: { id: dto.id, status: "pending", stage: "six_month" } });
   });
 
   it("a thesis whose seminar is passed is never due", async () => {
     world.state.seminars.push({ thesisId: "T1", status: "passed", updatedAt: daysAgo(1), revisionFinalizedAt: null });
-    expect((await service.listForSupervisor(P1)).due).toEqual([]);
+    expect((await service.getEvaluationContext(P1, "T1")).canSubmit).toBe(false);
   });
 });
+

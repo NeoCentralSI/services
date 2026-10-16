@@ -267,7 +267,8 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
 
   it("everything waiting for the viewer first (both kinds, newest first), then each level; past 100 rows", async () => {
     changeRepo.findIdsAtLecturerStep.mockResolvedValue(["mine"]);
-    const involved = { approvals: { some: { lecturerId: "lect-1" } } };
+    // Paket E6: not the requests the lecturer submitted (their own step was approved on submission).
+    const involved = { approvals: { some: { lecturerId: "lect-1" } }, NOT: { requestedByUserId: "lect-1" } };
     const mine = { id: { in: ["mine"] } };
     const awaitingChange = [changeRequest("mine", "pending", [step("lect-1", "pending")], 15)];
     const runningChange = [changeRequest("later", "pending", [step("lect-0", "pending"), { ...step("lect-1", "pending"), stepOrder: 2 }], 14)];
@@ -307,11 +308,23 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
     expect(requestRepo.findRequestPage.mock.calls.at(-1)[0].AND[0]).toEqual({ OR: [{ lecturerId: "lect-1" }, { redirectedTo: "lect-1" }] });
   });
 
-  it("the Jenis filter keeps one kind and the Status filter one status", async () => {
+  it("the Jenis filter (Paket E6: four values) keeps one kind and the Status filter one status", async () => {
     wire({ requestsByStatus: [supervisorRequest("req", "pending", 3)], changesByStatus: [] });
-    const onlyChanges = await requests.listLecturerInbox("lect-1", { kind: "change_request" });
-    expect(onlyChanges.meta.total).toBe(0);
+    for (const [kind, requestType] of [["change_title", "title"], ["change_supervisor", "supervisor"], ["change_both", "both"]]) {
+      requestRepo.countRequests.mockClear();
+      changeRepo.countWhere.mockClear();
+      const onlyChanges = await requests.listLecturerInbox("lect-1", { kind });
+      expect(onlyChanges.meta.total).toBe(0);
+      // Only change-request groups are counted, each narrowed to the kind.
+      const groupWheres = changeRepo.countWhere.mock.calls.map(([where]) => where).filter((where) => where?.AND?.length === 3);
+      expect(groupWheres.length).toBeGreaterThan(0);
+      expect(groupWheres.every((where) => JSON.stringify(where.AND[2]) === JSON.stringify({ requestType }))).toBe(true);
+      expect(requestRepo.countRequests.mock.calls.filter(([where]) => where?.AND)).toHaveLength(0);
+    }
     expect(requestRepo.findRequestPage).not.toHaveBeenCalled();
+
+    const onlyRequests = await requests.listLecturerInbox("lect-1", { kind: "supervisor_request" });
+    expect(onlyRequests.data.map((row) => row.kind)).toEqual(["supervisor_request"]);
 
     const onlyPending = await requests.listLecturerInbox("lect-1", { status: "pending" });
     expect(onlyPending.data.map((row) => row.id)).toEqual(["req"]);

@@ -113,6 +113,8 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 					thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
 					// Paket E5: the open change request (marker and rules of Ajukan Perubahan / Alihkan).
 					thesisChangeRequests: { where: { status: "pending" }, select: { id: true }, take: 1 },
+					// K34 (Paket E6): a title-only change waits while the defence is in process.
+					thesisDefences: { select: { status: true } },
 				},
 			},
 		},
@@ -183,6 +185,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			changeState: {
 				status: p.thesis?.status ?? null,
 				thesisSeminars: p.thesis?.thesisSeminars ?? [],
+				thesisDefences: p.thesis?.thesisDefences ?? [],
 				hasOpenRequest: (p.thesis?.thesisChangeRequests ?? []).length > 0,
 			},
 		});

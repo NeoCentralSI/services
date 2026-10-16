@@ -36,7 +36,7 @@ await run("paket E tetap jalan", async () => {
   check("Mahasiswa Bimbingan dosen terbaca", detail.status === 200, detail.status);
   const list = find(detail.json, "data") ?? detail.data;
   check("daftar memuat mahasiswa", Array.isArray(list) ? list.length > 0 : true, Array.isArray(list) ? list.length : typeof list);
-  const cr = await api("kadep_si", "GET", "/thesis-change-requests/department");
+  const cr = await api("kadep_si", "GET", "/thesis-change-requests/inbox");
   check("Pengajuan Perubahan TA terbaca", cr.status === 200, cr.status);
   const sup = await api("ta_lancar", "GET", "/thesis-change-requests/supervisor-options");
   const opts = find(sup.json, "data") ?? sup.data;

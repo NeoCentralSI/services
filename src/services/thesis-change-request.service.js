@@ -35,6 +35,7 @@ import {
   CHANGE_REQUEST_TYPE,
   CHANGE_REQUEST_VIEW_STATUS,
   KADEP_STEP,
+  EVENT_STATUSES_IN_PROCESS,
   SEMINAR_STATUSES_BLOCKING_CHANGE,
   SUPERVISOR_POSITION,
   SYSTEM_CANCEL_REASON_SUPERVISOR_CHANGED,
@@ -86,8 +87,11 @@ function supervisorAt(thesis, position) {
 export function changeActionsForLecturerRow({ position, active, thesis }) {
   const hasOpenRequest = !!thesis?.hasOpenRequest;
   const notSupervising = active && POSITION_ROLE_NAME[position] ? null : "Anda bukan pembimbing aktif tugas akhir ini.";
-  const blockReason = notSupervising ?? changeBlockReasonFor(thesis, position, { hasOpenRequest });
-  const transferBlockReason = notSupervising ?? getChangeBlockReason(thesis, { hasOpenRequest });
+  const typeBlocks = notSupervising ? null : changeTypeBlocksFor(thesis, position, { hasOpenRequest });
+  const blockReason = notSupervising ?? summarizeTypeBlocks(typeBlocks);
+  // "Alihkan" is a supervisor change (K34 keeps it before the seminar registration).
+  const transferBlockReason =
+    notSupervising ?? getChangeBlockReason(thesis, { hasOpenRequest, requestType: CHANGE_REQUEST_TYPE.SUPERVISOR });
   return { hasOpenRequest, canSubmit: !blockReason, blockReason, canTransfer: !transferBlockReason, transferBlockReason };
 }
 
@@ -96,25 +100,68 @@ export function changeActionsForLecturerRow({ position, active, thesis }) {
  * their own position through "Alihkan" instead. Shared by the change context and the
  * "Ajukan Perubahan" action of Mahasiswa Bimbingan (Paket E5, 3.2).
  */
-export function changeBlockReasonFor(thesis, viewerPosition, { hasOpenRequest = false } = {}) {
-  return (
-    getChangeBlockReason(thesis, { hasOpenRequest }) ??
-    (viewerPosition === SUPERVISOR_POSITION.P2
-      ? "Perubahan diajukan oleh mahasiswa atau Pembimbing 1. Sebagai Pembimbing 2, Anda dapat mengalihkan posisi Anda lewat aksi Alihkan di tabel Mahasiswa Bimbingan."
-      : null)
+const P2_BLOCK_REASON =
+  "Perubahan diajukan oleh mahasiswa atau Pembimbing 1. Sebagai Pembimbing 2, Anda dapat mengalihkan posisi Anda lewat aksi Alihkan di tabel Mahasiswa Bimbingan.";
+
+/**
+ * Why each kind of change cannot be submitted by this viewer now (null when it can):
+ * `{ title, supervisor, both }`. Pembimbing 2 hands over their own position through "Alihkan"
+ * only. Shared by the change context (the kind choice of "Ajukan Perubahan") and the row
+ * actions of Mahasiswa Bimbingan.
+ */
+export function changeTypeBlocksFor(thesis, viewerPosition, { hasOpenRequest = false } = {}) {
+  const types = [CHANGE_REQUEST_TYPE.TITLE, CHANGE_REQUEST_TYPE.SUPERVISOR, CHANGE_REQUEST_TYPE.BOTH];
+  return Object.fromEntries(
+    types.map((type) => [
+      type,
+      getChangeBlockReason(thesis, { hasOpenRequest, requestType: type }) ??
+        (viewerPosition === SUPERVISOR_POSITION.P2 ? P2_BLOCK_REASON : null),
+    ]),
   );
 }
 
-export function getChangeBlockReason(thesis, { hasOpenRequest = false } = {}) {
+/** One reason when no kind is possible (the distinct reasons of title and supervisor), else null. */
+export function summarizeTypeBlocks(typeBlocks) {
+  if (!typeBlocks || Object.values(typeBlocks).some((reason) => !reason)) return null;
+  return [...new Set([typeBlocks.title, typeBlocks.supervisor])].join(" ");
+}
+
+const isInProcess = (events) => (events ?? []).some((event) => EVENT_STATUSES_IN_PROCESS.includes(event.status));
+
+/**
+ * Paket E6: why an open request may not be approved now (null when it may), with the rule's
+ * reason. The rules of submitting apply again at the decision (K34, K8), without the "open
+ * request" rule (this request is the open one).
+ */
+export function getApplyBlockReason(request, thesis = request?.thesis) {
+  if (!request || !thesis || request.status !== CHANGE_REQUEST_STATUS.PENDING) return null;
+  const blocked = getChangeBlockReason(thesis, { requestType: request.requestType });
+  return blocked ? `Pengajuan ini tidak dapat disetujui saat ini. ${blocked} Pengajuan tetap menunggu dan dapat ditolak.` : null;
+}
+
+/**
+ * Whether a change of this kind may be submitted for the thesis now (null when it may).
+ * K34 (Paket E6): every change needs a thesis in research and no other open request. A
+ * supervisor change ("Pembimbing", "Judul & Pembimbing", "Alihkan") is possible only before the
+ * seminar registration (K8). A title-only change is possible before the seminar, between the
+ * seminar and the defence, and after the defence result, but not while the seminar or the
+ * defence is in process (registered until its result is finalized).
+ */
+export function getChangeBlockReason(thesis, { hasOpenRequest = false, requestType } = {}) {
   if (!thesis) return "Belum ada tugas akhir.";
   if (thesis.status !== THESIS_STATUS.RESEARCH) {
     return `Pengajuan perubahan hanya untuk tugas akhir berstatus "${THESIS_STATUS_LABELS.research}". Status saat ini: "${THESIS_STATUS_LABELS[thesis.status] ?? "-"}".`;
   }
-  const seminarBlocks = (thesis.thesisSeminars ?? []).some((seminar) =>
-    SEMINAR_STATUSES_BLOCKING_CHANGE.includes(seminar.status),
-  );
-  if (seminarBlocks) {
-    return "Pengajuan perubahan hanya dapat dibuat sampai sebelum pendaftaran seminar hasil. Tugas akhir ini sudah terdaftar atau lulus seminar hasil.";
+  if (requestType === CHANGE_REQUEST_TYPE.TITLE) {
+    if (isInProcess(thesis.thesisSeminars)) return "Perubahan judul tidak dapat diajukan selama seminar hasil sedang berproses.";
+    if (isInProcess(thesis.thesisDefences)) return "Perubahan judul tidak dapat diajukan selama sidang tugas akhir sedang berproses.";
+  } else {
+    const seminarBlocks = (thesis.thesisSeminars ?? []).some((seminar) =>
+      SEMINAR_STATUSES_BLOCKING_CHANGE.includes(seminar.status),
+    );
+    if (seminarBlocks) {
+      return "Perubahan pembimbing hanya dapat diajukan sampai sebelum pendaftaran seminar hasil. Tugas akhir ini sudah terdaftar atau lulus seminar hasil.";
+    }
   }
   if (hasOpenRequest) {
     return "Masih ada pengajuan perubahan yang berjalan. Tunggu keputusannya atau batalkan lebih dulu.";
@@ -284,6 +331,8 @@ function toDto(request, { viewerUserId = null, load = undefined } = {}) {
       : null,
     appliedAt: request.appliedAt ?? null,
     createdAt: request.createdAt,
+    // Paket E6: set while the rules block approving this open request (marker and disabled Setujui).
+    applyBlockReason: getApplyBlockReason(request),
     ...(load !== undefined ? { newSupervisorLoad: load } : {}),
     viewer: {
       canDecideAsLecturer: isPending && !!current && current.lecturerId === viewerUserId,
@@ -374,7 +423,8 @@ export async function getThesisChangeContext(userId, thesisId = null) {
 
   const requests = await repo.findByThesisId(thesis.id);
   const open = requests.find((request) => request.status === CHANGE_REQUEST_STATUS.PENDING) ?? null;
-  const blockReason = changeBlockReasonFor(thesis, viewerRole, { hasOpenRequest: !!open });
+  const typeBlocks = changeTypeBlocksFor(thesis, viewerRole, { hasOpenRequest: !!open });
+  const blockReason = summarizeTypeBlocks(typeBlocks);
 
   return {
     thesis: {
@@ -391,6 +441,8 @@ export async function getThesisChangeContext(userId, thesisId = null) {
     viewerRole,
     canSubmit: !blockReason,
     blockReason,
+    // K34 (Paket E6): the kind choice of "Ajukan Perubahan" disables a blocked kind with its reason.
+    typeBlocks,
     openRequest: open ? await toDtoFor(open, userId) : null,
     history: await Promise.all(
       requests.filter((request) => request.status !== CHANGE_REQUEST_STATUS.PENDING).map((request) => toDtoFor(request, userId)),
@@ -398,7 +450,10 @@ export async function getThesisChangeContext(userId, thesisId = null) {
   };
 }
 
-/** Lecturers who may fill a supervisor position, for the request form. */
+/**
+ * Lecturers who may fill a supervisor position, for the request form and "Alihkan". Paket E6:
+ * each carries its supervision load (shown beside the option of the searchable picker).
+ */
 export async function getSupervisorOptions(position) {
   const positions = POSITION_ROLE_NAME[position] ? [position] : Object.keys(POSITION_ROLE_NAME);
   const byId = new Map();
@@ -409,20 +464,13 @@ export async function getSupervisorOptions(position) {
       byId.set(user.id, entry);
     }
   }
-  return [...byId.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-}
-
-/** A lecturer's queue: steps waiting for them, and every request they are part of. */
-export async function listForLecturer(userId) {
-  const requests = await repo.findForLecturer(userId);
-  const rows = await Promise.all(requests.map((request) => toDtoFor(request, userId)));
-  return {
-    // Waiting for this lecturer's own step.
-    awaitingMe: rows.filter((row) => row.viewer.canDecideAsLecturer),
-    // Still running, waiting for someone else.
-    inProgress: rows.filter((row) => row.status === CHANGE_REQUEST_STATUS.PENDING && !row.viewer.canDecideAsLecturer),
-    history: rows.filter((row) => row.status !== CHANGE_REQUEST_STATUS.PENDING),
-  };
+  const loads = await repo.getSupervisorLoads([...byId.keys()]);
+  return [...byId.values()]
+    .map((entry) => {
+      const load = loads.get(entry.id);
+      return { ...entry, load: load ? { activeCount: load.activeCount, quotaMax: load.quotaMax, isFull: load.activeCount >= load.quotaMax } : null };
+    })
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
 // ── Tugas Akhir > Perubahan (Kadep) and the lecturer steps of Permohonan (Paket E5) ───
@@ -483,11 +531,13 @@ export function lecturerViewStatusOf(request, userId) {
  * The change-request steps of one lecturer as conditions per row status, for the Permohonan
  * inbox (Paket E5, 3.1): requests with an approval step of theirs (previous supervisor, new
  * supervisor, or Pembimbing 1 for a title). Always as a lecturer, never as the Ketua
- * Departemen, whose decision is on the Perubahan page.
+ * Departemen, whose decision is on the Perubahan page. Paket E6: not the requests the lecturer
+ * submitted (their own step is approved on submission, e.g. "Alihkan"); those are followed
+ * through the marker of Mahasiswa Bimbingan.
  */
 export async function lecturerStepFilters(userId) {
   const myStepIds = await repo.findIdsAtLecturerStep(userId);
-  const involved = { approvals: { some: { lecturerId: userId } } };
+  const involved = { approvals: { some: { lecturerId: userId } }, NOT: { requestedByUserId: userId } };
   const mine = { id: { in: myStepIds } };
   const closed = (status) => ({ AND: [{ status }, involved] });
   return {
@@ -544,18 +594,6 @@ export async function listInbox(userId, { status = null, kind = null, search = "
   return { data: await Promise.all(rows.map(toRow)), meta: pageMeta(window, total), counts: { awaitingDecision, inProgress } };
 }
 
-/** Department queue (Ketua Departemen): pending requests or the closed ones. */
-export async function listForDepartment(userId, { scope = "pending", search = "", page = 1, pageSize = 20 } = {}) {
-  const safeScope = scope === "history" ? "history" : "pending";
-  const safePageSize = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
-  const safePage = Math.max(Number(page) || 1, 1);
-  const { rows, total } = await repo.findForDepartment({ scope: safeScope, search: String(search || "").trim(), page: safePage, pageSize: safePageSize });
-  return {
-    data: await Promise.all(rows.map((request) => toDtoFor(request, userId, { showLoad: true }))),
-    meta: { page: safePage, pageSize: safePageSize, total, totalPages: Math.max(Math.ceil(total / safePageSize), 1) },
-  };
-}
-
 export function countPending() {
   return repo.countPending();
 }
@@ -564,7 +602,7 @@ export function countPending() {
 
 async function createRequest(tx, thesis, requesterUserId, input, batchId = null) {
   const open = await repo.findOpenByThesisId(thesis.id, tx);
-  const blockReason = getChangeBlockReason(thesis, { hasOpenRequest: !!open });
+  const blockReason = getChangeBlockReason(thesis, { hasOpenRequest: !!open, requestType: input.requestType });
   if (blockReason) throw new BadRequestError(blockReason);
 
   const plan = await buildRequestPlan(tx, thesis, requesterUserId, input);
@@ -847,6 +885,12 @@ async function decideInTransaction(tx, userId, requestId, { approve, notes }) {
   const request = await loadPendingRequest(tx, requestId);
   const reason = String(notes ?? "").trim();
   if (!approve && !reason) throw new BadRequestError("Alasan penolakan wajib diisi.");
+  if (approve) {
+    // Paket E6: the rules of K34 (title) and K8 (supervisor) are checked again right before the
+    // change is applied; a request that may no longer be approved stays pending to be rejected.
+    const blocked = getApplyBlockReason(request, await repo.findThesisForChange(request.thesisId, tx));
+    if (blocked) throw new BadRequestError(blocked);
+  }
   if (!lecturerStepsDone(request) && !reason) {
     throw new BadRequestError("Langkah persetujuan dosen belum selesai. Alasan wajib diisi untuk memutuskan langsung.");
   }

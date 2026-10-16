@@ -12,6 +12,14 @@ export const CHANGE_REQUEST_STATUS = Object.freeze({
 });
 
 /**
+ * K34 (Paket E6): a seminar or defence that is registered and whose result is not finalized
+ * yet (a held event stays `scheduled` until its result is finalized; "ongoing" is only derived
+ * for display). A title-only change is blocked while either is in process; before, between
+ * and after them it is allowed as long as the thesis is in research.
+ */
+export const EVENT_STATUSES_IN_PROCESS = Object.freeze(["registered", "verified", "examiner_assigned", "scheduled"]);
+
+/**
  * Paket E5: the status a row shows, which depends on the viewer for an open request, and the
  * default order of each table: what waits for the viewer first, then what runs, then the
  * closed ones (newest first inside a group).
@@ -64,6 +72,11 @@ export const KADEP_STEP = "kadep";
 /**
  * Seminar statuses that close the change window (K8: until before seminar registration).
  * A failed or cancelled seminar opens it again.
+ */
+/**
+ * K8, narrowed by K34 (Paket E6): a supervisor change (also "Judul & Pembimbing" and
+ * "Alihkan") is possible only before the seminar registration, so these seminar statuses
+ * block it. A title-only change follows `EVENT_STATUSES_IN_PROCESS` instead.
  */
 export const SEMINAR_STATUSES_BLOCKING_CHANGE = Object.freeze([
   "registered",

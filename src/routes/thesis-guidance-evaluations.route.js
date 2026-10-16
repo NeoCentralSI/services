@@ -20,9 +20,6 @@ const READERS = [ROLES.MAHASISWA, ...SUPERVISOR_ROLES, ROLES.KETUA_DEPARTEMEN];
 const KADEP = [ROLES.KETUA_DEPARTEMEN];
 
 router.get("/context", requireAnyRole(READERS), controller.getContext);
-router.get("/department", requireAnyRole(KADEP), controller.listForDepartment);
-// Paket E4 (4.3): the "Evaluasi" page of a supervisor (only their own students).
-router.get("/lecturer", requireAnyRole(SUPERVISOR_ROLES), controller.listForSupervisor);
 // Tugas Akhir > Evaluasi (Ketua Departemen, Paket E5): status priority, search and paging on the server.
 router.get("/inbox", requireAnyRole(KADEP), controller.listInbox);
 // Pembimbing 1 of the thesis only; the service rejects every other supervisor.

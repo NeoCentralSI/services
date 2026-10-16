@@ -25,11 +25,9 @@ router.get("/supervisor-options", requireAnyRole([...REQUESTERS, ...KADEP]), con
 router.post("/", requireAnyRole(REQUESTERS), validate(validator.submitChangeRequestSchema), controller.submitRequest);
 router.post("/transfer", requireAnyRole(SUPERVISOR_ROLES), validate(validator.submitTransferSchema), controller.submitTransfer);
 
-router.get("/lecturer", requireAnyRole(SUPERVISOR_ROLES), controller.listForLecturer);
 // Tugas Akhir > Perubahan (Ketua Departemen, Paket E5): status priority, filters, search and paging
 // on the server. A lecturer's own steps are in Tugas Akhir > Permohonan (/thesis-proposals/lecturer-inbox).
 router.get("/inbox", requireAnyRole(KADEP), controller.listInbox);
-router.get("/department", requireAnyRole(KADEP), controller.listForDepartment);
 
 router.post("/batch/:batchId/decision", requireAnyRole(KADEP), validate(validator.decisionSchema), controller.decideBatchAsKadep);
 router.post("/:id/lecturer-decision", requireAnyRole(SUPERVISOR_ROLES), validate(validator.decisionSchema), controller.decideAsLecturer);
