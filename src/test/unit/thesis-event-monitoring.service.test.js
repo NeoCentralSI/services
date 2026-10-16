@@ -166,17 +166,18 @@ describe("getSeminarMonitoring", () => {
       student: { name: "LAMA MENDAFTAR" },
       attention: { reasonLabel: "Menunggu verifikasi dokumen", since: before(10) },
     });
-    // e. table: every seminar of the semester, latest first by the day it is held, or by
-    // its registration while it has no schedule
+    // e. table: every seminar of the semester. Paket E5 (1.4): by the status priority of the
+    // seminar module, then latest first by the day it is held, or by its registration while
+    // it has no schedule
     expect(data.items).toHaveLength(11);
     expect(data.items.map((item) => [item.status, (item.date ?? item.registeredAt).toISOString().slice(0, 10)])).toEqual([
-      ["scheduled", "2026-10-20"],
-      ["verified", "2026-10-12"],
-      ["examiner_assigned", "2026-10-12"],
-      ["cancelled", "2026-10-12"],
       ["registered", "2026-10-11"],
-      ["scheduled", "2026-10-08"],
       ["registered", "2026-10-03"],
+      ["examiner_assigned", "2026-10-12"],
+      ["verified", "2026-10-12"],
+      ["scheduled", "2026-10-20"],
+      ["scheduled", "2026-10-08"],
+      ["cancelled", "2026-10-12"],
       ["passed", "2026-09-20"],
       ["failed", "2026-09-15"],
       ["passed_with_revision", "2026-09-10"],

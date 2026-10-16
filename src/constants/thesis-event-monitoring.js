@@ -25,6 +25,18 @@ export const EVENT_STATUS_GROUPS = Object.freeze({
   notPassed: [EVENT_STATUS.FAILED, EVENT_STATUS.CANCELLED],
 });
 
+/**
+ * Paket E5: default order of the Seminar Hasil and Sidang tables of the monitoring page: the
+ * `STATUS_PRIORITY` maps of the seminar and defence modules (`services/thesis-seminar/core.service.js`,
+ * `services/thesis-defence/core.service.js`). Those maps are not exported and the modules are
+ * not changed by the thesis-flow packages, so they are mirrored here; a unit test reads both
+ * module files and fails as soon as a mirror differs.
+ */
+export const EVENT_STATUS_PRIORITY = Object.freeze({
+  [EVENT_KIND.SEMINAR]: Object.freeze({ registered: 0, examiner_assigned: 1, verified: 2, scheduled: 3, ongoing: 4, passed: 5, passed_with_revision: 5, failed: 5, cancelled: 5 }),
+  [EVENT_KIND.DEFENCE]: Object.freeze({ registered: 0, verified: 1, examiner_assigned: 2, scheduled: 3, ongoing: 4, passed: 5, passed_with_revision: 5, failed: 5, cancelled: 5 }),
+});
+
 /** A registration that still stands: the seminar and defence modules allow one per thesis. */
 export const INACTIVE_REGISTRATION_STATUSES = Object.freeze([EVENT_STATUS.FAILED, EVENT_STATUS.CANCELLED]);
 

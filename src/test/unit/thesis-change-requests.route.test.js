@@ -59,8 +59,8 @@ describe("thesis change request routes", () => {
     expect(allowedRoles("/batch/:batchId/decision", "post")).toEqual(KADEP);
   });
 
-  it("Lanjutan Paket E4: the Perubahan page inbox is for supervisors and the Ketua Departemen", () => {
-    expect(allowedRoles("/inbox", "get")).toEqual([...SUPERVISORS, ...KADEP]);
+  it("Paket E5 (3.2): the Perubahan page is the Ketua Departemen's; a lecturer's steps are in Permohonan", () => {
+    expect(allowedRoles("/inbox", "get")).toEqual(KADEP);
   });
 
   it("registers the batch route before the :id routes", () => {

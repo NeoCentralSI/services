@@ -30,6 +30,8 @@ router.post("/supervisor-requests/:id/withdraw", requireAnyRole(STUDENT), contro
 
 // Lecturer
 router.get("/supervisor-requests/inbox", requireAnyRole(SUPERVISOR_ROLES), controller.getLecturerInbox);
+// Tugas Akhir > Permohonan (Paket E5): Pengajuan Pembimbing and the lecturer's Perubahan TA steps.
+router.get("/lecturer-inbox", requireAnyRole(SUPERVISOR_ROLES), controller.listLecturerInbox);
 router.post("/supervisor-requests/:id/review", requireAnyRole(SUPERVISOR_ROLES), controller.markUnderReview);
 router.post("/supervisor-requests/:id/respond", requireAnyRole(SUPERVISOR_ROLES), validate(validator.lecturerResponseSchema), controller.respondAsLecturer);
 

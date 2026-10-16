@@ -29,12 +29,12 @@ export async function submitEvaluation(req, res, next) {
 }
 
 /** GET /thesis-guidance-evaluations/lecturer — supervisor's due theses and evaluations (Paket E4, 4.3) */
-/** GET /thesis-guidance-evaluations/inbox (Lanjutan Paket E4) */
+/** GET /thesis-guidance-evaluations/inbox (Ketua Departemen; Paket E5: status priority) */
 export async function listInbox(req, res, next) {
   try {
-    const { scope, search, page, pageSize } = req.query;
-    const result = await service.listInbox(req.user.sub, { scope, search, page, pageSize });
-    res.json({ success: true, data: result.data, meta: result.meta, counts: result.counts, viewer: result.viewer });
+    const { status, search, page, pageSize } = req.query;
+    const result = await service.listInbox(req.user.sub, { status, search, page, pageSize });
+    res.json({ success: true, data: result.data, meta: result.meta, counts: result.counts });
   } catch (err) {
     next(err);
   }

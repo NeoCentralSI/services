@@ -47,7 +47,8 @@ describe("thesis guidance evaluation routes", () => {
     expect(allowedRoles("/:id/decision", "post")).toEqual(["Ketua Departemen"]);
     expect(allowedRoles("/department", "get")).toEqual(["Ketua Departemen"]);
     expect(allowedRoles("/lecturer", "get")).toEqual(["Pembimbing 1", "Pembimbing 2"]);
-    expect(allowedRoles("/inbox", "get")).toEqual(["Pembimbing 1", "Pembimbing 2", "Ketua Departemen"]);
+    // Paket E5 (3.4): the Evaluasi page is the Ketua Departemen's decision table only.
+    expect(allowedRoles("/inbox", "get")).toEqual(["Ketua Departemen"]);
     expect(allowedRoles("/context", "get")).toEqual(["Mahasiswa", "Pembimbing 1", "Pembimbing 2", "Ketua Departemen"]);
   });
 

@@ -111,6 +111,8 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 					// Read by the derived activity level (helpers/thesis-progress.helper.js)
 					thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
 					thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
+					// Paket E5: the open change request (marker and rules of Ajukan Perubahan / Alihkan).
+					thesisChangeRequests: { where: { status: "pending" }, select: { id: true }, take: 1 },
 				},
 			},
 		},
@@ -177,6 +179,12 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			completedGuidanceCount,
 			lastGuidanceDate,
 			startDate: p.thesis?.startDate ?? null,
+			// Paket E5: read by the change rules of the row (thesis-change-request.service.js).
+			changeState: {
+				status: p.thesis?.status ?? null,
+				thesisSeminars: p.thesis?.thesisSeminars ?? [],
+				hasOpenRequest: (p.thesis?.thesisChangeRequests ?? []).length > 0,
+			},
 		});
 	}
 	return result;

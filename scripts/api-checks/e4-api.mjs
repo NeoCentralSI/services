@@ -142,18 +142,20 @@ await run("L1 Perubahan dan Evaluasi lebih dari 100 baris", async () => {
     })),
   });
 
-  for (const who of [KADEP, HUSNIL]) {
-    const page3 = await api(who, "GET", `/thesis-change-requests/inbox?scope=history&search=${nim}&page=3&pageSize=50`);
-    check(`Perubahan (${who}): Riwayat 120 baris, halaman 3 berisi baris 101-120`, page3.status === 200 && page3.json?.meta?.total === 120 && page3.json?.meta?.totalPages === 3 && page3.json?.data?.length === 20, `${page3.status} ${JSON.stringify(page3.json?.meta)} ${page3.json?.data?.length}`);
-    const evalPage3 = await api(who, "GET", `/thesis-guidance-evaluations/inbox?scope=history&search=${nim}&page=3&pageSize=50`);
-    check(`Evaluasi (${who}): Riwayat 120 baris, halaman 3 berisi baris 101-120`, evalPage3.status === 200 && evalPage3.json?.meta?.total === 120 && evalPage3.json?.data?.length === 20 && evalPage3.json?.data?.every((row) => row.kind === "evaluation"), `${evalPage3.status} ${JSON.stringify(evalPage3.json?.meta)} ${evalPage3.json?.data?.length}`);
-  }
-  const all = await api(KADEP, "GET", "/thesis-change-requests/inbox?scope=history&page=1&pageSize=500");
+  // Paket E5: the filters are the row statuses; Perubahan and Evaluasi are the Ketua
+  // Departemen's, and a lecturer's own steps are rows of Permohonan.
+  const page3 = await api(KADEP, "GET", `/thesis-change-requests/inbox?status=cancelled&search=${nim}&page=3&pageSize=50`);
+  check("Perubahan (Kadep): Dibatalkan 120 baris, halaman 3 berisi baris 101-120", page3.status === 200 && page3.json?.meta?.total === 120 && page3.json?.meta?.totalPages === 3 && page3.json?.data?.length === 20, `${page3.status} ${JSON.stringify(page3.json?.meta)} ${page3.json?.data?.length}`);
+  const lecturerPage3 = await api(HUSNIL, "GET", `/thesis-proposals/lecturer-inbox?kind=change_request&status=cancelled&search=${nim}&page=3&pageSize=50`);
+  check("Permohonan (Husnil): Perubahan TA Dibatalkan 120 baris, halaman 3 berisi baris 101-120", lecturerPage3.status === 200 && lecturerPage3.json?.meta?.total === 120 && lecturerPage3.json?.data?.length === 20 && lecturerPage3.json?.data?.every((row) => row.kind === "change_request"), `${lecturerPage3.status} ${JSON.stringify(lecturerPage3.json?.meta)} ${lecturerPage3.json?.data?.length}`);
+  const evalPage3 = await api(KADEP, "GET", `/thesis-guidance-evaluations/inbox?status=rejected&search=${nim}&page=3&pageSize=50`);
+  check("Evaluasi (Kadep): Ditolak 120 baris, halaman 3 berisi baris 101-120", evalPage3.status === 200 && evalPage3.json?.meta?.total === 120 && evalPage3.json?.data?.length === 20 && evalPage3.json?.data?.every((row) => row.viewStatus === "rejected"), `${evalPage3.status} ${JSON.stringify(evalPage3.json?.meta)} ${evalPage3.json?.data?.length}`);
+  const all = await api(KADEP, "GET", "/thesis-change-requests/inbox?page=1&pageSize=500");
   check("satu halaman paling banyak 100 baris, daftarnya tidak terpotong", all.json?.meta?.pageSize === 100 && all.json?.data?.length === 100 && all.json?.meta?.total > 120, JSON.stringify(all.json?.meta));
-  const counts = await api(KADEP, "GET", "/thesis-change-requests/inbox?scope=awaitingMe");
-  check("Kadep: Menunggu Saya memuat langkah Ketua Departemen (Uji TA Tunggu Kadep)", counts.json?.counts?.awaitingMe >= 1 && (counts.json?.data ?? []).some((row) => row.student?.name === "Uji TA Tunggu Kadep"), JSON.stringify(counts.json?.counts));
-  const lecturerAction = await api(HUSNIL, "GET", "/thesis-guidance-evaluations/inbox?scope=action&search=Uji%20TA%20Lambat");
-  check("Evaluasi (Husnil): Perlu Tindakan dicari di server", lecturerAction.json?.meta?.total === 1 && lecturerAction.json?.data?.[0]?.kind === "due", JSON.stringify(lecturerAction.json?.meta));
+  const counts = await api(KADEP, "GET", "/thesis-change-requests/inbox?status=awaiting_decision");
+  check("Kadep: Menunggu Keputusan Anda memuat langkah Ketua Departemen (Uji TA Tunggu Kadep)", counts.json?.counts?.awaitingDecision >= 1 && (counts.json?.data ?? []).some((row) => row.student?.name === "Uji TA Tunggu Kadep"), JSON.stringify(counts.json?.counts));
+  const lecturerEval = await api(HUSNIL, "GET", "/thesis-guidance-evaluations/inbox");
+  check("Evaluasi: pembimbing tidak punya tabel Evaluasi (403)", lecturerEval.status === 403, lecturerEval.status);
   const student = await api("ta_lancar", "GET", "/thesis-change-requests/inbox");
   check("mahasiswa ditolak (403)", student.status === 403, student.status);
 

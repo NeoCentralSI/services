@@ -42,6 +42,7 @@ import path from "path";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
+import { changeActionsForLecturerRow, positionOfSupervisorRoleName } from "../thesis-change-request.service.js";
 import {
 	THESIS_PROGRESS_SELECT,
 	WARNING_SKIP_LABELS,
@@ -210,7 +211,15 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		lastGuidanceDate: s.lastGuidanceDate ? formatDateTimeJakarta(s.lastGuidanceDate, { withDay: true }) : null,
 		// ISO value; the frontend formats it (Paket C, C5)
 		lastGuidanceAt: s.lastGuidanceDate || null,
-		startDate: s.startDate || null
+		startDate: s.startDate || null,
+		// Paket E5: "Ajukan Perubahan", "Alihkan" and the open-request marker of the row.
+		changeRequest: s.changeState
+			? changeActionsForLecturerRow({
+				position: positionOfSupervisorRoleName(s.role),
+				active: (s.supervisorStatus ?? "active") === "active" && !s.noLongerSupervising,
+				thesis: s.changeState,
+			})
+			: null,
 	}));
 
 	return { count: students.length, students };

@@ -13,10 +13,16 @@ import {
   SUPERVISOR_REQUEST_STATUS as STATUS,
   WAITING_KADEP_STATUSES,
   WAITING_LECTURER_STATUSES,
+  LECTURER_INBOX_KIND as KIND,
   WITHDRAWABLE_STATUSES,
   WITHDRAW_LOCK_HOURS,
 } from "../../constants/thesis-proposal.js";
 import { SUPERVISION_LOAD_LEVEL } from "../../constants/supervisionQuota.js";
+import { pageAcrossGroups, pageMeta, pageWindow } from "../../helpers/priority-paging.helper.js";
+import { LECTURER_INBOX_PRIORITY } from "../../constants/lecturer-inbox.js";
+import { CHANGE_REQUEST_VIEW_STATUS } from "../../constants/thesis-change-request.js";
+import * as changeRepo from "../../repositories/thesis-change-request.repository.js";
+import { changeRequestSearchWhere, lecturerStepFilters, toLecturerStepRow } from "../thesis-change-request.service.js";
 import { resolveOperationalAcademicYear, formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
 import { createSupervisorAssignments } from "../../utils/supervisorIntegrity.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors.js";
@@ -527,6 +533,103 @@ export async function getLecturerInbox(userId) {
     waiting: waiting.map((request) => toDto(request, year.id)),
     history: history.map((request) => toDto(request, year.id)),
   };
+}
+
+/**
+ * Tugas Akhir > Permohonan (Paket E5, 3.1): the lecturer's approval inbox in one table, all
+ * periods. Two kinds of rows: the "Pengajuan Pembimbing" sent or redirected to this lecturer,
+ * and the "Perubahan TA" requests with a step of this lecturer (previous supervisor, new
+ * supervisor, or Pembimbing 1 for a title). "Semua" by default, sorted on the server by
+ * `LECTURER_INBOX_PRIORITY` (what waits for the viewer first, newest first inside a group);
+ * the Jenis and Status filters and the search by name, NIM or title narrow it. `counts.waiting`
+ * is what waits for the viewer, of both kinds (the sidebar badge).
+ */
+export async function listLecturerInbox(userId, { kind = null, status = null, search = "", page = 1, pageSize = 10 } = {}) {
+  const year = await requireOperationalYear();
+  const window = pageWindow({ page, pageSize });
+  const keyword = String(search ?? "").trim();
+  const changeWhere = await lecturerStepFilters(userId);
+  const visible = { OR: [{ lecturerId: userId }, { redirectedTo: userId }] };
+  const requestSearch = keyword
+    ? {
+      OR: [
+        { proposedTitle: { contains: keyword } },
+        { student: { user: { fullName: { contains: keyword } } } },
+        { student: { user: { identityNumber: { contains: keyword } } } },
+      ],
+    }
+    : {};
+  const changeSearch = changeRequestSearchWhere(keyword);
+  const wanted = (inboxKind, member) => (!kind || kind === inboxKind) && (!status || status === member);
+
+  const levels = [...new Set(Object.values(LECTURER_INBOX_PRIORITY).flatMap((map) => Object.values(map)))].sort((a, b) => a - b);
+  const groups = levels.flatMap((level) => {
+    const membersOf = (inboxKind) =>
+      Object.entries(LECTURER_INBOX_PRIORITY[inboxKind])
+        .filter(([member, priority]) => priority === level && wanted(inboxKind, member))
+        .map(([member]) => member);
+    const requestStatuses = membersOf(KIND.SUPERVISOR_REQUEST);
+    const changeStatuses = membersOf(KIND.CHANGE_REQUEST);
+    if (requestStatuses.length === 0 && changeStatuses.length === 0) return [];
+    return [{
+      key: `level-${level}`,
+      where: {
+        request: requestStatuses.length > 0 ? { AND: [visible, { status: { in: requestStatuses } }, requestSearch] } : null,
+        change: changeStatuses.length > 0 ? { AND: [{ OR: changeStatuses.map((member) => changeWhere[member]) }, changeSearch] } : null,
+      },
+    }];
+  });
+
+  const [paged, waitingRequests, waitingChanges] = await Promise.all([
+    pageAcrossGroups(groups, window, { count: countInboxGroup, find: findInboxGroup }),
+    repo.countRequests({ lecturerId: userId, status: { in: WAITING_LECTURER_STATUSES } }),
+    changeRepo.countWhere(changeWhere[CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME]),
+  ]);
+  const data = await Promise.all(
+    paged.rows.map(async ({ row }) =>
+      row.kind === KIND.SUPERVISOR_REQUEST
+        ? { kind: row.kind, id: row.value.id, viewStatus: row.value.status, createdAt: row.value.createdAt, supervisorRequest: toDto(row.value, year.id) }
+        : (async () => {
+          const changeRequest = await toLecturerStepRow(row.value, userId);
+          return { kind: row.kind, id: row.value.id, viewStatus: changeRequest.viewStatus, createdAt: row.value.createdAt, changeRequest };
+        })(),
+    ),
+  );
+  return {
+    data,
+    meta: pageMeta(window, paged.total),
+    counts: { waiting: waitingRequests + waitingChanges, waitingRequests, waitingChanges },
+  };
+}
+
+const INBOX_ORDER = Object.freeze([{ createdAt: "desc" }, { id: "desc" }]);
+
+async function countInboxGroup(where) {
+  const [requests, changes] = await Promise.all([
+    where.request ? repo.countRequests(where.request) : 0,
+    where.change ? changeRepo.countWhere(where.change) : 0,
+  ]);
+  return requests + changes;
+}
+
+/**
+ * One window of a group holding both kinds, newest first: each kind is read up to the end of
+ * the window in its own order, then the two are merged.
+ */
+async function findInboxGroup(where, _orderBy, { skip, take }) {
+  const both = where.request && where.change;
+  const part = both ? { skip: 0, take: skip + take } : { skip, take };
+  const [requests, changes] = await Promise.all([
+    where.request ? repo.findRequestPage(where.request, INBOX_ORDER, part) : [],
+    where.change ? changeRepo.findPage(where.change, INBOX_ORDER, part).then((result) => result.rows) : [],
+  ]);
+  const rows = [
+    ...requests.map((value) => ({ kind: KIND.SUPERVISOR_REQUEST, value })),
+    ...changes.map((value) => ({ kind: KIND.CHANGE_REQUEST, value })),
+  ];
+  if (!both) return rows;
+  rows.sort((a, b) => new Date(b.value.createdAt) - new Date(a.value.createdAt) || String(b.value.id).localeCompare(String(a.value.id)));
+  return rows.slice(skip, skip + take);
 }
 
 async function loadRequestForLecturer(tx, requestId, userId) {

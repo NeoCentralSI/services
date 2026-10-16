@@ -13,6 +13,25 @@ export const EVALUATION_RECOMMENDATION = Object.freeze({
 export const EVALUATION_STATUS = Object.freeze({ PENDING: "pending", APPROVED: "approved", REJECTED: "rejected" });
 
 /**
+ * Paket E5: the status a row of the Ketua Departemen's Evaluasi table shows, and its place in
+ * the default order: what waits for the decision first, then the decided or recorded ones.
+ * "Tercatat" is a "Lanjut Bimbingan" evaluation, which never needs the decision.
+ */
+export const EVALUATION_VIEW_STATUS = Object.freeze({
+  AWAITING_DECISION: "awaiting_decision",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  RECORDED: "recorded",
+});
+
+export const EVALUATION_STATUS_PRIORITY = Object.freeze({
+  awaiting_decision: 0,
+  approved: 1,
+  rejected: 1,
+  recorded: 1,
+});
+
+/**
  * What the Pembimbing 1 may fill at each stage (the stage is `evaluationDue` of the
  * supervision clock), and the choices the form offers there.
  */

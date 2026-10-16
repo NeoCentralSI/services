@@ -114,6 +114,15 @@ export function findLecturerHistory(lecturerId, client = prisma, take = 50) {
   });
 }
 
+/** Paket E5: one page of a lecturer's requests for a filter built by the service. */
+export function findRequestPage(where, orderBy, { skip, take }, client = prisma) {
+  return client.thesisSupervisorRequest.findMany({ where, include: REQUEST_INCLUDE, orderBy, skip, take });
+}
+
+export function countRequests(where, client = prisma) {
+  return client.thesisSupervisorRequest.count({ where });
+}
+
 /** Requests waiting for the Head of Department, per route. */
 export function findWaitingForKadep(route, client = prisma) {
   return client.thesisSupervisorRequest.findMany({

@@ -242,7 +242,8 @@ describe("who may ask, and when", () => {
     await expect(service.submitRequest("stu-2", titleRequest({ thesisId: "T1" }))).rejects.toMatchObject({ statusCode: 403 });
     await expect(service.submitRequest(AINA, titleRequest({ thesisId: "T1" }))).rejects.toMatchObject({ statusCode: 403 });
     await expect(service.submitRequest(AFRI, titleRequest({ thesisId: "T1" }))).rejects.toMatchObject({ statusCode: 403 });
-    expect((await service.getThesisChangeContext(AFRI, "T1")).blockReason).toContain("Alihkan Mahasiswa");
+    // Paket E5 (3.3): "Alihkan" is a bulk action of the Mahasiswa Bimbingan table.
+    expect((await service.getThesisChangeContext(AFRI, "T1")).blockReason).toContain("aksi Alihkan di tabel Mahasiswa Bimbingan");
     await expect(service.getThesisChangeContext(AINA, "T1")).rejects.toMatchObject({ statusCode: 403 });
 
     const handover = await service.submitRequest(AFRI, supervisorRequest({ thesisId: "T1", supervisorRole: "pembimbing_2", newSupervisorId: ULLYA }));
@@ -537,5 +538,33 @@ describe("supervisor options", () => {
     expect(all.find((option) => option.id === ULLYA).positions).toEqual(["pembimbing_2"]);
     expect(all.find((option) => option.id === AINA).positions).toEqual(["pembimbing_1", "pembimbing_2"]);
     expect((await service.getSupervisorOptions("pembimbing_1")).map((option) => option.id)).not.toContain(ULLYA);
+  });
+});
+
+describe("Paket E5: the change actions of a Mahasiswa Bimbingan row", () => {
+  const research = { status: "research", thesisSeminars: [], hasOpenRequest: false };
+
+  it("Pembimbing 1 may ask and hand over; Pembimbing 2 only hands over", () => {
+    expect(service.changeActionsForLecturerRow({ position: "pembimbing_1", active: true, thesis: research })).toEqual({
+      hasOpenRequest: false, canSubmit: true, blockReason: null, canTransfer: true, transferBlockReason: null,
+    });
+    const p2 = service.changeActionsForLecturerRow({ position: "pembimbing_2", active: true, thesis: research });
+    expect(p2).toMatchObject({ canSubmit: false, canTransfer: true });
+    expect(p2.blockReason).toContain("aksi Alihkan");
+  });
+
+  it("an open request, a registered seminar or another status blocks both, with the reason", () => {
+    const open = service.changeActionsForLecturerRow({ position: "pembimbing_1", active: true, thesis: { ...research, hasOpenRequest: true } });
+    expect(open).toMatchObject({ hasOpenRequest: true, canSubmit: false, canTransfer: false });
+    expect(open.transferBlockReason).toContain("Masih ada pengajuan perubahan yang berjalan");
+    const seminar = service.changeActionsForLecturerRow({ position: "pembimbing_1", active: true, thesis: { ...research, thesisSeminars: [{ status: "registered" }] } });
+    expect(seminar.transferBlockReason).toContain("sebelum pendaftaran seminar hasil");
+    const proposal = service.changeActionsForLecturerRow({ position: "pembimbing_1", active: true, thesis: { ...research, status: "proposal" } });
+    expect(proposal.blockReason).toContain("hanya untuk tugas akhir berstatus");
+  });
+
+  it("a released relation may do neither", () => {
+    const released = service.changeActionsForLecturerRow({ position: "pembimbing_1", active: false, thesis: research });
+    expect(released).toMatchObject({ canSubmit: false, canTransfer: false, transferBlockReason: "Anda bukan pembimbing aktif tugas akhir ini." });
   });
 });

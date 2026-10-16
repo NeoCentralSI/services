@@ -33,6 +33,29 @@ export const ACTIVE_REQUEST_STATUSES = Object.freeze([
   ...ACCEPTED_STATUSES,
   S.ASSIGNED,
 ]);
+/**
+ * Paket E5: order of the "Pengajuan Pembimbing" rows of Tugas Akhir > Permohonan: what waits
+ * for the lecturer, then what waits for the Head of Department (or the student's revision),
+ * then the accepted ones, then the closed ones.
+ */
+export const SUPERVISOR_REQUEST_STATUS_PRIORITY = Object.freeze({
+  [S.PENDING]: 0,
+  [S.UNDER_REVIEW]: 0,
+  [S.PENDING_KADEP]: 1,
+  [S.REVISION_REQUESTED]: 1,
+  [S.ACCEPTED]: 2,
+  [S.ASSIGNED]: 2,
+  [S.REDIRECTED]: 2,
+  [S.REJECTED_BY_LECTURER]: 3,
+  [S.REJECTED_BY_KADEP]: 3,
+  [S.WITHDRAWN]: 3,
+  [S.CANCELLED]: 3,
+  [S.CLOSED]: 3,
+});
+
+/** Paket E5 (3.1): the two kinds of rows of Tugas Akhir > Permohonan (order in `lecturer-inbox.js`). */
+export const LECTURER_INBOX_KIND = Object.freeze({ SUPERVISOR_REQUEST: "supervisor_request", CHANGE_REQUEST: "change_request" });
+
 /** The student may pull back a request in these statuses, after the lock period. */
 export const WITHDRAWABLE_STATUSES = Object.freeze([...WAITING_LECTURER_STATUSES, ...WAITING_KADEP_STATUSES]);
 

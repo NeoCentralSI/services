@@ -20,6 +20,7 @@ import { randomUUID } from "crypto";
 import prisma from "../config/prisma.js";
 import * as repo from "../repositories/thesis-change-request.repository.js";
 import { ROLES } from "../constants/roles.js";
+import { pageAcrossGroups, pageMeta, pageWindow, priorityGroups } from "../helpers/priority-paging.helper.js";
 import { THESIS_STATUS } from "../constants/thesisStatus.js";
 import {
   THESIS_STATUS_LABELS,
@@ -28,8 +29,11 @@ import {
 } from "../constants/thesisLabels.js";
 import {
   CHANGE_APPROVAL_ROLE,
+  CHANGE_REQUEST_KIND,
   CHANGE_REQUEST_STATUS,
+  CHANGE_REQUEST_STATUS_PRIORITY,
   CHANGE_REQUEST_TYPE,
+  CHANGE_REQUEST_VIEW_STATUS,
   KADEP_STEP,
   SEMINAR_STATUSES_BLOCKING_CHANGE,
   SUPERVISOR_POSITION,
@@ -52,6 +56,8 @@ const POSITION_ROLE_NAME = Object.freeze({
 
 const positionOfRoleName = (roleName) =>
   Object.keys(POSITION_ROLE_NAME).find((position) => POSITION_ROLE_NAME[position] === roleName) ?? null;
+/** Supervisor position of a role name ("Pembimbing 1" → pembimbing_1). */
+export const positionOfSupervisorRoleName = positionOfRoleName;
 
 const changesTitle = (type) => type === CHANGE_REQUEST_TYPE.TITLE || type === CHANGE_REQUEST_TYPE.BOTH;
 const changesSupervisor = (type) => type === CHANGE_REQUEST_TYPE.SUPERVISOR || type === CHANGE_REQUEST_TYPE.BOTH;
@@ -69,6 +75,36 @@ function supervisorAt(thesis, position) {
  * Why a change request cannot be made for this thesis, or null when it can. The same check
  * decides the disabled state of "Ajukan Perubahan" and is run again on submission (K14).
  */
+/**
+ * Mahasiswa Bimbingan (Paket E5, 3.2 and 3.3): for one row, whether the thesis has an open
+ * request (the row marker), whether "Ajukan Perubahan" is allowed (else its reason) and
+ * whether the student may be ticked for "Alihkan" (else its reason). The rules of submitting:
+ * an active supervisor, research status, before the seminar registration, no open request;
+ * Pembimbing 2 hands over through "Alihkan" only.
+ * @param {{ position: string|null, active: boolean, thesis: { status: string, thesisSeminars: { status: string }[], hasOpenRequest: boolean } }} row
+ */
+export function changeActionsForLecturerRow({ position, active, thesis }) {
+  const hasOpenRequest = !!thesis?.hasOpenRequest;
+  const notSupervising = active && POSITION_ROLE_NAME[position] ? null : "Anda bukan pembimbing aktif tugas akhir ini.";
+  const blockReason = notSupervising ?? changeBlockReasonFor(thesis, position, { hasOpenRequest });
+  const transferBlockReason = notSupervising ?? getChangeBlockReason(thesis, { hasOpenRequest });
+  return { hasOpenRequest, canSubmit: !blockReason, blockReason, canTransfer: !transferBlockReason, transferBlockReason };
+}
+
+/**
+ * Why this viewer cannot submit a change now (null when they can). Pembimbing 2 hands over
+ * their own position through "Alihkan" instead. Shared by the change context and the
+ * "Ajukan Perubahan" action of Mahasiswa Bimbingan (Paket E5, 3.2).
+ */
+export function changeBlockReasonFor(thesis, viewerPosition, { hasOpenRequest = false } = {}) {
+  return (
+    getChangeBlockReason(thesis, { hasOpenRequest }) ??
+    (viewerPosition === SUPERVISOR_POSITION.P2
+      ? "Perubahan diajukan oleh mahasiswa atau Pembimbing 1. Sebagai Pembimbing 2, Anda dapat mengalihkan posisi Anda lewat aksi Alihkan di tabel Mahasiswa Bimbingan."
+      : null)
+  );
+}
+
 export function getChangeBlockReason(thesis, { hasOpenRequest = false } = {}) {
   if (!thesis) return "Belum ada tugas akhir.";
   if (thesis.status !== THESIS_STATUS.RESEARCH) {
@@ -338,11 +374,7 @@ export async function getThesisChangeContext(userId, thesisId = null) {
 
   const requests = await repo.findByThesisId(thesis.id);
   const open = requests.find((request) => request.status === CHANGE_REQUEST_STATUS.PENDING) ?? null;
-  const blockReason =
-    getChangeBlockReason(thesis, { hasOpenRequest: !!open }) ??
-    (viewerRole === SUPERVISOR_POSITION.P2
-      ? "Perubahan diajukan oleh mahasiswa atau Pembimbing 1. Sebagai Pembimbing 2, Anda dapat mengalihkan posisi Anda lewat tombol Alihkan Mahasiswa."
-      : null);
+  const blockReason = changeBlockReasonFor(thesis, viewerRole, { hasOpenRequest: !!open });
 
   return {
     thesis: {
@@ -393,80 +425,123 @@ export async function listForLecturer(userId) {
   };
 }
 
-// ── Tugas Akhir > Perubahan (Lanjutan Paket E4) ──────────────────────────────────────
+// ── Tugas Akhir > Perubahan (Kadep) and the lecturer steps of Permohonan (Paket E5) ───
 
-export const INBOX_SCOPES = Object.freeze(["awaitingMe", "inProgress", "history"]);
-const INBOX_MAX_PAGE_SIZE = 100;
-
-/** Name or NIM of the student. */
-function studentSearchWhere(search) {
+/** Name, NIM or thesis title. */
+export function changeRequestSearchWhere(search) {
   const keyword = String(search ?? "").trim();
   if (!keyword) return {};
-  return { thesis: { student: { user: { OR: [{ fullName: { contains: keyword } }, { identityNumber: { contains: keyword } }] } } } };
+  return {
+    thesis: {
+      OR: [
+        { title: { contains: keyword } },
+        { student: { user: { OR: [{ fullName: { contains: keyword } }, { identityNumber: { contains: keyword } }] } } },
+      ],
+    },
+  };
 }
 
-export function pageOf({ page, pageSize } = {}) {
-  const size = Math.min(Math.max(Number(pageSize) || 10, 1), INBOX_MAX_PAGE_SIZE);
-  const number = Math.max(Number(page) || 1, 1);
-  return { page: number, pageSize: size, skip: (number - 1) * size, take: size };
+function kindWhere(kind) {
+  if (kind === CHANGE_REQUEST_KIND.TRANSFER) return { batchId: { not: null } };
+  if (kind === CHANGE_REQUEST_KIND.TITLE || kind === CHANGE_REQUEST_KIND.SUPERVISOR) return { requestType: kind, batchId: null };
+  if (kind === CHANGE_REQUEST_KIND.BOTH) return { requestType: kind };
+  return {};
 }
 
-const INBOX_ORDER = Object.freeze({
-  // Open requests: oldest first (a queue). Closed: latest closing first.
-  awaitingMe: [{ createdAt: "asc" }, { id: "asc" }],
-  inProgress: [{ createdAt: "asc" }, { id: "asc" }],
-  history: [{ decidedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+export const CHANGE_REQUEST_OPEN_ORDER = Object.freeze([{ createdAt: "desc" }, { id: "desc" }]);
+const CLOSED_NEWEST = Object.freeze([{ decidedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }]);
+const OPEN_VIEW_STATUSES = [
+  CHANGE_REQUEST_VIEW_STATUS.AWAITING_DECISION,
+  CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME,
+  CHANGE_REQUEST_VIEW_STATUS.IN_PROGRESS,
+];
+const orderOf = (members) => (members.some((member) => OPEN_VIEW_STATUSES.includes(member)) ? CHANGE_REQUEST_OPEN_ORDER : CLOSED_NEWEST);
+
+const AT_DEPARTMENT_STEP = Object.freeze({ status: CHANGE_REQUEST_STATUS.PENDING, approvals: { every: { status: "approved" } } });
+/** Conditions of each row status of the Ketua Departemen's table (every request). */
+const DEPARTMENT_VIEW_WHERE = Object.freeze({
+  [CHANGE_REQUEST_VIEW_STATUS.AWAITING_DECISION]: AT_DEPARTMENT_STEP,
+  [CHANGE_REQUEST_VIEW_STATUS.IN_PROGRESS]: { status: CHANGE_REQUEST_STATUS.PENDING, approvals: { some: { status: { not: "approved" } } } },
+  [CHANGE_REQUEST_VIEW_STATUS.APPROVED]: { status: CHANGE_REQUEST_STATUS.APPROVED },
+  [CHANGE_REQUEST_VIEW_STATUS.REJECTED]: { status: CHANGE_REQUEST_STATUS.REJECTED },
+  [CHANGE_REQUEST_VIEW_STATUS.CANCELLED]: { status: CHANGE_REQUEST_STATUS.CANCELLED },
 });
 
-/**
- * The three filters of the Perubahan page for one viewer, as database conditions. "Menunggu
- * Saya" = the viewer's own lecturer step and, for the Ketua Departemen, every request at the
- * department step; "Sedang Berjalan" = the other open requests the viewer may see; "Riwayat" =
- * the closed ones. A supervisor sees the requests they are part of; the Ketua Departemen all.
- */
-async function inboxFilters(userId) {
-  const [isKadep, isSupervisor] = await Promise.all([
-    repo.userHasActiveRole(userId, ROLES.KETUA_DEPARTEMEN),
-    Promise.all([repo.userHasActiveRole(userId, ROLES.PEMBIMBING_1), repo.userHasActiveRole(userId, ROLES.PEMBIMBING_2)]).then((roles) => roles.some(Boolean)),
-  ]);
-  const myStepIds = isSupervisor ? await repo.findIdsAtLecturerStep(userId) : [];
-  const waitingParts = [
-    ...(myStepIds.length > 0 ? [{ id: { in: myStepIds } }] : []),
-    ...(isKadep ? [{ status: CHANGE_REQUEST_STATUS.PENDING, approvals: { every: { status: "approved" } } }] : []),
-  ];
-  const visible = isKadep ? {} : { OR: [{ approvals: { some: { lecturerId: userId } } }, { requestedByUserId: userId }] };
-  const awaitingMe = waitingParts.length > 0 ? { OR: waitingParts } : { id: { in: [] } };
-  return {
-    isKadep,
-    awaitingMe,
-    inProgress: { AND: [{ status: CHANGE_REQUEST_STATUS.PENDING }, visible, ...(waitingParts.length > 0 ? [{ NOT: awaitingMe }] : [])] },
-    history: { AND: [{ status: { not: CHANGE_REQUEST_STATUS.PENDING } }, visible] },
-    pendingVisible: { AND: [{ status: CHANGE_REQUEST_STATUS.PENDING }, visible] },
-  };
+/** Status of a row in the Ketua Departemen's table. */
+export function departmentViewStatusOf(request) {
+  if (request.status !== CHANGE_REQUEST_STATUS.PENDING) return request.status;
+  return pendingStep(request) ? CHANGE_REQUEST_VIEW_STATUS.IN_PROGRESS : CHANGE_REQUEST_VIEW_STATUS.AWAITING_DECISION;
+}
+
+/** Status of a row in a lecturer's Permohonan: their own open step reads "Menunggu Persetujuan Anda". */
+export function lecturerViewStatusOf(request, userId) {
+  if (request.status !== CHANGE_REQUEST_STATUS.PENDING) return request.status;
+  return pendingStep(request)?.lecturerId === userId ? CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME : CHANGE_REQUEST_VIEW_STATUS.IN_PROGRESS;
 }
 
 /**
- * Tugas Akhir > Perubahan: one page of a filter, searched by the student's name or NIM, with
- * the number of open requests per filter for the filter labels. No row limit: the database
- * pages. `batchId` lists the open requests of one "Alihkan Mahasiswa" batch instead.
+ * The change-request steps of one lecturer as conditions per row status, for the Permohonan
+ * inbox (Paket E5, 3.1): requests with an approval step of theirs (previous supervisor, new
+ * supervisor, or Pembimbing 1 for a title). Always as a lecturer, never as the Ketua
+ * Departemen, whose decision is on the Perubahan page.
  */
-export async function listInbox(userId, { scope, search = "", page = 1, pageSize = 10, batchId = null } = {}) {
-  const filters = await inboxFilters(userId);
-  const paging = pageOf({ page, pageSize });
-  const safeScope = INBOX_SCOPES.includes(scope) ? scope : "awaitingMe";
-  const where = batchId
-    ? { AND: [filters.pendingVisible, { batchId: String(batchId) }] }
-    : { AND: [filters[safeScope], studentSearchWhere(search)] };
-  const [{ rows, total }, awaitingMe, inProgress] = await Promise.all([
-    repo.findPage(where, batchId ? INBOX_ORDER.awaitingMe : INBOX_ORDER[safeScope], paging),
-    repo.countWhere(filters.awaitingMe),
-    repo.countWhere(filters.inProgress),
-  ]);
+export async function lecturerStepFilters(userId) {
+  const myStepIds = await repo.findIdsAtLecturerStep(userId);
+  const involved = { approvals: { some: { lecturerId: userId } } };
+  const mine = { id: { in: myStepIds } };
+  const closed = (status) => ({ AND: [{ status }, involved] });
   return {
-    data: await Promise.all(rows.map((request) => toDtoFor(request, userId, { showLoad: filters.isKadep }))),
-    meta: { page: paging.page, pageSize: paging.pageSize, total, totalPages: Math.max(Math.ceil(total / paging.pageSize), 1) },
-    counts: { awaitingMe, inProgress },
+    [CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME]: mine,
+    [CHANGE_REQUEST_VIEW_STATUS.IN_PROGRESS]: { AND: [{ status: CHANGE_REQUEST_STATUS.PENDING }, involved, { NOT: mine }] },
+    [CHANGE_REQUEST_VIEW_STATUS.APPROVED]: closed(CHANGE_REQUEST_STATUS.APPROVED),
+    [CHANGE_REQUEST_VIEW_STATUS.REJECTED]: closed(CHANGE_REQUEST_STATUS.REJECTED),
+    [CHANGE_REQUEST_VIEW_STATUS.CANCELLED]: closed(CHANGE_REQUEST_STATUS.CANCELLED),
   };
+}
+
+/** A row of the lecturer's Permohonan: the request as the lecturer sees it, with its row status. */
+export async function toLecturerStepRow(request, userId) {
+  return { ...(await toDtoFor(request, userId)), viewStatus: lecturerViewStatusOf(request, userId) };
+}
+
+/**
+ * Tugas Akhir > Perubahan (Ketua Departemen, Paket E5, 3.2): every request, "Semua" by default
+ * and sorted by `CHANGE_REQUEST_STATUS_PRIORITY` on the server (newest first inside a group);
+ * the Status and Jenis filters and the search by name, NIM or title narrow it. `batchId`
+ * lists the open requests of one "Alihkan Mahasiswa" batch instead. No row limit.
+ */
+export async function listInbox(userId, { status = null, kind = null, search = "", page = 1, pageSize = 10, batchId = null } = {}) {
+  const window = pageWindow({ page, pageSize });
+  const toRow = async (request) => ({
+    ...(await toDtoFor(request, userId, { showLoad: true })),
+    viewStatus: departmentViewStatusOf(request),
+  });
+
+  let rows;
+  let total;
+  if (batchId) {
+    ({ rows, total } = await repo.findPage({ status: CHANGE_REQUEST_STATUS.PENDING, batchId: String(batchId) }, CHANGE_REQUEST_OPEN_ORDER, window));
+  } else {
+    const only = Object.hasOwn(CHANGE_REQUEST_STATUS_PRIORITY, status) ? status : null;
+    const narrow = [changeRequestSearchWhere(search), kindWhere(kind)];
+    const groups = priorityGroups(CHANGE_REQUEST_STATUS_PRIORITY, only).map((members) => ({
+      key: members.join("+"),
+      where: { AND: [{ OR: members.map((member) => DEPARTMENT_VIEW_WHERE[member]) }, ...narrow] },
+      orderBy: orderOf(members),
+    }));
+    const paged = await pageAcrossGroups(groups, window, {
+      count: (where) => repo.countWhere(where),
+      find: async (where, orderBy, part) => (await repo.findPage(where, orderBy, part)).rows,
+    });
+    rows = paged.rows.map((entry) => entry.row);
+    total = paged.total;
+  }
+
+  const [awaitingDecision, inProgress] = await Promise.all([
+    repo.countWhere(DEPARTMENT_VIEW_WHERE[CHANGE_REQUEST_VIEW_STATUS.AWAITING_DECISION]),
+    repo.countWhere(DEPARTMENT_VIEW_WHERE[CHANGE_REQUEST_VIEW_STATUS.IN_PROGRESS]),
+  ]);
+  return { data: await Promise.all(rows.map(toRow)), meta: pageMeta(window, total), counts: { awaitingDecision, inProgress } };
 }
 
 /** Department queue (Ketua Departemen): pending requests or the closed ones. */

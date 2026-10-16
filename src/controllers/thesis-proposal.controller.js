@@ -34,6 +34,12 @@ export const withdrawRequest = handle(async (req, res) => {
 // ── Lecturer ─────────────────────────────────────────────────────────────────────────
 /** GET /thesis-proposals/supervisor-requests/inbox */
 export const getLecturerInbox = handle(async (req, res) => ok(res, await requests.getLecturerInbox(req.user.sub)));
+/** GET /thesis-proposals/lecturer-inbox (Paket E5: Tugas Akhir > Permohonan, both kinds of rows) */
+export const listLecturerInbox = handle(async (req, res) => {
+  const { kind, status, search, page, pageSize } = req.query;
+  const result = await requests.listLecturerInbox(req.user.sub, { kind, status, search, page, pageSize });
+  res.json({ success: true, data: result.data, meta: result.meta, counts: result.counts });
+});
 /** POST /thesis-proposals/supervisor-requests/:id/review */
 export const markUnderReview = handle(async (req, res) =>
   ok(res, await requests.markUnderReview(req.params.id, req.user.sub), "Pengajuan ditandai sedang ditinjau"));

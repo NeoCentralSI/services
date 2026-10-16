@@ -5,7 +5,7 @@
  */
 import * as monitoringRepository from "../../repositories/thesisGuidance/monitoring.repository.js";
 import * as eventRepository from "../../repositories/thesisGuidance/thesis-event-monitoring.repository.js";
-import { EVENT_KIND, UPCOMING_LIMIT } from "../../constants/thesis-event-monitoring.js";
+import { EVENT_KIND, EVENT_STATUS_PRIORITY, UPCOMING_LIMIT } from "../../constants/thesis-event-monitoring.js";
 import { getEventReferenceDate } from "../../helpers/semester-scope.helper.js";
 import {
   compareBySchedule,
@@ -63,6 +63,15 @@ function byLatestReferenceDate(a, b) {
   return time(b) - time(a);
 }
 
+/**
+ * Paket E5: the table order of the seminar and defence modules (status priority), the latest
+ * first inside the same priority.
+ */
+export function byStatusPriorityThenLatest(kind) {
+  const priority = EVENT_STATUS_PRIORITY[kind];
+  return (a, b) => (priority[a.status] ?? 99) - (priority[b.status] ?? 99) || byLatestReferenceDate(a, b);
+}
+
 async function getEventMonitoring(kind, academicYearId, now = new Date()) {
   const semester = await monitoringRepository.findSemester(academicYearId);
   const [events, readyTheses] = await Promise.all([
@@ -87,7 +96,7 @@ async function getEventMonitoring(kind, academicYearId, now = new Date()) {
     upcoming: upcoming.slice(0, UPCOMING_LIMIT).map((event) => formatEvent(kind, event)),
     upcomingTotal: upcoming.length,
     attention: attention.map((row) => ({ ...formatEvent(kind, row.event), attention: row.attention })),
-    items: [...events].sort(byLatestReferenceDate).map((event) => formatEvent(kind, event)),
+    items: [...events].sort(byStatusPriorityThenLatest(kind)).map((event) => formatEvent(kind, event)),
   };
 }
 

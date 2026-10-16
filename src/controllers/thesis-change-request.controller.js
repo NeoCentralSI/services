@@ -70,11 +70,11 @@ export async function cancelRequest(req, res, next) {
 }
 
 /** GET /thesis-change-requests/department?scope=pending|history&search=&page=&pageSize= */
-/** GET /thesis-change-requests/inbox (Lanjutan Paket E4) */
+/** GET /thesis-change-requests/inbox (Ketua Departemen; Paket E5: status priority) */
 export async function listInbox(req, res, next) {
   try {
-    const { scope, search, page, pageSize, batchId } = req.query;
-    const result = await service.listInbox(req.user.sub, { scope, search, page, pageSize, batchId });
+    const { status, kind, search, page, pageSize, batchId } = req.query;
+    const result = await service.listInbox(req.user.sub, { status, kind, search, page, pageSize, batchId });
     res.json({ success: true, data: result.data, meta: result.meta, counts: result.counts });
   } catch (err) {
     next(err);
