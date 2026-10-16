@@ -744,6 +744,12 @@ export async function decideAsLecturer(userId, requestId, { approve, notes }) {
     if (!step || step.lecturerId !== userId) {
       throw new ForbiddenError("Pengajuan ini tidak sedang menunggu persetujuan Anda.");
     }
+    if (approve) {
+      // Paket E6 (lanjutan): a lecturer's step is refused like the Ketua Departemen's decision
+      // while the rules (K34 title, K8 supervisor) block the request; rejecting stays possible.
+      const blocked = getApplyBlockReason(request, await repo.findThesisForChange(request.thesisId, tx));
+      if (blocked) throw new BadRequestError(blocked);
+    }
     const now = new Date();
     await tx.thesisChangeRequestApproval.update({
       where: { id: step.id },

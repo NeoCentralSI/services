@@ -73,6 +73,9 @@ await run("6 aturan diperiksa ulang saat Ketua Departemen memutuskan", async () 
 
   const step = ((await api(HUSNIL, "GET", "/thesis-proposals/lecturer-inbox?kind=change_title&status=awaiting_me")).data ?? []).find((row) => row.id === id);
   check("Permohonan Husnil: baris bertanda terblokir dengan alasannya", (step?.changeRequest?.applyBlockReason ?? "").includes(SEMINAR_IN_PROCESS), step?.changeRequest?.applyBlockReason);
+  // Paket E6 (lanjutan): the lecturer's step is refused with the same reason.
+  const lecturerApprove = await api(HUSNIL, "POST", `/thesis-change-requests/${id}/lecturer-decision`, { approve: true });
+  check("Pembimbing 1 menyetujui: ditolak 400 dengan alasan aturan", lecturerApprove.status === 400 && (lecturerApprove.json?.message ?? "").includes(SEMINAR_IN_PROCESS), `${lecturerApprove.status} ${lecturerApprove.json?.message}`);
   const kadepRow = ((await api(KADEP, "GET", "/thesis-change-requests/inbox?kind=title&status=in_progress")).data ?? []).find((row) => row.id === id);
   check("Perubahan Kadep: baris bertanda terblokir dengan alasannya", (kadepRow?.applyBlockReason ?? "").includes(SEMINAR_IN_PROCESS), kadepRow?.applyBlockReason);
   const approve = await api(KADEP, "POST", `/thesis-change-requests/${id}/decision`, { approve: true, notes: "Data uji E6: diputuskan langsung." });

@@ -314,6 +314,29 @@ describe("K34 (Paket E6): a title-only change by stage", () => {
     await expect(service.decideAsKadep(KADEP, created.id, { approve: false, notes: "Seminar sudah didaftarkan." })).resolves.toMatchObject({ status: "rejected" });
   });
 
+  it("Paket E6 (lanjutan): Pembimbing 1 cannot approve a title step once the seminar is registered, but may reject it", async () => {
+    const created = await service.submitRequest(STUDENT, titleRequest());
+    world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "scheduled" });
+
+    await expect(service.decideAsLecturer(HUSNIL, created.id, { approve: true })).rejects.toThrow(SEMINAR_IN_PROCESS);
+    const approval = world.state.approvals.find((a) => a.requestId === created.id);
+    expect(approval.status).toBe("pending");
+    expect(world.state.requests.find((r) => r.id === created.id).status).toBe("pending");
+
+    const rejected = await service.decideAsLecturer(HUSNIL, created.id, { approve: false, notes: "Seminar sudah dijadwalkan." });
+    expect(rejected).toMatchObject({ status: "rejected" });
+  });
+
+  it("Paket E6 (lanjutan): the previous supervisor cannot approve a supervisor step once the seminar is registered", async () => {
+    const created = await service.submitRequest(STUDENT, supervisorRequest());
+    world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "registered" });
+
+    await expect(service.decideAsLecturer(HUSNIL, created.id, { approve: true })).rejects.toThrow(/Perubahan pembimbing hanya dapat diajukan sampai sebelum pendaftaran seminar hasil/);
+    expect(world.state.approvals.filter((a) => a.requestId === created.id).map((a) => a.status)).toEqual(["pending", "pending"]);
+    // Only the step's own lecturer is told about the rule; others still get 403.
+    await expect(service.decideAsLecturer(AINA, created.id, { approve: true })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it("Paket E6: a supervisor request sent before the seminar cannot be approved once the seminar is registered", async () => {
     const created = await service.submitRequest(STUDENT, supervisorRequest());
     world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "verified" });
