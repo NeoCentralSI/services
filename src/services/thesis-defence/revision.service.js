@@ -7,6 +7,9 @@ import { announceThesisLifecycle, completeThesisFromDefence, reopenThesisFromDef
 // HELPERS
 // ============================================================
 
+/** Lanjutan Paket E7: an approval stays while the revision is finalized. */
+export const REVISION_FINALIZED_UNAPPROVE_MESSAGE = "Revisi sudah difinalkan. Batalkan finalisasi lebih dulu.";
+
 function throwError(message, statusCode) {
   const err = new Error(message);
   err.statusCode = statusCode;
@@ -197,7 +200,7 @@ export async function updateRevision(defenceId, revisionId, body, user) {
       return approveRevision(defenceId, revision, user, defence);
     case "unapprove":
       if (!isSupervisor) throwError("Aksi ini hanya untuk dosen pembimbing.", 403);
-      return unapproveRevision(defenceId, revision, user);
+      return unapproveRevision(defenceId, revision, user, defence);
     default:
       throwError(
         "Action tidak valid. Gunakan: save_action, submit, cancel_submit, approve, unapprove.",
@@ -292,11 +295,13 @@ async function approveRevision(defenceId, revision, user, defence) {
   return { id: approved.id, supervisorApprovedAt: approved.supervisorApprovedAt };
 }
 
-async function unapproveRevision(defenceId, revision, user) {
+async function unapproveRevision(defenceId, revision, user, defence) {
   const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId);
   if (!resolveSupervisorMembership(supervisorRelation)) {
     throwError("Anda bukan dosen pembimbing pada sidang ini.", 403);
   }
+  // Lanjutan Paket E7: the finalization (and the Selesai thesis it made) is undone first.
+  if (defence?.revisionFinalizedAt) throwError(REVISION_FINALIZED_UNAPPROVE_MESSAGE, 400);
 
   if (!isRevisionFinished(revision)) throwError("Revisi ini belum disetujui.", 400);
 

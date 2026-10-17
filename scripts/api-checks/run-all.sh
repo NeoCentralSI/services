@@ -18,10 +18,12 @@ if [ "${1:-}" = "--no-reseed" ]; then RESEED=0; shift; fi
 NAMES=("$@")
 [ ${#NAMES[@]} -eq 0 ] && NAMES=(p1 p2 p3 p4 p5 p6 p7 e2e e3 e3r e4 e5 e6 e7)
 
-BASE_SEEDERS="seed-master seed-thesis-topics seed-milestone-templates seed-guidance-milestone seed-thesis-research-flow seed-thesis-monitoring"
+# seed-thesis-rubrics needs the academic years of seed-master; it fills the CPMKs, rubrics and the
+# minimum passing scores of the running semester (seminar and defence), so results can be finalized.
+BASE_SEEDERS="seed-master seed-thesis-topics seed-thesis-rubrics seed-milestone-templates seed-guidance-milestone seed-thesis-research-flow seed-thesis-monitoring"
 FULL_SEEDERS="$BASE_SEEDERS seed-thesis-proposal-flow"
 
-# Paket E3 (monitoring) was written against the six seeders before the proposal seeder existed.
+# Paket E3 (monitoring) was written against the seeders before the proposal seeder existed.
 seeders_for() { case "$1" in e3|e3r) echo "$BASE_SEEDERS" ;; *) echo "$FULL_SEEDERS" ;; esac; }
 file_for() {
   case "$1" in

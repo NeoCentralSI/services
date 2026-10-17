@@ -396,3 +396,18 @@ describe("Isi Evaluasi from Mahasiswa Bimbingan and the student detail (Paket E6
   });
 });
 
+
+describe("Lanjutan Paket E7: an evaluation closed because the thesis became Selesai", () => {
+  it("stays Ditolak, carries the system reason, and is told apart from a Ketua Departemen decision", async () => {
+    addEvaluation({ recommendation: "extend_1_month", status: "rejected", kadepNotes: "Ditutup otomatis: tugas akhir selesai.", kadepApprovedAt: daysAgo(1) });
+    addEvaluation({ recommendation: "extend_1_month", status: "rejected", kadepNotes: "Belum perlu peringatan.", kadepApprovedBy: KADEP, kadepApprovedAt: daysAgo(30) });
+
+    const { history } = await service.getEvaluationContext(KADEP, "T1", { asDepartment: true });
+    const closed = history.find((e) => e.decision?.notes === "Ditutup otomatis: tugas akhir selesai.");
+    const byKadep = history.find((e) => e.decision?.notes === "Belum perlu peringatan.");
+
+    expect(closed).toMatchObject({ status: "rejected", decision: { by: null, closedBySystem: true } });
+    expect(byKadep).toMatchObject({ status: "rejected", decision: { by: { id: KADEP }, closedBySystem: false } });
+    expect(service.evaluationViewStatusOf(evaluations()[0])).toBe("rejected");
+  });
+});

@@ -77,14 +77,16 @@ const MANUAL = [
   { who: "ta_lancar", examinerScore: 20, supervisorScore: 10, note: "I.4 tidak lulus (nilai akhir 30)" },
 ];
 
-async function setMinimumScore() {
+/** Lanjutan Paket E7: seed-thesis-rubrics.js fills the minimum passing scores of the running semester. */
+async function minimumScores() {
   const ay = (await api(SEKDEP, "GET", "/supervision-quotas")).data?.academicYear;
-  return api(SEKDEP, "PATCH", `/defence-rubrics/academic-years/${ay?.id}/minimum-score`, { minimumScore: 55 });
+  return prisma.academicYear.findUnique({ where: { id: ay?.id ?? "" }, select: { thesisSeminarMinimumScore: true, thesisDefenceMinimumScore: true } });
 }
+const UNAPPROVE_AFTER_FINAL = "Revisi sudah difinalkan. Batalkan finalisasi lebih dulu.";
 
 if (process.argv.includes("--siapkan")) {
-  const res = await setMinimumScore();
-  console.log(`Nilai minimum kelulusan sidang 55: ${res.status}`);
+  const min = await minimumScores();
+  console.log(`Nilai minimum kelulusan semester berjalan (dari seed-thesis-rubrics.js): seminar ${min?.thesisSeminarMinimumScore ?? "kosong"}, sidang ${min?.thesisDefenceMinimumScore ?? "kosong"}`);
   for (const { who, note, ...scores } of MANUAL) {
     const thesis = await studentThesis(who);
     const existing = await prisma.thesisDefence.findFirst({ where: { thesisId: thesis.id, status: "scheduled", resultFinalizedAt: null } });
@@ -96,8 +98,8 @@ if (process.argv.includes("--siapkan")) {
 }
 
 await run("0 persiapan", async () => {
-  const res = await setMinimumScore();
-  check("Sekdep menetapkan nilai minimum kelulusan sidang 55", res.status === 200, `${res.status} ${res.json?.message}`);
+  const min = await minimumScores();
+  check("seed: nilai minimum kelulusan seminar dan sidang semester berjalan 65 (seed-thesis-rubrics.js)", min?.thesisSeminarMinimumScore === 65 && min?.thesisDefenceMinimumScore === 65, min);
 });
 
 await run("I.1 lulus tanpa revisi → Selesai (ta_eval_tunggu_kadep)", async () => {
@@ -128,7 +130,10 @@ await run("I.1 lulus tanpa revisi → Selesai (ta_eval_tunggu_kadep)", async () 
     ?? await prisma.thesisChangeRequest.findFirst({ where: { thesisId: thesis.id }, orderBy: { createdAt: "desc" } });
   check("perubahan yang menunggu dibatalkan dengan alasan yang sama", cr?.status === "cancelled" && cr?.decisionNotes === REASON, `${cr?.status} ${cr?.decisionNotes}`);
   const ev = await prisma.thesisGuidanceEvaluation.findUnique({ where: { id: evaluation?.id ?? "" } }).catch(() => null);
-  check("evaluasi yang menunggu Ketua Departemen ditutup", ev && ev.status !== "pending" && /tugas akhir selesai/.test(ev.kadepNotes ?? ""), `${ev?.status} ${ev?.kadepNotes}`);
+  check("evaluasi yang menunggu Ketua Departemen ditutup: Ditolak, catatan alasan sistem", ev?.status === "rejected" && ev?.kadepNotes === "Ditutup otomatis: tugas akhir selesai.", `${ev?.status} ${ev?.kadepNotes}`);
+  const inbox = (await api("kadep_si", "GET", "/thesis-guidance-evaluations/inbox?pageSize=100")).json?.data ?? [];
+  const row = inbox.find((r) => r.id === evaluation?.id);
+  check("tabel Evaluasi Kadep: baris Ditolak membawa catatan itu untuk modal detail", row?.viewStatus === "rejected" && row?.decision?.notes === "Ditutup otomatis: tugas akhir selesai." && row?.decision?.by === null && row?.decision?.closedBySystem === true, { viewStatus: row?.viewStatus, decision: row?.decision });
   const supervisors = await prisma.thesisSupervisors.findMany({ where: { thesisId: thesis.id } });
   check("relasi pembimbing tetap aktif sebagai riwayat", supervisors.length >= 1 && supervisors.every((s) => s.status === "active"), supervisors.map((s) => s.status));
   const audit = await prisma.auditLog.findFirst({ where: { entityId: thesis.id, action: "THESIS_STATUS_CHANGED" }, orderBy: { createdAt: "desc" } });
@@ -151,6 +156,7 @@ await run("I.1 lulus tanpa revisi → Selesai (ta_eval_tunggu_kadep)", async () 
 });
 
 let revisionDefenceId = null;
+let revisionItemId = null;
 await run("I.2 lulus dengan revisi → Penelitian sampai revisi difinalkan (ta_lulus_seminar)", async () => {
   const who = "ta_lulus_seminar";
   const thesis = await studentThesis(who);
@@ -172,6 +178,10 @@ await run("I.2 lulus dengan revisi → Penelitian sampai revisi difinalkan (ta_l
   const finalize = await api(HUSNIL, "POST", `/thesis-defences/${defence.id}/revisions/finalize`);
   check("pembimbing memfinalkan revisi", finalize.status === 200, `${finalize.status} ${finalize.json?.message}`);
   check("revisi difinalkan → TA Selesai", (await myThesis(who))?.status === "completed");
+  const unapprove = await api(HUSNIL, "PATCH", `/thesis-defences/${defence.id}/revisions/${items[0]?.id}`, { action: "unapprove" });
+  check("setelah final: batalkan persetujuan item ditolak dengan alasannya", unapprove.status === 400 && unapprove.json?.message === UNAPPROVE_AFTER_FINAL, `${unapprove.status} ${unapprove.json?.message}`);
+  check("persetujuan item tetap, TA tetap Selesai", !!(await prisma.thesisDefenceRevision.findUnique({ where: { id: items[0]?.id ?? "" } }))?.supervisorApprovedAt && (await myThesis(who))?.status === "completed");
+  revisionItemId = items[0]?.id;
   const overview = await defenceOverview(who);
   check("halaman sidang tetap menampilkan hasil dan revisi final", overview.status === 200 && overview.data?.defence?.status === "passed_with_revision", `${overview.status} ${overview.data?.defence?.status}`);
 });
@@ -183,6 +193,9 @@ await run("I.3 finalisasi revisi dibatalkan → kembali Penelitian (ta_lulus_sem
   check("TA kembali Penelitian", (await myThesis(who))?.status === "research");
   const notes = await notificationsOf(who);
   check("mahasiswa diberi tahu TA kembali Penelitian", notes.some((n) => /kembali berstatus Penelitian/.test(n.message ?? "")), notes.slice(0, 3).map((n) => n.message));
+  const unapprove = await api(HUSNIL, "PATCH", `/thesis-defences/${revisionDefenceId}/revisions/${revisionItemId}`, { action: "unapprove" });
+  const reapprove = await api(HUSNIL, "PATCH", `/thesis-defences/${revisionDefenceId}/revisions/${revisionItemId}`, { action: "approve" });
+  check("setelah finalisasi dibatalkan: persetujuan item boleh dibatalkan, lalu disetujui lagi", unapprove.status === 200 && reapprove.status === 200, `${unapprove.status} ${unapprove.json?.message} / ${reapprove.status} ${reapprove.json?.message}`);
   const again = await api(HUSNIL, "POST", `/thesis-defences/${revisionDefenceId}/revisions/finalize`);
   check("finalisasi ulang → Selesai lagi", again.status === 200 && (await myThesis(who))?.status === "completed", `${again.status} ${again.json?.message}`);
 });

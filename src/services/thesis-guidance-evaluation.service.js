@@ -36,7 +36,7 @@ import { EVALUATION_DUE, hasPassedSeminar, summarizeThesisProgress } from "../he
 import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 import { formatDateTimeWib } from "../utils/date.util.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
-import { changeThesisStatus, returnThesisToProposal } from "./thesisLifecycle.service.js";
+import { THESIS_COMPLETED_EVALUATION_NOTE, changeThesisStatus, returnThesisToProposal } from "./thesisLifecycle.service.js";
 import { createNotificationsForUsers } from "./notification.service.js";
 import { sendFcmToUsers } from "./push.service.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../utils/errors.js";
@@ -90,7 +90,13 @@ function toDto(evaluation) {
     },
     extensionUntil: evaluation.extensionUntil ?? null,
     decision: byKadep
-      ? { by: person(evaluation.kadepApprover), notes: evaluation.kadepNotes ?? null, at: evaluation.kadepApprovedAt ?? null }
+      ? {
+        by: person(evaluation.kadepApprover),
+        notes: evaluation.kadepNotes ?? null,
+        at: evaluation.kadepApprovedAt ?? null,
+        // Lanjutan Paket E7: closed by the system when the thesis became Selesai (status stays rejected).
+        closedBySystem: !evaluation.kadepApprovedBy && evaluation.kadepNotes === THESIS_COMPLETED_EVALUATION_NOTE,
+      }
       : null,
     createdAt: evaluation.createdAt,
   };

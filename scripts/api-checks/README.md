@@ -4,24 +4,24 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 
 | Skrip | Isi | Seed |
 |---|---|---|
-| `p1-api.mjs` | P1: permukaan yang berubah tetap bekerja pada skema baru | tujuh seeder |
-| `p2-api.mjs` | P2: Pengajuan Pembimbing (dua jalur, atas kuota, tarik/batal) dan Batas Bimbingan | tujuh seeder |
-| `p3-api.mjs` | P3: Penetapan Pembimbing (versi, akses per peran, PDF) | tujuh seeder |
-| `p4-api.mjs` | P4: bimbingan dan milestone fase proposal, proposal final, template proposal | tujuh seeder |
-| `p5-api.mjs` | P5: presensi, Penilaian Proposal, kelulusan/naik, ekspor, Monitoring Kelas | tujuh seeder |
-| `p6-api.mjs` | P6: SIA hanya dibaca, DevTools tab Proposal, alamat lama, data mahasiswa per semester | tujuh seeder + dummy-SIA |
-| `p7-api.mjs` | Lanjutan: TA yang mengulang proposal kembali ke Penelitian lewat proposal revisi | tujuh seeder |
-| `e2e.mjs` | Paket E: skenario API `PANDUAN_UJI_MANUAL_ALUR_TA.md` (DevTools, aktivitas, kesiapan, perubahan TA, evaluasi, overview) | tujuh seeder |
-| `e3-api.mjs` | Paket E3: Monitoring per semester (baca-saja) | **enam** seeder (tanpa `seed-thesis-proposal-flow.js`) |
-| `e3-ready-api.mjs` | Paket E3: kartu "Siap Mendaftar" seminar/sidang berubah saat kesiapan disetujui atau dibatalkan (menulis persetujuan) | enam seeder |
-| `e4-api.mjs` | Paket E4: pembimbing yang diganti (1.1), kesiapan setelah lulus (3.2/3.3), daftar Evaluasi dosen (4.3), Peringatkan oleh Sekdep/GKM (8), bimbingan TA yang dihentikan (7); Lanjutan: halaman Perubahan dan Evaluasi lebih dari 100 baris (menyisipkan lalu menghapus 120 baris uji), tanggal persetujuan kesiapan dari seed, bimbingan TA Selesai, nama di pesan peringatan, pesan 404 berbahasa Indonesia | tujuh seeder |
-| `e5-api.mjs` | Paket E5: Permohonan sebagai kotak masuk persetujuan dosen (dua jenis baris, urutan prioritas, filter, badge), Perubahan dan Evaluasi milik Ketua Departemen (urutan prioritas, 403 untuk pembimbing), urutan tabel Monitoring Seminar Hasil/Sidang, aksi Mahasiswa Bimbingan (penanda pengajuan berjalan, kelayakan Ajukan Perubahan dan Alihkan) dan alur Alihkan → pembimbing baru → Ketua Departemen | tujuh seeder |
-| `e6-api.mjs` | Paket E6: aturan perubahan judul per tahap (K34: seminar/sidang berproses, setelah seminar, setelah hasil sidang, TA Selesai), judul `ta_lulus_seminar` berubah setelah seminar dan tampil di detail seminar, Jenis Permohonan, beban dosen di pemilih, endpoint `…/lecturer` dan `…/department` dihapus | tujuh seeder |
-| `e7-api.mjs` | Paket E7 (K28): sidang lulus tanpa revisi → TA Selesai (bimbingan terbuka, perubahan yang menunggu dan evaluasi yang menunggu Ketua Departemen ditutup; beban pembimbing turun satu; notifikasi), lulus dengan revisi tetap Penelitian sampai revisi difinalkan, batal finalisasi → kembali Penelitian, tidak lulus tetap Penelitian, halaman sidang/seminar/Overview/riwayat bimbingan/Yudisium untuk TA Selesai, data seed, sidang lulus dibatalkan Admin → kembali Penelitian. Sidang yang sudah berlangsung disiapkan lewat Prisma (tanpa API untuk itu); sisanya lewat API. Nilai minimum kelulusan sidang ditetapkan Sekdep di awal (seed tidak mengisinya) | tujuh seeder |
+| `p1-api.mjs` | P1: permukaan yang berubah tetap bekerja pada skema baru | delapan seeder |
+| `p2-api.mjs` | P2: Pengajuan Pembimbing (dua jalur, atas kuota, tarik/batal) dan Batas Bimbingan | delapan seeder |
+| `p3-api.mjs` | P3: Penetapan Pembimbing (versi, akses per peran, PDF) | delapan seeder |
+| `p4-api.mjs` | P4: bimbingan dan milestone fase proposal, proposal final, template proposal | delapan seeder |
+| `p5-api.mjs` | P5: presensi, Penilaian Proposal, kelulusan/naik, ekspor, Monitoring Kelas | delapan seeder |
+| `p6-api.mjs` | P6: SIA hanya dibaca, DevTools tab Proposal, alamat lama, data mahasiswa per semester | delapan seeder + dummy-SIA |
+| `p7-api.mjs` | Lanjutan: TA yang mengulang proposal kembali ke Penelitian lewat proposal revisi | delapan seeder |
+| `e2e.mjs` | Paket E: skenario API `PANDUAN_UJI_MANUAL_ALUR_TA.md` (DevTools, aktivitas, kesiapan, perubahan TA, evaluasi, overview) | delapan seeder |
+| `e3-api.mjs` | Paket E3: Monitoring per semester (baca-saja) | **tujuh** seeder (tanpa `seed-thesis-proposal-flow.js`) |
+| `e3-ready-api.mjs` | Paket E3: kartu "Siap Mendaftar" seminar/sidang berubah saat kesiapan disetujui atau dibatalkan (menulis persetujuan) | tujuh seeder |
+| `e4-api.mjs` | Paket E4: pembimbing yang diganti (1.1), kesiapan setelah lulus (3.2/3.3), daftar Evaluasi dosen (4.3), Peringatkan oleh Sekdep/GKM (8), bimbingan TA yang dihentikan (7); Lanjutan: halaman Perubahan dan Evaluasi lebih dari 100 baris (menyisipkan lalu menghapus 120 baris uji), tanggal persetujuan kesiapan dari seed, bimbingan TA Selesai, nama di pesan peringatan, pesan 404 berbahasa Indonesia | delapan seeder |
+| `e5-api.mjs` | Paket E5: Permohonan sebagai kotak masuk persetujuan dosen (dua jenis baris, urutan prioritas, filter, badge), Perubahan dan Evaluasi milik Ketua Departemen (urutan prioritas, 403 untuk pembimbing), urutan tabel Monitoring Seminar Hasil/Sidang, aksi Mahasiswa Bimbingan (penanda pengajuan berjalan, kelayakan Ajukan Perubahan dan Alihkan) dan alur Alihkan → pembimbing baru → Ketua Departemen | delapan seeder |
+| `e6-api.mjs` | Paket E6: aturan perubahan judul per tahap (K34: seminar/sidang berproses, setelah seminar, setelah hasil sidang, TA Selesai), judul `ta_lulus_seminar` berubah setelah seminar dan tampil di detail seminar, Jenis Permohonan, beban dosen di pemilih, endpoint `…/lecturer` dan `…/department` dihapus | delapan seeder |
+| `e7-api.mjs` | Paket E7 (K28): sidang lulus tanpa revisi → TA Selesai (bimbingan terbuka, perubahan yang menunggu dan evaluasi yang menunggu Ketua Departemen ditutup; beban pembimbing turun satu; notifikasi), lulus dengan revisi tetap Penelitian sampai revisi difinalkan, batal finalisasi → kembali Penelitian, tidak lulus tetap Penelitian, halaman sidang/seminar/Overview/riwayat bimbingan/Yudisium untuk TA Selesai, data seed, sidang lulus dibatalkan Admin → kembali Penelitian. Sidang yang sudah berlangsung disiapkan lewat Prisma (tanpa API untuk itu); sisanya lewat API. Lanjutan: nilai minimum kelulusan dari seed, batalkan persetujuan item revisi setelah final ditolak, catatan evaluasi yang ditutup sistem di tabel Evaluasi | delapan seeder |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 
-Tujuh seeder: `seed-master`, `seed-thesis-topics`, `seed-milestone-templates`, `seed-guidance-milestone`, `seed-thesis-research-flow`, `seed-thesis-monitoring`, `seed-thesis-proposal-flow` (urutan di `PANDUAN_UJI_MANUAL_ALUR_PROPOSAL.md` bagian 1). Enam seeder: tanpa yang terakhir.
+Delapan seeder, dalam urutan ini: `seed-master`, `seed-thesis-topics`, `seed-thesis-rubrics`, `seed-milestone-templates`, `seed-guidance-milestone`, `seed-thesis-research-flow`, `seed-thesis-monitoring`, `seed-thesis-proposal-flow` (urutan di `PANDUAN_UJI_MANUAL_ALUR_PROPOSAL.md` bagian 1). `seed-thesis-rubrics` (Lanjutan Paket E7) membutuhkan tahun akademik dari `seed-master`; ia mengisi CPMK dan rubrik seminar/sidang serta nilai minimum kelulusan seminar dan sidang semester berjalan (65), sehingga hasil seminar dan sidang bisa ditetapkan. Tujuh seeder: tanpa yang terakhir.
 
 ## Prasyarat
 
