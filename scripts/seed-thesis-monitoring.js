@@ -110,7 +110,9 @@ const DEFENCE_ACCOUNTS = [
   { key: "sid_revisi_lama", fullName: "Uji Mon Sidang Revisi Lama", nim: "2211529128", title: "Aplikasi Pengelolaan Kegiatan Kemahasiswaan Terpadu",
     defence: { status: "passed_with_revision", heldInDays: -45, start: "13:30", end: "15:30", score: 78, grade: "B+", revisions: { total: 2, approved: 1 } } }, // Perlu Perhatian: revisi belum selesai
   { key: "sid_revisi_final", fullName: "Uji Mon Sidang Revisi Final", nim: "2211529129", title: "Sistem Informasi Layanan Legalisir Ijazah",
-    defence: { status: "passed_with_revision", heldInDays: -38, start: "09:00", end: "11:00", score: 80, grade: "A-", revisionFinalDaysAgo: 12, revisions: { total: 2, approved: 2 } } },
+    defence: { status: "passed_with_revision", heldInDays: -38, start: "09:00", end: "11:00", score: 80, grade: "A-", revisionFinalDaysAgo: 12, revisions: { total: 2, approved: 2 } },
+    // Paket E7 (K28): the finalized revision finished the thesis (Selesai on that day).
+    completedDaysAgo: 12 },
   { key: "sid_gagal", fullName: "Uji Mon Sidang Tidak Lulus", nim: "2211529130", title: "Aplikasi Pengelolaan Bank Data Penelitian",
     defence: { status: "failed", heldInDays: -22, start: "13:30", end: "15:30", score: 48, grade: "D" } },
   { key: "sid_batal", fullName: "Uji Mon Sidang Dibatalkan", nim: "2211529131", title: "Sistem Informasi Pemesanan Ruang Rapat",

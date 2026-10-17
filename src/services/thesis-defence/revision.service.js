@@ -1,6 +1,7 @@
 import * as revisionRepo from "../../repositories/thesis-defence/revision.repository.js";
 import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
 import prisma from "../../config/prisma.js";
+import { announceThesisLifecycle, completeThesisFromDefence, reopenThesisFromDefence } from "../thesisLifecycle.service.js";
 
 // ============================================================
 // HELPERS
@@ -364,10 +365,17 @@ export async function finalizeRevisions(defenceId, lecturerId) {
   const unfinished = revisions.filter((item) => !isRevisionFinished(item));
   if (unfinished.length > 0) throwError("Masih ada item revisi yang belum disetujui.", 400);
 
-  const finalized = await coreRepo.updateDefence(defenceId, {
-    revisionFinalizedAt: new Date(),
-    revisionFinalizedBy: supervisorRole.id,
+  // Paket E7 (K28): finalizing the revision finishes the thesis, in the same transaction.
+  let lifecycle = null;
+  const finalized = await prisma.$transaction(async (tx) => {
+    const row = await coreRepo.updateDefence(defenceId, {
+      revisionFinalizedAt: new Date(),
+      revisionFinalizedBy: supervisorRole.id,
+    }, tx);
+    lifecycle = await completeThesisFromDefence(tx, defence.thesisId, { defenceId, actorUserId: lecturerId });
+    return row;
   });
+  await announceThesisLifecycle(lifecycle);
 
   // Notify student
   const studentUserId = defence.thesis?.student?.user?.id;
@@ -404,10 +412,21 @@ export async function unfinalizeRevisions(defenceId, lecturerId) {
 
   if (!defence.revisionFinalizedBy) throwError("Revisi sidang belum difinalisasi.", 400);
 
-  const updated = await coreRepo.updateDefence(defenceId, {
-    revisionFinalizedAt: null,
-    revisionFinalizedBy: null,
+  // Paket E7 (K28): undoing the finalization returns the thesis to research, in the same transaction.
+  let lifecycle = null;
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await coreRepo.updateDefence(defenceId, {
+      revisionFinalizedAt: null,
+      revisionFinalizedBy: null,
+    }, tx);
+    lifecycle = await reopenThesisFromDefence(tx, defence.thesisId, {
+      defenceId,
+      actorUserId: lecturerId,
+      reason: "finalisasi revisi sidang dibatalkan.",
+    });
+    return row;
   });
+  await announceThesisLifecycle(lifecycle);
 
   return {
     defenceId: updated.id,

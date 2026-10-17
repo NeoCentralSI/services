@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the API checks, each on a freshly rebuilt and seeded local database (see README.md).
 #
-#   scripts/api-checks/run-all.sh                # every check, in order (p1 … p7, e2e, e3, e3r, e4, e5, e6)
+#   scripts/api-checks/run-all.sh                # every check, in order (p1 … p7, e2e, e3, e3r, e4, e5, e6, e7)
 #   scripts/api-checks/run-all.sh p2 p7          # only these
 #   scripts/api-checks/run-all.sh --no-reseed p6 # on the current data (most checks need a clean seed)
 #
@@ -16,7 +16,7 @@ mkdir -p "$LOG_DIR"
 RESEED=1
 if [ "${1:-}" = "--no-reseed" ]; then RESEED=0; shift; fi
 NAMES=("$@")
-[ ${#NAMES[@]} -eq 0 ] && NAMES=(p1 p2 p3 p4 p5 p6 p7 e2e e3 e3r e4 e5 e6)
+[ ${#NAMES[@]} -eq 0 ] && NAMES=(p1 p2 p3 p4 p5 p6 p7 e2e e3 e3r e4 e5 e6 e7)
 
 BASE_SEEDERS="seed-master seed-thesis-topics seed-milestone-templates seed-guidance-milestone seed-thesis-research-flow seed-thesis-monitoring"
 FULL_SEEDERS="$BASE_SEEDERS seed-thesis-proposal-flow"

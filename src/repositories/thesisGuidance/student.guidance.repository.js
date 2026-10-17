@@ -1,6 +1,7 @@
 import prisma from "../../config/prisma.js";
 import { SUMMARY_SUBMITTABLE_STATUSES, byScheduledAt } from "../../constants/guidanceStatus.js";
 import {
+  CURRENT_THESIS_STATUSES,
   OPEN_THESIS_STATUSES,
   POST_PROPOSAL_THESIS_STATUSES,
   TA_PHASE,
@@ -19,6 +20,17 @@ export function getStudentByUserId(userId) {
 export async function getActiveThesisForStudent(studentId) {
   return prisma.thesis.findFirst({
     where: { studentId, status: { in: OPEN_THESIS_STATUSES } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+}
+
+/**
+ * Paket E7 (K28): the student's current thesis, the latest that has not failed, a Selesai one
+ * included. For reads that stay available after the defence (riwayat and log bimbingan).
+ */
+export async function getCurrentThesisForStudent(studentId) {
+  return prisma.thesis.findFirst({
+    where: { studentId, status: { in: CURRENT_THESIS_STATUSES } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 }

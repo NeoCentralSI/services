@@ -255,3 +255,125 @@ export async function returnThesisToProposal(tx, thesis, { actorUserId = null, e
   });
   return { thesis: updated, cancelledGuidances: cancelled.count ?? 0 };
 }
+
+// ── Paket E7 (K28): a passed defence ends the thesis ────────────────────────────────
+
+/** Reason written on what the system closes when a thesis is finished by its defence. */
+export const THESIS_COMPLETED_CANCEL_REASON = "Dibatalkan otomatis: tugas akhir selesai.";
+/** Notes written on a guidance evaluation that still waited for the Ketua Departemen. */
+export const THESIS_COMPLETED_EVALUATION_NOTE = "Ditutup otomatis: tugas akhir selesai.";
+
+async function findThesisForDefenceLifecycle(tx, thesisId) {
+  return tx.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      status: true,
+      student: { select: { user: { select: { id: true } } } },
+      thesisSupervisors: { where: { status: "active" }, select: { lecturerId: true } },
+    },
+  });
+}
+
+const recipientsOf = (thesis) =>
+  [...new Set([thesis.student?.user?.id, ...(thesis.thesisSupervisors ?? []).map((s) => s.lecturerId)].filter(Boolean))];
+
+/**
+ * K28: a thesis in research becomes Selesai when its defence is passed (without revision, or
+ * once the revision is finalized). Called by the defence module inside the transaction of the
+ * finalization. In the same transaction:
+ * - `status = completed`, `statusChangedAt` (the supervision clock, activity and evaluations
+ *   stop; supervision quotas only count open theses);
+ * - the supervisor relations stay active, as history;
+ * - open guidance sessions and pending change requests are cancelled by the system, and a
+ *   guidance evaluation that waited for the Ketua Departemen is closed, all with
+ *   THESIS_COMPLETED_CANCEL_REASON;
+ * - an audit log entry.
+ * A thesis that is not in research is left as it is (`changed: false`). The notifications are
+ * sent after the commit with `announceThesisLifecycle`.
+ */
+export async function completeThesisFromDefence(tx, thesisId, { defenceId = null, actorUserId = null, now = new Date() } = {}) {
+  const thesis = await findThesisForDefenceLifecycle(tx, thesisId);
+  if (!thesis || thesis.status !== THESIS_STATUS.RESEARCH) {
+    return { changed: false, kind: "completed", thesisId, recipients: [] };
+  }
+  await tx.thesis.update({ where: { id: thesisId }, data: { status: THESIS_STATUS.COMPLETED, statusChangedAt: now } });
+  const guidances = await tx.thesisGuidance.updateMany({
+    where: { thesisId, status: { in: OPEN_GUIDANCE_STATUSES } },
+    data: { status: GUIDANCE_STATUS.CANCELLED, cancelReason: THESIS_COMPLETED_CANCEL_REASON, cancelledAt: now, cancelledBy: GUIDANCE_ACTOR.SYSTEM },
+  });
+  const changeRequests = await tx.thesisChangeRequest.updateMany({
+    where: { thesisId, status: "pending" },
+    data: { status: "cancelled", decisionNotes: THESIS_COMPLETED_CANCEL_REASON, decidedAt: now, decidedByUserId: null },
+  });
+  const evaluations = await tx.thesisGuidanceEvaluation.updateMany({
+    where: { thesisId, status: "pending" },
+    data: { status: "rejected", kadepNotes: THESIS_COMPLETED_EVALUATION_NOTE, kadepApprovedAt: now, kadepApprovedBy: null },
+  });
+  const effects = {
+    cancelledGuidances: guidances.count ?? 0,
+    cancelledChangeRequests: changeRequests.count ?? 0,
+    closedEvaluations: evaluations.count ?? 0,
+  };
+  await tx.auditLog.create({
+    data: {
+      userId: actorUserId,
+      action: AUDIT_ACTIONS.THESIS_STATUS_CHANGED,
+      entity: ENTITY_TYPES.THESIS,
+      entityId: thesisId,
+      changes: {
+        oldValues: { status: THESIS_STATUS.RESEARCH },
+        newValues: { status: THESIS_STATUS.COMPLETED },
+        metadata: { source: "defence", defenceId, ...effects },
+      },
+    },
+  });
+  return { changed: true, kind: "completed", thesisId, recipients: recipientsOf(thesis), ...effects };
+}
+
+/**
+ * K28: the defence result that made the thesis Selesai was undone (the revision finalization
+ * was cancelled, or the defence was cancelled): the thesis returns to research. What was closed
+ * when it became Selesai is not restored. The only way back from Selesai, like
+ * `returnThesisToProposal` for the evaluation; the data master cannot make it.
+ */
+export async function reopenThesisFromDefence(tx, thesisId, { defenceId = null, actorUserId = null, reason = null, now = new Date() } = {}) {
+  const thesis = await findThesisForDefenceLifecycle(tx, thesisId);
+  if (!thesis || thesis.status !== THESIS_STATUS.COMPLETED) {
+    return { changed: false, kind: "reopened", thesisId, recipients: [] };
+  }
+  await tx.thesis.update({ where: { id: thesisId }, data: { status: THESIS_STATUS.RESEARCH, statusChangedAt: now } });
+  await tx.auditLog.create({
+    data: {
+      userId: actorUserId,
+      action: AUDIT_ACTIONS.THESIS_STATUS_CHANGED,
+      entity: ENTITY_TYPES.THESIS,
+      entityId: thesisId,
+      changes: {
+        oldValues: { status: THESIS_STATUS.COMPLETED },
+        newValues: { status: THESIS_STATUS.RESEARCH },
+        metadata: { source: "defence", defenceId, reason },
+      },
+    },
+  });
+  return { changed: true, kind: "reopened", thesisId, reason, recipients: recipientsOf(thesis) };
+}
+
+/**
+ * After the commit: tells the student and the supervisors that the thesis is finished, or back
+ * in research. Never throws (a failed notification does not undo the defence result).
+ */
+export async function announceThesisLifecycle(result) {
+  if (!result?.changed || result.recipients.length === 0) return;
+  const completed = result.kind === "completed";
+  const title = completed ? "Tugas Akhir Selesai" : "Tugas Akhir Kembali Berstatus Penelitian";
+  const message = completed
+    ? "Tugas akhir dinyatakan selesai."
+    : `Tugas akhir kembali berstatus Penelitian${result.reason ? `: ${result.reason}` : "."}`;
+  try {
+    const { createNotificationsForUsers } = await import("./notification.service.js");
+    await createNotificationsForUsers(result.recipients, { title, message, data: { thesisId: result.thesisId, type: "thesis_lifecycle" } });
+  } catch (error) {
+    console.error("[ThesisLifecycle] notification failed:", error?.message);
+  }
+}

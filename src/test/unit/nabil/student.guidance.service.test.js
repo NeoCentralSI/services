@@ -18,6 +18,8 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
   mockRepo: {
     getStudentByUserId: vi.fn(),
     getActiveThesisForStudent: vi.fn(),
+    // Paket E7 (K28): the history reads the current thesis, a Selesai one included.
+    getCurrentThesisForStudent: vi.fn(),
     getSupervisorsForThesis: vi.fn(),
     listGuidancesForThesis: vi.fn(),
     getGuidanceByIdForStudent: vi.fn(),
@@ -448,7 +450,7 @@ describe("Module 7: Riwayat Bimbingan", () => {
   describe("getCompletedGuidanceHistoryService", () => {
     it("returns completed guidance sessions ordered by completedAt desc", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
+      mockRepo.getCurrentThesisForStudent.mockResolvedValue(THESIS);
       // Service uses prisma.thesisGuidance.findMany directly (not the repo)
       mockPrisma.thesisGuidance.findMany.mockResolvedValue([
         {
@@ -473,11 +475,24 @@ describe("Module 7: Riwayat Bimbingan", () => {
 
     it("returns empty array if no active thesis", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockRepo.getActiveThesisForStudent.mockResolvedValue(null);
+      mockRepo.getCurrentThesisForStudent.mockResolvedValue(null);
 
       const result = await getCompletedGuidanceHistoryService("user-1");
 
       expect(result.guidances).toEqual([]);
+    });
+
+    it("Paket E7 (K28): still reads the history of a thesis made Selesai by its defence", async () => {
+      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
+      mockRepo.getCurrentThesisForStudent.mockResolvedValue({ ...THESIS, status: "completed" });
+      mockPrisma.thesisGuidance.findMany.mockResolvedValue([
+        { id: "guid-9", completedAt: new Date("2026-10-01"), approvedDate: new Date("2026-09-30"), duration: 60, supervisor: { user: { fullName: "Dr. Andi" } }, milestone: null, thesis: { title: "Sistem Monitoring" } },
+      ]);
+
+      const result = await getCompletedGuidanceHistoryService("user-1");
+
+      expect(mockRepo.getActiveThesisForStudent).not.toHaveBeenCalled();
+      expect(result.guidances.map((g) => g.id)).toEqual(["guid-9"]);
     });
 
     it("rejects (404) if student profile not found", async () => {

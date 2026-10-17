@@ -17,6 +17,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `e4-api.mjs` | Paket E4: pembimbing yang diganti (1.1), kesiapan setelah lulus (3.2/3.3), daftar Evaluasi dosen (4.3), Peringatkan oleh Sekdep/GKM (8), bimbingan TA yang dihentikan (7); Lanjutan: halaman Perubahan dan Evaluasi lebih dari 100 baris (menyisipkan lalu menghapus 120 baris uji), tanggal persetujuan kesiapan dari seed, bimbingan TA Selesai, nama di pesan peringatan, pesan 404 berbahasa Indonesia | tujuh seeder |
 | `e5-api.mjs` | Paket E5: Permohonan sebagai kotak masuk persetujuan dosen (dua jenis baris, urutan prioritas, filter, badge), Perubahan dan Evaluasi milik Ketua Departemen (urutan prioritas, 403 untuk pembimbing), urutan tabel Monitoring Seminar Hasil/Sidang, aksi Mahasiswa Bimbingan (penanda pengajuan berjalan, kelayakan Ajukan Perubahan dan Alihkan) dan alur Alihkan → pembimbing baru → Ketua Departemen | tujuh seeder |
 | `e6-api.mjs` | Paket E6: aturan perubahan judul per tahap (K34: seminar/sidang berproses, setelah seminar, setelah hasil sidang, TA Selesai), judul `ta_lulus_seminar` berubah setelah seminar dan tampil di detail seminar, Jenis Permohonan, beban dosen di pemilih, endpoint `…/lecturer` dan `…/department` dihapus | tujuh seeder |
+| `e7-api.mjs` | Paket E7 (K28): sidang lulus tanpa revisi → TA Selesai (bimbingan terbuka, perubahan yang menunggu dan evaluasi yang menunggu Ketua Departemen ditutup; beban pembimbing turun satu; notifikasi), lulus dengan revisi tetap Penelitian sampai revisi difinalkan, batal finalisasi → kembali Penelitian, tidak lulus tetap Penelitian, halaman sidang/seminar/Overview/riwayat bimbingan/Yudisium untuk TA Selesai, data seed, sidang lulus dibatalkan Admin → kembali Penelitian. Sidang yang sudah berlangsung disiapkan lewat Prisma (tanpa API untuk itu); sisanya lewat API. Nilai minimum kelulusan sidang ditetapkan Sekdep di awal (seed tidak mengisinya) | tujuh seeder |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 
@@ -33,7 +34,7 @@ Tujuh seeder: `seed-master`, `seed-thesis-topics`, `seed-milestone-templates`, `
 Dari `app/backend`:
 
 ```bash
-scripts/api-checks/run-all.sh            # p1 … p7, e2e, e3, e3r, e4, e5, e6 — masing-masing setelah bangun ulang + seed
+scripts/api-checks/run-all.sh            # p1 … p7, e2e, e3, e3r, e4, e5, e6, e7 — masing-masing setelah bangun ulang + seed
 scripts/api-checks/run-all.sh p4 p7      # hanya yang disebut
 ```
 

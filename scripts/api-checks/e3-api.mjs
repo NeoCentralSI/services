@@ -50,9 +50,11 @@ for (const [name, id] of Object.entries(views)) {
   list[name] = (await get(KADEP, `/thesisGuidance/monitoring/theses?pageSize=1000${id ? `&academicYear=${id}` : ""}`)).json.data;
 }
 const statusOf = (d) => Object.fromEntries(d.statusDistribution.map((s) => [s.id, s.count]));
-check("semester berjalan: status", eq(statusOf(dash.berjalan), { research: 56, on_leave: 1, completed: 1, failed: 0 }), statusOf(dash.berjalan));
-check("semester lalu: status", eq(statusOf(dash.lalu), { research: 54, on_leave: 1, completed: 3, failed: 2 }), statusOf(dash.lalu));
-check("semua semester: status", eq(statusOf(dash.semua), { research: 56, on_leave: 1, completed: 3, failed: 2 }), statusOf(dash.semua));
+// Paket E7 (K28): Uji Mon Sidang Revisi Final is seeded Selesai (revision finalized), one research
+// thesis fewer and one completed more; a Selesai thesis has no activity level (one Lancar fewer).
+check("semester berjalan: status", eq(statusOf(dash.berjalan), { research: 55, on_leave: 1, completed: 2, failed: 0 }), statusOf(dash.berjalan));
+check("semester lalu: status", eq(statusOf(dash.lalu), { research: 53, on_leave: 1, completed: 4, failed: 2 }), statusOf(dash.lalu));
+check("semua semester: status", eq(statusOf(dash.semua), { research: 55, on_leave: 1, completed: 4, failed: 2 }), statusOf(dash.semua));
 const inList = (view, name) => list[view].find((t) => t.student.name === name);
 check("Mulai Semester Lalu: masuk semester berjalan dan semester lalu", inList("berjalan", "Uji Mon Mulai Semester Lalu") && inList("lalu", "Uji Mon Mulai Semester Lalu"), inList("berjalan", "Uji Mon Mulai Semester Lalu")?.startSemester);
 check("Mulai Semester Lalu: kolom Mulai = Genap 2025/2026, status Penelitian", inList("berjalan", "Uji Mon Mulai Semester Lalu")?.startSemester === "Genap 2025/2026" && inList("berjalan", "Uji Mon Mulai Semester Lalu")?.status === "research");
@@ -70,8 +72,8 @@ const months = (d) => d.guidanceTrend.map((t) => t.month);
 check("tren semester berjalan hanya Agu–Okt 2026", eq(months(dash.berjalan), ["2026-08", "2026-09", "2026-10"]), dash.berjalan.guidanceTrend);
 check("tren semester lalu hanya Feb–Jul 2026", eq(months(dash.lalu), ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"]), dash.lalu.guidanceTrend);
 check("tren semua semester lebih panjang", months(dash.semua).length === 13 && months(dash.semua)[0] === "2025-08", months(dash.semua));
-check("aktivitas dihitung terhadap hari ini (sama untuk berjalan dan semua)", eq(dash.berjalan.activityDistribution.map((a) => a.count), [41, 4, 11]) && eq(dash.semua.activityDistribution.map((a) => a.count), [41, 4, 11]), dash.berjalan.activityDistribution.map((a) => `${a.name}:${a.count}`));
-check("aktivitas semester lalu", eq(dash.lalu.activityDistribution.map((a) => a.count), [39, 4, 11]), dash.lalu.activityDistribution.map((a) => `${a.name}:${a.count}`));
+check("aktivitas dihitung terhadap hari ini (sama untuk berjalan dan semua)", eq(dash.berjalan.activityDistribution.map((a) => a.count), [40, 4, 11]) && eq(dash.semua.activityDistribution.map((a) => a.count), [40, 4, 11]), dash.berjalan.activityDistribution.map((a) => `${a.name}:${a.count}`));
+check("aktivitas semester lalu", eq(dash.lalu.activityDistribution.map((a) => a.count), [38, 4, 11]), dash.lalu.activityDistribution.map((a) => `${a.name}:${a.count}`));
 check("Siap Seminar (ringkasan Bimbingan) = 1 pada ketiga pilihan", eq([dash.berjalan.summary.totalReadyForSeminar, dash.lalu.summary.totalReadyForSeminar, dash.semua.summary.totalReadyForSeminar], [1, 1, 1]));
 const report = {};
 for (const [name, id] of Object.entries(views)) report[name] = (await get(KADEP, `/thesisGuidance/monitoring/report${q(id)}`)).data;

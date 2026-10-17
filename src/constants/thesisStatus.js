@@ -21,7 +21,22 @@ export const OPEN_THESIS_STATUSES = [
   THESIS_STATUS.ON_LEAVE,
 ];
 
-/** TA yang sudah berakhir; tidak bisa berubah lagi. */
+/**
+ * Paket E7 (K28): "TA mahasiswa saat ini" for pages that must still find a finished thesis
+ * (sidang, seminar hasil, riwayat bimbingan): the latest thesis that has not failed. A thesis
+ * becomes Selesai automatically when its defence is passed, and its pages stay readable.
+ */
+export const CURRENT_THESIS_STATUSES = [
+  THESIS_STATUS.PROPOSAL,
+  THESIS_STATUS.RESEARCH,
+  THESIS_STATUS.ON_LEAVE,
+  THESIS_STATUS.COMPLETED,
+];
+
+/**
+ * TA yang sudah berakhir. Data Master dan jalur lain tidak dapat mengubahnya lagi; hanya
+ * `reopenThesisFromDefence` (Paket E7) yang mengembalikan TA Selesai ke Penelitian.
+ */
 export const CLOSED_THESIS_STATUSES = [THESIS_STATUS.COMPLETED, THESIS_STATUS.FAILED];
 
 /** TA yang sudah melewati fase proposal, apa pun akhirnya (riwayat, arsip). */

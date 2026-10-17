@@ -1,6 +1,7 @@
 import {
   getStudentByUserId,
   getActiveThesisForStudent,
+  getCurrentThesisForStudent,
   getSupervisorsForThesis,
   listGuidancesForThesis,
   getGuidanceByIdForStudent,
@@ -1323,8 +1324,8 @@ export async function getCompletedGuidanceHistoryService(userId) {
     throw err;
   }
 
-  // Only show completed guidances for the active thesis
-  const thesis = await getActiveThesisForStudent(student.id);
+  // Completed guidances of the current thesis; Paket E7 (K28): a Selesai thesis is still read.
+  const thesis = await getCurrentThesisForStudent(student.id);
   if (!thesis) {
     return { guidances: [] };
   }
@@ -1796,7 +1797,8 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
 
-  const thesis = await getActiveThesisForStudent(student.id);
+  // Paket E7 (K28): the log of a thesis made Selesai by its defence can still be printed.
+  const thesis = await getCurrentThesisForStudent(student.id);
   if (!thesis) {
     const err = new Error("Tugas akhir aktif tidak ditemukan");
     err.statusCode = 404;
