@@ -66,6 +66,9 @@ export async function findRevisionById(revisionId) {
             select: {
               id: true,
               status: true,
+              // Lanjutan Paket E7: the guard in updateRevision reads the finalization from here.
+              revisionFinalizedAt: true,
+              revisionFinalizedBy: true,
               thesis: {
                 select: {
                   id: true,

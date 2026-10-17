@@ -95,6 +95,8 @@ export async function createRevision(seminarId, body, studentId) {
   if (seminar.thesis?.studentId !== studentId) {
     throwError("Anda tidak memiliki akses untuk menambahkan revisi pada seminar ini.", 403);
   }
+  // Lanjutan Paket E7: no new item once the revision is finalized, as in the defence module.
+  if (seminar.revisionFinalizedBy) throwError("Revisi sudah difinalisasi dan tidak dapat diubah.", 400);
 
   // Validate examiner belongs to this seminar
   const examiner = await prisma.thesisSeminarExaminer.findFirst({
