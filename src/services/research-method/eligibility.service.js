@@ -1,6 +1,7 @@
 import prisma from "../../config/prisma.js";
 import { fetchSemesterEnrollments } from "../sia.client.js";
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
+import { assertSiaConfigured } from "../../helpers/sia-availability.helper.js";
 
 /**
  * Academic flags per student per semester (plan 10.6, K11): whether the student takes Metode
@@ -169,7 +170,9 @@ export async function setAdminPeriodFlags(studentId, academicYearId, input = {},
  * does not, the Admin's values stay but lose source `admin`, so the next sync may overwrite them.
  * @returns {Promise<{ snapshot: object|null, fromSia: boolean }>}
  */
-export async function followSiaPeriodFlags(studentId, academicYearId, { client = prisma, now = new Date(), fetchEnrollments = fetchSemesterEnrollments } = {}) {
+export async function followSiaPeriodFlags(studentId, academicYearId, { client = prisma, now = new Date(), fetchEnrollments = fetchSemesterEnrollments, env = process.env } = {}) {
+  // Paket P9: refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
+  assertSiaConfigured(env);
   const { student, year } = await requireStudentAndYear(studentId, academicYearId, client);
   let rows;
   try {

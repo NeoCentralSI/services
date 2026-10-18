@@ -3,11 +3,17 @@ import { saveStudents, saveSyncStatus, cleanupObsoleteStudents } from "./sia.sto
 import prisma from "../config/prisma.js";
 import { applySiaEnrollments } from "./research-method/eligibility.service.js";
 import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
+import { isSiaConfigured } from "../helpers/sia-availability.helper.js";
 
 /**
  * Main SIA sync job - fetches student data and updates cache + database
  */
-export async function runSiaSync() {
+export async function runSiaSync({ siaConfigured = isSiaConfigured() } = {}) {
+  // Paket P9: without SIA_BASE_URL nothing is read; one log line, no error, nothing stored.
+  if (!siaConfigured) {
+    console.log("⏭️  Sinkronisasi SIA dilewati: SIA_BASE_URL kosong (SIA belum tersedia).");
+    return { skipped: true, reason: "not_configured" };
+  }
   const startedAt = new Date();
   let summary = {
     lastRun: startedAt,

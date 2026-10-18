@@ -2,9 +2,12 @@ import { getSyncStatus, getAllCachedStudents } from "../services/sia.store.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { fetchStudentsFull } from "../services/sia.client.js";
 import { getPeriodFlagCoverage } from "../services/research-method/eligibility.service.js";
+import { assertSiaConfigured, isSiaConfigured } from "../helpers/sia-availability.helper.js";
 
 export async function triggerSiaSync(req, res, next) {
   try {
+    // Paket P9: refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
+    assertSiaConfigured();
     const summary = await runSiaSync();
     res.json({ success: true, message: "SIA sync triggered", summary });
   } catch (err) {
@@ -33,7 +36,8 @@ export async function siaSyncStatus(req, res, next) {
         coverageErr?.message ?? coverageErr,
       );
     }
-    res.json({ success: true, data: { ...status, periodSnapshots } });
+    // `configured`: false while SIA_BASE_URL is empty; the page disables every SIA read.
+    res.json({ success: true, data: { ...status, periodSnapshots, configured: isSiaConfigured() } });
   } catch (err) {
     next(err);
   }
@@ -64,8 +68,9 @@ export async function getCachedStudents(req, res, next) {
       console.warn("⚠️  Redis unavailable, falling back to SIA source:", redisErr.message);
     }
 
-    // If Redis is empty (not yet synced) or errored, try SIA directly (mock or real)
-    if (!data || data.length === 0) {
+    // If Redis is empty (not yet synced) or errored, try SIA directly (mock or real), unless SIA is
+    // not configured (Paket P9).
+    if ((!data || data.length === 0) && isSiaConfigured()) {
       console.log("ℹ️  Redis cache empty, reading from SIA source directly...");
       try {
         data = await fetchStudentsFull(1);

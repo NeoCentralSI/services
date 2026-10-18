@@ -138,7 +138,7 @@ describe("flags set by the Admin", () => {
   it("Ikuti Data SIA writes the SIA values with source sia when SIA lists the student", async () => {
     const client = adminClient({ id: "snap-1", eligibilitySource: "admin", thesisCourseSource: "admin" });
     const fetchEnrollments = vi.fn().mockResolvedValue([{ nim: "2211528001", takesResearchMethod: false, takesThesis: true }]);
-    const result = await followSiaPeriodFlags("s1", "ay-1", { client, fetchEnrollments, now: CAPTURED });
+    const result = await followSiaPeriodFlags("s1", "ay-1", { client, fetchEnrollments, now: CAPTURED, env: { SIA_BASE_URL: "http://sia.test" } });
     expect(fetchEnrollments).toHaveBeenCalledWith({ academicYear: "2026/2027", semester: "ganjil" });
     expect(result.fromSia).toBe(true);
     expect(result.snapshot).toMatchObject({ eligibleResearchMethod: false, eligibilitySource: "sia", takingThesisCourse: true, thesisCourseSource: "sia" });
@@ -146,10 +146,20 @@ describe("flags set by the Admin", () => {
 
   it("Ikuti Data SIA without SIA data keeps the values but hands them to the next sync", async () => {
     const client = adminClient({ id: "snap-1", eligibleResearchMethod: true, eligibilitySource: "admin", thesisCourseSource: "sia" });
-    const result = await followSiaPeriodFlags("s1", "ay-1", { client, fetchEnrollments: vi.fn().mockRejectedValue(new Error("down")) });
+    const result = await followSiaPeriodFlags("s1", "ay-1", { client, fetchEnrollments: vi.fn().mockRejectedValue(new Error("down")), env: { SIA_BASE_URL: "http://sia.test" } });
     expect(result.fromSia).toBe(false);
     expect(client.studentAcademicYearSnapshot.update).toHaveBeenCalledWith({ where: { id: "snap-1" }, data: { eligibilitySource: "sia" } });
     expect(result.snapshot).toMatchObject({ eligibleResearchMethod: true, eligibilitySource: "sia" });
+  });
+
+  it("Paket P9: Ikuti Data SIA is refused while SIA_BASE_URL is empty, and SIA is not read", async () => {
+    const client = adminClient({ id: "snap-1", eligibilitySource: "admin" });
+    const fetchEnrollments = vi.fn();
+    for (const env of [{ SIA_BASE_URL: "" }, { SIA_BASE_URL: "   " }, {}]) {
+      await expect(followSiaPeriodFlags("s1", "ay-1", { client, fetchEnrollments, env })).rejects.toMatchObject({ statusCode: 400, message: "Sinkronisasi SIA belum tersedia." });
+    }
+    expect(fetchEnrollments).not.toHaveBeenCalled();
+    expect(client.studentAcademicYearSnapshot.update).not.toHaveBeenCalled();
   });
 });
 
