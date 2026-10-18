@@ -10,16 +10,26 @@ const routePath = join(
 );
 
 describe("research-method route RBAC", () => {
-  it("membatasi pengelolaan data master ke Sekretaris Departemen dan Koordinator Metode Penelitian", () => {
+  it("Paket P8 (3.2): CPMK, kriteria, rubrik, dan nilai minimum ditulis Sekretaris Departemen saja; koordinator membaca", () => {
     const source = readFileSync(routePath, "utf8");
 
     expect(source).toContain("router.use(authGuard)");
-    // P5 split the router: master data keeps its two roles per route; Presensi, Penilaian
-    // Proposal, kelulusan, ekspor and monitoring carry their own guards.
     expect(source).toContain("const MANAGE = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_METODE_PENELITIAN]);");
-    for (const route of ['"/cpmks", MANAGE', '"/assessment-configuration", MANAGE', '"/criteria", MANAGE', '"/criteria/:criteriaId/rubrics", MANAGE', '"/weight-summary", MANAGE']) {
-      expect(source).toContain(route);
+    expect(source).toContain("const SEKDEP_ONLY = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]);");
+    for (const read of ['router.get("/cpmks", MANAGE', 'router.get("/assessment-configuration", MANAGE', 'router.get("/criteria/:criteriaId/rubrics", MANAGE', 'router.get("/weight-summary", MANAGE']) {
+      expect(source).toContain(read);
     }
+    const writes = source.split("\n").filter((line) => /router\.(post|patch|delete)\("\/(cpmks|criteria|rubrics|academic-years)/.test(line));
+    expect(writes.length).toBe(14);
+    for (const line of writes) expect(line).toContain("SEKDEP_ONLY");
+    expect(source).toContain('router.post("/cpmks/copy-template", SEKDEP_ONLY, validate(copyCpmkTemplateSchema), copyCpmkTemplate);');
+  });
+
+  it("Paket P8 (3.1): template milestone proposal dikelola Sekretaris Departemen dan koordinator", () => {
+    const source = readFileSync(routePath, "utf8");
+    const lines = source.split("\n").filter((line) => line.includes('"/milestone-templates'));
+    expect(lines.length).toBe(5);
+    for (const line of lines) expect(line).toContain("MANAGE");
   });
 
   it("menyediakan endpoint CPMK, konfigurasi, kriteria, rubrik, dan ringkasan bobot", () => {

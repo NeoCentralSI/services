@@ -208,3 +208,14 @@ export async function reorderRubrics(req, res, next) {
     next(error);
   }
 }
+
+/** Paket P8 (3.2): "Salin Template" from another period into an empty one. */
+export async function copyCpmkTemplate(req, res, next) {
+  try {
+    const { sourceAcademicYearId, targetAcademicYearId } = req.validated ?? req.body;
+    const data = await service.copyCpmkTemplate(sourceAcademicYearId, targetAcademicYearId);
+    res.status(201).json({ success: true, message: "CPMK, kriteria, dan rubrik berhasil disalin", data });
+  } catch (error) {
+    next(error);
+  }
+}

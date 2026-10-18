@@ -5,7 +5,7 @@ import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 
 /**
  * General proposal-phase milestone templates (K18): no topic, managed by the Sekretaris
- * Departemen in Kelola > Metode Penelitian. Students apply them while their thesis is in the
+ * Departemen and the Research Method coordinator (Paket P8) in Kelola > Metode Penelitian. Students apply them while their thesis is in the
  * proposal phase (milestone service, same engine as the thesis phase).
  */
 const PHASE = THESIS_PHASE.PROPOSAL;
@@ -35,10 +35,11 @@ export async function listTemplates({ includeInactive = true } = {}) {
   }));
 }
 
-export async function createTemplate({ name, description = null, isActive = true }) {
-  const maxOrder = await milestoneRepo.getMaxTemplateOrderIndex(null, PHASE);
+/** Without an order the template goes after the last one (as on the thesis templates). */
+export async function createTemplate({ name, description = null, isActive = true, orderIndex }) {
+  const order = orderIndex ?? (await milestoneRepo.getMaxTemplateOrderIndex(null, PHASE)) + 1;
   return milestoneRepo.createTemplate(
-    { name: name.trim(), description: description?.trim() || null, topicId: null, orderIndex: maxOrder + 1, isActive },
+    { name: name.trim(), description: description?.trim() || null, topicId: null, orderIndex: order, isActive },
     PHASE,
   );
 }
@@ -49,6 +50,7 @@ export async function updateTemplate(id, data) {
   if (data.name !== undefined) patch.name = data.name.trim();
   if (data.description !== undefined) patch.description = data.description?.trim() || null;
   if (data.isActive !== undefined) patch.isActive = data.isActive;
+  if (data.orderIndex !== undefined) patch.orderIndex = data.orderIndex;
   return milestoneRepo.updateTemplate(id, patch);
 }
 

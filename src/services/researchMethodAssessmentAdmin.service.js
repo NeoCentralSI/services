@@ -1,4 +1,5 @@
 import { BadRequestError, NotFoundError } from "../utils/errors.js";
+import prisma from "../config/prisma.js";
 import * as repo from "../repositories/researchMethodAssessmentAdmin.repository.js";
 
 const VALID_ASSESSORS = new Set(["supervisor", "coordinator"]);
@@ -307,4 +308,21 @@ export async function reorderRubrics(assessorInput, payload) {
   const rubrics = await repo.findRubricsByCriteria(assessor, criteria.id);
   assertExactIds(rubrics, payload.orderedIds, "rubrik");
   return repo.reorderRubrics(assessor, payload.orderedIds);
+}
+
+/**
+ * Paket P8 (3.2): "Salin Template" of Kelola > Metode Penelitian, as in the thesis CPMK master
+ * data: the CPMK, criteria and rubrics of a source period go into an empty target period. The
+ * minimum passing score is not copied (it is set on the Rubrik tab, like seminar and defence).
+ */
+export async function copyCpmkTemplate(sourceInput, targetInput) {
+  const source = requireAcademicYearId(sourceInput);
+  const target = requireAcademicYearId(targetInput);
+  if (source === target) throw new BadRequestError("Tahun ajaran sumber dan tujuan tidak boleh sama");
+  const [sourceYear, targetYear] = await Promise.all([
+    prisma.academicYear.findUnique({ where: { id: source }, select: { id: true } }),
+    prisma.academicYear.findUnique({ where: { id: target }, select: { id: true } }),
+  ]);
+  if (!sourceYear || !targetYear) throw new NotFoundError("Tahun ajaran tidak ditemukan");
+  return repo.copyCpmkTemplate(source, target);
 }

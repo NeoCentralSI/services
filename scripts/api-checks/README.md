@@ -11,6 +11,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `p5-api.mjs` | P5: presensi, Penilaian Proposal, kelulusan/naik, ekspor, Monitoring Kelas | delapan seeder |
 | `p6-api.mjs` | P6: SIA hanya dibaca, DevTools tab Proposal, alamat lama, data mahasiswa per semester | delapan seeder + dummy-SIA |
 | `p7-api.mjs` | Lanjutan: TA yang mengulang proposal kembali ke Penelitian lewat proposal revisi | delapan seeder |
+| `p8-api.mjs` | Paket P8: angka `PANDUAN_UJI_MANUAL_ALUR_PROPOSAL.md` pada hari seed (katalog, antrean Kadep, susunan Penetapan, template, CPMK dan bobot, presensi, Monitoring Kelas, pratinjau kelulusan), Batas Bimbingan hanya Kadep/Sekdep, template milestone proposal oleh Sekdep dan koordinator (urutan, aktif, hapus), CPMK/rubrik ditulis Sekdep saja, Salin Template dari periode lain, nilai minimum per periode, template milestone di dua fase (proposal umum, lalu template topik setelah naik) | delapan seeder |
 | `e2e.mjs` | Paket E: skenario API `PANDUAN_UJI_MANUAL_ALUR_TA.md` (DevTools, aktivitas, kesiapan, perubahan TA, evaluasi, overview) | delapan seeder |
 | `e3-api.mjs` | Paket E3: Monitoring per semester (baca-saja) | **tujuh** seeder (tanpa `seed-thesis-proposal-flow.js`) |
 | `e3-ready-api.mjs` | Paket E3: kartu "Siap Mendaftar" seminar/sidang berubah saat kesiapan disetujui atau dibatalkan (menulis persetujuan) | tujuh seeder |
@@ -34,7 +35,7 @@ Delapan seeder, dalam urutan ini: `seed-master`, `seed-thesis-topics`, `seed-the
 Dari `app/backend`:
 
 ```bash
-scripts/api-checks/run-all.sh            # p1 … p7, e2e, e3, e3r, e4, e5, e6, e7 — masing-masing setelah bangun ulang + seed
+scripts/api-checks/run-all.sh            # p1 … p8, e2e, e3, e3r, e4, e5, e6, e7 — masing-masing setelah bangun ulang + seed
 scripts/api-checks/run-all.sh p4 p7      # hanya yang disebut
 ```
 

@@ -210,6 +210,15 @@ describe("Milestone fase TA (K6, K18)", () => {
     });
   });
 
+  it("Paket P8: di fase proposal template umum dipasang dan jawabannya memuat milestone fase proposal itu", async () => {
+    Object.assign(thesisRow(), { status: "proposal", supervisorAssignedAt: new Date("2026-09-01") });
+
+    const result = await milestone.createMilestonesFromTemplates("t1", "stu1", ["tpl-prop"]);
+
+    expect(result.count).toBe(1);
+    expect(result.milestones).toEqual([expect.objectContaining({ phase: "proposal", milestoneTemplateId: "tpl-prop", title: "Proposal Bab 1" })]);
+  });
+
   it("template berbeda fase ditolak (400) dan tidak membuat milestone", async () => {
     await expect(
       milestone.createMilestonesFromTemplates("t1", "stu1", ["tpl-ta", "tpl-prop"]),

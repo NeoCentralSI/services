@@ -504,8 +504,9 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   // Bulk create
   await milestoneRepo.createMany(milestonesData);
 
-  // Get created milestones
-  const createdMilestones = await milestoneRepo.findByThesisId(thesisId);
+  // Get created milestones (of the phase they were made in; Paket P8: the proposal phase read the
+  // research list back and answered "0 milestone berhasil dibuat").
+  const createdMilestones = await milestoneRepo.findByThesisId(thesisId, null, phase);
 
   return {
     count: createdMilestones.length,

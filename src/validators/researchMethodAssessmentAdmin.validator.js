@@ -91,3 +91,9 @@ export const reorderRubricsSchema = z.object({
     "ID urutan tidak boleh duplikat",
   ),
 });
+
+/** Paket P8 (3.2): copy the CPMK, criteria and rubrics of another period, as for the thesis CPMKs. */
+export const copyCpmkTemplateSchema = z.object({
+  sourceAcademicYearId: z.string().trim().min(1, "Tahun ajaran sumber harus diisi"),
+  targetAcademicYearId: z.string().trim().min(1, "Tahun ajaran tujuan harus diisi"),
+});

@@ -323,3 +323,60 @@ export function reorderRubrics(assessor, orderedIds, client = prisma) {
     ),
   );
 }
+
+/**
+ * Paket P8 (3.2): copy every CPMK of a period with the criteria and rubrics of both parties into
+ * a period that has no CPMK yet, in one transaction (pattern of the thesis CPMK copy).
+ */
+export async function copyCpmkTemplate(sourceAcademicYearId, targetAcademicYearId) {
+  return prisma.$transaction(async (tx) => {
+    const targetCount = await tx.researchMethodCpmk.count({ where: { academicYearId: targetAcademicYearId } });
+    if (targetCount > 0) {
+      const err = new Error("Tahun ajaran tujuan sudah memiliki CPMK Metode Penelitian. Hapus data yang ada terlebih dahulu.");
+      err.statusCode = 400;
+      throw err;
+    }
+    const sources = await tx.researchMethodCpmk.findMany({
+      where: { academicYearId: sourceAcademicYearId },
+      include: {
+        supervisorAssessmentCriterias: { include: { assessmentRubrics: { orderBy: { displayOrder: "asc" } } }, orderBy: { displayOrder: "asc" } },
+        coordinatorAssessmentCriterias: { include: { assessmentRubrics: { orderBy: { displayOrder: "asc" } } }, orderBy: { displayOrder: "asc" } },
+      },
+      orderBy: { code: "asc" },
+    });
+    if (sources.length === 0) {
+      const err = new Error("Tahun ajaran sumber belum memiliki CPMK Metode Penelitian.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const created = { cpmk: 0, supervisorCriteria: 0, supervisorRubrics: 0, coordinatorCriteria: 0, coordinatorRubrics: 0 };
+    for (const source of sources) {
+      const cpmk = await tx.researchMethodCpmk.create({
+        data: { academicYearId: targetAcademicYearId, code: source.code, description: source.description },
+      });
+      created.cpmk += 1;
+      for (const [assessor, list] of [["supervisor", source.supervisorAssessmentCriterias], ["coordinator", source.coordinatorAssessmentCriterias]]) {
+        for (const criteria of list) {
+          const copy = await criteriaDelegate(tx, assessor).create({
+            data: { researchMethodCpmkId: cpmk.id, name: criteria.name, maxScore: criteria.maxScore, displayOrder: criteria.displayOrder },
+          });
+          created[`${assessor}Criteria`] += 1;
+          if (criteria.assessmentRubrics.length > 0) {
+            await rubricDelegate(tx, assessor).createMany({
+              data: criteria.assessmentRubrics.map((rubric) => ({
+                assessmentCriteriaId: copy.id,
+                minScore: rubric.minScore,
+                maxScore: rubric.maxScore,
+                description: rubric.description,
+                displayOrder: rubric.displayOrder,
+              })),
+            });
+            created[`${assessor}Rubrics`] += criteria.assessmentRubrics.length;
+          }
+        }
+      }
+    }
+    return created;
+  });
+}
