@@ -1,5 +1,6 @@
 import * as requests from "../services/thesis-proposal/supervisor-request.service.js";
 import * as assignments from "../services/thesis-proposal/supervisor-assignment.service.js";
+import { getAssignmentBoard } from "../services/thesis-proposal/supervisor-assignment-board.service.js";
 import * as student from "../services/thesis-proposal/student.service.js";
 import * as finalProposal from "../services/thesis-proposal/final-proposal.service.js";
 import * as proposalRevision from "../services/thesis-proposal/proposal-revision.service.js";
@@ -86,6 +87,8 @@ const sendPdf = (res, { buffer, fileName, mimeType = "application/pdf" }) => {
 export const getMyOverview = handle(async (req, res) => ok(res, await student.getStudentProposalOverview(req.user.sub)));
 /** GET /thesis-proposals/supervisor-assignments[?academicYearId=] */
 export const getAssignmentOverview = handle(async (req, res) => ok(res, await assignments.getAssignmentOverview(yearOf(req))));
+// Paket P9 (5): the merged "Penetapan" panel of one semester
+export const getAssignmentBoardHandler = handle(async (req, res) => ok(res, await getAssignmentBoard(yearOf(req), req.user?.sub ?? null)));
 /** GET /thesis-proposals/supervisor-assignments/preview[?academicYearId=] — PDF of the current cohort */
 export const previewAssignment = handle(async (req, res) => sendPdf(res, await assignments.previewAssignmentPdf(yearOf(req))));
 /** POST /thesis-proposals/supervisor-assignments { academicYearId } */

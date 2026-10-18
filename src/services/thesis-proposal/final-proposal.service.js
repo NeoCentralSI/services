@@ -55,6 +55,9 @@ function attemptDto(attempt) {
       : null,
     supervisorScored: attempt.supervisorScore != null,
     coordinatorScored: attempt.coordinatorScore != null,
+    // Paket P9 (2): the two parts of the final score, shown to the student once it is final.
+    supervisorScore: attempt.isFinalized ? attempt.supervisorScore : null,
+    coordinatorScore: attempt.isFinalized ? attempt.coordinatorScore : null,
     isFinalized: attempt.isFinalized,
     finalScore: attempt.isFinalized ? attempt.finalScore : null,
     result: attempt.isFinalized ? attempt.result : null,

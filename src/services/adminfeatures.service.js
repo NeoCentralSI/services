@@ -1097,6 +1097,9 @@ function toSemesterFlags(snapshot, academicYear) {
 		takingResearchMethod: snapshot?.eligibleResearchMethod ?? null,
 		takingThesisCourse: snapshot?.takingThesisCourse ?? null,
 		source: snapshot?.thesisCourseSource ?? snapshot?.eligibilitySource ?? null,
+		// Paket P9 (K36): each flag has its own source (sia, admin, devtools); "admin" is kept by the sync.
+		researchMethodSource: snapshot?.eligibilitySource ?? null,
+		thesisCourseSource: snapshot?.thesisCourseSource ?? null,
 		capturedAt: snapshot?.capturedAt ?? null,
 	};
 }
@@ -1545,6 +1548,7 @@ export async function getStudentDetail(userId) {
 		throw err;
 	}
 
+	const allYears = await prisma.academicYear.findMany({ select: { id: true, year: true, semester: true }, orderBy: { startDate: "desc" } });
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		omit: USER_CREDENTIAL_OMIT,
@@ -1621,6 +1625,7 @@ export async function getStudentDetail(userId) {
 		throw err;
 	}
 
+	const snapshotsByYear = new Map(user.student.academicYearSnapshots.map((row) => [row.academicYearId ?? row.academicYear?.id, row]));
 	const studentCplScores = await prisma.studentCplScore.findMany({
 		where: { studentId: user.student.id },
 		include: {
@@ -1718,7 +1723,8 @@ export async function getStudentDetail(userId) {
 			researchMethodCompleted: user.student.researchMethodCompleted,
 			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
-			semesterFlags: user.student.academicYearSnapshots.map((row) => toSemesterFlags(row, row.academicYear)),
+			// Paket P9 (K36): every semester, so the Admin can set a flag where SIA reported none.
+			semesterFlags: allYears.map((year) => toSemesterFlags(snapshotsByYear.get(year.id), year)),
 		},
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,

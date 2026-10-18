@@ -7,7 +7,8 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { changeRepo, evalRepo, requestRepo } = vi.hoisted(() => ({
+const { changeRepo, evalRepo, requestRepo, supervisor2 } = vi.hoisted(() => ({
+  supervisor2: { getSupervisor2RequestsService: vi.fn(async () => []) },
   changeRepo: {
     findIdsAtLecturerStep: vi.fn(async () => []),
     findPage: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("../../repositories/thesis-guidance-evaluation.repository.js", () => eva
 vi.mock("../../repositories/thesis-proposal/supervisor-request.repository.js", () => requestRepo);
 vi.mock("../../services/notification.service.js", () => ({ createNotificationsForUsers: vi.fn(), createNotificationEventForUsers: vi.fn() }));
 vi.mock("../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn(async () => undefined) }));
+vi.mock("../../services/thesisGuidance/supervisor2.service.js", () => supervisor2);
 vi.mock("../../helpers/academicYear.helper.js", async (importOriginal) => ({
   ...(await importOriginal()),
   resolveOperationalAcademicYear: vi.fn(async () => ({ id: "ay-1", year: "2026/2027", semester: "ganjil" })),
@@ -298,7 +300,7 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
       ["supervisor_request", "req-kadep", "pending_kadep"],
     ]);
     expect(first.data[5].viewStatus).toBe("accepted");
-    expect(first.counts).toEqual({ waiting: 3, waitingRequests: 2, waitingChanges: 1 });
+    expect(first.counts).toEqual({ waiting: 3, waitingRequests: 2, waitingChanges: 1, waitingSupervisor2: 0 });
     expect(first.data[1].changeRequest.viewStatus).toBe("awaiting_me");
     expect(first.data[0].supervisorRequest.id).toBe("req-new");
 
@@ -329,5 +331,29 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
     const onlyPending = await requests.listLecturerInbox("lect-1", { status: "pending" });
     expect(onlyPending.data.map((row) => row.id)).toEqual(["req"]);
     expect(changeRepo.findPage).not.toHaveBeenCalled();
+  });
+
+  it("Paket P9 (4): the Pembimbing 2 requests are a third kind, first, in the same window and count", async () => {
+    const s2 = (id, day, name) => ({ requestId: id, thesisId: `t-${id}`, studentId: `s-${id}`, studentName: name, studentNim: `22${id}`, thesisTitle: `Judul ${id}`, requestedAt: at(day) });
+    supervisor2.getSupervisor2RequestsService.mockResolvedValue([s2("p2-old", 2, "Budi"), s2("p2-new", 4, "Sari")]);
+    wire({ requestsByStatus: range(12, (i) => ({ ...supervisorRequest(`req-${i}`, "accepted", 3), createdAt: new Date(at(3).getTime() - i * 60_000) })), changesByStatus: [] });
+
+    const first = await requests.listLecturerInbox("lect-1", { page: 1, pageSize: 10 });
+    expect(first.meta.total).toBe(14);
+    expect(first.data.slice(0, 3).map((row) => [row.kind, row.id, row.viewStatus])).toEqual([
+      ["supervisor2_request", "p2-new", "awaiting_me"],
+      ["supervisor2_request", "p2-old", "awaiting_me"],
+      ["supervisor_request", "req-0", "accepted"],
+    ]);
+    expect(first.data[0].supervisor2Request).toMatchObject({ studentName: "Sari", thesisTitle: "Judul p2-new" });
+    expect(first.counts).toMatchObject({ waiting: 2, waitingSupervisor2: 2 });
+    const second = await requests.listLecturerInbox("lect-1", { page: 2, pageSize: 10 });
+    expect(second.data.map((row) => row.id)).toEqual(["req-8", "req-9", "req-10", "req-11"]);
+
+    expect((await requests.listLecturerInbox("lect-1", { kind: "supervisor2" })).data.map((row) => row.id)).toEqual(["p2-new", "p2-old"]);
+    expect((await requests.listLecturerInbox("lect-1", { kind: "supervisor_request" })).data.some((row) => row.kind === "supervisor2_request")).toBe(false);
+    expect((await requests.listLecturerInbox("lect-1", { status: "accepted" })).data.some((row) => row.kind === "supervisor2_request")).toBe(false);
+    expect((await requests.listLecturerInbox("lect-1", { search: "budi" })).data.filter((row) => row.kind === "supervisor2_request").map((row) => row.id)).toEqual(["p2-old"]);
+    supervisor2.getSupervisor2RequestsService.mockResolvedValue([]);
   });
 });

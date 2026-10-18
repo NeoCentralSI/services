@@ -54,7 +54,12 @@ export const SUPERVISOR_REQUEST_STATUS_PRIORITY = Object.freeze({
 });
 
 /** Paket E5 (3.1): the two kinds of rows of Tugas Akhir > Permohonan (order in `lecturer-inbox.js`). */
-export const LECTURER_INBOX_KIND = Object.freeze({ SUPERVISOR_REQUEST: "supervisor_request", CHANGE_REQUEST: "change_request" });
+// Paket P9 (4): the Pembimbing 2 requests of the proposal phase are a third kind of row.
+export const LECTURER_INBOX_KIND = Object.freeze({
+  SUPERVISOR_REQUEST: "supervisor_request",
+  CHANGE_REQUEST: "change_request",
+  SUPERVISOR2_REQUEST: "supervisor2_request",
+});
 
 /** The student may pull back a request in these statuses, after the lock period. */
 export const WITHDRAWABLE_STATUSES = Object.freeze([...WAITING_LECTURER_STATUSES, ...WAITING_KADEP_STATUSES]);

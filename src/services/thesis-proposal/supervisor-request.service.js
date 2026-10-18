@@ -30,6 +30,7 @@ import { AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { createNotificationEventForUsers } from "../notification.service.js";
 import { getStudentPeriodFlags } from "../research-method/eligibility.service.js";
 import * as repo from "../../repositories/thesis-proposal/supervisor-request.repository.js";
+import { getSupervisor2RequestsService } from "../thesisGuidance/supervisor2.service.js";
 import { classifyLoad, getApplicableLimits, getLecturerLoads } from "./supervision-quota.service.js";
 
 /**
@@ -99,7 +100,7 @@ export function assertTitleIsSpecific(title, topics = []) {
     }
     if (labels.filter(Boolean).some((label) => normalizeComparable(label) === key)) {
       throw new BadRequestError(
-        "Judul tugas akhir tidak boleh sama dengan nama topik atau KBK. Isi judul rencana penelitian yang spesifik.",
+        "Judul tugas akhir tidak boleh sama dengan nama topik atau kelompok keilmuan. Isi judul rencana penelitian yang spesifik.",
       );
     }
   }
@@ -239,8 +240,8 @@ export async function getSubmissionState(studentId, { client = prisma } = {}) {
 
   let blockedReason = null;
   if (!year) blockedReason = "Tidak ada tahun ajaran aktif.";
-  else if (eligible === null) blockedReason = "Data SIA semester ini belum menandai Anda mengambil Metode Penelitian.";
-  else if (eligible === false) blockedReason = "Menurut data SIA, Anda tidak mengambil Metode Penelitian semester ini.";
+  else if (eligible === null) blockedReason = "Data perkuliahan Anda semester ini belum tersedia. Hubungi Admin Departemen.";
+  else if (eligible === false) blockedReason = "Anda belum terdaftar mengambil mata kuliah Metode Penelitian semester ini. Hubungi Admin Departemen bila ini keliru.";
   else if (activeRequest) blockedReason = "Anda masih memiliki pengajuan pembimbing yang sedang diproses.";
   else if (hasSupervisor) blockedReason = "Anda sudah memiliki dosen pembimbing.";
 
@@ -299,7 +300,7 @@ async function assertTopicUsable(topicId, client = prisma) {
   const topic = await repo.findTopicWithGroup(topicId, client);
   if (!topic) throw new NotFoundError("Topik tidak ditemukan.");
   if (!topic.scienceGroupId) {
-    throw new BadRequestError("Topik penelitian belum terhubung ke KBK. Minta Sekretaris Departemen memperbarui master topik.");
+    throw new BadRequestError("Topik penelitian belum terhubung ke kelompok keilmuan. Minta Sekretaris Departemen memperbarui master topik.");
   }
   return topic;
 }
@@ -503,6 +504,7 @@ function lecturerCard(lecturer, load) {
     hardLimit: load.hardLimit,
     level: load.level,
     supervisedTopics: topics,
+    offeredTopics: (lecturer.offeredTopics ?? []).map((topic) => topic.name),
   };
 }
 
@@ -584,25 +586,48 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
     }];
   });
 
+  // Paket P9 (4): the Pembimbing 2 requests waiting for this lecturer come first (they always
+  // wait for the viewer: "Menunggu Persetujuan Anda"), then the groups above, in one window.
+  const supervisor2All = await getSupervisor2RequestsService(userId);
+  const supervisor2Wanted = (!jenis || jenis.kind === KIND.SUPERVISOR2_REQUEST) && (!status || status === CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME);
+  const needle = keyword.toLowerCase();
+  const supervisor2Rows = supervisor2Wanted
+    ? supervisor2All
+      .filter((r) => !needle || [r.studentName, r.studentNim, r.thesisTitle].some((v) => String(v ?? "").toLowerCase().includes(needle)))
+      .sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt))
+    : [];
+  const supervisor2Page = supervisor2Rows.slice(window.skip, window.skip + window.take);
+  const groupWindow = { skip: Math.max(0, window.skip - supervisor2Rows.length), take: window.take - supervisor2Page.length };
+
   const [paged, waitingRequests, waitingChanges] = await Promise.all([
-    pageAcrossGroups(groups, window, { count: countInboxGroup, find: findInboxGroup }),
+    pageAcrossGroups(groups, groupWindow, { count: countInboxGroup, find: findInboxGroup }),
     repo.countRequests({ lecturerId: userId, status: { in: WAITING_LECTURER_STATUSES } }),
     changeRepo.countWhere(changeWhere[CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME]),
   ]);
-  const data = await Promise.all(
-    paged.rows.map(async ({ row }) =>
-      row.kind === KIND.SUPERVISOR_REQUEST
-        ? { kind: row.kind, id: row.value.id, viewStatus: row.value.status, createdAt: row.value.createdAt, supervisorRequest: toDto(row.value, year.id) }
-        : (async () => {
-          const changeRequest = await toLecturerStepRow(row.value, userId);
-          return { kind: row.kind, id: row.value.id, viewStatus: changeRequest.viewStatus, createdAt: row.value.createdAt, changeRequest };
-        })(),
-    ),
-  );
+  const data = [
+    ...supervisor2Page.map((request) => ({
+      kind: KIND.SUPERVISOR2_REQUEST,
+      id: request.requestId,
+      viewStatus: CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME,
+      createdAt: request.requestedAt,
+      supervisor2Request: request,
+    })),
+    ...(await Promise.all(
+      paged.rows.map(async ({ row }) =>
+        row.kind === KIND.SUPERVISOR_REQUEST
+          ? { kind: row.kind, id: row.value.id, viewStatus: row.value.status, createdAt: row.value.createdAt, supervisorRequest: toDto(row.value, year.id) }
+          : (async () => {
+            const changeRequest = await toLecturerStepRow(row.value, userId);
+            return { kind: row.kind, id: row.value.id, viewStatus: changeRequest.viewStatus, createdAt: row.value.createdAt, changeRequest };
+          })(),
+      ),
+    )),
+  ];
+  const waitingSupervisor2 = supervisor2All.length;
   return {
     data,
-    meta: pageMeta(window, paged.total),
-    counts: { waiting: waitingRequests + waitingChanges, waitingRequests, waitingChanges },
+    meta: pageMeta(window, supervisor2Rows.length + paged.total),
+    counts: { waiting: waitingRequests + waitingChanges + waitingSupervisor2, waitingRequests, waitingChanges, waitingSupervisor2 },
   };
 }
 
@@ -886,7 +911,7 @@ export async function getRecommendations(requestId) {
   if (!request) throw new NotFoundError("Pengajuan tidak ditemukan.");
   const scienceGroupId = request.topic?.scienceGroupId ?? null;
   if (!scienceGroupId) {
-    return { alternatives: [], message: "KBK topik belum dipetakan. Minta Sekretaris Departemen menghubungkan topik ini ke KBK." };
+    return { alternatives: [], message: "Kelompok keilmuan topik belum dipetakan. Minta Sekretaris Departemen menghubungkan topik ini ke kelompok keilmuan." };
   }
   const year = await requireOperationalYear();
   const { lecturers, loads } = await candidateLoads(year);

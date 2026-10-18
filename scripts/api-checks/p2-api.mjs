@@ -28,7 +28,7 @@ await run("0 persiapan", async () => {
 
 await run("1 kelayakan", async () => {
   const no = await api(U("tidak_layak"), "GET", "/thesis-proposals/me/supervisor-requests");
-  check("tidak layak: canSubmit false dengan alasan SIA", no.data?.submission?.canSubmit === false && /tidak mengambil/.test(no.data?.submission?.blockedReason), no.data?.submission?.blockedReason);
+  check("tidak layak: canSubmit false dengan alasan tanpa istilah SIA (Paket P9)", no.data?.submission?.canSubmit === false && no.data?.submission?.blockedReason === "Anda belum terdaftar mengambil mata kuliah Metode Penelitian semester ini. Hubungi Admin Departemen bila ini keliru.", no.data?.submission?.blockedReason);
   const cat = await api(U("tidak_layak"), "GET", "/thesis-proposals/catalog");
   check("tidak layak: katalog 403", cat.status === 403, cat.json?.message);
   const yes = await api(U("layak"), "GET", "/thesis-proposals/me/supervisor-requests");
@@ -46,7 +46,7 @@ await run("2 draf dan aturan judul", async () => {
   const short = await api(U("layak"), "POST", "/thesis-proposals/supervisor-requests", body({ topicId, proposedTitle: "Judul", lecturerId: lecturerIds.ullya }));
   check("judul < 12 karakter ditolak", short.status === 400 && /terlalu pendek/.test(short.json?.message), short.json?.message);
   const asTopic = await api(U("layak"), "POST", "/thesis-proposals/supervisor-requests", body({ topicId, proposedTitle: "Enterprise System", lecturerId: lecturerIds.ullya }));
-  check("judul sama dengan topik ditolak", asTopic.status === 400 && /topik atau KBK/.test(asTopic.json?.message), asTopic.json?.message);
+  check("judul sama dengan topik ditolak", asTopic.status === 400 && /topik atau kelompok keilmuan/.test(asTopic.json?.message), asTopic.json?.message);
   const noJust = await api(U("layak"), "POST", "/thesis-proposals/supervisor-requests", body({ topicId, lecturerId: lecturerIds.husnil }));
   check("ke dosen penuh tanpa alasan mahasiswa ditolak", noJust.status === 400 && /minimal 20 karakter/.test(noJust.json?.message), noJust.json?.message);
 });
@@ -109,7 +109,7 @@ await run("5 di atas batas keras", async () => {
   const rej = await api(KADEP, "POST", `/thesis-proposals/supervisor-requests/${oq.id}/decision`, { action: "reject", notes: "Tidak" });
   check("Kadep tidak bisa menolak pengajuan di atas kuota", rej.status === 400 && /tidak dapat ditolak/.test(rej.json?.message), rej.json?.message);
   const rec = await api(KADEP, "GET", `/thesis-proposals/supervisor-requests/${oq.id}/recommendations`);
-  check("rekomendasi maks 3, KBK sama, bukan penuh", Array.isArray(rec.data?.alternatives) && rec.data.alternatives.length <= 3 && rec.data.alternatives.every((a) => a.level !== "full"), rec.data?.alternatives?.map((a) => `${a.fullName}:${a.activeCount}`));
+  check("rekomendasi maks 3, kelompok keilmuan sama, bukan penuh", Array.isArray(rec.data?.alternatives) && rec.data.alternatives.length <= 3 && rec.data.alternatives.every((a) => a.level !== "full"), rec.data?.alternatives?.map((a) => `${a.fullName}:${a.activeCount}`));
   const assignable = await api(KADEP, "GET", `/thesis-proposals/supervisor-requests/${oq.id}/assignable-lecturers`);
   check("daftar alihkan: semua dosen yang menerima pengajuan, termasuk yang penuh", (assignable.data?.lecturers ?? []).length >= 10 && assignable.data.lecturers.some((l) => l.level === "full"), assignable.data?.lecturers?.length);
   const app = await api(KADEP, "POST", `/thesis-proposals/supervisor-requests/${oq.id}/decision`, { action: "approve", notes: "Disetujui di atas kuota." });

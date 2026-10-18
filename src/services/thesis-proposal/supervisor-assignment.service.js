@@ -84,6 +84,9 @@ async function buildOverview(year) {
       const thesis = byId.get(entry.thesisId);
       return {
         ...entry,
+        // Paket P9 (5): the board joins the cohort with the requests by student
+        studentId: thesis?.student?.id ?? null,
+        requestId: thesis?.requestId ?? null,
         // the same names as `supervisorNames`, kept apart so the page can format each lecturer
         supervisors: (thesis?.thesisSupervisors ?? [])
           .map((row) => ({ lecturerId: row.lecturerId, fullName: row.lecturer?.user?.fullName ?? null, role: row.role?.name ?? null }))

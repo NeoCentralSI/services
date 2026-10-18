@@ -82,7 +82,7 @@ export async function createTopic(user, data) {
 
   const scienceGroup = await topicRepo.findScienceGroupById(data.scienceGroupId);
   if (!scienceGroup) {
-    throw new BadRequestError("KBK topik tidak ditemukan");
+    throw new BadRequestError("Kelompok keilmuan topik tidak ditemukan");
   }
 
   const topic = await topicRepo.create({
@@ -123,7 +123,7 @@ export async function updateTopic(id, user, data) {
   if (data.scienceGroupId !== undefined) {
     const scienceGroup = await topicRepo.findScienceGroupById(data.scienceGroupId);
     if (!scienceGroup) {
-      throw new BadRequestError("KBK topik tidak ditemukan");
+      throw new BadRequestError("Kelompok keilmuan topik tidak ditemukan");
     }
   }
 
@@ -190,7 +190,7 @@ export async function createOfferedTopic(userId, data) {
 
   const lecturer = await topicRepo.findLecturerScienceGroupById(userId);
   if (!lecturer?.scienceGroupId) {
-    throw new BadRequestError("Dosen belum memiliki KBK. Hubungi Admin/Sekdep sebelum membuat topik.");
+    throw new BadRequestError("Dosen belum memiliki kelompok keilmuan. Hubungi Admin atau Sekretaris Departemen sebelum membuat topik.");
   }
 
   const topic = await topicRepo.create({

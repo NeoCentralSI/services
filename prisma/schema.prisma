@@ -3115,6 +3115,7 @@ enum ResearchPermitStatus {
 enum ExternalAcademicSnapshotSource {
   sia
   devtools
+  admin
 }
 
 enum DocumentSubmitStatus {

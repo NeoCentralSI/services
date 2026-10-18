@@ -49,6 +49,7 @@ router.post("/supervisor-requests/:id/decision", requireAnyRole(KADEP), validate
 // Penetapan Pembimbing: Kadep issues; Sekdep and Admin read (Sekdep downloads a complete batch only)
 const ASSIGNMENT_READERS = [ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.ADMIN];
 router.get("/supervisor-assignments", requireAnyRole(ASSIGNMENT_READERS), controller.getAssignmentOverview);
+router.get("/supervisor-assignments/board", requireAnyRole(ASSIGNMENT_READERS), controller.getAssignmentBoardHandler);
 router.get("/supervisor-assignments/preview", requireAnyRole([ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN]), controller.previewAssignment);
 router.post("/supervisor-assignments", requireAnyRole(KADEP), validate(validator.issueAssignmentSchema), controller.issueAssignment);
 router.get("/supervisor-assignments/batches/:id/file", requireAnyRole(ASSIGNMENT_READERS), controller.getBatchFile);

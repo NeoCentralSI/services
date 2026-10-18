@@ -128,18 +128,18 @@ beforeEach(() => {
 describe("title rule (R4)", () => {
   it("rejects titles shorter than 12 characters and topic or KBK labels", () => {
     expect(() => service.assertTitleIsSpecific("Judul", TOPICS)).toThrow(/terlalu pendek/);
-    expect(() => service.assertTitleIsSpecific("Machine Learning", TOPICS)).toThrow(/topik atau KBK/);
-    expect(() => service.assertTitleIsSpecific("machine learning - rekayasa data", TOPICS)).toThrow(/topik atau KBK/);
+    expect(() => service.assertTitleIsSpecific("Machine Learning", TOPICS)).toThrow(/topik atau kelompok keilmuan/);
+    expect(() => service.assertTitleIsSpecific("machine learning - rekayasa data", TOPICS)).toThrow(/topik atau kelompok keilmuan/);
     expect(service.assertTitleIsSpecific("  Prediksi Kelulusan dengan Machine Learning ", TOPICS)).toBe("Prediksi Kelulusan dengan Machine Learning");
   });
 });
 
 describe("submitRequest (R1–R7)", () => {
-  it("needs the SIA flag of the operational semester", async () => {
+  it("needs the course flag of the operational semester (message without SIA, Paket P9)", async () => {
     flags.getStudentPeriodFlags.mockResolvedValue(null);
-    await expect(service.submitRequest("stu-1", {})).rejects.toMatchObject({ statusCode: 403, message: expect.stringMatching(/belum menandai/) });
+    await expect(service.submitRequest("stu-1", {})).rejects.toMatchObject({ statusCode: 403, message: "Data perkuliahan Anda semester ini belum tersedia. Hubungi Admin Departemen." });
     flags.getStudentPeriodFlags.mockResolvedValue({ eligibleResearchMethod: false });
-    await expect(service.submitRequest("stu-1", {})).rejects.toMatchObject({ statusCode: 403, message: expect.stringMatching(/tidak mengambil/) });
+    await expect(service.submitRequest("stu-1", {})).rejects.toMatchObject({ statusCode: 403, message: "Anda belum terdaftar mengambil mata kuliah Metode Penelitian semester ini. Hubungi Admin Departemen bila ini keliru." });
   });
 
   it("allows one active request per student", async () => {
@@ -158,7 +158,7 @@ describe("submitRequest (R1–R7)", () => {
 
     repo.findDraftByStudent.mockResolvedValue({ ...DRAFT });
     repo.findTopicWithGroup.mockResolvedValue({ ...TOPICS[0], scienceGroupId: null });
-    await expect(service.submitRequest("stu-1", {})).rejects.toThrow(/belum terhubung ke KBK/);
+    await expect(service.submitRequest("stu-1", {})).rejects.toThrow(/belum terhubung ke kelompok keilmuan/);
 
     repo.findTopicWithGroup.mockResolvedValue(TOPICS[0]);
     repo.findLecturer.mockResolvedValue({ id: "lec-1", acceptingRequests: false });

@@ -280,6 +280,9 @@ describe("Module 15: Data Master Mahasiswa", () => {
         takingResearchMethod: true,
         takingThesisCourse: null,
         source: "sia",
+        // Paket P9 (K36): the source of each flag
+        researchMethodSource: "sia",
+        thesisCourseSource: null,
         capturedAt: "2026-08-08T00:00:00.000Z",
       });
       expect(result.meta).toMatchObject({ page: 1, pageSize: 10, total: 1 });
@@ -354,14 +357,26 @@ describe("Module 15: Data Master Mahasiswa", () => {
         },
       });
       mockPrisma.studentCplScore.findMany.mockResolvedValue([]);
+      // Paket P9 (K36): every semester is listed, so the Admin can set a flag SIA did not report.
+      mockPrisma.academicYear.findMany.mockResolvedValue([
+        { id: "ay-op", year: "2026/2027", semester: "ganjil" },
+        { id: "ay-genap", year: "2025/2026", semester: "genap" },
+      ]);
 
       const result = await getStudentDetail("user-1");
 
       expect(result).toBeDefined();
       expect(result.student.sksCompleted).toBe(100);
-      expect(result.student.semesterFlags).toEqual([{
-        academicYearId: "ay-genap", academicYearLabel: "2025/2026 Genap", takingResearchMethod: true, takingThesisCourse: false, source: "devtools", capturedAt: "2026-02-08T00:00:00.000Z",
-      }]);
+      expect(result.student.semesterFlags).toEqual([
+        {
+          academicYearId: "ay-op", academicYearLabel: "2026/2027 Ganjil", takingResearchMethod: null, takingThesisCourse: null, source: null,
+          researchMethodSource: null, thesisCourseSource: null, capturedAt: null,
+        },
+        {
+          academicYearId: "ay-genap", academicYearLabel: "2025/2026 Genap", takingResearchMethod: true, takingThesisCourse: false, source: "devtools",
+          researchMethodSource: "sia", thesisCourseSource: "devtools", capturedAt: "2026-02-08T00:00:00.000Z",
+        },
+      ]);
       expect(result.theses[0]).toMatchObject({
         id: "thesis-1",
         title: "AI Research",

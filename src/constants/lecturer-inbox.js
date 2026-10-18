@@ -18,6 +18,8 @@ export const LECTURER_INBOX_JENIS = Object.freeze({
   change_title: Object.freeze({ kind: LECTURER_INBOX_KIND.CHANGE_REQUEST, requestType: "title" }),
   change_supervisor: Object.freeze({ kind: LECTURER_INBOX_KIND.CHANGE_REQUEST, requestType: "supervisor" }),
   change_both: Object.freeze({ kind: LECTURER_INBOX_KIND.CHANGE_REQUEST, requestType: "both" }),
+  // Paket P9 (4): a student asks this lecturer to be Pembimbing 2 (always waits for the lecturer).
+  supervisor2: Object.freeze({ kind: LECTURER_INBOX_KIND.SUPERVISOR2_REQUEST }),
 });
 
 export const LECTURER_INBOX_PRIORITY = Object.freeze({

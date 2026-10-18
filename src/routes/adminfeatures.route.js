@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireRole, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { uploadCsv } from "../middlewares/file.middleware.js";
-import { importStudentsExcelController, importLecturersExcelController, importUsersExcelController, importAcademicYearsExcelController, importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getKadepQuickActionsController, getFailedThesesController, updateLecturerByAdminController, updateStudentByAdminController, createRoomController, updateRoomController, getRoomsController, deleteRoomController, getAdminAuditLogsController } from "../controllers/adminfeatures.controller.js";
+import { importStudentsExcelController, importLecturersExcelController, importUsersExcelController, importAcademicYearsExcelController, importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getKadepQuickActionsController, getFailedThesesController, updateLecturerByAdminController, updateStudentByAdminController, setStudentPeriodFlagsController, followSiaPeriodFlagsController, createRoomController, updateRoomController, getRoomsController, deleteRoomController, getAdminAuditLogsController } from "../controllers/adminfeatures.controller.js";
 import { updateUserSchema, createUserSchema } from "../validators/user.validator.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
@@ -28,6 +28,10 @@ router.get("/audit-logs", authGuard, requireRole(ROLES.ADMIN), getAdminAuditLogs
 router.get("/students", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getStudentsController);
 router.get("/students/:id", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getStudentDetailController);
 router.patch("/students/:id", authGuard, requireRole(ROLES.ADMIN), updateStudentByAdminController);
+// Paket P9 (K36): semester flags "Mengambil Metode Penelitian" / "Mengambil Tugas Akhir" by the Admin
+// (kept by the SIA sync), and "Ikuti Data SIA" to hand them back to SIA.
+router.patch("/students/:id/period-flags/:academicYearId", authGuard, requireRole(ROLES.ADMIN), setStudentPeriodFlagsController);
+router.post("/students/:id/period-flags/:academicYearId/follow-sia", authGuard, requireRole(ROLES.ADMIN), followSiaPeriodFlagsController);
 router.get("/lecturers", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getLecturersController);
 router.get("/lecturers/:id", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getLecturerDetailController);
 router.patch("/lecturers/:id", authGuard, requireRole(ROLES.ADMIN), updateLecturerByAdminController);

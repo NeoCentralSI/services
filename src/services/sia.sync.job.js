@@ -18,6 +18,7 @@ export async function runSiaSync() {
     periodSnapshotsCreated: 0,
     periodFlagsUpdated: 0,
     periodFlagsUnknownStudents: 0,
+    periodFlagsKeptAdmin: 0,
     periodFlagsError: "",
     cplFetched: 0,
     cplCreated: 0,
@@ -83,7 +84,9 @@ export async function runSiaSync() {
       summary.periodSnapshotsCreated = flags.created;
       summary.periodFlagsUpdated = flags.updated;
       summary.periodFlagsUnknownStudents = flags.unknownStudents;
-      console.log(`🗓️  Semester flags ${flags.period}: ${flags.created} created, ${flags.updated} updated, ${flags.unknownStudents} NIM unknown`);
+      // Paket P9 (K36): flags the Admin set by hand are not overwritten.
+      summary.periodFlagsKeptAdmin = flags.keptAdmin ?? 0;
+      console.log(`🗓️  Semester flags ${flags.period}: ${flags.created} created, ${flags.updated} updated, ${flags.unknownStudents} NIM unknown, ${summary.periodFlagsKeptAdmin} kept (Admin)`);
     } catch (flagErr) {
       summary.periodFlagsError = flagErr?.message || String(flagErr);
       console.warn("⚠️  Semester flags from SIA failed (continuing sync):", summary.periodFlagsError);
