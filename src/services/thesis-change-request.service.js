@@ -41,14 +41,13 @@ import {
   SYSTEM_CANCEL_REASON_SUPERVISOR_CHANGED,
 } from "../constants/thesis-change-request.js";
 import { GUIDANCE_ACTOR, GUIDANCE_STATUS, SLOT_HOLDING_GUIDANCE_STATUSES } from "../constants/guidanceStatus.js";
+import { DEFAULT_SUPERVISION_LIMITS } from "../constants/supervisionQuota.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { createNotificationsForUsers } from "./notification.service.js";
 import { sendFcmToUsers } from "./push.service.js";
 import { getCanonicalSupervisorRoles } from "../utils/supervisorIntegrity.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../utils/errors.js";
 
-/** Quota used when a lecturer has no quota row for the active academic year. */
-const DEFAULT_QUOTA_MAX = 10;
 
 const POSITION_ROLE_NAME = Object.freeze({
   [SUPERVISOR_POSITION.P1]: ROLES.PEMBIMBING_1,
@@ -349,7 +348,8 @@ function rejectedByLecturer(request) {
 async function loadOf(lecturerId, client = prisma) {
   if (!lecturerId) return null;
   const { activeCount, quotaMax } = await repo.getSupervisorLoad(lecturerId, client);
-  const max = quotaMax ?? DEFAULT_QUOTA_MAX;
+  // No limits set for the running period or in general: the system default (one place, K30).
+  const max = quotaMax ?? DEFAULT_SUPERVISION_LIMITS.hardLimit;
   // Shown to the new supervisor and the Ketua Departemen. Being full does not block the
   // request: the Ketua Departemen decides.
   return { activeCount, quotaMax: max, isFull: activeCount >= max };
