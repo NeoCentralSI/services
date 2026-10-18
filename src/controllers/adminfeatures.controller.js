@@ -1,6 +1,7 @@
 import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs, getFailedThesesCount, getFailedTheses } from "../services/adminfeatures.service.js";
 import { countPending as getPendingCount } from "../services/thesis-change-request.service.js";
 import { followSiaPeriodFlags, setAdminPeriodFlags } from "../services/research-method/eligibility.service.js";
+import { applyPeriodFlagsImport, buildPeriodFlagsTemplate, previewPeriodFlagsImport } from "../services/research-method/period-flags-import.service.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../services/auditLog.service.js";
 
 export async function importStudentsCsv(req, res, next) {
@@ -482,6 +483,48 @@ export async function followSiaPeriodFlagsController(req, res, next) {
 				: "SIA belum punya data mahasiswa ini untuk semester itu; penanda akan mengikuti SIA pada sinkronisasi berikutnya.",
 			data: result,
 		});
+	} catch (err) {
+		next(err);
+	}
+}
+
+/** Paket P9 (K36): the template of Impor Keikutsertaan (.xlsx). */
+export async function periodFlagsTemplateController(req, res, next) {
+	try {
+		res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		res.setHeader("Content-Disposition", 'attachment; filename="Templat-Keikutsertaan-Semester.xlsx"');
+		res.send(buildPeriodFlagsTemplate());
+	} catch (err) {
+		next(err);
+	}
+}
+
+const requireUpload = (req) => {
+	if (!req.file?.buffer) {
+		const err = new Error("Pilih berkas .xlsx atau .csv terlebih dahulu.");
+		err.statusCode = 400;
+		throw err;
+	}
+	return req.file;
+};
+
+/** Paket P9 (K36): what the import would change; nothing is stored. */
+export async function previewPeriodFlagsImportController(req, res, next) {
+	try {
+		const file = requireUpload(req);
+		const data = await previewPeriodFlagsImport(req.params.academicYearId, file.buffer);
+		res.status(200).json({ success: true, data });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/** Paket P9 (K36): applies the import (source admin), audited with the row counts. */
+export async function applyPeriodFlagsImportController(req, res, next) {
+	try {
+		const file = requireUpload(req);
+		const data = await applyPeriodFlagsImport(req.params.academicYearId, file.buffer, { actorUserId: req.user?.sub ?? null, fileName: file.originalname ?? null });
+		res.status(200).json({ success: true, message: `Keikutsertaan diimpor: ${data.applied} mahasiswa berubah.`, data });
 	} catch (err) {
 		next(err);
 	}

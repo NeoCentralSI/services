@@ -1,9 +1,9 @@
 import { randomUUID } from "crypto";
-import * as XLSX from "xlsx";
 
 import { ATTENDANCE_AUTO_ZERO_REASON, ATTENDANCE_THRESHOLD, MAX_ATTENDANCE_FILES } from "../../constants/research-method.js";
 import { THESIS_STATUS } from "../../constants/thesisStatus.js";
 import { formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
+import { normalizeHeader, readSheetRows } from "../../helpers/spreadsheet.helper.js";
 import { attendanceImportDir, removeFile, storeFile } from "../../helpers/thesis-proposal-file.helper.js";
 import * as repo from "../../repositories/research-method/attendance.repository.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors.js";
@@ -22,14 +22,8 @@ import { createNotificationEventForUsers } from "../notification.service.js";
 
 const { normalizeIdentity } = repo;
 
-function normalizeText(value) {
-  return String(value ?? "")
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
+// Paket P9: the sheet reader and header normalizer are shared with the semester-flag import.
+const normalizeText = normalizeHeader;
 
 function toNumber(value, fallback = 0) {
   if (value == null || value === "") return fallback;
@@ -90,15 +84,10 @@ function metadataValue(rows, label) {
 
 /** One class file: metadata and one row per NIM (the first row of a NIM wins). */
 export function parseAttendanceWorkbook(buffer) {
-  let workbook;
-  try {
-    workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
-  } catch {
-    throw new BadRequestError("Berkas presensi tidak dapat dibaca. Gunakan berkas .xlsx atau .xls dari aplikasi presensi.");
-  }
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) throw new BadRequestError("Berkas presensi tidak memiliki sheet.");
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "", blankrows: false });
+  const rows = readSheetRows(buffer, {
+    unreadableMessage: "Berkas presensi tidak dapat dibaca. Gunakan berkas .xlsx atau .xls dari aplikasi presensi.",
+    emptyMessage: "Berkas presensi tidak memiliki sheet.",
+  });
   const headerIndex = findHeaderIndex(rows);
   if (headerIndex < 0) {
     throw new BadRequestError("Header presensi tidak ditemukan. Pastikan berkas memakai format laporan peserta kelas Metode Penelitian.");

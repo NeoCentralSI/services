@@ -27,6 +27,17 @@ function excelFileFilter(req, file, cb) {
 	cb(null, true);
 }
 
+/** Paket P9: a spreadsheet import, .xlsx, .xls or .csv. */
+function spreadsheetFileFilter(req, file, cb) {
+	const isSpreadsheet = /\.(xlsx|xls|csv)$/i.test(file.originalname || "");
+	if (!isSpreadsheet) {
+		const error = new Error("Berkas harus berupa .xlsx atau .csv.");
+		error.statusCode = 400;
+		return cb(error);
+	}
+	cb(null, true);
+}
+
 function thesisFileFilter(req, file, cb) {
 	// Restrict thesis uploads to PDF only so they can be previewed inline
 	const isPdf = file.mimetype === "application/pdf" || (file.originalname || "").toLowerCase().endsWith(".pdf");
@@ -61,6 +72,7 @@ function guideFileFilter(req, file, cb) {
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 const excelUpload = multer({ storage, fileFilter: excelFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 const thesisUpload = multer({ storage, fileFilter: thesisFileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
+const spreadsheetUpload = multer({ storage, fileFilter: spreadsheetFileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 const seminarDocUpload = multer({
 	storage,
 	fileFilter: seminarDocFileFilter,
@@ -75,6 +87,8 @@ const guideUpload = multer({ storage, fileFilter: guideFileFilter, limits: { fil
 
 export const uploadCsv = upload.single("file");
 export const uploadExcelFile = excelUpload.single("file");
+/** Paket P9: one .xlsx/.xls/.csv file in `file` (Impor Keikutsertaan). */
+export const uploadSpreadsheetFile = spreadsheetUpload.single("file");
 /** Research Method attendance: `file` (1) and/or `files` (1–2) multipart fields. */
 export const uploadAttendanceFiles = excelUpload.fields([
 	{ name: "file", maxCount: 1 },

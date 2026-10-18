@@ -2,7 +2,8 @@
 // to a full lecturer (3) as a row of Permohonan (4) and of the Penetapan panel, the semester
 // flags set by the Admin and kept by the SIA sync until "Ikuti Data SIA" (8, K36), the student
 // texts without technical terms (1.4), the lecturer catalog with offered topics (2), and the
-// score parts of a final attempt, and the semester limits set by the Head of Department only. Mutates central; run from app/backend after a clean seed:
+// score parts of a final attempt, the semester limits set by the Head of Department only, and the bulk
+// import of semester flags (Impor Keikutsertaan). Mutates central; run from app/backend after a clean seed:
 //   node scripts/api-checks/p9-api.mjs
 import { api, check, run, summary, login, profileOf } from "./lib-api.mjs";
 
@@ -164,6 +165,60 @@ await run("5 batas semester di Penetapan → Beban Dosen (K30, keputusan P9: Kad
   const clear = await api(KADEP, "DELETE", `/supervision-quotas/periods/${current.id}`);
   const back = (await api(KADEP, "GET", `/supervision-quotas?academicYearId=${current.id}`)).data;
   check("Kembalikan ke Batas Umum: batas umum 8/10 berlaku lagi", clear.status === 200 && back?.period === null && back?.applicable?.hardLimit === 10 && back?.applicable?.source === "general", back?.applicable);
+});
+
+await run("6 Impor Keikutsertaan (butir 8, K36: impor massal)", async () => {
+  const XLSX = await import("xlsx");
+  const sheet = (rows) => {
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "Keikutsertaan");
+    return XLSX.write(book, { type: "buffer", bookType: "xlsx" });
+  };
+  const upload = (buffer, name = "keikutsertaan.xlsx") => {
+    const form = new FormData();
+    form.append("file", new Blob([buffer]), name);
+    return form;
+  };
+  const HEADERS = ["NIM", "Mengambil Metode Penelitian", "Mengambil Tugas Akhir"];
+  const file = sheet([HEADERS, ["2211528002", "Ya", ""], ["2211599999", "Ya", "Ya"], ["2211528001", "Mungkin", ""]]);
+  const path = `/adminfeatures/student-period-flags/${current.id}/import`;
+  const tidakLayak = await prisma.user.findFirst({ where: { identityNumber: "2211528002" }, select: { id: true } });
+  const snapshot = () => prisma.studentAcademicYearSnapshot.findUnique({ where: { studentId_academicYearId: { studentId: tidakLayak.id, academicYearId: current.id } } });
+
+  const template = await api(ADMIN, "GET", "/adminfeatures/student-period-flags/template");
+  check("Unduh Templat: berkas .xlsx", template.status === 200 && /spreadsheetml/.test(template.ct) && template.bytes > 0, { status: template.status, ct: template.ct, bytes: template.bytes });
+
+  const sekdep = await api(SEKDEP, "POST", `${path}/preview`, undefined, { form: upload(file) });
+  check("hanya Admin (Sekdep 403)", sekdep.status === 403, sekdep.status);
+  const wrongType = await api(ADMIN, "POST", `${path}/preview`, undefined, { form: upload(Buffer.from("%PDF"), "a.pdf") });
+  check("berkas bukan .xlsx/.csv ditolak 400", wrongType.status === 400 && /\.xlsx atau \.csv/.test(wrongType.json?.message ?? ""), `${wrongType.status} ${wrongType.json?.message}`);
+
+  const before = await snapshot();
+  const preview = await api(ADMIN, "POST", `${path}/preview`, undefined, { form: upload(file) });
+  const after = await snapshot();
+  check("Pratinjau: 1 berubah, 0 sama, 1 NIM tidak dikenal, 1 baris tidak valid; belum ada yang tersimpan",
+    preview.status === 200 && JSON.stringify(preview.data?.totals) === JSON.stringify({ rows: 3, changed: 1, unchanged: 0, unknownNim: 1, invalid: 1 })
+      && preview.data?.unknown?.[0]?.nim === "2211599999" && /isi Ya atau Tidak/.test(preview.data?.invalid?.[0]?.reason ?? "")
+      && after?.eligibleResearchMethod === before?.eligibleResearchMethod && after?.eligibilitySource === before?.eligibilitySource,
+    { totals: preview.data?.totals, before: [before?.eligibleResearchMethod, before?.eligibilitySource] });
+
+  const applied = await api(ADMIN, "POST", path, undefined, { form: upload(file) });
+  const written = await snapshot();
+  const student = (await api(U("tidak_layak"), "GET", "/thesis-proposals/me/supervisor-requests")).data?.submission;
+  check("Terapkan: Uji Proposal Tidak Layak kini Mengambil Metode Penelitian Ya, sumber Admin; boleh mengajukan",
+    applied.status === 200 && applied.data?.applied === 1 && written?.eligibleResearchMethod === true && written?.eligibilitySource === "admin" && student?.canSubmit === true,
+    { status: applied.status, message: applied.json?.message, written: [written?.eligibleResearchMethod, written?.eligibilitySource] });
+
+  const again = await api(ADMIN, "POST", path, undefined, { form: upload(file) });
+  check("impor kedua dengan berkas yang sama tidak mengubah apa pun (0 berubah, 1 sama)",
+    again.status === 200 && again.data?.applied === 0 && again.data?.totals?.changed === 0 && again.data?.totals?.unchanged === 1, again.data?.totals);
+
+  const sync = await applySiaEnrollments(current.id, [{ nim: "2211528002", takesResearchMethod: false }]);
+  check("hasil impor tidak ditimpa sinkronisasi (sumber Admin)", sync.keptAdmin === 1 && (await snapshot())?.eligibleResearchMethod === true, sync);
+
+  const audits = await prisma.auditLog.findMany({ where: { action: "STUDENT_PERIOD_FLAGS_IMPORTED", entityId: current.id }, orderBy: { createdAt: "asc" } });
+  const counts = audits.map((a) => a.newValues ?? a.changes?.newValues ?? null);
+  check("kedua penerapan tercatat di log audit dengan jumlah barisnya", audits.length === 2 && JSON.stringify(counts[0]).includes("\"rows\":3") && JSON.stringify(counts[0]).includes("\"changed\":1"), counts);
 });
 
 const failed = summary();

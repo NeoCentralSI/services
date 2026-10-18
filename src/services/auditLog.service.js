@@ -58,6 +58,8 @@ export const AUDIT_ACTIONS = {
   // Paket P9 (K36): semester flags set by the Admin, or handed back to SIA
   STUDENT_PERIOD_FLAGS_SET: "STUDENT_PERIOD_FLAGS_SET",
   STUDENT_PERIOD_FLAGS_FOLLOW_SIA: "STUDENT_PERIOD_FLAGS_FOLLOW_SIA",
+  // Paket P9 (K36): bulk import of semester flags, with the row counts
+  STUDENT_PERIOD_FLAGS_IMPORTED: "STUDENT_PERIOD_FLAGS_IMPORTED",
 };
 
 /** Admin authorization mutations that the Admin read-surface lists by default. */
