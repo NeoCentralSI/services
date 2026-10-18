@@ -5,7 +5,7 @@ import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 
 /**
  * General proposal-phase milestone templates (K18): no topic, managed by the Sekretaris
- * Departemen and the Research Method coordinator (Paket P8) in Kelola > Metode Penelitian. Students apply them while their thesis is in the
+ * Departemen only (Lanjutan P8) in Kelola > Metode Penelitian. Students apply them while their thesis is in the
  * proposal phase (milestone service, same engine as the thesis phase).
  */
 const PHASE = THESIS_PHASE.PROPOSAL;

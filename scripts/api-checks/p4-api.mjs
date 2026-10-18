@@ -163,13 +163,12 @@ await run("8 dosen: Mahasiswa Bimbingan fase proposal", async () => {
   check("dosen memberi feedback milestone proposal", fb.status < 300, `${fb.status} ${fb.json?.message ?? ""}`);
 });
 
-await run("9 template milestone proposal (Kelola > Metode Penelitian; Sekdep dan koordinator)", async () => {
+await run("9 template milestone proposal (Kelola > Metode Penelitian; hanya Sekdep)", async () => {
   const list = await api(HUSNIL, "GET", "/research-method/milestone-templates");
   check("koordinator membaca daftar", list.status === 200 && list.data?.length === 4 && list.data.every((t) => typeof t.usedCount === "number"), list.status);
-  // Paket P8 (3.1): the coordinator manages the proposal templates too.
+  // Lanjutan P8 (18 Oktober 2026): only the Sekretaris Departemen manages the proposal templates.
   const co = await api(HUSNIL, "POST", "/research-method/milestone-templates", { name: "Template koordinator" });
-  const coDel = co.data?.id ? await api(HUSNIL, "DELETE", `/research-method/milestone-templates/${co.data.id}`) : null;
-  check("koordinator menambah dan menghapus template (Paket P8)", co.status === 201 && coDel?.status === 200, `${co.status} ${coDel?.status}`);
+  check("koordinator tidak bisa menambah (403)", co.status === 403, co.status);
   const st = await api(U("ditetapkan"), "GET", "/research-method/milestone-templates");
   check("mahasiswa tidak bisa membuka pengelolaan (403)", st.status === 403, st.status);
   const short = await api(SEKDEP, "POST", "/research-method/milestone-templates", { name: "ab" });

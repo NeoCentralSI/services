@@ -25,11 +25,14 @@ describe("research-method route RBAC", () => {
     expect(source).toContain('router.post("/cpmks/copy-template", SEKDEP_ONLY, validate(copyCpmkTemplateSchema), copyCpmkTemplate);');
   });
 
-  it("Paket P8 (3.1): template milestone proposal dikelola Sekretaris Departemen dan koordinator", () => {
+  it("Lanjutan P8: template milestone proposal dikelola Sekretaris Departemen saja; daftarnya tetap terbaca", () => {
     const source = readFileSync(routePath, "utf8");
-    const lines = source.split("\n").filter((line) => line.includes('"/milestone-templates'));
+    const lines = source.split("\n").filter((line) => line.startsWith("router.") && line.includes('"/milestone-templates'));
     expect(lines.length).toBe(5);
-    for (const line of lines) expect(line).toContain("MANAGE");
+    const writes = lines.filter((line) => /router\.(post|patch|delete)\(/.test(line));
+    expect(writes.length).toBe(4);
+    for (const line of writes) expect(line).toContain("SEKDEP_ONLY");
+    expect(lines.find((line) => line.startsWith("router.get("))).toContain("MANAGE");
   });
 
   it("menyediakan endpoint CPMK, konfigurasi, kriteria, rubrik, dan ringkasan bobot", () => {

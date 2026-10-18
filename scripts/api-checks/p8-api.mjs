@@ -1,5 +1,5 @@
 // P8 API checks (Paket P8): what PANDUAN_UJI_MANUAL_ALUR_PROPOSAL.md reads on a clean seed, the
-// proposal milestone templates managed by Sekdep and the coordinator (3.1), CPMK and rubrics
+// proposal milestone templates managed by Sekdep only (3.1, Lanjutan P8), CPMK and rubrics
 // written by Sekdep only with "Salin Template" from another period and the minimum score of a
 // period (3.2), Batas Bimbingan for Kadep and Sekdep only (2, K30), and milestone templates in two
 // phases (5). Mutates central; run from app/backend after a clean seed (see README):
@@ -81,26 +81,34 @@ await run("2 Batas Bimbingan hanya Kadep dan Sekdep (butir 2, K30)", async () =>
   check("Sekdep menyimpan batas umum; Admin ditolak 403", sekdep.status === 200 && admin.status === 403, `${sekdep.status} ${admin.status}`);
 });
 
-await run("3 template milestone proposal: Sekdep dan koordinator (butir 3.1)", async () => {
+await run("3 template milestone proposal: hanya Sekdep (butir 3.1, Lanjutan P8)", async () => {
   const student = await api(U("ditetapkan"), "GET", "/research-method/milestone-templates");
   const kadep = await api(KADEP, "POST", "/research-method/milestone-templates", { name: "Template Kadep" });
   check("mahasiswa tidak membuka pengelolaan, Kadep tidak menambah (403)", student.status === 403 && kadep.status === 403, `${student.status} ${kadep.status}`);
-  const add = await api(HUSNIL, "POST", "/research-method/milestone-templates", { name: "Ringkasan Eksekutif", description: "Ringkasan satu halaman.", orderIndex: 0, isActive: false });
-  check("koordinator menambah template dengan urutan dari form, bisa nonaktif", add.status === 201 && add.data?.orderIndex === 0 && add.data?.isActive === false && add.data?.topicId === null && add.data?.phase === "proposal", `${add.status} ${add.data?.orderIndex} ${add.json?.message ?? ""}`);
-  const noOrder = await api(HUSNIL, "POST", "/research-method/milestone-templates", { name: "Lampiran Proposal" });
+  const coordAdd = await api(HUSNIL, "POST", "/research-method/milestone-templates", { name: "Template koordinator", orderIndex: 0 });
+  const anyId = ((await api(SEKDEP, "GET", "/research-method/milestone-templates")).data ?? [])[0]?.id;
+  const coordEdit = await api(HUSNIL, "PATCH", `/research-method/milestone-templates/${anyId}`, { isActive: false });
+  const coordDel = await api(HUSNIL, "DELETE", `/research-method/milestone-templates/${anyId}`);
+  check("koordinator tidak menambah, mengubah, maupun menghapus template (403)", coordAdd.status === 403 && coordEdit.status === 403 && coordDel.status === 403, `${coordAdd.status} ${coordEdit.status} ${coordDel.status}`);
+  const add = await api(SEKDEP, "POST", "/research-method/milestone-templates", { name: "Ringkasan Eksekutif", description: "Ringkasan satu halaman.", orderIndex: 0, isActive: false });
+  check("Sekdep menambah template dengan urutan dari form, bisa nonaktif", add.status === 201 && add.data?.orderIndex === 0 && add.data?.isActive === false && add.data?.topicId === null && add.data?.phase === "proposal", `${add.status} ${add.data?.orderIndex} ${add.json?.message ?? ""}`);
+  const noOrder = await api(SEKDEP, "POST", "/research-method/milestone-templates", { name: "Lampiran Proposal" });
   check("tanpa urutan: ditaruh setelah yang terakhir", noOrder.status === 201 && noOrder.data?.orderIndex === 4, noOrder.data?.orderIndex);
-  const edit = await api(HUSNIL, "PATCH", `/research-method/milestone-templates/${add.data?.id}`, { orderIndex: 5, isActive: true });
-  check("koordinator mengubah urutan dan mengaktifkan", edit.status === 200 && edit.data?.orderIndex === 5 && edit.data?.isActive === true, `${edit.status} ${edit.json?.message ?? ""}`);
-  const bad = await api(HUSNIL, "PATCH", `/research-method/milestone-templates/${add.data?.id}`, { orderIndex: -1 });
+  const edit = await api(SEKDEP, "PATCH", `/research-method/milestone-templates/${add.data?.id}`, { orderIndex: 5, isActive: true });
+  check("Sekdep mengubah urutan dan mengaktifkan", edit.status === 200 && edit.data?.orderIndex === 5 && edit.data?.isActive === true, `${edit.status} ${edit.json?.message ?? ""}`);
+  const bad = await api(SEKDEP, "PATCH", `/research-method/milestone-templates/${add.data?.id}`, { orderIndex: -1 });
   check("urutan negatif ditolak 400", bad.status === 400, bad.json?.details?.[0]?.message ?? bad.json?.message);
-  const ids = ((await api(HUSNIL, "GET", "/research-method/milestone-templates")).data ?? []).map((t) => t.id);
+  const ids = ((await api(SEKDEP, "GET", "/research-method/milestone-templates")).data ?? []).map((t) => t.id);
   const reordered = [ids.at(-1), ...ids.slice(0, -1)];
-  const ro = await api(HUSNIL, "PATCH", "/research-method/milestone-templates/reorder", { templateIds: reordered });
-  check("koordinator menyimpan urutan (Atur Urutan)", ro.status === 200 && ro.data?.[0]?.id === reordered[0], ro.json?.message);
-  const del1 = await api(HUSNIL, "DELETE", `/research-method/milestone-templates/${add.data?.id}`);
+  const coordOrder = await api(HUSNIL, "PATCH", "/research-method/milestone-templates/reorder", { templateIds: reordered });
+  const ro = await api(SEKDEP, "PATCH", "/research-method/milestone-templates/reorder", { templateIds: reordered });
+  check("Sekdep menyimpan urutan (Atur Urutan); koordinator 403", ro.status === 200 && ro.data?.[0]?.id === reordered[0] && coordOrder.status === 403, `${ro.status} ${coordOrder.status}`);
+  const del1 = await api(SEKDEP, "DELETE", `/research-method/milestone-templates/${add.data?.id}`);
   const del2 = await api(SEKDEP, "DELETE", `/research-method/milestone-templates/${noOrder.data?.id}`);
   const after = (await api(SEKDEP, "GET", "/research-method/milestone-templates")).data ?? [];
   check("hapus satu per satu (Hapus terpilih memanggilnya berurutan); tinggal empat", del1.status === 200 && del2.status === 200 && after.length === 4, after.length);
+  const studentTemplates = (await api(U("ditetapkan"), "GET", "/milestones/templates?phase=proposal")).data ?? [];
+  check("mahasiswa tetap membaca template untuk Buat dari Template", studentTemplates.length === 4, studentTemplates.length);
 });
 
 await run("4 CPMK dan rubrik: Sekdep saja, salin dari periode lain (butir 3.2)", async () => {

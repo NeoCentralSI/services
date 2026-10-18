@@ -102,13 +102,14 @@ router.get("/weight-summary", MANAGE, getWeightSummary);
 // Minimum passing score of a period (10.2), next to the seminar and defence minimums
 router.patch("/academic-years/:id/minimum-score", SEKDEP_ONLY, validate(minimumScoreSchema), controller.setMinimumScore);
 
-// General proposal milestone templates (K18; Paket P8, 3.1): the Sekretaris Departemen and the
-// Research Method coordinator manage them.
+// General proposal milestone templates (K18; Lanjutan P8, 18 Oktober 2026): only the Sekretaris
+// Departemen creates, changes, reorders and deletes them (academic master data is the Sekdep's);
+// the list keeps its readers. Students and supervisors read templates through /milestones/templates.
 router.get("/milestone-templates", MANAGE, milestoneTemplates.listTemplates);
-router.post("/milestone-templates", MANAGE, validate(createMilestoneTemplateSchema), milestoneTemplates.createTemplate);
-router.patch("/milestone-templates/reorder", MANAGE, validate(reorderMilestoneTemplatesSchema), milestoneTemplates.reorderTemplates);
-router.patch("/milestone-templates/:id", MANAGE, validate(updateMilestoneTemplateSchema), milestoneTemplates.updateTemplate);
-router.delete("/milestone-templates/:id", MANAGE, milestoneTemplates.deleteTemplate);
+router.post("/milestone-templates", SEKDEP_ONLY, validate(createMilestoneTemplateSchema), milestoneTemplates.createTemplate);
+router.patch("/milestone-templates/reorder", SEKDEP_ONLY, validate(reorderMilestoneTemplatesSchema), milestoneTemplates.reorderTemplates);
+router.patch("/milestone-templates/:id", SEKDEP_ONLY, validate(updateMilestoneTemplateSchema), milestoneTemplates.updateTemplate);
+router.delete("/milestone-templates/:id", SEKDEP_ONLY, milestoneTemplates.deleteTemplate);
 
 // Presensi (10.5): the coordinator uploads; the department reads
 router.get("/attendance-imports", READERS, controller.getAttendance);
