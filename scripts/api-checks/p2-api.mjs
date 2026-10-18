@@ -155,7 +155,10 @@ await run("8 batas bimbingan", async () => {
   check("rincian beban Aina", aina?.breakdown?.waitingAssignment >= 2, aina?.breakdown);
   const bad = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 12, hardLimit: 10 });
   check("lunak > keras ditolak", bad.status === 400, bad.json?.message);
-  const period = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { softLimit: 10, hardLimit: 12 });
+  // Keputusan P9: batas per semester hanya Kadep; Sekdep membaca.
+  const sekdepPeriod = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { softLimit: 10, hardLimit: 12 });
+  check("Sekdep tidak mengatur batas semester (403)", sekdepPeriod.status === 403, sekdepPeriod.status);
+  const period = await api(KADEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { softLimit: 10, hardLimit: 12 });
   check("batas periode berjalan 10/12 menimpa batas umum", period.data?.applicable?.source === "period" && period.data?.applicable?.hardLimit === 12, period.data?.applicable);
   const cat = await api(U("lewat_72"), "GET", "/supervision-quotas");
   check("mahasiswa tidak boleh membaca layar batas", cat.status === 403, cat.status);

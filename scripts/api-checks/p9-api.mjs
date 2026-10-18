@@ -2,7 +2,7 @@
 // to a full lecturer (3) as a row of Permohonan (4) and of the Penetapan panel, the semester
 // flags set by the Admin and kept by the SIA sync until "Ikuti Data SIA" (8, K36), the student
 // texts without technical terms (1.4), the lecturer catalog with offered topics (2), and the
-// score parts of a final attempt. Mutates central; run from app/backend after a clean seed:
+// score parts of a final attempt, and the semester limits set by the Head of Department only. Mutates central; run from app/backend after a clean seed:
 //   node scripts/api-checks/p9-api.mjs
 import { api, check, run, summary, login, profileOf } from "./lib-api.mjs";
 
@@ -150,10 +150,17 @@ await run("4 katalog dosen dan nilai mahasiswa (butir 2)", async () => {
   check("percobaan belum final: nilai bagian tidak dikirim", pending && pending.supervisorScore === null && pending.coordinatorScore === null, pending && [pending.supervisorScore, pending.coordinatorScore]);
 });
 
-await run("5 batas semester di Penetapan → Beban Dosen (K30)", async () => {
-  const set = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${current.id}`, { softLimit: 6, hardLimit: 12 });
+await run("5 batas semester di Penetapan → Beban Dosen (K30, keputusan P9: Kadep saja)", async () => {
+  const sekdepSet = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${current.id}`, { softLimit: 6, hardLimit: 12 });
+  const sekdepRead = await api(SEKDEP, "GET", `/supervision-quotas?academicYearId=${current.id}`);
+  const general = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 8, hardLimit: 10 });
+  check("Sekdep membaca Beban Dosen dan tetap mengatur batas umum, tetapi tidak batas semester (403)",
+    sekdepSet.status === 403 && sekdepRead.status === 200 && general.status === 200, [sekdepSet.status, sekdepRead.status, general.status]);
+  const set = await api(KADEP, "PUT", `/supervision-quotas/periods/${current.id}`, { softLimit: 6, hardLimit: 12 });
   const overview = (await api(KADEP, "GET", `/supervision-quotas?academicYearId=${current.id}`)).data;
-  check("Sekdep mengatur batas semester ini; tampil sebagai batas yang berlaku", set.status === 200 && overview?.period?.hardLimit === 12 && overview?.applicable?.source === "period", { status: set.status, applicable: overview?.applicable });
+  check("Kadep mengatur batas semester ini; tampil sebagai batas yang berlaku", set.status === 200 && overview?.period?.hardLimit === 12 && overview?.applicable?.source === "period", { status: set.status, applicable: overview?.applicable });
+  const sekdepClear = await api(SEKDEP, "DELETE", `/supervision-quotas/periods/${current.id}`);
+  check("Sekdep tidak bisa Kembalikan ke Batas Umum (403)", sekdepClear.status === 403, sekdepClear.status);
   const clear = await api(KADEP, "DELETE", `/supervision-quotas/periods/${current.id}`);
   const back = (await api(KADEP, "GET", `/supervision-quotas?academicYearId=${current.id}`)).data;
   check("Kembalikan ke Batas Umum: batas umum 8/10 berlaku lagi", clear.status === 200 && back?.period === null && back?.applicable?.hardLimit === 10 && back?.applicable?.source === "general", back?.applicable);
