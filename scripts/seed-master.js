@@ -73,7 +73,7 @@ async function seedRoles() {
 // ============================================================
 
 // ============================================================
-// 3. SEED THESIS STATUS (REMOVED - K15: thesis.status is an enum)
+// 3. SEED THESIS STATUS (REMOVED - thesis.status is an enum)
 // ============================================================
 
 // ============================================================
@@ -339,7 +339,7 @@ async function seedUsers(roleMap) {
       enrollmentYear: 2022,
       sksCompleted: 130,
     },
-    // Paket B (K21): a finished and a stopped thesis for the lecturer list filters
+    // A finished and a stopped thesis for the lecturer list filters
     {
       email: "test_selesai@fti.unand.ac.id",
       fullName: "Test TA Selesai",
@@ -499,8 +499,8 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
   const thesisMap = new Map();
 
   // Helper function to create thesis
-  // Paket B: `withTopic` is honoured (a thesis without topic tests "isi topik dulu", K20),
-  // and `lifecycle` seeds a closed thesis (completed, or failed with a reason, K21).
+  // `withTopic` is honoured (a thesis without topic tests "isi topik dulu"),
+  // and `lifecycle` seeds a closed thesis (completed, or failed with a reason).
   async function createThesis(student, title, pembimbing1User, pembimbing2User = null, withTopic = false, lifecycle = {}) {
     const status = lifecycle.status ?? THESIS_STATUS.RESEARCH;
     const isFailed = status === THESIS_STATUS.FAILED;
@@ -523,7 +523,7 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
           thesisTopicId: withTopic ? thesisTopic.id : null,
           startDate: startDate,
           academicYearId: currentAcademicYear?.id,
-          // K15: status written explicitly (running TA unless a lifecycle is given).
+          // Status written explicitly (running TA unless a lifecycle is given).
           status,
           statusChangedAt: lifecycle.statusChangedAt ?? startDate,
           ...(isFailed
@@ -567,7 +567,7 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
       console.log(`  ⏭️  Thesis exists for ${student.fullName}`);
     }
 
-    // A failed thesis keeps its supervisors only as history (released, K21).
+    // A failed thesis keeps its supervisors only as history (released).
     if (isFailed) {
       await prisma.thesisSupervisors.updateMany({
         where: { thesisId: thesis.id, status: "active" },
@@ -618,7 +618,7 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
     true // with topic
   );
 
-  // 3. Khalied - sistem informasi beasiswa non apbn (NO topic, NO milestone: K20 "isi topik dulu")
+  // 3. Khalied - sistem informasi beasiswa non apbn (NO topic, NO milestone: "isi topik dulu")
   await createThesis(
     khalied,
     "Sistem Informasi Beasiswa Non APBN",
@@ -681,7 +681,7 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
     true // with topic
   );
 
-  // 10. Test TA Selesai - closed thesis for the lecturer "Selesai" filter (K21)
+  // 10. Test TA Selesai - closed thesis for the lecturer "Selesai" filter
   await createThesis(
     testSelesai,
     "Sistem Informasi Inventaris Laboratorium",
@@ -691,7 +691,7 @@ async function seedThesis(userMap, roleMap, academicYearMap) {
     { status: THESIS_STATUS.COMPLETED, statusChangedAt: new Date("2026-07-15") }
   );
 
-  // 11. Test TA Gagal - stopped thesis with a reason; supervisors released (K21)
+  // 11. Test TA Gagal - stopped thesis with a reason; supervisors released
   await createThesis(
     testGagal,
     "Sistem Pakar Diagnosa Hama Tanaman",

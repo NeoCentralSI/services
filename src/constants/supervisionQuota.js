@@ -1,7 +1,7 @@
 /**
- * Supervision limits (plan section 10.1, K30). The limits that apply to a decision are the
+ * Supervision limits. The limits that apply to a decision are the
  * limits of the running period when Kadep/Sekdep set them, otherwise the general limits,
- * otherwise these defaults (K4: warning at 8, maximum 10).
+ * otherwise these defaults (warning at 8, maximum 10).
  */
 export const DEFAULT_SUPERVISION_LIMITS = Object.freeze({ softLimit: 8, hardLimit: 10 });
 

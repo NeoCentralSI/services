@@ -22,7 +22,7 @@ import { createNotificationEventForUsers } from "../notification.service.js";
 
 const { normalizeIdentity } = repo;
 
-// Paket P9: the sheet reader and header normalizer are shared with the semester-flag import.
+// The sheet reader and header normalizer are shared with the semester-flag import.
 const normalizeText = normalizeHeader;
 
 function toNumber(value, fallback = 0) {

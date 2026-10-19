@@ -1,5 +1,5 @@
 /**
- * Paket E4 (1.1): a supervisor replaced through a change request no longer sees the student
+ * A supervisor replaced through a change request no longer sees the student
  * under "Aktif"; history filters keep the relations that were active when the thesis closed;
  * "Semua" shows ended relations read-only ("Tidak lagi membimbing").
  */
@@ -109,7 +109,7 @@ describe("findMyStudents (1.1)", () => {
     expect(await repo.findMyStudents("lec-1", undefined, { filter: "active" })).toEqual([]);
   });
 
-  it("one row per thesis, the active relation first (e.g. P2 released, now P1)", async () => {
+  it("one row per thesis, the active relation first (e.g. Pembimbing 2 released, now Pembimbing 1)", async () => {
     const running = thesis("t3");
     prismaMock.thesisSupervisors.findMany.mockResolvedValue([
       relation(running, "released", { updatedAt: new Date(), role: { id: "r2", name: "Pembimbing 2" } }),

@@ -1,5 +1,5 @@
 /**
- * Lanjutan Paket E3 — the monitoring progress report: what it prints (labels instead of enum
+ * The monitoring progress report: what it prints (labels instead of enum
  * values, a period title that says what the semester filter means, lecturers' degrees left
  * as written) and what it answers when the PDF converter is not running.
  */

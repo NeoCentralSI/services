@@ -87,7 +87,7 @@ function addMinutes(date, minutes = 0) {
 
 /**
  * Prevents double booking of a supervisor. A slot is held by `requested` sessions (at the
- * requested time) and scheduled sessions (at the approved/rescheduled time, K19).
+ * requested time) and scheduled sessions (at the approved/rescheduled time).
  * Shared with the lecturer reschedule action.
  */
 export async function ensureSupervisorAvailability({
@@ -151,7 +151,7 @@ const NOT_WRITABLE_MESSAGES = {
 
 /**
  * Aksi tulis bimbingan/milestone: TA berstatus `research`, atau `proposal` setelah Penetapan
- * Pembimbing (K27). TA yang dikembalikan ke proposal oleh evaluasi bimbingan tetap terkunci (E5).
+ * Pembimbing. TA yang dikembalikan ke proposal oleh evaluasi bimbingan tetap terkunci.
  */
 async function ensureThesisWritable(thesis) {
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
@@ -189,8 +189,8 @@ async function getActiveThesisOrThrow(userId) {
 }
 
 /**
- * Paket E4 (7): reading needs no running thesis. Without one, the latest thesis (e.g. failed)
- * is read so its sessions stay visible, read-only (K14: content is not hidden). Writes still
+ * Reading needs no running thesis. Without one, the latest thesis (e.g. failed)
+ * is read so its sessions stay visible, read-only (content is not hidden). Writes still
  * use getActiveThesisOrThrow.
  */
 async function getReadableThesisOrThrow(userId) {
@@ -210,7 +210,7 @@ async function getReadableThesisOrThrow(userId) {
   return { student, thesis };
 }
 
-/** K19 fields shown to the student: rejection with suggested time, lecturer reschedule, cancellation. */
+/** Fields shown to the student: rejection with suggested time, lecturer reschedule, cancellation. */
 function k19Fields(g) {
   const fmt = (d) => (d ? formatDateTimeJakarta(d, { withDay: true }) : null);
   return {
@@ -237,7 +237,7 @@ export async function listMyGuidancesService(userId, status) {
   const items = rows.map((g) => ({
     id: g.id,
     status: g.status,
-    // K27: Jenis (Proposal / Tugas Akhir), fixed when the session was created
+    // Jenis (Proposal / Tugas Akhir), fixed when the session was created
     phase: g.phase,
     // Schema baru: gunakan requestedDate/approvedDate
     scheduledAt: g.approvedDate || g.requestedDate || null,
@@ -332,7 +332,7 @@ export async function requestGuidanceService(
   let { student, thesis } = await getActiveThesisOrThrow(userId);
   await ensureThesisWritable(thesis);
   thesis = await ensureThesisAcademicYear(thesis);
-  // K6: phase is set by the server from the thesis status, never by the client.
+  // Phase is set by the server from the thesis status, never by the client.
   const phase = phaseForThesisStatus(thesis.status);
 
   // Get student name for notifications - convert to Title Case
@@ -433,7 +433,7 @@ export async function requestGuidanceService(
     durationMinutes: duration,
   });
 
-  // K17: the attachment is written first (under the pre-generated session id) and its
+  // The attachment is written first (under the pre-generated session id) and its
   // metadata is stored on the session row. A storage failure aborts the request.
   const guidanceId = randomUUID();
   let fileColumns = {};
@@ -600,7 +600,7 @@ export async function rescheduleGuidanceService(
   });
   await ensureThesisWritable(thesis);
 
-  // K19: the student may move only a request the lecturer has not answered yet.
+  // The student may move only a request the lecturer has not answered yet.
   if (guidance.status !== GUIDANCE_STATUS.REQUESTED) {
     const err = new Error(
       `Jadwal hanya dapat diubah selama pengajuan berstatus "${GUIDANCE_STATUS_LABELS.requested}". Status saat ini: "${GUIDANCE_STATUS_LABELS[guidance.status] ?? guidance.status}".`,
@@ -735,7 +735,7 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
   }
   await ensureGuidanceThesisWritable(guidance);
 
-  // K19: a student cancels a requested or scheduled session (legacy "rescheduled"
+  // A student cancels a requested or scheduled session (legacy "rescheduled"
   // counts as scheduled), always with a reason. The row is kept as history.
   const isAccepted = SCHEDULED_GUIDANCE_STATUSES.includes(guidance.status);
   if (guidance.status !== GUIDANCE_STATUS.REQUESTED && !isAccepted) {
@@ -820,7 +820,7 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     console.warn("FCM notify failed (guidance cancelled):", e?.message || e);
   }
 
-  // K19: the session is kept (status cancelled) for history; the old code deleted a
+  // The session is kept (status cancelled) for history; the old code deleted a
   // cancelled request, losing its attachment record.
   await prisma.thesisGuidance.update({
     where: { id: guidance.id },
@@ -943,7 +943,7 @@ export async function updateStudentNotesService(
 export async function getMyProgressService(userId) {
   const { thesis } = await getActiveThesisOrThrow(userId);
 
-  // K20: a GET never writes. Templates are applied explicitly ("Buat dari Template"),
+  // A GET never writes. Templates are applied explicitly ("Buat dari Template"),
   // so the old silent seeding of milestones from topic templates is gone.
   const milestones = await listMilestones(thesis.id);
 
@@ -1062,7 +1062,7 @@ export async function getSupervisorAvailabilityService(
     ? new Date(rangeEnd)
     : addMinutes(new Date(), 14 * 24 * 60);
 
-  // K19: a slot sits at the session's effective time (approved/rescheduled by the
+  // A slot sits at the session's effective time (approved/rescheduled by the
   // lecturer, else requested), so both dates are matched against the range.
   const items = await prisma.thesisGuidance.findMany({
     where: {
@@ -1125,7 +1125,7 @@ export async function getSupervisorAvailabilityPublic(
     ? new Date(rangeEnd)
     : addMinutes(new Date(), 14 * 24 * 60);
 
-  // K19: a slot sits at the session's effective time (approved/rescheduled by the
+  // A slot sits at the session's effective time (approved/rescheduled by the
   // lecturer, else requested), so both dates are matched against the range.
   const items = await prisma.thesisGuidance.findMany({
     where: {
@@ -1224,7 +1224,7 @@ export async function submitSessionSummaryService(
   }
   await ensureGuidanceThesisWritable(guidance);
 
-  // K19: a summary is submitted for a scheduled session, or resubmitted after the
+  // A summary is submitted for a scheduled session, or resubmitted after the
   // lecturer asked for a revision (summary_rejected).
   if (!SUMMARY_SUBMITTABLE_STATUSES.includes(guidance.status)) {
     const err = new Error(
@@ -1324,7 +1324,7 @@ export async function getCompletedGuidanceHistoryService(userId) {
     throw err;
   }
 
-  // Completed guidances of the current thesis; Paket E7 (K28): a Selesai thesis is still read.
+  // Completed guidances of the current thesis; a Selesai thesis is still read.
   const thesis = await getCurrentThesisForStudent(student.id);
   if (!thesis) {
     return { guidances: [] };
@@ -1468,7 +1468,7 @@ export async function getMyThesisDetailService(userId) {
       },
       thesisTopic: true,
       academicYear: true,
-      // Final proposal of the latest Research Method attempt (K32).
+      // Final proposal of the latest Research Method attempt.
       researchMethodAssessments: {
         where: { proposalFilePath: { not: null } },
         orderBy: { createdAt: "desc" },
@@ -1539,7 +1539,7 @@ export async function getMyThesisDetailService(userId) {
     (g) => g.status === "completed",
   ).length;
 
-  // Get per-guidance uploaded documents (file versions), stored on the session rows (K17)
+  // Get per-guidance uploaded documents (file versions), stored on the session rows
   const guidanceDocuments = await prisma.thesisGuidance.findMany({
     where: { thesisId: thesis.id, ...TA_PHASE, filePath: { not: null } },
     select: {
@@ -1576,7 +1576,7 @@ export async function getMyThesisDetailService(userId) {
       role: p.role?.name || null,
     }));
 
-  // Activity level and supervision clock are derived when read (E3).
+  // Activity level and supervision clock are derived when read.
   const progressSource = await prisma.thesis.findUnique({ where: { id: fullThesis.id }, select: THESIS_PROGRESS_SELECT });
   const progress = summarizeThesisProgress(progressSource ?? fullThesis);
 
@@ -1589,14 +1589,14 @@ export async function getMyThesisDetailService(userId) {
       lastActivityAt: progress.lastActivityAt,
       daysSinceActivity: progress.daysSinceActivity,
       supervisionClock: progress.supervisionClock,
-      // True while the thesis is back in proposal because of a guidance evaluation (E5).
+      // True while the thesis is back in proposal because of a guidance evaluation.
       repeatingProposal: fullThesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(fullThesis.id) : false,
-      // K27 / 10.7: current phase, Penetapan Pembimbing, and per-phase counts for display.
+      // Current phase, Penetapan Pembimbing, and per-phase counts for display.
       ...(await getPhaseSummary(fullThesis)),
       startDate: fullThesis.startDate || null,
-      // Paket E4 (7): "Tugas akhir ini dihentikan pada <tanggal>" on the read-only guidance page.
+      // "Tugas akhir ini dihentikan pada <tanggal>" on the read-only guidance page.
       terminatedAt: fullThesis.terminatedAt ?? (fullThesis.status === THESIS_STATUS.FAILED ? fullThesis.statusChangedAt ?? null : null),
-      // Lanjutan Paket E4: "Tugas akhir ini selesai pada <tanggal>" for a finished thesis.
+      // "Tugas akhir ini selesai pada <tanggal>" for a finished thesis.
       completedAt: fullThesis.status === THESIS_STATUS.COMPLETED ? fullThesis.statusChangedAt ?? fullThesis.updatedAt ?? null : null,
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,
@@ -1626,7 +1626,7 @@ export async function getMyThesisDetailService(userId) {
         : null,
       // Document: latest report from the guidance sessions
       document: guidanceDocument(latestReport),
-      // Final proposal of the latest Research Method attempt (K32).
+      // Final proposal of the latest Research Method attempt.
       proposalDocument: (() => {
         const attempt = fullThesis.researchMethodAssessments?.[0];
         if (!attempt?.proposalFilePath) return null;
@@ -1797,7 +1797,7 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
 
-  // Paket E7 (K28): the log of a thesis made Selesai by its defence can still be printed.
+  // The log of a thesis made Selesai by its defence can still be printed.
   const thesis = await getCurrentThesisForStudent(student.id);
   if (!thesis) {
     const err = new Error("Tugas akhir aktif tidak ditemukan");

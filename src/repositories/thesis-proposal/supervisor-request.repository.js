@@ -114,7 +114,7 @@ export function findLecturerHistory(lecturerId, client = prisma, take = 50) {
   });
 }
 
-/** Paket E5: one page of a lecturer's requests for a filter built by the service. */
+/** One page of a lecturer's requests for a filter built by the service. */
 export function findRequestPage(where, orderBy, { skip, take }, client = prisma) {
   return client.thesisSupervisorRequest.findMany({ where, include: REQUEST_INCLUDE, orderBy, skip, take });
 }
@@ -180,7 +180,7 @@ export function findSupervisingLecturers({ scienceGroupId = null, acceptingOnly 
         where: { status: "active", thesis: { status: { in: OPEN_THESIS_STATUSES } } },
         select: { thesis: { select: { thesisTopicId: true, thesisTopic: { select: { name: true } } } } },
       },
-      // Paket P9 (2): the topics the lecturer offers (published), shown in the student's catalog.
+      // The topics the lecturer offers (published), shown in the student's catalog.
       offeredTopics: { where: { isPublished: true }, select: { name: true }, orderBy: { name: "asc" } },
     },
     orderBy: { user: { fullName: "asc" } },

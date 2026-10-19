@@ -2,7 +2,7 @@
  * E2E Integration Test: Thesis Guidance to Seminar Ready Flow & FCM Push Notifications
  *
  * Tests the complete flow:
- *   1. Eight completed research-phase guidance sessions (Paket E: the seminar needs at least 8
+ *   1. Eight completed research-phase guidance sessions (the seminar needs at least 8
  *      sessions of the research phase with status Selesai; proposal-phase sessions do not count)
  *   2. Approval refused while a milestone is not finished
  *   3. Milestone completion validation
@@ -87,7 +87,7 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
     });
     testStudent = testStudentUser.student;
 
-    // 6. Create active Thesis with 2 Supervisors (P1 and P2)
+    // 6. Create active Thesis with 2 Supervisors
     testThesis = await prisma.thesis.create({
       data: {
         studentId: testStudent.id,
@@ -168,7 +168,7 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
       },
     });
 
-    // P1 mencoba approve sebelum milestone selesai
+    // Pembimbing 1 mencoba approve sebelum milestone selesai
     await expect(
       approveSeminarReadiness(testThesis.id, lecturerP1.user.id, "Draf bab 1 masih separuh")
     ).rejects.toThrow(/belum memenuhi syarat seminar hasil: Seluruh milestone selesai \(100%\) \(0 dari 1 milestone selesai\)/);
@@ -196,7 +196,7 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
     const result = await approveSeminarReadiness(testThesis.id, lecturerP1.user.id, "BAB 1-5 dan prototype telah lengkap");
 
     expect(result.data.approvedBySupervisor1).toBe(true);
-    expect(result.data.isFullyApproved).toBe(false); // P2 belum approve
+    expect(result.data.isFullyApproved).toBe(false); // Pembimbing 2 belum approve
 
     // Verifikasi FCM push notification terpanggil dengan payload yang sesuai
     expect(sendFcmToUsers).toHaveBeenCalledTimes(1);

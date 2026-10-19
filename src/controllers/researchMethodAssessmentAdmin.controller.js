@@ -209,7 +209,7 @@ export async function reorderRubrics(req, res, next) {
   }
 }
 
-/** Paket P8 (3.2): "Salin Template" from another period into an empty one. */
+/** "Salin Template" from another period into an empty one. */
 export async function copyCpmkTemplate(req, res, next) {
   try {
     const { sourceAcademicYearId, targetAcademicYearId } = req.validated ?? req.body;

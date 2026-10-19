@@ -1,5 +1,5 @@
 /**
- * Monitoring of Seminar Hasil and Sidang (Paket E3): status groups of the summary cards,
+ * Monitoring of Seminar Hasil and Sidang: status groups of the summary cards,
  * the thresholds of "Perlu Perhatian" and the texts of its reasons. The monitoring page
  * only reads `thesis_seminars` and `thesis_defences`; the status values are those of the
  * `ThesisSeminarStatus` and `ThesisDefenceStatus` enums, which are identical.
@@ -26,7 +26,7 @@ export const EVENT_STATUS_GROUPS = Object.freeze({
 });
 
 /**
- * Paket E5: default order of the Seminar Hasil and Sidang tables of the monitoring page: the
+ * Default order of the Seminar Hasil and Sidang tables of the monitoring page: the
  * `STATUS_PRIORITY` maps of the seminar and defence modules (`services/thesis-seminar/core.service.js`,
  * `services/thesis-defence/core.service.js`). Those maps are not exported and the modules are
  * not changed by the thesis-flow packages, so they are mirrored here; a unit test reads both

@@ -1,11 +1,11 @@
 /**
- * Unit Tests — Module 14: Data Master Tugas Akhir (Paket B, K21)
+ * Unit Tests — Module 14: Data Master Tugas Akhir
  *
  * Real service + lifecycle rules (thesisLifecycle.service) against the in-memory Prisma
  * stand-in, so the rules are checked on real rows:
- * one open thesis per student, K15 transitions, `failed` (reason, released supervisors,
+ * one open thesis per student, allowed status transitions, `failed` (reason, released supervisors,
  * cancelled open sessions), `on_leave` (previous status + start date, return only to it),
- * activity level derived (never an input), P1/P2 rules, replaced supervisors kept as "released",
+ * activity level derived (never an input), Pembimbing 1/2 rules, replaced supervisors kept as "released",
  * and per-row import errors.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,7 +42,7 @@ function buildState() {
       { id: "S3", user: { identityNumber: "2211520003", fullName: "Mahasiswa Tiga" } },
     ],
     thesis: [
-      // S1: running TA with P1 + P2 and open sessions
+      // S1: running TA with Pembimbing 1 + Pembimbing 2 and open sessions
       { id: "T1", studentId: "S1", status: "research", rating: "SLOW", academicYearId: "ay-1", thesisTopicId: "topic-ml", title: "TA Satu" },
       // S3: proposal-phase thesis
       { id: "T3", studentId: "S3", status: "proposal", rating: "ONGOING", academicYearId: "ay-1", thesisTopicId: null, title: null },
@@ -96,8 +96,8 @@ describe("getAllThesesMasterData", () => {
   });
 });
 
-describe("K21 tambah TA", () => {
-  it("membuat TA research dengan P1/P2 dan tahun ajaran aktif; rating/tenggat dari input diabaikan", async () => {
+describe("tambah TA", () => {
+  it("membuat TA research dengan Pembimbing 1/2 dan tahun ajaran aktif; rating/tenggat dari input diabaikan", async () => {
     const thesis = await createThesisMasterData(
       { studentId: "S2", title: "TA Dua", thesisTopicId: "topic-ml", pembimbing1: "L1", pembimbing2: "L3", rating: "AT_RISK", deadlineDate: "2030-01-01" },
       { actorUserId: "admin" },
@@ -119,7 +119,7 @@ describe("K21 tambah TA", () => {
     expect(callsTo("thesis", "create")).toHaveLength(0);
   });
 
-  it("P1 wajib dan P1 tidak boleh sama dengan P2", async () => {
+  it("Pembimbing 1 wajib dan Pembimbing 1 tidak boleh sama dengan Pembimbing 2", async () => {
     await expect(createThesisMasterData({ studentId: "S2" })).rejects.toMatchObject({ statusCode: 400 });
     await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", pembimbing2: "L1" })).rejects.toMatchObject({ statusCode: 400 });
     expect(callsTo("thesis", "create")).toHaveLength(0);
@@ -141,8 +141,8 @@ describe("K21 tambah TA", () => {
   });
 });
 
-describe("K21/K15 ubah status", () => {
-  it("tabel transisi K15", () => {
+describe("ubah status", () => {
+  it("tabel transisi status", () => {
     expect(THESIS_STATUS_TRANSITIONS).toEqual({
       proposal: ["research", "on_leave", "failed"],
       research: ["on_leave", "completed", "failed"],
@@ -220,8 +220,8 @@ describe("K21/K15 ubah status", () => {
   });
 });
 
-describe("K21 topik dan pembimbing", () => {
-  it("mengganti P2: relasi lama menjadi released (tidak dihapus), yang baru active", async () => {
+describe("topik dan pembimbing", () => {
+  it("mengganti Pembimbing 2: relasi lama menjadi released (tidak dihapus), yang baru active", async () => {
     await updateThesisMasterData("T1", { pembimbing1: "L1", pembimbing2: "L3" });
     const rows = supRows("T1");
     expect(rows.find((s) => s.lecturerId === "L2")).toMatchObject({ status: "released", activeRoleKey: null });
@@ -231,7 +231,7 @@ describe("K21 topik dan pembimbing", () => {
     expect(callsTo("thesisSupervisors", "deleteMany")).toHaveLength(0);
   });
 
-  it("P1 = P2 ditolak; pembimbing TA yang sudah berakhir tidak bisa diubah", async () => {
+  it("Pembimbing 1 = Pembimbing 2 ditolak; pembimbing TA yang sudah berakhir tidak bisa diubah", async () => {
     await expect(updateThesisMasterData("T1", { pembimbing1: "L1", pembimbing2: "L1" })).rejects.toMatchObject({ statusCode: 400 });
     thesisRow("T1").status = "completed";
     await expect(updateThesisMasterData("T1", { pembimbing1: "L3" })).rejects.toMatchObject({ statusCode: 400 });
@@ -243,7 +243,7 @@ describe("K21 topik dan pembimbing", () => {
   });
 });
 
-describe("K21 impor", () => {
+describe("impor", () => {
   const row = (extra) => ({ NIM: "2211520002", "Pembimbing 1": "Dr. Satu", ...extra });
 
   it("baris gagal dilaporkan per baris, baris lain tetap diproses; kolom Aktivitas diabaikan", async () => {

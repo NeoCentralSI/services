@@ -20,7 +20,7 @@ import { summarizeThesisProgress } from "../helpers/thesis-progress.helper.js";
 
 const ALL_THESIS_STATUSES = Object.values(THESIS_STATUS);
 
-/** Legacy status names accepted from imported spreadsheets (K15 mapping). */
+/** Legacy status names accepted from imported spreadsheets, mapped to the status enum. */
 const LEGACY_STATUS_NAMES = {
     "diajukan": THESIS_STATUS.PROPOSAL,
     "proposal": THESIS_STATUS.PROPOSAL,
@@ -73,7 +73,7 @@ export const getAllThesesMasterData = async () => {
         return {
             id: thesis.id,
             title: thesis.title,
-            // Derived, read-only: activity level and supervision clock (E3).
+            // Derived, read-only: activity level and supervision clock.
             activityLevel: progress.activityLevel,
             supervisionClock: progress.supervisionClock,
             startDate: thesis.startDate,
@@ -93,7 +93,7 @@ export const getAllThesesMasterData = async () => {
                 roleName: ts.role?.name
             })),
             status: thesis.status,
-            // K21: the form offers only allowed transitions (on_leave returns to statusBeforeLeave)
+            // The form offers only allowed transitions (on_leave returns to statusBeforeLeave)
             statusBeforeLeave: thesis.statusBeforeLeave ?? null,
             terminationReason: thesis.terminationReason ?? null,
             terminationNote: thesis.terminationNote ?? null,
@@ -106,7 +106,7 @@ export const getAllThesesMasterData = async () => {
     });
 };
 
-/** Supervisor input -> [{ lecturerId, roleId }]; P1 required when `requireP1`. */
+/** Supervisor input -> [{ lecturerId, roleId }]; Pembimbing 1 required when `requireP1`. */
 async function buildSupervisors(client, { pembimbing1, pembimbing2 }, { requireP1 }) {
     const p1 = pembimbing1 && pembimbing1 !== "none" ? pembimbing1 : null;
     const p2 = pembimbing2 && pembimbing2 !== "none" ? pembimbing2 : null;
@@ -129,7 +129,7 @@ async function assertTopicExists(client, thesisTopicId) {
 }
 
 /**
- * K21 create: one open thesis per student, explicit status (default research), P1 required,
+ * Create: one open thesis per student, explicit status (default research), Pembimbing 1 required,
  * `failed` needs a termination reason. The activity level is derived, never an input.
  */
 export const createThesisMasterData = async (data, { actorUserId = null, client = prisma } = {}) => {
@@ -194,7 +194,7 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
 };
 
 /**
- * K21 update: status follows the K15 transitions (failed / on_leave rules in
+ * Update: status follows the allowed transitions (failed / on_leave rules in
  * thesisLifecycle.service), topic and supervisors can be set, replaced supervisors become
  * "released". `startDate` stays editable: it is where the supervision clock starts.
  */
@@ -259,8 +259,8 @@ async function findLecturerByName(name) {
 }
 
 /**
- * K21 import: each row follows the same rules as add/edit (one open thesis per student,
- * K15 transitions, `failed` needs "Alasan Penghentian", P1 required for a new thesis).
+ * Import: each row follows the same rules as add/edit (one open thesis per student,
+ * allowed status transitions, `failed` needs "Alasan Penghentian", Pembimbing 1 required for a new thesis).
  * A failing row is reported with its row number and never stops the other rows.
  * The "Aktivitas" column of an exported file is ignored: the activity level is derived.
  */

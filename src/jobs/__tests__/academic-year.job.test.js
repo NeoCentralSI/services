@@ -37,7 +37,7 @@ describe("syncActiveAcademicYear", () => {
     expect(result.changed).toBe(true);
     expect(result.activeAcademicYearId).toBe("ay-new");
     expect(result.snapshotCoverage).toEqual({ studentsWithFlags: 2, totalStudents: 2, complete: true });
-    // K2: no period close; unfinished attempts stay as they are.
+    // No period close; unfinished attempts stay as they are.
     expect(result).not.toHaveProperty("periodClose");
   });
 

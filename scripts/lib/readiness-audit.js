@@ -1,7 +1,7 @@
 /**
  * Seeders: the audit log rows the app writes when a supervisor approves seminar or defence
  * readiness (milestone.service → logAudit), so a seeded approval shows its date on the
- * readiness cards like one given in the app (Lanjutan Paket E4). The constants mirror
+ * readiness cards like one given in the app. The constants mirror
  * AUDIT_ACTIONS / ENTITY_TYPES; a unit test keeps them equal.
  */
 export const READINESS_APPROVED_ACTION = Object.freeze({

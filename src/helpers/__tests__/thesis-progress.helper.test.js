@@ -212,7 +212,7 @@ describe("getSupervisionClock", () => {
   });
 });
 
-describe("getSupervisionClock — evaluations already recorded (E5)", () => {
+describe("getSupervisionClock — evaluations already recorded", () => {
   const sevenMonths = new Date("2026-03-11T05:00:00.000Z");
   const thirteenMonths = new Date("2025-09-11T05:00:00.000Z");
   const thesis = (startDate, extra = {}) => ({ status: "research", startDate, totalLeaveDays: 0, ...extra });

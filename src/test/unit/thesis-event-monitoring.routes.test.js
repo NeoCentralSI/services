@@ -1,5 +1,5 @@
 /**
- * Paket E3 — GET /thesisGuidance/monitoring/seminars and /defences are open to the roles of
+ * GET /thesisGuidance/monitoring/seminars and /defences are open to the roles of
  * the monitoring dashboard (Ketua Departemen, Sekretaris Departemen, GKM), read-only.
  *
  * Mounts the real monitoring router with the real role guard. Only `authGuard` is replaced

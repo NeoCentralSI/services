@@ -22,7 +22,7 @@ import { findActiveUserIdsByRole, userHasAnyActiveRole } from "../../repositorie
 /**
  * Penetapan Pembimbing (formulir TA-04): one batch per period issued by the Head of Department.
  * The batch PDF is the frozen record of titles and supervisors (10.4); members only point at the
- * thesis. Issuing fills `thesis.supervisor_assigned_at` once (K3: no reservation layer) and opens
+ * thesis. Issuing fills `thesis.supervisor_assigned_at` once (no reservation layer) and opens
  * proposal guidance and the final proposal.
  */
 
@@ -84,7 +84,7 @@ async function buildOverview(year) {
       const thesis = byId.get(entry.thesisId);
       return {
         ...entry,
-        // Paket P9 (5): the board joins the cohort with the requests by student
+        // The board joins the cohort with the requests by student
         studentId: thesis?.student?.id ?? null,
         requestId: thesis?.requestId ?? null,
         // the same names as `supervisorNames`, kept apart so the page can format each lecturer

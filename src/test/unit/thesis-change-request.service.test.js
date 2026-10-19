@@ -1,5 +1,5 @@
 /**
- * E4 — Pengajuan Perubahan Tugas Akhir.
+ * Pengajuan Perubahan Tugas Akhir.
  *
  * The real service runs against a small in-memory world: the repository module and the
  * transaction client are replaced by functions that read and write the same plain rows, so
@@ -226,7 +226,7 @@ describe("who may ask, and when", () => {
   });
 
   it.each(["registered", "verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"])(
-    "closes a supervisor change once the results seminar is %s (K8, kept by K34)",
+    "closes a supervisor change once the results seminar is %s",
     async (status) => {
       world.state.seminars.push({ id: "sem-1", thesisId: "T1", status });
       const context = await service.getThesisChangeContext(STUDENT);
@@ -242,7 +242,7 @@ describe("who may ask, and when", () => {
   });
 });
 
-describe("K34 (Paket E6): a title-only change by stage", () => {
+describe("A title-only change by stage", () => {
   const blocksOf = async () => (await service.getThesisChangeContext(STUDENT)).typeBlocks;
   const SEMINAR_IN_PROCESS = "Perubahan judul tidak dapat diajukan selama seminar hasil sedang berproses.";
   const DEFENCE_IN_PROCESS = "Perubahan judul tidak dapat diajukan selama sidang tugas akhir sedang berproses.";
@@ -300,7 +300,7 @@ describe("K34 (Paket E6): a title-only change by stage", () => {
     await expect(service.submitRequest(STUDENT, titleRequest())).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("Paket E6: a title request sent before the seminar cannot be approved once the seminar is registered; it stays pending", async () => {
+  it("A title request sent before the seminar cannot be approved once the seminar is registered; it stays pending", async () => {
     const created = await service.submitRequest(STUDENT, titleRequest());
     await service.decideAsLecturer(HUSNIL, created.id, { approve: true });
     world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "registered" });
@@ -314,7 +314,7 @@ describe("K34 (Paket E6): a title-only change by stage", () => {
     await expect(service.decideAsKadep(KADEP, created.id, { approve: false, notes: "Seminar sudah didaftarkan." })).resolves.toMatchObject({ status: "rejected" });
   });
 
-  it("Paket E6 (lanjutan): Pembimbing 1 cannot approve a title step once the seminar is registered, but may reject it", async () => {
+  it("Pembimbing 1 cannot approve a title step once the seminar is registered, but may reject it", async () => {
     const created = await service.submitRequest(STUDENT, titleRequest());
     world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "scheduled" });
 
@@ -327,7 +327,7 @@ describe("K34 (Paket E6): a title-only change by stage", () => {
     expect(rejected).toMatchObject({ status: "rejected" });
   });
 
-  it("Paket E6 (lanjutan): the previous supervisor cannot approve a supervisor step once the seminar is registered", async () => {
+  it("The previous supervisor cannot approve a supervisor step once the seminar is registered", async () => {
     const created = await service.submitRequest(STUDENT, supervisorRequest());
     world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "registered" });
 
@@ -337,7 +337,7 @@ describe("K34 (Paket E6): a title-only change by stage", () => {
     await expect(service.decideAsLecturer(AINA, created.id, { approve: true })).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it("Paket E6: a supervisor request sent before the seminar cannot be approved once the seminar is registered", async () => {
+  it("A supervisor request sent before the seminar cannot be approved once the seminar is registered", async () => {
     const created = await service.submitRequest(STUDENT, supervisorRequest());
     world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "verified" });
 
@@ -346,7 +346,7 @@ describe("K34 (Paket E6): a title-only change by stage", () => {
     expect(activeSupervisors("T1")).toEqual([["Pembimbing 1", HUSNIL], ["Pembimbing 2", AFRI]]);
   });
 
-  it("Paket E6: a defence registered after a title request blocks its approval too", async () => {
+  it("A defence registered after a title request blocks its approval too", async () => {
     world.state.seminars.push({ id: "sem-1", thesisId: "T1", status: "passed" });
     const created = await service.submitRequest(STUDENT, titleRequest());
     world.state.defences.push({ id: "def-1", thesisId: "T1", status: "registered" });
@@ -373,7 +373,7 @@ describe("K34 (Paket E6): a title-only change by stage", () => {
     await expect(service.submitRequest("stu-2", titleRequest({ thesisId: "T1" }))).rejects.toMatchObject({ statusCode: 403 });
     await expect(service.submitRequest(AINA, titleRequest({ thesisId: "T1" }))).rejects.toMatchObject({ statusCode: 403 });
     await expect(service.submitRequest(AFRI, titleRequest({ thesisId: "T1" }))).rejects.toMatchObject({ statusCode: 403 });
-    // Paket E5 (3.3): "Alihkan" is a bulk action of the Mahasiswa Bimbingan table.
+    // "Alihkan" is a bulk action of the Mahasiswa Bimbingan table.
     expect((await service.getThesisChangeContext(AFRI, "T1")).blockReason).toContain("aksi Alihkan di tabel Mahasiswa Bimbingan");
     await expect(service.getThesisChangeContext(AINA, "T1")).rejects.toMatchObject({ statusCode: 403 });
 
@@ -446,7 +446,7 @@ describe("approval chain", () => {
     // The new supervisor cannot act before the previous supervisor.
     await expect(service.decideAsLecturer(AFRI, created.id, { approve: true })).rejects.toMatchObject({ statusCode: 403 });
     await service.decideAsLecturer(HUSNIL, created.id, { approve: true });
-    // Paket E5: the new supervisor's step is "Menunggu Persetujuan Anda" in Permohonan, with their load.
+    // The new supervisor's step is "Menunggu Persetujuan Anda" in Permohonan, with their load.
     const forNew = await service.toLecturerStepRow(requestView(world.state.requests.find((r) => r.id === created.id)), AFRI);
     expect(forNew).toMatchObject({ viewStatus: "awaiting_me", viewer: { canDecideAsLecturer: true } });
     expect(forNew.newSupervisorLoad).toEqual({ activeCount: 1, quotaMax: 10, isFull: false });
@@ -592,7 +592,7 @@ describe("Ketua Departemen", () => {
     world.state.supervisors.push({ id: "sup-aina", thesisId: "T3", lecturerId: AINA, roleId: ROLE.P2, status: "active" });
     const { batchId, requests: created } = await service.submitTransfer(HUSNIL, { thesisIds: ["T1"], newSupervisorId: AINA, reason: REASON });
 
-    // Tugas Akhir > Perubahan, the batch modal (Paket E5): read through the Kadep's inbox.
+    // Tugas Akhir > Perubahan, the batch modal: read through the Kadep's inbox.
     const batch = await service.listInbox(KADEP, { batchId });
     expect(batch.meta).toMatchObject({ total: 1, page: 1 });
     // Aina's quota is 1 and she already supervises one thesis: full, but not blocked.
@@ -619,7 +619,7 @@ describe("Alihkan Mahasiswa", () => {
       expect(dto.supervisor).toMatchObject({ position: "pembimbing_1", replaced: { id: HUSNIL }, next: { id: AINA } });
     }
     // Permohonan: the target lecturer's steps wait for her; the requester (whose own step was
-    // approved on submission) does not see the batch there (Paket E6).
+    // approved on submission) does not see the batch there.
     const forAina = await Promise.all(world.state.requests.map((r) => service.toLecturerStepRow(requestView(r), AINA)));
     expect(forAina.map((row) => row.viewStatus)).toEqual(["awaiting_me", "awaiting_me", "awaiting_me"]);
     const husnil = await service.lecturerStepFilters(HUSNIL);
@@ -655,7 +655,7 @@ describe("Alihkan Mahasiswa", () => {
     );
   });
 
-  it("Paket E6: a batch reports a request blocked by a seminar registered meanwhile, and decides the others", async () => {
+  it("A batch reports a request blocked by a seminar registered meanwhile, and decides the others", async () => {
     const { batchId, requests: created } = await transfer(["T1", "T2"]);
     world.state.seminars.push({ id: "sem-2", thesisId: "T2", status: "registered" });
 
@@ -691,12 +691,12 @@ describe("supervisor options", () => {
     expect(all.find((option) => option.id === ULLYA).positions).toEqual(["pembimbing_2"]);
     expect(all.find((option) => option.id === AINA).positions).toEqual(["pembimbing_1", "pembimbing_2"]);
     expect((await service.getSupervisorOptions("pembimbing_1")).map((option) => option.id)).not.toContain(ULLYA);
-    // Paket E6: the load beside each option of the searchable picker.
+    // The load beside each option of the searchable picker.
     expect(all.find((option) => option.id === HUSNIL).load).toEqual({ activeCount: 3, quotaMax: 10, isFull: false });
   });
 });
 
-describe("Paket E5: the change actions of a Mahasiswa Bimbingan row", () => {
+describe("The change actions of a Mahasiswa Bimbingan row", () => {
   const research = { status: "research", thesisSeminars: [], hasOpenRequest: false };
 
   it("Pembimbing 1 may ask and hand over; Pembimbing 2 only hands over", () => {
@@ -718,7 +718,7 @@ describe("Paket E5: the change actions of a Mahasiswa Bimbingan row", () => {
     expect(proposal.blockReason).toContain("hanya untuk tugas akhir berstatus");
   });
 
-  it("K34 (Paket E6): after the seminar a title change may still be asked, Alihkan may not", () => {
+  it("After the seminar a title change may still be asked, Alihkan may not", () => {
     const afterSeminar = service.changeActionsForLecturerRow({ position: "pembimbing_1", active: true, thesis: { ...research, thesisSeminars: [{ status: "passed" }] } });
     expect(afterSeminar).toMatchObject({ canSubmit: true, blockReason: null, canTransfer: false });
     const defenceRunning = service.changeActionsForLecturerRow({

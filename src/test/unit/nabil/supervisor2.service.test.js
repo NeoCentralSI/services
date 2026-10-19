@@ -4,7 +4,7 @@
  *  - guard fase/status thesis (F2-2)
  *  - re-check kuota di tiap titik keputusan (F2-3)
  *  - dosen bersedia → diteruskan ke KaDep (persetujuan akhir, F2-5/OQ-2.2)
- *  - tanpa auto-promotion P2→P1 (F2-4/OQ-2.1)
+ *  - tanpa auto-promotion Pembimbing 2→Pembimbing 1 (F2-4/OQ-2.1)
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -102,7 +102,7 @@ const THESIS = {
   title: "AI Research",
   studentId: STUDENT_ID,
   academicYearId: "ay-1",
-  // E4: this request flow is for proposal theses only.
+  // This request flow is for proposal theses only.
   status: "proposal",
   proposalStatus: "accepted",
 };
@@ -119,7 +119,7 @@ function mockThesisForValidation(overrides = {}) {
 describe("Pembimbing 2 Service (unit)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Plan 10.1: a full lecturer is not blocked; only a lecturer who closed intake is.
+    // A full lecturer is not blocked; only a lecturer who closed intake is.
     mockQuota.getLecturerLoads.mockImplementation(async (ids) => new Map(
       ids.map((id) => [id, { activeCount: 1, softLimit: 8, hardLimit: 10, limitSource: "default", level: "available" }]),
     ));
@@ -130,7 +130,7 @@ describe("Pembimbing 2 Service (unit)", () => {
   });
 
   describe("getAvailableSupervisor2Service", () => {
-    it("menolak TA fase penelitian dan mengarahkan ke Pengajuan Perubahan Tugas Akhir (E4)", async () => {
+    it("menolak TA fase penelitian dan mengarahkan ke Pengajuan Perubahan Tugas Akhir", async () => {
       mockActiveThesis({ status: "research" });
 
       await expect(getAvailableSupervisor2Service(STUDENT_USER_ID)).rejects.toMatchObject({
@@ -410,7 +410,7 @@ describe("Pembimbing 2 Service (unit)", () => {
       });
     });
 
-    it("approve → membuat participant P2; penetapan yang sudah terbit tidak dibatalkan (K3, K9)", async () => {
+    it("approve → membuat participant Pembimbing 2; penetapan yang sudah terbit tidak dibatalkan", async () => {
       mockKadepStageRequest();
 
       const result = await decideSupervisor2ByKadepService(KADEP_USER_ID, "req-kadep-1", {

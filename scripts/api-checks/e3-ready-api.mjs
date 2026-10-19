@@ -1,4 +1,4 @@
-// Paket E3: a student approved by every supervisor shows up in "Siap Mendaftar", and leaves it
+// A student approved by every supervisor shows up in "Siap Mendaftar", and leaves it
 // when an approval is withdrawn. Writes readiness approvals: run on a clean seed of the six
 // seeders (see README), e.g. right after e3-api.mjs, which only reads.
 const BASE = process.env.BASE || "http://localhost:3000", D = "@fti.unand.ac.id";

@@ -311,7 +311,7 @@ export async function reorderRubrics(assessorInput, payload) {
 }
 
 /**
- * Paket P8 (3.2): "Salin Template" of Kelola > Metode Penelitian, as in the thesis CPMK master
+ * "Salin Template" of Kelola > Metode Penelitian, as in the thesis CPMK master
  * data: the CPMK, criteria and rubrics of a source period go into an empty target period. The
  * minimum passing score is not copied (it is set on the Rubrik tab, like seminar and defence).
  */

@@ -407,7 +407,7 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         id: "thesis-1", title: "AI Research",
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         status: "research",
-        // Final proposal of the latest Research Method attempt (K32).
+        // Final proposal of the latest Research Method attempt.
         researchMethodAssessments: [{ id: "rma-2", proposalFileName: "proposal.pdf", proposalFilePath: "uploads/thesis/thesis-1/proposal/rma-2/proposal.pdf" }],
         startDate: new Date(),
         thesisMilestones: [],

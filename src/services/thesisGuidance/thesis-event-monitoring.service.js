@@ -1,5 +1,5 @@
 /**
- * Seminar Hasil and Sidang tabs of the monitoring page (Paket E3): summary cards, "Siap
+ * Seminar Hasil and Sidang tabs of the monitoring page: summary cards, "Siap
  * Mendaftar", "Jadwal Mendatang", "Perlu Perhatian" and the table, for one semester.
  * Read-only.
  */
@@ -64,7 +64,7 @@ function byLatestReferenceDate(a, b) {
 }
 
 /**
- * Paket E5: the table order of the seminar and defence modules (status priority), the latest
+ * The table order of the seminar and defence modules (status priority), the latest
  * first inside the same priority.
  */
 export function byStatusPriorityThenLatest(kind) {

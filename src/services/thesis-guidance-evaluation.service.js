@@ -94,7 +94,7 @@ function toDto(evaluation) {
         by: person(evaluation.kadepApprover),
         notes: evaluation.kadepNotes ?? null,
         at: evaluation.kadepApprovedAt ?? null,
-        // Lanjutan Paket E7: closed by the system when the thesis became Selesai (status stays rejected).
+        // Closed by the system when the thesis became Selesai (status stays rejected).
         closedBySystem: !evaluation.kadepApprovedBy && evaluation.kadepNotes === THESIS_COMPLETED_EVALUATION_NOTE,
       }
       : null,
@@ -114,7 +114,7 @@ function viewerRoleOn(thesis, userId) {
 
 /**
  * Why "Isi Evaluasi" is not available now, or null when it is. The same check runs again on
- * submission (K14).
+ * submission.
  */
 function getSubmitBlockReason(thesis, clock, { viewerRole, hasPending }) {
   if (viewerRole !== "pembimbing_1") return "Evaluasi bimbingan diisi oleh Pembimbing 1.";
@@ -197,7 +197,7 @@ export async function getEvaluationContext(userId, thesisId = null, { asDepartme
   };
 }
 
-// ── Tugas Akhir > Evaluasi (Lanjutan Paket E4, Paket E5) ─────────────────────────────
+// ── Tugas Akhir > Evaluasi ─────────────────────────────
 
 function evaluationSearchWhere(keyword) {
   if (!keyword) return {};
@@ -222,7 +222,7 @@ export function evaluationViewStatusOf(evaluation) {
 }
 
 /**
- * Tugas Akhir > Evaluasi (Ketua Departemen, Paket E5): every guidance evaluation, "Semua" by
+ * Tugas Akhir > Evaluasi (Ketua Departemen): every guidance evaluation, "Semua" by
  * default and sorted by `EVALUATION_STATUS_PRIORITY` on the server (waiting for the decision
  * first, newest first inside a group); the Status filter and the search by name or NIM narrow
  * it. Supervisors fill evaluations from Mahasiswa Bimbingan and have no Evaluasi page. No row
@@ -358,7 +358,7 @@ export async function submitEvaluation(userId, input) {
  * - extension: one month from the decision, and the student receives an academic warning;
  * - repeat the proposal: research -> proposal (see `returnThesisToProposal`);
  * - termination: status `failed` with reason `supervision_evaluation`, supervisors
- *   released and open sessions cancelled (K21).
+ *   released and open sessions cancelled.
  */
 async function applyApprovedEvaluation(tx, evaluation, userId, now) {
   if (evaluation.recommendation === EVALUATION_RECOMMENDATION.EXTEND_1_MONTH) {

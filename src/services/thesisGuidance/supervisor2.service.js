@@ -192,7 +192,7 @@ async function getUserFullName(userId, fallback) {
 export async function getAvailableSupervisor2Service(userId) {
 	const { thesis } = await getActiveThesisOrThrow(userId);
 
-	// Guard fase/status (F2-2) + hardening P1 wajib ada.
+	// Guard fase/status (F2-2) + hardening Pembimbing 1 wajib ada.
 	ensureThesisOpenForSupervisor2(thesis);
 	await ensurePembimbing1Exists(thesis.id);
 
@@ -214,7 +214,7 @@ export async function getAvailableSupervisor2Service(userId) {
 export async function requestSupervisor2Service(userId, { lecturerId }) {
 	const { student, thesis } = await getActiveThesisOrThrow(userId);
 
-	// 0. Guard fase/status (F2-2) + hardening P1 wajib ada.
+	// 0. Guard fase/status (F2-2) + hardening Pembimbing 1 wajib ada.
 	ensureThesisOpenForSupervisor2(thesis);
 	await ensurePembimbing1Exists(thesis.id);
 
@@ -406,7 +406,7 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 	// 2. Parse request data — format: "thesisId|studentId"
 	const { thesisId, studentId } = parseSupervisor2Message(request.message);
 
-	// 3. Re-validasi: thesis masih terbuka + belum punya P2
+	// 3. Re-validasi: thesis masih terbuka + belum punya Pembimbing 2
 	const thesis = await getThesisForValidation(thesisId);
 	ensureThesisOpenForSupervisor2(thesis);
 	const alreadyHas = await hasPembimbing2(thesisId);
@@ -571,7 +571,7 @@ export async function getSupervisor2KadepQueueService(kadepUserId) {
 
 /**
  * Keputusan KaDep atas permintaan Pembimbing 2.
- * Approve → buat `thesis_supervisors` P2. Bila Penetapan Pembimbing periode itu sudah
+ * Approve → buat `thesis_supervisors` Pembimbing 2. Bila Penetapan Pembimbing periode itu sudah
  * diterbitkan, susunannya berubah sehingga Kadep menerbitkan versi baru.
  * Reject  → tutup permintaan + notifikasi mahasiswa & dosen.
  */
@@ -623,7 +623,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	}
 
 	// ── Approve path ──
-	// Re-validasi: thesis masih terbuka + belum punya P2 + kuota dosen masih tersedia.
+	// Re-validasi: thesis masih terbuka + belum punya Pembimbing 2 + kuota dosen masih tersedia.
 	const thesis = await getThesisForValidation(thesisId);
 	ensureThesisOpenForSupervisor2(thesis);
 	const alreadyHas = await hasPembimbing2(thesisId);
@@ -635,15 +635,15 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	}
 	await ensureLecturerQuotaAvailable(lecturerId, thesis.academicYearId);
 
-	// Atomik: buat participant P2 + tutup seluruh record request thesis ini. Tanpa co-sign (K9)
-	// dan tanpa lapisan reservasi (K3), penetapan yang sudah terbit tidak dibatalkan.
+	// Atomik: buat participant Pembimbing 2 + tutup seluruh record request thesis ini. Tanpa co-sign
+	// dan tanpa lapisan reservasi, penetapan yang sudah terbit tidak dibatalkan.
 	await prisma.$transaction(async (tx) => {
 		await createThesisSupervisors(thesisId, lecturerId, tx);
 
 		await markSupervisor2RequestsProcessedForThesis(thesisId, tx);
 	});
 
-	// Notifikasi mahasiswa + dosen. "Promoted" = thesis past the proposal phase (K15).
+	// Notifikasi mahasiswa + dosen. "Promoted" = thesis past the proposal phase.
 	const isPromoted = Boolean(thesis.status) && thesis.status !== THESIS_STATUS.PROPOSAL;
 	await createNotificationsForUsers([studentId], {
 		title: "Pembimbing 2 Disetujui",

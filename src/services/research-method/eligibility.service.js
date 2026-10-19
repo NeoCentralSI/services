@@ -4,9 +4,9 @@ import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 import { assertSiaConfigured } from "../../helpers/sia-availability.helper.js";
 
 /**
- * Academic flags per student per semester (plan 10.6, K11): whether the student takes Metode
+ * Academic flags per student per semester: whether the student takes Metode
  * Penelitian and whether the student takes Tugas Akhir in that semester. They come from SIA
- * (read only), from the Admin in Data Master → Mahasiswa (Paket P9, K36), or from DevTools, and
+ * (read only), from the Admin in Data Master → Mahasiswa, or from DevTools, and
  * live in `student_academic_year_snapshots`. A flag the Admin set is never overwritten by the SIA
  * sync; the Admin hands it back to SIA with "Ikuti Data SIA".
  */
@@ -18,7 +18,7 @@ export const ACADEMIC_FLAG_SOURCE = Object.freeze({ SIA: "sia", DEVTOOLS: "devto
  * Write the semester flags SIA reports for one period (`GET /enrollments` of the dummy-SIA
  * contract: nim, takesResearchMethod, takesThesis). SIA is the authority for the students it
  * lists: their flags are overwritten with source `sia`, except a flag the Admin set by hand
- * (Paket P9, K36: like a manual CPL score). Students SIA does not list keep theirs.
+ * (like a manual CPL score). Students SIA does not list keep theirs.
  * @returns {Promise<{ fetched: number, created: number, updated: number, unknownStudents: number, keptAdmin: number }>}
  */
 export async function applySiaEnrollments(academicYearId, rows = [], { capturedAt = new Date(), client = prisma } = {}) {
@@ -148,7 +148,7 @@ async function requireStudentAndYear(studentId, academicYearId, client) {
 }
 
 /**
- * Paket P9 (K36): the Admin sets "Mengambil Metode Penelitian" and/or "Mengambil Tugas Akhir" of
+ * The Admin sets "Mengambil Metode Penelitian" and/or "Mengambil Tugas Akhir" of
  * one semester in Data Master → Mahasiswa. Source `admin`, so the SIA sync keeps them. null
  * clears a flag (and its source).
  */
@@ -165,13 +165,13 @@ export async function setAdminPeriodFlags(studentId, academicYearId, input = {},
 }
 
 /**
- * "Ikuti Data SIA" (Paket P9, K36): the flags of one semester follow SIA again. SIA is read now;
+ * "Ikuti Data SIA": the flags of one semester follow SIA again. SIA is read now;
  * when it lists the student for that semester its values are written with source `sia`. When it
  * does not, the Admin's values stay but lose source `admin`, so the next sync may overwrite them.
  * @returns {Promise<{ snapshot: object|null, fromSia: boolean }>}
  */
 export async function followSiaPeriodFlags(studentId, academicYearId, { client = prisma, now = new Date(), fetchEnrollments = fetchSemesterEnrollments, env = process.env } = {}) {
-  // Paket P9: refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
+  // Refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
   assertSiaConfigured(env);
   const { student, year } = await requireStudentAndYear(studentId, academicYearId, client);
   let rows;

@@ -28,11 +28,11 @@ router.get("/audit-logs", authGuard, requireRole(ROLES.ADMIN), getAdminAuditLogs
 router.get("/students", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getStudentsController);
 router.get("/students/:id", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getStudentDetailController);
 router.patch("/students/:id", authGuard, requireRole(ROLES.ADMIN), updateStudentByAdminController);
-// Paket P9 (K36): semester flags "Mengambil Metode Penelitian" / "Mengambil Tugas Akhir" by the Admin
+// Semester flags "Mengambil Metode Penelitian" / "Mengambil Tugas Akhir" by the Admin
 // (kept by the SIA sync), and "Ikuti Data SIA" to hand them back to SIA.
 router.patch("/students/:id/period-flags/:academicYearId", authGuard, requireRole(ROLES.ADMIN), setStudentPeriodFlagsController);
 router.post("/students/:id/period-flags/:academicYearId/follow-sia", authGuard, requireRole(ROLES.ADMIN), followSiaPeriodFlagsController);
-// Paket P9 (K36): Impor Keikutsertaan (bulk semester flags, source admin): template, preview, apply.
+// Impor Keikutsertaan (bulk semester flags, source admin): template, preview, apply.
 router.get("/student-period-flags/template", authGuard, requireRole(ROLES.ADMIN), periodFlagsTemplateController);
 router.post("/student-period-flags/:academicYearId/import/preview", authGuard, requireRole(ROLES.ADMIN), uploadSpreadsheetFile, previewPeriodFlagsImportController);
 router.post("/student-period-flags/:academicYearId/import", authGuard, requireRole(ROLES.ADMIN), uploadSpreadsheetFile, applyPeriodFlagsImportController);

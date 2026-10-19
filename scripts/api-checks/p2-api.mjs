@@ -1,4 +1,4 @@
-// P2 API checks: Pengajuan Pembimbing and the supervision limits on a clean seed.
+// API checks: Pengajuan Pembimbing and the supervision limits on a clean seed.
 // Mutates central; rerun after a clean seed (see README).
 import { api, check, run, summary, ids, login } from "./lib-api.mjs";
 
@@ -28,7 +28,7 @@ await run("0 persiapan", async () => {
 
 await run("1 kelayakan", async () => {
   const no = await api(U("tidak_layak"), "GET", "/thesis-proposals/me/supervisor-requests");
-  check("tidak layak: canSubmit false dengan alasan tanpa istilah SIA (Paket P9)", no.data?.submission?.canSubmit === false && no.data?.submission?.blockedReason === "Anda belum terdaftar mengambil mata kuliah Metode Penelitian semester ini. Hubungi Admin Departemen bila ini keliru.", no.data?.submission?.blockedReason);
+  check("tidak layak: canSubmit false dengan alasan tanpa istilah SIA", no.data?.submission?.canSubmit === false && no.data?.submission?.blockedReason === "Anda belum terdaftar mengambil mata kuliah Metode Penelitian semester ini. Hubungi Admin Departemen bila ini keliru.", no.data?.submission?.blockedReason);
   const cat = await api(U("tidak_layak"), "GET", "/thesis-proposals/catalog");
   check("tidak layak: katalog 403", cat.status === 403, cat.json?.message);
   const yes = await api(U("layak"), "GET", "/thesis-proposals/me/supervisor-requests");
@@ -76,7 +76,7 @@ await run("3 jalur pilih dosen sendiri", async () => {
   const st = await api(U("layak"), "GET", "/thesis-proposals/me/supervisor-requests");
   check("mahasiswa: tidak bisa mengajukan lagi, pengajuan aktif = accepted", st.data?.submission?.canSubmit === false && st.data?.activeRequest?.status === "accepted", st.data?.submission?.blockedReason);
   const load = await api(ULLYA, "GET", "/thesis-proposals/supervisor-requests/inbox");
-  check("beban Ullya bertambah 1 (K3: langsung dihitung)", load.data?.load?.activeCount === 8 && load.data?.load?.level === "near_limit", load.data?.load);
+  check("beban Ullya bertambah 1 (langsung dihitung)", load.data?.load?.activeCount === 8 && load.data?.load?.level === "near_limit", load.data?.load);
   const cancel = await api(U("layak"), "POST", `/thesis-proposals/supervisor-requests/${directId}/withdraw`);
   check("batal setelah diterima (sebelum penetapan): cancelled", cancel.data?.status === "cancelled", `${cancel.status} ${cancel.json?.message}`);
   const after = await api(ULLYA, "GET", "/thesis-proposals/supervisor-requests/inbox");
@@ -155,7 +155,7 @@ await run("8 batas bimbingan", async () => {
   check("rincian beban Aina", aina?.breakdown?.waitingAssignment >= 2, aina?.breakdown);
   const bad = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 12, hardLimit: 10 });
   check("lunak > keras ditolak", bad.status === 400, bad.json?.message);
-  // Keputusan P9: batas per semester hanya Kadep; Sekdep membaca.
+  // Batas per semester hanya Kadep; Sekdep membaca.
   const sekdepPeriod = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { softLimit: 10, hardLimit: 12 });
   check("Sekdep tidak mengatur batas semester (403)", sekdepPeriod.status === 403, sekdepPeriod.status);
   const period = await api(KADEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { softLimit: 10, hardLimit: 12 });

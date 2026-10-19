@@ -3,7 +3,7 @@ import express from "express";
 import request from "supertest";
 
 /**
- * DevTools tab Proposal (Paket P, plan 10.8): SIA flags per semester and the sending time of a
+ * DevTools tab Proposal: SIA flags per semester and the sending time of a
  * Pengajuan Pembimbing (to test the 72-hour withdraw rule without waiting).
  */
 const { prismaMock, logAudit } = vi.hoisted(() => ({

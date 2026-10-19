@@ -1,5 +1,5 @@
 /**
- * Lampiran sesi bimbingan (K17). Metadata file disimpan di baris `thesis_guidances`
+ * Lampiran sesi bimbingan. Metadata file disimpan di baris `thesis_guidances`
  * (tanpa tabel `documents`); file di disk mengikuti hierarki
  * uploads/thesis/<thesis_id>/guidance/<guidance_id>/<timestamp>-<nama_aman>.<ext>.
  */

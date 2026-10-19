@@ -1,4 +1,4 @@
-// P9 replay (Paket P9, 10): PANDUAN_UJI_MANUAL_ALUR_PROPOSAL.md steps 3.5 to 3.11 in their order,
+// Replay of the supervisor assignment test steps in their order,
 // through the same API calls, to confirm the numbers that build on earlier steps (Ullya's load,
 // "Terbitkan Penetapan (5 baru)", 11 students in version 2, version 3 after Pembimbing 2).
 // Mutates central; run from app/backend after a clean seed:

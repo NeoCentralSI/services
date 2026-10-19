@@ -2,14 +2,14 @@ import prisma from "../config/prisma.js";
 import { THESIS_PHASE, THESIS_STATUS, currentPhaseOf } from "../constants/thesisStatus.js";
 import { isRepeatingProposal } from "../repositories/thesis-guidance-evaluation.repository.js";
 
-/** Why proposal-phase guidance and milestones are still closed (K27, plan 6). */
+/** Why proposal-phase guidance and milestones are still closed. */
 export const PROPOSAL_NOT_ASSIGNED_REASON =
   "Bimbingan dan milestone fase proposal terbuka setelah Ketua Departemen menerbitkan Penetapan Pembimbing.";
 
 
 /**
- * Proposal-phase writes (K27): open once Penetapan Pembimbing fills `supervisor_assigned_at`,
- * except for a thesis sent back to the proposal by a guidance evaluation (E5, Paket E rule kept).
+ * Proposal-phase writes: open once Penetapan Pembimbing fills `supervisor_assigned_at`,
+ * except for a thesis sent back to the proposal by a guidance evaluation.
  * @param {{ id: string, status: string, supervisorAssignedAt?: Date | null }} thesis
  * @returns {Promise<{ open: boolean, repeating: boolean }>}
  */
@@ -25,8 +25,8 @@ export async function getProposalPhaseAccess(thesis) {
 }
 
 /**
- * Sessions and milestones of one phase (10.7: "Proposal: 3 sesi · Penelitian: 5 dari 8 sesi").
- * Counts for seminar and readiness keep using `TA_PHASE` (K7); this is for display only.
+ * Sessions and milestones of one phase (e.g. "Proposal: 3 sesi · Penelitian: 5 dari 8 sesi").
+ * Counts for seminar and readiness keep using `TA_PHASE`; this is for display only.
  */
 export async function countPhaseActivity(thesisId, phase, client = prisma) {
   const [guidances, milestones] = await Promise.all([

@@ -1,4 +1,4 @@
-/** Penilaian Proposal, kelulusan and the SIA score template (Paket P, P5; R18, R21–R23, K9). */
+/** Penilaian Proposal, kelulusan and the SIA score template. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { repo, attendance, prismaMock, tx, notify } = vi.hoisted(() => {
@@ -101,7 +101,7 @@ describe("scores (R22)", () => {
   });
 });
 
-describe("submit (K9, R23)", () => {
+describe("submit", () => {
   const scores = [{ criteriaId: "c1", rubricId: "r2", score: 15 }, { criteriaId: "c2", score: 30 }];
 
   it("Pembimbing 2 may score as a backup; a lecturer who is not a supervisor may not", async () => {
@@ -141,7 +141,7 @@ describe("submit (K9, R23)", () => {
   });
 });
 
-describe("Naik ke Penelitian (R18, K13)", () => {
+describe("Naik ke Penelitian", () => {
   const ganjil26 = { id: "a", year: "2026/2027", semester: "ganjil", startDate: new Date("2026-08-01") };
   const genap25 = { id: "b", year: "2025/2026", semester: "genap", startDate: new Date("2026-02-01") };
 

@@ -1,5 +1,5 @@
 /**
- * Semester scope of the monitoring pages (Paket E3): the single source for "this thesis runs
+ * Semester scope of the monitoring pages: the single source for "this thesis runs
  * in that semester" and "this seminar or defence belongs to that semester". Pure: every
  * monitoring query takes its `where` from here, and the predicates state the same rules for
  * one row.

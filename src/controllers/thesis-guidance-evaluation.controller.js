@@ -28,7 +28,7 @@ export async function submitEvaluation(req, res, next) {
   }
 }
 
-/** GET /thesis-guidance-evaluations/inbox (Ketua Departemen; Paket E5: status priority) */
+/** GET /thesis-guidance-evaluations/inbox (Ketua Departemen; status priority) */
 export async function listInbox(req, res, next) {
   try {
     const { status, search, page, pageSize } = req.query;

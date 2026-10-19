@@ -1,8 +1,8 @@
-// P8 API checks (Paket P8): what PANDUAN_UJI_MANUAL_ALUR_PROPOSAL.md reads on a clean seed, the
-// proposal milestone templates managed by Sekdep only (3.1, Lanjutan P8), CPMK and rubrics
+// API checks: the numbers a clean seed shows, the
+// proposal milestone templates managed by Sekdep only, CPMK and rubrics
 // written by Sekdep only with "Salin Template" from another period and the minimum score of a
-// period (3.2), Batas Bimbingan for Kadep and Sekdep only (2, K30), and milestone templates in two
-// phases (5). Mutates central; run from app/backend after a clean seed (see README):
+// period, Batas Bimbingan for Kadep and Sekdep only, and milestone templates in two
+// phases. Mutates central; run from app/backend after a clean seed (see README):
 //   node scripts/api-checks/p8-api.mjs
 import { api, check, run, summary, login } from "./lib-api.mjs";
 
@@ -68,20 +68,20 @@ await run("1 angka panduan pada hari seed (GET saja)", async () => {
     monitoring && [monitoring.total, monitoring.withSupervisor, monitoring.assigned, monitoring.finalProposal, monitoring.finalized, monitoring.passed, monitoring.failed, monitoring.promoted].join(",") === "15,9,7,5,2,1,1,0",
     monitoring);
 
-  // Paket P8 (6): the scheduled promotion would move exactly this one test account up.
+  // The scheduled promotion would move exactly this one test account up.
   const preview = (await api(HUSNIL, "GET", "/research-method/promotions")).data?.rows ?? [];
   check("proses kelulusan pada hari seed: hanya Uji Proposal Siap Naik yang naik; Lulus Tunggu KRS menunggu periode berikutnya",
     preview.filter((r) => r.decision === "promote").map((r) => r.student?.identityNumber).join() === "2211528016" && byNim(preview, "2211528015")?.decision === "wait_next_period",
     preview.map((r) => `${r.student?.identityNumber}:${r.decision}`));
 });
 
-await run("2 Batas Bimbingan hanya Kadep dan Sekdep (butir 2, K30)", async () => {
+await run("2 Batas Bimbingan hanya Kadep dan Sekdep", async () => {
   const sekdep = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 8, hardLimit: 10 });
   const admin = await api(ADMIN, "PUT", "/supervision-quotas/general", { softLimit: 9, hardLimit: 11 });
   check("Sekdep menyimpan batas umum; Admin ditolak 403", sekdep.status === 200 && admin.status === 403, `${sekdep.status} ${admin.status}`);
 });
 
-await run("3 template milestone proposal: hanya Sekdep (butir 3.1, Lanjutan P8)", async () => {
+await run("3 template milestone proposal: hanya Sekdep", async () => {
   const student = await api(U("ditetapkan"), "GET", "/research-method/milestone-templates");
   const kadep = await api(KADEP, "POST", "/research-method/milestone-templates", { name: "Template Kadep" });
   check("mahasiswa tidak membuka pengelolaan, Kadep tidak menambah (403)", student.status === 403 && kadep.status === 403, `${student.status} ${kadep.status}`);
@@ -111,7 +111,7 @@ await run("3 template milestone proposal: hanya Sekdep (butir 3.1, Lanjutan P8)"
   check("mahasiswa tetap membaca template untuk Buat dari Template", studentTemplates.length === 4, studentTemplates.length);
 });
 
-await run("4 CPMK dan rubrik: Sekdep saja, salin dari periode lain (butir 3.2)", async () => {
+await run("4 CPMK dan rubrik: Sekdep saja, salin dari periode lain", async () => {
   const read = await api(HUSNIL, "GET", `/research-method/cpmks?academicYearId=${current.id}`);
   const cpmk = await api(HUSNIL, "POST", "/research-method/cpmks", { academicYearId: current.id, code: "CPMK-09", description: "Percobaan koordinator menambah CPMK" });
   const firstCpmk = read.data?.[0];
@@ -152,7 +152,7 @@ await run("4 CPMK dan rubrik: Sekdep saja, salin dari periode lain (butir 3.2)",
   check("nilai minimum diatur per periode di tab Rubrik (65); periode berjalan tetap 60", setMin.status === 200 && targetForm?.minimumScore === 65 && currentForm?.minimumScore === 60, `${setMin.status} ${targetForm?.minimumScore} ${currentForm?.minimumScore}`);
 });
 
-await run("5 template milestone di dua fase (butir 5)", async () => {
+await run("5 template milestone di dua fase", async () => {
   const before = await myThesis(U("siap_naik"));
   check("Uji Proposal Siap Naik: fase proposal terbuka, belum ada milestone", before?.currentPhase === "proposal" && before?.proposalPhaseOpen === true, { phase: before?.currentPhase, open: before?.proposalPhaseOpen });
   const tpl = (await api(U("siap_naik"), "GET", "/milestones/templates?phase=proposal")).data ?? [];

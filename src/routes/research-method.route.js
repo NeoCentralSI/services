@@ -49,7 +49,7 @@ import { minimumScoreSchema, submitScoreSchema } from "../validators/research-me
 
 /**
  * /research-method: master data (CPMK, criteria, rubrics, proposal milestone templates),
- * Presensi, Penilaian Proposal, kelulusan, ekspor and Monitoring Kelas (Paket P).
+ * Presensi, Penilaian Proposal, kelulusan, ekspor and Monitoring Kelas.
  */
 const router = express.Router();
 
@@ -76,7 +76,7 @@ const attendanceFiles = (req, res, next) =>
 
 router.use(authGuard);
 
-// Master data (Paket P8, 3.2): CPMK, criteria, rubrics and the minimum score are written by the
+// Master data: CPMK, criteria, rubrics and the minimum score are written by the
 // Sekretaris Departemen only; the coordinator still reads them. Copy from another period as in
 // the thesis CPMK master data.
 router.get("/cpmks", MANAGE, listCpmks);
@@ -102,7 +102,7 @@ router.get("/weight-summary", MANAGE, getWeightSummary);
 // Minimum passing score of a period (10.2), next to the seminar and defence minimums
 router.patch("/academic-years/:id/minimum-score", SEKDEP_ONLY, validate(minimumScoreSchema), controller.setMinimumScore);
 
-// General proposal milestone templates (K18; Lanjutan P8, 18 Oktober 2026): only the Sekretaris
+// General proposal milestone templates: only the Sekretaris
 // Departemen creates, changes, reorders and deletes them (academic master data is the Sekdep's);
 // the list keeps its readers. Students and supervisors read templates through /milestones/templates.
 router.get("/milestone-templates", MANAGE, milestoneTemplates.listTemplates);
@@ -117,7 +117,7 @@ router.post("/attendance-imports/preview", COORDINATOR, attendanceFiles, control
 router.post("/attendance-imports", COORDINATOR, attendanceFiles, controller.uploadAttendance);
 router.get("/attendance-imports/:id/files/:index", READERS, controller.getAttendanceFile);
 
-// Penilaian Proposal (10.2, K9)
+// Penilaian Proposal
 router.get("/assessments/form", FORM_READERS, controller.getForm);
 router.get("/assessments/supervisor", SUPERVISOR, controller.getSupervisorQueue);
 router.get("/assessments/coordinator", READERS, controller.getCoordinatorQueue);
@@ -125,7 +125,7 @@ router.get("/assessments/:id", loadUserRoles, controller.getAssessment);
 router.post("/assessments/:id/supervisor-score", SUPERVISOR, validate(submitScoreSchema), controller.submitSupervisorScore);
 router.post("/assessments/:id/coordinator-score", COORDINATOR, validate(submitScoreSchema), controller.submitCoordinatorScore);
 
-// Naik ke Penelitian (K13): preview and a manual run; the scheduled job runs it too
+// Naik ke Penelitian: preview and a manual run; the scheduled job runs it too
 router.get("/promotions", PROMOTERS, controller.previewPromotion);
 router.post("/promotions/run", PROMOTERS, controller.runPromotion);
 

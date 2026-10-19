@@ -1,4 +1,4 @@
-/** Batas bimbingan dua tingkat (Paket P, plan 10.1) and the withdraw reminder job. */
+/** Batas bimbingan dua tingkat and the withdraw reminder job. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { quotaRepo, prismaMock, notify, requestRepo } = vi.hoisted(() => ({

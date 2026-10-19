@@ -1,5 +1,5 @@
 /**
- * Thesis progress indicators, derived when read and never stored (Paket E, E3):
+ * Thesis progress indicators, derived when read and never stored:
  *
  * - activity level, from the date of the last activity of the student;
  * - supervision clock, from `startDate` minus the time spent on leave.

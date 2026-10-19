@@ -17,7 +17,7 @@ import { buildThesisSemesterWhere, getSemesterRange, isDateInSemester } from "..
 import { EVENT_KIND } from "../../constants/thesis-event-monitoring.js";
 import { buildReadyToRegisterWhere } from "../../helpers/thesis-event-monitoring.helper.js";
 
-/** Monitoring aggregates cover running TA-phase theses only (K15). */
+/** Monitoring aggregates cover running TA-phase theses only. */
 const RUNNING_TA = THESIS_STATUS.RESEARCH;
 /** TA that has not failed (running, suspended, or finished). */
 const NOT_FAILED_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE, THESIS_STATUS.COMPLETED];
@@ -374,7 +374,7 @@ export const getSlowStudents = (limit = 10, academicYear) =>
  * Get students ready for seminar
  */
 export async function getStudentsReadyForSeminar(academicYear) {
-  // "Acc Seminar" is no longer a thesis status (K15): ready = running TA whose active
+  // "Acc Seminar" is no longer a thesis status: ready = running TA whose active
   // supervisors (at least one) all gave seminarReady, and that has no seminar registration
   // that still stands. One rule with "Siap Mendaftar" of the Seminar Hasil tab.
   const where = await inSemester(buildReadyToRegisterWhere(EVENT_KIND.SEMINAR), academicYear);
@@ -660,7 +660,7 @@ export async function getThesisDetailById(thesisId) {
 }
 
 /**
- * Latest report of a thesis = attachment of the latest TA-phase session with a file (K17).
+ * Latest report of a thesis = attachment of the latest TA-phase session with a file.
  */
 export function findLatestThesisReport(thesisId) {
   return findLatestReport(prisma, thesisId);

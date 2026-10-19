@@ -1,6 +1,6 @@
 /**
- * Paket A — thesis status enum (K15), server-side phase (K6/K7/K18) and guidance
- * attachments stored on the session row (K17).
+ * Thesis status enum, server-side phase and guidance
+ * attachments stored on the session row.
  *
  * Real services + real repositories; only Prisma is replaced by the in-memory store
  * that evaluates the actual `where`/`orderBy` arguments (see helpers/fakePrisma.js).
@@ -66,7 +66,7 @@ function useTmpCwd() {
   return tmpRoot;
 }
 
-describe("Pengajuan bimbingan fase TA (K6, K15)", () => {
+describe("Pengajuan bimbingan fase TA", () => {
   it("TA research: sesi dibuat dengan phase research yang ditetapkan server", async () => {
     const known = fixtureGuidanceIds();
 
@@ -91,7 +91,7 @@ describe("Pengajuan bimbingan fase TA (K6, K15)", () => {
     expect(newGuidances(known)).toHaveLength(0);
   });
 
-  it("TA yang mengulang proposal: alasan penolakan menyebut evaluasi bimbingan (E5)", async () => {
+  it("TA yang mengulang proposal: alasan penolakan menyebut evaluasi bimbingan", async () => {
     thesisRow().status = "proposal";
     store.state.thesisGuidanceEvaluation = [
       { id: "ev-1", thesisId: "t1", status: "approved", recommendation: "revise_proposal", thesis: { status: "proposal" } },
@@ -102,7 +102,7 @@ describe("Pengajuan bimbingan fase TA (K6, K15)", () => {
     await expect(milestone.createMilestone("t1", "stu1", { title: "Milestone baru" })).rejects.toMatchObject({ statusCode: 403, message: reason });
 
     // A rejected evaluation, or another recommendation, is not a repeat: without Penetapan
-    // Pembimbing the proposal phase is still closed (K27, Paket P).
+    // Pembimbing the proposal phase is still closed.
     store.state.thesisGuidanceEvaluation[0].status = "rejected";
     await expect(milestone.createMilestone("t1", "stu1", { title: "Milestone baru" })).rejects.toMatchObject({
       statusCode: 403,
@@ -125,7 +125,7 @@ describe("Pengajuan bimbingan fase TA (K6, K15)", () => {
   });
 });
 
-describe("Lampiran sesi bimbingan (K17)", () => {
+describe("Lampiran sesi bimbingan", () => {
   it("tersimpan di kolom file sesi dan di uploads/thesis/<thesis>/guidance/<sesi>/, tanpa baris documents", async () => {
     const root = useTmpCwd();
     const buffer = Buffer.from("%PDF-1.4 laporan bab 3");
@@ -189,7 +189,7 @@ describe("Lampiran sesi bimbingan (K17)", () => {
   });
 });
 
-describe("Milestone fase TA (K6, K18)", () => {
+describe("Milestone fase TA", () => {
   beforeEach(() => {
     store.state.thesisMilestone = [];
     store.state.thesisMilestoneTemplate = [
@@ -210,7 +210,7 @@ describe("Milestone fase TA (K6, K18)", () => {
     });
   });
 
-  it("Paket P8: di fase proposal template umum dipasang dan jawabannya memuat milestone fase proposal itu", async () => {
+  it("Di fase proposal template umum dipasang dan jawabannya memuat milestone fase proposal itu", async () => {
     Object.assign(thesisRow(), { status: "proposal", supervisorAssignedAt: new Date("2026-09-01") });
 
     const result = await milestone.createMilestonesFromTemplates("t1", "stu1", ["tpl-prop"]);
@@ -234,7 +234,7 @@ describe("Milestone fase TA (K6, K18)", () => {
   });
 });
 
-describe("Hitungan minimal 8 bimbingan (K7)", () => {
+describe("Hitungan minimal 8 bimbingan", () => {
   it("hanya sesi completed berfase thesis yang dihitung", async () => {
     // Fixture: 7 completed TA-phase sessions. Add 3 completed proposal-phase sessions.
     for (let i = 1; i <= 3; i++) {
@@ -249,7 +249,7 @@ describe("Hitungan minimal 8 bimbingan (K7)", () => {
   });
 });
 
-describe("Pencarian TA aktif seminar, sidang, dan bimbingan (K15)", () => {
+describe("Pencarian TA aktif seminar, sidang, dan bimbingan", () => {
   it("memilih TA yang masih berjalan, bukan TA lama yang gagal", async () => {
     const current = thesisRow();
     current.createdAt = new Date("2026-02-01");

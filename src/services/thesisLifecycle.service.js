@@ -1,5 +1,5 @@
 /**
- * Thesis lifecycle rules (K15 transitions, K21 data master).
+ * Thesis lifecycle rules (status transitions and the data master).
  *
  * One place that decides:
  * - which status transitions are allowed;
@@ -23,7 +23,7 @@ import { GUIDANCE_STATUS, GUIDANCE_ACTOR, OPEN_GUIDANCE_STATUSES } from "../cons
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { wholeDaysBetween } from "../helpers/thesis-progress.helper.js";
 
-/** K15: allowed status transitions. `on_leave` may only return to `statusBeforeLeave`. */
+/** Allowed status transitions. `on_leave` may only return to `statusBeforeLeave`. */
 export const THESIS_STATUS_TRANSITIONS = Object.freeze({
   [THESIS_STATUS.PROPOSAL]: [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE, THESIS_STATUS.FAILED],
   [THESIS_STATUS.RESEARCH]: [THESIS_STATUS.ON_LEAVE, THESIS_STATUS.COMPLETED, THESIS_STATUS.FAILED],
@@ -66,7 +66,7 @@ export function parseTerminationReason(value) {
 }
 
 /**
- * K21: rejects a change that would give a student two open theses.
+ * Rejects a change that would give a student two open theses.
  * @param {object} tx Prisma client/transaction
  */
 export async function assertSingleOpenThesis(tx, studentId, { excludeThesisId = null } = {}) {
@@ -85,7 +85,7 @@ export async function assertSingleOpenThesis(tx, studentId, { excludeThesisId = 
   }
 }
 
-/** Throws 400 when `from -> to` is not an allowed K15 transition. */
+/** Throws 400 when `from -> to` is not an allowed status transition. */
 export function assertStatusTransition(thesis, toStatus) {
   const from = thesis.status;
   if (from === toStatus) return;
@@ -256,7 +256,7 @@ export async function returnThesisToProposal(tx, thesis, { actorUserId = null, e
   return { thesis: updated, cancelledGuidances: cancelled.count ?? 0 };
 }
 
-// ── Paket E7 (K28): a passed defence ends the thesis ────────────────────────────────
+// ── A passed defence ends the thesis ────────────────────────────────
 
 /** Reason written on what the system closes when a thesis is finished by its defence. */
 export const THESIS_COMPLETED_CANCEL_REASON = "Dibatalkan otomatis: tugas akhir selesai.";
@@ -279,7 +279,7 @@ const recipientsOf = (thesis) =>
   [...new Set([thesis.student?.user?.id, ...(thesis.thesisSupervisors ?? []).map((s) => s.lecturerId)].filter(Boolean))];
 
 /**
- * K28: a thesis in research becomes Selesai when its defence is passed (without revision, or
+ * A thesis in research becomes Selesai when its defence is passed (without revision, or
  * once the revision is finalized). Called by the defence module inside the transaction of the
  * finalization. In the same transaction:
  * - `status = completed`, `statusChangedAt` (the supervision clock, activity and evaluations
@@ -332,7 +332,7 @@ export async function completeThesisFromDefence(tx, thesisId, { defenceId = null
 }
 
 /**
- * K28: the defence result that made the thesis Selesai was undone (the revision finalization
+ * The defence result that made the thesis Selesai was undone (the revision finalization
  * was cancelled, or the defence was cancelled): the thesis returns to research. What was closed
  * when it became Selesai is not restored. The only way back from Selesai, like
  * `returnThesisToProposal` for the evaluation; the data master cannot make it.

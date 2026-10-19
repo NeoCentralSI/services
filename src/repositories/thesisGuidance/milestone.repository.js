@@ -20,7 +20,7 @@ function isPembimbing2(roleName) {
 /**
  * Get all milestone templates
  */
-// ThesisMilestoneTemplate is shared by both phases (K18). Without a phase argument the
+// ThesisMilestoneTemplate is shared by both phases. Without a phase argument the
 // functions read thesis-phase templates (Kelola > Tugas Akhir > Milestone); the general
 // proposal templates (Kelola > Metode Penelitian) pass THESIS_PHASE.PROPOSAL.
 const TA_TEMPLATE_PHASE = THESIS_PHASE.RESEARCH;
@@ -328,7 +328,7 @@ export async function getThesisProgress(thesisId, phase = THESIS_PHASE.RESEARCH)
   });
 
   const total = milestones.length;
-  // Same shape as the non-empty result, so every summary card shows 0 (Paket C, C3).
+  // Same shape as the non-empty result, so every summary card shows 0.
   if (total === 0) {
     return { total: 0, completed: 0, inProgress: 0, notStarted: 0, pendingReview: 0, revisionNeeded: 0, averageProgress: 0, percentComplete: 0, isComplete: false };
   }
@@ -356,7 +356,7 @@ export async function getThesisProgress(thesisId, phase = THESIS_PHASE.RESEARCH)
 // ============================================
 
 /**
- * Paket C (C9): adds `feedbackByName` to milestone rows (one user lookup for all rows).
+ * Adds `feedbackByName` to milestone rows (one user lookup for all rows).
  * Accepts a single row or an array; rows without feedback are returned unchanged.
  */
 export async function withFeedbackAuthor(input) {
@@ -500,7 +500,7 @@ export function getThesisSeminarReadiness(thesisId) {
           },
         },
       },
-      // Paket E4 (3.2): once the results seminar is passed the card turns read-only.
+      // Once the results seminar is passed the card turns read-only.
       thesisSeminars: {
         select: { id: true, status: true, date: true, resultFinalizedAt: true },
         orderBy: { createdAt: "desc" },
@@ -708,7 +708,7 @@ export function getThesisDefenceReadiness(thesisId) {
           createdAt: "desc",
         },
       },
-      // Paket E4 (3.2): once the defence is passed the card turns read-only.
+      // Once the defence is passed the card turns read-only.
       thesisDefences: {
         select: { id: true, status: true, date: true, resultFinalizedAt: true },
         orderBy: { createdAt: "desc" },

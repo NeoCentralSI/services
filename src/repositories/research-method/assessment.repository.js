@@ -52,7 +52,7 @@ export function findAttempt(id, client = prisma) {
   return client.researchMethodAssessment.findUnique({ where: { id }, include: ATTEMPT_INCLUDE });
 }
 
-/** Attempts of a period whose thesis this lecturer supervises (active P1/P2), any thesis status. */
+/** Attempts of a period whose thesis this lecturer supervises (active Pembimbing 1/2), any thesis status. */
 export function findAttemptsForSupervisor(lecturerId, academicYearId, client = prisma) {
   return client.researchMethodAssessment.findMany({
     where: {

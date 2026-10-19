@@ -774,7 +774,7 @@ router.get("/students/:studentId/period-flags", async (req, res, next) => {
 });
 
 // ============================================
-// Proposal tab (Paket P, plan 10.8): supervisor request times for the 72-hour rule
+// Proposal tab: supervisor request times for the 72-hour rule
 // ============================================
 
 const SUPERVISOR_REQUEST_LIST_SELECT = {

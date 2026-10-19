@@ -23,7 +23,7 @@ NAMES=("$@")
 BASE_SEEDERS="seed-master seed-thesis-topics seed-thesis-rubrics seed-milestone-templates seed-guidance-milestone seed-thesis-research-flow seed-thesis-monitoring"
 FULL_SEEDERS="$BASE_SEEDERS seed-thesis-proposal-flow"
 
-# Paket E3 (monitoring) was written against the seeders before the proposal seeder existed.
+# The monitoring checks (e3, e3r) were written before the proposal seeder existed.
 seeders_for() { case "$1" in e3|e3r) echo "$BASE_SEEDERS" ;; *) echo "$FULL_SEEDERS" ;; esac; }
 file_for() {
   case "$1" in

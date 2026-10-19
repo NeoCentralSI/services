@@ -1,5 +1,5 @@
 /**
- * Sample TA guidance sessions with attachments (Paket A: K6, K15, K17).
+ * Sample TA guidance sessions with attachments.
  *
  * For every running TA (status `research`) in the active academic year that has an
  * active Pembimbing 1, three completed sessions are created with `phase: "research"`.

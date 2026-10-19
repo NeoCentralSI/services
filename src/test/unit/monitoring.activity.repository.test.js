@@ -1,5 +1,5 @@
 /**
- * E3 — the activity level is derived, so the monitoring repository filters by level after
+ * The activity level is derived, so the monitoring repository filters by level after
  * reading the running theses instead of filtering a stored column.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

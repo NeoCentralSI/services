@@ -22,7 +22,7 @@ const pickProgress = ({ activityLevel, lastActivityAt, daysSinceActivity, superv
 const RUNNING_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE];
 
 /**
- * A thesis sent back to `proposal` by an approved guidance evaluation (E5). Its supervisors
+ * A thesis sent back to `proposal` by an approved guidance evaluation. Its supervisors
  * keep seeing it among their students, with the reason guidance is locked.
  */
 const REPEATING_PROPOSAL_THESIS = Object.freeze({
@@ -40,7 +40,7 @@ export async function getLecturerByUserId(userId) {
 const CLOSE_TOLERANCE_MS = 60 * 1000;
 
 /**
- * Paket E4 (1.1): where a supervisor relation stands for "Mahasiswa Bimbingan".
+ * Where a supervisor relation stands for "Mahasiswa Bimbingan".
  * - `active`: supervising now (or still active on a completed thesis);
  * - `closed`: released together with the closing of a failed/completed thesis, so the
  *   lecturer was supervising when it ended (history filters Selesai/Gagal);
@@ -58,8 +58,8 @@ export function supervisorRelationState(relation, thesis) {
 
 // List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
 /**
- * K21: "Mahasiswa Bimbingan" filters. Default = active (research + on_leave). `proposal` lists
- * the proposal-phase students (K27); one repeating its proposal stays under "Aktif" (E5).
+ * "Mahasiswa Bimbingan" filters. Default = active (research + on_leave). `proposal` lists
+ * the proposal-phase students; one repeating its proposal stays under "Aktif".
  */
 export const MY_STUDENTS_FILTERS = Object.freeze({
 	active: RUNNING_TA_STATUSES,
@@ -73,7 +73,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 	const statuses = MY_STUDENTS_FILTERS[filter] ?? MY_STUDENTS_FILTERS.active;
 	const where = {
 		lecturerId,
-		// Paket E4 (1.1): running theses count active relations only; the history filters also
+		// Running theses count active relations only; the history filters also
 		// read released rows and keep those released at closing (supervisorRelationState).
 		status: filter === "active" || filter === "proposal" ? "active" : { in: ["active", "released"] },
 		// A thesis that repeats its proposal is still a running one for its supervisors.
@@ -98,7 +98,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 							user: { select: { id: true, fullName: true, email: true, identityNumber: true } },
 						},
 					},
-					// Milestones and completed sessions of both phases; each row counts its current phase (K27).
+					// Milestones and completed sessions of both phases; each row counts its current phase.
 					thesisMilestones: {
 						where: { status: { not: 'deleted' } },
 						select: { id: true, title: true, status: true, phase: true, progressPercentage: true, updatedAt: true, completedAt: true }
@@ -111,9 +111,9 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 					// Read by the derived activity level (helpers/thesis-progress.helper.js)
 					thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
 					thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
-					// Paket E5: the open change request (marker and rules of Ajukan Perubahan / Alihkan).
+					// The open change request (marker and rules of Ajukan Perubahan / Alihkan).
 					thesisChangeRequests: { where: { status: "pending" }, select: { id: true }, take: 1 },
-					// K34 (Paket E6): a title-only change waits while the defence is in process.
+					// A title-only change waits while the defence is in process.
 					thesisDefences: { select: { status: true } },
 				},
 			},
@@ -136,7 +136,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 		if (seen.has(p.thesis.id)) continue;
 		seen.add(p.thesis.id);
 
-		// Counts follow the thesis's current phase; activity stays research-only (K7).
+		// Counts follow the thesis's current phase; activity stays research-only.
 		const phase = currentPhaseOf(p.thesis.status);
 		const milestones = (p.thesis.thesisMilestones || []).filter((m) => m.phase === phase);
 		const guidances = (p.thesis.thesisGuidances || []).filter((g) => g.phase === phase);
@@ -163,7 +163,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 		result.push({
 			thesisId: p.thesisId,
 			thesisTitle: p.thesis?.title ?? null,
-			// Derived when read (E3): activity level and supervision clock
+			// Derived when read: activity level and supervision clock
 			...pickProgress(summarizeThesisProgress(researchThesis, now)),
 			thesisStatus: p.thesis?.status ?? null,
 			studentId: sid,
@@ -181,7 +181,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			completedGuidanceCount,
 			lastGuidanceDate,
 			startDate: p.thesis?.startDate ?? null,
-			// Paket E5: read by the change rules of the row (thesis-change-request.service.js).
+			// Read by the change rules of the row (thesis-change-request.service.js).
 			changeState: {
 				status: p.thesis?.status ?? null,
 				thesisSeminars: p.thesis?.thesisSeminars ?? [],
@@ -234,7 +234,7 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 
 export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 	return prisma.thesisGuidance.findFirst({
-		// K27: sessions of either phase are acted on the same way.
+		// Sessions of either phase are acted on the same way.
 		where: { id: guidanceId, supervisorId: lecturerId },
 		include: {
 			thesis: { include: { student: { include: { user: true } } } },
@@ -326,7 +326,7 @@ export function findActiveSupervisorRelation(thesisId, lecturerId) {
 		},
 		include: {
 			role: { select: { id: true, name: true } },
-			// Thesis status gates session actions: research, or proposal after Penetapan (K27).
+			// Thesis status gates session actions: research, or proposal after Penetapan.
 			thesis: { select: { id: true, status: true, supervisorAssignedAt: true } },
 		},
 	});
@@ -503,7 +503,7 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 	// History read: any supervisor relation (active, released, terminated) may read the
 	// detail, as before the revival. Action authority is checked separately via
 	// findActiveSupervisorRelation; userRole in the response comes from active rows only.
-	// K27: proposal-phase theses are read here too (guidance and milestones of both phases).
+	// Proposal-phase theses are read here too (guidance and milestones of both phases).
 	const participant = await prisma.thesisSupervisors.findFirst({
 		where: { thesisId, lecturerId },
 		include: { role: { select: { id: true, name: true } } },
@@ -525,7 +525,7 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 					}
 				}
 			},
-			// Final proposal of the latest Research Method attempt (K32).
+			// Final proposal of the latest Research Method attempt.
 			researchMethodAssessments: {
 				where: { proposalFilePath: { not: null } },
 				orderBy: { createdAt: "desc" },
@@ -649,7 +649,7 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 
 	const where = {
 		supervisorId: lecturerId,
-		// K19: every post-request state; legacy "rescheduled" stays visible as a scheduled session.
+		// Every post-request state; legacy "rescheduled" stays visible as a scheduled session.
 		status: { in: ["accepted", "rescheduled", "summary_rejected", "summary_pending", "completed", "cancelled", "rejected"] },
 	};
 

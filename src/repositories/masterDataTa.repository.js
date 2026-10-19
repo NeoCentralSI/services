@@ -76,7 +76,7 @@ export const createThesis = async (data) => {
                 studentId: data.studentId,
                 title: data.title,
                 thesisTopicId: data.thesisTopicId,
-                // K15: status is always written explicitly by the caller.
+                // Status is always written explicitly by the caller.
                 status: data.status,
                 statusChangedAt: new Date(),
                 academicYearId: data.academicYearId,

@@ -35,13 +35,13 @@ import { classifyLoad, getApplicableLimits, getLecturerLoads } from "./supervisi
 
 /**
  * Pengajuan Pembimbing (formulir TA-01/TA-02). Rules are those of the old module (Ilham),
- * with the two-tier supervision limits of plan 10.1: a full lecturer is never blocked; an
+ * with the two-tier supervision limits: a full lecturer is never blocked; an
  * acceptance over the hard limit becomes a "Pengajuan di Atas Kuota" for the Head of Department.
  */
 
 const ROUTES = {
   student: "/tugas-akhir/proposal",
-  // Paket E4 (4.1): Tugas Akhir > Permohonan.
+  // Tugas Akhir > Permohonan.
   lecturer: "/tugas-akhir/permohonan",
   kadepDepartment: "/kelola/tugas-akhir/kadep/penetapan-pembimbing?tab=departemen",
   kadepOverQuota: "/kelola/tugas-akhir/kadep/penetapan-pembimbing?tab=atas-kuota",
@@ -538,7 +538,7 @@ export async function getLecturerInbox(userId) {
 }
 
 /**
- * Tugas Akhir > Permohonan (Paket E5, 3.1): the lecturer's approval inbox in one table, all
+ * Tugas Akhir > Permohonan: the lecturer's approval inbox in one table, all
  * periods. Two kinds of rows: the "Pengajuan Pembimbing" sent or redirected to this lecturer,
  * and the "Perubahan TA" requests with a step of this lecturer (previous supervisor, new
  * supervisor, or Pembimbing 1 for a title). "Semua" by default, sorted on the server by
@@ -563,7 +563,7 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
     }
     : {};
   const changeSearch = changeRequestSearchWhere(keyword);
-  // Paket E6: Jenis is Pengajuan Pembimbing or one kind of change; an unknown value is no filter.
+  // Jenis is Pengajuan Pembimbing or one kind of change; an unknown value is no filter.
   const jenis = LECTURER_INBOX_JENIS[kind] ?? null;
   const changeTypeWhere = jenis?.requestType ? { requestType: jenis.requestType } : {};
   const wanted = (inboxKind, member) => (!jenis || jenis.kind === inboxKind) && (!status || status === member);
@@ -586,7 +586,7 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
     }];
   });
 
-  // Paket P9 (4): the Pembimbing 2 requests waiting for this lecturer come first (they always
+  // The Pembimbing 2 requests waiting for this lecturer come first (they always
   // wait for the viewer: "Menunggu Persetujuan Anda"), then the groups above, in one window.
   const supervisor2All = await getSupervisor2RequestsService(userId);
   const supervisor2Wanted = (!jenis || jenis.kind === KIND.SUPERVISOR2_REQUEST) && (!status || status === CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME);
@@ -685,7 +685,7 @@ export async function markUnderReview(requestId, userId) {
 
 /**
  * Accept inside a transaction: the thesis is born in the proposal phase (or the student's open
- * thesis without supervisor is reused) with the lecturer as Pembimbing 1 (K3: counted at once).
+ * thesis without supervisor is reused) with the lecturer as Pembimbing 1 (counted at once).
  */
 async function acceptInTx(tx, request, { lecturerId, status, actorUserId, action, data = {} }) {
   const conflict = await repo.findActiveRequestByStudent(request.studentId, tx, request.id);

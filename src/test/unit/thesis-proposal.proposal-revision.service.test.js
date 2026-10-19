@@ -1,6 +1,6 @@
 /**
- * Proposal revisi (Lanjutan Paket P): the way back to research for a thesis repeating its
- * proposal after a guidance evaluation (E5). Upload → Minta Revisi → upload again → Setujui.
+ * Proposal revisi: the way back to research for a thesis repeating its
+ * proposal after a guidance evaluation. Upload → Minta Revisi → upload again → Setujui.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -78,7 +78,7 @@ beforeEach(() => {
   prismaMock.thesisProposalRevision.findUnique.mockImplementation(async ({ where }) => row({ id: where.id }));
 });
 
-describe("only a thesis repeating its proposal (E5)", () => {
+describe("only a thesis repeating its proposal", () => {
   it("a proposal thesis without an approved \"Mengulang Proposal\" evaluation can neither upload nor be reviewed", async () => {
     evaluationRepo.findRepeatProposalEvaluation.mockResolvedValue(null);
     const state = await service.getProposalRevisionState(thesis());

@@ -1,7 +1,7 @@
 /**
  * Fixture state for guidance-revival regression tests.
- * Thesis t1 has: active P1 (p1), active P2 (p2), released former P1 (rel),
- * terminated former P1 (term). "other" is an unrelated lecturer; "kadep" and "gkm"
+ * Thesis t1 has: active Pembimbing 1 (p1), active Pembimbing 2 (p2), released former Pembimbing 1 (rel),
+ * terminated former Pembimbing 1 (term). "other" is an unrelated lecturer; "kadep" and "gkm"
  * hold department roles only.
  */
 const PAST = new Date("2026-01-10T03:00:00.000Z");
@@ -59,7 +59,7 @@ export function buildState() {
   const thesis = (thesisRow = {
     ...thesisRef,
     academicYearId: "ay-1",
-    thesisTopicId: "topic-1", // Paket B (K20): templates follow the thesis topic
+    thesisTopicId: "topic-1", // Templates follow the thesis topic
     thesisSupervisors, // same objects as the thesisSupervisors table
   });
 

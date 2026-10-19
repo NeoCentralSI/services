@@ -1,5 +1,5 @@
 /**
- * Paket B: guidance session lifecycle (K19) and milestone lifecycle (K20).
+ * Guidance session lifecycle and milestone lifecycle.
  *
  * Real services + repositories over the in-memory Prisma stand-in (helpers/fakePrisma.js),
  * so each transition is checked against stored rows: allowed source status, the actor,
@@ -61,7 +61,7 @@ beforeEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe("K19 mahasiswa: ubah jadwal dan batal", () => {
+describe("sesi bimbingan, mahasiswa: ubah jadwal dan batal", () => {
   it("ubah jadwal hanya selama requested", async () => {
     const when = future();
     await student.rescheduleGuidanceService("stu1", "g-req", when, "jadwal baru");
@@ -92,7 +92,7 @@ describe("K19 mahasiswa: ubah jadwal dan batal", () => {
   });
 });
 
-describe("K19 dosen: tolak, setujui, ubah jadwal, batal", () => {
+describe("sesi bimbingan, dosen: tolak, setujui, ubah jadwal, batal", () => {
   it("tolak: alasan wajib; usulan waktu disimpan; status asal harus requested", async () => {
     await rejects400(lecturer.rejectGuidanceService("p1", "g-req", { reason: " " }));
     const suggested = future(5);
@@ -173,7 +173,7 @@ describe("K19 dosen: tolak, setujui, ubah jadwal, batal", () => {
   });
 });
 
-describe("K19 ringkasan", () => {
+describe("ringkasan sesi bimbingan", () => {
   it("diisi dari accepted dan rescheduled lama; ditolak dari requested", async () => {
     await student.submitSessionSummaryService("stu1", "g-acc", { sessionSummary: "Bahas bab 2" });
     await student.submitSessionSummaryService("stu1", "g-resch", { sessionSummary: "Bahas bab 2" });
@@ -213,7 +213,7 @@ describe("K19 ringkasan", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe("K20 pasang template", () => {
+describe("pasang template milestone", () => {
   const tpl = (id, extra = {}) => ({ id, name: `Template ${id}`, description: "", phase: "research", topicId: "topic-1", orderIndex: 0, isActive: true, ...extra });
 
   beforeEach(() => {
@@ -254,7 +254,7 @@ describe("K20 pasang template", () => {
   });
 });
 
-describe("K20 siklus status milestone", () => {
+describe("siklus status milestone", () => {
   it("mulai: not_started -> in_progress; progres 100 -> pending_review", async () => {
     store.state.thesisMilestone.push({ id: "m-new", thesisId: "t1", title: "Baru", status: "not_started", phase: "research", progressPercentage: 0, thesis: { id: "t1" } });
     await milestone.updateMilestoneStatus("m-new", "stu1", "in_progress");
@@ -268,7 +268,7 @@ describe("K20 siklus status milestone", () => {
     expect(m("m-progress").status).toBe("in_progress");
   });
 
-  it("validasi: hanya P1, hanya dari pending_review", async () => {
+  it("validasi: hanya Pembimbing 1, hanya dari pending_review", async () => {
     await expect(milestone.validateMilestone("m-review", "p2")).rejects.toMatchObject({ statusCode: 403 });
     await rejects400(milestone.validateMilestone("m-progress", "p1"), RAW_MILESTONE);
     await milestone.validateMilestone("m-review", "p1", "Bagus");
@@ -294,15 +294,15 @@ describe("K20 siklus status milestone", () => {
     expect(m("m-review").status).toBe("in_progress");
   });
 
-  it("P2 boleh memberi feedback (status tidak berubah); feedback kosong ditolak", async () => {
+  it("Pembimbing 2 boleh memberi feedback (status tidak berubah); feedback kosong ditolak", async () => {
     await milestone.addSupervisorFeedback("m-progress", "p2", "Perhatikan sitasi");
     expect(m("m-progress")).toMatchObject({ status: "in_progress", feedback: "Perhatikan sitasi", feedbackBy: "p2" });
     expect(m("m-progress").feedbackAt).toBeInstanceOf(Date);
     await rejects400(milestone.addSupervisorFeedback("m-progress", "p1", " "), RAW_MILESTONE);
   });
 
-  // Paket C (C9): decision notes and feedback never overwrite each other.
-  it("C9: feedback P2 setelah persetujuan P1 tidak mengubah supervisorNotes", async () => {
+  // Decision notes and feedback never overwrite each other.
+  it("Feedback Pembimbing 2 setelah persetujuan Pembimbing 1 tidak mengubah supervisorNotes", async () => {
     await milestone.validateMilestone("m-review", "p1", "Disetujui, lanjut bab 4");
     const result = await milestone.addSupervisorFeedback("m-review", "p2", "Rapikan daftar pustaka");
     expect(m("m-review")).toMatchObject({
@@ -357,7 +357,7 @@ describe("K20 siklus status milestone", () => {
   });
 });
 
-describe("K21 daftar Mahasiswa Bimbingan dosen", () => {
+describe("daftar Mahasiswa Bimbingan dosen", () => {
   const ids = (r) => r.students.map((s) => s.thesisId);
 
   it("default Aktif (research + on_leave); Selesai, Gagal, Semua", async () => {

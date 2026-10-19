@@ -12,7 +12,7 @@ export const ROLES = {
   PENGUJI: "Penguji",
   MAHASISWA: "Mahasiswa",
   GKM: "GKM",
-  /** The database value keeps the old name (Paket P); the UI says "Koordinator Metode Penelitian". */
+  /** The database value keeps the old name; the UI says "Koordinator Metode Penelitian". */
   KOORDINATOR_METODE_PENELITIAN: "Koordinator Matkul Metopen",
   KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
   TIM_PENGELOLA_CPL: "Tim Pengelola CPL",

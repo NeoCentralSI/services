@@ -1,4 +1,4 @@
-/** Presensi Metode Penelitian (Paket P, P5; rules kept from the old attendance tests, R19/R20). */
+/** Presensi Metode Penelitian (rules kept from the old attendance tests). */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 

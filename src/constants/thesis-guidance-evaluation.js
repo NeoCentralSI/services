@@ -13,7 +13,7 @@ export const EVALUATION_RECOMMENDATION = Object.freeze({
 export const EVALUATION_STATUS = Object.freeze({ PENDING: "pending", APPROVED: "approved", REJECTED: "rejected" });
 
 /**
- * Paket E5: the status a row of the Ketua Departemen's Evaluasi table shows, and its place in
+ * The status a row of the Ketua Departemen's Evaluasi table shows, and its place in
  * the default order: what waits for the decision first, then the decided or recorded ones.
  * "Tercatat" is a "Lanjut Bimbingan" evaluation, which never needs the decision.
  */

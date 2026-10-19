@@ -17,7 +17,7 @@ import { mapRequest } from "./supervisor-request.service.js";
 import { getLecturerLoads } from "./supervision-quota.service.js";
 
 /**
- * Paket P9 (5): Tugas Akhir → Penetapan, panel "Penetapan". One row per student of the chosen
+ * Tugas Akhir → Penetapan, panel "Penetapan". One row per student of the chosen
  * semester, merging the old tabs: the cohort of the Penetapan Pembimbing, the requests through the
  * department and over the hard limit, and the Pembimbing 2 requests waiting for the Head of
  * Department. Each row carries one "Pengajuan" state (what waits for a decision, else the latest

@@ -1,5 +1,5 @@
 /**
- * Paket P8 (3.2): "Salin Template" in Kelola > Metode Penelitian copies the CPMK, criteria and
+ * "Salin Template" in Kelola > Metode Penelitian copies the CPMK, criteria and
  * rubrics of both parties from another period into an empty one, like the thesis CPMK copy.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

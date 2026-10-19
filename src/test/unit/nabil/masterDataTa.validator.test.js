@@ -7,7 +7,7 @@ import {
 const STUDENT_ID = "11111111-1111-4111-8111-111111111111";
 const LECTURER_ID = "22222222-2222-4222-8222-222222222222";
 
-// Paket A (K15): the thesis status is the enum `status`; thesisStatusId/isProposal are gone.
+// The thesis status is the enum `status`; thesisStatusId/isProposal are gone.
 describe("masterDataTa validator", () => {
   it("mempertahankan status enum saat pembaruan", () => {
     const result = updateThesisSchema.parse({ status: "on_leave" });

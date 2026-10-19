@@ -91,7 +91,7 @@ export async function getMilestones(req, res, next) {
       success: true,
       data: result.milestones,
       progress: result.progress,
-      // 10.7: the listed phase, the thesis's current phase, and why the list is read-only
+      // The listed phase, the thesis's current phase, and why the list is read-only
       phase: result.phase,
       currentPhase: result.currentPhase,
       readOnlyReason: result.readOnlyReason,

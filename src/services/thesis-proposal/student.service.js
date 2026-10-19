@@ -14,7 +14,7 @@ const ROLE_ORDER = { [ROLES.PEMBIMBING_1]: 1, [ROLES.PEMBIMBING_2]: 2 };
  * Sections 2–4 of Tugas Akhir > Proposal for the student: the thesis and its supervisors, the
  * status of Penetapan Pembimbing (no PDF: the batch file stays with the department), the
  * final proposal of the current attempt, and the proposal revision of a thesis repeating its
- * proposal (Lanjutan Paket P).
+ * proposal.
  */
 export async function getStudentProposalOverview(userId) {
   const student = await prisma.student.findUnique({ where: { id: userId }, select: { id: true } });

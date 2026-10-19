@@ -1,5 +1,5 @@
 /**
- * Read-only queries of the Seminar Hasil and Sidang monitoring tabs (Paket E3). The
+ * Read-only queries of the Seminar Hasil and Sidang monitoring tabs. The
  * seminar and defence modules own these tables; nothing is written here.
  */
 import prisma from "../../config/prisma.js";

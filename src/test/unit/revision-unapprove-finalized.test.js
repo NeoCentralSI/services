@@ -1,7 +1,7 @@
 /**
- * Lanjutan Paket E7: once the revision of a defence or a seminar is finalized, a supervisor can
+ * Once the revision of a defence or a seminar is finalized, a supervisor can
  * no longer withdraw the approval of one of its items; the finalization is undone first. A
- * finalized defence revision is what makes the thesis Selesai (K28).
+ * finalized defence revision is what makes the thesis Selesai.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

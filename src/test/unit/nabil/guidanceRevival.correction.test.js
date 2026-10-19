@@ -50,7 +50,7 @@ describe("1. Sesi tidak bisa diselesaikan mahasiswa tanpa persetujuan pembimbing
     expect(callsTo("thesisGuidance", "update")).toHaveLength(0);
   });
 
-  it("alur resmi: pengajuan → disetujui P1 → ringkasan → disetujui P1 → completed", async () => {
+  it("alur resmi: pengajuan → disetujui Pembimbing 1 → ringkasan → disetujui Pembimbing 1 → completed", async () => {
     await lecturer.approveGuidanceService("p1", "g-req", {});
     expect(guidanceRow("g-req").status).toBe("accepted");
 
@@ -76,7 +76,7 @@ describe("2. Milestone tidak bisa diselesaikan langsung oleh mahasiswa", () => {
     expect(callsTo("thesisMilestone", "updateMany")).toHaveLength(0);
   });
 
-  it("jalur dosen /lecturer/progress/:id/approve juga ditutup (410), termasuk untuk P1", async () => {
+  it("jalur dosen /lecturer/progress/:id/approve juga ditutup (410), termasuk untuk Pembimbing 1", async () => {
     await expect(
       lecturer.approveStudentProgressComponentsService("p1", "stu1", ["tpl-1"]),
     ).rejects.toMatchObject({ statusCode: 410 });
@@ -111,8 +111,8 @@ describe("3. Validasi milestone dan relasi pembimbing aktif", () => {
 
   it.each([
     ["Pembimbing 2 aktif", "p2"],
-    ["mantan P1 released", "rel"],
-    ["mantan P1 terminated", "term"],
+    ["mantan Pembimbing 1 released", "rel"],
+    ["mantan Pembimbing 1 terminated", "term"],
     ["dosen tidak terkait", "other"],
   ])("%s ditolak (403)", async (_label, userId) => {
     await expect(milestone.validateMilestone("m-review", userId)).rejects.toMatchObject({ statusCode: 403 });
@@ -162,7 +162,7 @@ describe("3. Validasi milestone dan relasi pembimbing aktif", () => {
   });
 });
 
-describe("4. Peringatan monitoring: peran departemen dan pembimbing aktif (Paket E4, 8)", () => {
+describe("4. Peringatan monitoring: peran departemen dan pembimbing aktif", () => {
   it.each([
     ["pembimbing released", "rel"],
     ["pembimbing terminated", "term"],
@@ -215,7 +215,7 @@ describe("5. Kompatibilitas status sesi lama", () => {
     expect(guidanceRow("g-rej").status).not.toBe("completed");
   });
 
-  // Paket B (K19): legacy "rescheduled" is treated exactly like "accepted".
+  // Legacy "rescheduled" is treated exactly like "accepted".
   it("rescheduled: diperlakukan seperti accepted, jadi bisa diisi ringkasan", async () => {
     await student.submitSessionSummaryService("stu1", "g-resch", { sessionSummary: "x" });
     expect(guidanceRow("g-resch").status).toBe("summary_pending");
@@ -233,7 +233,7 @@ describe("5. Kompatibilitas status sesi lama", () => {
   });
 
   it("status lama tidak bisa disetujui ringkasannya tanpa melewati summary_pending", async () => {
-    // Paket B (K19): the status guard answers 400 with labels instead of a 404 lookup miss.
+    // The status guard answers 400 with labels instead of a 404 lookup miss.
     await expect(lecturer.approveSessionSummaryService("p1", "g-rej")).rejects.toMatchObject({ statusCode: 400 });
     await expect(lecturer.approveSessionSummaryService("p1", "g-resch")).rejects.toMatchObject({ statusCode: 400 });
     expect(guidanceRow("g-rej").status).toBe("summary_rejected");
@@ -254,7 +254,7 @@ describe("6. Jumlah sesi selesai dan kesiapan seminar", () => {
     expect(store.state.thesisSupervisors.find((s) => s.id === "ts-p1").seminarReady).toBe(false);
   });
 
-  it("8 sesi completed → P1 aktif dapat menyetujui; released/terminated tidak", async () => {
+  it("8 sesi completed → Pembimbing 1 aktif dapat menyetujui; released/terminated tidak", async () => {
     await lecturer.approveSessionSummaryService("p1", "g-pend-p1"); // completed #8
     await expect(milestone.approveSeminarReadiness("t1", "rel")).rejects.toMatchObject({ statusCode: 403 });
     await expect(milestone.approveSeminarReadiness("t1", "term")).rejects.toMatchObject({ statusCode: 403 });

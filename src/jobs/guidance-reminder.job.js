@@ -70,7 +70,7 @@ export async function runGuidanceReminderJob() {
         const supervisorName = guidance.supervisor?.user?.fullName || "Dosen";
         const milestoneName = guidance.milestones?.[0]?.milestone?.title || "bimbingan";
         
-        // Session time for the notification text (Paket C, C5/C6: agreed time, WIB)
+        // Session time for the notification text (agreed time, WIB)
         const approvedTime = formatDateTimeWib(getScheduledAt(guidance));
 
         // Send to student

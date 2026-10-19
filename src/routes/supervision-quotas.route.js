@@ -1,7 +1,7 @@
 /**
  * Batas bimbingan dosen (plan 10.1) — mounted at /supervision-quotas.
  * Kadep and Sekdep set the general limits (Kelola → Batas Bimbingan); only Kadep sets or clears the
- * limits of a semester (Penetapan → Beban Dosen, decision P9: Sekdep reads that panel like the
+ * limits of a semester (Penetapan → Beban Dosen; Sekdep reads that panel like the
  * rest of Penetapan); Admin and the Research Method coordinator read the load screen; a lecturer
  * reads their own load and opens or closes intake of new supervisor requests.
  */

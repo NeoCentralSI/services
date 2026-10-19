@@ -190,7 +190,7 @@ export function linkAttendanceRecord(assessmentId, attendanceRecordId, client = 
   return client.researchMethodAssessment.update({ where: { id: assessmentId }, data: { attendanceRecordId } });
 }
 
-/** Student, active supervisors (P1/P2) of a thesis: who hears about an automatic 0. */
+/** Student, active supervisors of a thesis: who hears about an automatic 0. */
 export function findNotificationTargets(thesisId, client = prisma) {
   return client.thesis.findUnique({
     where: { id: thesisId },

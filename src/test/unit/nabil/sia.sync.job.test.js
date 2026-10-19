@@ -27,7 +27,7 @@ vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../services/sia.client.js", () => mockSiaClient);
 vi.mock("../../../services/sia.store.js", () => mockSiaStore);
 
-// Paket P9: the sync reads SIA only when SIA_BASE_URL is set.
+// The sync reads SIA only when SIA_BASE_URL is set.
 process.env.SIA_BASE_URL = process.env.SIA_BASE_URL || "http://sia.test";
 
 import { runSiaSync } from "../../../services/sia.sync.job.js";

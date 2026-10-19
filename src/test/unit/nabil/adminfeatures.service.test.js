@@ -280,7 +280,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
         takingResearchMethod: true,
         takingThesisCourse: null,
         source: "sia",
-        // Paket P9 (K36): the source of each flag
+        // The source of each flag
         researchMethodSource: "sia",
         thesisCourseSource: null,
         capturedAt: "2026-08-08T00:00:00.000Z",
@@ -357,7 +357,7 @@ describe("Module 15: Data Master Mahasiswa", () => {
         },
       });
       mockPrisma.studentCplScore.findMany.mockResolvedValue([]);
-      // Paket P9 (K36): every semester is listed, so the Admin can set a flag SIA did not report.
+      // Every semester is listed, so the Admin can set a flag SIA did not report.
       mockPrisma.academicYear.findMany.mockResolvedValue([
         { id: "ay-op", year: "2026/2027", semester: "ganjil" },
         { id: "ay-genap", year: "2025/2026", semester: "genap" },

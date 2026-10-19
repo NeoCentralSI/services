@@ -87,7 +87,7 @@ export const studentNotesSchema = z.object({
   studentNotes: z.string().min(1, "studentNotes is required"),
 });
 
-// K19: a student cancels a requested or accepted session with a reason.
+// A student cancels a requested or accepted session with a reason.
 export const cancelGuidanceSchema = z.object({
   reason: z.preprocess(
     (v) => (v === undefined || v === null ? "" : v),

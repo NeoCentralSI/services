@@ -1,5 +1,5 @@
 /**
- * Label bahasa Indonesia untuk nilai enum TA (§2.2b Paket A) — satu sumber untuk semua
+ * Label bahasa Indonesia untuk nilai enum TA — satu sumber untuk semua
  * teks yang dibaca pengguna: notifikasi, email, PDF/ekspor laporan, dan pesan error.
  * Respons API cukup mengirim nilai enum; frontend memberi label lewat
  * `app/frontend/src/lib/thesisLabels.ts`, yang isinya harus sama persis dengan file ini.
@@ -45,7 +45,7 @@ export const EVALUATION_DUE_LABELS = Object.freeze({
   one_year: "Evaluasi 1 tahun jatuh tempo",
 });
 
-/** `GuidanceStatus` (sesi bimbingan, K19). `rescheduled` adalah data lama yang
+/** `GuidanceStatus` (sesi bimbingan). `rescheduled` adalah data lama yang
  * diperlakukan sama dengan `accepted`, jadi labelnya sama. */
 export const GUIDANCE_STATUS_LABELS = Object.freeze({
   requested: "Menunggu Persetujuan",
@@ -66,7 +66,7 @@ export const GUIDANCE_ACTOR_LABELS = Object.freeze({
   system: "Sistem",
 });
 
-/** `MilestoneStatus` (K20). */
+/** `MilestoneStatus`. */
 export const MILESTONE_STATUS_LABELS = Object.freeze({
   not_started: "Belum Dimulai",
   in_progress: "Sedang Dikerjakan",
@@ -76,7 +76,7 @@ export const MILESTONE_STATUS_LABELS = Object.freeze({
   deleted: "Dihapus",
 });
 
-/** `ThesisChangeRequestType` (Pengajuan Perubahan Tugas Akhir, K10). */
+/** `ThesisChangeRequestType` (Pengajuan Perubahan Tugas Akhir). */
 export const CHANGE_REQUEST_TYPE_LABELS = Object.freeze({
   title: "Judul",
   supervisor: "Pembimbing",
@@ -134,7 +134,7 @@ export const GUIDANCE_EVALUATION_OBSERVATION_LABELS = Object.freeze({
   noRevision: "Tidak menyerahkan revisi sesuai arahan",
 });
 
-/** `ThesisSupervisorRequestStatus` (Pengajuan Pembimbing, K10). */
+/** `ThesisSupervisorRequestStatus` (Pengajuan Pembimbing). */
 export const SUPERVISOR_REQUEST_STATUS_LABELS = Object.freeze({
   pending: "Menunggu Dosen",
   under_review: "Sedang Ditinjau Dosen",

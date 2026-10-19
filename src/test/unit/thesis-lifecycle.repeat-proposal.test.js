@@ -1,5 +1,5 @@
 /**
- * E5 — "Mengulang proposal" (research -> proposal) is a lifecycle transition that only an
+ * "Mengulang proposal" (research -> proposal) is a lifecycle transition that only an
  * approved guidance evaluation can make.
  */
 import { describe, expect, it, vi } from "vitest";

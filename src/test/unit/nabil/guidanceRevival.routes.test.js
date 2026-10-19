@@ -85,7 +85,7 @@ describe("Endpoint penyelesaian langsung ditutup", () => {
     expect(milestoneRow("m-progress").status).toBe("in_progress");
   });
 
-  it("PATCH /lecturer/progress/:studentId/approve → 410 bahkan untuk P1 aktif", async () => {
+  it("PATCH /lecturer/progress/:studentId/approve → 410 bahkan untuk Pembimbing 1 aktif", async () => {
     const res = await request(app)
       .patch("/thesisGuidance/lecturer/progress/stu1/approve")
       .set(as("p1"))
@@ -109,7 +109,7 @@ describe("Endpoint penyelesaian langsung ditutup", () => {
 });
 
 describe("Alur resmi lewat route", () => {
-  it("ringkasan → persetujuan P1 → completed; summary_rejected dapat dikirim ulang", async () => {
+  it("ringkasan → persetujuan Pembimbing 1 → completed; summary_rejected dapat dikirim ulang", async () => {
     const submit = await request(app)
       .post("/thesisGuidance/student/guidance/g-acc/submit-summary")
       .set(as("stu1"))
@@ -131,7 +131,7 @@ describe("Alur resmi lewat route", () => {
     expect(guidanceRow("g-rej").status).toBe("summary_pending");
   });
 
-  it("progres 100% → pending_review; validasi: mahasiswa 403 (guard), P2 403 (service), P1 200", async () => {
+  it("progres 100% → pending_review; validasi: mahasiswa 403 (guard), Pembimbing 2 403 (service), Pembimbing 1 200", async () => {
     const progress = await request(app)
       .patch("/milestones/m-progress/progress")
       .set(as("stu1"))
@@ -151,7 +151,7 @@ describe("Alur resmi lewat route", () => {
 });
 
 describe("Otorisasi pembimbing dan GKM lewat route", () => {
-  it("pembimbing released memegang role P1 global tetapi ditolak menyetujui ringkasan (403)", async () => {
+  it("pembimbing released memegang role Pembimbing 1 global tetapi ditolak menyetujui ringkasan (403)", async () => {
     const res = await request(app)
       .put("/thesisGuidance/lecturer/guidance/g-pend-rel/approve-summary")
       .set(as("rel"));
@@ -164,7 +164,7 @@ describe("Otorisasi pembimbing dan GKM lewat route", () => {
     expect(res.status).toBe(403);
   });
 
-  it("peringatan monitoring: mahasiswa 403 (guard); KaDep, Sekdep, dan GKM 200 (Paket E4, 8)", async () => {
+  it("peringatan monitoring: mahasiswa 403 (guard); KaDep, Sekdep, dan GKM 200", async () => {
     // 90 days without activity: Lambat, so a warning may be sent.
     store.state.thesis[0].startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     const path = "/thesisGuidance/monitoring/theses/t1/send-warning";

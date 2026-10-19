@@ -49,14 +49,14 @@ export function semesterLabel(academicYear) {
   return `${academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${academicYear.year ?? ""}`.trim();
 }
 
-/** File name of a batch PDF; the form code stays in the document only (K10). */
+/** File name of a batch PDF; the form code stays in the document only. */
 export function assignmentPdfFileName(academicYear, version) {
   const safeYear = String(academicYear?.year ?? "-").replace(/[\/\\?%*:|"<>]/g, "-");
   const semester = academicYear?.semester === "genap" ? "Genap" : "Ganjil";
   return `Penetapan-Pembimbing-${safeYear}-${semester}-v${version}.pdf`;
 }
 
-/** The PDF of a batch, titled "Formulir TA-04" (K10: the form code only in the PDF). */
+/** The PDF of a batch, titled "Formulir TA-04" (the form code only in the PDF). */
 export async function renderAssignmentPdf({ academicYear, entries, kadep, now = new Date() }) {
   return generateSupervisorAssignmentPdf({
     semester: semesterLabel(academicYear),

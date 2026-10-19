@@ -12,8 +12,8 @@ import { createNotificationEventForUsers } from "../notification.service.js";
 import { changeThesisStatus } from "../thesisLifecycle.service.js";
 
 /**
- * Proposal revisi (Lanjutan Paket P): the way back to research for a thesis that a guidance
- * evaluation sent back to the proposal ("Mengulang Proposal", E5). No class, attendance or
+ * Proposal revisi: the way back to research for a thesis that a guidance
+ * evaluation sent back to the proposal ("Mengulang Proposal"). No class, attendance or
  * Penilaian Proposal: the student uploads a revised proposal and the Pembimbing 1 approves it
  * (the thesis returns to research and the supervision clock starts again) or asks for a
  * revision with notes. The Head of Department is not involved.

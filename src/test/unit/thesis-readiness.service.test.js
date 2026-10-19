@@ -1,5 +1,5 @@
 /**
- * E2 — seminar and defence readiness without a document upload: system requirements,
+ * Seminar and defence readiness without a document upload: system requirements,
  * supervisor approval, and the student's "Minta Persetujuan" request.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -301,7 +301,7 @@ describe("defence readiness", () => {
   });
 });
 
-describe("after the event is passed (Paket E4, 3.2/3.3)", () => {
+describe("after the event is passed", () => {
   const PASSED_AT = new Date("2026-09-10T05:00:00Z");
   const passedSeminar = { id: "s1", status: "passed", date: new Date("2026-09-09T00:00:00Z"), resultFinalizedAt: PASSED_AT, revisionFinalizedAt: null };
   const approvedBoth = [supervisor(P1, "Pembimbing 1", { seminarReady: true }), supervisor(P2, "Pembimbing 2", { seminarReady: true })];

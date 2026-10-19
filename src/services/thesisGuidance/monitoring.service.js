@@ -90,7 +90,7 @@ export async function getMonitoringDashboard(academicYear) {
     guidanceTrend,
     atRiskStudents,
     slowStudents,
-    // "Perlu Evaluasi": theses whose guidance evaluation is due (E5).
+    // "Perlu Evaluasi": theses whose guidance evaluation is due.
     evaluationDueStudents,
     supervisorLoads,
     readyForSeminar: readyForSeminar.slice(0, 5).map((t) => ({
@@ -180,7 +180,7 @@ export async function getThesesList(filters) {
     const totalMilestones = milestones.length;
     const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-    // Activity level and supervision clock are derived when read (E3).
+    // Activity level and supervision clock are derived when read.
     const progress = progressFields(t, now);
 
     // Get supervisors
@@ -385,7 +385,7 @@ export async function getThesisDetail(thesisId) {
     err.statusCode = 404;
     throw err;
   }
-  // Latest report = attachment of the latest TA-phase session with a file (K17).
+  // Latest report = attachment of the latest TA-phase session with a file.
   const latestReport = await monitoringRepository.findLatestThesisReport(thesis.id);
 
   // Calculate milestone progress
@@ -394,7 +394,7 @@ export async function getThesisDetail(thesisId) {
   const totalMilestones = milestones.length;
   const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-  // Activity level and supervision clock are derived when read (E3).
+  // Activity level and supervision clock are derived when read.
   const progress = progressFields(thesis);
 
   // Separate supervisors and examiners
@@ -553,7 +553,7 @@ export async function sendWarningNotificationService(userId, thesisId) {
   }
   const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
 
-  // Authorization (Paket E4, 8): Ketua Departemen, Sekretaris Departemen, GKM, or an active
+  // Authorization: Ketua Departemen, Sekretaris Departemen, GKM, or an active
   // supervisor of the thesis may send warnings.
   const isKadep = (user.userHasRoles || []).some(
     (uhr) => DEPARTMENT_ROLES.includes(uhr.role?.name) && uhr.status === 'active'
@@ -682,7 +682,7 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
   }
   const senderName = toTitleCaseName(user?.fullName || "Manajemen Prodi");
 
-  // Paket E4 (8): the department roles (Kadep, Sekdep, GKM) may warn any thesis.
+  // The department roles (Kadep, Sekdep, GKM) may warn any thesis.
   const isKadep = (user.userHasRoles || []).some(
     (uhr) => DEPARTMENT_ROLES.includes(uhr.role?.name) && uhr.status === 'active'
   );
@@ -740,7 +740,7 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
   // One notification per thesis, worded for the level of that thesis
   const outcomes = await Promise.all(theses.map(async (thesis) => {
     const studentUserId = thesis.student?.user?.id;
-    // Paket E4 lanjutan: the student's name as stored (e.g. "Uji TA Lambat"), not re-cased.
+    // The student's name as stored (e.g. "Uji TA Lambat"), not re-cased.
     const studentName = thesis.student?.user?.fullName || "Mahasiswa";
     const outcome = { thesisId: thesis.id, studentName };
     if (!studentUserId) return { ...outcome, reason: "no_student" };

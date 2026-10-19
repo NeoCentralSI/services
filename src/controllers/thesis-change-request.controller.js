@@ -60,7 +60,7 @@ export async function cancelRequest(req, res, next) {
   }
 }
 
-/** GET /thesis-change-requests/inbox (Ketua Departemen; Paket E5: status priority) */
+/** GET /thesis-change-requests/inbox (Ketua Departemen; status priority) */
 export async function listInbox(req, res, next) {
   try {
     const { status, kind, search, page, pageSize, batchId } = req.query;

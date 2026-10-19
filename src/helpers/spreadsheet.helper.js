@@ -4,7 +4,7 @@ import { BadRequestError } from "../utils/errors.js";
 
 /**
  * Reading a spreadsheet upload (.xlsx, .xls or .csv): the first sheet as rows of cells. Shared by
- * the Research Method attendance import and the import of semester flags (Paket P9).
+ * the Research Method attendance import and the import of semester flags.
  */
 export function readSheetRows(buffer, { unreadableMessage, emptyMessage }) {
   let workbook;

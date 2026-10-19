@@ -1,5 +1,5 @@
 /**
- * E5 — Evaluasi Bimbingan (formulir TA-17).
+ * Evaluasi Bimbingan (formulir TA-17).
  *
  * The real service, the real supervision clock and the real lifecycle rules run against a
  * small in-memory world, so stages, allowed decisions and what an approval does to the
@@ -375,7 +375,7 @@ describe("clock restart", () => {
 });
 
 
-describe("Isi Evaluasi from Mahasiswa Bimbingan and the student detail (Paket E6: no supervisor list)", () => {
+describe("Isi Evaluasi from Mahasiswa Bimbingan and the student detail (no supervisor list)", () => {
   it("the due thesis: Pembimbing 1 may fill it, Pembimbing 2 reads with the reason", async () => {
     const p1 = await service.getEvaluationContext(P1, "T1");
     expect(p1).toMatchObject({ viewerRole: "pembimbing_1", stage: "six_month", canSubmit: true, blockReason: null });
@@ -397,7 +397,7 @@ describe("Isi Evaluasi from Mahasiswa Bimbingan and the student detail (Paket E6
 });
 
 
-describe("Lanjutan Paket E7: an evaluation closed because the thesis became Selesai", () => {
+describe("An evaluation closed because the thesis became Selesai", () => {
   it("stays Ditolak, carries the system reason, and is told apart from a Ketua Departemen decision", async () => {
     addEvaluation({ recommendation: "extend_1_month", status: "rejected", kadepNotes: "Ditutup otomatis: tugas akhir selesai.", kadepApprovedAt: daysAgo(1) });
     addEvaluation({ recommendation: "extend_1_month", status: "rejected", kadepNotes: "Belum perlu peringatan.", kadepApprovedBy: KADEP, kadepApprovedAt: daysAgo(30) });

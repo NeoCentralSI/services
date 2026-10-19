@@ -1,5 +1,5 @@
 /**
- * Paket E3 — Seminar Hasil and Sidang tabs of the monitoring page: the five blocks of one
+ * Seminar Hasil and Sidang tabs of the monitoring page: the five blocks of one
  * response, built from rows the repositories read.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -166,7 +166,7 @@ describe("getSeminarMonitoring", () => {
       student: { name: "LAMA MENDAFTAR" },
       attention: { reasonLabel: "Menunggu verifikasi dokumen", since: before(10) },
     });
-    // e. table: every seminar of the semester. Paket E5 (1.4): by the status priority of the
+    // e. table: every seminar of the semester. By the status priority of the
     // seminar module, then latest first by the day it is held, or by its registration while
     // it has no schedule
     expect(data.items).toHaveLength(11);

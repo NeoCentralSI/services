@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(__dirname, "../../routes/supervision-quotas.route.js"), "utf8");
 
-describe("supervision-quotas route RBAC (K30, keputusan P9)", () => {
+describe("supervision-quotas route RBAC", () => {
   it("batas umum: Kadep dan Sekdep; batas per semester: Kadep saja", () => {
     expect(source).toContain("const MANAGERS = [ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN];");
     expect(source).toContain("const KADEP = [ROLES.KETUA_DEPARTEMEN];");

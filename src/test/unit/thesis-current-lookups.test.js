@@ -1,5 +1,5 @@
 /**
- * Paket E7 (K28): the seminar and defence pages (and the student's guidance history and log)
+ * The seminar and defence pages (and the student's guidance history and log)
  * still find a thesis that became Selesai; supervision quotas only count open theses, so a
  * finished thesis no longer takes a supervisor's slot.
  */

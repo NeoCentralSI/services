@@ -1,7 +1,7 @@
 /**
- * Proposal Tugas Akhir — mounted at /thesis-proposals (Paket P).
- * Pengajuan Pembimbing (P2), Penetapan Pembimbing (P3), the final proposal (P4) and the proposal
- * revision of a thesis repeating its proposal (Lanjutan).
+ * Proposal Tugas Akhir — mounted at /thesis-proposals.
+ * Pengajuan Pembimbing, Penetapan Pembimbing, the final proposal and the proposal
+ * revision of a thesis repeating its proposal.
  * Who may act on a given request is checked again in the service.
  */
 import express from "express";
@@ -30,7 +30,7 @@ router.post("/supervisor-requests/:id/withdraw", requireAnyRole(STUDENT), contro
 
 // Lecturer
 router.get("/supervisor-requests/inbox", requireAnyRole(SUPERVISOR_ROLES), controller.getLecturerInbox);
-// Tugas Akhir > Permohonan (Paket E5): Pengajuan Pembimbing and the lecturer's Perubahan TA steps.
+// Tugas Akhir > Permohonan: Pengajuan Pembimbing and the lecturer's Perubahan TA steps.
 router.get("/lecturer-inbox", requireAnyRole(SUPERVISOR_ROLES), controller.listLecturerInbox);
 router.post("/supervisor-requests/:id/review", requireAnyRole(SUPERVISOR_ROLES), controller.markUnderReview);
 router.post("/supervisor-requests/:id/respond", requireAnyRole(SUPERVISOR_ROLES), validate(validator.lecturerResponseSchema), controller.respondAsLecturer);

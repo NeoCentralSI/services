@@ -6,7 +6,7 @@ import { assertSiaConfigured, isSiaConfigured } from "../helpers/sia-availabilit
 
 export async function triggerSiaSync(req, res, next) {
   try {
-    // Paket P9: refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
+    // Refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
     assertSiaConfigured();
     const summary = await runSiaSync();
     res.json({ success: true, message: "SIA sync triggered", summary });
@@ -69,7 +69,7 @@ export async function getCachedStudents(req, res, next) {
     }
 
     // If Redis is empty (not yet synced) or errored, try SIA directly (mock or real), unless SIA is
-    // not configured (Paket P9).
+    // not configured.
     if ((!data || data.length === 0) && isSiaConfigured()) {
       console.log("ℹ️  Redis cache empty, reading from SIA source directly...");
       try {

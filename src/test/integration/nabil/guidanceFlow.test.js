@@ -4,9 +4,9 @@
  * Tests the complete guidance workflow with REAL database:
  *   1. Student submits a guidance request
  *   2. Supervisor approves the guidance request
- *   3. Student sends the session summary; the supervisor approves it (K19)
+ *   3. Student sends the session summary; the supervisor approves it
  *
- * Prasyarat bimbingan fase proposal (Paket P, K27): pengajuan pembimbing disetujui, Pembimbing 1
+ * Prasyarat bimbingan fase proposal: pengajuan pembimbing disetujui, Pembimbing 1
  * aktif, dan Penetapan Pembimbing sudah terbit (`thesis.supervisor_assigned_at`). Fixture memakai
  * TA fase proposal dari seed apa adanya dan memeriksa gerbangnya lewat helper yang sama dengan
  * yang dipakai produksi; gerbang tidak di-mock atau dilewati.
@@ -124,7 +124,7 @@ describe("IT-04: Guidance Request & Approval Flow (proposal phase)", () => {
     // 4. The supervisor approves the summary: the session is completed
     await approveSessionSummaryService(p1.lecturer.user.id, createdGuidanceId);
 
-    // 5. Persisted: the phase was set by the server from the thesis status (K6)
+    // 5. Persisted: the phase was set by the server from the thesis status
     const dbGuidance = await prisma.thesisGuidance.findUnique({ where: { id: createdGuidanceId } });
     expect(dbGuidance).toMatchObject({ status: "completed", phase: "proposal", sessionSummary: "Finished well", actionItems: "Review code" });
   });

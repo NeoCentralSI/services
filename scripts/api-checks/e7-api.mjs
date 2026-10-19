@@ -1,4 +1,4 @@
-// Paket E7 (K28): a passed defence makes the thesis Selesai, the defence and seminar pages still
+// A passed defence makes the thesis Selesai, the defence and seminar pages still
 // find it, and undoing the result returns it to Penelitian. Mutates central; run from app/backend
 // after a clean seed with the seven seeders (see README):
 //   node scripts/api-checks/e7-api.mjs
@@ -70,14 +70,14 @@ async function heldDefence(thesisId, { examinerScore, supervisorScore, revisionN
   return defence;
 }
 
-/** The three defences of the manual guide (PANDUAN_UJI_MANUAL_ALUR_TA.md, section I). */
+/** The three defences prepared for manual testing. */
 const MANUAL = [
   { who: "ta_eval_tunggu_kadep", examinerScore: 50, supervisorScore: 30, note: "I.1 lulus tanpa revisi" },
   { who: "ta_lulus_seminar", examinerScore: 50, supervisorScore: 28, revisionNotes: "Perbaiki bab pembahasan", note: "I.2–I.3 lulus dengan revisi" },
   { who: "ta_lancar", examinerScore: 20, supervisorScore: 10, note: "I.4 tidak lulus (nilai akhir 30)" },
 ];
 
-/** Lanjutan Paket E7: seed-thesis-rubrics.js fills the minimum passing scores of the running semester. */
+/** seed-thesis-rubrics.js fills the minimum passing scores of the running semester. */
 async function minimumScores() {
   const ay = (await api(SEKDEP, "GET", "/supervision-quotas")).data?.academicYear;
   return prisma.academicYear.findUnique({ where: { id: ay?.id ?? "" }, select: { thesisSeminarMinimumScore: true, thesisDefenceMinimumScore: true } });

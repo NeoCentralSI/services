@@ -8,11 +8,11 @@ import { createNotificationEventForUsers } from "../notification.service.js";
 import { changeThesisStatus } from "../thesisLifecycle.service.js";
 
 /**
- * Naik ke Penelitian (K13, K5, R18): a step of its own, not part of the SIA sync. A thesis in
+ * Naik ke Penelitian: a step of its own, not part of the SIA sync. A thesis in
  * the proposal phase with a passed, final Research Method attempt moves to `research` when SIA
  * shows it takes Tugas Akhir in the running period, and that period comes after the period of
  * its Penetapan Pembimbing. Missing SIA data defers the decision. One failure does not stop the
- * others. A failed attempt keeps the thesis in the proposal phase (K2): nothing happens here.
+ * others. A failed attempt keeps the thesis in the proposal phase: nothing happens here.
  */
 
 export const PROMOTION_DECISION = Object.freeze({
@@ -50,7 +50,7 @@ export function decide({ operational, assignmentPeriod, snapshot }) {
 
 /**
  * Proposal-phase theses with a passed, final attempt. An attempt finalized before the thesis last
- * entered the proposal phase does not count (a thesis repeating its proposal, E5, needs a new one).
+ * entered the proposal phase does not count (a thesis repeating its proposal needs a new one).
  */
 async function findCandidates(client = prisma) {
   const attempts = await client.researchMethodAssessment.findMany({

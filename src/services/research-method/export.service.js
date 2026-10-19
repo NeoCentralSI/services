@@ -7,7 +7,7 @@ import { formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 
 /**
- * Ekspor Metode Penelitian (plan 10.6: SIA only reads; data leaves NeoCentral as files).
+ * Ekspor Metode Penelitian (SIA is only read; data leaves NeoCentral as files).
  *
  * 1. Rekap nilai: the SIA score template kept from the old module (7 columns A..G: No, NIM,
  *    Nama + four score columns, a note per row as a comment on the name cell). Score slots map

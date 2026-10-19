@@ -12,7 +12,7 @@ const connection = {
 
 async function processPdfJob(job) {
   const { name, data } = job;
-  // No PDF job is queued any more: the Penetapan Pembimbing PDF is rendered when issued (Paket P).
+  // No PDF job is queued any more: the Penetapan Pembimbing PDF is rendered when issued.
   void data;
   console.warn("[Worker] Unknown PDF job name:", name);
 }

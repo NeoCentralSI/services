@@ -15,7 +15,7 @@ export const REQUEST_INCLUDE = Object.freeze({
       academicYearId: true,
       thesisTopic: { select: { id: true, name: true } },
       student: { select: { id: true, user: USER_NAME } },
-      // Paket E6: whether an open request may still be approved now (K34, K8).
+      // Whether an open request may still be approved now.
       thesisSeminars: { select: { status: true } },
       thesisDefences: { select: { status: true } },
       thesisSupervisors: {
@@ -59,7 +59,7 @@ export function findByThesisId(thesisId, client = prisma) {
 }
 
 /**
- * Lanjutan Paket E4: ids of the pending requests whose current step (the first pending
+ * Ids of the pending requests whose current step (the first pending
  * approval) belongs to this lecturer. "First pending" compares rows, so it is read here.
  */
 export async function findIdsAtLecturerStep(lecturerId, client = prisma) {
@@ -111,7 +111,7 @@ export function findThesisForChange(thesisId, client = prisma) {
       thesisTopic: { select: { id: true, name: true } },
       student: { select: { id: true, user: USER_NAME } },
       thesisSeminars: { select: { id: true, status: true } },
-      // K34 (Paket E6): a title-only change waits while the defence is in process.
+      // A title-only change waits while the defence is in process.
       thesisDefences: { select: { id: true, status: true } },
       thesisSupervisors: {
         where: { status: "active" },
@@ -162,7 +162,7 @@ export async function getSupervisorLoad(lecturerId, client = prisma) {
   return { activeCount: load.activeCount, quotaMax: load.hardLimit };
 }
 
-/** Paket E6: the loads of several lecturers at once (the supervisor picker). */
+/** The loads of several lecturers at once (the supervisor picker). */
 export async function getSupervisorLoads(lecturerIds, client = prisma) {
   const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
   const loads = await getLecturerLoads(lecturerIds, activeYear?.id ?? null, { client });

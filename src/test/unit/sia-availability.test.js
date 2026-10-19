@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Paket P9 (rule of 19 Oktober 2026): before the real SIA API exists, SIA_BASE_URL on
+ * Before the real SIA API exists, SIA_BASE_URL on
  * neocentral.dev is empty and nothing reads SIA: the scheduled sync is skipped with one log line,
  * the manual sync is refused with "Sinkronisasi SIA belum tersedia.", and the promotion keeps
  * working on the flags the Admin entered.

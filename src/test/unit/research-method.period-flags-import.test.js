@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Paket P9 (K36): Impor Keikutsertaan. The preview stores nothing; applying writes the changed rows
+ * Impor Keikutsertaan. The preview stores nothing; applying writes the changed rows
  * with source admin and audits the counts; the same file again changes nothing.
  */
 const { audit } = vi.hoisted(() => ({ audit: { logAudit: vi.fn(async () => null) } }));

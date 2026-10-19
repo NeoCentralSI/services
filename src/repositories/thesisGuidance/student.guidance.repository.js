@@ -15,7 +15,7 @@ export function getStudentByUserId(userId) {
 /**
  * TA mahasiswa yang belum berakhir (proposal, research, on_leave), terbaru lebih dulu.
  * Dipakai bimbingan/milestone (aksi tulis wajib cek status === research) dan
- * fase proposal (K27) untuk TA berstatus proposal.
+ * fase proposal untuk TA berstatus proposal.
  */
 export async function getActiveThesisForStudent(studentId) {
   return prisma.thesis.findFirst({
@@ -25,7 +25,7 @@ export async function getActiveThesisForStudent(studentId) {
 }
 
 /**
- * Paket E7 (K28): the student's current thesis, the latest that has not failed, a Selesai one
+ * The student's current thesis, the latest that has not failed, a Selesai one
  * included. For reads that stay available after the defence (riwayat and log bimbingan).
  */
 export async function getCurrentThesisForStudent(studentId) {
@@ -75,7 +75,7 @@ export async function getSupervisorsForThesis(thesisId) {
 }
 
 export function listGuidancesForThesis(thesisId, status) {
-  // K27: the list shows both phases; each row carries its phase (Jenis).
+  // The list shows both phases; each row carries its phase (Jenis).
   const where = { thesisId };
   if (status) {
     where.status = status;
@@ -98,7 +98,7 @@ export function listGuidancesForThesis(thesisId, status) {
 
 export function getGuidanceByIdForStudent(guidanceId, studentId) {
   return prisma.thesisGuidance.findFirst({
-    // K27: a session of either phase belongs to the student's guidance log.
+    // A session of either phase belongs to the student's guidance log.
     where: { id: guidanceId, thesis: { studentId } },
     include: {
       supervisor: { include: { user: true } },
@@ -161,7 +161,7 @@ export function listMilestones(thesisId) {
 }
 
 export function listMilestoneTemplates(topicId) {
-  // Template table is shared by both phases (K18); TA guidance uses thesis-phase templates.
+  // Template table is shared by both phases; TA guidance uses thesis-phase templates.
   const where = { isActive: true, ...TA_PHASE };
   if (topicId) {
     where.topicId = topicId;
@@ -292,7 +292,7 @@ export function getGuidancesNeedingSummary(studentId) {
   return prisma.thesisGuidance.findMany({
     where: {
       thesis: { studentId },
-      // K19: scheduled sessions (legacy "rescheduled" included) and summaries sent back
+      // Scheduled sessions (legacy "rescheduled" included) and summaries sent back
       // for revision need a summary from the student.
       status: { in: SUMMARY_SUBMITTABLE_STATUSES },
       approvedDate: { lte: new Date() }, // Jadwal sudah lewat

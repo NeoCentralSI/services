@@ -1,4 +1,4 @@
-// Paket E5: the tables sorted by what needs attention (on the server), Permohonan as the
+// The tables sorted by what needs attention (on the server), Permohonan as the
 // lecturer's approval inbox, Perubahan and Evaluasi for the Ketua Departemen, and the change
 // actions of Mahasiswa Bimbingan. Mutates central; run from app/backend after a clean seed
 // with the seven seeders (see README):
@@ -43,7 +43,7 @@ await run("1.4 Permohonan: kotak masuk persetujuan dosen", async () => {
   const old = await api(ULLYA, "GET", "/thesis-proposals/supervisor-requests/inbox");
   check("badge: menunggu = pengajuan pembimbing + langkah perubahan", inbox.json?.counts?.waiting === 3 && inbox.json?.counts?.waitingRequests === old.data?.waiting?.length && inbox.json?.counts?.waitingChanges === 1, JSON.stringify(inbox.json?.counts));
 
-  // Paket E6: Jenis is one of four; both seed requests waiting around Ullya change a supervisor.
+  // Jenis is one of four; both seed requests waiting around Ullya change a supervisor.
   const onlyChanges = await api(ULLYA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_supervisor");
   check("filter Jenis Perubahan Pembimbing", (onlyChanges.json?.data ?? []).length === 2 && onlyChanges.json.data.every((r) => r.kind === "change_request"), onlyChanges.json?.meta);
   const onlyAssigned = await api(ULLYA, "GET", "/thesis-proposals/lecturer-inbox?status=assigned");
@@ -114,7 +114,7 @@ await run("3.2/3.3 aksi Mahasiswa Bimbingan", async () => {
   const aina = await api(AINA, "GET", "/thesis-proposals/lecturer-inbox?kind=change_supervisor&status=awaiting_me");
   const step = (aina.json?.data ?? []).find((r) => r.id === requestId);
   check("Aina (pembimbing baru): Menunggu Persetujuan Anda di Permohonan", step?.changeRequest?.batchId && step.changeRequest.viewer.canDecideAsLecturer === true, aina.json?.meta);
-  // Paket E6: the requester's own step was approved on submission, so the batch is not in her Permohonan.
+  // The requester's own step was approved on submission, so the batch is not in her Permohonan.
   const afriInbox = await api(AFRI, "GET", "/thesis-proposals/lecturer-inbox?pageSize=100");
   check("Afriyanti (pengaju) tidak melihat pengalihannya sendiri di Permohonan", !(afriInbox.json?.data ?? []).some((r) => r.id === requestId), afriInbox.json?.meta);
   const kadepTransfer = await api(KADEP, "GET", "/thesis-change-requests/inbox?kind=transfer");

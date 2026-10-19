@@ -1,4 +1,4 @@
-// P4 API checks: proposal-phase guidance and milestones, final proposal, proposal templates.
+// API checks: proposal-phase guidance and milestones, final proposal, proposal templates.
 // Mutates central; run from app/backend after a clean seed (see README): node scripts/api-checks/p4-api.mjs
 import { api, check, run, summary, login, ids } from "./lib-api.mjs";
 
@@ -37,7 +37,7 @@ await run("1 gerbang sebelum penetapan", async () => {
 let guidanceId;
 await run("2 satu sesi bimbingan proposal penuh", async () => {
   const blocked = await api(U("ditetapkan"), "POST", "/thesisGuidance/student/guidance/request", { supervisorId: aina, guidanceDate: soon(), studentNotes: "Bahas latar belakang proposal", duration: 60, milestoneIds: ["00000000-0000-0000-0000-000000000000"] });
-  check("pengajuan kedua ditolak selama masih ada yang menunggu (aturan Paket E)", blocked.status === 400 && /belum direspon/.test(blocked.json?.message ?? ""), `${blocked.status} ${blocked.json?.message ?? ""}`);
+  check("pengajuan kedua ditolak selama masih ada yang menunggu (aturan bimbingan yang sudah ada)", blocked.status === 400 && /belum direspon/.test(blocked.json?.message ?? ""), `${blocked.status} ${blocked.json?.message ?? ""}`);
   const pendingList = await api(U("ditetapkan"), "GET", "/thesisGuidance/student/guidance");
   guidanceId = (pendingList.data?.items ?? pendingList.json?.items ?? []).find((g) => g.status === "requested")?.id;
   check("pengajuan bimbingan proposal dari seed menunggu dosen", Boolean(guidanceId), guidanceId);
@@ -94,10 +94,10 @@ await run("4 TA yang sudah naik: proposal baca-saja, hitungan seminar tetap", as
   check("riwayat bimbingan memuat kedua fase", items.filter((g) => g.phase === "proposal").length === 3 && items.filter((g) => g.phase === "research").length === 2, items.map((g) => g.phase));
   const sr = await api(U("naik"), "GET", `/milestones/thesis/${t?.id}/seminar-readiness`);
   const g = (sr.data?.requirements ?? []).find?.((r) => r.key === "guidance");
-  check("kesiapan seminar: 2 dari 8 (sesi proposal tidak dihitung, K7)", /^2 dari 8/.test(g?.detail ?? ""), g?.detail);
+  check("kesiapan seminar: 2 dari 8 (sesi proposal tidak dihitung)", /^2 dari 8/.test(g?.detail ?? ""), g?.detail);
 });
 
-await run("5 kesiapan seminar Paket E tidak berubah", async () => {
+await run("5 aturan kesiapan seminar tidak berubah", async () => {
   const theses = await prisma.thesis.findMany({
     where: { status: "research" },
     select: { id: true, thesisSupervisors: { where: { status: "active" }, select: { lecturerId: true }, take: 1 } },
@@ -166,7 +166,7 @@ await run("8 dosen: Mahasiswa Bimbingan fase proposal", async () => {
 await run("9 template milestone proposal (Kelola > Metode Penelitian; hanya Sekdep)", async () => {
   const list = await api(HUSNIL, "GET", "/research-method/milestone-templates");
   check("koordinator membaca daftar", list.status === 200 && list.data?.length === 4 && list.data.every((t) => typeof t.usedCount === "number"), list.status);
-  // Lanjutan P8 (18 Oktober 2026): only the Sekretaris Departemen manages the proposal templates.
+  // Only the Sekretaris Departemen manages the proposal templates.
   const co = await api(HUSNIL, "POST", "/research-method/milestone-templates", { name: "Template koordinator" });
   check("koordinator tidak bisa menambah (403)", co.status === 403, co.status);
   const st = await api(U("ditetapkan"), "GET", "/research-method/milestone-templates");

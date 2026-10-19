@@ -1,4 +1,4 @@
-// Paket E4: the API side of the UI polish of the thesis flow. Mutates central; run from
+// The API side of the UI polish of the thesis flow. Mutates central; run from
 // app/backend after a clean seed with the seven seeders (see README):
 //   node scripts/api-checks/e4-api.mjs
 import { api, check, ids, login, run, summary } from "./lib-api.mjs";
@@ -12,7 +12,7 @@ const myStudents = async (who, status) => (await api(who, "GET", `/thesisGuidanc
 const rowOf = (rows, name) => rows.find((row) => row.fullName === name);
 
 await run("1.1 pembimbing yang diganti", async () => {
-  // Uji TA Ubah Judul: P1 Husnil, P2 Afriyanti. Pembimbing 2 diganti Aina lewat Pengajuan Perubahan.
+  // Uji TA Ubah Judul: Pembimbing 1 Husnil, Pembimbing 2 Afriyanti. Pembimbing 2 diganti Aina lewat Pengajuan Perubahan.
   const thesis = await myThesis("ta_ubah_judul");
   await login(AINA);
   const submit = await api("ta_ubah_judul", "POST", "/thesis-change-requests", {
@@ -53,11 +53,11 @@ await run("3.2/3.3 kesiapan setelah lulus", async () => {
   check("sebelum seminar lulus: kartu sidang menunggu seminar", before.data?.seminarPassed === false && before.data?.requirementsMet === false, `${before.data?.seminarPassed} ${before.data?.requirementsMet}`);
 });
 
-await run("4.3 Isi Evaluasi (Paket E6: dari konteks; daftar dosen /lecturer dihapus)", async () => {
+await run("4.3 Isi Evaluasi (dari konteks; daftar dosen /lecturer dihapus)", async () => {
   const lambat = await myThesis("ta_lambat");
   const p1 = (await api(HUSNIL, "GET", `/thesis-guidance-evaluations/context?thesisId=${lambat.id}`)).data;
   check("Husnil: Uji TA Lambat jatuh tempo 6 bulan, dapat diisi", p1?.stage === "six_month" && p1?.canSubmit === true && p1?.viewerRole === "pembimbing_1", p1 && `${p1.stage} ${p1.canSubmit} ${p1.viewerRole}`);
-  // Uji TA Evaluasi Lanjut: P1 Husnil, P2 Afriyanti, evaluasi 6 bulan jatuh tempo.
+  // Uji TA Evaluasi Lanjut: Pembimbing 1 Husnil, Pembimbing 2 Afriyanti, evaluasi 6 bulan jatuh tempo.
   const lanjut = await myThesis("ta_eval_lanjut");
   const asP2 = (await api(AFRI, "GET", `/thesis-guidance-evaluations/context?thesisId=${lanjut.id}`)).data;
   check("Afriyanti (Pembimbing 2): melihat, tidak dapat mengisi, dengan alasan", asP2?.viewerRole === "pembimbing_2" && asP2?.canSubmit === false && !!asP2?.blockReason, asP2 && `${asP2.viewerRole} ${asP2.blockReason}`);
@@ -71,7 +71,7 @@ await run("8 Peringatkan untuk Sekdep dan GKM", async () => {
     const res = await api(who, "POST", `/thesisGuidance/monitoring/theses/${lambat.id}/send-warning`, {});
     check(`${who} dapat memperingatkan dari Monitoring`, res.status === 200, `${res.status} ${res.json?.message ?? ""}`);
     if (who === KADEP) {
-      // Lanjutan Paket E4 (6): the student's name as stored, not re-cased.
+      // The student's name as stored, not re-cased.
       check("pesan memakai nama mahasiswa apa adanya", res.json?.message === "Peringatan telah dikirim ke Uji TA Lambat", res.json?.message);
     }
   }
@@ -99,7 +99,7 @@ await run("7 bimbingan TA yang dihentikan", async () => {
   });
   // The request is valid in form; the stopped thesis is what refuses it (not the validator).
   check("mengajukan bimbingan tetap ditolak", request.status >= 400 && !/Data tidak valid/.test(request.json?.message ?? ""), `${request.status} ${request.json?.message ?? ""}`);
-  // Lanjutan Paket E4 (6): 404 messages of the thesis services are Indonesian.
+  // 404 messages of the thesis services are Indonesian.
   check("pesan 404 berbahasa Indonesia", request.status === 404 && request.json?.message === "Tugas akhir aktif tidak ditemukan", `${request.status} ${request.json?.message ?? ""}`);
   const milestones = await api("ta_dua_pembimbing", "GET", `/milestones/thesis/${thesis.id}`);
   check("milestone tetap terbaca", milestones.status === 200, milestones.status);
@@ -110,13 +110,13 @@ await run("7 bimbingan TA yang dihentikan", async () => {
   check("Husnil: tidak di filter Aktif", !rowOf(await myStudents(HUSNIL, "active"), name), null);
 });
 
-// ── Lanjutan Paket E4 ────────────────────────────────────────────────────────────────
+// ── Paging, seeded approval dates and messages ────────────────────────────────────────────────
 
 const MARKER = "Data uji E4 lanjutan: baris paging.";
 const DAY = 24 * 60 * 60 * 1000;
 
 await run("L1 Perubahan dan Evaluasi lebih dari 100 baris", async () => {
-  // 120 closed requests and 120 decided evaluations on Uji TA Lancar (P1 Husnil), inserted
+  // 120 closed requests and 120 decided evaluations on Uji TA Lancar (Pembimbing 1 Husnil), inserted
   // directly and removed again at the end: the pages must reach rows past the first hundred.
   const thesis = await myThesis("ta_lancar");
   const studentUserId = (await login("ta_lancar"), ids.ta_lancar);
@@ -141,7 +141,7 @@ await run("L1 Perubahan dan Evaluasi lebih dari 100 baris", async () => {
     })),
   });
 
-  // Paket E5: the filters are the row statuses; Perubahan and Evaluasi are the Ketua
+  // The filters are the row statuses; Perubahan and Evaluasi are the Ketua
   // Departemen's, and a lecturer's own steps are rows of Permohonan.
   const page3 = await api(KADEP, "GET", `/thesis-change-requests/inbox?status=cancelled&search=${nim}&page=3&pageSize=50`);
   check("Perubahan (Kadep): Dibatalkan 120 baris, halaman 3 berisi baris 101-120", page3.status === 200 && page3.json?.meta?.total === 120 && page3.json?.meta?.totalPages === 3 && page3.json?.data?.length === 20, `${page3.status} ${JSON.stringify(page3.json?.meta)} ${page3.json?.data?.length}`);

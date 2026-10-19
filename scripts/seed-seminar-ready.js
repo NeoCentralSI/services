@@ -79,7 +79,7 @@ async function getStudentData(identityNumber) {
         },
       },
       thesisGuidances: {
-        // K7: only completed TA-phase sessions count towards the seminar requirement.
+        // Only completed TA-phase sessions count towards the seminar requirement.
         where: { status: "completed", phase: "research" },
       },
     },

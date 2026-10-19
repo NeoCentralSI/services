@@ -16,7 +16,7 @@ export function findPeriodQuota(academicYearId, client = prisma) {
 }
 
 /**
- * Supervision load per lecturer (K4): every active supervisor relation on a thesis that has
+ * Supervision load per lecturer: every active supervisor relation on a thesis that has
  * not ended, in any phase. An accepted request already holds an active Pembimbing 1 relation,
  * so accepted-but-not-yet-assigned requests are counted through it.
  *

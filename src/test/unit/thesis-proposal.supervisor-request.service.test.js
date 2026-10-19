@@ -1,6 +1,6 @@
 /**
- * Pengajuan Pembimbing (Paket P, P2). Ports the rules covered by the old module's tests
- * (R1–R14 in PROPOSAL_FLOW_RESULT.md) to the new service and the two-tier limits of plan 10.1.
+ * Pengajuan Pembimbing. Ports the rules covered by the old module's tests
+ * to the new service and the two-tier supervision limits.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -125,7 +125,7 @@ beforeEach(() => {
   loads.getApplicableLimits.mockResolvedValue(LIMITS);
 });
 
-describe("title rule (R4)", () => {
+describe("title rule", () => {
   it("rejects titles shorter than 12 characters and topic or KBK labels", () => {
     expect(() => service.assertTitleIsSpecific("Judul", TOPICS)).toThrow(/terlalu pendek/);
     expect(() => service.assertTitleIsSpecific("Machine Learning", TOPICS)).toThrow(/topik atau kelompok keilmuan/);
@@ -134,8 +134,8 @@ describe("title rule (R4)", () => {
   });
 });
 
-describe("submitRequest (R1–R7)", () => {
-  it("needs the course flag of the operational semester (message without SIA, Paket P9)", async () => {
+describe("submitRequest", () => {
+  it("needs the course flag of the operational semester (message without SIA)", async () => {
     flags.getStudentPeriodFlags.mockResolvedValue(null);
     await expect(service.submitRequest("stu-1", {})).rejects.toMatchObject({ statusCode: 403, message: "Data perkuliahan Anda semester ini belum tersedia. Hubungi Admin Departemen." });
     flags.getStudentPeriodFlags.mockResolvedValue({ eligibleResearchMethod: false });
@@ -193,7 +193,7 @@ describe("submitRequest (R1–R7)", () => {
   });
 });
 
-describe("withdrawRequest (R9)", () => {
+describe("withdrawRequest", () => {
   it("a waiting request can be pulled back only after 72 hours", async () => {
     repo.findRequestById.mockResolvedValue(request({ createdAt: new Date(Date.now() - 10 * HOUR) }));
     await expect(service.withdrawRequest("req-1", "stu-1")).rejects.toThrow(/Tunggu 62 jam lagi/);
@@ -224,7 +224,7 @@ describe("withdrawRequest (R9)", () => {
   });
 });
 
-describe("lecturer response (R10, R11)", () => {
+describe("lecturer response", () => {
   it("only the chosen lecturer, only waiting requests", async () => {
     repo.findRequestById.mockResolvedValue(request());
     await expect(service.respondAsLecturer("req-1", "lec-9", { action: "accept" })).rejects.toMatchObject({ statusCode: 403 });
@@ -284,7 +284,7 @@ describe("lecturer response (R10, R11)", () => {
   });
 });
 
-describe("Head of Department decision (R12)", () => {
+describe("Head of Department decision", () => {
   const overQuota = () => request({
     status: "pending_kadep",
     route: "over_quota",
@@ -342,7 +342,7 @@ describe("Head of Department decision (R12)", () => {
   });
 });
 
-describe("recommendations (R13) and detail access (R14)", () => {
+describe("recommendations and detail access", () => {
   const lecturer = (id, group, activeTopics = []) => ({
     id,
     acceptingRequests: true,

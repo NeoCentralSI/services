@@ -4,7 +4,7 @@ import { createHash } from "crypto";
 import { safeUploadName } from "./guidanceFile.helper.js";
 
 /**
- * Where proposal-domain files live (K17: file columns in the owner table).
+ * Where proposal-domain files live (file columns in the owner table).
  * - final proposal of one attempt: uploads/thesis/<thesis_id>/proposal/<assessment_id>/
  *   (served by /uploads/thesis with checkThesisFileAccess);
  * - proposal revision of a thesis repeating its proposal: uploads/thesis/<thesis_id>/proposal/revisions/<revision_id>/

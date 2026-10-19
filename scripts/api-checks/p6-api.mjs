@@ -1,4 +1,4 @@
-// P6 API checks: SIA only reads (10.6), DevTools tab Proposal (10.8), old addresses gone,
+// API checks: SIA only reads, DevTools tab Proposal, old addresses gone,
 // student master data per semester. Mutates central (runs the SIA sync against dummy-SIA);
 // run from app/backend after a clean seed (see README): node scripts/api-checks/p6-api.mjs
 import { readFileSync } from "node:fs";
@@ -96,7 +96,7 @@ await run("3 alamat lama tidak ada lagi", async () => {
     ["GET", "/assessment/metopen/queue"],
     ["GET", "/rubric-metopen/criteria"],
     ["POST", "/thesis-supervisors/co-advisor"],
-    // Removed in the Lanjutan (Pembimbing 2 directly by Kadep had no caller).
+    // Removed later (Pembimbing 2 directly by Kadep had no caller).
     ["POST", "/thesis-supervisors/supervisor-2"],
   ]) {
     const r = await api(KADEP, method, path, method === "POST" ? {} : undefined);

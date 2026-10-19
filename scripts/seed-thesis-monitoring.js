@@ -1,6 +1,5 @@
 /**
- * Test data for the per-semester monitoring page (Paket E3, part G of
- * PANDUAN_UJI_MANUAL_ALUR_TA.md): seminars and defences in every status, one for each
+ * Test data for the per-semester monitoring page: seminars and defences in every status, one for each
  * "Perlu Perhatian" reason, students ready to register, and theses that show what the
  * semester filter means. One `ta_mon_…` account per row, supervised and examined by
  * lecturers that no scenario of the guide logs in as, so the accounts and lecturer loads of
@@ -111,7 +110,7 @@ const DEFENCE_ACCOUNTS = [
     defence: { status: "passed_with_revision", heldInDays: -45, start: "13:30", end: "15:30", score: 78, grade: "B+", revisions: { total: 2, approved: 1 } } }, // Perlu Perhatian: revisi belum selesai
   { key: "sid_revisi_final", fullName: "Uji Mon Sidang Revisi Final", nim: "2211529129", title: "Sistem Informasi Layanan Legalisir Ijazah",
     defence: { status: "passed_with_revision", heldInDays: -38, start: "09:00", end: "11:00", score: 80, grade: "A-", revisionFinalDaysAgo: 12, revisions: { total: 2, approved: 2 } },
-    // Paket E7 (K28): the finalized revision finished the thesis (Selesai on that day).
+    // The finalized revision finished the thesis (Selesai on that day).
     completedDaysAgo: 12 },
   { key: "sid_gagal", fullName: "Uji Mon Sidang Tidak Lulus", nim: "2211529130", title: "Aplikasi Pengelolaan Bank Data Penelitian",
     defence: { status: "failed", heldInDays: -22, start: "13:30", end: "15:30", score: 48, grade: "D" } },
@@ -420,7 +419,7 @@ async function seedAccount(account, ctx) {
 
   // The audit rows the app writes on "Setujui", two days before the registration they led to
   // (or three days ago when the student has not registered yet), so the readiness cards show
-  // when each supervisor approved (Lanjutan Paket E4).
+  // when each supervisor approved.
   const approvers = [
     { lecturerId: p1.id, position: "pembimbing_1" },
     { lecturerId: p2.id, position: "pembimbing_2" },
@@ -473,7 +472,7 @@ function warnWhenOutsideSemester(current) {
 }
 
 async function main() {
-  console.log("🚀 Seeding data uji monitoring per semester (Paket E3)...");
+  console.log("🚀 Seeding data uji monitoring per semester...");
 
   const topic = await prisma.thesisTopic.findFirst({ where: { name: TOPIC_NAME } });
   if (!topic) throw new Error(`Topik "${TOPIC_NAME}" tidak ditemukan. Jalankan scripts/seed-master.js lebih dulu.`);

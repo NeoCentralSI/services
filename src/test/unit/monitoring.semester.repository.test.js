@@ -1,5 +1,5 @@
 /**
- * Paket E3 — the semester filter of the monitoring page means "theses that run in that
+ * The semester filter of the monitoring page means "theses that run in that
  * semester". Every thesis query of the repository takes the filter from
  * semester-scope.helper.js, including the progress report.
  */

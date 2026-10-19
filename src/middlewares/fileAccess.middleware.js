@@ -2,7 +2,7 @@ import prisma from "../config/prisma.js";
 import { ROLES } from "../constants/roles.js";
 
 /**
- * Guard for `/uploads/thesis/<thesisId>/...` (Paket B §2.4).
+ * Guard for `/uploads/thesis/<thesisId>/...`.
  *
  * The access token carries only `{ sub, email }`, so access is decided from the database
  * by `req.user.sub` (the user id, which is also the Student / Lecturer id):
@@ -14,7 +14,7 @@ import { ROLES } from "../constants/roles.js";
  * |                                   | Ketua/Sekretaris Departemen, GKM, Admin (active role)          |
  * | `/<thesisId>/seminar/...`         | the above + seminar examiners + registered seminar audiences   |
  * | `/<thesisId>/defence/...`         | the above + defence examiners (kept from the old guard)        |
- * | `/<thesisId>/proposal/...`        | final proposal (Paket P): owner; ACTIVE supervisors; Koordinator|
+ * | `/<thesisId>/proposal/...`        | final proposal: owner; ACTIVE supervisors; Koordinator|
  * |                                   | Metode Penelitian, Ketua/Sekretaris Departemen, Admin (active) |
  * | anything else                     | 403                                                            |
  *

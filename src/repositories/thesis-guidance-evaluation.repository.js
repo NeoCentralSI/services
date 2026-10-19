@@ -90,7 +90,7 @@ export function countPending(client = prisma) {
  */
 /**
  * The approved "Mengulang Proposal" evaluation a thesis in `proposal` is repeating under, latest
- * first (Lanjutan Paket P: its proposal revisions belong to this cycle), or null.
+ * first (its proposal revisions belong to this cycle), or null.
  */
 export function findRepeatProposalEvaluation(thesisId, client = prisma) {
   if (!thesisId) return Promise.resolve(null);

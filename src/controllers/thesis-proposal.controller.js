@@ -35,7 +35,7 @@ export const withdrawRequest = handle(async (req, res) => {
 // ── Lecturer ─────────────────────────────────────────────────────────────────────────
 /** GET /thesis-proposals/supervisor-requests/inbox */
 export const getLecturerInbox = handle(async (req, res) => ok(res, await requests.getLecturerInbox(req.user.sub)));
-/** GET /thesis-proposals/lecturer-inbox (Paket E5: Tugas Akhir > Permohonan, both kinds of rows) */
+/** GET /thesis-proposals/lecturer-inbox (Tugas Akhir > Permohonan, both kinds of rows) */
 export const listLecturerInbox = handle(async (req, res) => {
   const { kind, status, search, page, pageSize } = req.query;
   const result = await requests.listLecturerInbox(req.user.sub, { kind, status, search, page, pageSize });
@@ -87,7 +87,7 @@ const sendPdf = (res, { buffer, fileName, mimeType = "application/pdf" }) => {
 export const getMyOverview = handle(async (req, res) => ok(res, await student.getStudentProposalOverview(req.user.sub)));
 /** GET /thesis-proposals/supervisor-assignments[?academicYearId=] */
 export const getAssignmentOverview = handle(async (req, res) => ok(res, await assignments.getAssignmentOverview(yearOf(req))));
-// Paket P9 (5): the merged "Penetapan" panel of one semester
+// The merged "Penetapan" panel of one semester
 export const getAssignmentBoardHandler = handle(async (req, res) => ok(res, await getAssignmentBoard(yearOf(req), req.user?.sub ?? null)));
 /** GET /thesis-proposals/supervisor-assignments/preview[?academicYearId=] — PDF of the current cohort */
 export const previewAssignment = handle(async (req, res) => sendPdf(res, await assignments.previewAssignmentPdf(yearOf(req))));
@@ -105,7 +105,7 @@ export const submitFinalProposal = handle(async (req, res) => {
   ok(res, data, data.replaced ? "Proposal final diganti" : "Proposal final diajukan");
 });
 
-// ── Proposal revisi (TA yang mengulang proposal, Lanjutan Paket P) ─────────────────────
+// ── Proposal revisi (TA yang mengulang proposal) ─────────────────────
 /** POST /thesis-proposals/me/proposal-revision — upload (or replace, before review) a revised proposal */
 export const submitProposalRevision = handle(async (req, res) => {
   const data = await proposalRevision.submitProposalRevision(req.user.sub, req.file);

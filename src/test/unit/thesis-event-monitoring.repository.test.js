@@ -1,5 +1,5 @@
 /**
- * Paket E3 — the monitoring page reads the seminar and defence tables with its own queries:
+ * The monitoring page reads the seminar and defence tables with its own queries:
  * `select` only, scoped to the semester, and nothing is written.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

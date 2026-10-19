@@ -1,4 +1,4 @@
-// P3 API checks: Penetapan Pembimbing on a clean seed (see README).
+// API checks: Penetapan Pembimbing on a clean seed (see README).
 // Mutates central. Run from app/backend: node scripts/api-checks/p3-api.mjs
 import { api, check, run, summary, login } from "./lib-api.mjs";
 

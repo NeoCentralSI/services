@@ -3,7 +3,7 @@ import { z } from "zod";
 const name = z.string().trim().min(3, "Nama template minimal 3 karakter.").max(255, "Nama template maksimal 255 karakter.");
 const description = z.preprocess((v) => (v === "" ? null : v), z.string().max(5000, "Deskripsi maksimal 5000 karakter.").nullable().optional());
 
-// Paket P8 (3.1): the shared template form sends an order as on the thesis templates.
+// The shared template form sends an order as on the thesis templates.
 const orderIndex = z.number().int("Urutan harus bilangan bulat.").min(0, "Urutan tidak boleh negatif.").optional();
 
 export const createMilestoneTemplateSchema = z.object({

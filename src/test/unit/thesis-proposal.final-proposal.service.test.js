@@ -1,4 +1,4 @@
-/** Proposal final per attempt and the proposal-phase gate (Paket P, P4). */
+/** Proposal final per attempt and the proposal-phase gate. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { prismaMock, studentRepo, fileHelper, notify, repeat } = vi.hoisted(() => ({
@@ -65,8 +65,8 @@ beforeEach(() => {
   prismaMock.researchMethodAssessment.findUnique.mockResolvedValue(attempt({ proposalFilePath: "uploads/thesis/t-1/proposal/a-2/1-p.pdf" }));
 });
 
-describe("proposal-phase gate (K27)", () => {
-  it("opens after Penetapan Pembimbing, never for a thesis repeating its proposal (E5)", async () => {
+describe("proposal-phase gate", () => {
+  it("opens after Penetapan Pembimbing, never for a thesis repeating its proposal", async () => {
     await expect(getProposalPhaseAccess(thesis())).resolves.toEqual({ open: true, repeating: false });
     await expect(getProposalPhaseAccess(thesis({ supervisorAssignedAt: null }))).resolves.toEqual({ open: false, repeating: false });
     repeat.isRepeatingProposal.mockResolvedValue(true);
@@ -131,7 +131,7 @@ describe("final proposal (10.3)", () => {
     await expect(service.submitFinalProposal("stu-1", pdf)).rejects.toThrow(/Pembimbing 1 aktif/);
   });
 
-  it("state keeps earlier attempts apart from the running one (K2)", async () => {
+  it("state keeps earlier attempts apart from the running one", async () => {
     prismaMock.researchMethodAssessment.findMany.mockResolvedValue([
       attempt({ proposalFilePath: "uploads/thesis/t-1/proposal/a-2/1-p.pdf" }),
       attempt({ id: "a-1", academicYearId: "ay-1", proposalFilePath: "uploads/thesis/t-1/proposal/a-1/x.pdf", isFinalized: true, finalScore: 47, result: "failed", academicYear: { id: "ay-1", semester: "genap", year: "2025/2026" } }),

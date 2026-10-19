@@ -1,5 +1,5 @@
 /**
- * Rules of the Seminar Hasil and Sidang monitoring tabs (Paket E3), for one seminar or
+ * Rules of the Seminar Hasil and Sidang monitoring tabs, for one seminar or
  * defence row at a time: the summary cards, "Jadwal Mendatang" and "Perlu Perhatian".
  * Pure; the thresholds and labels are in constants/thesis-event-monitoring.js.
  */

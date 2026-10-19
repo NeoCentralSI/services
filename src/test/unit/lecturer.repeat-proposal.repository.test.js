@@ -1,5 +1,5 @@
 /**
- * E5 — a thesis sent back to `proposal` by an approved guidance evaluation stays visible to
+ * A thesis sent back to `proposal` by an approved guidance evaluation stays visible to
  * its supervisors: in "Mahasiswa Bimbingan" (filters Aktif and Semua) and in the detail.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,7 +46,7 @@ describe("findMyStudents", () => {
 });
 
 describe("findThesisDetailForLecturer", () => {
-  it("lets a supervisor open any thesis they supervise, proposal phase included (K27)", async () => {
+  it("lets a supervisor open any thesis they supervise, proposal phase included", async () => {
     await repo.findThesisDetailForLecturer("thesis-1", "lec-1");
     const where = prismaMock.thesisSupervisors.findFirst.mock.calls[0][0].where;
     expect(where).toEqual({ thesisId: "thesis-1", lecturerId: "lec-1" });

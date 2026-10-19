@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Paket P9 (5): the "Penetapan" panel merges the cohort, the Kadep queue (department, over quota)
+ * The "Penetapan" panel merges the cohort, the Kadep queue (department, over quota)
  * and the Pembimbing 2 requests into one row per student, waiting first.
  */
 const { db, overview, supervisor2, loads } = vi.hoisted(() => ({

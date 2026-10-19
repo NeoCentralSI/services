@@ -1,4 +1,4 @@
-// Lanjutan Paket P: the way back to research for a thesis repeating its proposal (E5).
+// The way back to research for a thesis repeating its proposal.
 // Mengulang proposal → unggah → minta revisi → unggah lagi → setujui → Penelitian with a new
 // start date. Mutates central; run from app/backend after a clean seed (see README):
 //   node scripts/api-checks/p7-api.mjs
@@ -6,7 +6,7 @@ import { api, check, run, summary, login } from "./lib-api.mjs";
 
 const prisma = (await import(process.cwd() + "/src/config/prisma.js")).default;
 
-const STUDENT = "ta_eval_tindak_lanjut"; // P1 Husnil, P2 Afriyanti, extension already over
+const STUDENT = "ta_eval_tindak_lanjut"; // Pembimbing 1 Husnil, Pembimbing 2 Afriyanti, extension already over
 const HUSNIL = "pembimbing_si", AFRI = "sekdep_si", ULLYA = "gkm_si", AINA = "penguji_si", KADEP = "kadep_si";
 const pdf = (text) => new Blob([Buffer.from(`%PDF-1.7\n${text}\n%%EOF`)], { type: "application/pdf" });
 const form = (blob, name) => {

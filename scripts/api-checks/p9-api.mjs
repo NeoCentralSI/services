@@ -1,7 +1,7 @@
-// P9 API checks (Paket P9): the merged Penetapan panel of a semester (5), the Pembimbing 2 request
-// to a full lecturer (3) as a row of Permohonan (4) and of the Penetapan panel, the semester
-// flags set by the Admin and kept by the SIA sync until "Ikuti Data SIA" (8, K36), the student
-// texts without technical terms (1.4), the lecturer catalog with offered topics (2), and the
+// API checks: the merged Penetapan panel of a semester, the Pembimbing 2 request
+// to a full lecturer as a row of Permohonan and of the Penetapan panel, the semester
+// flags set by the Admin and kept by the SIA sync until "Ikuti Data SIA", the student
+// texts without technical terms, the lecturer catalog with offered topics, and the
 // score parts of a final attempt, the semester limits set by the Head of Department only, and the bulk
 // import of semester flags (Impor Keikutsertaan). Mutates central; run from app/backend after a clean seed:
 //   node scripts/api-checks/p9-api.mjs
@@ -28,7 +28,7 @@ await run("0 persiapan", async () => {
   check("periode berjalan Ganjil 2026/2027", current?.semester === "ganjil" && current?.year === "2026/2027", [current?.year, current?.semester]);
 });
 
-await run("1 Penetapan: satu tabel per semester (butir 5)", async () => {
+await run("1 Penetapan: satu tabel per semester", async () => {
   const board = await api(KADEP, "GET", "/thesis-proposals/supervisor-assignments/board");
   const rows = board.data?.rows ?? [];
   const ids = new Set(rows.map((r) => r.studentId));
@@ -44,7 +44,7 @@ await run("1 Penetapan: satu tabel per semester (butir 5)", async () => {
     board.data?.counts?.cohort === 8 && board.data?.newCount === 2 && rows.filter((r) => r.assignment?.assigned).every((r) => r.assignment.version === 1) && rows.filter((r) => r.assignment?.inCohort && !r.assignment.assigned).length === 2,
     { cohort: board.data?.counts?.cohort, newCount: board.data?.newCount, versions: [...new Set(rows.map((r) => r.assignment?.version))] });
   const dinilai = byNim(rows, NIM.siapDinilai);
-  check("baris berisi pembimbing (P1 dan P2), beban, dan proposal final", dinilai?.supervisors?.length === 2 && dinilai.supervisors.every((s) => s.load) && Boolean(dinilai?.proposal?.url), dinilai && { sup: dinilai.supervisors.map((s) => s.role), proposal: dinilai.proposal?.fileName });
+  check("baris berisi pembimbing, beban, dan proposal final", dinilai?.supervisors?.length === 2 && dinilai.supervisors.every((s) => s.load) && Boolean(dinilai?.proposal?.url), dinilai && { sup: dinilai.supervisors.map((s) => s.role), proposal: dinilai.proposal?.fileName });
 
   const sekdep = await api(SEKDEP, "GET", "/thesis-proposals/supervisor-assignments/board");
   const admin = await api(ADMIN, "GET", "/thesis-proposals/supervisor-assignments/board");
@@ -54,7 +54,7 @@ await run("1 Penetapan: satu tabel per semester (butir 5)", async () => {
   check("semester lampau dapat dipilih (baca saja: isOperational false)", past.status === 200 && past.data?.academicYear?.isOperational === false, { status: past.status, rows: past.data?.rows?.length });
 });
 
-await run("2 Pembimbing 2 ke dosen penuh: Permohonan dan Penetapan (butir 3, 4)", async () => {
+await run("2 Pembimbing 2 ke dosen penuh: Permohonan dan Penetapan", async () => {
   const student = U("ditetapkan");
   const available = (await api(student, "GET", "/thesisGuidance/student/available-supervisors-2")).data ?? [];
   const husnilId = profileOf(HUSNIL);
@@ -88,12 +88,12 @@ await run("2 Pembimbing 2 ke dosen penuh: Permohonan dan Penetapan (butir 3, 4)"
   check("Kadep menyetujui Pembimbing 2", decided.status === 200, `${decided.status} ${decided.json?.message}`);
   const board2 = (await api(KADEP, "GET", "/thesis-proposals/supervisor-assignments/board")).data;
   const done = byNim(board2?.rows, NIM.ditetapkan);
-  check("baris kembali Disetujui dengan P1 dan P2; penetapan perlu terbit ulang",
+  check("baris kembali Disetujui dengan Pembimbing 1 dan Pembimbing 2; penetapan perlu terbit ulang",
     done?.submission === "approved" && done?.supervisors?.map((s) => s.role).join() === "Pembimbing 1,Pembimbing 2" && board2?.needsIssue === true,
     done && { sub: done.submission, sup: done.supervisors.map((s) => s.role), needsIssue: board2?.needsIssue });
 });
 
-await run("3 penanda per semester oleh Admin (butir 8, K36)", async () => {
+await run("3 penanda per semester oleh Admin", async () => {
   const user = await prisma.user.findFirst({ where: { identityNumber: NIM.layak }, select: { id: true } });
   const detail = await api(ADMIN, "GET", `/adminfeatures/students/${user.id}`);
   const years = await prisma.academicYear.count();
@@ -135,7 +135,7 @@ await run("3 penanda per semester oleh Admin (butir 8, K36)", async () => {
   check("perubahan Admin dan Ikuti Data SIA tercatat di log audit", audit >= 4, audit);
 });
 
-await run("4 katalog dosen dan nilai mahasiswa (butir 2)", async () => {
+await run("4 katalog dosen dan nilai mahasiswa", async () => {
   const catalog = (await api(U("layak"), "GET", "/thesis-proposals/catalog")).data ?? [];
   // The seed's topics are department topics (no lecturer), so the catalog shows the topics of the
   // theses a lecturer supervises until the lecturer offers topics of their own.
@@ -151,7 +151,7 @@ await run("4 katalog dosen dan nilai mahasiswa (butir 2)", async () => {
   check("percobaan belum final: nilai bagian tidak dikirim", pending && pending.supervisorScore === null && pending.coordinatorScore === null, pending && [pending.supervisorScore, pending.coordinatorScore]);
 });
 
-await run("5 batas semester di Penetapan → Beban Dosen (K30, keputusan P9: Kadep saja)", async () => {
+await run("5 batas semester di Penetapan → Beban Dosen (Kadep saja)", async () => {
   const sekdepSet = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${current.id}`, { softLimit: 6, hardLimit: 12 });
   const sekdepRead = await api(SEKDEP, "GET", `/supervision-quotas?academicYearId=${current.id}`);
   const general = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 8, hardLimit: 10 });
@@ -167,7 +167,7 @@ await run("5 batas semester di Penetapan → Beban Dosen (K30, keputusan P9: Kad
   check("Kembalikan ke Batas Umum: batas umum 8/10 berlaku lagi", clear.status === 200 && back?.period === null && back?.applicable?.hardLimit === 10 && back?.applicable?.source === "general", back?.applicable);
 });
 
-await run("6 Impor Keikutsertaan (butir 8, K36: impor massal)", async () => {
+await run("6 Impor Keikutsertaan (impor massal)", async () => {
   const XLSX = await import("xlsx");
   const sheet = (rows) => {
     const book = XLSX.utils.book_new();

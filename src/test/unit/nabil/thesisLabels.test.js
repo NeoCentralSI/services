@@ -1,5 +1,5 @@
 /**
- * §2.2b Paket A: every enum value in the Prisma schema has an Indonesian label, so a new
+ * Every enum value in the Prisma schema has an Indonesian label, so a new
  * value cannot reach notifications, PDFs/exports or error messages without one.
  * The enum values are read from the generated client's DMMF (i.e. from schema.prisma).
  */
@@ -40,15 +40,15 @@ describe("label bahasa Indonesia untuk enum TA", () => {
     ["ThesisLifecycleStatus", THESIS_STATUS_LABELS],
     ["ThesisPhase", THESIS_PHASE_LABELS],
     ["ThesisTerminationReason", THESIS_TERMINATION_REASON_LABELS],
-    // Paket B: status sesi bimbingan, pihak pembatal, dan status milestone.
+    // Status sesi bimbingan, pihak pembatal, dan status milestone.
     ["GuidanceStatus", GUIDANCE_STATUS_LABELS],
     ["GuidanceActor", GUIDANCE_ACTOR_LABELS],
     ["MilestoneStatus", MILESTONE_STATUS_LABELS],
-    // Paket E (E4): Pengajuan Perubahan Tugas Akhir.
+    // Pengajuan Perubahan Tugas Akhir.
     ["ThesisChangeRequestType", CHANGE_REQUEST_TYPE_LABELS],
     ["ThesisChangeRequestStatus", CHANGE_REQUEST_STATUS_LABELS],
     ["ThesisSupervisorPosition", SUPERVISOR_POSITION_LABELS],
-    // Paket E (E5): Evaluasi Bimbingan.
+    // Evaluasi Bimbingan.
     ["GuidanceEvaluationType", GUIDANCE_EVALUATION_TYPE_LABELS],
     ["GuidanceEvaluationRecommendation", GUIDANCE_EVALUATION_RECOMMENDATION_LABELS],
     ["GuidanceEvaluationStatus", GUIDANCE_EVALUATION_STATUS_LABELS],
@@ -61,7 +61,7 @@ describe("label bahasa Indonesia untuk enum TA", () => {
     }
   });
 
-  it("langkah pengajuan perubahan: setiap ThesisChangeApprovalRole dan langkah Kadep punya label (K10)", () => {
+  it("langkah pengajuan perubahan: setiap ThesisChangeApprovalRole dan langkah Kadep punya label", () => {
     expect(Object.keys(CHANGE_REQUEST_STEP_LABELS).sort()).toEqual([...enumValues("ThesisChangeApprovalRole"), "kadep"].sort());
     expect(CHANGE_REQUEST_STEP_LABELS).toMatchObject({
       previous_supervisor: "Pembimbing Sebelumnya",
@@ -71,7 +71,7 @@ describe("label bahasa Indonesia untuk enum TA", () => {
     expect(CHANGE_REQUEST_TYPE_LABELS).toEqual({ title: "Judul", supervisor: "Pembimbing", both: "Judul dan Pembimbing" });
   });
 
-  it("evaluasi bimbingan: label keputusan dan empat butir observasi sesuai formulir", () => {
+  it("evaluasi bimbingan: label keputusan dan empat observasi sesuai formulir", () => {
     expect(GUIDANCE_EVALUATION_RECOMMENDATION_LABELS).toEqual({
       continue: "Lanjut Bimbingan",
       extend_1_month: "Peringatan dan Perpanjangan 1 Bulan",

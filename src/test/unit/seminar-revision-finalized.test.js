@@ -1,5 +1,5 @@
 /**
- * Lanjutan Paket E7: once the seminar revision is finalized, its items cannot be edited,
+ * Once the seminar revision is finalized, its items cannot be edited,
  * submitted, approved, or added to; the supervisor undoes the finalization first. The revision
  * lookup now carries the finalization, so the guard in updateRevision applies.
  */

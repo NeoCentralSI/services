@@ -204,7 +204,7 @@ export const validateMilestoneSchema = z.object({
 // ============================================
 
 export const requestRevisionSchema = z.object({
-  // K20: revision notes are mandatory (Indonesian message, also when the key is missing)
+  // Revision notes are mandatory (Indonesian message, also when the key is missing)
   revisionNotes: z.preprocess(
     (v) => (v === undefined || v === null ? "" : v),
     z.string().trim().min(1, "Catatan revisi wajib diisi").max(5000, "Catatan revisi maksimal 5000 karakter"),

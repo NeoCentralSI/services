@@ -1,4 +1,4 @@
-// P1 API checks: the changed surfaces keep working on the new schema.
+// API checks: the surfaces that changed with the proposal schema keep working.
 import { api, check, run, summary, find, ids, login } from "./lib-api.mjs";
 
 await run("auth", async () => {
@@ -44,7 +44,7 @@ await run("paket E tetap jalan", async () => {
   const mon = await api("kadep_si", "GET", "/thesisGuidance/monitoring/dashboard");
   check("monitoring terbaca", [200].includes(mon.status), mon.status);
   const ov = await api("ta_lancar", "GET", "/thesisGuidance/student/my-thesis");
-  check("Overview/TA mahasiswa Paket E terbaca", ov.status === 200, ov.status);
+  check("Overview/TA mahasiswa terbaca", ov.status === 200, ov.status);
 });
 
 process.exit(summary() ? 1 : 0);

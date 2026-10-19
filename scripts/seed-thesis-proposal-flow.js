@@ -1,6 +1,6 @@
 /**
- * Test data for the thesis proposal flow (Paket P): one student account per proposal state,
- * so every scenario in PANDUAN_UJI_MANUAL_ALUR_PROPOSAL.md can be run on its own.
+ * Test data for the thesis proposal flow: one student account per proposal state,
+ * so every manual-test scenario of the proposal flow can be run on its own.
  *
  * Run it after the other seeders (from app/backend):
  *   node scripts/seed-master.js
@@ -302,7 +302,7 @@ const CPMKS = [
   { code: "CPMK-03", description: "Mampu menyajikan rencana penelitian secara tertulis dan lisan" },
 ];
 // Laid out like the SIA score template (export: Presentasi, Proposal konten, Proposal
-// struktur, Kemampuan merespon): supervisor 20 + 40 + 15 = 75; coordinator 25 (10.2: total 100).
+// struktur, Kemampuan merespon): supervisor 20 + 40 + 15 = 75; coordinator 25 (total 100).
 const SUPERVISOR_CRITERIA = [
   { cpmk: "CPMK-01", name: "Presentasi rencana penelitian", maxScore: 20 },
   { cpmk: "CPMK-02", name: "Konten proposal (latar belakang, pustaka, metodologi)", maxScore: 40 },
@@ -541,7 +541,7 @@ async function createBatch({ academicYear, theses, kadep, generatedAt }) {
 }
 
 async function main() {
-  console.log("🚀 Seeding alur proposal (Paket P)...");
+  console.log("🚀 Seeding alur proposal...");
   if (!fs.existsSync(SAMPLE_PDF)) throw new Error(`PDF contoh tidak ditemukan: ${SAMPLE_PDF}`);
   const samplePdf = fs.readFileSync(SAMPLE_PDF);
 
@@ -760,7 +760,7 @@ async function main() {
     }
   }
 
-  // Proposal-phase guidance (drafts travel as session attachments, K32) and milestones.
+  // Proposal-phase guidance (drafts travel as session attachments) and milestones.
   for (const { thesis, account } of thesisByKey.values()) {
     const supervisorId = lecturers[account.thesis.p1].id;
     for (const [index, plan] of (account.guidances ?? []).entries()) {

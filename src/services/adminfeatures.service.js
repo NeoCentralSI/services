@@ -1088,7 +1088,7 @@ const SEMESTER_FLAGS_SELECT = {
 	capturedAt: true,
 };
 
-/** SIA flags of one period for the student master data (Paket P, plan 10.6). */
+/** SIA flags of one period for the student master data. */
 function toSemesterFlags(snapshot, academicYear) {
 	if (!academicYear) return null;
 	return {
@@ -1097,7 +1097,7 @@ function toSemesterFlags(snapshot, academicYear) {
 		takingResearchMethod: snapshot?.eligibleResearchMethod ?? null,
 		takingThesisCourse: snapshot?.takingThesisCourse ?? null,
 		source: snapshot?.thesisCourseSource ?? snapshot?.eligibilitySource ?? null,
-		// Paket P9 (K36): each flag has its own source (sia, admin, devtools); "admin" is kept by the sync.
+		// Each flag has its own source (sia, admin, devtools); "admin" is kept by the sync.
 		researchMethodSource: snapshot?.eligibilitySource ?? null,
 		thesisCourseSource: snapshot?.thesisCourseSource ?? null,
 		capturedAt: snapshot?.capturedAt ?? null,
@@ -1105,7 +1105,7 @@ function toSemesterFlags(snapshot, academicYear) {
 }
 
 /**
- * "Program" filter of the student list (Paket P, plan 10.6): the SIA flags of the operational
+ * "Program" filter of the student list: the SIA flags of the operational
  * period — taking Metode Penelitian and/or Tugas Akhir.
  */
 const NOT_TRUE = [false, null];
@@ -1723,7 +1723,7 @@ export async function getStudentDetail(userId) {
 			researchMethodCompleted: user.student.researchMethodCompleted,
 			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
-			// Paket P9 (K36): every semester, so the Admin can set a flag where SIA reported none.
+			// Every semester, so the Admin can set a flag where SIA reported none.
 			semesterFlags: allYears.map((year) => toSemesterFlags(snapshotsByYear.get(year.id), year)),
 		},
 		roles: user.userHasRoles.map((ur) => ({
@@ -1957,7 +1957,7 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 		];
 	}
 	if (status) {
-		// K15 enum; unknown values match nothing.
+		// Status enum; unknown values match nothing.
 		where.status = Object.values(THESIS_STATUS).includes(status) ? status : { in: [] };
 	}
 
@@ -1988,7 +1988,7 @@ export async function getThesisById(id) {
 	return thesis;
 }
 
-/** Validate an admin-supplied thesis status (K15 enum). Throws 400 for unknown values. */
+/** Validate an admin-supplied thesis status (an enum value). Throws 400 for unknown values. */
 function resolveThesisStatusInput(status) {
 	if (status === undefined || status === null || status === "") return null;
 	if (!Object.values(THESIS_STATUS).includes(status)) {
@@ -2015,8 +2015,8 @@ async function supervisorsToPembimbing(supervisors) {
 }
 
 /**
- * K21: manual thesis creation follows the same rules as the data master (one open thesis
- * per student, K15 statuses, P1 required). Not mounted on a route today;
+ * Manual thesis creation follows the same rules as the data master (one open thesis
+ * per student, the status enum, Pembimbing 1 required). Not mounted on a route today;
  * it delegates so a future route cannot bypass the rules.
  */
 export async function createThesisManually(payload = {}) {
@@ -2043,7 +2043,7 @@ export async function createThesisManually(payload = {}) {
 	return prisma.thesis.findUnique({ where: { id: thesis.id }, include: thesisInclude });
 }
 
-/** K21: see createThesisManually. */
+/** See createThesisManually. */
 export async function updateThesisManually(id, payload = {}) {
 	const { title, status, academicYearId, thesisTopicId, startDate, actorUserId = null } = payload;
 	await updateThesisMasterData(
@@ -2094,19 +2094,19 @@ export async function getSupervisorRoles() {
 }
 
 export async function getThesisStatuses() {
-	// K15: statuses are an enum on thesis.status (no lookup table).
+	// Statuses are an enum on thesis.status (no lookup table).
 	return Object.values(THESIS_STATUS).map((status) => ({ id: status, name: status }));
 }
 
 /**
- * Get count of failed theses (status `failed`, K15)
+ * Get count of failed theses (status `failed`)
  */
 export async function getFailedThesesCount() {
 	return prisma.thesis.count({ where: { status: THESIS_STATUS.FAILED } });
 }
 
 /**
- * Get list of failed theses (status `failed`, K15) with student info
+ * Get list of failed theses (status `failed`) with student info
  */
 export async function getFailedTheses() {
 	return prisma.thesis.findMany({

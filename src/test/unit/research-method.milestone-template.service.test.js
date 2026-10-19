@@ -1,5 +1,5 @@
 /**
- * Paket P8 (3.1): the proposal templates are managed with the shared template panel of the thesis
+ * The proposal templates are managed with the shared template panel of the thesis
  * templates, which also sends an order; without one a new template goes after the last one.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

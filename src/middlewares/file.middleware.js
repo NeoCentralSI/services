@@ -27,7 +27,7 @@ function excelFileFilter(req, file, cb) {
 	cb(null, true);
 }
 
-/** Paket P9: a spreadsheet import, .xlsx, .xls or .csv. */
+/** A spreadsheet import, .xlsx, .xls or .csv. */
 function spreadsheetFileFilter(req, file, cb) {
 	const isSpreadsheet = /\.(xlsx|xls|csv)$/i.test(file.originalname || "");
 	if (!isSpreadsheet) {
@@ -87,7 +87,7 @@ const guideUpload = multer({ storage, fileFilter: guideFileFilter, limits: { fil
 
 export const uploadCsv = upload.single("file");
 export const uploadExcelFile = excelUpload.single("file");
-/** Paket P9: one .xlsx/.xls/.csv file in `file` (Impor Keikutsertaan). */
+/** One .xlsx/.xls/.csv file in `file` (Impor Keikutsertaan). */
 export const uploadSpreadsheetFile = spreadsheetUpload.single("file");
 /** Research Method attendance: `file` (1) and/or `files` (1–2) multipart fields. */
 export const uploadAttendanceFiles = excelUpload.fields([

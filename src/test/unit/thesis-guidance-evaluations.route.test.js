@@ -43,8 +43,8 @@ describe("thesis guidance evaluation routes", () => {
   it("lets Pembimbing 1 fill, the Ketua Departemen decide, and the others read", () => {
     expect(allowedRoles("/", "post")).toEqual(["Pembimbing 1"]);
     expect(allowedRoles("/:id/decision", "post")).toEqual(["Ketua Departemen"]);
-    // Paket E5 (3.4): the Evaluasi page is the Ketua Departemen's decision table only; Paket E6
-    // removed the old /department and /lecturer lists.
+    // The Evaluasi page is the Ketua Departemen's decision table only; the old
+    // /department and /lecturer lists are gone.
     expect(allowedRoles("/inbox", "get")).toEqual(["Ketua Departemen"]);
     const paths = router.stack.filter((layer) => layer.route).map((layer) => layer.route.path);
     expect(paths).not.toContain("/department");

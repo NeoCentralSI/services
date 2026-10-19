@@ -7,7 +7,7 @@ import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../auditLog.service.js";
 import { ACADEMIC_FLAG_SOURCE, setStudentPeriodFlags } from "./eligibility.service.js";
 
 /**
- * Paket P9 (K36): bulk import of the semester flags "Mengambil Metode Penelitian" and "Mengambil
+ * Bulk import of the semester flags "Mengambil Metode Penelitian" and "Mengambil
  * Tugas Akhir" by the Admin (Data Master → Mahasiswa → Impor Keikutsertaan). Same result as the
  * one-by-one edit: source `admin`, kept by the SIA sync. A preview stores nothing; applying writes
  * only the rows that change, so importing the same file twice changes nothing the second time.

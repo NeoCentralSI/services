@@ -1,5 +1,5 @@
 /**
- * Thesis proposal domain (Paket P): Pengajuan Pembimbing and Penetapan Pembimbing.
+ * Thesis proposal domain: Pengajuan Pembimbing and Penetapan Pembimbing.
  * Values of `ThesisSupervisorRequestStatus` and `SupervisorRequestRoute`; labels for users are
  * in `thesisLabels.js`.
  */
@@ -34,7 +34,7 @@ export const ACTIVE_REQUEST_STATUSES = Object.freeze([
   S.ASSIGNED,
 ]);
 /**
- * Paket E5: order of the "Pengajuan Pembimbing" rows of Tugas Akhir > Permohonan: what waits
+ * Order of the "Pengajuan Pembimbing" rows of Tugas Akhir > Permohonan: what waits
  * for the lecturer, then what waits for the Head of Department (or the student's revision),
  * then the accepted ones, then the closed ones.
  */
@@ -53,8 +53,8 @@ export const SUPERVISOR_REQUEST_STATUS_PRIORITY = Object.freeze({
   [S.CLOSED]: 3,
 });
 
-/** Paket E5 (3.1): the two kinds of rows of Tugas Akhir > Permohonan (order in `lecturer-inbox.js`). */
-// Paket P9 (4): the Pembimbing 2 requests of the proposal phase are a third kind of row.
+/** The two kinds of rows of Tugas Akhir > Permohonan (order in `lecturer-inbox.js`). */
+// The Pembimbing 2 requests of the proposal phase are a third kind of row.
 export const LECTURER_INBOX_KIND = Object.freeze({
   SUPERVISOR_REQUEST: "supervisor_request",
   CHANGE_REQUEST: "change_request",

@@ -1,6 +1,6 @@
 /**
- * Test data for the thesis research flow (Paket E): one student account per starting
- * state, so every manual-test scenario in PANDUAN_UJI_MANUAL_ALUR_TA.md can be run on its
+ * Test data for the thesis research flow: one student account per starting
+ * state, so every manual-test scenario of the thesis flow can be run on its
  * own without editing the database.
  *
  * Run it after the four base seeders (from app/backend):
@@ -9,7 +9,7 @@
  *   node scripts/seed-milestone-templates.js
  *   node scripts/seed-guidance-milestone.js
  *   node scripts/seed-thesis-research-flow.js
- *   node scripts/seed-thesis-monitoring.js   (Paket E3: seminar, sidang, and semester data)
+ *   node scripts/seed-thesis-monitoring.js   (seminar, sidang, and semester data)
  *
  * Dates are relative to the day the seeder runs, so "7 months ago" stays 7 months ago.
  * Idempotent: an account that already has a thesis is left as it is. Nothing is deleted.
@@ -709,7 +709,7 @@ async function seedAccount(account, ctx) {
 }
 
 async function main() {
-  console.log("🚀 Seeding data uji alur tugas akhir (Paket E)...");
+  console.log("🚀 Seeding data uji alur tugas akhir...");
 
   const academicYear = await prisma.academicYear.findFirst({ where: { isActive: true } });
   if (!academicYear) throw new Error("Tidak ada tahun ajaran aktif. Jalankan scripts/seed-master.js lebih dulu.");

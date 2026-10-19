@@ -1,7 +1,7 @@
 import { BadRequestError } from "../utils/errors.js";
 
 /**
- * Paket P9 (rule of 19 Oktober 2026): before the real SIA API exists, SIA_BASE_URL on
+ * Before the real SIA API exists, SIA_BASE_URL on
  * neocentral.dev is empty, and nothing reads SIA (the scheduled sync, "Sinkronkan data SIA",
  * "Ikuti Data SIA"), so the dummy SIA never overwrites what the Admin entered by hand.
  *

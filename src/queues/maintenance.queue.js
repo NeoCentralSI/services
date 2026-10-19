@@ -121,7 +121,7 @@ export async function scheduleSupervisorAssignmentReminder() {
   if (ok) console.log(`🗓️  Scheduled repeatable supervisor-assignment-reminder job with cron: "${pattern}" tz="${tz}"`);
 }
 
-/** Naik ke Penelitian (K13): half an hour after each SIA sync slot. */
+/** Naik ke Penelitian: half an hour after each SIA sync slot. */
 export async function scheduleResearchMethodPromotion() {
   const pattern = process.env.RESEARCH_METHOD_PROMOTION_CRON || "30 */6 * * *";
   const tz = process.env.RESEARCH_METHOD_PROMOTION_TZ || "Asia/Jakarta";

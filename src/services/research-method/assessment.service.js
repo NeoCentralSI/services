@@ -11,7 +11,7 @@ import { createNotificationEventForUsers } from "../notification.service.js";
 import { assertAttendanceAllowsScoring, getAttendanceForAttempt } from "./attendance.service.js";
 
 /**
- * Penilaian Proposal (plan 10.2, K9): the supervisor (Pembimbing 1, or Pembimbing 2 as a
+ * Penilaian Proposal: the supervisor (Pembimbing 1, or Pembimbing 2 as a
  * backup, no co-sign) and the Research Method coordinator each score their own criteria of the
  * period. A party's weight is the sum of its criteria's max scores. Each score is locked when
  * sent (R23); when both are in, the final score is their sum and the attempt is finalized:
@@ -155,7 +155,7 @@ async function notifyProgress(attempt, party, finalized) {
 }
 
 /**
- * Send one assessor's score. Supervisor: an active Pembimbing 1 or 2 of the thesis (K9).
+ * Send one assessor's score. Supervisor: an active Pembimbing 1 or 2 of the thesis.
  * Coordinator: the role is checked by the route.
  */
 export async function submitScore(assessmentId, party, userId, scores) {

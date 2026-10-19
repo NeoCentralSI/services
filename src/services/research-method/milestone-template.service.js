@@ -4,8 +4,8 @@ import * as milestoneRepo from "../../repositories/thesisGuidance/milestone.repo
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 
 /**
- * General proposal-phase milestone templates (K18): no topic, managed by the Sekretaris
- * Departemen only (Lanjutan P8) in Kelola > Metode Penelitian. Students apply them while their thesis is in the
+ * General proposal-phase milestone templates: no topic, managed by the Sekretaris
+ * Departemen only in Kelola > Metode Penelitian. Students apply them while their thesis is in the
  * proposal phase (milestone service, same engine as the thesis phase).
  */
 const PHASE = THESIS_PHASE.PROPOSAL;

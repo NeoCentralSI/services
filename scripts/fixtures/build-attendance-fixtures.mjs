@@ -1,5 +1,5 @@
 /**
- * Builds the sample attendance files for the Research Method attendance import (Paket P).
+ * Builds the sample attendance files for the Research Method attendance import.
  * Same layout as the class report exported by the attendance application: metadata lines
  * (Matakuliah, Kelas, Semester, Dosen), then a header row with "NIM / BP", "Hadir" and
  * "Persentase Hadir". Rows match the accounts of scripts/seed-thesis-proposal-flow.js.

@@ -22,7 +22,7 @@ const importThesisRowSchema = z.object({
     "Nama": importCellSchema,
 }).passthrough();
 
-// K21: a stopped thesis needs a reason (validated again in thesisLifecycle.service).
+// A stopped thesis needs a reason (validated again in thesisLifecycle.service).
 const terminationReasonSchema = z.enum(["supervision_evaluation", "withdrawn", "dropped_out", "other"]);
 const terminationNoteSchema = z.string().trim().max(2000, "Catatan penghentian maksimal 2000 karakter").nullable().optional();
 
@@ -32,7 +32,7 @@ export const createThesisSchema = z.object({
     thesisTopicId: z.string().uuid().nullable().optional(),
     pembimbing1: z.string().uuid({ message: "Pembimbing 1 wajib diisi" }),
     pembimbing2: z.union([z.string().uuid(), z.literal("none")]).nullable().optional(),
-    // K15: explicit thesis status; defaults to research (running TA) in the service.
+    // Explicit thesis status; defaults to research (running TA) in the service.
     status: thesisLifecycleStatusSchema.optional(),
     terminationReason: terminationReasonSchema.optional(),
     terminationNote: terminationNoteSchema,

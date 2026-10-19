@@ -1,5 +1,5 @@
 /**
- * Paket E5 (and the Lanjutan of E4): Permohonan, Perubahan (Kadep) and Evaluasi (Kadep) are
+ * Permohonan, Perubahan (Kadep) and Evaluasi (Kadep) are
  * sorted by "what needs attention" on the server, "Semua" by default, and paged by the
  * database past the first hundred rows. The Monitoring Seminar Hasil and Sidang tables use the
  * status priority of the seminar and defence modules.
@@ -269,7 +269,7 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
 
   it("everything waiting for the viewer first (both kinds, newest first), then each level; past 100 rows", async () => {
     changeRepo.findIdsAtLecturerStep.mockResolvedValue(["mine"]);
-    // Paket E6: not the requests the lecturer submitted (their own step was approved on submission).
+    // Not the requests the lecturer submitted (their own step was approved on submission).
     const involved = { approvals: { some: { lecturerId: "lect-1" } }, NOT: { requestedByUserId: "lect-1" } };
     const mine = { id: { in: ["mine"] } };
     const awaitingChange = [changeRequest("mine", "pending", [step("lect-1", "pending")], 15)];
@@ -310,7 +310,7 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
     expect(requestRepo.findRequestPage.mock.calls.at(-1)[0].AND[0]).toEqual({ OR: [{ lecturerId: "lect-1" }, { redirectedTo: "lect-1" }] });
   });
 
-  it("the Jenis filter (Paket E6: four values) keeps one kind and the Status filter one status", async () => {
+  it("the Jenis filter (four values) keeps one kind and the Status filter one status", async () => {
     wire({ requestsByStatus: [supervisorRequest("req", "pending", 3)], changesByStatus: [] });
     for (const [kind, requestType] of [["change_title", "title"], ["change_supervisor", "supervisor"], ["change_both", "both"]]) {
       requestRepo.countRequests.mockClear();
@@ -333,7 +333,7 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
     expect(changeRepo.findPage).not.toHaveBeenCalled();
   });
 
-  it("Paket P9 (4): the Pembimbing 2 requests are a third kind, first, in the same window and count", async () => {
+  it("The Pembimbing 2 requests are a third kind, first, in the same window and count", async () => {
     const s2 = (id, day, name) => ({ requestId: id, thesisId: `t-${id}`, studentId: `s-${id}`, studentName: name, studentNim: `22${id}`, thesisTitle: `Judul ${id}`, requestedAt: at(day) });
     supervisor2.getSupervisor2RequestsService.mockResolvedValue([s2("p2-old", 2, "Budi"), s2("p2-new", 4, "Sari")]);
     wire({ requestsByStatus: range(12, (i) => ({ ...supervisorRequest(`req-${i}`, "accepted", 3), createdAt: new Date(at(3).getTime() - i * 60_000) })), changesByStatus: [] });

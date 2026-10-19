@@ -37,7 +37,7 @@ export async function myStudents(req, res, next) {
 			roles = SUPERVISOR_ROLES;
 		}
 
-		// K21: ?status=active (default) | proposal (K27) | completed | failed | all
+		// ?status=active (default) | proposal | completed | failed | all
 		const filter = ["active", "proposal", "completed", "failed", "all"].includes(req.query?.status) ? req.query.status : "active";
 		const result = await getMyStudentsService(req.user.sub, roles, { filter });
 		res.json({ success: true, ...result });
@@ -81,7 +81,7 @@ export async function listScheduledGuidances(req, res, next) {
 export async function rejectGuidance(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
-		// K19: validated body -> { reason, suggestedDate } (feedback/message accepted as aliases)
+		// Validated body -> { reason, suggestedDate } (feedback/message accepted as aliases)
 		const { reason, suggestedDate } = req.validated ?? req.body ?? {};
 		const result = await rejectGuidanceService(req.user.sub, guidanceId, { reason, suggestedDate });
 		res.json({ success: true, ...result });
@@ -213,7 +213,7 @@ export async function pendingApproval(req, res, next) {
  * PUT /thesis-guidance/:guidanceId/approve-summary
  * Approve session summary - 1 click, minimal interaction
  */
-/** K19: PATCH /thesisGuidance/lecturer/guidance/:guidanceId/reschedule { newDate, reason } */
+/** PATCH /thesisGuidance/lecturer/guidance/:guidanceId/reschedule { newDate, reason } */
 export async function rescheduleGuidanceByLecturer(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
@@ -225,7 +225,7 @@ export async function rescheduleGuidanceByLecturer(req, res, next) {
 	}
 }
 
-/** K19: PUT /thesisGuidance/lecturer/guidance/:guidanceId/reject-summary { notes } */
+/** PUT /thesisGuidance/lecturer/guidance/:guidanceId/reject-summary { notes } */
 export async function rejectSummary(req, res, next) {
 	try {
 		const { guidanceId } = req.params;

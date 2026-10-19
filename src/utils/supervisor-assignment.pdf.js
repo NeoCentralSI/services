@@ -330,7 +330,7 @@ function drawRowNumber(page, rowIndex, globalRowNumber, font) {
   const box = getRowCellBox(noColumn, row, 4);
 
   // The official template already contains static 1..7 row numbers, so mask
-  // and redraw them to keep generated text aligned with row content. Paket P9: the mask stays
+  // and redraw them to keep generated text aligned with row content. The mask stays
   // 1 pt inside the cell edges (as in the other columns); flush with the edges it covered half
   // of the column lines, which viewers showed as broken lines in the No column.
   drawTextInBox(page, String(globalRowNumber), box, font, {

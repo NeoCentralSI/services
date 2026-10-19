@@ -1,4 +1,4 @@
-// End-to-end API scenarios for Paket E against a freshly seeded `central`.
+// End-to-end API scenarios of the thesis flow against a freshly seeded `central`.
 const BASE = process.env.BASE || "http://localhost:3000";
 const D = "@fti.unand.ac.id";
 const results = [];
@@ -86,7 +86,7 @@ await run("1 perubahan judul", async () => {
   const second = await api("ta_ubah_judul", "POST", "/thesis-change-requests", { requestType: "title", newTitle: newTitle + " II", reason: R });
   check("pengajuan kedua ditolak selama masih berjalan", second.status === 400, second.json?.message);
   const p2 = await lecturerDecide(AFRI, id);
-  check("Pembimbing 2 tidak boleh memutuskan langkah P1", p2.status === 403, p2.json?.message);
+  check("Pembimbing 2 tidak boleh memutuskan langkah Pembimbing 1", p2.status === 403, p2.json?.message);
   const l = await lecturerDecide(HUSNIL, id);
   check("Pembimbing 1 menyetujui", l.status < 300 && l.data?.currentStep === "kadep", `${l.status} ${l.data?.currentStep}`);
   const k = await kadepDecide(id);
@@ -95,7 +95,7 @@ await run("1 perubahan judul", async () => {
   check("judul TA berubah", after.title === newTitle, after.title);
 });
 
-await run("2 ganti P1, P2 naik posisi", async () => {
+await run("2 ganti Pembimbing 1, Pembimbing 2 naik posisi", async () => {
   const aina = await login(AINA);
   const before = await myThesis("ta_dua_pembimbing");
   const created = await api("ta_dua_pembimbing", "POST", "/thesis-change-requests", { requestType: "supervisor", supervisorRole: "pembimbing_1", newSupervisorId: aina.id, reason: R });
@@ -116,11 +116,11 @@ await run("2 ganti P1, P2 naik posisi", async () => {
   check("sesi terjadwal dengan Husnil dibatalkan sistem", cancelled.length === 1 && !items.some((x) => x.status === "accepted"), cancelled.map((x) => `${x.cancelledBy}:${x.cancelReason}`));
 });
 
-await run("3 tambah P2", async () => {
+await run("3 tambah Pembimbing 2", async () => {
   const ullya = await login(ULLYA);
   const husnil = await login(HUSNIL);
   const bad = await api("ta_satu_pembimbing", "POST", "/thesis-change-requests", { requestType: "supervisor", supervisorRole: "pembimbing_2", newSupervisorId: husnil.id, reason: R });
-  check("P1 tidak bisa dijadikan P2 (400)", bad.status === 400, bad.json?.message);
+  check("Pembimbing 1 tidak bisa dijadikan Pembimbing 2 (400)", bad.status === 400, bad.json?.message);
   const created = await api("ta_satu_pembimbing", "POST", "/thesis-change-requests", { requestType: "supervisor", supervisorRole: "pembimbing_2", newSupervisorId: ullya.id, reason: R });
   check("pengajuan dibuat", created.status < 300, `${created.status} ${created.json?.message ?? ""}`);
   const id = created.data?.id;
@@ -145,7 +145,7 @@ await run("4 alihkan tiga mahasiswa, satu ditolak", async () => {
   check("tiga pengajuan dalam satu kelompok", t.status < 300 && requests.length === 3 && !!batchId, `${t.status} ${t.json?.message ?? ""}`);
   check("langkah pengaju disetujui otomatis", requests.every((r) => r.steps[0].key === "previous_supervisor" && r.steps[0].status === "approved" && r.currentStep === "new_supervisor"), requests[0]?.steps?.map((s) => `${s.key}:${s.status}`));
   for (const r of requests) check(`Aina menyetujui ${r.student?.name}`, (await lecturerDecide(AINA, r.id)).status < 300);
-  // Paket E6: the Kadep's Tugas Akhir > Perubahan (the old /department list is gone).
+  // The Kadep's Tugas Akhir > Perubahan (the old /department list is gone).
   const dept = await api(KADEP, "GET", "/thesis-change-requests/inbox?kind=transfer&pageSize=100");
   const rows = (dept.data?.data ?? dept.data ?? []);
   check("Kadep melihat ketiganya dengan batchId yang sama", (Array.isArray(rows) ? rows : []).filter((r) => r.batchId === batchId).length === 3, Array.isArray(rows) ? rows.length : rows);
@@ -183,7 +183,7 @@ await run("5b batal, ditolak dosen, tunggu kadep", async () => {
   check("ta_batal punya pengajuan berjalan", !!open?.id, Object.keys(ctx.data ?? {}));
   const c = await api("ta_batal", "POST", `/thesis-change-requests/${open?.id}/cancel`);
   check("mahasiswa membatalkan", c.data?.status === "cancelled", `${c.status} ${c.json?.message ?? ""}`);
-  // Paket E6: a lecturer's steps are rows of Tugas Akhir > Permohonan (the old /lecturer list is gone).
+  // A lecturer's steps are rows of Tugas Akhir > Permohonan (the old /lecturer list is gone).
   const awaitingFor = async (who) =>
     ((await api(who, "GET", "/thesis-proposals/lecturer-inbox?status=awaiting_me&pageSize=100")).data ?? [])
       .filter((row) => row.kind === "change_request")

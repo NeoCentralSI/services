@@ -10,7 +10,7 @@ const routePath = join(
 );
 
 describe("research-method route RBAC", () => {
-  it("Paket P8 (3.2): CPMK, kriteria, rubrik, dan nilai minimum ditulis Sekretaris Departemen saja; koordinator membaca", () => {
+  it("CPMK, kriteria, rubrik, dan nilai minimum ditulis Sekretaris Departemen saja; koordinator membaca", () => {
     const source = readFileSync(routePath, "utf8");
 
     expect(source).toContain("router.use(authGuard)");
@@ -25,7 +25,7 @@ describe("research-method route RBAC", () => {
     expect(source).toContain('router.post("/cpmks/copy-template", SEKDEP_ONLY, validate(copyCpmkTemplateSchema), copyCpmkTemplate);');
   });
 
-  it("Lanjutan P8: template milestone proposal dikelola Sekretaris Departemen saja; daftarnya tetap terbaca", () => {
+  it("Template milestone proposal dikelola Sekretaris Departemen saja; daftarnya tetap terbaca", () => {
     const source = readFileSync(routePath, "utf8");
     const lines = source.split("\n").filter((line) => line.startsWith("router.") && line.includes('"/milestone-templates'));
     expect(lines.length).toBe(5);

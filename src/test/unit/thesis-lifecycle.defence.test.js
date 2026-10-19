@@ -1,5 +1,5 @@
 /**
- * Paket E7 (K28): a passed defence makes the thesis Selesai, in the transaction of the
+ * A passed defence makes the thesis Selesai, in the transaction of the
  * finalization; undoing it returns the thesis to research. The lifecycle rules live in
  * `thesisLifecycle.service.js`; the defence module only calls them.
  */

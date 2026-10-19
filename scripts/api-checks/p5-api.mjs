@@ -1,4 +1,4 @@
-// P5 API checks: attendance, Penilaian Proposal, result, promotion, exports, monitoring.
+// API checks: attendance, Penilaian Proposal, result, promotion, exports, monitoring.
 // Mutates central; run from app/backend after a clean seed (see README): node scripts/api-checks/p5-api.mjs
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -101,7 +101,7 @@ await run("1 presensi", async () => {
 });
 
 let siap;
-await run("2 penilaian pembimbing (K9)", async () => {
+await run("2 penilaian pembimbing", async () => {
   siap = await attemptOf("siap_dinilai", current.id);
   const form1 = await api(AINA, "GET", `/research-method/assessments/form?party=supervisor&academicYearId=${current.id}`);
   check("form pembimbing: 3 kriteria, bobot 75, nilai minimum 60", form1.data?.criteria?.length === 3 && form1.data?.weight === 75 && form1.data?.minimumScore === 60, form1.data && `${form1.data.criteria?.length} ${form1.data.weight}`);
@@ -172,7 +172,7 @@ await run("3 penilaian koordinator dan hasil", async () => {
   check("periode lalu tampil sebagai riwayat, tidak bisa dinilai", oldRow && oldRow.canScore === false && /periode berjalan/.test(oldRow.scoreBlockReason ?? ""), oldRow?.scoreBlockReason);
 });
 
-await run("4 mengulang (K2)", async () => {
+await run("4 mengulang", async () => {
   const up = await api(U("tidak_lulus"), "POST", "/thesis-proposals/me/final-proposal", undefined, { form: pdfForm() });
   check("yang tidak lulus mengajukan proposal final periode baru", up.status === 200, `${up.status} ${up.json?.message}`);
   const rows = await prisma.researchMethodAssessment.findMany({ where: { thesis: { student: { user: { email: "prop_tidak_lulus@fti.unand.ac.id" } } } }, orderBy: { createdAt: "asc" } });
@@ -183,7 +183,7 @@ await run("4 mengulang (K2)", async () => {
   check("percobaan baru siap dinilai pembimbing", (q.data?.rows ?? []).some((r) => r.id === rows[1].id && r.canScore), (q.data?.rows ?? []).find((r) => r.id === rows[1].id)?.scoreBlockReason);
 });
 
-await run("5 naik ke Penelitian (K13, R18)", async () => {
+await run("5 naik ke Penelitian", async () => {
   const forbidden = await api(AINA, "GET", "/research-method/promotions");
   check("dosen biasa tidak menjalankan proses kelulusan (403)", forbidden.status === 403, forbidden.status);
   const naikId = (await prisma.student.findFirst({ where: { user: { email: "prop_siap_naik@fti.unand.ac.id" } } })).id;
@@ -197,7 +197,7 @@ await run("5 naik ke Penelitian (K13, R18)", async () => {
   const runResult = await api(KADEP, "POST", "/research-method/promotions/run");
   check("proses kelulusan: Siap Naik naik", runResult.status === 200 && runResult.data?.promoted?.some((r) => r.student?.identityNumber === "2211528016"), runResult.data && `${runResult.data.promoted?.length} ${runResult.data.deferred?.length} ${runResult.data.failed?.length}`);
   const t = await prisma.thesis.findFirst({ where: { student: { user: { email: "prop_siap_naik@fti.unand.ac.id" } } } });
-  check("status penelitian, startDate dan statusChangedAt terisi (K5)", t.status === "research" && Boolean(t.startDate) && Boolean(t.statusChangedAt), `${t.status} ${t.startDate}`);
+  check("status penelitian, startDate dan statusChangedAt terisi", t.status === "research" && Boolean(t.startDate) && Boolean(t.statusChangedAt), `${t.status} ${t.startDate}`);
   const audit = await prisma.auditLog.findFirst({ where: { action: "RESEARCH_METHOD_PROMOTED", entityId: t.id } });
   const statusAudit = await prisma.auditLog.findFirst({ where: { action: "THESIS_STATUS_CHANGED", entityId: t.id } });
   check("audit kelulusan dan perubahan status", Boolean(audit && statusAudit));

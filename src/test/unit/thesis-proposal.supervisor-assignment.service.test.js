@@ -1,4 +1,4 @@
-/** Penetapan Pembimbing per periode (Paket P, P3): batch, versions and access to the PDF. */
+/** Penetapan Pembimbing per periode: batch, versions and access to the PDF. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { repo, prismaMock, tx, notify, requestRepo, helper, fileHelper, audit } = vi.hoisted(() => {
@@ -113,7 +113,7 @@ describe("overview", () => {
   });
 });
 
-describe("issue (R17, K3)", () => {
+describe("issue", () => {
   it("refuses an empty cohort", async () => {
     repo.findCohortTheses.mockResolvedValue([]);
     await expect(service.issueAssignment(null, "kadep")).rejects.toThrow(/Tidak ada mahasiswa/);

@@ -9,7 +9,7 @@ import { getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../help
 
 const milestoneStatusLabel = (status) => MILESTONE_STATUS_LABELS[status] ?? status;
 
-/** K20: a milestone transition starts from an allowed status; otherwise 400 with labels. */
+/** A milestone transition starts from an allowed status; otherwise 400 with labels. */
 function assertMilestoneStatus(milestone, allowed, actionText) {
   if (allowed.includes(milestone.status)) return;
   const allowedText = allowed.map((s) => `"${milestoneStatusLabel(s)}"`).join(" atau ");
@@ -95,15 +95,15 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
 
 /**
  * Milestone writes (create, update, progress, review, validation): a thesis in the TA phase,
- * or in the proposal phase once Penetapan Pembimbing is issued (K27). BSS, closed theses and a
- * thesis repeating its proposal (E5) get a clear 403.
+ * or in the proposal phase once Penetapan Pembimbing is issued. BSS, closed theses and a
+ * thesis repeating its proposal get a clear 403.
  */
 async function ensureThesisWritable(thesis) {
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
   if (thesis?.status === THESIS_STATUS.PROPOSAL) {
     const { open, repeating } = await getProposalPhaseAccess(thesis);
     if (open) return;
-    // A thesis sent back to the proposal by a guidance evaluation says so (E5).
+    // A thesis sent back to the proposal by a guidance evaluation says so.
     if (repeating) {
       throw forbidden(`${REPEAT_PROPOSAL_LOCK_REASON} Milestone terkunci sampai Pembimbing 1 menyetujui proposal revisi (Tugas Akhir > Proposal).`);
     }
@@ -158,7 +158,7 @@ async function getMilestoneWithAccess(milestoneId, userId) {
 export async function getTemplates(topicId = null, { includeInactive = false, phase = THESIS_PHASE.RESEARCH } = {}) {
   // isActive=null means "no isActive filter" in the repository.
   const isActive = includeInactive ? null : true;
-  // Proposal templates are general, without a topic (K18).
+  // Proposal templates are general, without a topic.
   if (phase === THESIS_PHASE.PROPOSAL) {
     return milestoneRepo.findAllTemplates(isActive, null, THESIS_PHASE.PROPOSAL);
   }
@@ -321,7 +321,7 @@ export async function bulkDeleteTemplates(userId, templateIds) {
  */
 export async function getMilestones(thesisId, userId, status = null, phase = null) {
   const { thesis } = await getThesisWithAccess(thesisId, userId);
-  // 10.7: one phase at a time, the current phase by default; the other phase is read-only.
+  // One phase at a time, the current phase by default; the other phase is read-only.
   const currentPhase = currentPhaseOf(thesis.status);
   const listPhase = Object.values(THESIS_PHASE).includes(phase) ? phase : currentPhase;
 
@@ -358,7 +358,7 @@ export async function createMilestone(thesisId, userId, data) {
 
   const milestoneData = {
     thesisId,
-    // K6: phase is set by the server from the thesis status.
+    // Phase is set by the server from the thesis status.
     phase: phaseForThesisStatus(thesis.status),
     title: data.title,
     description: data.description || null,
@@ -398,7 +398,7 @@ export async function createMilestoneBySupervisor(thesisId, userId, data) {
 
   const milestoneData = {
     thesisId,
-    // K6: phase is set by the server from the thesis status.
+    // Phase is set by the server from the thesis status.
     phase: phaseForThesisStatus(thesis.status),
     title: data.title,
     description: data.description || null,
@@ -441,7 +441,7 @@ export async function createMilestoneBySupervisor(thesisId, userId, data) {
  * Create milestones from templates (bulk create)
  */
 export async function createMilestonesFromTemplates(thesisId, userId, templateIds, topicId = null, startDate = null) {
-  // K20: `topicId` from the client is never trusted (and never changes the thesis topic);
+  // `topicId` from the client is never trusted (and never changes the thesis topic);
   // the thesis topic decides which templates apply. The parameter stays for API
   // compatibility.
   void topicId;
@@ -449,7 +449,7 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   await ensureThesisWritable(thesis);
   const phase = phaseForThesisStatus(thesis.status);
 
-  // Proposal templates are general (K18); only thesis-phase templates come from the topic.
+  // Proposal templates are general; only thesis-phase templates come from the topic.
   if (phase === THESIS_PHASE.RESEARCH && !thesis.thesisTopicId) {
     throw createError(
       "Tugas akhir Anda belum memiliki topik, sehingga template milestone belum dapat dipasang. Topik diisi oleh Admin/Sekretaris Departemen melalui Data Master Tugas Akhir."
@@ -504,7 +504,7 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   // Bulk create
   await milestoneRepo.createMany(milestonesData);
 
-  // Get created milestones (of the phase they were made in; Paket P8: the proposal phase read the
+  // Get created milestones (of the phase they were made in; the proposal phase read the
   // research list back and answered "0 milestone berhasil dibuat").
   const createdMilestones = await milestoneRepo.findByThesisId(thesisId, null, phase);
 
@@ -553,7 +553,7 @@ export async function deleteMilestone(milestoneId, userId) {
   }
   await ensureMilestoneWritable(milestone, thesis);
 
-  // K20: a student may delete only a milestone that is not completed.
+  // A student may delete only a milestone that is not completed.
   if (milestone.status === "completed" || milestone.validatedBy) {
     throw createError(`Milestone berstatus "${milestoneStatusLabel("completed")}" tidak dapat dihapus`);
   }
@@ -628,7 +628,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
 
   const updated = await milestoneRepo.updateProgress(milestoneId, progressPercentage);
 
-  // K20: the status follows the progress.
+  // The status follows the progress.
   //   < 100 (and > 0, or after a revision request / withdrawn review) -> in_progress
   //   = 100 -> pending_review (also after revision_needed, even if it was 100 before)
   let statusUpdate = null;
@@ -698,7 +698,7 @@ export async function submitForReview(milestoneId, userId, studentNotes = null) 
   }
   await ensureMilestoneWritable(milestone, thesis);
 
-  // K20: review is requested for work in progress or a revised milestone.
+  // Review is requested for work in progress or a revised milestone.
   assertMilestoneStatus(milestone, ["in_progress", "revision_needed"], "diajukan untuk review");
 
   const updateData = {
@@ -770,7 +770,7 @@ export async function validateMilestone(milestoneId, userId, supervisorNotes = n
     throw forbidden("Hanya Pembimbing 1 yang memiliki hak untuk memvalidasi milestone");
   }
 
-  // K20: only a milestone waiting for review can be validated (-> completed).
+  // Only a milestone waiting for review can be validated (-> completed).
   assertMilestoneStatus(milestone, ["pending_review"], "divalidasi");
 
   const updated = await milestoneRepo.validateMilestone(
@@ -836,7 +836,7 @@ export async function requestRevision(milestoneId, userId, revisionNotes) {
     throw createError("Catatan revisi wajib diisi");
   }
 
-  // K20: a revision is requested on a milestone waiting for review.
+  // A revision is requested on a milestone waiting for review.
   assertMilestoneStatus(milestone, ["pending_review"], "diminta revisi");
 
   const updated = await milestoneRepo.requestRevision(milestoneId, userId, revisionNotes);
@@ -884,13 +884,13 @@ export async function addSupervisorFeedback(milestoneId, userId, feedback) {
   }
   await ensureMilestoneWritable(milestone, thesis);
 
-  // K20: Pembimbing 1 and 2 may both give feedback; it never changes the status.
+  // Pembimbing 1 and 2 may both give feedback; it never changes the status.
   const text = String(feedback ?? "").trim();
   if (!text) {
     throw createError("Feedback wajib diisi");
   }
 
-  // Paket C (C9): feedback has its own columns and never touches `supervisorNotes`
+  // Feedback has its own columns and never touches `supervisorNotes`
   // (the decision notes written by validate / request-revision). A new feedback replaces
   // the previous one; the history lives in the notification and the audit log.
   const now = new Date();
@@ -1067,7 +1067,7 @@ const requirementsMet = (requirements) => requirements.every((item) => item.met)
 const PASSED_EVENT_STATUSES = ["passed", "passed_with_revision"];
 
 /**
- * Paket E4 (3.2): the passed results seminar (or defence) of a thesis, newest first, or null.
+ * The passed results seminar (or defence) of a thesis, newest first, or null.
  * Its date is the result finalisation, else the day it was held.
  */
 function passedEventOf(rows = []) {
@@ -1160,7 +1160,7 @@ function readinessStatusBlock(thesis, kind) {
 
 /**
  * Reasons shown next to the disabled buttons. The same checks run again when the action is
- * submitted (K14).
+ * submitted.
  */
 function readinessActionReasons(thesis, kind, requirements, approvals, passed = null) {
   const closed = passedBlock(kind, passed);
@@ -1235,7 +1235,7 @@ export async function getThesisSeminarReadiness(thesisId, userId) {
     currentUserRole: approvals.currentUserRole,
     currentUserHasApproved: approvals.currentUserHasApproved,
     latestGuidanceAttachment: latestGuidanceAttachment ?? null,
-    // Paket E4 (3.2): passed seminar → read-only card ("Seminar hasil lulus pada …").
+    // Passed seminar → read-only card ("Seminar hasil lulus pada …").
     isPassed: Boolean(passed),
     passedAt: passed?.passedAt ?? null,
     ...readinessActionReasons(thesis, "seminar", requirements, approvals, passed),
@@ -1277,7 +1277,7 @@ export async function getThesisDefenceReadiness(thesisId, userId) {
     currentUserRole: approvals.currentUserRole,
     currentUserHasApproved: approvals.currentUserHasApproved,
     latestGuidanceAttachment: latestGuidanceAttachment ?? null,
-    // Paket E4 (3.2/3.3): passed defence → read-only card; before the seminar passes the card
+    // Passed defence → read-only card; before the seminar passes the card
     // only shows the unmet requirement ("Menunggu seminar hasil lulus").
     isPassed: Boolean(passed),
     passedAt: passed?.passedAt ?? null,
@@ -1346,7 +1346,7 @@ async function approveReadiness(kind, thesisId, userId, notes) {
   const main = updated.thesisSupervisors.filter((s) => isMainSupervisorRole(s.role?.name));
   const isFullyApproved = main.length > 0 && main.every((s) => s[config.flag]);
 
-  // Paket A (K15): "Acc Seminar"/"Acc Sidang" is not a thesis status; readiness lives in the
+  // "Acc Seminar"/"Acc Sidang" is not a thesis status; readiness lives in the
   // supervisors' flags and the thesis stays `research`.
   const studentUserId = thesis.student?.user?.id;
   if (studentUserId) {

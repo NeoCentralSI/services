@@ -442,7 +442,7 @@ export async function importAcademicYearsExcelController(req, res, next) {
 	}
 }
 
-/** Paket P9 (K36): one semester's flags set by the Admin, source "admin". */
+/** One semester's flags set by the Admin, source "admin". */
 export async function setStudentPeriodFlagsController(req, res, next) {
 	try {
 		const { id, academicYearId } = req.params;
@@ -464,7 +464,7 @@ export async function setStudentPeriodFlagsController(req, res, next) {
 	}
 }
 
-/** Paket P9 (K36): "Ikuti Data SIA" for one semester. */
+/** "Ikuti Data SIA" for one semester. */
 export async function followSiaPeriodFlagsController(req, res, next) {
 	try {
 		const { id, academicYearId } = req.params;
@@ -488,7 +488,7 @@ export async function followSiaPeriodFlagsController(req, res, next) {
 	}
 }
 
-/** Paket P9 (K36): the template of Impor Keikutsertaan (.xlsx). */
+/** The template of Impor Keikutsertaan (.xlsx). */
 export async function periodFlagsTemplateController(req, res, next) {
 	try {
 		res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -508,7 +508,7 @@ const requireUpload = (req) => {
 	return req.file;
 };
 
-/** Paket P9 (K36): what the import would change; nothing is stored. */
+/** What the import would change; nothing is stored. */
 export async function previewPeriodFlagsImportController(req, res, next) {
 	try {
 		const file = requireUpload(req);
@@ -519,7 +519,7 @@ export async function previewPeriodFlagsImportController(req, res, next) {
 	}
 }
 
-/** Paket P9 (K36): applies the import (source admin), audited with the row counts. */
+/** Applies the import (source admin), audited with the row counts. */
 export async function applyPeriodFlagsImportController(req, res, next) {
 	try {
 		const file = requireUpload(req);

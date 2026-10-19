@@ -1,4 +1,4 @@
-// Paket E3: API checks against a freshly seeded `central`. Read-only (GET), except the logins.
+// API checks against a freshly seeded `central`. Read-only (GET), except the logins.
 const { EVENT_STATUS_PRIORITY } = await import(process.cwd() + "/src/constants/thesis-event-monitoring.js");
 const BASE = process.env.BASE || "http://localhost:3000";
 const D = "@fti.unand.ac.id";
@@ -50,7 +50,7 @@ for (const [name, id] of Object.entries(views)) {
   list[name] = (await get(KADEP, `/thesisGuidance/monitoring/theses?pageSize=1000${id ? `&academicYear=${id}` : ""}`)).json.data;
 }
 const statusOf = (d) => Object.fromEntries(d.statusDistribution.map((s) => [s.id, s.count]));
-// Paket E7 (K28): Uji Mon Sidang Revisi Final is seeded Selesai (revision finalized), one research
+// Uji Mon Sidang Revisi Final is seeded Selesai (revision finalized), one research
 // thesis fewer and one completed more; a Selesai thesis has no activity level (one Lancar fewer).
 check("semester berjalan: status", eq(statusOf(dash.berjalan), { research: 55, on_leave: 1, completed: 2, failed: 0 }), statusOf(dash.berjalan));
 check("semester lalu: status", eq(statusOf(dash.lalu), { research: 53, on_leave: 1, completed: 4, failed: 2 }), statusOf(dash.lalu));
@@ -120,7 +120,7 @@ for (const [kind, path, label] of [["seminar", "seminars", "2 tab Seminar Hasil"
   const seen = byStatus(d.berjalan.items);
   check("tabel (berjalan): tiap status terisi", Object.entries(expectedStatus).every(([k, v]) => seen[k] === v) && d.berjalan.items.length === expected.berjalan.total, seen);
   const refDate = (r) => r.date ?? r.registeredAt;
-  // Paket E5 (1.4): the order of the seminar and defence modules (status priority), then the
+  // The order of the seminar and defence modules (status priority), then the
   // latest first inside the same priority.
   const priority = EVENT_STATUS_PRIORITY[kind];
   check("tabel urut prioritas status modul, lalu terbaru dulu", d.berjalan.items.every((r, i, a) => i === 0 || priority[a[i - 1].status] < priority[r.status] || (priority[a[i - 1].status] === priority[r.status] && refDate(a[i - 1]) >= refDate(r))), d.berjalan.items.map((r) => `${r.status} ${refDate(r).slice(0, 10)}`));

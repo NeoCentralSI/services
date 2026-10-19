@@ -15,7 +15,7 @@ import { minimumScoreOf } from "../research-method/assessment.service.js";
 
 /**
  * Proposal final (plan 10.3): one file per assessment attempt (`research_method_assessments`,
- * one row per thesis per semester), so a student retaking Metode Penelitian (K2) never
+ * one row per thesis per semester), so a student retaking Metode Penelitian never
  * overwrites the file of an earlier attempt. Rules kept from the old module: PDF only,
  * proposal phase, after Penetapan Pembimbing with an active supervisor, and replaceable only
  * until a score is submitted on that attempt (submitted scores are locked, R23).
@@ -55,7 +55,7 @@ function attemptDto(attempt) {
       : null,
     supervisorScored: attempt.supervisorScore != null,
     coordinatorScored: attempt.coordinatorScore != null,
-    // Paket P9 (2): the two parts of the final score, shown to the student once it is final.
+    // The two parts of the final score, shown to the student once it is final.
     supervisorScore: attempt.isFinalized ? attempt.supervisorScore : null,
     coordinatorScore: attempt.isFinalized ? attempt.coordinatorScore : null,
     isFinalized: attempt.isFinalized,

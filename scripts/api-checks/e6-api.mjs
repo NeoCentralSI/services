@@ -1,4 +1,4 @@
-// Paket E6: the title-change rule after the seminar (K34), the Jenis of Permohonan, the load in
+// The title-change rule after the seminar, the Jenis of Permohonan, the load in
 // the supervisor picker, and the removed lecturer/department lists. Mutates central; run from
 // app/backend after a clean seed with the seven seeders (see README):
 //   node scripts/api-checks/e6-api.mjs
@@ -14,7 +14,7 @@ const context = async (who) => (await api(who, "GET", "/thesis-change-requests/c
 const myThesis = async (who) => (await api(who, "GET", "/thesisGuidance/student/my-thesis")).json?.thesis;
 const titleRequest = (newTitle) => ({ requestType: "title", newTitle, reason: R });
 
-await run("6 aturan perubahan judul per tahap (K34)", async () => {
+await run("6 aturan perubahan judul per tahap", async () => {
   // Seminar registered: title waits, supervisor closed.
   const active = await context("ta_seminar_aktif");
   check("seminar berproses: judul diblokir dengan alasannya", active?.typeBlocks?.title === SEMINAR_IN_PROCESS, active?.typeBlocks);
@@ -64,7 +64,7 @@ await run("6 judul berubah setelah seminar hasil (ta_lulus_seminar)", async () =
 });
 
 await run("6 aturan diperiksa ulang saat Ketua Departemen memutuskan", async () => {
-  // A title request of Uji TA Lancar (P1 Husnil), then a seminar is registered (inserted directly).
+  // A title request of Uji TA Lancar (Pembimbing 1 Husnil), then a seminar is registered (inserted directly).
   const lancar = await myThesis("ta_lancar");
   const sent = await api("ta_lancar", "POST", "/thesis-change-requests", titleRequest("Judul Uji Pemeriksaan Ulang Saat Keputusan"));
   check("pengajuan judul sebelum seminar terkirim", sent.status < 300, `${sent.status} ${sent.json?.message ?? ""}`);
@@ -73,7 +73,7 @@ await run("6 aturan diperiksa ulang saat Ketua Departemen memutuskan", async () 
 
   const step = ((await api(HUSNIL, "GET", "/thesis-proposals/lecturer-inbox?kind=change_title&status=awaiting_me")).data ?? []).find((row) => row.id === id);
   check("Permohonan Husnil: baris bertanda terblokir dengan alasannya", (step?.changeRequest?.applyBlockReason ?? "").includes(SEMINAR_IN_PROCESS), step?.changeRequest?.applyBlockReason);
-  // Paket E6 (lanjutan): the lecturer's step is refused with the same reason.
+  // The lecturer's step is refused with the same reason.
   const lecturerApprove = await api(HUSNIL, "POST", `/thesis-change-requests/${id}/lecturer-decision`, { approve: true });
   check("Pembimbing 1 menyetujui: ditolak 400 dengan alasan aturan", lecturerApprove.status === 400 && (lecturerApprove.json?.message ?? "").includes(SEMINAR_IN_PROCESS), `${lecturerApprove.status} ${lecturerApprove.json?.message}`);
   const kadepRow = ((await api(KADEP, "GET", "/thesis-change-requests/inbox?kind=title&status=in_progress")).data ?? []).find((row) => row.id === id);

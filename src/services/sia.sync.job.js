@@ -9,7 +9,7 @@ import { isSiaConfigured } from "../helpers/sia-availability.helper.js";
  * Main SIA sync job - fetches student data and updates cache + database
  */
 export async function runSiaSync({ siaConfigured = isSiaConfigured() } = {}) {
-  // Paket P9: without SIA_BASE_URL nothing is read; one log line, no error, nothing stored.
+  // Without SIA_BASE_URL nothing is read; one log line, no error, nothing stored.
   if (!siaConfigured) {
     console.log("⏭️  Sinkronisasi SIA dilewati: SIA_BASE_URL kosong (SIA belum tersedia).");
     return { skipped: true, reason: "not_configured" };
@@ -90,7 +90,7 @@ export async function runSiaSync({ siaConfigured = isSiaConfigured() } = {}) {
       summary.periodSnapshotsCreated = flags.created;
       summary.periodFlagsUpdated = flags.updated;
       summary.periodFlagsUnknownStudents = flags.unknownStudents;
-      // Paket P9 (K36): flags the Admin set by hand are not overwritten.
+      // Flags the Admin set by hand are not overwritten.
       summary.periodFlagsKeptAdmin = flags.keptAdmin ?? 0;
       console.log(`🗓️  Semester flags ${flags.period}: ${flags.created} created, ${flags.updated} updated, ${flags.unknownStudents} NIM unknown, ${summary.periodFlagsKeptAdmin} kept (Admin)`);
     } catch (flagErr) {
@@ -241,7 +241,7 @@ async function updateStudentAcademicBatch(stamped) {
     return await updateStudentAcademicIndividual(updates);
   }
 
-  // Moving theses to the research phase is a separate step after the sync (K13).
+  // Moving theses to the research phase is a separate step after the sync.
   return batchResult;
 }
 

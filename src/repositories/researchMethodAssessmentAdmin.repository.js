@@ -325,7 +325,7 @@ export function reorderRubrics(assessor, orderedIds, client = prisma) {
 }
 
 /**
- * Paket P8 (3.2): copy every CPMK of a period with the criteria and rubrics of both parties into
+ * Copy every CPMK of a period with the criteria and rubrics of both parties into
  * a period that has no CPMK yet, in one transaction (pattern of the thesis CPMK copy).
  */
 export async function copyCpmkTemplate(sourceAcademicYearId, targetAcademicYearId) {

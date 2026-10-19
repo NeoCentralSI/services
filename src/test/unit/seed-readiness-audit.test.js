@@ -1,5 +1,5 @@
 /**
- * Lanjutan Paket E4: seeded readiness approvals write the same audit rows as the app, so the
+ * Seeded readiness approvals write the same audit rows as the app, so the
  * readiness cards can show their dates.
  */
 import { describe, expect, it } from "vitest";

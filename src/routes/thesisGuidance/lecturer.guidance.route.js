@@ -66,7 +66,7 @@ router.get("/supervisor/eligibility", supervisorEligibility);
 // Session Summary Approval (1-click approve)
 router.get("/pending-approval", pendingApproval);
 router.put("/guidance/:guidanceId/approve-summary", approveSummary);
-// K19: request a revised summary; move an accepted session
+// Request a revised summary; move an accepted session
 router.put("/guidance/:guidanceId/reject-summary", validate(rejectSummarySchema), rejectSummary);
 router.patch("/guidance/:guidanceId/reschedule", validate(lecturerRescheduleGuidanceSchema), rescheduleGuidanceByLecturer);
 

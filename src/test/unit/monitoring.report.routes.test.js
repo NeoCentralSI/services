@@ -1,5 +1,5 @@
 /**
- * Lanjutan Paket E3 — GET /thesisGuidance/monitoring/report/download answers 503 with a
+ * GET /thesisGuidance/monitoring/report/download answers 503 with a
  * message for the user when the PDF converter is not running.
  *
  * Mounts the real monitoring router, role guard, controller and error handler. Only

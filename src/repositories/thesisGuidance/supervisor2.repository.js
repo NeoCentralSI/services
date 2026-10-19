@@ -179,7 +179,7 @@ export async function findPendingSupervisor2KadepRequests(kadepUserId) {
 }
 
 /**
- * Tutup SEMUA record request P2 (kedua tahap) untuk satu thesis — dipakai saat
+ * Tutup SEMUA record request Pembimbing 2 (kedua tahap) untuk satu thesis — dipakai saat
  * keputusan final (approve/reject KaDep) atau pembatalan mahasiswa, supaya tidak
  * ada record tahap lain yang tersisa menggantung.
  */
@@ -244,7 +244,7 @@ export async function findPendingSupervisor2RequestsForLecturer(lecturerId) {
 	});
 }
 
-// Auto-promotion P2→P1 DIHAPUS (audit pass 2 F2-4, keputusan OQ-2.1 2026-06-10):
+// Auto-promotion Pembimbing 2→Pembimbing 1 DIHAPUS (audit pass 2 F2-4, keputusan OQ-2.1 2026-06-10):
 // kebijakan role akademik adalah wewenang departemen (KaDep/Admin), bukan
 // hitungan otomatis sistem. Helper countCompletedAsSupervisor2 /
 // hasPembimbing1Role / addPembimbing1Role sengaja tidak disediakan lagi.

@@ -18,7 +18,7 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
   mockRepo: {
     getStudentByUserId: vi.fn(),
     getActiveThesisForStudent: vi.fn(),
-    // Paket E7 (K28): the history reads the current thesis, a Selesai one included.
+    // The history reads the current thesis, a Selesai one included.
     getCurrentThesisForStudent: vi.fn(),
     getSupervisorsForThesis: vi.fn(),
     listGuidancesForThesis: vi.fn(),
@@ -281,7 +281,7 @@ describe("Module 2: Request Guidance", () => {
   });
 
   describe("cancelGuidanceService", () => {
-    // Paket B (K19): a cancelled request is kept as history (no delete), with its reason.
+    // A cancelled request is kept as history (no delete), with its reason.
     it("keeps a 'requested' guidance as 'cancelled' with the reason (no delete)", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getGuidanceByIdForStudent.mockResolvedValue(GUIDANCE_REQUESTED);
@@ -482,7 +482,7 @@ describe("Module 7: Riwayat Bimbingan", () => {
       expect(result.guidances).toEqual([]);
     });
 
-    it("Paket E7 (K28): still reads the history of a thesis made Selesai by its defence", async () => {
+    it("Still reads the history of a thesis made Selesai by its defence", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getCurrentThesisForStudent.mockResolvedValue({ ...THESIS, status: "completed" });
       mockPrisma.thesisGuidance.findMany.mockResolvedValue([
@@ -637,7 +637,7 @@ describe("List Guidances & Supervisors", () => {
       await expect(listMyGuidancesService("user-1")).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it("Paket E4 (7): a stopped thesis keeps its sessions readable, system cancellations with their reason", async () => {
+    it("A stopped thesis keeps its sessions readable, system cancellations with their reason", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getActiveThesisForStudent.mockResolvedValue(null);
       mockPrisma.thesis.findFirst.mockResolvedValue({ id: "thesis-failed", status: "failed" });
@@ -702,7 +702,7 @@ describe("Student Progress & Milestones", () => {
       expect(result.components[1]).toHaveProperty("validatedBySupervisor", false);
     });
 
-    // Paket B (K20): a GET never writes; templates are applied explicitly.
+    // A GET never writes; templates are applied explicitly.
     it("does not create milestones when there are none (no hidden seeding)", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getActiveThesisForStudent.mockResolvedValue({ ...THESIS, thesisTopicId: "topic-1" });

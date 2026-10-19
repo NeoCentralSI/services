@@ -1,5 +1,5 @@
 /**
- * Paket E5: a table sorted by "what needs attention" on the server. The rows of a list are
+ * A table sorted by "what needs attention" on the server. The rows of a list are
  * split into groups in priority order (e.g. waiting for the viewer, running, closed); each
  * group keeps its own order (newest first) and the page is the window [skip, skip + take)
  * over the groups laid end to end. Each group is one database query, so no row limit applies.

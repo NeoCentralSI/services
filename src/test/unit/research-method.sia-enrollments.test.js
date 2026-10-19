@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * SIA only reads (Paket P, plan 10.6): per-semester flags come from `GET /enrollments` and are
+ * SIA only reads: per-semester flags come from `GET /enrollments` and are
  * written with source `sia`; SIA is the authority for the students it lists.
  */
 const { env } = vi.hoisted(() => ({
@@ -94,7 +94,7 @@ describe("fetchSemesterEnrollments", () => {
   });
 });
 
-/** Paket P9 (K36): the Admin sets a flag by hand; the SIA sync keeps it until "Ikuti Data SIA". */
+/** The Admin sets a flag by hand; the SIA sync keeps it until "Ikuti Data SIA". */
 describe("flags set by the Admin", () => {
   it("the sync keeps a flag the Admin set and still writes the other one", async () => {
     const client = clientWith({
@@ -152,7 +152,7 @@ describe("flags set by the Admin", () => {
     expect(result.snapshot).toMatchObject({ eligibleResearchMethod: true, eligibilitySource: "sia" });
   });
 
-  it("Paket P9: Ikuti Data SIA is refused while SIA_BASE_URL is empty, and SIA is not read", async () => {
+  it("Ikuti Data SIA is refused while SIA_BASE_URL is empty, and SIA is not read", async () => {
     const client = adminClient({ id: "snap-1", eligibilitySource: "admin" });
     const fetchEnrollments = vi.fn();
     for (const env of [{ SIA_BASE_URL: "" }, { SIA_BASE_URL: "   " }, {}]) {
