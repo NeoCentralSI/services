@@ -274,7 +274,7 @@ model AcademicYear {
 
   thesisSeminarMinimumScore  Float? @map("thesis_seminar_minimum_score")
   thesisDefenceMinimumScore  Float? @map("thesis_defence_minimum_score")
-  /// Nilai akhir Metode Penelitian minimum untuk lulus (K31), sejajar dua kolom di atas.
+  /// Nilai akhir Metode Penelitian minimum untuk lulus, sejajar dua kolom di atas.
   researchMethodMinimumScore Float? @map("research_method_minimum_score")
 
   @@unique([year, semester])
@@ -537,7 +537,7 @@ model ThesisDefenceSupervisorAssessmentRubric {
 }
 
 /// CPMK Metode Penelitian per periode. Bobot tiap pihak = jumlah `max_score`
-/// kriterianya (K31); jumlah kedua pihak paling banyak 100.
+/// kriterianya; jumlah kedua pihak paling banyak 100.
 model ResearchMethodCpmk {
   id             String   @id @default(uuid()) @db.VarChar(191)
   academicYearId String   @map("academic_year_id") @db.VarChar(191)
@@ -734,16 +734,15 @@ model ExitSurveyOption {
   @@map("exit_survey_options")
 }
 
-/// Thesis = shared container antara SIMPTA (proposal phase, isProposal=true)
-/// dan Modul Tugas Akhir penuh (isProposal=false, post-promosi aktif setelah
-/// TA-03 final + snapshot KRS TA true; bukan hanya karena TA-04 terbit).
-/// Lihat HANDOFF_SCHEMA_SIMPTA_REVISI.md §5 P0-06 untuk field ownership matrix.
+/// Satu tugas akhir dari fase proposal sampai selesai. Fasenya hanya dibaca dari `status`:
+/// TA naik dari `proposal` ke `research` setelah lulus Metode Penelitian dan tercatat
+/// mengambil Tugas Akhir pada semester sesudah penetapan pembimbingnya.
 model Thesis {
   // === IDENTITAS & STATUS ===
   id                 String                   @id @default(uuid())
   studentId          String                   @map("student_id")
   thesisTopicId      String?                  @map("thesis_topic_id")
-  /// Status siklus hidup TA (K15), satu-satunya penanda fase. Wajib diisi eksplisit
+  /// Status siklus hidup TA, satu-satunya penanda fase. Wajib diisi eksplisit
   /// oleh setiap penulis (tanpa default): `proposal` = fase proposal, `research` = fase TA.
   status             ThesisLifecycleStatus    @map("status")
   statusChangedAt    DateTime?                @map("status_changed_at")
@@ -764,7 +763,7 @@ model Thesis {
   startDate          DateTime?                @map("start_date")
 
   /// Waktu Penetapan Pembimbing pertama (formulir TA-04); bukti bekunya berkas PDF batch.
-  /// Membuka bimbingan proposal dan pengajuan proposal final (K3: tanpa lapisan reservasi).
+  /// Membuka bimbingan proposal dan pengajuan proposal final (tanpa lapisan reservasi).
   supervisorAssignedAt DateTime? @map("supervisor_assigned_at")
 
   createdAt                  DateTime                                @default(now()) @map("created_at")
@@ -842,7 +841,7 @@ model ThesisSupervisorAssignmentBatchMember {
   @@map("thesis_supervisor_assignment_batch_members")
 }
 
-/// Pengajuan Perubahan Tugas Akhir (formulir TA-05, keputusan K8): perubahan judul dan/atau
+/// Pengajuan Perubahan Tugas Akhir (formulir TA-05): perubahan judul dan/atau
 /// satu posisi pembimbing untuk TA fase penelitian. Keadaan pengajuan disimpan di sini,
 /// bukan di notifikasi. Mesin ini juga dipakai "Alihkan Mahasiswa" (`batchId` sama).
 model ThesisChangeRequest {
@@ -1001,7 +1000,7 @@ model ThesisGuidanceEvaluation {
   @@map("thesis_guidance_evaluations")
 }
 
-/// Proposal revisi TA yang mengulang proposal lewat Evaluasi Bimbingan (Lanjutan Paket P).
+/// Proposal revisi TA yang mengulang proposal lewat Evaluasi Bimbingan.
 /// Satu baris per unggahan dalam satu siklus (`evaluationId` = evaluasi "Mengulang Proposal"
 /// yang disetujui). Berkas di uploads/thesis/<thesis_id>/proposal/revisions/<id>/ (aturan akses
 /// berkas proposal). Pembimbing 1 menyetujui (TA kembali ke Penelitian) atau meminta revisi.
@@ -1064,14 +1063,14 @@ model ThesisTopic {
 
 // ThesisProposal model removed — fields merged into Thesis
 
-/// Template milestone kedua fase (K18): fase proposal berlaku umum (`topic_id` NULL),
+/// Template milestone kedua fase: fase proposal berlaku umum (`topic_id` NULL),
 /// fase penelitian per topik.
 model ThesisMilestoneTemplate {
   id               String      @id @default(uuid())
   name             String
   description      String?     @db.Text
   topicId          String?     @map("topic_id")
-  /// Wajib, tanpa default (K18). Template proposal berlaku umum (topicId NULL); template TA per topik.
+  /// Wajib, tanpa default. Template proposal berlaku umum (topicId NULL); template TA per topik.
   phase            ThesisPhase
   orderIndex       Int         @default(0) @map("order_index")
   isActive         Boolean     @default(true) @map("is_active")
@@ -1102,7 +1101,7 @@ model ThesisMilestone {
   completedAt        DateTime?       @map("completed_at")
   submittedAt        DateTime?       @map("submitted_at")
   status             MilestoneStatus @default(not_started)
-  /// Ditetapkan server dari status TA saat milestone dibuat (K6). Tanpa default.
+  /// Ditetapkan server dari status TA saat milestone dibuat. Tanpa default.
   phase              ThesisPhase
   progressPercentage Int             @default(0) @map("progress_percentage")
 
@@ -1111,7 +1110,7 @@ model ThesisMilestone {
   supervisorNotes String?   @map("supervisor_notes") @db.Text
   studentNotes    String?   @map("student_notes") @db.Text
   feedback        String?   @db.Text
-  /// Feedback pembimbing (P1/P2), terpisah dari catatan keputusan `supervisorNotes` (Paket C, C9).
+  /// Feedback Pembimbing 1 atau 2, terpisah dari catatan keputusan `supervisorNotes`.
   /// Feedback baru menggantikan yang lama; riwayat ada di notifikasi dan audit log.
   feedbackBy      String?   @map("feedback_by")
   feedbackAt      DateTime? @map("feedback_at")
@@ -1161,21 +1160,21 @@ model ThesisGuidance {
   summarySubmittedAt DateTime? @map("summary_submitted_at")
   completedAt        DateTime? @map("completed_at")
 
-  /// K19: waktu alternatif yang diusulkan dosen saat menolak (opsional).
+  /// Waktu alternatif yang diusulkan dosen saat menolak (opsional).
   suggestedDate    DateTime?      @map("suggested_date")
-  /// K19: perubahan jadwal oleh dosen setelah `accepted` (riwayat lengkap di audit log).
+  /// Perubahan jadwal oleh dosen setelah `accepted` (riwayat lengkap di audit log).
   rescheduleReason String?        @map("reschedule_reason") @db.Text
   rescheduledAt    DateTime?      @map("rescheduled_at")
-  /// K19: pembatalan oleh mahasiswa, dosen, atau sistem (penghentian TA), dengan alasan.
+  /// Pembatalan oleh mahasiswa, dosen, atau sistem (penghentian TA), dengan alasan.
   cancelReason     String?        @map("cancel_reason") @db.Text
   cancelledAt      DateTime?      @map("cancelled_at")
   cancelledBy      GuidanceActor? @map("cancelled_by")
 
   status GuidanceStatus @default(requested)
-  /// Ditetapkan server dari status TA saat sesi dibuat (K6). Tanpa default.
+  /// Ditetapkan server dari status TA saat sesi dibuat. Tanpa default.
   phase  ThesisPhase
 
-  /// Lampiran sesi (K17), opsional. File di uploads/thesis/<thesis_id>/guidance/<guidance_id>/.
+  /// Lampiran sesi, opsional. File di uploads/thesis/<thesis_id>/guidance/<guidance_id>/.
   filePath       String?   @map("file_path") @db.VarChar(255)
   fileName       String?   @map("file_name") @db.VarChar(255)
   mimeType       String?   @map("mime_type") @db.VarChar(255)
@@ -2726,9 +2725,9 @@ model ThesisSupervisorRequest {
   @@map("thesis_supervisor_requests")
 }
 
-/// Satu percobaan Metode Penelitian sebuah TA pada satu semester (K32): proposal final,
+/// Satu percobaan Metode Penelitian sebuah TA pada satu semester: proposal final,
 /// nilai pembimbing dan koordinator, kaitan presensi, dan hasilnya. Mahasiswa yang tidak
-/// lulus mendapat baris baru pada semester berikutnya (K2).
+/// lulus mendapat baris baru pada semester berikutnya.
 /// Berkas proposal final di uploads/thesis/<thesis_id>/proposal/<assessment_id>/.
 model ResearchMethodAssessment {
   id                       String                          @id @default(uuid()) @db.VarChar(191)
@@ -2740,7 +2739,7 @@ model ResearchMethodAssessment {
   proposalFileSize         Int?                            @map("proposal_file_size")
   proposalFileHash         String?                         @map("proposal_file_hash") @db.VarChar(255)
   proposalSubmittedAt      DateTime?                       @map("proposal_submitted_at")
-  /// Pembimbing yang mengirim nilai: Pembimbing 1, atau Pembimbing 2 sebagai cadangan (K9).
+  /// Pembimbing yang mengirim nilai: Pembimbing 1, atau Pembimbing 2 sebagai cadangan.
   supervisorId             String?                         @map("supervisor_id") @db.VarChar(191)
   supervisorScore          Int?                            @map("supervisor_score")
   supervisorScoredAt       DateTime?                       @map("supervisor_scored_at")
@@ -2931,34 +2930,33 @@ enum ThesisChangeApprovalRole {
   new_supervisor
 }
 
-/// Status lifecycle sesi logbook proposal (SIMPTA phase='proposal') atau
-/// logbook thesis (modul TA phase='thesis'). Canon §5.5 + HANDOFF §5 P1-10.
+/// Status sesi bimbingan, sama untuk fase proposal dan fase penelitian.
 enum GuidanceStatus {
   requested // Mahasiswa request sesi
   accepted // Dosen accept, sesi terjadwal
-  rescheduled // Lama: tidak ditulis lagi (K19), diperlakukan sama dengan accepted
+  rescheduled // Lama: tidak ditulis lagi, diperlakukan sama dengan accepted
   rejected // Dosen reject sesi
   summary_pending // Mahasiswa submit summary, menunggu approve dosen
-  summary_rejected // Dosen reject summary, mahasiswa revisi (new at HANDOFF P1-10)
+  summary_rejected // Dosen reject summary, mahasiswa revisi
   completed // Dosen approve summary
   cancelled // Pihak salah satu cancel
   deleted // Soft delete
 }
 
-/// Pihak yang membatalkan sesi bimbingan (K19).
+/// Pihak yang membatalkan sesi bimbingan.
 enum GuidanceActor {
   student
   lecturer
   system
 }
 
-/// Fase sesi bimbingan, milestone dan template (K6/K18). Ditetapkan server, tanpa default.
+/// Fase sesi bimbingan, milestone dan template. Ditetapkan server, tanpa default.
 enum ThesisPhase {
   proposal
   research
 }
 
-/// Status siklus hidup TA (K15). Menggantikan tabel thesis_status dan Thesis.isProposal.
+/// Status siklus hidup TA. Menggantikan tabel thesis_status dan Thesis.isProposal.
 enum ThesisLifecycleStatus {
   proposal
   research
