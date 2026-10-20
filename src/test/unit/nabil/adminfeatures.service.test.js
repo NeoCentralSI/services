@@ -14,6 +14,8 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
     user: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     student: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
     studentCplScore: { findMany: vi.fn() },
+    thesisSeminarExaminer: { findMany: vi.fn(async () => []) },
+    thesisDefenceExaminer: { findMany: vi.fn(async () => []) },
     lecturer: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
     academicYear: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     userRole: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
@@ -456,6 +458,30 @@ describe("Module 16: Data Master Dosen", () => {
       const result = await getLecturerDetail("user-lec");
 
       expect(result).toBeDefined();
+    });
+
+    it("Penguji Seminar dan Sidang: read from the seminar and defence examiner tables, newest first", async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: "user-lec",
+        fullName: "Dr. Andi",
+        userHasRoles: [],
+        lecturer: { id: "l1", scienceGroup: null, thesisSupervisors: [], thesisGuidances: [] },
+      });
+      const event = (id, status, date) => ({
+        id, status, date: new Date(date), registeredAt: null,
+        thesis: { id: `t-${id}`, title: `Judul ${id}`, student: { user: { id: `s-${id}`, fullName: `Mhs ${id}`, identityNumber: `221152${id}` } } },
+      });
+      mockPrisma.thesisSeminarExaminer.findMany.mockResolvedValueOnce([{ id: "se1", assignedAt: new Date("2026-09-01"), seminar: event("01", "passed", "2026-09-10") }]);
+      mockPrisma.thesisDefenceExaminer.findMany.mockResolvedValueOnce([{ id: "de1", assignedAt: new Date("2026-10-01"), defence: event("02", "scheduled", "2026-10-20") }]);
+
+      const result = await getLecturerDetail("user-lec");
+
+      expect(mockPrisma.thesisSeminarExaminer.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { lecturerId: "l1" } }));
+      expect(result.examining.map((row) => [row.kind, row.status, row.title, row.student.nim])).toEqual([
+        ["defence", "scheduled", "Judul 02", "22115202"],
+        ["seminar", "passed", "Judul 01", "22115201"],
+      ]);
+      expect(result.statistics.examining).toBe(2);
     });
 
     it("rejects (400) if userId is missing", async () => {

@@ -53,6 +53,22 @@ export function findRequestsByStudent(studentId, client = prisma) {
   });
 }
 
+/**
+ * The request that gave each thesis its Pembimbing 1 (accepted, redirected or assigned), newest
+ * first per thesis: what the student proposed (title, topic, background and so on).
+ */
+export async function findAcceptedRequestsByThesis(thesisIds, client = prisma) {
+  if (thesisIds.length === 0) return new Map();
+  const rows = await client.thesisSupervisorRequest.findMany({
+    where: { thesisId: { in: thesisIds }, status: { in: ["accepted", "redirected", "assigned"] } },
+    include: REQUEST_INCLUDE,
+    orderBy: { createdAt: "desc" },
+  });
+  const byThesis = new Map();
+  for (const row of rows) if (!byThesis.has(row.thesisId)) byThesis.set(row.thesisId, row);
+  return byThesis;
+}
+
 /** The student's request that still blocks a new one (rule: one active request). */
 export function findActiveRequestByStudent(studentId, client = prisma, excludeId = null) {
   return client.thesisSupervisorRequest.findFirst({

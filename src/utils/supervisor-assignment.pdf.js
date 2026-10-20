@@ -13,10 +13,13 @@ const COLOR_WHITE = rgb(1, 1, 1);
 const COLOR_BLACK = rgb(0, 0, 0);
 const LINE_THIN = 0.75;
 
-// Official template page 1 already embeds "B. Ketentuan" below the 7-row table.
-// When rows overflow, that static block must be masked so continuation of section A
-// is never interrupted by section B (A → B → A lanjutan is invalid).
-const PAGE1_KETENTUAN_MASK = { x0: 60.0, y0: 600.0, x1: 560.0, y1: 792.0 };
+// The official page 1 has a 7-row table with "B. Ketentuan" below it. The page is cut right
+// under the last student's row, so the table has exactly one row per student (no empty rows)
+// and the template's own B never interrupts section A; B and C are drawn after the last table.
+// The row's bottom line is 0.75 pt thick around `y1`; the cut keeps all of it.
+const PAGE1_ROW_CUT_BELOW = 0.8;
+// Space between the end of the last table and "B. Ketentuan" on the same page.
+const GAP_AFTER_TABLE = 28.0;
 
 const KETENTUAN_BULLETS = [
   "Dosen pembimbing bertanggung jawab membimbing mahasiswa dalam proses penyusunan proposal, pengembangan sistem, seminar hasil, hingga pelaksanaan sidang Tugas Akhir.",
@@ -293,17 +296,11 @@ function getContinuationCellBox(column, row, innerPadding = 2) {
   };
 }
 
-async function copyTemplatePage(outputDoc, templateDoc, pageIndex) {
-  const [page] = await outputDoc.copyPages(templateDoc, [pageIndex]);
-  outputDoc.addPage(page);
-  return page;
-}
-
 /**
- * Copy official page 1 but drop everything below `keepUntilTopY` (top-left coords).
- * Used for overflow so static "B. Ketentuan" never appears before A (lanjutan).
+ * Copy official page 1 but drop everything below `keepUntilTopY` (top-left coords): the empty
+ * rows of the table and the template's own "B. Ketentuan".
  */
-async function copyTemplatePage1WithoutKetentuan(outputDoc, templateDoc, keepUntilTopY = PAGE1_KETENTUAN_MASK.y0) {
+async function copyTemplatePage1Until(outputDoc, templateDoc, keepUntilTopY) {
   const templatePage = templateDoc.getPage(0);
   const { width, height } = templatePage.getSize();
   const cropBottom = Math.max(0, height - keepUntilTopY);
@@ -408,13 +405,29 @@ function overlayPageOne(page, entries, startIndex, semester, font) {
     maskPadding: { left: 1, right: 2, top: 1, bottom: 1 },
   });
 
-  for (let rowIndex = 0; rowIndex < ROWS_PER_FIRST_PAGE; rowIndex += 1) {
-    const globalRowNumber = startIndex + rowIndex + 1;
-    const entry = entries[rowIndex];
-    drawRowNumber(page, rowIndex, entry ? globalRowNumber : "", font);
-    if (!entry) continue;
+  // Only the students' rows remain on the cut page; each gets its number and cells.
+  entries.slice(0, ROWS_PER_FIRST_PAGE).forEach((entry, rowIndex) => {
+    drawRowNumber(page, rowIndex, startIndex + rowIndex + 1, font);
     drawEntryCells(page, rowIndex, entry, font);
-  }
+  });
+}
+
+/** Rows on page 1 (at least one, so an empty cohort still shows the table head). */
+function firstPageRowCount(entryCount) {
+  return Math.min(Math.max(1, entryCount), ROWS_PER_FIRST_PAGE);
+}
+
+/** Where page 1 is cut: right under its last student's row. */
+function firstPageCutTop(entryCount) {
+  return TEMPLATE_COORDS.page1.rows[firstPageRowCount(entryCount) - 1].y1 + PAGE1_ROW_CUT_BELOW;
+}
+
+/** The bottom of the last table of section A (page 1 or the last continuation page). */
+function lastTableBottom(entryCount) {
+  const count = Math.max(1, entryCount);
+  if (count <= ROWS_PER_FIRST_PAGE) return firstPageCutTop(count);
+  const lastRows = (count - ROWS_PER_FIRST_PAGE) % ROWS_PER_CONTINUATION_PAGE || ROWS_PER_CONTINUATION_PAGE;
+  return CONTINUATION_PAGE.tableTop + CONTINUATION_PAGE.headerHeight + lastRows * CONTINUATION_PAGE.rowHeight;
 }
 
 function buildContinuationRows(rowCount) {
@@ -760,59 +773,50 @@ function chunkEntriesForSectionA(entries) {
 }
 
 /**
- * Build a page plan for B/C flow. Supports multi-page B and separate C page when needed.
+ * Plan of sections B and C. B starts under the last table of section A when its title and
+ * first bullet fit there (`startTop`), otherwise on a new page; it continues on as many pages
+ * as needed, and C follows on the last B page when it fits, else on its own page. A page that
+ * shares the last A page is marked `onAPage`.
  * @param {string[]} bullets
  * @param {number} pageHeight
  * @param {import('pdf-lib').PDFFont} regularFont
+ * @param {number|null} [startTop]
  */
-function planKetentuanAndPengesahanPages(bullets, pageHeight, regularFont) {
+function planKetentuanAndPengesahanPages(bullets, pageHeight, regularFont, startTop = null) {
   const bottom = flowPageBottom(pageHeight);
   const pages = [];
-  let cursor = FLOW_PAGE.top;
-  let pageIndex = 0;
-  let bStarted = false;
-
-  const ensureBPage = (needsHeight) => {
-    const needsNewPage = !bStarted || ((cursor + needsHeight) > bottom);
-    if (!needsNewPage) return;
-
-    pages.push({
-      section: SECTION.B,
-      kind: bStarted ? "continuation" : "primary",
-      bullets: [],
-      drawC: false,
-    });
-    pageIndex = pages.length - 1;
-    cursor = FLOW_PAGE.top + FLOW_PAGE.sectionTitleHeight;
-    bStarted = true;
+  let current = null;
+  let cursor = 0;
+  const openPage = (kind, top, onAPage = false) => {
+    current = { section: SECTION.B, kind, bullets: [], drawC: false, startTop: top, onAPage };
+    pages.push(current);
+    cursor = top + FLOW_PAGE.sectionTitleHeight;
   };
+
+  const firstHeight = bullets.length > 0 ? measureBulletBlockHeight(bullets[0], regularFont) + FLOW_PAGE.bulletGap : 0;
+  if (startTop != null && startTop + FLOW_PAGE.sectionTitleHeight + firstHeight <= bottom) openPage("primary", startTop, true);
+  else openPage("primary", FLOW_PAGE.top);
 
   for (const text of bullets) {
     const height = measureBulletBlockHeight(text, regularFont) + FLOW_PAGE.bulletGap;
-    ensureBPage(height);
-    pages[pageIndex].bullets.push(text);
+    if (current.bullets.length > 0 && cursor + height > bottom) openPage("continuation", FLOW_PAGE.top);
+    current.bullets.push(text);
     cursor += height;
   }
 
   // Section C only after all B content is placed.
-  const cNeeds = FLOW_PAGE.afterBGap + FLOW_PAGE.signatureHeight;
-  if ((cursor + cNeeds) <= bottom && pages.length > 0 && pages[pageIndex].section === SECTION.B) {
-    pages[pageIndex].drawC = true;
+  if (cursor + FLOW_PAGE.afterBGap + FLOW_PAGE.signatureHeight <= bottom) {
+    current.drawC = true;
   } else {
-    pages.push({
-      section: SECTION.C,
-      kind: "primary",
-      bullets: [],
-      drawC: true,
-    });
+    pages.push({ section: SECTION.C, kind: "primary", bullets: [], drawC: true, startTop: FLOW_PAGE.top, onAPage: false });
   }
-
   return pages;
 }
 
 /**
  * Pure planner for TA-04 page structure. Exported for unit tests.
- * Always emits pages in section order A* → B* → C*.
+ * Always emits pages in section order A* → B* → C*. The tables of section A have exactly one
+ * row per student: page 1 holds up to 7, each continuation page up to 10 under a repeated head.
  *
  * @param {number} entryCount
  * @param {object} [options]
@@ -824,49 +828,42 @@ export function planAssignmentDocumentStructure(entryCount, options = {}) {
   const safeCount = Math.max(0, Number(entryCount) || 0);
   const overflowCount = Math.max(0, safeCount - ROWS_PER_FIRST_PAGE);
   const hasOverflow = overflowCount > 0;
-  const aContinuationCount = overflowCount === 0
-    ? 0
-    : Math.ceil(overflowCount / ROWS_PER_CONTINUATION_PAGE);
+  const aContinuationCount = overflowCount === 0 ? 0 : Math.ceil(overflowCount / ROWS_PER_CONTINUATION_PAGE);
 
-  const bullets = options.ketentuanBullets
-    ?? (hasOverflow ? [...KETENTUAN_BULLETS] : [KETENTUAN_BULLETS[2]]);
+  const bullets = options.ketentuanBullets ?? [...KETENTUAN_BULLETS];
   const pageHeight = options.pageHeight ?? 792;
   const regularFont = options.regularFont ?? {
     // Conservative estimator used when font is unavailable (unit tests for counts).
     widthOfTextAtSize: (text, size) => String(text).length * size * 0.5,
   };
 
-  const aPages = [
-    {
-      section: SECTION.A,
-      kind: "primary",
-      cropKetentuan: hasOverflow,
-      keepEmbeddedKetentuan: !hasOverflow,
-    },
-    ...Array.from({ length: aContinuationCount }, () => ({
-      section: SECTION.A,
-      kind: "continuation",
-    })),
+  const tableRows = [
+    firstPageRowCount(safeCount),
+    ...Array.from({ length: aContinuationCount }, (_, index) =>
+      Math.min(ROWS_PER_CONTINUATION_PAGE, overflowCount - index * ROWS_PER_CONTINUATION_PAGE)),
   ];
+  const aPages = tableRows.map((rows, index) => ({ section: SECTION.A, kind: index === 0 ? "primary" : "continuation", rows, flow: null }));
 
-  const bcPages = planKetentuanAndPengesahanPages(bullets, pageHeight, regularFont);
+  const bcPages = planKetentuanAndPengesahanPages(bullets, pageHeight, regularFont, lastTableBottom(safeCount) + GAP_AFTER_TABLE);
+  if (bcPages[0]?.onAPage) aPages[aPages.length - 1].flow = bcPages.shift();
   const pages = [...aPages, ...bcPages];
   assertStrictSectionOrder(pages);
 
-  const sectionSequence = pages.flatMap((page) => {
+  const sectionsOf = (page) => {
+    if (page.section === SECTION.A) {
+      return page.flow ? [SECTION.A, SECTION.B, ...(page.flow.drawC ? [SECTION.C] : [])] : [SECTION.A];
+    }
     if (page.section === SECTION.B && page.drawC) return [SECTION.B, SECTION.C];
     return [page.section];
-  });
+  };
 
   return {
     hasOverflow,
-    maskKetentuanOnPage1: hasOverflow,
-    cropKetentuanOnPage1: hasOverflow,
     continuationPageCount: aContinuationCount,
-    signatureMode: hasOverflow ? "full-ketentuan" : "continuation-only",
+    tableRows,
     totalPages: pages.length,
     pages,
-    sectionSequence,
+    sectionSequence: pages.flatMap(sectionsOf),
   };
 }
 
@@ -877,7 +874,7 @@ function drawKetentuanPage(page, planPage, {
   regularFont,
   boldFont,
 }) {
-  let cursor = FLOW_PAGE.top;
+  let cursor = planPage.startTop ?? FLOW_PAGE.top;
   if (planPage.section === SECTION.B) {
     const title = planPage.kind === "continuation"
       ? "B. Ketentuan (lanjutan)"
@@ -892,7 +889,7 @@ function drawKetentuanPage(page, planPage, {
     if (planPage.section === SECTION.B) {
       cursor += FLOW_PAGE.afterBGap;
     } else {
-      cursor = FLOW_PAGE.top;
+      cursor = planPage.startTop ?? FLOW_PAGE.top;
     }
     drawSignatureBlockAt(page, cursor, dateGenerated, kadepName, kadepNip, regularFont, boldFont);
   }
@@ -904,14 +901,10 @@ function drawKetentuanPage(page, planPage, {
  * Strict structural invariant (always):
  *   A (primary + semua lanjutan) → B (primary + semua lanjutan) → C
  *
- * For <= 7 rows:
- * - page 1 = official TA-04 page 1 with row data + embedded B. Ketentuan (bullets 1-2)
- * - following pages = remaining B bullet(s) then C (paginated if needed)
- *
- * For > 7 rows:
- * - page 1 = official page 1 cropped before B, rows 1..7 only
- * - next pages = A continuation tables (as many as needed)
- * - then B pages (as many as needed), then C
+ * - page 1 = official TA-04 page 1 cut under the last student's row (up to 7 rows, no empty
+ *   row, without the template's own B)
+ * - more than 7 students: continuation tables of up to 10 rows, the table head repeated
+ * - then B, under the last table when it fits, then C (each paginated if needed)
  *
  * @param {Object} opts
  * @param {string} opts.semester
@@ -937,13 +930,9 @@ export async function generateSupervisorAssignmentPdf(opts) {
   const regularFont = await outputDoc.embedFont(StandardFonts.TimesRoman);
   const boldFont = await outputDoc.embedFont(StandardFonts.TimesRomanBold);
 
-  const templatePage0 = templateDoc.getPage(0);
-  const pageHeight = templatePage0.getHeight();
-  const hasOverflow = entries.length > ROWS_PER_FIRST_PAGE;
-  const ketentuanBullets = hasOverflow ? [...KETENTUAN_BULLETS] : [KETENTUAN_BULLETS[2]];
-
+  const pageHeight = templateDoc.getPage(0).getHeight();
   const plan = planAssignmentDocumentStructure(entries.length, {
-    ketentuanBullets,
+    ketentuanBullets: [...KETENTUAN_BULLETS],
     pageHeight,
     regularFont,
   });
@@ -951,40 +940,28 @@ export async function generateSupervisorAssignmentPdf(opts) {
 
   const aChunks = chunkEntriesForSectionA(entries);
   let aChunkIndex = 0;
+  const flowOptions = { dateGenerated, kadepName, kadepNip, regularFont, boldFont };
 
   for (const planPage of plan.pages) {
     if (planPage.section === SECTION.A) {
       const chunk = aChunks[aChunkIndex];
       aChunkIndex += 1;
 
+      let page;
       if (planPage.kind === "primary") {
-        const officialPage1 = plan.cropKetentuanOnPage1
-          ? await copyTemplatePage1WithoutKetentuan(outputDoc, templateDoc)
-          : await copyTemplatePage(outputDoc, templateDoc, 0);
-        overlayPageOne(officialPage1, chunk.entries, chunk.startIndex, semester, regularFont);
-        continue;
+        page = await copyTemplatePage1Until(outputDoc, templateDoc, firstPageCutTop(entries.length));
+        overlayPageOne(page, chunk.entries, chunk.startIndex, semester, regularFont);
+      } else {
+        page = addBlankPageLike(outputDoc, templateDoc);
+        drawContinuationPage(page, chunk.entries, chunk.startIndex, regularFont, boldFont, { isContinuation: true });
       }
-
-      const continuationPage = addBlankPageLike(outputDoc, templateDoc);
-      drawContinuationPage(
-        continuationPage,
-        chunk.entries,
-        chunk.startIndex,
-        regularFont,
-        boldFont,
-        { isContinuation: true },
-      );
+      // Section B (and C when it fits) starts under the last table.
+      if (planPage.flow) drawKetentuanPage(page, planPage.flow, flowOptions);
       continue;
     }
 
     const contentPage = addBlankPageLike(outputDoc, templateDoc);
-    drawKetentuanPage(contentPage, planPage, {
-      dateGenerated,
-      kadepName,
-      kadepNip,
-      regularFont,
-      boldFont,
-    });
+    drawKetentuanPage(contentPage, planPage, flowOptions);
   }
 
   const pdfBytes = await outputDoc.save();

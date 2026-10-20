@@ -69,12 +69,19 @@ describe("assertStrictSectionOrder", () => {
 });
 
 describe("planAssignmentDocumentStructure", () => {
-  it("keeps embedded B. Ketentuan on page 1 when there is no overflow", () => {
-    const plan = planAssignmentDocumentStructure(7);
+  it("one table row per student, no empty rows: 3 and 7 fit page 1, 12 continues with 5", () => {
+    expect(planAssignmentDocumentStructure(3).tableRows).toEqual([3]);
+    expect(planAssignmentDocumentStructure(7).tableRows).toEqual([7]);
+    expect(planAssignmentDocumentStructure(12).tableRows).toEqual([7, 5]);
+    expect(planAssignmentDocumentStructure(27).tableRows).toEqual([7, 10, 10]);
+  });
+
+  it("3 students: B starts under the table on page 1, C follows; A → B → C", () => {
+    const plan = planAssignmentDocumentStructure(3);
     expect(plan.hasOverflow).toBe(false);
-    expect(plan.cropKetentuanOnPage1).toBe(false);
     expect(plan.continuationPageCount).toBe(0);
-    expect(plan.signatureMode).toBe("continuation-only");
+    expect(plan.pages[0]).toMatchObject({ section: "A", kind: "primary", rows: 3 });
+    expect(plan.pages[0].flow).toMatchObject({ section: "B", onAPage: true });
     expect(plan.sectionSequence[0]).toBe("A");
     expect(plan.sectionSequence.at(-1)).toBe("C");
     expect(isMonotonicABC(plan.sectionSequence)).toBe(true);
@@ -82,24 +89,18 @@ describe("planAssignmentDocumentStructure", () => {
 
   it("schedules all A continuation pages before any B/C pages", () => {
     const plan8 = planAssignmentDocumentStructure(8);
-    expect(plan8.cropKetentuanOnPage1).toBe(true);
     expect(plan8.continuationPageCount).toBe(1);
+    expect(plan8.tableRows).toEqual([7, 1]);
     expect(plan8.sectionSequence[0]).toBe("A");
     expect(plan8.sectionSequence.filter((s) => s === "A")).toHaveLength(2);
-    expect(plan8.sectionSequence.indexOf("B")).toBeGreaterThan(
-      plan8.sectionSequence.lastIndexOf("A"),
-    );
-    expect(plan8.sectionSequence.indexOf("C")).toBeGreaterThan(
-      plan8.sectionSequence.lastIndexOf("B"),
-    );
+    expect(plan8.sectionSequence.indexOf("B")).toBeGreaterThan(plan8.sectionSequence.lastIndexOf("A"));
+    expect(plan8.sectionSequence.indexOf("C")).toBeGreaterThan(plan8.sectionSequence.lastIndexOf("B"));
     expect(isMonotonicABC(plan8.sectionSequence)).toBe(true);
 
     const plan27 = planAssignmentDocumentStructure(27);
     expect(plan27.continuationPageCount).toBe(2);
     expect(plan27.sectionSequence.filter((s) => s === "A")).toHaveLength(3);
-    expect(plan27.sectionSequence.indexOf("B")).toBeGreaterThan(
-      plan27.sectionSequence.lastIndexOf("A"),
-    );
+    expect(plan27.sectionSequence.indexOf("B")).toBeGreaterThan(plan27.sectionSequence.lastIndexOf("A"));
     expect(isMonotonicABC(plan27.sectionSequence)).toBe(true);
   });
 
@@ -129,10 +130,12 @@ describe("planAssignmentDocumentStructure", () => {
 });
 
 describe("generateSupervisorAssignmentPdf", () => {
-  it("uses a compact layout for up to 7 entries", async () => {
-    const pdfBuffer = await generateSample(7);
-    const pdfDoc = await PDFDocument.load(pdfBuffer);
-    expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
+  it("3 and 12 students: the page count follows the plan", async () => {
+    for (const count of [3, 12]) {
+      const plan = planAssignmentDocumentStructure(count);
+      const pdfDoc = await PDFDocument.load(await generateSample(count));
+      expect(pdfDoc.getPageCount()).toBe(plan.totalPages);
+    }
   });
 
   it("keeps section order A* → B* → C* for multi-page A overflow", async () => {
@@ -156,7 +159,7 @@ describe("generateSupervisorAssignmentPdf", () => {
     const outDir = join(process.cwd(), "uploads", "documents", "supervisor-assignment");
     await mkdir(outDir, { recursive: true });
 
-    for (const count of [7, 8, 27]) {
+    for (const count of [3, 7, 8, 12, 27]) {
       const pdfBuffer = await generateSample(count);
       await writeFile(join(outDir, `SECTION_ORDER_${count}.pdf`), pdfBuffer);
     }

@@ -545,11 +545,15 @@ export async function getLecturerInbox(userId) {
  * `LECTURER_INBOX_PRIORITY` (what waits for the viewer first, newest first inside a group);
  * the Jenis (`LECTURER_INBOX_JENIS`) and Status filters and the search by name, NIM or title
  * narrow it. `counts.waiting`
- * is what waits for the viewer, of both kinds (the sidebar badge).
+ * is what waits for the viewer, of both kinds (the sidebar badge). `all` returns every row in
+ * the same order without paging: a lecturer's inbox is small, so the page filters and searches
+ * it in the browser.
  */
-export async function listLecturerInbox(userId, { kind = null, status = null, search = "", page = 1, pageSize = 10 } = {}) {
+export async function listLecturerInbox(userId, { kind = null, status = null, search = "", page = 1, pageSize = 10, all = false } = {}) {
   const year = await requireOperationalYear();
-  const window = pageWindow({ page, pageSize });
+  const window = all
+    ? { page: 1, pageSize: LECTURER_INBOX_ALL_LIMIT, skip: 0, take: LECTURER_INBOX_ALL_LIMIT }
+    : pageWindow({ page, pageSize });
   const keyword = String(search ?? "").trim();
   const changeWhere = await lecturerStepFilters(userId);
   const visible = { OR: [{ lecturerId: userId }, { redirectedTo: userId }] };
@@ -599,10 +603,12 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
   const supervisor2Page = supervisor2Rows.slice(window.skip, window.skip + window.take);
   const groupWindow = { skip: Math.max(0, window.skip - supervisor2Rows.length), take: window.take - supervisor2Page.length };
 
-  const [paged, waitingRequests, waitingChanges] = await Promise.all([
+  const [paged, waitingRequests, waitingChanges, proposedBy] = await Promise.all([
     pageAcrossGroups(groups, groupWindow, { count: countInboxGroup, find: findInboxGroup }),
     repo.countRequests({ lecturerId: userId, status: { in: WAITING_LECTURER_STATUSES } }),
     changeRepo.countWhere(changeWhere[CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME]),
+    // What the student proposed, so the lecturer asked to be Pembimbing 2 reads the content.
+    repo.findAcceptedRequestsByThesis(supervisor2Page.map((request) => request.thesisId)),
   ]);
   const data = [
     ...supervisor2Page.map((request) => ({
@@ -610,7 +616,7 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
       id: request.requestId,
       viewStatus: CHANGE_REQUEST_VIEW_STATUS.AWAITING_ME,
       createdAt: request.requestedAt,
-      supervisor2Request: request,
+      supervisor2Request: { ...request, supervisorRequest: toDto(proposedBy.get(request.thesisId) ?? null, year.id) },
     })),
     ...(await Promise.all(
       paged.rows.map(async ({ row }) =>
@@ -632,6 +638,8 @@ export async function listLecturerInbox(userId, { kind = null, status = null, se
 }
 
 const INBOX_ORDER = Object.freeze([{ createdAt: "desc" }, { id: "desc" }]);
+/** The most rows `listLecturerInbox({ all: true })` returns (far above a lecturer's inbox). */
+const LECTURER_INBOX_ALL_LIMIT = 2000;
 
 async function countInboxGroup(where) {
   const [requests, changes] = await Promise.all([

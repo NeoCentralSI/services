@@ -37,8 +37,8 @@ export const withdrawRequest = handle(async (req, res) => {
 export const getLecturerInbox = handle(async (req, res) => ok(res, await requests.getLecturerInbox(req.user.sub)));
 /** GET /thesis-proposals/lecturer-inbox (Tugas Akhir > Permohonan, both kinds of rows) */
 export const listLecturerInbox = handle(async (req, res) => {
-  const { kind, status, search, page, pageSize } = req.query;
-  const result = await requests.listLecturerInbox(req.user.sub, { kind, status, search, page, pageSize });
+  const { kind, status, search, page, pageSize, all } = req.query;
+  const result = await requests.listLecturerInbox(req.user.sub, { kind, status, search, page, pageSize, all: all === "1" || all === "true" });
   res.json({ success: true, data: result.data, meta: result.meta, counts: result.counts });
 });
 /** POST /thesis-proposals/supervisor-requests/:id/review */

@@ -179,10 +179,17 @@ await run("6 Impor Keikutsertaan (impor massal)", async () => {
     form.append("file", new Blob([buffer]), name);
     return form;
   };
-  const HEADERS = ["NIM", "Mengambil Metode Penelitian", "Mengambil Tugas Akhir"];
-  const file = sheet([HEADERS, ["2211528002", "Ya", ""], ["2211599999", "Ya", "Ya"], ["2211528001", "Mungkin", ""]]);
+  const HEADERS = ["NIM", "Nama", "Mengambil Metode Penelitian", "Mengambil Tugas Akhir"];
+  const tidakLayak = await prisma.user.findFirst({ where: { identityNumber: "2211528002" }, select: { id: true, fullName: true } });
+  // The name is compared without case and extra spaces; a name that does not match skips the row.
+  const file = sheet([
+    HEADERS,
+    ["2211528002", `  ${tidakLayak.fullName.toLowerCase()} `, "Ya", ""],
+    ["2211599999", "Tidak Dikenal", "Ya", "Ya"],
+    ["2211528001", "", "Mungkin", ""],
+    ["2211528003", "Nama Yang Salah", "Ya", "Ya"],
+  ]);
   const path = `/adminfeatures/student-period-flags/${current.id}/import`;
-  const tidakLayak = await prisma.user.findFirst({ where: { identityNumber: "2211528002" }, select: { id: true } });
   const snapshot = () => prisma.studentAcademicYearSnapshot.findUnique({ where: { studentId_academicYearId: { studentId: tidakLayak.id, academicYearId: current.id } } });
 
   const template = await api(ADMIN, "GET", "/adminfeatures/student-period-flags/template");
@@ -196,8 +203,9 @@ await run("6 Impor Keikutsertaan (impor massal)", async () => {
   const before = await snapshot();
   const preview = await api(ADMIN, "POST", `${path}/preview`, undefined, { form: upload(file) });
   const after = await snapshot();
-  check("Pratinjau: 1 berubah, 0 sama, 1 NIM tidak dikenal, 1 baris tidak valid; belum ada yang tersimpan",
-    preview.status === 200 && JSON.stringify(preview.data?.totals) === JSON.stringify({ rows: 3, changed: 1, unchanged: 0, unknownNim: 1, invalid: 1 })
+  check("Pratinjau: 1 berubah, 0 sama, 1 NIM tidak dikenal, 1 baris tidak valid, 1 nama tidak cocok; belum ada yang tersimpan",
+    preview.status === 200 && JSON.stringify(preview.data?.totals) === JSON.stringify({ rows: 4, changed: 1, unchanged: 0, unknownNim: 1, invalid: 1, nameMismatch: 1 })
+      && preview.data?.nameMismatch?.[0]?.nim === "2211528003"
       && preview.data?.unknown?.[0]?.nim === "2211599999" && /isi Ya atau Tidak/.test(preview.data?.invalid?.[0]?.reason ?? "")
       && after?.eligibleResearchMethod === before?.eligibleResearchMethod && after?.eligibilitySource === before?.eligibilitySource,
     { totals: preview.data?.totals, before: [before?.eligibleResearchMethod, before?.eligibilitySource] });
@@ -218,7 +226,7 @@ await run("6 Impor Keikutsertaan (impor massal)", async () => {
 
   const audits = await prisma.auditLog.findMany({ where: { action: "STUDENT_PERIOD_FLAGS_IMPORTED", entityId: current.id }, orderBy: { createdAt: "asc" } });
   const counts = audits.map((a) => a.newValues ?? a.changes?.newValues ?? null);
-  check("kedua penerapan tercatat di log audit dengan jumlah barisnya", audits.length === 2 && JSON.stringify(counts[0]).includes("\"rows\":3") && JSON.stringify(counts[0]).includes("\"changed\":1"), counts);
+  check("kedua penerapan tercatat di log audit dengan jumlah barisnya", audits.length === 2 && JSON.stringify(counts[0]).includes("\"rows\":4") && JSON.stringify(counts[0]).includes("\"changed\":1") && JSON.stringify(counts[0]).includes("\"nameMismatch\":1"), counts);
 });
 
 const failed = summary();

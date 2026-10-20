@@ -166,8 +166,8 @@ export async function runPromotion({ actorUserId = null, now = new Date() } = {}
       });
       try {
         await createNotificationEventForUsers([thesis.student.id, ...thesis.thesisSupervisors.map((s) => s.lecturerId)], {
-          title: "Naik ke Fase Penelitian",
-          message: `Tugas akhir "${thesis.title || "-"}" (${thesis.student.user?.fullName ?? "mahasiswa"}) naik ke fase Penelitian: lulus Metode Penelitian dan KRS Tugas Akhir terkonfirmasi.`,
+          title: "Mulai Penelitian",
+          message: `Tugas akhir "${thesis.title || "-"}" (${thesis.student.user?.fullName ?? "mahasiswa"}) masuk fase Penelitian: lulus Metode Penelitian dan KRS Tugas Akhir terkonfirmasi.`,
           type: "research_method_promoted",
           data: { thesisId: thesis.id, route: "/tugas-akhir" },
         }, { push: true });

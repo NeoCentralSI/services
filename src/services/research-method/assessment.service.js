@@ -126,7 +126,7 @@ async function notifyProgress(attempt, party, finalized) {
       await createNotificationEventForUsers([attempt.thesis.student.id], {
         title: "Nilai Metode Penelitian Final",
         message: `Nilai proposal "${title}" sudah final: ${finalized.finalScore} (${passed ? "Lulus" : "Tidak Lulus"}). ${passed
-          ? "Anda naik ke fase Penelitian setelah terdaftar mengambil mata kuliah Tugas Akhir pada semester berikutnya."
+          ? "Tugas akhir Anda masuk fase Penelitian setelah terdaftar mengambil mata kuliah Tugas Akhir pada semester berikutnya."
           : "Anda mengulang Metode Penelitian pada periode berikutnya dengan pembimbing dan judul yang sama."}`,
         type: "research_method_assessment_finalized",
         data: { ...data, route: "/tugas-akhir/proposal" },

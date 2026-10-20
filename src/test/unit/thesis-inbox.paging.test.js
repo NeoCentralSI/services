@@ -16,7 +16,7 @@ const { changeRepo, evalRepo, requestRepo, supervisor2 } = vi.hoisted(() => ({
     getSupervisorLoad: vi.fn(async () => ({ activeCount: 3, quotaMax: 10 })),
   },
   evalRepo: { findEvaluationPage: vi.fn(), countEvaluations: vi.fn() },
-  requestRepo: { findRequestPage: vi.fn(), countRequests: vi.fn() },
+  requestRepo: { findRequestPage: vi.fn(), countRequests: vi.fn(), findAcceptedRequestsByThesis: vi.fn(async () => new Map()) },
 }));
 
 vi.mock("../../config/prisma.js", () => ({ default: {} }));
@@ -336,6 +336,7 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
   it("The Pembimbing 2 requests are a third kind, first, in the same window and count", async () => {
     const s2 = (id, day, name) => ({ requestId: id, thesisId: `t-${id}`, studentId: `s-${id}`, studentName: name, studentNim: `22${id}`, thesisTitle: `Judul ${id}`, requestedAt: at(day) });
     supervisor2.getSupervisor2RequestsService.mockResolvedValue([s2("p2-old", 2, "Budi"), s2("p2-new", 4, "Sari")]);
+    requestRepo.findAcceptedRequestsByThesis.mockResolvedValue(new Map([["t-p2-old", supervisorRequest("req-proposed", "accepted", 1)]]));
     wire({ requestsByStatus: range(12, (i) => ({ ...supervisorRequest(`req-${i}`, "accepted", 3), createdAt: new Date(at(3).getTime() - i * 60_000) })), changesByStatus: [] });
 
     const first = await requests.listLecturerInbox("lect-1", { page: 1, pageSize: 10 });
@@ -346,6 +347,10 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
       ["supervisor_request", "req-0", "accepted"],
     ]);
     expect(first.data[0].supervisor2Request).toMatchObject({ studentName: "Sari", thesisTitle: "Judul p2-new" });
+    // The accepted supervisor request of the thesis rides along, for the detail modal.
+    expect(requestRepo.findAcceptedRequestsByThesis).toHaveBeenCalledWith(["t-p2-new", "t-p2-old"]);
+    expect(first.data[1].supervisor2Request.supervisorRequest).toMatchObject({ id: "req-proposed" });
+    expect(first.data[0].supervisor2Request.supervisorRequest).toBeNull();
     expect(first.counts).toMatchObject({ waiting: 2, waitingSupervisor2: 2 });
     const second = await requests.listLecturerInbox("lect-1", { page: 2, pageSize: 10 });
     expect(second.data.map((row) => row.id)).toEqual(["req-8", "req-9", "req-10", "req-11"]);
@@ -355,5 +360,6 @@ describe("Permohonan (lecturer approval inbox): both kinds, status priority on t
     expect((await requests.listLecturerInbox("lect-1", { status: "accepted" })).data.some((row) => row.kind === "supervisor2_request")).toBe(false);
     expect((await requests.listLecturerInbox("lect-1", { search: "budi" })).data.filter((row) => row.kind === "supervisor2_request").map((row) => row.id)).toEqual(["p2-old"]);
     supervisor2.getSupervisor2RequestsService.mockResolvedValue([]);
+    requestRepo.findAcceptedRequestsByThesis.mockResolvedValue(new Map());
   });
 });

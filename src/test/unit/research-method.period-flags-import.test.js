@@ -65,7 +65,7 @@ describe("parser", () => {
   it("reads the template columns from .xlsx and .csv; reports bad rows without stopping", () => {
     const rows = [HEADERS, ["2211528002", "Ya", ""], ["", "Ya", "Tidak"], ["2211528001", "Mungkin", "Ya"], ["2211528005", "", ""], ["2211528002", "Tidak", ""], ["", "", ""]];
     const parsed = parsePeriodFlagsSheet(xlsx(rows));
-    expect(parsed.valid).toEqual([{ row: 2, nim: "2211528002", flags: { eligibleResearchMethod: true } }]);
+    expect(parsed.valid).toEqual([{ row: 2, nim: "2211528002", name: null, flags: { eligibleResearchMethod: true } }]);
     expect(parsed.invalid.map((i) => [i.row, i.reason])).toEqual([
       [3, "NIM kosong."],
       [4, "Mengambil Metode Penelitian: isi Ya atau Tidak."],
@@ -74,14 +74,14 @@ describe("parser", () => {
     ]);
     expect(parsed.totalRows).toBe(5);
     const fromCsv = parsePeriodFlagsSheet(csv("NIM,Mengambil Metode Penelitian,Mengambil Tugas Akhir\n2211528002,Ya,Tidak\n"));
-    expect(fromCsv.valid).toEqual([{ row: 2, nim: "2211528002", flags: { eligibleResearchMethod: true, takingThesisCourse: false } }]);
+    expect(fromCsv.valid).toEqual([{ row: 2, nim: "2211528002", name: null, flags: { eligibleResearchMethod: true, takingThesisCourse: false } }]);
   });
 
   it("a sheet without the NIM and flag headers is refused", () => {
     expect(() => parsePeriodFlagsSheet(xlsx([["Nama", "Kelas"], ["Budi", "A"]]))).toThrow(/Header tidak ditemukan/);
   });
 
-  it("the template has the three columns", () => {
+  it("the template has NIM, Nama and the two flags", () => {
     const book = XLSX.read(buildPeriodFlagsTemplate(), { type: "buffer" });
     expect(XLSX.utils.sheet_to_json(book.Sheets.Keikutsertaan, { header: 1 })[0]).toEqual([...PERIOD_FLAGS_HEADERS]);
   });
@@ -93,7 +93,7 @@ describe("preview and apply", () => {
   it("preview: changed, unchanged (same value, already Admin), unknown NIM, invalid; nothing written", async () => {
     const db = fakeDb({ users: USERS, snapshots: SNAPSHOTS });
     const plan = await previewPeriodFlagsImport("ay-1", file(), { client: db });
-    expect(plan.totals).toEqual({ rows: 4, changed: 1, unchanged: 1, unknownNim: 1, invalid: 1 });
+    expect(plan.totals).toEqual({ rows: 4, changed: 1, unchanged: 1, unknownNim: 1, invalid: 1, nameMismatch: 0 });
     expect(plan.changes).toEqual([expect.objectContaining({ nim: "2211528002", before: { eligibleResearchMethod: false, takingThesisCourse: false }, after: { eligibleResearchMethod: true, takingThesisCourse: false } })]);
     expect(plan.unknown).toEqual([{ row: 4, nim: "2211599999" }]);
     expect(plan.academicYear.label).toBe("2026/2027 Ganjil");
@@ -110,7 +110,7 @@ describe("preview and apply", () => {
     expect(audit.logAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: "STUDENT_PERIOD_FLAGS_IMPORTED",
       entityId: "ay-1",
-      newValues: { academicYearId: "ay-1", fileName: "keikutsertaan.xlsx", rows: 4, changed: 1, unchanged: 1, unknownNim: 1, invalid: 1 },
+      newValues: { academicYearId: "ay-1", fileName: "keikutsertaan.xlsx", rows: 4, changed: 1, unchanged: 1, unknownNim: 1, invalid: 1, nameMismatch: 0 },
     }));
 
     db.studentAcademicYearSnapshot.upsert.mockClear();
@@ -118,6 +118,20 @@ describe("preview and apply", () => {
     expect(second.applied).toBe(0);
     expect(second.totals).toMatchObject({ changed: 0, unchanged: 2 });
     expect(db.studentAcademicYearSnapshot.upsert).not.toHaveBeenCalled();
+  });
+
+  it("Nama: a name that does not match the NIM skips the row and is reported; case and extra spaces are ignored", async () => {
+    const db = fakeDb({ users: USERS, snapshots: SNAPSHOTS });
+    const result = await applyPeriodFlagsImport("ay-1", xlsx([
+      ["NIM", "Nama", "Mengambil Metode Penelitian", "Mengambil Tugas Akhir"],
+      ["2211528002", "  uji   PROPOSAL tidak layak ", "Ya", ""],
+      ["2211528001", "Orang Lain", "", "Ya"],
+    ]), { client: db, actorUserId: "admin-1" });
+    expect(result.applied).toBe(1);
+    expect(result.totals).toMatchObject({ rows: 2, changed: 1, nameMismatch: 1 });
+    expect(result.nameMismatch).toEqual([{ row: 3, nim: "2211528001", name: "Orang Lain", expected: "Uji Proposal Layak" }]);
+    expect(db.rows.find((r) => r.studentId === "s2")).toMatchObject({ takingThesisCourse: false, thesisCourseSource: "sia" });
+    expect(audit.logAudit).toHaveBeenCalledWith(expect.objectContaining({ newValues: expect.objectContaining({ nameMismatch: 1 }) }));
   });
 
   it("a student without a snapshot gets one; an unknown semester is refused", async () => {

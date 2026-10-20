@@ -184,6 +184,19 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		{ filter },
 	);
 
+	// Theses whose proposal revision waits for this lecturer as Pembimbing 1 (the row's
+	// "Tinjau Proposal Revisi" action).
+	const reviewable = rawStudents
+		.filter((s) => s.thesisStatus === THESIS_STATUS.PROPOSAL && s.role === ROLES.PEMBIMBING_1
+			&& (s.supervisorStatus ?? "active") === "active" && !s.noLongerSupervising)
+		.map((s) => s.thesisId);
+	const waitingRevision = reviewable.length
+		? new Set((await prisma.thesisProposalRevision.findMany({
+			where: { thesisId: { in: reviewable }, status: "submitted" },
+			select: { thesisId: true },
+		})).map((row) => row.thesisId))
+		: new Set();
+
 	// Transform data to flat structure for frontend
 	const students = rawStudents.map(s => ({
 		studentId: s.studentId,
@@ -212,6 +225,7 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		// ISO value; the frontend formats it
 		lastGuidanceAt: s.lastGuidanceDate || null,
 		startDate: s.startDate || null,
+		proposalRevisionPending: waitingRevision.has(s.thesisId),
 		// "Ajukan Perubahan", "Alihkan" and the open-request marker of the row.
 		changeRequest: s.changeState
 			? changeActionsForLecturerRow({
@@ -1172,10 +1186,10 @@ export async function sendWarningNotificationService(userId, thesisId) {
  */
 export async function approveThesisProposalService(userId, thesisId) {
 	// Revival decision (e3): baseline let a supervisor activate a proposal directly
-	// (thesisStatusId=null). That would bypass Penilaian Proposal and Naik ke Penelitian, so the lock is kept.
+	// (thesisStatusId=null). That would bypass Penilaian Proposal and the start of the research phase, so the lock is kept.
 	void userId;
 	void thesisId;
 	throw new ForbiddenError(
-		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan lewat Nilai Proposal di Tugas Akhir > Proposal; mahasiswa naik ke fase Penelitian setelah lulus Metode Penelitian dan KRS Tugas Akhir terkonfirmasi.",
+		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan lewat Nilai Proposal di Tugas Akhir > Proposal; tugas akhir masuk fase Penelitian setelah lulus Metode Penelitian dan KRS Tugas Akhir terkonfirmasi.",
 	);
 }

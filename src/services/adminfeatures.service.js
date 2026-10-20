@@ -1594,18 +1594,14 @@ export async function getStudentDetail(userId) {
 									completedAt: true,
 								},
 							},
+							// Read only: the latest seminar and defence of each thesis for the "Tugas Akhir" card.
 							thesisSeminars: {
-								select: {
-									id: true,
-									status: true,
-									createdAt: true,
-								},
+								select: { id: true, status: true, date: true, registeredAt: true, createdAt: true },
+								orderBy: { createdAt: "desc" },
 							},
 							thesisDefences: {
-								select: {
-									id: true,
-									createdAt: true,
-								},
+								select: { id: true, status: true, date: true, registeredAt: true, createdAt: true },
+								orderBy: { createdAt: "desc" },
 							},
 						},
 					},
@@ -1693,10 +1689,13 @@ export async function getStudentDetail(userId) {
 			seminars: thesis.thesisSeminars.map((s) => ({
 				id: s.id,
 				status: s.status,
+				date: s.date ?? s.registeredAt ?? null,
 				createdAt: s.createdAt,
 			})),
 			defences: thesis.thesisDefences.map((d) => ({
 				id: d.id,
+				status: d.status,
+				date: d.date ?? d.registeredAt ?? null,
 				createdAt: d.createdAt,
 			})),
 		};
@@ -1745,6 +1744,49 @@ export async function getStudentDetail(userId) {
 		})),
 		theses,
 	};
+}
+
+const EXAMINED_EVENT_SELECT = {
+	id: true,
+	status: true,
+	date: true,
+	registeredAt: true,
+	thesis: {
+		select: {
+			id: true,
+			title: true,
+			student: { select: { user: { select: { id: true, fullName: true, identityNumber: true } } } },
+		},
+	},
+};
+
+/**
+ * "Penguji Seminar dan Sidang" of the lecturer detail, read only from the seminar and defence
+ * examiner tables: kind, student, title, event day and status, newest first.
+ */
+export async function findExaminerAssignments(lecturerId, client = prisma) {
+	const [seminars, defences] = await Promise.all([
+		client.thesisSeminarExaminer.findMany({ where: { lecturerId }, select: { id: true, assignedAt: true, seminar: { select: EXAMINED_EVENT_SELECT } } }),
+		client.thesisDefenceExaminer.findMany({ where: { lecturerId }, select: { id: true, assignedAt: true, defence: { select: EXAMINED_EVENT_SELECT } } }),
+	]);
+	const row = (kind, examiner, event) => ({
+		id: examiner.id,
+		kind,
+		eventId: event.id,
+		status: event.status,
+		date: event.date ?? event.registeredAt ?? examiner.assignedAt ?? null,
+		thesisId: event.thesis.id,
+		title: event.thesis.title,
+		student: {
+			id: event.thesis.student?.user?.id ?? null,
+			fullName: event.thesis.student?.user?.fullName ?? null,
+			nim: event.thesis.student?.user?.identityNumber ?? null,
+		},
+	});
+	return [
+		...seminars.map((examiner) => row("seminar", examiner, examiner.seminar)),
+		...defences.map((examiner) => row("defence", examiner, examiner.defence)),
+	].sort((a, b) => new Date(b.date ?? 0) - new Date(a.date ?? 0));
 }
 
 // Get Lecturer detail by ID
@@ -1827,19 +1869,7 @@ export async function getLecturerDetail(userId) {
 			},
 		}));
 
-	const examining = user.lecturer.thesisSupervisors
-		.filter((tp) => tp.role.name.toLowerCase().includes("penguji"))
-		.map((tp) => ({
-			thesisId: tp.thesis.id,
-			title: tp.thesis.title,
-			status: tp.thesis.status || null,
-			role: tp.role.name,
-			student: {
-				id: tp.thesis.student.user.id,
-				fullName: tp.thesis.student.user.fullName,
-				nim: tp.thesis.student.user.identityNumber,
-			},
-		}));
+	const examining = await findExaminerAssignments(user.lecturer.id);
 
 	// Active vs completed supervising
 	const activeSupervising = supervising.filter((s) => !CLOSED_THESIS_STATUSES.includes(s.status));

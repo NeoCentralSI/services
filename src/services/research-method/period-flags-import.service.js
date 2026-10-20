@@ -11,10 +11,17 @@ import { ACADEMIC_FLAG_SOURCE, setStudentPeriodFlags } from "./eligibility.servi
  * Tugas Akhir" by the Admin (Data Master → Mahasiswa → Impor Keikutsertaan). Same result as the
  * one-by-one edit: source `admin`, kept by the SIA sync. A preview stores nothing; applying writes
  * only the rows that change, so importing the same file twice changes nothing the second time.
- * Problem rows (unknown NIM, invalid values) are reported and do not stop the rest.
+ * Problem rows (unknown NIM, invalid values, a name that does not match the NIM) are reported and
+ * do not stop the rest.
  */
 
-export const PERIOD_FLAGS_HEADERS = Object.freeze(["NIM", "Mengambil Metode Penelitian", "Mengambil Tugas Akhir"]);
+export const PERIOD_FLAGS_HEADERS = Object.freeze(["NIM", "Nama", "Mengambil Metode Penelitian", "Mengambil Tugas Akhir"]);
+
+/** A name compared without case and extra spaces. */
+export function normalizeName(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+const isNameHeader = (label) => label === "nama" || label.startsWith("nama ");
 
 const FIELDS = Object.freeze([
   { key: "eligibleResearchMethod", source: "eligibilitySource", label: "Mengambil Metode Penelitian", match: (h) => h.includes("metode penelitian") },
@@ -48,6 +55,8 @@ export function parsePeriodFlagsSheet(buffer) {
   }
   const header = rows[headerIndex].map(normalizeHeader);
   const nimColumn = header.findIndex((l) => l === "nim" || l.startsWith("nim "));
+  // Optional: an older file without "Nama" is read without the name check.
+  const nameColumn = header.findIndex(isNameHeader);
   const columns = FIELDS.map((field) => ({ ...field, index: header.findIndex((l) => field.match(l)) })).filter((c) => c.index >= 0);
 
   const valid = [];
@@ -70,7 +79,8 @@ export function parsePeriodFlagsSheet(buffer) {
     }
     const flags = {};
     for (const p of parsed) if (!p.cell.empty) flags[p.key] = p.cell.value;
-    valid.push({ row, nim, flags });
+    const name = nameColumn >= 0 ? String(cells[nameColumn] ?? "").trim() : "";
+    valid.push({ row, nim, name: name || null, flags });
   });
   if (valid.length === 0 && invalid.length === 0) throw new BadRequestError("Tidak ada baris yang dapat dibaca dari berkas.");
   return { valid, invalid, totalRows: valid.length + invalid.length };
@@ -98,11 +108,17 @@ async function buildPlan(academicYearId, buffer, client) {
 
   const changes = [];
   const unknown = [];
+  const nameMismatch = [];
   let unchanged = 0;
   for (const entry of parsed.valid) {
     const user = userOf.get(entry.nim);
     if (!user) {
       unknown.push({ row: entry.row, nim: entry.nim });
+      continue;
+    }
+    // A name that does not match the NIM: the row is skipped, never written.
+    if (entry.name && normalizeName(entry.name) !== normalizeName(user.fullName)) {
+      nameMismatch.push({ row: entry.row, nim: entry.nim, name: entry.name, expected: user.fullName });
       continue;
     }
     const snapshot = snapshotOf.get(user.id);
@@ -126,10 +142,18 @@ async function buildPlan(academicYearId, buffer, client) {
   }
   return {
     academicYear: { id: year.id, label: formatAcademicYearLabel(year) },
-    totals: { rows: parsed.totalRows, changed: changes.length, unchanged, unknownNim: unknown.length, invalid: parsed.invalid.length },
+    totals: {
+      rows: parsed.totalRows,
+      changed: changes.length,
+      unchanged,
+      unknownNim: unknown.length,
+      invalid: parsed.invalid.length,
+      nameMismatch: nameMismatch.length,
+    },
     changes: changes.map(({ flags, ...rest }) => rest),
     unknown,
     invalid: parsed.invalid,
+    nameMismatch,
     _writes: changes,
   };
 }
@@ -167,6 +191,7 @@ export function buildPeriodFlagsTemplate() {
     ["Petunjuk", [
       ["Isi satu baris per mahasiswa untuk semester yang dipilih di dialog Impor Keikutsertaan."],
       ["NIM: wajib, sama dengan NIM di Data Master."],
+      ["Nama: nama mahasiswa pemilik NIM itu (huruf besar-kecil dan spasi berlebih diabaikan). Baris yang namanya tidak cocok dilewati dan dilaporkan."],
       ["Mengambil Metode Penelitian dan Mengambil Tugas Akhir: Ya atau Tidak; sel kosong berarti tidak diubah."],
       ["Hasil impor bersumber Admin dan tidak ditimpa sinkronisasi SIA; Ikuti Data SIA di detail mahasiswa mengembalikannya."],
     ]],
