@@ -10,15 +10,13 @@ import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/erro
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../auditLog.service.js";
 import { createNotificationEventForUsers } from "../notification.service.js";
 import { findStudentThesis } from "../../repositories/thesis-proposal/student-thesis.repository.js";
-import { reconcileAttempt } from "../research-method/attendance.service.js";
 import { minimumScoreOf } from "../research-method/assessment.service.js";
 
 /**
- * Proposal final (plan 10.3): one file per assessment attempt (`research_method_assessments`,
- * one row per thesis per semester), so a student retaking Metode Penelitian never
- * overwrites the file of an earlier attempt. Rules kept from the old module: PDF only,
- * proposal phase, after Penetapan Pembimbing with an active supervisor, and replaceable only
- * until a score is submitted on that attempt (submitted scores are locked, R23).
+ * Proposal final: one file per assessment attempt (`research_method_assessments`, one row per
+ * thesis per semester), so a student who repeats the proposal never overwrites the file of an
+ * earlier attempt. PDF only, proposal phase, after Penetapan Pembimbing with an active supervisor,
+ * and replaceable until a score is sent on that attempt (a draft does not lock it).
  */
 
 const ATTEMPT_SELECT = {
@@ -33,9 +31,7 @@ const ATTEMPT_SELECT = {
   finalScore: true,
   isFinalized: true,
   result: true,
-  attendanceAutoZeroedAt: true,
   academicYear: { select: { id: true, semester: true, year: true, researchMethodMinimumScore: true } },
-  attendanceRecord: { select: { attendancePercentage: true, isEligible: true } },
 };
 
 function attemptDto(attempt) {
@@ -61,11 +57,7 @@ function attemptDto(attempt) {
     isFinalized: attempt.isFinalized,
     finalScore: attempt.isFinalized ? attempt.finalScore : null,
     result: attempt.isFinalized ? attempt.result : null,
-    attendanceAutoZeroed: Boolean(attempt.attendanceAutoZeroedAt),
     minimumScore: minimumScoreOf(attempt.academicYear),
-    attendance: attempt.attendanceRecord
-      ? { attendancePercentage: attempt.attendanceRecord.attendancePercentage, isEligible: attempt.attendanceRecord.isEligible }
-      : null,
   };
 }
 
@@ -175,15 +167,6 @@ export async function submitFinalProposal(userId, file) {
   if (attempt.proposalFilePath && attempt.proposalFilePath !== stored.filePath) {
     await removeFile(attempt.proposalFilePath);
   }
-  // R19 catch-up (rule kept): attendance already uploaded for the period decides at once.
-  let attendance = null;
-  try {
-    attendance = await reconcileAttempt(attempt.id, userId);
-    if (attendance?.applied) saved = await prisma.researchMethodAssessment.findUnique({ where: { id: attempt.id }, select: ATTEMPT_SELECT });
-  } catch (error) {
-    console.error("[final-proposal] rekonsiliasi presensi gagal:", error?.message ?? error);
-  }
-
   await logAudit({
     actorUserId: userId,
     action: AUDIT_ACTIONS.FINAL_PROPOSAL_SUBMITTED,
@@ -211,5 +194,5 @@ export async function submitFinalProposal(userId, file) {
     console.error("[final-proposal] notifikasi gagal dikirim:", error?.message ?? error);
   }
 
-  return { attempt: attemptDto(saved), replaced: Boolean(attempt.proposalFilePath), attendance };
+  return { attempt: attemptDto(saved), replaced: Boolean(attempt.proposalFilePath) };
 }

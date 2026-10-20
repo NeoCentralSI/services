@@ -17,7 +17,10 @@ import { BadRequestError, NotFoundError } from "../../utils/errors.js";
  *      Proposal (struktur) → CPMK 2, koordinator
  *      Kemampuan merespon  → CPMK 3, pembimbing
  *    The header weight is the sum of the slot's criteria max scores (the template default when
- *    the period has none). An empty cell means "not scored yet"; an automatic 0 writes 0.
+ *    the semester has none). An empty cell means "not sent yet"; drafts never count. The rows are
+ *    the class: students flagged as taking Metode Penelitian in the semester, plus any student with
+ *    an attempt. "ID Kelas" and "Nama Kelas" stay empty (the template keeps the rows; SIA's class
+ *    is not known here).
  * 2. Daftar judul TA yang baru lulus (new): passed, final attempts of the period with the title
  *    and supervisors, for the department to enter into SIA by hand.
  */
@@ -72,13 +75,13 @@ export function buildColumnPlan(cpmks) {
   return { columns, unmapped };
 }
 
-/** Cell values of one attempt: a number when scored, empty when not yet (0 is a real score). */
+/** Cell values of one attempt: a number once the party has sent, empty before (0 is a real score). */
 export function resolveScoreCells(attempt, plan) {
   if (!attempt) return plan.columns.map(() => null);
-  if (attempt.attendanceAutoZeroedAt) return plan.columns.map(() => 0);
+  // A party's details count only once its score is sent; before that they are its draft.
   const details = [
-    ...(attempt.supervisorDetails ?? []).map((d) => ({ ...d, party: ASSESSOR.SUPERVISOR })),
-    ...(attempt.coordinatorDetails ?? []).map((d) => ({ ...d, party: ASSESSOR.COORDINATOR })),
+    ...(attempt.supervisorScore != null ? attempt.supervisorDetails ?? [] : []).map((d) => ({ ...d, party: ASSESSOR.SUPERVISOR })),
+    ...(attempt.coordinatorScore != null ? attempt.coordinatorDetails ?? [] : []).map((d) => ({ ...d, party: ASSESSOR.COORDINATOR })),
   ];
   return plan.columns.map((column) => {
     const own = details.filter((d) => column.criteriaIds.has(d.assessmentCriteriaId));
@@ -88,47 +91,26 @@ export function resolveScoreCells(attempt, plan) {
   });
 }
 
-function percent(value) {
-  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "-";
-}
-
 function rowNote(participant) {
-  const notes = [];
-  const attempt = participant.attempt;
-  if (attempt?.attendanceAutoZeroedAt) notes.push(`Nilai otomatis 0: presensi Metode Penelitian <75% (${percent(participant.attendancePercentage)}).`);
-  else if (!attempt?.supervisorScore && !attempt?.coordinatorScore && participant.isEligible === false) {
-    notes.push(`Belum dinilai, presensi ${percent(participant.attendancePercentage)} (<75%).`);
-  }
-  if (!participant.inAttendanceImport) notes.push("Tidak ada pada presensi periode ini; baris ditambahkan dari data penilaian.");
-  return notes.length ? notes.join(" ") : null;
+  return participant.inClass ? null : "Tidak tercatat mengambil Metode Penelitian semester ini; baris ditambahkan dari data penilaian.";
 }
 
-/** Participants = rows of the attendance import in force + students with an attempt of the period. */
-export function buildParticipants(attendanceRecords, attempts) {
+/** The class = students flagged as taking Metode Penelitian in the semester + students with an attempt. */
+export function buildParticipants(classStudents, attempts) {
   const attemptByStudent = new Map(attempts.map((a) => [a.thesis.studentId, a]));
-  const seen = new Set();
-  const participants = attendanceRecords.map((record) => {
-    const attempt = (record.studentId && attemptByStudent.get(record.studentId))
-      || attempts.find((a) => a.thesis.student?.user?.identityNumber === record.identityNumber)
-      || null;
-    if (attempt) seen.add(attempt.id);
-    return {
-      identityNumber: record.identityNumber,
-      studentName: record.student?.user?.fullName ?? record.rawRow?.studentName ?? null,
-      attendancePercentage: record.attendancePercentage,
-      isEligible: record.isEligible,
-      inAttendanceImport: true,
-      attempt,
-    };
-  });
+  const participants = classStudents.map((student) => ({
+    identityNumber: student.user?.identityNumber ?? null,
+    studentName: student.user?.fullName ?? null,
+    inClass: true,
+    attempt: attemptByStudent.get(student.id) ?? null,
+  }));
+  const listed = new Set(classStudents.map((student) => student.id));
   for (const attempt of attempts) {
-    if (seen.has(attempt.id)) continue;
+    if (listed.has(attempt.thesis.studentId)) continue;
     participants.push({
       identityNumber: attempt.thesis.student?.user?.identityNumber ?? null,
       studentName: attempt.thesis.student?.user?.fullName ?? null,
-      attendancePercentage: null,
-      isEligible: null,
-      inAttendanceImport: false,
+      inClass: false,
       attempt,
     });
   }
@@ -153,12 +135,10 @@ async function requireYear(academicYearId) {
 /** Rekap nilai Metode Penelitian in the SIA template. */
 export async function exportScoreRecap(academicYearId) {
   const year = await requireYear(academicYearId);
-  const latest = await prisma.researchMethodAttendanceImport.findFirst({ where: { academicYearId: year.id }, orderBy: { uploadedAt: "desc" } });
-  if (!latest) throw new NotFoundError("Belum ada presensi Metode Penelitian periode ini yang dapat dijadikan dasar rekap nilai.");
-  const [records, attempts, cpmks] = await Promise.all([
-    prisma.researchMethodAttendanceRecord.findMany({
-      where: { importId: latest.id },
-      include: { student: { select: { user: { select: { fullName: true } } } } },
+  const [classStudents, attempts, cpmks] = await Promise.all([
+    prisma.student.findMany({
+      where: { academicYearSnapshots: { some: { academicYearId: year.id, eligibleResearchMethod: true } } },
+      select: { id: true, user: { select: { fullName: true, identityNumber: true } } },
     }),
     prisma.researchMethodAssessment.findMany({
       where: { academicYearId: year.id },
@@ -171,13 +151,13 @@ export async function exportScoreRecap(academicYearId) {
     findPeriodConfig(year.id),
   ]);
   const plan = buildColumnPlan(cpmks);
-  const participants = buildParticipants(records, attempts);
-  const semesterPart = latest.semesterLabel ? ` - Semester ${latest.semesterLabel}` : ` - ${formatAcademicYearLabel(year)}`;
+  const participants = buildParticipants(classStudents, attempts);
+  const label = formatAcademicYearLabel(year);
   const aoa = [
     ["TEMPLATE NILAI"],
-    ["Matakuliah", null, `${latest.courseName ?? "Metode Penelitian"}${semesterPart}`],
-    ["ID Kelas", null, latest.id],
-    ["Nama Kelas", null, latest.classCode ?? "-"],
+    ["Matakuliah", null, `Metode Penelitian - ${label}`],
+    ["ID Kelas", null, null],
+    ["Nama Kelas", null, null],
     ["Jumlah Peserta", null, `${participants.length} Orang`],
     ["No", "NIM", "Nama", "CPMK 1", "CPMK 2", null, "CPMK 3"],
     [null, null, null, "CP-5 IK05-01", "CP-5 IK05-02", null, "CP-5 IK05-03"],
@@ -211,13 +191,13 @@ export async function exportScoreRecap(academicYearId) {
   ];
   ws["!cols"] = [{ wch: 4 }, { wch: 14 }, { wch: 32 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, ws, sheetName(latest.classCode, "Nilai Metode Penelitian"));
+  XLSX.utils.book_append_sheet(workbook, ws, sheetName(null, "Nilai Metode Penelitian"));
   if (plan.unmapped.length) {
     console.warn("[research-method:export] kriteria di luar empat kolom templat SIA tidak ikut terekspor:", plan.unmapped.map((c) => `${c.cpmkCode}/${c.party}`).join(", "));
   }
   return {
     buffer: XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }),
-    fileName: `Rekap-Nilai-Metode-Penelitian-${fileSegment(latest.classCode || formatAcademicYearLabel(year))}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    fileName: `Rekap-Nilai-Metode-Penelitian-${fileSegment(label)}-${new Date().toISOString().slice(0, 10)}.xlsx`,
     rows: participants.length,
   };
 }

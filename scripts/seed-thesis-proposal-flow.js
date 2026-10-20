@@ -13,9 +13,9 @@
  *
  * It also writes the general supervision limits (soft 8, hard 10), the Research Method master
  * data (CPMK, criteria, rubrics; supervisor 75 + coordinator 25) and the minimum passing score
- * (60) for the running and the previous semester, the general proposal milestone templates,
- * and one attendance import per semester. The sample attendance files for the import test are
- * in scripts/fixtures/.
+ * (60) for the running and the previous semester, and the general proposal milestone templates.
+ * A passed proposal is in Penelitian from the moment its second score was sent; class attendance
+ * is SIA's and is not seeded.
  *
  * Dates are relative to the day the seeder runs. Idempotent: an account that already has a
  * supervisor request or a thesis is left as it is. Password of every account: password123.
@@ -33,11 +33,10 @@ import {
   SUPERVISOR_REQUEST_ROUTE as ROUTE,
   SUPERVISOR_REQUEST_STATUS as STATUS,
 } from "../src/constants/thesis-proposal.js";
-import { ATTENDANCE_THRESHOLD, RESEARCH_METHOD_RESULT } from "../src/constants/research-method.js";
+import { RESEARCH_METHOD_RESULT } from "../src/constants/research-method.js";
 import { storeGuidanceAttachment } from "../src/helpers/guidanceFile.helper.js";
 import {
   assignmentBatchDir,
-  attendanceImportDir,
   proposalFileDir,
   storeFile,
 } from "../src/helpers/thesis-proposal-file.helper.js";
@@ -51,7 +50,6 @@ const prisma = new PrismaClient();
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_PDF = path.resolve(HERE, "..", "Sample Laporan TA.pdf");
-const FIXTURES = path.resolve(HERE, "fixtures");
 
 const DEFAULT_PASSWORD = "password123";
 const DAY = 24 * 60 * 60 * 1000;
@@ -90,7 +88,9 @@ function requestFields(title) {
  * - `flags`: SIA flags per semester ({ current: {...}, previous: {...} }).
  * - `request`: the supervisor request (status, route, lecturer, age in hours).
  * - `thesis`: created when the request was accepted ({ p1, p2, semester, assigned }).
- * - `attempt`: Research Method attempt ({ semester, proposal, attendance, scores, result }).
+ * - `attempt`: Penilaian Proposal attempt ({ semester, proposalDaysAgo, supervisor, coordinator,
+ *   supervisorDraft }); both scores sent = final, and a pass puts the thesis in Penelitian.
+ * - `researchMethodCompleted`: the course passed in SIA (a requirement of Seminar Hasil).
  * - `guidances` / `milestones`: proposal-phase activity.
  */
 const ACCOUNTS = [
@@ -178,7 +178,6 @@ const ACCOUNTS = [
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.aina, hoursAgo: 24 * 50, title: "Sistem Informasi Pengelolaan Tugas Akhir Berbasis Web" },
     thesis: { p1: LECTURER.aina, semester: "current", assigned: true },
     guidances: [{ status: "requested", daysAhead: 3 }],
-    attendance: { present: 12, total: 16 },
   },
 
   // ── Proposal final dan Penilaian ───────────────────────────────────────────────────
@@ -190,17 +189,18 @@ const ACCOUNTS = [
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.aina, hoursAgo: 24 * 52, title: "Aplikasi Monitoring Kehadiran Dosen Berbasis Lokasi" },
     thesis: { p1: LECTURER.aina, semester: "current", assigned: true },
     attempt: { semester: "current", proposalDaysAgo: 4 },
-    attendance: { present: 14, total: 16 },
   },
   {
+    // The proposal passed, so the thesis is in Penelitian; the course (class presence below 75%)
+    // is not passed in SIA, so Seminar Hasil is refused until it is.
     key: "presensi_kurang",
     nim: "2211528012",
-    fullName: "Uji Proposal Presensi Kurang",
+    fullName: "Uji Proposal Lulus Presensi Kurang",
     flags: { current: { eligibleResearchMethod: true } },
+    researchMethodCompleted: false,
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, hoursAgo: 24 * 51, title: "Sistem Informasi Pengaduan Fasilitas Kampus" },
     thesis: { p1: LECTURER.ullya, semester: "current", assigned: true },
-    attempt: { semester: "current", proposalDaysAgo: 6, autoZero: true },
-    attendance: { present: 10, total: 16 },
+    attempt: { semester: "current", proposalDaysAgo: 6, supervisor: [17, 32, 12], coordinator: [19] },
   },
   {
     key: "siap_dinilai",
@@ -210,7 +210,6 @@ const ACCOUNTS = [
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.aina, hoursAgo: 24 * 53, title: "Sistem Pendukung Keputusan Penerima Beasiswa Internal" },
     thesis: { p1: LECTURER.aina, p2: LECTURER.ullya, semester: "current", assigned: true, topic: TOPIC_RD },
     attempt: { semester: "current", proposalDaysAgo: 3 },
-    attendance: { present: 15, total: 16 },
     guidances: [
       { status: "completed", daysAgo: 30, withDraft: true },
       { status: "completed", daysAgo: 16, withDraft: true },
@@ -224,34 +223,34 @@ const ACCOUNTS = [
     flags: { current: { eligibleResearchMethod: true } },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, hoursAgo: 24 * 54, title: "Aplikasi Pelacakan Alumni Program Studi" },
     thesis: { p1: LECTURER.ullya, semester: "current", assigned: true },
-    attempt: { semester: "current", proposalDaysAgo: 5, supervisor: [16, 32, 12] },
-    attendance: { present: 16, total: 16 },
+    // Supervisor sent 40; a coordinator score below 20 fails the proposal, 20 or more passes it.
+    attempt: { semester: "current", proposalDaysAgo: 5, supervisor: [10, 22, 8] },
   },
   {
-    key: "lulus_tunggu_krs",
+    key: "lulus",
     nim: "2211528015",
-    fullName: "Uji Proposal Lulus Tunggu KRS",
+    fullName: "Uji Proposal Lulus",
     flags: { current: { eligibleResearchMethod: true, takingThesisCourse: false } },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, hoursAgo: 24 * 55, title: "Sistem Informasi Pengelolaan Magang Mahasiswa" },
     thesis: { p1: LECTURER.ullya, semester: "current", assigned: true },
     attempt: { semester: "current", proposalDaysAgo: 8, supervisor: [18, 34, 12], coordinator: [20] },
-    attendance: { present: 13, total: 16 },
   },
-
-  // ── Hasil semester lalu ────────────────────────────────────────────────────────────
   {
-    key: "siap_naik",
+    // Assigned last semester, final proposal this semester. A supervisor draft (two of three
+    // criteria): not shown to the coordinator and never counted.
+    key: "draf_pembimbing",
     nim: "2211528016",
-    fullName: "Uji Proposal Siap Naik",
+    fullName: "Uji Proposal Draf Pembimbing",
     flags: {
       previous: { eligibleResearchMethod: true, takingThesisCourse: false },
-      current: { eligibleResearchMethod: false, takingThesisCourse: true },
+      current: { eligibleResearchMethod: true, takingThesisCourse: false },
     },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.aina, semester: "previous", title: "Aplikasi Penjadwalan Ruang Seminar Departemen" },
     thesis: { p1: LECTURER.aina, semester: "previous", assigned: true },
-    attempt: { semester: "previous", supervisor: [16, 30, 11], coordinator: [19] },
-    previousAttendance: { present: 14, total: 16 },
+    attempt: { semester: "current", proposalDaysAgo: 2, supervisorDraft: [14, 30] },
   },
+
+  // ── Hasil semester lalu ────────────────────────────────────────────────────────────
   {
     key: "tidak_lulus",
     nim: "2211528017",
@@ -263,8 +262,6 @@ const ACCOUNTS = [
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, semester: "previous", title: "Sistem Informasi Rekap Nilai Praktikum" },
     thesis: { p1: LECTURER.ullya, semester: "previous", assigned: true },
     attempt: { semester: "previous", supervisor: [9, 18, 10], coordinator: [10] },
-    previousAttendance: { present: 13, total: 16 },
-    attendance: { present: 14, total: 16 },
   },
   {
     key: "naik",
@@ -275,9 +272,9 @@ const ACCOUNTS = [
       current: { eligibleResearchMethod: false, takingThesisCourse: true },
     },
     request: { status: STATUS.ASSIGNED, route: ROUTE.DIRECT, lecturer: LECTURER.ullya, semester: "previous", title: "Aplikasi Manajemen Proyek Mahasiswa Berbasis Kanban" },
+    researchMethodCompleted: true,
     thesis: { p1: LECTURER.ullya, semester: "previous", assigned: true, promotedDaysAgo: 60 },
     attempt: { semester: "previous", supervisor: [18, 33, 12], coordinator: [19] },
-    previousAttendance: { present: 16, total: 16 },
     guidances: [
       { status: "completed", daysAgo: 150, phase: THESIS_PHASE.PROPOSAL, withDraft: true },
       { status: "completed", daysAgo: 130, phase: THESIS_PHASE.PROPOSAL, withDraft: true },
@@ -360,7 +357,14 @@ async function ensureStudent(account, passwordHash, studentRole) {
   await prisma.student.upsert({
     where: { id: user.id },
     update: {},
-    create: { id: user.id, status: "active", enrollmentYear: 2022, sksCompleted: 110, currentSemester: 7 },
+    create: {
+      id: user.id,
+      status: "active",
+      enrollmentYear: 2022,
+      sksCompleted: 110,
+      currentSemester: 7,
+      researchMethodCompleted: account.researchMethodCompleted ?? false,
+    },
   });
   return user;
 }
@@ -449,60 +453,6 @@ function details(criteria, scores) {
     const rubric = criterion.rubrics.find((r) => score >= r.minScore && score <= r.maxScore);
     return { assessmentCriteriaId: criterion.id, assessmentRubricId: rubric?.id ?? null, score };
   });
-}
-
-async function createAttendanceImport(academicYear, uploader, rows, { uploadedAt, fixtureName }) {
-  const importId = randomUUID();
-  const sourceFiles = [];
-  const fixturePath = fixtureName ? path.join(FIXTURES, fixtureName) : null;
-  if (fixturePath && fs.existsSync(fixturePath)) {
-    const buffer = fs.readFileSync(fixturePath);
-    const stored = await storeFile({
-      relDir: attendanceImportDir(importId),
-      file: { buffer, originalname: fixtureName, mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-      now: uploadedAt,
-    });
-    sourceFiles.push({ originalName: fixtureName, classCode: "A", filePath: stored.filePath, fileHash: stored.fileHash, fileSize: stored.fileSize });
-  }
-  const eligible = rows.filter((row) => row.present / row.total >= ATTENDANCE_THRESHOLD).length;
-  const created = await prisma.researchMethodAttendanceImport.create({
-    data: {
-      id: importId,
-      academicYearId: academicYear.id,
-      uploadedByUserId: uploader.id,
-      classCode: "A",
-      courseName: "Metodologi Penelitian",
-      semesterLabel: `${academicYear.semester === "genap" ? "Genap" : "Ganjil"} ${academicYear.year}`,
-      lecturerNames: [uploader.fullName],
-      sourceFiles,
-      thresholdPercent: ATTENDANCE_THRESHOLD,
-      totalRows: rows.length,
-      matchedRows: rows.filter((row) => row.studentId).length,
-      eligibleRows: eligible,
-      ineligibleRows: rows.length - eligible,
-      autoZeroedCount: rows.filter((row) => row.autoZero).length,
-      uploadedAt,
-    },
-  });
-  const recordByStudent = new Map();
-  for (const row of rows) {
-    const percentage = row.present / row.total;
-    const record = await prisma.researchMethodAttendanceRecord.create({
-      data: {
-        importId: created.id,
-        studentId: row.studentId ?? null,
-        identityNumber: row.nim,
-        presentCount: row.present,
-        absentCount: row.total - row.present,
-        totalMeetings: row.total,
-        attendancePercentage: percentage,
-        isEligible: percentage >= ATTENDANCE_THRESHOLD,
-        rawRow: { "NIM / BP": row.nim, "Nama Mahasiswa": row.name, Hadir: row.present, Total: row.total },
-      },
-    });
-    if (row.studentId) recordByStudent.set(row.studentId, record);
-  }
-  return recordByStudent;
 }
 
 async function createBatch({ academicYear, theses, kadep, generatedAt }) {
@@ -672,90 +622,64 @@ async function main() {
     console.log(`✅ Penetapan Pembimbing ${SEMESTER[semesterKey].semester} ${SEMESTER[semesterKey].year}: ${batch.members} mahasiswa`);
   }
 
-  // Attendance imports (one per semester) for every student in the class.
-  for (const semesterKey of ["previous", "current"]) {
-    const field = semesterKey === "current" ? "attendance" : "previousAttendance";
-    const rows = seeded
-      .filter(({ account }) => account[field])
-      .map(({ account, user }) => ({
-        studentId: user.id,
-        nim: account.nim,
-        name: account.fullName,
-        present: account[field].present,
-        total: account[field].total,
-        autoZero: semesterKey === "current" && Boolean(account.attempt?.autoZero),
-      }));
-    if (rows.length === 0) continue;
-    if (semesterKey === "current") {
-      const layak = seeded.find(({ account }) => account.key === "layak");
-      if (layak) rows.push({ studentId: layak.user.id, nim: layak.account.nim, name: layak.account.fullName, present: 15, total: 16 });
-      rows.push({ studentId: null, nim: "2211599999", name: "Mahasiswa Luar Daftar", present: 16, total: 16 });
-    }
-    const uploadedAt = semesterKey === "current" ? daysAgo(2) : new Date(SEMESTER.previous.endDate.getTime() - 20 * DAY);
-    const records = await createAttendanceImport(SEMESTER[semesterKey], coordinator, rows, {
-      uploadedAt,
-      fixtureName: semesterKey === "current" ? "research-method-attendance-seed.xlsx" : null,
+  // Penilaian Proposal attempts. Both scores sent = final; a pass puts the thesis in Penelitian
+  // from the moment the second score was sent. A draft is details without the party's score.
+  for (const { thesis, account } of thesisByKey.values()) {
+    const attempt = account.attempt;
+    if (!attempt) continue;
+    const semesterKey = attempt.semester;
+    const assessmentId = randomUUID();
+    const submittedAt = semesterKey === "current" ? daysAgo(attempt.proposalDaysAgo) : new Date(SEMESTER.previous.endDate.getTime() - 40 * DAY);
+    const scoredAfter = semesterKey === "current" ? DAY : 5 * DAY;
+    const proposal = await storeFile({
+      relDir: proposalFileDir(thesis.id, assessmentId),
+      file: { buffer: samplePdf, originalname: `Proposal ${account.fullName}.pdf`, mimetype: "application/pdf" },
+      now: submittedAt,
     });
-    // Attempts of this semester.
-    for (const { thesis, account } of thesisByKey.values()) {
-      const attempt = account.attempt;
-      if (!attempt || attempt.semester !== semesterKey) continue;
-      const assessmentId = randomUUID();
-      const submittedAt = semesterKey === "current" ? daysAgo(attempt.proposalDaysAgo) : new Date(SEMESTER.previous.endDate.getTime() - 40 * DAY);
-      const proposal = await storeFile({
-        relDir: proposalFileDir(thesis.id, assessmentId),
-        file: { buffer: samplePdf, originalname: `Proposal ${account.fullName}.pdf`, mimetype: "application/pdf" },
-        now: submittedAt,
-      });
-      const record = records.get(thesis.studentId) ?? null;
-      const supervisorScore = attempt.supervisor ? attempt.supervisor.reduce((a, b) => a + b, 0) : null;
-      const coordinatorScore = attempt.coordinator ? attempt.coordinator.reduce((a, b) => a + b, 0) : null;
-      const supervisorLecturer = lecturers[account.thesis.p1];
-      const minimum = SEMESTER[semesterKey].researchMethodMinimumScore ?? MINIMUM_SCORE;
-      let final = {};
-      if (attempt.autoZero) {
-        final = {
-          finalScore: 0,
-          isFinalized: true,
-          finalizedAt: uploadedAt,
-          finalizedBy: coordinator.id,
-          result: RESEARCH_METHOD_RESULT.FAILED,
-          attendanceAutoZeroedAt: uploadedAt,
-          attendanceAutoZeroReason: `Presensi ${Math.round((record?.attendancePercentage ?? 0) * 1000) / 10}% di bawah 75%`,
-        };
-      } else if (supervisorScore != null && coordinatorScore != null) {
-        const finalScore = supervisorScore + coordinatorScore;
-        const finalizedAt = new Date(submittedAt.getTime() + 10 * DAY);
-        final = {
-          finalScore,
-          isFinalized: true,
-          finalizedAt,
-          finalizedBy: coordinator.id,
-          result: finalScore >= minimum && record?.isEligible !== false ? RESEARCH_METHOD_RESULT.PASSED : RESEARCH_METHOD_RESULT.FAILED,
-        };
-      }
-      await prisma.researchMethodAssessment.create({
-        data: {
-          id: assessmentId,
-          thesisId: thesis.id,
-          academicYearId: SEMESTER[semesterKey].id,
-          proposalFilePath: proposal.filePath,
-          proposalFileName: proposal.fileName,
-          proposalMimeType: proposal.mimeType,
-          proposalFileSize: proposal.fileSize,
-          proposalFileHash: proposal.fileHash,
-          proposalSubmittedAt: submittedAt,
-          attendanceRecordId: record?.id ?? null,
-          ...(supervisorScore != null
-            ? { supervisorId: supervisorLecturer.id, supervisorScore, supervisorScoredAt: new Date(submittedAt.getTime() + 5 * DAY) }
-            : {}),
-          ...(coordinatorScore != null
-            ? { coordinatorId: coordinator.id, coordinatorScore, coordinatorScoredAt: new Date(submittedAt.getTime() + 10 * DAY) }
-            : {}),
-          ...final,
-          supervisorDetails: attempt.supervisor ? { create: details(master[semesterKey].supervisor, attempt.supervisor) } : undefined,
-          coordinatorDetails: attempt.coordinator ? { create: details(master[semesterKey].coordinator, attempt.coordinator) } : undefined,
-        },
+    const supervisorScore = attempt.supervisor ? attempt.supervisor.reduce((a, b) => a + b, 0) : null;
+    const coordinatorScore = attempt.coordinator ? attempt.coordinator.reduce((a, b) => a + b, 0) : null;
+    const supervisorLecturer = lecturers[account.thesis.p1];
+    const minimum = SEMESTER[semesterKey].researchMethodMinimumScore ?? MINIMUM_SCORE;
+    const supervisorScoredAt = new Date(submittedAt.getTime() + scoredAfter);
+    const coordinatorScoredAt = new Date(submittedAt.getTime() + 2 * scoredAfter);
+    let final = {};
+    if (supervisorScore != null && coordinatorScore != null) {
+      const finalScore = supervisorScore + coordinatorScore;
+      final = {
+        finalScore,
+        isFinalized: true,
+        finalizedAt: coordinatorScoredAt,
+        finalizedBy: coordinator.id,
+        result: finalScore >= minimum ? RESEARCH_METHOD_RESULT.PASSED : RESEARCH_METHOD_RESULT.FAILED,
+      };
+    }
+    const supervisorDetails = attempt.supervisor
+      ? details(master[semesterKey].supervisor, attempt.supervisor)
+      : attempt.supervisorDraft
+        ? details(master[semesterKey].supervisor.slice(0, attempt.supervisorDraft.length), attempt.supervisorDraft)
+        : null;
+    await prisma.researchMethodAssessment.create({
+      data: {
+        id: assessmentId,
+        thesisId: thesis.id,
+        academicYearId: SEMESTER[semesterKey].id,
+        proposalFilePath: proposal.filePath,
+        proposalFileName: proposal.fileName,
+        proposalMimeType: proposal.mimeType,
+        proposalFileSize: proposal.fileSize,
+        proposalFileHash: proposal.fileHash,
+        proposalSubmittedAt: submittedAt,
+        ...(supervisorScore != null ? { supervisorId: supervisorLecturer.id, supervisorScore, supervisorScoredAt } : {}),
+        ...(coordinatorScore != null ? { coordinatorId: coordinator.id, coordinatorScore, coordinatorScoredAt } : {}),
+        ...final,
+        supervisorDetails: supervisorDetails ? { create: supervisorDetails } : undefined,
+        coordinatorDetails: attempt.coordinator ? { create: details(master[semesterKey].coordinator, attempt.coordinator) } : undefined,
+      },
+    });
+    if (final.result === RESEARCH_METHOD_RESULT.PASSED && thesis.status === THESIS_STATUS.PROPOSAL) {
+      await prisma.thesis.update({
+        where: { id: thesis.id },
+        data: { status: THESIS_STATUS.RESEARCH, statusChangedAt: final.finalizedAt, startDate: final.finalizedAt },
       });
     }
   }

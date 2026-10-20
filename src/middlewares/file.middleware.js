@@ -89,11 +89,6 @@ export const uploadCsv = upload.single("file");
 export const uploadExcelFile = excelUpload.single("file");
 /** One .xlsx/.xls/.csv file in `file` (Impor Keikutsertaan). */
 export const uploadSpreadsheetFile = spreadsheetUpload.single("file");
-/** Research Method attendance: `file` (1) and/or `files` (1–2) multipart fields. */
-export const uploadAttendanceFiles = excelUpload.fields([
-	{ name: "file", maxCount: 1 },
-	{ name: "files", maxCount: 2 },
-]);
 export const uploadThesisFile = thesisUpload.single("file");
 export const uploadInternshipFile = thesisUpload.single("file");
 export const uploadSeminarDocFile = seminarDocUpload.single("file");

@@ -3,8 +3,8 @@ import * as XLSX from "xlsx";
 import { BadRequestError } from "../utils/errors.js";
 
 /**
- * Reading a spreadsheet upload (.xlsx, .xls or .csv): the first sheet as rows of cells. Shared by
- * the Research Method attendance import and the import of semester flags.
+ * Reading a spreadsheet upload (.xlsx, .xls or .csv): the first sheet as rows of cells. Used by
+ * the import of semester flags (Impor Keikutsertaan).
  */
 export function readSheetRows(buffer, { unreadableMessage, emptyMessage }) {
   let workbook;
@@ -19,6 +19,11 @@ export function readSheetRows(buffer, { unreadableMessage, emptyMessage }) {
 }
 
 /** A header or cell for matching: no accents, lower case, words separated by single spaces. */
+/** A NIM or NIP as written in a cell: spaces removed. */
+export function normalizeIdentity(value) {
+  return String(value ?? "").replace(/\s+/g, "").trim();
+}
+
 export function normalizeHeader(value) {
   return String(value ?? "")
     .normalize("NFKD")

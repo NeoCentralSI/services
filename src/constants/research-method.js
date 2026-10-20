@@ -1,12 +1,6 @@
 /**
- * Research Method domain: attendance, Penilaian Proposal and the result.
+ * Penilaian Proposal and its result. Class attendance is the course's business, kept in SIA.
  */
-
-/** Attendance below this share means the score is 0 (rule kept from the old module, `>=`). */
-export const ATTENDANCE_THRESHOLD = 0.75;
-
-/** At most this many attendance files per upload (merged by NIM). */
-export const MAX_ATTENDANCE_FILES = 2;
 
 /** Weight of both assessors together: the sum of criteria max scores may not exceed it. */
 export const MAX_TOTAL_WEIGHT = 100;
@@ -14,11 +8,7 @@ export const MAX_TOTAL_WEIGHT = 100;
 /** Values of `ResearchMethodAssessmentResult`. */
 export const RESEARCH_METHOD_RESULT = Object.freeze({ PASSED: "passed", FAILED: "failed" });
 
-/** Why an attempt was set to 0 (kept from the old module, without the form codes). */
-export const ATTENDANCE_AUTO_ZERO_REASON =
-  "Presensi Metode Penelitian kurang dari 75%; nilai pembimbing dan koordinator otomatis 0 tanpa penilaian proposal.";
-
-/** The two assessors of a Penilaian Proposal (10.2). */
+/** The two assessors of a Penilaian Proposal. */
 export const ASSESSOR = Object.freeze({ SUPERVISOR: "supervisor", COORDINATOR: "coordinator" });
 
 /** Assessors' labels in messages and exports. */
@@ -26,3 +16,15 @@ export const ASSESSOR_LABELS = Object.freeze({ supervisor: "pembimbing", coordin
 
 /** Minimum passing score when a period has none set (the old module's default). */
 export const DEFAULT_MINIMUM_SCORE = 60;
+
+/**
+ * Locks of the semester's master data. Once the semester has a Penilaian Proposal detail (draft or
+ * sent), its CPMK, criteria and rubrics cannot be deleted and the maximum scores and rubric ranges
+ * cannot change; names and descriptions can. The minimum passing score locks once a result is final.
+ */
+export const LOCKED_DELETE_REASON = "Penilaian proposal semester ini sudah dimulai; CPMK, kriteria, dan rubrik tidak dapat dihapus.";
+export const LOCKED_SCORE_REASON = "Penilaian proposal semester ini sudah dimulai; skor maksimum kriteria dan rentang rubrik tidak dapat diubah.";
+export const LOCKED_MINIMUM_REASON = "Nilai minimum lulus terkunci karena sudah ada hasil penilaian final pada semester ini.";
+
+/** The notification of a pass, to the student and both supervisors. */
+export const PROPOSAL_PASSED_MESSAGE = "Proposal dinyatakan lulus; tugas akhir masuk fase Penelitian.";

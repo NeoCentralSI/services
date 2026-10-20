@@ -10,8 +10,7 @@ import { safeUploadName } from "./guidanceFile.helper.js";
  * - proposal revision of a thesis repeating its proposal: uploads/thesis/<thesis_id>/proposal/revisions/<revision_id>/
  *   (same route and rule);
  * - Penetapan Pembimbing PDF of a batch: uploads/thesis-proposal/supervisor-assignments/<batch_id>/
- *   (served only through an authenticated endpoint);
- * - attendance files: uploads/research-method/attendance/<import_id>/ (same).
+ *   (served only through an authenticated endpoint).
  */
 export function proposalFileDir(thesisId, assessmentId) {
   return path.posix.join("uploads", "thesis", thesisId, "proposal", assessmentId);
@@ -24,10 +23,6 @@ export function proposalRevisionDir(thesisId, revisionId) {
 
 export function assignmentBatchDir(batchId) {
   return path.posix.join("uploads", "thesis-proposal", "supervisor-assignments", batchId);
-}
-
-export function attendanceImportDir(importId) {
-  return path.posix.join("uploads", "research-method", "attendance", importId);
 }
 
 /**

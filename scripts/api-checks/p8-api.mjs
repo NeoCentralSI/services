@@ -56,23 +56,13 @@ await run("1 angka panduan pada hari seed (GET saja)", async () => {
   const form = (await api(SEKDEP, "GET", `/research-method/assessments/form?party=supervisor&academicYearId=${current.id}`)).data;
   check("nilai minimum lulus semester berjalan 60", form?.minimumScore === 60, form?.minimumScore);
 
-  const attendance = (await api(HUSNIL, "GET", `/research-method/attendance-imports?academicYearId=${current.id}`)).data;
-  const totals = attendance?.current?.totals;
-  const kurang = byNim(attendance?.current?.records, "2211528012");
-  check("presensi berlaku: kelas A, 9 baris, 8 cocok, 1 tidak dikenal; Presensi Kurang di bawah 75%",
-    attendance?.current?.classCode === "A" && totals?.totalRows === 9 && totals?.matchedRows === 8 && totals?.unmatchedRows === 1 && kurang?.isEligible === false,
-    { totals, kurang: kurang && `${kurang.presentCount}/${kurang.totalMeetings}` });
-
-  const monitoring = (await api(HUSNIL, "GET", `/research-method/monitoring?academicYearId=${current.id}`)).data?.summary;
-  check("Monitoring Kelas: Peserta 15, Punya Pembimbing 9, Ditetapkan 7, Proposal Final 5, Nilai Final 2, Lulus 1, Tidak Lulus 1, Naik 0",
-    monitoring && [monitoring.total, monitoring.withSupervisor, monitoring.assigned, monitoring.finalProposal, monitoring.finalized, monitoring.passed, monitoring.failed, monitoring.promoted].join(",") === "15,9,7,5,2,1,1,0",
-    monitoring);
-
-  // The scheduled promotion would move exactly this one test account up.
-  const preview = (await api(HUSNIL, "GET", "/research-method/promotions")).data?.rows ?? [];
-  check("proses kelulusan pada hari seed: hanya Uji Proposal Siap Naik yang naik; Lulus Tunggu KRS menunggu periode berikutnya",
-    preview.filter((r) => r.decision === "promote").map((r) => r.student?.identityNumber).join() === "2211528016" && byNim(preview, "2211528015")?.decision === "wait_next_period",
-    preview.map((r) => `${r.student?.identityNumber}:${r.decision}`));
+  const monitoring = (await api(HUSNIL, "GET", `/research-method/monitoring?academicYearId=${current.id}`)).data;
+  const s = monitoring?.summary;
+  check("Monitoring Kelas: Peserta 16, Punya Pembimbing 10, Ditetapkan 8, Proposal Final 6, Dinilai 2, Mulai Penelitian 2; Tidak Lulus 0, Belum Dinilai 14",
+    s && [s.total, s.withSupervisor, s.assigned, s.finalProposal, s.finalized, s.passed, s.failed, s.notFinalized].join(",") === "16,10,8,6,2,2,0,14",
+    s);
+  const started = ["2211528012", "2211528015"].map((nim) => byNim(monitoring?.rows, nim)?.thesis?.status);
+  check("yang lulus semester ini sudah Penelitian (Lulus; Lulus Presensi Kurang)", started.every((status) => status === "research"), started);
 });
 
 await run("2 Batas Bimbingan hanya Kadep dan Sekdep", async () => {
@@ -153,33 +143,39 @@ await run("4 CPMK dan rubrik: Sekdep saja, salin dari periode lain", async () =>
 });
 
 await run("5 template milestone di dua fase", async () => {
-  const before = await myThesis(U("siap_naik"));
-  check("Uji Proposal Siap Naik: fase proposal terbuka, belum ada milestone", before?.currentPhase === "proposal" && before?.proposalPhaseOpen === true, { phase: before?.currentPhase, open: before?.proposalPhaseOpen });
-  const tpl = (await api(U("siap_naik"), "GET", "/milestones/templates?phase=proposal")).data ?? [];
+  const STUDENT = U("draf_pembimbing");
+  const before = await myThesis(STUDENT);
+  check("Uji Proposal Draf Pembimbing: fase proposal terbuka, belum ada milestone", before?.currentPhase === "proposal" && before?.proposalPhaseOpen === true, { phase: before?.currentPhase, open: before?.proposalPhaseOpen });
+  const tpl = (await api(STUDENT, "GET", "/milestones/templates?phase=proposal")).data ?? [];
   check("fase proposal: template umum (tanpa topik) yang ditawarkan", tpl.length === 4 && tpl.every((t) => t.phase === "proposal" && !t.topicId), tpl.length);
-  const made = await api(U("siap_naik"), "POST", `/milestones/thesis/${before?.id}/from-templates`, { templateIds: tpl.map((t) => t.id) });
+  const made = await api(STUDENT, "POST", `/milestones/thesis/${before?.id}/from-templates`, { templateIds: tpl.map((t) => t.id) });
   check("Buat dari Template di fase proposal: 4 milestone", made.status < 300 && (made.data ?? []).length === 4, `${made.status} ${made.json?.message ?? ""}`);
 
-  const promote = await api(KADEP, "POST", "/research-method/promotions/run");
-  check("proses kelulusan menaikkan Uji Proposal Siap Naik", promote.status === 200 && promote.data?.promoted?.some((r) => r.student?.identityNumber === "2211528016"), promote.data?.promoted?.length);
-  const after = await myThesis(U("siap_naik"));
-  const research = await api(U("siap_naik"), "GET", `/milestones/thesis/${after?.id}`);
-  check("setelah naik: fase berjalan Penelitian, daftar milestone penelitian kosong dan bisa diubah",
+  // Proposal lulus: nilai pembimbing lalu koordinator; TA langsung Penelitian.
+  const attempt = await prisma.researchMethodAssessment.findFirst({ where: { thesisId: before?.id, academicYearId: current.id } });
+  const sup = (await api(SEKDEP, "GET", `/research-method/assessments/form?party=supervisor&academicYearId=${current.id}`)).data.criteria;
+  const coo = (await api(SEKDEP, "GET", `/research-method/assessments/form?party=coordinator&academicYearId=${current.id}`)).data.criteria;
+  const s1 = await api(AINA, "POST", `/research-method/assessments/${attempt?.id}/supervisor-score`, { scores: [{ criteriaId: sup[0].id, score: 14 }, { criteriaId: sup[1].id, score: 30 }, { criteriaId: sup[2].id, score: 12 }] });
+  const s2 = await api(HUSNIL, "POST", `/research-method/assessments/${attempt?.id}/coordinator-score`, { scores: [{ criteriaId: coo[0].id, score: 20 }] });
+  check("proposal lulus (56 + 20 = 76): TA langsung Penelitian", s1.status === 200 && s2.status === 200 && s2.data?.result === "passed" && s2.data?.thesis?.status === "research", `${s1.status} ${s2.status} ${s2.data?.finalScore} ${s2.data?.thesis?.status}`);
+  const after = await myThesis(STUDENT);
+  const research = await api(STUDENT, "GET", `/milestones/thesis/${after?.id}`);
+  check("setelah lulus: fase berjalan Penelitian, daftar milestone penelitian kosong dan bisa diubah",
     after?.currentPhase === "research" && research.json?.phase === "research" && (research.data ?? []).length === 0 && research.json?.readOnlyReason === null,
     { phase: after?.currentPhase, n: (research.data ?? []).length, ro: research.json?.readOnlyReason });
-  const proposal = await api(U("siap_naik"), "GET", `/milestones/thesis/${after?.id}?phase=proposal`);
+  const proposal = await api(STUDENT, "GET", `/milestones/thesis/${after?.id}?phase=proposal`);
   check("milestone proposal tetap tampil baca-saja (fase Proposal)", (proposal.data ?? []).length === 4 && (proposal.data ?? []).every((m) => m.phase === "proposal") && /Fase proposal sudah selesai/.test(proposal.json?.readOnlyReason ?? ""), proposal.json?.readOnlyReason);
 
   const thesis = await prisma.thesis.findUnique({ where: { id: after?.id }, select: { thesisTopicId: true, thesisTopic: { select: { name: true } } } });
   const topicTemplates = await prisma.thesisMilestoneTemplate.findMany({ where: { phase: "research", isActive: true, topicId: thesis?.thesisTopicId } });
-  const offered = (await api(U("siap_naik"), "GET", "/milestones/templates?phase=research")).data ?? [];
+  const offered = (await api(STUDENT, "GET", "/milestones/templates?phase=research")).data ?? [];
   check("fase penelitian: template sesuai topik TA ditawarkan", topicTemplates.length > 0 && topicTemplates.every((t) => offered.some((o) => o.id === t.id)), `${thesis?.thesisTopic?.name}: ${topicTemplates.length}`);
-  const apply = await api(U("siap_naik"), "POST", `/milestones/thesis/${after?.id}/from-templates`, { templateIds: topicTemplates.map((t) => t.id) });
+  const apply = await api(STUDENT, "POST", `/milestones/thesis/${after?.id}/from-templates`, { templateIds: topicTemplates.map((t) => t.id) });
   check("Buat dari Template di fase penelitian berhasil walau milestone proposal ada", apply.status < 300 && (apply.data ?? []).length === topicTemplates.length && (apply.data ?? []).every((m) => m.phase === "research"), `${apply.status} ${apply.json?.message ?? ""}`);
-  const again = await api(U("siap_naik"), "POST", `/milestones/thesis/${after?.id}/from-templates`, { templateIds: [topicTemplates[0]?.id] });
+  const again = await api(STUDENT, "POST", `/milestones/thesis/${after?.id}/from-templates`, { templateIds: [topicTemplates[0]?.id] });
   check("template penelitian tidak bisa dipasang dua kali", again.status === 400, again.json?.message);
-  const editOld = await api(U("siap_naik"), "PATCH", `/milestones/${proposal.data?.[0]?.id}`, { title: "Diubah" });
-  check("mengubah milestone proposal setelah naik ditolak 403", editOld.status === 403, `${editOld.status} ${editOld.json?.message ?? ""}`);
+  const editOld = await api(STUDENT, "PATCH", `/milestones/${proposal.data?.[0]?.id}`, { title: "Diubah" });
+  check("mengubah milestone proposal setelah masuk Penelitian ditolak 403", editOld.status === 403, `${editOld.status} ${editOld.json?.message ?? ""}`);
 });
 
 const failed = summary();

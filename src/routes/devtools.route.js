@@ -132,7 +132,6 @@ async function deleteStudentSimptaProgress(tx, studentId) {
     theses: thesisIds.length,
     researchMethodAssessments: 0,
     supervisorAssignmentMembers: 0,
-    attendanceRecordsDetached: 0,
   };
 
   if (thesisIds.length > 0) {
@@ -211,13 +210,6 @@ async function deleteStudentSimptaProgress(tx, studentId) {
     await tx.thesisSupervisors.deleteMany({ where: { thesisId: { in: thesisIds } } });
     await tx.thesis.deleteMany({ where: { id: { in: thesisIds } } });
   }
-
-  counts.attendanceRecordsDetached = (
-    await tx.researchMethodAttendanceRecord.updateMany({
-      where: { studentId },
-      data: { studentId: null },
-    })
-  ).count;
 
   await tx.thesisSeminarAudience.deleteMany({ where: { studentId } });
 

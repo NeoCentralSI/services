@@ -47,7 +47,6 @@ model User {
   proposalRevisionsReviewed          ThesisProposalRevision[]           @relation("ProposalRevisionReviewer")
   thesesTerminated                   Thesis[]                           @relation("ThesisTerminatedBy")
   researchMethodAssessmentsFinalized ResearchMethodAssessment[]         @relation("ResearchMethodAssessmentFinalizer")
-  researchMethodAttendanceUploads    ResearchMethodAttendanceImport[]   @relation("ResearchMethodAttendanceImportUploader")
   supervisorAssignmentBatches        ThesisSupervisorAssignmentBatch[]  @relation("SupervisorAssignmentBatchGeneratedBy")
   supervisionQuotasUpdated           SupervisionQuota[]                 @relation("SupervisionQuotaUpdatedBy")
 
@@ -107,7 +106,6 @@ model Student {
   thesisSeminarAudiences          ThesisSeminarAudience[]
   supervisorRequests              ThesisSupervisorRequest[]
   supervisorRequestDraft          ThesisSupervisorRequestDraft?
-  researchMethodAttendanceRecords ResearchMethodAttendanceRecord[]
   academicYearSnapshots           StudentAcademicYearSnapshot[]
 
   gpa                 Float?
@@ -266,7 +264,6 @@ model AcademicYear {
   supervisionQuotas                  SupervisionQuota[]
   supervisorRequests                 ThesisSupervisorRequest[]
   yudisiums                          Yudisium[]
-  researchMethodAttendanceImports    ResearchMethodAttendanceImport[]
   researchMethodCpmks                ResearchMethodCpmk[]
   researchMethodAssessments          ResearchMethodAssessment[]
   supervisorAssignmentBatches        ThesisSupervisorAssignmentBatch[]
@@ -2725,9 +2722,11 @@ model ThesisSupervisorRequest {
   @@map("thesis_supervisor_requests")
 }
 
-/// Satu percobaan Metode Penelitian sebuah TA pada satu semester: proposal final,
-/// nilai pembimbing dan koordinator, kaitan presensi, dan hasilnya. Mahasiswa yang tidak
-/// lulus mendapat baris baru pada semester berikutnya.
+/// Satu percobaan penilaian proposal sebuah TA pada satu semester: proposal final, nilai
+/// pembimbing dan koordinator, dan hasilnya. Hasil hanya dari nilai: lulus bila jumlah kedua
+/// nilai >= nilai minimum semester itu, dan TA langsung masuk fase Penelitian. Mahasiswa yang
+/// tidak lulus mendapat baris baru pada semester berikutnya. Draf nilai satu pihak adalah baris
+/// rincian tanpa nilai pihak itu di sini; nilai pihak terisi saat dikirim.
 /// Berkas proposal final di uploads/thesis/<thesis_id>/proposal/<assessment_id>/.
 model ResearchMethodAssessment {
   id                       String                          @id @default(uuid()) @db.VarChar(191)
@@ -2751,11 +2750,11 @@ model ResearchMethodAssessment {
   isFinalized              Boolean                         @default(false) @map("is_finalized")
   finalizedBy              String?                         @map("finalized_by") @db.VarChar(191)
   finalizedAt              DateTime?                       @map("finalized_at")
-  /// Diisi saat difinalkan: lulus bila presensi memenuhi dan nilai >= nilai minimum periode.
+  /// Diisi saat difinalkan: lulus bila nilai akhir >= nilai minimum semester itu.
   result                   ResearchMethodAssessmentResult?
-  attendanceRecordId       String?                         @map("attendance_record_id") @db.VarChar(191)
-  /// Presensi di bawah 75%: nilai otomatis 0.
+  /// Usang: presensi tidak lagi dikelola di NeoCentral (urusan mata kuliah di SIA). Tidak diisi.
   attendanceAutoZeroedAt   DateTime?                       @map("attendance_auto_zeroed_at")
+  /// Usang, lihat `attendance_auto_zeroed_at`.
   attendanceAutoZeroReason String?                         @map("attendance_auto_zero_reason") @db.Text
   createdAt                DateTime                        @default(now()) @map("created_at")
   updatedAt                DateTime                        @updatedAt @map("updated_at")
@@ -2765,7 +2764,6 @@ model ResearchMethodAssessment {
   supervisor         Lecturer?                                   @relation("ResearchMethodAssessmentSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
   coordinator        Lecturer?                                   @relation("ResearchMethodAssessmentCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
   finalizer          User?                                       @relation("ResearchMethodAssessmentFinalizer", fields: [finalizedBy], references: [id], onDelete: SetNull)
-  attendanceRecord   ResearchMethodAttendanceRecord?             @relation(fields: [attendanceRecordId], references: [id], onDelete: SetNull)
   supervisorDetails  ResearchMethodSupervisorAssessmentDetail[]
   coordinatorDetails ResearchMethodCoordinatorAssessmentDetail[]
 
@@ -2774,7 +2772,6 @@ model ResearchMethodAssessment {
   @@index([supervisorId])
   @@index([coordinatorId])
   @@index([finalizedBy])
-  @@index([attendanceRecordId])
   @@map("research_method_assessments")
 }
 
@@ -2814,67 +2811,6 @@ model ResearchMethodCoordinatorAssessmentDetail {
   @@index([assessmentCriteriaId], map: "rm_coordinator_details_criteria_id_idx")
   @@index([assessmentRubricId], map: "rm_coordinator_details_rubric_id_idx")
   @@map("research_method_coordinator_assessment_details")
-}
-
-/// Unggahan berkas presensi kelas Metode Penelitian (10.5). Berkas sumber di
-/// uploads/research-method/attendance/<import_id>/, dicatat di `source_files`.
-model ResearchMethodAttendanceImport {
-  id                    String   @id @default(uuid()) @db.VarChar(191)
-  academicYearId        String   @map("academic_year_id") @db.VarChar(191)
-  uploadedByUserId      String   @map("uploaded_by_user_id")
-  classCode             String?  @map("class_code") @db.VarChar(100)
-  courseName            String?  @map("course_name") @db.VarChar(255)
-  semesterLabel         String?  @map("semester_label") @db.VarChar(100)
-  filterLabel           String?  @map("filter_label") @db.VarChar(100)
-  lecturerNames         Json?    @map("lecturer_names")
-  /// [{ originalName, classCode, filePath, fileHash, fileSize }, ...]
-  sourceFiles           Json?    @map("source_files")
-  thresholdPercent      Float    @default(0.75) @map("threshold_percent")
-  totalRows             Int      @default(0) @map("total_rows")
-  matchedRows           Int      @default(0) @map("matched_rows")
-  eligibleRows          Int      @default(0) @map("eligible_rows")
-  ineligibleRows        Int      @default(0) @map("ineligible_rows")
-  autoZeroedCount       Int      @default(0) @map("auto_zeroed_count")
-  skippedFinalizedCount Int      @default(0) @map("skipped_finalized_count")
-  uploadedAt            DateTime @default(now()) @map("uploaded_at")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-
-  academicYear AcademicYear                     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  uploadedBy   User                             @relation("ResearchMethodAttendanceImportUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
-  records      ResearchMethodAttendanceRecord[]
-
-  @@index([academicYearId, uploadedAt])
-  @@index([uploadedByUserId])
-  @@map("research_method_attendance_imports")
-}
-
-/// Satu baris presensi dari berkas yang diunggah. Nama mahasiswa diambil dari `students`;
-/// nama di berkas tetap ada di `raw_row` untuk baris yang tidak cocok dengan mahasiswa mana pun.
-model ResearchMethodAttendanceRecord {
-  id                   String   @id @default(uuid()) @db.VarChar(191)
-  importId             String   @map("import_id") @db.VarChar(191)
-  studentId            String?  @map("student_id")
-  identityNumber       String   @map("identity_number") @db.VarChar(50)
-  presentCount         Int      @default(0) @map("present_count")
-  absentCount          Int      @default(0) @map("absent_count")
-  sickCount            Int      @default(0) @map("sick_count")
-  permitCount          Int      @default(0) @map("permit_count")
-  totalMeetings        Int      @default(0) @map("total_meetings")
-  attendancePercentage Float    @map("attendance_percentage")
-  isEligible           Boolean  @map("is_eligible")
-  rawRow               Json?    @map("raw_row")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-
-  import      ResearchMethodAttendanceImport @relation(fields: [importId], references: [id], onDelete: Cascade)
-  student     Student?                       @relation(fields: [studentId], references: [id], onDelete: SetNull)
-  assessments ResearchMethodAssessment[]
-
-  @@unique([importId, identityNumber])
-  @@index([identityNumber])
-  @@index([studentId])
-  @@map("research_method_attendance_records")
 }
 
 enum IdentityType {

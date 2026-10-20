@@ -35,9 +35,7 @@ import {
   requireAnyRole,
 } from "../middlewares/auth.middleware.js";
 import { loadUserRoles } from "../middlewares/rbac.middleware.js";
-import { uploadAttendanceFiles } from "../middlewares/file.middleware.js";
 import { ROLES, SUPERVISOR_ROLES } from "../constants/roles.js";
-import { MAX_ATTENDANCE_FILES } from "../constants/research-method.js";
 import * as milestoneTemplates from "../controllers/research-method-milestone-template.controller.js";
 import * as controller from "../controllers/research-method.controller.js";
 import {
@@ -49,7 +47,8 @@ import { minimumScoreSchema, submitScoreSchema } from "../validators/research-me
 
 /**
  * /research-method: master data (CPMK, criteria, rubrics, proposal milestone templates),
- * Presensi, Penilaian Proposal, kelulusan, ekspor and Monitoring Kelas.
+ * Penilaian Proposal, exports and Monitoring Kelas. Class presence is the course's business in
+ * SIA, and a pass starts the research phase when the second final score is sent.
  */
 const router = express.Router();
 
@@ -59,20 +58,6 @@ const COORDINATOR = requireAnyRole([ROLES.KOORDINATOR_METODE_PENELITIAN]);
 const READERS = requireAnyRole([ROLES.KOORDINATOR_METODE_PENELITIAN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN]);
 const SUPERVISOR = requireAnyRole(SUPERVISOR_ROLES);
 const FORM_READERS = requireAnyRole([...SUPERVISOR_ROLES, ROLES.KOORDINATOR_METODE_PENELITIAN, ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN]);
-const PROMOTERS = requireAnyRole([ROLES.KOORDINATOR_METODE_PENELITIAN, ROLES.KETUA_DEPARTEMEN, ROLES.ADMIN]);
-
-/** Multer errors (too many files, wrong type) become a 400 with a readable message. */
-const attendanceFiles = (req, res, next) =>
-  uploadAttendanceFiles(req, res, (error) => {
-    if (!error) return next();
-    const err = new Error(
-      error.code === "LIMIT_UNEXPECTED_FILE" || error.code === "LIMIT_FILE_COUNT"
-        ? `Maksimal ${MAX_ATTENDANCE_FILES} berkas kelas per unggahan.`
-        : /Excel/.test(error.message ?? "") ? "Berkas presensi harus berupa .xlsx atau .xls." : error.message,
-    );
-    err.statusCode = 400;
-    next(err);
-  });
 
 router.use(authGuard);
 
@@ -111,25 +96,19 @@ router.patch("/milestone-templates/reorder", SEKDEP_ONLY, validate(reorderMilest
 router.patch("/milestone-templates/:id", SEKDEP_ONLY, validate(updateMilestoneTemplateSchema), milestoneTemplates.updateTemplate);
 router.delete("/milestone-templates/:id", SEKDEP_ONLY, milestoneTemplates.deleteTemplate);
 
-// Presensi (10.5): the coordinator uploads; the department reads
-router.get("/attendance-imports", READERS, controller.getAttendance);
-router.post("/attendance-imports/preview", COORDINATOR, attendanceFiles, controller.previewAttendance);
-router.post("/attendance-imports", COORDINATOR, attendanceFiles, controller.uploadAttendance);
-router.get("/attendance-imports/:id/files/:index", READERS, controller.getAttendanceFile);
-
-// Penilaian Proposal
+// Penilaian Proposal: the supervisor scores in Tugas Akhir > Proposal; the coordinator page is the
+// coordinator's only (Kadep and Sekdep follow the class in Monitoring Kelas). Each party may save a
+// draft as often as needed and sends once; the parties score in any order.
 router.get("/assessments/form", FORM_READERS, controller.getForm);
 router.get("/assessments/supervisor", SUPERVISOR, controller.getSupervisorQueue);
-router.get("/assessments/coordinator", READERS, controller.getCoordinatorQueue);
+router.get("/assessments/coordinator", COORDINATOR, controller.getCoordinatorQueue);
 router.get("/assessments/:id", loadUserRoles, controller.getAssessment);
+router.get("/assessments/:id/supervisor-form", SUPERVISOR, controller.getSupervisorScoreForm);
+router.get("/assessments/:id/coordinator-form", COORDINATOR, controller.getCoordinatorScoreForm);
 router.post("/assessments/:id/supervisor-score", SUPERVISOR, validate(submitScoreSchema), controller.submitSupervisorScore);
 router.post("/assessments/:id/coordinator-score", COORDINATOR, validate(submitScoreSchema), controller.submitCoordinatorScore);
 
-// Naik ke Penelitian: preview and a manual run; the scheduled job runs it too
-router.get("/promotions", PROMOTERS, controller.previewPromotion);
-router.post("/promotions/run", PROMOTERS, controller.runPromotion);
-
-// Ekspor (10.6) and Monitoring Kelas
+// Exports and Monitoring Kelas
 router.get("/exports/scores", READERS, controller.exportScores);
 router.get("/exports/passed-titles", READERS, controller.exportPassedTitles);
 router.get("/monitoring", READERS, controller.getMonitoring);

@@ -35,6 +35,27 @@ describe("research-method route RBAC", () => {
     expect(lines.find((line) => line.startsWith("router.get("))).toContain("MANAGE");
   });
 
+  it("Penilaian Proposal sisi koordinator khusus koordinator; pembimbing menilai lewat rutenya sendiri", () => {
+    const source = readFileSync(routePath, "utf8");
+    expect(source).toContain("const COORDINATOR = requireAnyRole([ROLES.KOORDINATOR_METODE_PENELITIAN]);");
+    for (const line of [
+      'router.get("/assessments/coordinator", COORDINATOR,',
+      'router.get("/assessments/:id/coordinator-form", COORDINATOR,',
+      'router.post("/assessments/:id/coordinator-score", COORDINATOR,',
+      'router.get("/assessments/:id/supervisor-form", SUPERVISOR,',
+      'router.post("/assessments/:id/supervisor-score", SUPERVISOR,',
+    ]) {
+      expect(source).toContain(line);
+    }
+    const assessmentLines = source.split("\n").filter((line) => line.startsWith("router.") && line.includes('"/assessments'));
+    expect(assessmentLines.some((line) => /\bREADERS\b/.test(line))).toBe(false);
+  });
+
+  it("tanpa rute presensi dan proses kelulusan", () => {
+    const source = readFileSync(routePath, "utf8");
+    expect(source).not.toMatch(/attendance|promotion/i);
+  });
+
   it("menyediakan endpoint CPMK, konfigurasi, kriteria, rubrik, dan ringkasan bobot", () => {
     const source = readFileSync(routePath, "utf8");
 

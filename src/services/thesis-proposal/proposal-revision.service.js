@@ -13,7 +13,7 @@ import { changeThesisStatus } from "../thesisLifecycle.service.js";
 
 /**
  * Proposal revisi: the way back to research for a thesis that a guidance
- * evaluation sent back to the proposal ("Mengulang Proposal"). No class, attendance or
+ * evaluation sent back to the proposal ("Mengulang Proposal"). No class or
  * Penilaian Proposal: the student uploads a revised proposal and the Pembimbing 1 approves it
  * (the thesis returns to research and the supervision clock starts again) or asks for a
  * revision with notes. The Head of Department is not involved.

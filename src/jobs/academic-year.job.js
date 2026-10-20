@@ -18,7 +18,7 @@ async function findActiveUserIdsByRole(roleName) {
 /**
  * Report how many students already have SIA flags for the new period. It never blocks the
  * switch; when flags are missing, Admin is asked to run the SIA sync, because eligibility for
- * Metode Penelitian and the KRS Tugas Akhir check read these flags.
+ * a supervisor request reads the Metode Penelitian flag.
  */
 async function reportPeriodFlagCoverage(academicYear, { notify }) {
     let coverage = null;
@@ -49,7 +49,7 @@ async function reportPeriodFlagCoverage(academicYear, { notify }) {
                 message:
                     `Periode ${formatAcademicYearLabel(academicYear)} baru memiliki data SIA untuk ` +
                     `${coverage.studentsWithFlags} dari ${coverage.totalStudents} mahasiswa. Jalankan sinkronisasi SIA ` +
-                    "agar kelayakan Metode Penelitian dan KRS Tugas Akhir terbaca.",
+                    "agar kelayakan Metode Penelitian terbaca.",
                 type: "simpta_period_snapshot_incomplete",
                 data: {
                     academicYearId: academicYear.id,

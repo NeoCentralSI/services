@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * Before the real SIA API exists, SIA_BASE_URL on
  * neocentral.dev is empty and nothing reads SIA: the scheduled sync is skipped with one log line,
- * the manual sync is refused with "Sinkronisasi SIA belum tersedia.", and the promotion keeps
+ * and the manual sync is refused with "Sinkronisasi SIA belum tersedia.". The proposal flow keeps
  * working on the flags the Admin entered.
  */
 const { siaClient, siaStore, eligibility } = vi.hoisted(() => ({
@@ -19,7 +19,6 @@ vi.mock("../../services/research-method/eligibility.service.js", () => eligibili
 const { isSiaConfigured, assertSiaConfigured, SIA_NOT_AVAILABLE_MESSAGE } = await import("../../helpers/sia-availability.helper.js");
 const { runSiaSync } = await import("../../services/sia.sync.job.js");
 const controller = await import("../../controllers/sia.controller.js");
-const { decide, PROMOTION_DECISION } = await import("../../services/research-method/promotion.service.js");
 
 const ORIGINAL = process.env.SIA_BASE_URL;
 const res = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
@@ -84,15 +83,5 @@ describe("SIA belum dikonfigurasi (SIA_BASE_URL kosong)", () => {
     expect(result?.skipped).toBeUndefined();
     expect(siaClient.fetchStudentsFull).toHaveBeenCalled();
     vi.restoreAllMocks();
-  });
-
-  it("the promotion decides on the stored flags, whatever their source, without reading SIA", () => {
-    const operational = { id: "ay-2", year: "2026/2027", semester: "ganjil", startDate: "2026-08-01" };
-    const assignmentPeriod = { id: "ay-1", year: "2025/2026", semester: "genap", startDate: "2026-01-15" };
-    const promote = decide({ operational, assignmentPeriod, snapshot: { takingThesisCourse: true, thesisCourseSource: "admin" } });
-    expect(promote.decision).toBe(PROMOTION_DECISION.PROMOTE);
-    expect(decide({ operational, assignmentPeriod, snapshot: { takingThesisCourse: false, thesisCourseSource: "admin" } }).decision).toBe(PROMOTION_DECISION.WAIT_THESIS_COURSE);
-    expect(siaClient.fetchStudentsFull).not.toHaveBeenCalled();
-    expect(siaClient.fetchSemesterEnrollments).not.toHaveBeenCalled();
   });
 });

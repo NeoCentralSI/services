@@ -1,7 +1,6 @@
 import prisma from "../../config/prisma.js";
 import { formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
-import { buildWorkbookBuffer, normalizeHeader, readSheetRows } from "../../helpers/spreadsheet.helper.js";
-import { normalizeIdentity } from "../../repositories/research-method/attendance.repository.js";
+import { buildWorkbookBuffer, normalizeHeader, normalizeIdentity, readSheetRows } from "../../helpers/spreadsheet.helper.js";
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../auditLog.service.js";
 import { ACADEMIC_FLAG_SOURCE, setStudentPeriodFlags } from "./eligibility.service.js";

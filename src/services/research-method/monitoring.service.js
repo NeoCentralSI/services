@@ -7,17 +7,17 @@ import { NotFoundError } from "../../utils/errors.js";
 import { minimumScoreOf } from "./assessment.service.js";
 
 /**
- * Metode Penelitian > Monitoring Kelas: every student of the period's class (SIA says they take
- * Metode Penelitian, or they have an assessment attempt in the period) and how far each one is:
- * supervisor request, Penetapan Pembimbing, proposal guidance, final proposal, attendance,
- * scores and result, and whether the thesis moved to the research phase.
+ * Metode Penelitian > Monitoring Kelas: every student of the semester's class (the flag says they
+ * take Metode Penelitian, or they have an assessment attempt in the semester) and how far each one
+ * is: supervisor request, Penetapan Pembimbing, proposal guidance, final proposal, both sent scores
+ * and the result. A pass starts the research phase at once. Drafts are never shown.
  */
 export async function getClassMonitoring(academicYearId = null) {
   const operational = await resolveOperationalAcademicYear();
   const year = await prisma.academicYear.findUnique({ where: { id: academicYearId || operational?.id || "-" } });
   if (!year) throw new NotFoundError("Periode akademik tidak ditemukan.");
 
-  const [snapshots, attempts, latestImport] = await Promise.all([
+  const [snapshots, attempts] = await Promise.all([
     prisma.studentAcademicYearSnapshot.findMany({ where: { academicYearId: year.id, eligibleResearchMethod: true }, select: { studentId: true } }),
     prisma.researchMethodAssessment.findMany({
       where: { academicYearId: year.id },
@@ -31,18 +31,18 @@ export async function getClassMonitoring(academicYearId = null) {
         finalScore: true,
         isFinalized: true,
         result: true,
-        attendanceAutoZeroedAt: true,
+        supervisor: { select: { user: { select: { fullName: true } } } },
+        coordinator: { select: { user: { select: { fullName: true } } } },
         thesis: { select: { studentId: true } },
       },
     }),
-    prisma.researchMethodAttendanceImport.findFirst({ where: { academicYearId: year.id }, orderBy: { uploadedAt: "desc" }, select: { id: true } }),
   ]);
   const studentIds = [...new Set([...snapshots.map((s) => s.studentId), ...attempts.map((a) => a.thesis.studentId)])];
   if (studentIds.length === 0) {
     return { academicYear: { id: year.id, label: formatAcademicYearLabel(year) }, minimumScore: minimumScoreOf(year), summary: summarize([]), rows: [] };
   }
 
-  const [students, requests, records] = await Promise.all([
+  const [students, requests] = await Promise.all([
     prisma.student.findMany({
       where: { id: { in: studentIds } },
       select: {
@@ -71,23 +71,15 @@ export async function getClassMonitoring(academicYearId = null) {
       orderBy: { createdAt: "desc" },
       select: { studentId: true, status: true, route: true },
     }),
-    latestImport
-      ? prisma.researchMethodAttendanceRecord.findMany({
-          where: { importId: latestImport.id, studentId: { in: studentIds } },
-          select: { studentId: true, attendancePercentage: true, isEligible: true },
-        })
-      : [],
   ]);
   const requestOf = new Map();
   for (const r of requests) if (!requestOf.has(r.studentId)) requestOf.set(r.studentId, r);
-  const recordOf = new Map(records.map((r) => [r.studentId, r]));
   const attemptOf = new Map(attempts.map((a) => [a.thesis.studentId, a]));
 
   const rows = students
     .map((student) => {
       const thesis = student.thesis[0] ?? null;
       const attempt = attemptOf.get(student.id) ?? null;
-      const record = recordOf.get(student.id) ?? null;
       const request = requestOf.get(student.id) ?? null;
       return {
         studentId: student.id,
@@ -104,7 +96,6 @@ export async function getClassMonitoring(academicYearId = null) {
             }
           : null,
         request: request ? { status: request.status, route: request.route } : null,
-        attendance: record ? { attendancePercentage: record.attendancePercentage, isEligible: record.isEligible } : null,
         assessment: attempt
           ? {
               id: attempt.id,
@@ -114,7 +105,8 @@ export async function getClassMonitoring(academicYearId = null) {
               finalScore: attempt.finalScore,
               isFinalized: attempt.isFinalized,
               result: attempt.result,
-              attendanceAutoZeroed: Boolean(attempt.attendanceAutoZeroedAt),
+              supervisorName: attempt.supervisorScore != null ? attempt.supervisor?.user?.fullName ?? null : null,
+              coordinatorName: attempt.coordinatorScore != null ? attempt.coordinator?.user?.fullName ?? null : null,
             }
           : null,
       };
@@ -124,15 +116,20 @@ export async function getClassMonitoring(academicYearId = null) {
   return { academicYear: { id: year.id, label: formatAcademicYearLabel(year) }, minimumScore: minimumScoreOf(year), summary: summarize(rows), rows };
 }
 
-function summarize(rows) {
+/**
+ * The two charts of the page: the stages in order (Peserta, Punya Pembimbing, Ditetapkan, Proposal
+ * Final, Dinilai, Mulai Penelitian) and the results (Mulai Penelitian, Tidak Lulus, Belum Dinilai).
+ */
+export function summarize(rows) {
+  const finalized = rows.filter((r) => r.assessment?.isFinalized).length;
   return {
     total: rows.length,
     withSupervisor: rows.filter((r) => (r.thesis?.supervisors ?? []).length > 0).length,
     assigned: rows.filter((r) => r.thesis?.supervisorAssignedAt).length,
     finalProposal: rows.filter((r) => r.assessment?.finalProposalAt).length,
-    finalized: rows.filter((r) => r.assessment?.isFinalized).length,
+    finalized,
     passed: rows.filter((r) => r.assessment?.result === RESEARCH_METHOD_RESULT.PASSED).length,
-    failed: rows.filter((r) => r.assessment?.result === RESEARCH_METHOD_RESULT.FAILED).length,
-    promoted: rows.filter((r) => r.thesis && r.thesis.status !== "proposal" && r.assessment?.result === RESEARCH_METHOD_RESULT.PASSED).length,
+    failed: rows.filter((r) => r.assessment?.isFinalized && r.assessment?.result === RESEARCH_METHOD_RESULT.FAILED).length,
+    notFinalized: rows.length - finalized,
   };
 }

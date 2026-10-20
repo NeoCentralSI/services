@@ -2,8 +2,8 @@
 import { api, check, run, summary, find, ids, login } from "./lib-api.mjs";
 
 await run("auth", async () => {
-  await login("prop_lulus_tunggu_krs");
-  const me = await api("prop_lulus_tunggu_krs", "GET", "/auth/me");
+  await login("prop_lulus");
+  const me = await api("prop_lulus", "GET", "/auth/me");
   const student = find(me.json, "student");
   check("profil mahasiswa memuat penanda semester berjalan", student?.eligibleResearchMethod === true && student?.takingThesisCourse === false, student);
   check("kolom lama tidak ada di profil", student && !("eligibleMetopen" in student) && !("thesisCourseEnrollmentSource" in student));
@@ -11,7 +11,7 @@ await run("auth", async () => {
 
 await run("devtools", async () => {
   const list = await api("admin_si", "GET", "/devtools/students?search=Uji%20Proposal");
-  const row = (list.data ?? []).find((s) => s.identityNumber === "2211528016");
+  const row = (list.data ?? []).find((s) => s.identityNumber === "2211528018");
   check("daftar mahasiswa memuat periodFlags semester berjalan", row?.periodFlags?.takingThesisCourse === true && row?.periodFlags?.eligibleResearchMethod === false, row?.periodFlags);
   const target = (list.data ?? []).find((s) => s.identityNumber === "2211528001");
   const set = await api("admin_si", "PATCH", `/devtools/students/${target.id}/period-flags`, { takingThesisCourse: true });

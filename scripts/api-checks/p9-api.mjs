@@ -142,7 +142,7 @@ await run("4 katalog dosen dan nilai mahasiswa", async () => {
   check("katalog: setiap dosen membawa kelompok keilmuan, topik yang ditawarkan (daftar), dan topik bimbingannya",
     catalog.length > 0 && catalog.every((c) => Array.isArray(c.offeredTopics) && Array.isArray(c.supervisedTopics)) && catalog.some((c) => c.supervisedTopics.length > 0 && c.scienceGroup?.name),
     catalog.slice(0, 3).map((c) => `${c.fullName}:${c.scienceGroup?.name}:${c.offeredTopics?.length}/${c.supervisedTopics?.length}`));
-  const lulus = (await api(U("lulus_tunggu_krs"), "GET", "/thesis-proposals/me")).data?.finalProposal;
+  const lulus = (await api(U("lulus"), "GET", "/thesis-proposals/me")).data?.finalProposal;
   const attempt = [lulus?.current, ...(lulus?.history ?? [])].find((a) => a?.isFinalized);
   check("percobaan final: nilai pembimbing + koordinator = nilai akhir",
     attempt && attempt.supervisorScore != null && attempt.coordinatorScore != null && attempt.supervisorScore + attempt.coordinatorScore === attempt.finalScore,

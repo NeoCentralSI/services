@@ -130,7 +130,6 @@ async function mergeAcademicYear(duplicate, canonical) {
       ["internshipGuidanceLecturerCriteria", "academicYearId"],
       ["internshipCpmk", "academicYearId"],
       ["thesisSupervisorAssignmentBatch", "academicYearId"],
-      ["researchMethodAttendanceImport", "academicYearId"],
       ["thesisSupervisorRequest", "academicYearId"],
     ];
 

@@ -43,7 +43,6 @@ const ATTEMPT_INCLUDE = {
   academicYear: { select: { id: true, semester: true, year: true, researchMethodMinimumScore: true } },
   supervisor: { select: { user: { select: { fullName: true } } } },
   coordinator: { select: { user: { select: { fullName: true } } } },
-  attendanceRecord: { select: { id: true, attendancePercentage: true, isEligible: true, presentCount: true, totalMeetings: true } },
   supervisorDetails: { select: { assessmentCriteriaId: true, assessmentRubricId: true, score: true } },
   coordinatorDetails: { select: { assessmentCriteriaId: true, assessmentRubricId: true, score: true } },
 };
@@ -83,10 +82,32 @@ export function lockAttempt(tx, id) {
   return tx.$queryRaw`SELECT id FROM research_method_assessments WHERE id = ${id} FOR UPDATE`;
 }
 
-export function createDetails(party, assessmentId, details, client = prisma) {
-  return detailDelegate(party, client).createMany({
-    data: details.map((d) => ({ assessmentId, assessmentCriteriaId: d.criteriaId, assessmentRubricId: d.rubricId, score: d.score })),
+/**
+ * One party's details of an attempt, replaced as a whole: a draft is saved again and again, and the
+ * sent score writes the final set. `rubricId` is the rubric whose range holds the score, as a record.
+ */
+export async function replaceDetails(party, assessmentId, details, client = prisma) {
+  const delegate = detailDelegate(party, client);
+  await delegate.deleteMany({ where: { assessmentId } });
+  if (details.length === 0) return { count: 0 };
+  return delegate.createMany({
+    data: details.map((d) => ({ assessmentId, assessmentCriteriaId: d.criteriaId, assessmentRubricId: d.rubricId ?? null, score: d.score })),
   });
+}
+
+/** Whether a semester has any Penilaian Proposal detail, draft or sent (its master data then locks). */
+export async function periodHasAssessmentDetails(academicYearId, client = prisma) {
+  const where = { assessment: { academicYearId } };
+  const [supervisor, coordinator] = await Promise.all([
+    client.researchMethodSupervisorAssessmentDetail.count({ where }),
+    client.researchMethodCoordinatorAssessmentDetail.count({ where }),
+  ]);
+  return supervisor + coordinator > 0;
+}
+
+/** Whether a semester has a final result (its minimum passing score then locks). */
+export async function periodHasFinalResult(academicYearId, client = prisma) {
+  return (await client.researchMethodAssessment.count({ where: { academicYearId, isFinalized: true } })) > 0;
 }
 
 export function findCoordinatorUserIds(client = prisma) {
