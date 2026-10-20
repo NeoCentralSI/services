@@ -137,11 +137,11 @@ await run("3 penanda per semester oleh Admin", async () => {
 
 await run("4 katalog dosen dan nilai mahasiswa", async () => {
   const catalog = (await api(U("layak"), "GET", "/thesis-proposals/catalog")).data ?? [];
-  // The seed's topics are department topics (no lecturer), so the catalog shows the topics of the
-  // theses a lecturer supervises until the lecturer offers topics of their own.
-  check("katalog: setiap dosen membawa kelompok keilmuan, topik yang ditawarkan (daftar), dan topik bimbingannya",
-    catalog.length > 0 && catalog.every((c) => Array.isArray(c.offeredTopics) && Array.isArray(c.supervisedTopics)) && catalog.some((c) => c.supervisedTopics.length > 0 && c.scienceGroup?.name),
-    catalog.slice(0, 3).map((c) => `${c.fullName}:${c.scienceGroup?.name}:${c.offeredTopics?.length}/${c.supervisedTopics?.length}`));
+  // Lecturers do not offer topics (the topic master data is the Sekretaris Departemen's): the
+  // catalog shows the topics of the theses a lecturer supervises now.
+  check("katalog: setiap dosen membawa kelompok keilmuan dan topik bimbingannya; tanpa topik yang ditawarkan",
+    catalog.length > 0 && catalog.every((c) => Array.isArray(c.supervisedTopics) && !("offeredTopics" in c)) && catalog.some((c) => c.supervisedTopics.length > 0 && c.scienceGroup?.name),
+    catalog.slice(0, 3).map((c) => `${c.fullName}:${c.scienceGroup?.name}:${c.supervisedTopics?.length}`));
   const lulus = (await api(U("lulus"), "GET", "/thesis-proposals/me")).data?.finalProposal;
   const attempt = [lulus?.current, ...(lulus?.history ?? [])].find((a) => a?.isFinalized);
   check("percobaan final: nilai pembimbing + koordinator = nilai akhir",
@@ -195,22 +195,19 @@ await run("6 Impor Keikutsertaan (impor massal)", async () => {
   const template = await api(ADMIN, "GET", "/adminfeatures/student-period-flags/template");
   check("Unduh Templat: berkas .xlsx", template.status === 200 && /spreadsheetml/.test(template.ct) && template.bytes > 0, { status: template.status, ct: template.ct, bytes: template.bytes });
 
-  const sekdep = await api(SEKDEP, "POST", `${path}/preview`, undefined, { form: upload(file) });
+  const sekdep = await api(SEKDEP, "POST", path, undefined, { form: upload(file) });
   check("hanya Admin (Sekdep 403)", sekdep.status === 403, sekdep.status);
-  const wrongType = await api(ADMIN, "POST", `${path}/preview`, undefined, { form: upload(Buffer.from("%PDF"), "a.pdf") });
+  const wrongType = await api(ADMIN, "POST", path, undefined, { form: upload(Buffer.from("%PDF"), "a.pdf") });
   check("berkas bukan .xlsx/.csv ditolak 400", wrongType.status === 400 && /\.xlsx atau \.csv/.test(wrongType.json?.message ?? ""), `${wrongType.status} ${wrongType.json?.message}`);
-
-  const before = await snapshot();
   const preview = await api(ADMIN, "POST", `${path}/preview`, undefined, { form: upload(file) });
-  const after = await snapshot();
-  check("Pratinjau: 1 berubah, 0 sama, 1 NIM tidak dikenal, 1 baris tidak valid, 1 nama tidak cocok; belum ada yang tersimpan",
-    preview.status === 200 && JSON.stringify(preview.data?.totals) === JSON.stringify({ rows: 4, changed: 1, unchanged: 0, unknownNim: 1, invalid: 1, nameMismatch: 1 })
-      && preview.data?.nameMismatch?.[0]?.nim === "2211528003"
-      && preview.data?.unknown?.[0]?.nim === "2211599999" && /isi Ya atau Tidak/.test(preview.data?.invalid?.[0]?.reason ?? "")
-      && after?.eligibleResearchMethod === before?.eligibleResearchMethod && after?.eligibilitySource === before?.eligibilitySource,
-    { totals: preview.data?.totals, before: [before?.eligibleResearchMethod, before?.eligibilitySource] });
+  check("endpoint pratinjau tidak ada lagi (404); dialog langsung mengimpor", preview.status === 404, preview.status);
 
   const applied = await api(ADMIN, "POST", path, undefined, { form: upload(file) });
+  check("Impor: 1 berubah, 0 sama, 1 NIM tidak dikenal, 1 baris tidak valid, 1 nama tidak cocok (baris bermasalah dilewati)",
+    applied.status === 200 && JSON.stringify(applied.data?.totals) === JSON.stringify({ rows: 4, changed: 1, unchanged: 0, unknownNim: 1, invalid: 1, nameMismatch: 1 })
+      && applied.data?.nameMismatch?.[0]?.nim === "2211528003"
+      && applied.data?.unknown?.[0]?.nim === "2211599999" && /isi Ya atau Tidak/.test(applied.data?.invalid?.[0]?.reason ?? ""),
+    applied.data?.totals);
   const written = await snapshot();
   const student = (await api(U("tidak_layak"), "GET", "/thesis-proposals/me/supervisor-requests")).data?.submission;
   check("Terapkan: Uji Proposal Tidak Layak kini Mengambil Metode Penelitian Ya, sumber Admin; boleh mengajukan",

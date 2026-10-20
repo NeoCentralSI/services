@@ -8,8 +8,8 @@ import { ACADEMIC_FLAG_SOURCE, setStudentPeriodFlags } from "./eligibility.servi
 /**
  * Bulk import of the semester flags "Mengambil Metode Penelitian" and "Mengambil
  * Tugas Akhir" by the Admin (Data Master → Mahasiswa → Impor Keikutsertaan). Same result as the
- * one-by-one edit: source `admin`, kept by the SIA sync. A preview stores nothing; applying writes
- * only the rows that change, so importing the same file twice changes nothing the second time.
+ * one-by-one edit: source `admin`, kept by the SIA sync. The import writes only the rows that
+ * change, so importing the same file twice changes nothing the second time.
  * Problem rows (unknown NIM, invalid values, a name that does not match the NIM) are reported and
  * do not stop the rest.
  */
@@ -158,10 +158,6 @@ async function buildPlan(academicYearId, buffer, client) {
 }
 
 const publicPlan = ({ _writes, ...plan }) => plan;
-
-export async function previewPeriodFlagsImport(academicYearId, buffer, { client = prisma } = {}) {
-  return publicPlan(await buildPlan(academicYearId, buffer, client));
-}
 
 /** Writes the changed rows with source `admin` and records the counts in the audit log. */
 export async function applyPeriodFlagsImport(academicYearId, buffer, { actorUserId = null, fileName = null, client = prisma, now = new Date() } = {}) {

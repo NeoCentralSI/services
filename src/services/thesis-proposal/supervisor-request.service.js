@@ -490,6 +490,11 @@ export async function getRequestDetail(requestId, userId) {
 
 // ── Catalog ───────────────────────────────────────────────────────────────────────────
 
+/**
+ * One lecturer of the student's catalog. Lecturers do not offer topics of their own (the topic
+ * master data is the Sekretaris Departemen's); the card shows the topics of the theses the
+ * lecturer supervises now ("Topik bimbingan").
+ */
 function lecturerCard(lecturer, load) {
   const topics = [...new Set(lecturer.thesisSupervisors.map((row) => row.thesis?.thesisTopic?.name).filter(Boolean))];
   return {
@@ -504,7 +509,6 @@ function lecturerCard(lecturer, load) {
     hardLimit: load.hardLimit,
     level: load.level,
     supervisedTopics: topics,
-    offeredTopics: (lecturer.offeredTopics ?? []).map((topic) => topic.name),
   };
 }
 

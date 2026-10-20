@@ -111,36 +111,6 @@ export function findScienceGroupById(id) {
   });
 }
 
-export function findLecturerScienceGroupById(id) {
-  return prisma.lecturer.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      scienceGroupId: true,
-      scienceGroup: { select: { id: true, name: true } },
-    },
-  });
-}
-
-/**
- * Find topics offered by a specific lecturer
- */
-export function findByLecturerId(lecturerId) {
-  return prisma.thesisTopic.findMany({
-    where: { lecturerId },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      scienceGroup: { select: { id: true, name: true } },
-      _count: {
-        select: {
-          thesis: true,
-          supervisorRequests: true,
-        },
-      },
-    },
-  });
-}
-
 /**
  * Check if topic has related data
  */

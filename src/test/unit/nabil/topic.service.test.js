@@ -16,7 +16,6 @@ const { mockTopicRepo } = vi.hoisted(() => ({
     hasRelatedData: vi.fn(),
     bulkDelete: vi.fn(),
     findScienceGroupById: vi.fn(),
-    findLecturerScienceGroupById: vi.fn(),
   },
 }));
 

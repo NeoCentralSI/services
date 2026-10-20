@@ -2,14 +2,14 @@ import * as XLSX from "xlsx";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Impor Keikutsertaan. The preview stores nothing; applying writes the changed rows
- * with source admin and audits the counts; the same file again changes nothing.
+ * Impor Keikutsertaan. The import writes the changed rows with source admin, reports the
+ * rows it skipped and audits the counts; the same file again changes nothing.
  */
 const { audit } = vi.hoisted(() => ({ audit: { logAudit: vi.fn(async () => null) } }));
 vi.mock("../../config/prisma.js", () => ({ default: {} }));
 vi.mock("../../services/auditLog.service.js", async (importOriginal) => ({ ...(await importOriginal()), logAudit: audit.logAudit }));
 
-const { parseFlagCell, parsePeriodFlagsSheet, previewPeriodFlagsImport, applyPeriodFlagsImport, buildPeriodFlagsTemplate, PERIOD_FLAGS_HEADERS } =
+const { parseFlagCell, parsePeriodFlagsSheet, applyPeriodFlagsImport, buildPeriodFlagsTemplate, PERIOD_FLAGS_HEADERS } =
   await import("../../services/research-method/period-flags-import.service.js");
 
 const HEADERS = ["NIM", "Mengambil Metode Penelitian", "Mengambil Tugas Akhir"];
@@ -87,18 +87,17 @@ describe("parser", () => {
   });
 });
 
-describe("preview and apply", () => {
+describe("import", () => {
   const file = () => xlsx([HEADERS, ["2211528002", "Ya", ""], ["2211528001", "Ya", ""], ["2211599999", "Ya", "Ya"], ["2211528001x", "Mungkin", ""]]);
 
-  it("preview: changed, unchanged (same value, already Admin), unknown NIM, invalid; nothing written", async () => {
+  it("reports changed, unchanged (same value, already Admin), unknown NIM and invalid rows", async () => {
     const db = fakeDb({ users: USERS, snapshots: SNAPSHOTS });
-    const plan = await previewPeriodFlagsImport("ay-1", file(), { client: db });
+    const plan = await applyPeriodFlagsImport("ay-1", file(), { client: db });
     expect(plan.totals).toEqual({ rows: 4, changed: 1, unchanged: 1, unknownNim: 1, invalid: 1, nameMismatch: 0 });
     expect(plan.changes).toEqual([expect.objectContaining({ nim: "2211528002", before: { eligibleResearchMethod: false, takingThesisCourse: false }, after: { eligibleResearchMethod: true, takingThesisCourse: false } })]);
     expect(plan.unknown).toEqual([{ row: 4, nim: "2211599999" }]);
     expect(plan.academicYear.label).toBe("2026/2027 Ganjil");
-    expect(db.studentAcademicYearSnapshot.upsert).not.toHaveBeenCalled();
-    expect(audit.logAudit).not.toHaveBeenCalled();
+    expect(db.studentAcademicYearSnapshot.upsert).toHaveBeenCalledTimes(1);
   });
 
   it("apply writes source admin for the given fields only, audits the counts; the same file again changes nothing", async () => {
@@ -139,6 +138,6 @@ describe("preview and apply", () => {
     const result = await applyPeriodFlagsImport("ay-1", xlsx([HEADERS, ["2211528001", "", "Ya"]]), { client: db });
     expect(result.applied).toBe(1);
     expect(db.rows[0]).toMatchObject({ studentId: "s2", takingThesisCourse: true, thesisCourseSource: "admin" });
-    await expect(previewPeriodFlagsImport("ay-x", file(), { client: db })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(applyPeriodFlagsImport("ay-x", file(), { client: db })).rejects.toMatchObject({ statusCode: 404 });
   });
 });

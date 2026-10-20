@@ -1,7 +1,7 @@
 import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs, getFailedThesesCount, getFailedTheses } from "../services/adminfeatures.service.js";
 import { countPending as getPendingCount } from "../services/thesis-change-request.service.js";
 import { followSiaPeriodFlags, setAdminPeriodFlags } from "../services/research-method/eligibility.service.js";
-import { applyPeriodFlagsImport, buildPeriodFlagsTemplate, previewPeriodFlagsImport } from "../services/research-method/period-flags-import.service.js";
+import { applyPeriodFlagsImport, buildPeriodFlagsTemplate } from "../services/research-method/period-flags-import.service.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../services/auditLog.service.js";
 
 export async function importStudentsCsv(req, res, next) {
@@ -507,17 +507,6 @@ const requireUpload = (req) => {
 	}
 	return req.file;
 };
-
-/** What the import would change; nothing is stored. */
-export async function previewPeriodFlagsImportController(req, res, next) {
-	try {
-		const file = requireUpload(req);
-		const data = await previewPeriodFlagsImport(req.params.academicYearId, file.buffer);
-		res.status(200).json({ success: true, data });
-	} catch (err) {
-		next(err);
-	}
-}
 
 /** Applies the import (source admin), audited with the row counts. */
 export async function applyPeriodFlagsImportController(req, res, next) {

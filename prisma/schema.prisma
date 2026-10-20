@@ -192,7 +192,6 @@ model Lecturer {
   availabilities                     LecturerAvailability[]
   seminarExaminers                   ThesisSeminarExaminer[]        @relation("SeminarExaminerLecturer")
   defenceExaminers                   ThesisDefenceExaminer[]        @relation("DefenceExaminerLecturer")
-  offeredTopics                      ThesisTopic[]                  @relation("TopicOfferedByLecturer")
   changeRequestsAsNewSupervisor      ThesisChangeRequest[]          @relation("ChangeRequestNewSupervisor")
   changeRequestsAsReplacedSupervisor ThesisChangeRequest[]          @relation("ChangeRequestReplacedSupervisor")
   researchMethodSupervisorScores     ResearchMethodAssessment[]     @relation("ResearchMethodAssessmentSupervisor")
@@ -1035,18 +1034,18 @@ enum ThesisProposalRevisionStatus {
   approved
 }
 
+/// Master topik TA, dikelola Sekretaris Departemen. Dosen tidak menawarkan topik sendiri; katalog
+/// pengajuan pembimbing menampilkan topik dari TA yang sedang dibimbing dosen.
 model ThesisTopic {
   id             String   @id @default(uuid())
   name           String
   scienceGroupId String?  @map("science_group_id")
-  lecturerId     String?  @map("lecturer_id")
   description    String?  @db.Text
   isPublished    Boolean  @default(false) @map("is_published")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   scienceGroup            ScienceGroup?                  @relation(fields: [scienceGroupId], references: [id])
-  lecturer                Lecturer?                      @relation("TopicOfferedByLecturer", fields: [lecturerId], references: [id])
   thesis                  Thesis[]
   milestoneTemplates      ThesisMilestoneTemplate[]
   supervisorRequests      ThesisSupervisorRequest[]
@@ -1054,7 +1053,6 @@ model ThesisTopic {
   changeRequestsNewTopic  ThesisChangeRequest[]          @relation("ChangeRequestNewTopic")
 
   @@index([scienceGroupId])
-  @@index([lecturerId])
   @@map("thesis_topics")
 }
 
@@ -2752,10 +2750,6 @@ model ResearchMethodAssessment {
   finalizedAt              DateTime?                       @map("finalized_at")
   /// Diisi saat difinalkan: lulus bila nilai akhir >= nilai minimum semester itu.
   result                   ResearchMethodAssessmentResult?
-  /// Usang: presensi tidak lagi dikelola di NeoCentral (urusan mata kuliah di SIA). Tidak diisi.
-  attendanceAutoZeroedAt   DateTime?                       @map("attendance_auto_zeroed_at")
-  /// Usang, lihat `attendance_auto_zeroed_at`.
-  attendanceAutoZeroReason String?                         @map("attendance_auto_zero_reason") @db.Text
   createdAt                DateTime                        @default(now()) @map("created_at")
   updatedAt                DateTime                        @updatedAt @map("updated_at")
 

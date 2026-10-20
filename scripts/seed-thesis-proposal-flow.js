@@ -266,7 +266,7 @@ const ACCOUNTS = [
   {
     key: "naik",
     nim: "2211528018",
-    fullName: "Uji Proposal Sudah Naik",
+    fullName: "Uji Proposal Masuk Penelitian",
     flags: {
       previous: { eligibleResearchMethod: true, takingThesisCourse: false },
       current: { eligibleResearchMethod: false, takingThesisCourse: true },

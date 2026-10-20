@@ -1,7 +1,7 @@
 import express from "express";
 import { authGuard, requireRole, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { uploadCsv, uploadSpreadsheetFile } from "../middlewares/file.middleware.js";
-import { importStudentsExcelController, importLecturersExcelController, importUsersExcelController, importAcademicYearsExcelController, importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getKadepQuickActionsController, getFailedThesesController, updateLecturerByAdminController, updateStudentByAdminController, setStudentPeriodFlagsController, followSiaPeriodFlagsController, periodFlagsTemplateController, previewPeriodFlagsImportController, applyPeriodFlagsImportController, createRoomController, updateRoomController, getRoomsController, deleteRoomController, getAdminAuditLogsController } from "../controllers/adminfeatures.controller.js";
+import { importStudentsExcelController, importLecturersExcelController, importUsersExcelController, importAcademicYearsExcelController, importStudentsCsv, updateUserByAdmin, createAcademicYearController, updateAcademicYearController, createUserByAdminController, getAcademicYearsController, getActiveAcademicYearController, getUsersController, getStudentsController, getLecturersController, getStudentDetailController, getLecturerDetailController, getKadepQuickActionsController, getFailedThesesController, updateLecturerByAdminController, updateStudentByAdminController, setStudentPeriodFlagsController, followSiaPeriodFlagsController, periodFlagsTemplateController, applyPeriodFlagsImportController, createRoomController, updateRoomController, getRoomsController, deleteRoomController, getAdminAuditLogsController } from "../controllers/adminfeatures.controller.js";
 import { updateUserSchema, createUserSchema } from "../validators/user.validator.js";
 import { validate } from "../middlewares/validation.middleware.js";
 import { createAcademicYearSchema, updateAcademicYearSchema } from "../validators/academicYear.validator.js";
@@ -32,9 +32,8 @@ router.patch("/students/:id", authGuard, requireRole(ROLES.ADMIN), updateStudent
 // (kept by the SIA sync), and "Ikuti Data SIA" to hand them back to SIA.
 router.patch("/students/:id/period-flags/:academicYearId", authGuard, requireRole(ROLES.ADMIN), setStudentPeriodFlagsController);
 router.post("/students/:id/period-flags/:academicYearId/follow-sia", authGuard, requireRole(ROLES.ADMIN), followSiaPeriodFlagsController);
-// Impor Keikutsertaan (bulk semester flags, source admin): template, preview, apply.
+// Impor Keikutsertaan (bulk semester flags, source admin): template and import.
 router.get("/student-period-flags/template", authGuard, requireRole(ROLES.ADMIN), periodFlagsTemplateController);
-router.post("/student-period-flags/:academicYearId/import/preview", authGuard, requireRole(ROLES.ADMIN), uploadSpreadsheetFile, previewPeriodFlagsImportController);
 router.post("/student-period-flags/:academicYearId/import", authGuard, requireRole(ROLES.ADMIN), uploadSpreadsheetFile, applyPeriodFlagsImportController);
 router.get("/lecturers", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getLecturersController);
 router.get("/lecturers/:id", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getLecturerDetailController);
