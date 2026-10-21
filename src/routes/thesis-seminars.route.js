@@ -19,6 +19,7 @@ import {
   submitAssessmentSchema,
   finalizeSeminarSchema,
   cancelSeminarSchema,
+  attendanceLogSchema,
 } from "../validators/thesis-seminar.validator.js";
 
 const router = express.Router();
@@ -45,6 +46,7 @@ router.post("/import", requireAnyRole([ROLES.ADMIN]), upload.single("file"), ctr
 // ============================================================
 router.get("/me/overview", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentOverview);
 router.get("/me/attendance", requireAnyRole([ROLES.MAHASISWA]), ctrl.getAttendanceHistory);
+router.post("/me/attendance/generate-log", requireAnyRole([ROLES.MAHASISWA]), validate(attendanceLogSchema), ctrl.generateAttendanceLog);
 router.get("/me/history", requireAnyRole([ROLES.MAHASISWA]), ctrl.getStudentHistory);
 router.get("/announcements", requireAnyRole(ALL_ROLES), ctrl.getAnnouncements);
 router.get("/documents/types", requireAnyRole([ROLES.MAHASISWA]), ctrl.getDocumentTypes);
