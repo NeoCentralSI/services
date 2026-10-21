@@ -7,6 +7,10 @@ import { z } from "zod";
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const seminarResultStatus = z.enum(["passed", "passed_with_revision", "failed"]);
 
+export const attendanceLogSchema = z.object({
+  seminarIds: z.array(z.string().uuid("ID seminar tidak valid.")).min(1, "Pilih kehadiran yang akan dicetak.").max(200),
+});
+
 // ============================================================
 // Scheduling (Admin sets date/time/room)
 // ============================================================

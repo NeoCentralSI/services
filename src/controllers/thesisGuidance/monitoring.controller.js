@@ -1,10 +1,4 @@
 import * as monitoringService from "../../services/thesisGuidance/monitoring.service.js";
-import {
-  getKadepPendingTransfersService,
-  getKadepAllTransfersService,
-  kadepApproveTransferService,
-  kadepRejectTransferService,
-} from "../../services/thesisGuidance/lecturer.guidance.service.js";
 import { parseAcademicYearQuery } from "../../validators/monitoring.validator.js";
 
 /**
@@ -160,8 +154,8 @@ export async function getThesisDetail(req, res, next) {
 export async function sendWarningNotification(req, res, next) {
   try {
     const { thesisId } = req.params;
-    const { warningType } = req.body;
-    const result = await monitoringService.sendWarningNotificationService(req.user.sub, thesisId, warningType);
+    // The warning level is derived from the thesis; `warningType` in the body is ignored.
+    const result = await monitoringService.sendWarningNotificationService(req.user.sub, thesisId);
     res.json(result);
   } catch (error) {
     next(error);
@@ -174,8 +168,9 @@ export async function sendWarningNotification(req, res, next) {
  */
 export async function sendBatchWarnings(req, res, next) {
   try {
-    const { thesisIds, warningType } = req.body;
-    const result = await monitoringService.sendBatchWarningNotificationService(req.user.sub, thesisIds, warningType);
+    // The warning level is derived per thesis; `warningType` in the body is ignored.
+    const { thesisIds } = req.body;
+    const result = await monitoringService.sendBatchWarningNotificationService(req.user.sub, thesisIds);
     res.json(result);
   } catch (error) {
     next(error);
@@ -188,11 +183,11 @@ export async function sendBatchWarnings(req, res, next) {
  */
 export async function getProgressReport(req, res, next) {
   try {
-    const { academicYear, statusIds, ratings } = req.query;
+    const { academicYear, statusIds, activityLevels } = req.query;
     const options = {
       academicYearId: academicYear,
       statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
-      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+      activityLevels: Array.isArray(activityLevels) ? activityLevels : (activityLevels ? activityLevels.split(",") : []),
     };
     const data = await monitoringService.getProgressReportService(options);
     res.json({
@@ -210,11 +205,11 @@ export async function getProgressReport(req, res, next) {
  */
 export async function downloadProgressReport(req, res, next) {
   try {
-    const { academicYear, statusIds, ratings } = req.query;
+    const { academicYear, statusIds, activityLevels } = req.query;
     const options = {
       academicYearId: academicYear,
       statusIds: Array.isArray(statusIds) ? statusIds : (statusIds ? statusIds.split(",") : []),
-      ratings: Array.isArray(ratings) ? ratings : (ratings ? ratings.split(",") : []),
+      activityLevels: Array.isArray(activityLevels) ? activityLevels : (activityLevels ? activityLevels.split(",") : []),
     };
     const result = await monitoringService.generateProgressReportPdfService(options);
     res.setHeader("Content-Type", "application/pdf");
@@ -224,87 +219,13 @@ export async function downloadProgressReport(req, res, next) {
     );
     res.send(result.buffer);
   } catch (error) {
-    next(error);
-  }
-}
-
-// ==================== KADEP TRANSFER APPROVAL ====================
-
-/**
- * Get pending transfer requests for Kadep
- * @route GET /api/thesis-guidance/monitoring/transfers/pending
- */
-export async function getKadepPendingTransfers(req, res, next) {
-  try {
-    const result = await getKadepPendingTransfersService(req.user.sub);
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Get all transfer requests for Kadep (with pagination for history)
- * @route GET /api/thesis-guidance/monitoring/transfers/all
- */
-export async function getKadepAllTransfers(req, res, next) {
-  try {
-    const { page = 1, pageSize = 10, search = "", status = "" } = req.query;
-    const result = await getKadepAllTransfersService(req.user.sub, {
-      page: Number(page),
-      pageSize: Number(pageSize),
-      search,
-      status,
-    });
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Kadep approves a transfer request
- * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/approve
- */
-export async function kadepApproveTransfer(req, res, next) {
-  try {
-    const { notificationId } = req.params;
-    const result = await kadepApproveTransferService(req.user.sub, notificationId);
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Kadep rejects a transfer request
- * @route PATCH /api/thesis-guidance/monitoring/transfers/:notificationId/reject
- */
-export async function kadepRejectTransfer(req, res, next) {
-  try {
-    const { notificationId } = req.params;
-    const { reason } = req.body || {};
-    const result = await kadepRejectTransferService(req.user.sub, notificationId, { reason });
-    res.json({ success: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Download supervisor transfer history report as PDF
- * @route GET /api/thesis-guidance/monitoring/transfers/report/download
- */
-export async function downloadTransferReport(req, res, next) {
-  try {
-    const result = await monitoringService.generateTransferReportPdfService();
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(result.filename)}"`
-    );
-    res.send(result.buffer);
-  } catch (error) {
+    // The service answers 503 with a message written for the user (PDF converter not
+    // running). The global error handler replaces the message of every 5xx, so this one is
+    // sent here.
+    if (error?.statusCode === 503) {
+      res.status(503).json({ success: false, status: 503, message: error.message });
+      return;
+    }
     next(error);
   }
 }

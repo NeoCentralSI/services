@@ -198,7 +198,7 @@ export async function replaceSupervisorAssignments(client, thesisId, supervisors
     .map((row) => row.id);
   const toTerminate = activeExisting.filter((row) => !keepIds.includes(row.id));
 
-  // K21: a replaced supervisor relation is kept as history with status "released"
+  // A replaced supervisor relation is kept as history with status "released"
   // (never deleted), so the former supervisor keeps read access and quota drops.
   if (toTerminate.length > 0) {
     await client.thesisSupervisors.updateMany({

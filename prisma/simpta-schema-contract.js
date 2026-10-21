@@ -9,7 +9,7 @@ export const REQUIRED_SIMPTA_COLUMNS = {
 };
 
 export const REQUIRED_SIMPTA_ENUM_VALUES = {
-  thesis_advisor_request: {
-    status: ["approved", "pending", "rejected"],
+  thesis_supervisor_requests: {
+    status: ["pending", "accepted", "assigned"],
   },
 };

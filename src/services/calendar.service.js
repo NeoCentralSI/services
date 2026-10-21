@@ -52,7 +52,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           status: status ? status : { in: SCHEDULED_GUIDANCE_STATUSES },
           ...(startDate &&
             endDate && {
-            // K19: a scheduled session sits at its approved/rescheduled time
+            // A scheduled session sits at its approved/rescheduled time
             OR: [
               { requestedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
               { approvedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
@@ -216,7 +216,7 @@ export async function getMyCalendarEvents(userId, userRole, filters = {}) {
           status: { in: SCHEDULED_GUIDANCE_STATUSES }, // Only scheduled guidances (legacy "rescheduled" included)
           ...(startDate &&
             endDate && {
-            // K19: a scheduled session sits at its approved/rescheduled time
+            // A scheduled session sits at its approved/rescheduled time
             OR: [
               { requestedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
               { approvedDate: { gte: new Date(startDate), lte: new Date(endDate) } },

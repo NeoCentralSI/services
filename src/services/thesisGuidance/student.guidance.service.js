@@ -1,6 +1,7 @@
 import {
   getStudentByUserId,
   getActiveThesisForStudent,
+  getCurrentThesisForStudent,
   getSupervisorsForThesis,
   listGuidancesForThesis,
   getGuidanceByIdForStudent,
@@ -28,6 +29,10 @@ import {
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
 import { ForbiddenError } from "../../utils/errors.js";
+import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
+import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
+import { REPEAT_PROPOSAL_LOCK_REASON } from "../../constants/thesis-guidance-evaluation.js";
+import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 import {
   THESIS_STATUS,
   POST_PROPOSAL_THESIS_STATUSES,
@@ -82,7 +87,7 @@ function addMinutes(date, minutes = 0) {
 
 /**
  * Prevents double booking of a supervisor. A slot is held by `requested` sessions (at the
- * requested time) and scheduled sessions (at the approved/rescheduled time, K19).
+ * requested time) and scheduled sessions (at the approved/rescheduled time).
  * Shared with the lecturer reschedule action.
  */
 export async function ensureSupervisorAvailability({
@@ -132,37 +137,43 @@ export async function ensureSupervisorAvailability({
 
 function ensureStudent(student) {
   if (!student) {
-    const err = new Error("Student profile not found for this user");
+    const err = new Error("Data mahasiswa untuk akun ini tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
 }
 
 const NOT_WRITABLE_MESSAGES = {
-  [THESIS_STATUS.PROPOSAL]:
-    "Tugas akhir Anda masih dalam fase proposal. Bimbingan dan milestone tugas akhir baru dapat dipakai setelah masuk fase Tugas Akhir.",
+  [THESIS_STATUS.PROPOSAL]: PROPOSAL_NOT_ASSIGNED_REASON,
   [THESIS_STATUS.ON_LEAVE]:
     `Tugas akhir Anda sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Bimbingan dan milestone tidak dapat diubah.`,
 };
 
-/** Aksi tulis bimbingan/milestone fase TA hanya untuk TA berstatus `research`. */
-function ensureThesisWritable(thesis) {
+/**
+ * Aksi tulis bimbingan/milestone: TA berstatus `research`, atau `proposal` setelah Penetapan
+ * Pembimbing. TA yang dikembalikan ke proposal oleh evaluasi bimbingan tetap terkunci.
+ */
+async function ensureThesisWritable(thesis) {
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
+  const { open, repeating } = await getProposalPhaseAccess(thesis);
+  if (open) return;
   const err = new Error(
-    NOT_WRITABLE_MESSAGES[thesis?.status] ||
-      "Tugas akhir ini sudah tidak aktif. Bimbingan dan milestone tidak dapat diubah.",
+    repeating
+      ? `${REPEAT_PROPOSAL_LOCK_REASON} Bimbingan dan milestone terkunci sampai Pembimbing 1 menyetujui proposal revisi (Tugas Akhir > Proposal).`
+      : NOT_WRITABLE_MESSAGES[thesis?.status] ||
+        "Tugas akhir ini sudah tidak aktif. Bimbingan dan milestone tidak dapat diubah.",
   );
   err.statusCode = 403;
   throw err;
 }
 
-/** Aksi pada sesi yang sudah ada: TA pemilik sesi harus berstatus `research`. */
+/** Aksi pada sesi yang sudah ada: TA pemilik sesi harus bisa ditulis (fase sesi mana pun). */
 async function ensureGuidanceThesisWritable(guidance) {
   const thesis = await prisma.thesis.findUnique({
     where: { id: guidance.thesisId },
-    select: { status: true },
+    select: { id: true, status: true, supervisorAssignedAt: true },
   });
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 }
 
 async function getActiveThesisOrThrow(userId) {
@@ -170,14 +181,36 @@ async function getActiveThesisOrThrow(userId) {
   ensureStudent(student);
   const thesis = await getActiveThesisForStudent(student.id);
   if (!thesis) {
-    const err = new Error("Active thesis not found for this student");
+    const err = new Error("Tugas akhir aktif tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
   return { student, thesis };
 }
 
-/** K19 fields shown to the student: rejection with suggested time, lecturer reschedule, cancellation. */
+/**
+ * Reading needs no running thesis. Without one, the latest thesis (e.g. failed)
+ * is read so its sessions stay visible, read-only (content is not hidden). Writes still
+ * use getActiveThesisOrThrow.
+ */
+async function getReadableThesisOrThrow(userId) {
+  const student = await getStudentByUserId(userId);
+  ensureStudent(student);
+  const thesis =
+    (await getActiveThesisForStudent(student.id)) ??
+    (await prisma.thesis.findFirst({
+      where: { studentId: student.id, status: { in: POST_PROPOSAL_THESIS_STATUSES } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }));
+  if (!thesis) {
+    const err = new Error("Tugas akhir aktif tidak ditemukan");
+    err.statusCode = 404;
+    throw err;
+  }
+  return { student, thesis };
+}
+
+/** Fields shown to the student: rejection with suggested time, lecturer reschedule, cancellation. */
 function k19Fields(g) {
   const fmt = (d) => (d ? formatDateTimeJakarta(d, { withDay: true }) : null);
   return {
@@ -195,7 +228,7 @@ function k19Fields(g) {
 
 // Schema baru: gunakan requestedDate/approvedDate langsung, bukan schedule relation
 export async function listMyGuidancesService(userId, status) {
-  const { thesis } = await getActiveThesisOrThrow(userId);
+  const { thesis } = await getReadableThesisOrThrow(userId);
   // List guidances even if thesis is archived/cancelled (for history view)
   const rows = await listGuidancesForThesis(thesis.id, status);
   // C6: newest first by the effective schedule (approvedDate ?? requestedDate), so a session
@@ -204,6 +237,8 @@ export async function listMyGuidancesService(userId, status) {
   const items = rows.map((g) => ({
     id: g.id,
     status: g.status,
+    // Jenis (Proposal / Tugas Akhir), fixed when the session was created
+    phase: g.phase,
     // Schema baru: gunakan requestedDate/approvedDate
     scheduledAt: g.approvedDate || g.requestedDate || null,
     scheduledAtFormatted:
@@ -237,7 +272,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
   ensureStudent(student);
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
@@ -250,6 +285,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
   const flat = {
     id: guidance.id,
     status: guidance.status,
+    phase: guidance.phase,
     scheduledAt: guidance.approvedDate || guidance.requestedDate || null,
     scheduledAtFormatted:
       guidance.approvedDate || guidance.requestedDate
@@ -294,9 +330,9 @@ export async function requestGuidanceService(
   } = options;
 
   let { student, thesis } = await getActiveThesisOrThrow(userId);
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
   thesis = await ensureThesisAcademicYear(thesis);
-  // K6: phase is set by the server from the thesis status, never by the client.
+  // Phase is set by the server from the thesis status, never by the client.
   const phase = phaseForThesisStatus(thesis.status);
 
   // Get student name for notifications - convert to Title Case
@@ -397,7 +433,7 @@ export async function requestGuidanceService(
     durationMinutes: duration,
   });
 
-  // K17: the attachment is written first (under the pre-generated session id) and its
+  // The attachment is written first (under the pre-generated session id) and its
   // metadata is stored on the session row. A storage failure aborts the request.
   const guidanceId = randomUUID();
   let fileColumns = {};
@@ -553,7 +589,7 @@ export async function rescheduleGuidanceService(
 
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
@@ -562,9 +598,9 @@ export async function rescheduleGuidanceService(
   const thesis = await prisma.thesis.findUnique({
     where: { id: guidance.thesisId },
   });
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
-  // K19: the student may move only a request the lecturer has not answered yet.
+  // The student may move only a request the lecturer has not answered yet.
   if (guidance.status !== GUIDANCE_STATUS.REQUESTED) {
     const err = new Error(
       `Jadwal hanya dapat diubah selama pengajuan berstatus "${GUIDANCE_STATUS_LABELS.requested}". Status saat ini: "${GUIDANCE_STATUS_LABELS[guidance.status] ?? guidance.status}".`,
@@ -693,13 +729,13 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
 
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
   await ensureGuidanceThesisWritable(guidance);
 
-  // K19: a student cancels a requested or scheduled session (legacy "rescheduled"
+  // A student cancels a requested or scheduled session (legacy "rescheduled"
   // counts as scheduled), always with a reason. The row is kept as history.
   const isAccepted = SCHEDULED_GUIDANCE_STATUSES.includes(guidance.status);
   if (guidance.status !== GUIDANCE_STATUS.REQUESTED && !isAccepted) {
@@ -784,7 +820,7 @@ export async function cancelGuidanceService(userId, guidanceId, reason) {
     console.warn("FCM notify failed (guidance cancelled):", e?.message || e);
   }
 
-  // K19: the session is kept (status cancelled) for history; the old code deleted a
+  // The session is kept (status cancelled) for history; the old code deleted a
   // cancelled request, losing its attachment record.
   await prisma.thesisGuidance.update({
     where: { id: guidance.id },
@@ -825,7 +861,7 @@ export async function updateStudentNotesService(
 
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found for this student");
+    const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
     err.statusCode = 404;
     throw err;
   }
@@ -907,7 +943,7 @@ export async function updateStudentNotesService(
 export async function getMyProgressService(userId) {
   const { thesis } = await getActiveThesisOrThrow(userId);
 
-  // K20: a GET never writes. Templates are applied explicitly ("Buat dari Template"),
+  // A GET never writes. Templates are applied explicitly ("Buat dari Template"),
   // so the old silent seeding of milestones from topic templates is gone.
   const milestones = await listMilestones(thesis.id);
 
@@ -950,6 +986,7 @@ export async function guidanceHistoryService(userId) {
   const items = rows.map((g) => ({
     id: g.id,
     status: g.status,
+    phase: g.phase,
     requestedDate: g.requestedDate || null,
     requestedDateFormatted: g.requestedDate
       ? formatDateTimeJakarta(g.requestedDate, { withDay: true })
@@ -980,7 +1017,7 @@ export async function listSupervisorsService(userId) {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     if (!thesis) {
-      const err = new Error("Active thesis not found for this student");
+      const err = new Error("Tugas akhir aktif tidak ditemukan");
       err.statusCode = 404;
       throw err;
     }
@@ -1025,7 +1062,7 @@ export async function getSupervisorAvailabilityService(
     ? new Date(rangeEnd)
     : addMinutes(new Date(), 14 * 24 * 60);
 
-  // K19: a slot sits at the session's effective time (approved/rescheduled by the
+  // A slot sits at the session's effective time (approved/rescheduled by the
   // lecturer, else requested), so both dates are matched against the range.
   const items = await prisma.thesisGuidance.findMany({
     where: {
@@ -1088,7 +1125,7 @@ export async function getSupervisorAvailabilityPublic(
     ? new Date(rangeEnd)
     : addMinutes(new Date(), 14 * 24 * 60);
 
-  // K19: a slot sits at the session's effective time (approved/rescheduled by the
+  // A slot sits at the session's effective time (approved/rescheduled by the
   // lecturer, else requested), so both dates are matched against the range.
   const items = await prisma.thesisGuidance.findMany({
     where: {
@@ -1142,7 +1179,7 @@ export async function getSupervisorAvailabilityPublic(
 export async function getGuidancesNeedingSummaryService(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1173,7 +1210,7 @@ export async function submitSessionSummaryService(
 ) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1181,13 +1218,13 @@ export async function submitSessionSummaryService(
   // Check guidance exists and belongs to student
   const guidance = await getGuidanceByIdForStudent(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found");
+    const err = new Error("Bimbingan tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
   await ensureGuidanceThesisWritable(guidance);
 
-  // K19: a summary is submitted for a scheduled session, or resubmitted after the
+  // A summary is submitted for a scheduled session, or resubmitted after the
   // lecturer asked for a revision (summary_rejected).
   if (!SUMMARY_SUBMITTABLE_STATUSES.includes(guidance.status)) {
     const err = new Error(
@@ -1282,13 +1319,13 @@ export async function markSessionCompleteService(
 export async function getCompletedGuidanceHistoryService(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
 
-  // Only show completed guidances for the active thesis
-  const thesis = await getActiveThesisForStudent(student.id);
+  // Completed guidances of the current thesis; a Selesai thesis is still read.
+  const thesis = await getCurrentThesisForStudent(student.id);
   if (!thesis) {
     return { guidances: [] };
   }
@@ -1296,7 +1333,6 @@ export async function getCompletedGuidanceHistoryService(userId) {
   const guidances = await prisma.thesisGuidance.findMany({
     where: {
       thesisId: thesis.id,
-      ...TA_PHASE,
       status: "completed",
     },
     include: {
@@ -1321,6 +1357,7 @@ export async function getCompletedGuidanceHistoryService(userId) {
   return {
     guidances: guidances.map((g) => ({
       id: g.id,
+      phase: g.phase,
       supervisorName: g.supervisor?.user?.fullName || null,
       approvedDate: g.approvedDate,
       approvedDateFormatted: g.approvedDate
@@ -1346,14 +1383,14 @@ export async function getCompletedGuidanceHistoryService(userId) {
 export async function getGuidanceForExportService(userId, guidanceId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
 
   const guidance = await getGuidanceForExport(guidanceId, student.id);
   if (!guidance) {
-    const err = new Error("Guidance not found or not completed");
+    const err = new Error("Bimbingan tidak ditemukan atau belum selesai");
     err.statusCode = 404;
     throw err;
   }
@@ -1407,7 +1444,7 @@ export async function getMyThesisDetailService(userId) {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     if (!thesis) {
-      const err = new Error("Active thesis not found for this student");
+      const err = new Error("Tugas akhir aktif tidak ditemukan");
       err.statusCode = 404;
       throw err;
     }
@@ -1431,12 +1468,12 @@ export async function getMyThesisDetailService(userId) {
       },
       thesisTopic: true,
       academicYear: true,
-      // Revival adaptation (A2): baseline `thesisProposal` relation no longer exists.
-      proposalDocument: true,
-      finalProposalVersion: {
-        include: {
-          document: true,
-        },
+      // Final proposal of the latest Research Method attempt.
+      researchMethodAssessments: {
+        where: { proposalFilePath: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { id: true, proposalFilePath: true, proposalFileName: true },
       },
       thesisSupervisors: {
         // Revival adaptation (A1): show only active supervisors.
@@ -1465,7 +1502,7 @@ export async function getMyThesisDetailService(userId) {
   });
 
   if (!fullThesis) {
-    const err = new Error("Thesis not found");
+    const err = new Error("Tugas akhir tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1502,7 +1539,7 @@ export async function getMyThesisDetailService(userId) {
     (g) => g.status === "completed",
   ).length;
 
-  // Get per-guidance uploaded documents (file versions), stored on the session rows (K17)
+  // Get per-guidance uploaded documents (file versions), stored on the session rows
   const guidanceDocuments = await prisma.thesisGuidance.findMany({
     where: { thesisId: thesis.id, ...TA_PHASE, filePath: { not: null } },
     select: {
@@ -1539,14 +1576,28 @@ export async function getMyThesisDetailService(userId) {
       role: p.role?.name || null,
     }));
 
+  // Activity level and supervision clock are derived when read.
+  const progressSource = await prisma.thesis.findUnique({ where: { id: fullThesis.id }, select: THESIS_PROGRESS_SELECT });
+  const progress = summarizeThesisProgress(progressSource ?? fullThesis);
+
   return {
     thesis: {
       id: fullThesis.id,
       title: fullThesis.title,
       status: fullThesis.status,
-      rating: fullThesis.rating || null,
+      activityLevel: progress.activityLevel,
+      lastActivityAt: progress.lastActivityAt,
+      daysSinceActivity: progress.daysSinceActivity,
+      supervisionClock: progress.supervisionClock,
+      // True while the thesis is back in proposal because of a guidance evaluation.
+      repeatingProposal: fullThesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(fullThesis.id) : false,
+      // Current phase, Penetapan Pembimbing, and per-phase counts for display.
+      ...(await getPhaseSummary(fullThesis)),
       startDate: fullThesis.startDate || null,
-      deadlineDate: fullThesis.deadlineDate || null,
+      // "Tugas akhir ini dihentikan pada <tanggal>" on the read-only guidance page.
+      terminatedAt: fullThesis.terminatedAt ?? (fullThesis.status === THESIS_STATUS.FAILED ? fullThesis.statusChangedAt ?? null : null),
+      // "Tugas akhir ini selesai pada <tanggal>" for a finished thesis.
+      completedAt: fullThesis.status === THESIS_STATUS.COMPLETED ? fullThesis.statusChangedAt ?? fullThesis.updatedAt ?? null : null,
       createdAt: fullThesis.createdAt,
       updatedAt: fullThesis.updatedAt,
       // Student info
@@ -1575,18 +1626,14 @@ export async function getMyThesisDetailService(userId) {
         : null,
       // Document: latest report from the guidance sessions
       document: guidanceDocument(latestReport),
-      // Proposal Document (A2: final proposal version, fallback legacy proposal document)
+      // Final proposal of the latest Research Method attempt.
       proposalDocument: (() => {
-        const proposalDoc =
-          fullThesis.finalProposalVersion?.document ??
-          fullThesis.proposalDocument ??
-          null;
-        if (!proposalDoc) return null;
+        const attempt = fullThesis.researchMethodAssessments?.[0];
+        if (!attempt?.proposalFilePath) return null;
         return {
-          id: proposalDoc.id,
-          fileName:
-            path.basename(proposalDoc.filePath || "") || proposalDoc.fileName,
-          filePath: proposalDoc.filePath,
+          id: attempt.id,
+          fileName: attempt.proposalFileName || path.basename(attempt.proposalFilePath),
+          filePath: attempt.proposalFilePath,
         };
       })(),
       // Per-guidance uploaded file versions
@@ -1640,7 +1687,7 @@ export async function getMyThesisDetailService(userId) {
  */
 export async function updateMyThesisTitleService(userId, newTitle) {
   const { thesis } = await getActiveThesisOrThrow(userId);
-  ensureThesisWritable(thesis);
+  await ensureThesisWritable(thesis);
 
   if (!newTitle || newTitle.trim().length < 10) {
     const err = new Error("Judul tugas akhir minimal 10 karakter");
@@ -1674,7 +1721,7 @@ export async function updateMyThesisTitleService(userId, newTitle) {
 export async function getThesisHistoryService(userId) {
   const student = await getStudentByUserId(userId);
   if (!student) {
-    const err = new Error("Student profile not found");
+    const err = new Error("Data mahasiswa tidak ditemukan");
     err.statusCode = 404;
     throw err;
   }
@@ -1686,12 +1733,16 @@ export async function getThesisHistoryService(userId) {
       id: t.id,
       title: t.title,
       status: t.status,
-      rating: t.rating || "ONGOING",
       topic: t.thesisTopic?.name || "-",
       academicYear: t.academicYear
         ? `${t.academicYear.year.includes("/") ? t.academicYear.year : `${t.academicYear.year}/${parseInt(t.academicYear.year) + 1}`} ${t.academicYear.semester === "ganjil" ? "Ganjil" : "Genap"}`
         : "-",
       createdAt: t.createdAt,
+      // Why and when a stopped thesis ended (status `failed`); null otherwise.
+      terminationReason: t.terminationReason ?? null,
+      terminationNote: t.terminationNote ?? null,
+      terminatedAt: t.terminatedAt ?? null,
+      statusChangedAt: t.statusChangedAt ?? null,
       stats: {
         guidances: t._count.thesisGuidances,
         completedMilestones: t.status === THESIS_STATUS.FAILED
@@ -1716,13 +1767,13 @@ export async function getThesisHistoryService(userId) {
 export async function proposeThesisService(userId, { title, topicId }) {
   // Revival decision (GUIDANCE_REVIVAL_PLAN e6): the baseline created a new Thesis and
   // copied supervisor rows using fields that no longer exist (`thesisRoleId`,
-  // status "assigned"), bypassing the TA-01/TA-02 advisor and quota flow. The active
+  // status "assigned"), bypassing Pengajuan Pembimbing and the quota flow. The active
   // app's block is kept until the Proposal module is rebuilt.
   void userId;
   void title;
   void topicId;
   const err = new Error(
-    "Pengajuan thesis langsung sudah tidak difasilitasi. Gunakan alur TA-01/TA-02 melalui pengajuan dosen pembimbing.",
+    "Pengajuan tugas akhir langsung sudah tidak difasilitasi. Ajukan pembimbing di Tugas Akhir > Proposal.",
   );
   err.statusCode = 400;
   throw err;
@@ -1746,7 +1797,8 @@ export async function generateGuidanceLogPdfService(userId, guidanceIds) {
   const student = await getStudentByUserId(userId);
   ensureStudent(student);
 
-  const thesis = await getActiveThesisForStudent(student.id);
+  // The log of a thesis made Selesai by its defence can still be printed.
+  const thesis = await getCurrentThesisForStudent(student.id);
   if (!thesis) {
     const err = new Error("Tugas akhir aktif tidak ditemukan");
     err.statusCode = 404;

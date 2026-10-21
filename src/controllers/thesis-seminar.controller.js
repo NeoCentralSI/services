@@ -4,6 +4,7 @@ import * as audienceService from "../services/thesis-seminar/audience.service.js
 import * as examinerService from "../services/thesis-seminar/examiner.service.js";
 import * as revisionService from "../services/thesis-seminar/revision.service.js";
 import * as studentService from "../services/thesis-seminar/student.service.js";
+import * as attendanceLogService from "../services/thesis-seminar/attendance-log.service.js";
 import { ROLES, isStudentRole } from "../constants/roles.js";
 
 // ============================================================
@@ -367,6 +368,15 @@ export async function getAnnouncements(req, res, next) {
       ? await studentService.getAnnouncements(req.user.id)
       : await coreService.getAnnouncements();
     res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+}
+
+export async function generateAttendanceLog(req, res, next) {
+  try {
+    const { buffer, filename } = await attendanceLogService.generateAttendanceLog(req.user.id, req.validated.seminarIds);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(buffer);
   } catch (error) { next(error); }
 }
 

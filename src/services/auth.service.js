@@ -8,6 +8,7 @@ import redisClient from "../config/redis.js";
 import { passwordResetTemplate, accountActivationWithTempPasswordTemplate } from "../utils/emailTemplate.js";
 import { generatePassword } from "../utils/password.util.js";
 import crypto from "crypto";
+import { getCurrentStudentFlags } from "./research-method/eligibility.service.js";
 
 function signAccessToken(payload) {
 	return jwt.sign(payload, ENV.JWT_SECRET, { expiresIn: ENV.JWT_EXPIRES_IN || "15m" });
@@ -286,17 +287,15 @@ export async function getUserProfile(userId) {
 
 	// Add student info if exists
 	if (user.student) {
+		// SIA flags of the running semester (plan 10.6), read from the per-semester table.
+		const flags = await getCurrentStudentFlags(user.student.id);
 		profile.student = {
 			id: user.student.id,
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.sksCompleted ?? 0,
 			currentSemester: user.student.currentSemester ?? null,
-			eligibleMetopen: user.student.eligibleMetopen ?? null,
-			metopenEligibilitySource: user.student.metopenEligibilitySource ?? null,
-			metopenEligibilityUpdatedAt: user.student.metopenEligibilityUpdatedAt ?? null,
-			takingThesisCourse: user.student.takingThesisCourse ?? null,
-			thesisCourseEnrollmentSource: user.student.thesisCourseEnrollmentSource ?? null,
-			thesisCourseEnrollmentUpdatedAt: user.student.thesisCourseEnrollmentUpdatedAt ?? null,
+			eligibleResearchMethod: flags.eligibleResearchMethod,
+			takingThesisCourse: flags.takingThesisCourse,
 			status: user.student.status || null,
 		};
 	}

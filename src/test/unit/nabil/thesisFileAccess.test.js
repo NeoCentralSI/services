@@ -1,5 +1,5 @@
 /**
- * Paket B §2.4: guard for /uploads/thesis. The real middleware runs behind express with a
+ * Guard for /uploads/thesis. The real middleware runs behind express with a
  * stand-in authGuard that sets req.user = { sub } exactly like the real JWT ({ sub, email }).
  * Prisma is replaced by a small dataset whose lookups apply the same filters the middleware
  * asks for (role name + active status, lecturerId / studentId on the thesis relations).
@@ -72,6 +72,7 @@ beforeEach(() => {
     { userId: "admin", roleName: "Admin", status: "active" },
     { userId: "old-admin", roleName: "Admin", status: "nonActive" },
     { userId: "p1", roleName: "Pembimbing 1", status: "active" },
+    { userId: "koordinator", roleName: "Koordinator Matkul Metopen", status: "active" },
   ];
   data.theses = [
     {
@@ -135,6 +136,18 @@ describe("guard /uploads/thesis", () => {
     expect((await request(app).get(`/uploads/thesis/${GUIDANCE}`)).status).toBe(401);
   });
 
+  it("proposal final: pemilik, pembimbing aktif, koordinator Metode Penelitian, Kadep/Sekdep/Admin", async () => {
+    const PROPOSAL = "T1/proposal/a1/123-proposal.pdf";
+    for (const user of ["owner", "p1", "koordinator", "kadep", "sekdep", "admin"]) {
+      expect((await get(user, PROPOSAL)).status, user).toBe(200);
+    }
+    for (const user of ["former", "gkm", "other", "examiner", "old-admin"]) {
+      expect((await get(user, PROPOSAL)).status, user).toBe(403);
+    }
+    // the coordinator role does not open other thesis files
+    expect((await get("koordinator", GUIDANCE)).status).toBe(403);
+  });
+
   it("TA yang tidak ada ditolak (403)", async () => {
     expect((await get("other", "T9/guidance/x.pdf")).status).toBe(403);
   });
@@ -172,7 +185,7 @@ describe("guard /uploads/thesis", () => {
 });
 
 /**
- * Paket C (C10): the real authGuard with real JWTs. A file URL is no longer shared with a
+ * The real authGuard with real JWTs. A file URL is no longer shared with a
  * token in it; each user sends their own token in the Authorization header, and the guard
  * decides from that identity.
  */
@@ -193,7 +206,7 @@ describe("guard /uploads/thesis dengan authGuard dan JWT asli", async () => {
     expect((await withToken("p1")).status).toBe(200);
   });
 
-  // Paket D (D3): authGuard only reads the Authorization header.
+  // authGuard only reads the Authorization header.
   it("token valid di query string tanpa header Authorization → 401", async () => {
     const res = await request(realApp).get(`/uploads/thesis/${GUIDANCE}`).query({ token: tokenOf("owner") });
     expect(res.status).toBe(401);

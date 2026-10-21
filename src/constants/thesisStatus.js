@@ -1,5 +1,5 @@
 /**
- * Status siklus hidup Tugas Akhir (K15) — nilai enum `ThesisLifecycleStatus`
+ * Status siklus hidup Tugas Akhir — nilai enum `ThesisLifecycleStatus`
  * pada kolom `thesis.status`. Kolom ini satu-satunya penanda fase TA.
  * JANGAN hardcode nilai status di tempat lain, selalu import dari sini.
  * Label bahasa Indonesia untuk teks yang dibaca pengguna ada di `thesisLabels.js`.
@@ -21,7 +21,22 @@ export const OPEN_THESIS_STATUSES = [
   THESIS_STATUS.ON_LEAVE,
 ];
 
-/** TA yang sudah berakhir; tidak bisa berubah lagi. */
+/**
+ * "TA mahasiswa saat ini" for pages that must still find a finished thesis
+ * (sidang, seminar hasil, riwayat bimbingan): the latest thesis that has not failed. A thesis
+ * becomes Selesai automatically when its defence is passed, and its pages stay readable.
+ */
+export const CURRENT_THESIS_STATUSES = [
+  THESIS_STATUS.PROPOSAL,
+  THESIS_STATUS.RESEARCH,
+  THESIS_STATUS.ON_LEAVE,
+  THESIS_STATUS.COMPLETED,
+];
+
+/**
+ * TA yang sudah berakhir. Data Master dan jalur lain tidak dapat mengubahnya lagi; hanya
+ * `reopenThesisFromDefence` yang mengembalikan TA Selesai ke Penelitian.
+ */
 export const CLOSED_THESIS_STATUSES = [THESIS_STATUS.COMPLETED, THESIS_STATUS.FAILED];
 
 /** TA yang sudah melewati fase proposal, apa pun akhirnya (riwayat, arsip). */
@@ -33,7 +48,7 @@ export const POST_PROPOSAL_THESIS_STATUSES = [
 ];
 
 /**
- * Nilai enum `ThesisPhase` pada sesi bimbingan, milestone dan template (K6/K18).
+ * Nilai enum `ThesisPhase` pada sesi bimbingan, milestone dan template.
  * Sengaja sama dengan nilai status, sehingga fase langsung mengikuti status TA.
  */
 export const THESIS_PHASE = {
@@ -50,14 +65,19 @@ export const THESIS_TERMINATION_REASON = {
 };
 
 /**
- * Fragmen `where` bersama untuk semua perhitungan fase TA (K6/K7): syarat minimal
- * bimbingan seminar, progres dan rating, monitoring, kesiapan seminar dan sidang.
+ * Fragmen `where` bersama untuk semua perhitungan fase TA: syarat minimal
+ * bimbingan seminar, progres dan aktivitas, monitoring, kesiapan seminar dan sidang.
  * Dipakai pada model yang punya kolom `phase` (ThesisGuidance, ThesisMilestone).
  */
 export const TA_PHASE = Object.freeze({ phase: THESIS_PHASE.RESEARCH });
 
+/** Fase berjalan untuk tampilan (tidak melempar): BSS dan TA yang sudah berakhir dibaca `research`. */
+export function currentPhaseOf(status) {
+  return status === THESIS_STATUS.PROPOSAL ? THESIS_PHASE.PROPOSAL : THESIS_PHASE.RESEARCH;
+}
+
 /**
- * Fase sesi/milestone baru ditetapkan server dari status TA (K6).
+ * Fase sesi/milestone baru ditetapkan server dari status TA.
  * `on_leave`, `completed`, `failed`: sesi dan milestone baru tidak boleh dibuat.
  */
 export function phaseForThesisStatus(status) {

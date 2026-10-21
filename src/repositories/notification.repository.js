@@ -5,7 +5,9 @@ import prisma from "../config/prisma.js";
  * @param {string} userId
  * @param {object} options - { limit, offset, onlyUnread }
  */
-// Internal notification types used as state-tracking records (not user-facing)
+// Internal notification types used as state-tracking records (not user-facing).
+// The two TRANSFER titles are no longer written (student transfer is a thesis change
+// request now); they stay listed so old rows never show up as raw JSON.
 export const INTERNAL_NOTIFICATION_TITLES = [
 	"[TRANSFER_REQUEST]",
 	"[TRANSFER_REQUEST_KADEP]",

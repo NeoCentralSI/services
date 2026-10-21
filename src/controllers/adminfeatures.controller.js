@@ -1,6 +1,8 @@
-import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs } from "../services/adminfeatures.service.js";
-import { getFailedThesesCount, getFailedTheses } from "../services/thesisStatus.service.js";
-import { getPendingCount } from "../services/thesisChangeRequest.service.js";
+import { importStudentsCsvFromUpload, adminUpdateUser, createAcademicYear, updateAcademicYear, adminCreateUser, getAcademicYears, getOperationalAcademicYear, getUsers, getStudents, getLecturers, getStudentDetail, getLecturerDetail, deleteThesis, getThesisListForAdmin, createThesisManually, getThesisById, updateThesisManually, getAvailableStudents, getAllLecturersForDropdown, getSupervisorRoles, getThesisStatuses, getRooms, createRoom, updateRoom, deleteRoom, adminUpdateStudent, adminUpdateLecturer, importStudentsExcel, importLecturersExcel, importUsersExcel, importAcademicYearsExcel, listAdminAuditLogs, getFailedThesesCount, getFailedTheses } from "../services/adminfeatures.service.js";
+import { countPending as getPendingCount } from "../services/thesis-change-request.service.js";
+import { followSiaPeriodFlags, setAdminPeriodFlags } from "../services/research-method/eligibility.service.js";
+import { applyPeriodFlagsImport, buildPeriodFlagsTemplate } from "../services/research-method/period-flags-import.service.js";
+import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../services/auditLog.service.js";
 
 export async function importStudentsCsv(req, res, next) {
 	try {
@@ -133,7 +135,9 @@ export async function getStudentsController(req, res, next) {
 		const enrollmentYear = req.query.enrollmentYear || req.query.enrollmentYearFilter || undefined;
 		const sortBy = req.query.sortBy || undefined;
 		const sortOrder = req.query.sortOrder || "desc";
-		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder });
+		const program = req.query.programFilter || undefined;
+		const academicYearId = req.query.academicYearFilter || undefined;
+		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder, program, academicYearId });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -229,7 +233,6 @@ export async function getFailedThesesController(req, res, next) {
 			data: theses.map((t) => ({
 				id: t.id,
 				title: t.title,
-				rating: t.rating,
 				createdAt: t.createdAt,
 				student: {
 					id: t.student?.user?.id,
@@ -434,6 +437,83 @@ export async function importAcademicYearsExcelController(req, res, next) {
 		const { rows } = req.body || {};
 		const result = await importAcademicYearsExcel(rows);
 		res.status(200).json({ success: true, ...result });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/** One semester's flags set by the Admin, source "admin". */
+export async function setStudentPeriodFlagsController(req, res, next) {
+	try {
+		const { id, academicYearId } = req.params;
+		const body = req.body ?? {};
+		const snapshot = await setAdminPeriodFlags(id, academicYearId, {
+			eligibleResearchMethod: body.eligibleResearchMethod,
+			takingThesisCourse: body.takingThesisCourse,
+		});
+		await logAudit({
+			actorUserId: req.user?.sub ?? null,
+			action: AUDIT_ACTIONS.STUDENT_PERIOD_FLAGS_SET,
+			entityType: ENTITY_TYPES.USER,
+			entityId: id,
+			newValues: { academicYearId, eligibleResearchMethod: snapshot.eligibleResearchMethod, takingThesisCourse: snapshot.takingThesisCourse, source: "admin" },
+		});
+		res.status(200).json({ success: true, message: "Keikutsertaan semester disimpan.", data: snapshot });
+	} catch (err) {
+		next(err);
+	}
+}
+
+/** "Ikuti Data SIA" for one semester. */
+export async function followSiaPeriodFlagsController(req, res, next) {
+	try {
+		const { id, academicYearId } = req.params;
+		const result = await followSiaPeriodFlags(id, academicYearId);
+		await logAudit({
+			actorUserId: req.user?.sub ?? null,
+			action: AUDIT_ACTIONS.STUDENT_PERIOD_FLAGS_FOLLOW_SIA,
+			entityType: ENTITY_TYPES.USER,
+			entityId: id,
+			newValues: { academicYearId, fromSia: result.fromSia },
+		});
+		res.status(200).json({
+			success: true,
+			message: result.fromSia
+				? "Keikutsertaan semester kini mengikuti data SIA."
+				: "SIA belum punya data mahasiswa ini untuk semester itu; penanda akan mengikuti SIA pada sinkronisasi berikutnya.",
+			data: result,
+		});
+	} catch (err) {
+		next(err);
+	}
+}
+
+/** The template of Impor Keikutsertaan (.xlsx). */
+export async function periodFlagsTemplateController(req, res, next) {
+	try {
+		res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		res.setHeader("Content-Disposition", 'attachment; filename="Templat-Keikutsertaan-Semester.xlsx"');
+		res.send(buildPeriodFlagsTemplate());
+	} catch (err) {
+		next(err);
+	}
+}
+
+const requireUpload = (req) => {
+	if (!req.file?.buffer) {
+		const err = new Error("Pilih berkas .xlsx atau .csv terlebih dahulu.");
+		err.statusCode = 400;
+		throw err;
+	}
+	return req.file;
+};
+
+/** Applies the import (source admin), audited with the row counts. */
+export async function applyPeriodFlagsImportController(req, res, next) {
+	try {
+		const file = requireUpload(req);
+		const data = await applyPeriodFlagsImport(req.params.academicYearId, file.buffer, { actorUserId: req.user?.sub ?? null, fileName: file.originalname ?? null });
+		res.status(200).json({ success: true, message: `Keikutsertaan diimpor: ${data.applied} mahasiswa berubah.`, data });
 	} catch (err) {
 		next(err);
 	}

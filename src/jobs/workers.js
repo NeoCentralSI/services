@@ -12,18 +12,9 @@ const connection = {
 
 async function processPdfJob(job) {
   const { name, data } = job;
-  if (name === "ta04") {
-    console.warn(
-      "[Worker] Legacy job 'ta04' diabaikan. Gunakan review pengesahan judul atau finalisasi batch TA-04 resmi.",
-    );
-  } else if (name === "title-approval") {
-    void data;
-    console.warn(
-      "[Worker] Legacy job 'title-approval' diabaikan. Formulir TA-04 resmi diterbitkan melalui finalisasi batch periode.",
-    );
-  } else {
-    console.warn("[Worker] Unknown PDF job name:", name);
-  }
+  // No PDF job is queued any more: the Penetapan Pembimbing PDF is rendered when issued.
+  void data;
+  console.warn("[Worker] Unknown PDF job name:", name);
 }
 
 export function startPdfWorker() {

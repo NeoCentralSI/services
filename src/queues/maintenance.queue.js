@@ -1,12 +1,12 @@
 import pkg from "bullmq";
 const { Queue, Worker } = pkg;
 import { ENV } from "../config/env.js";
-import { runThesisStatusJob } from "../jobs/thesis-status.job.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { runGuidanceReminderJob } from "../jobs/guidance-reminder.job.js";
 import { runDailyThesisReminderJob } from "../jobs/daily-thesis-reminder.job.js";
 import { syncActiveAcademicYear } from "../jobs/academic-year.job.js";
-import { runQuotaCurrentCountSyncJob } from "../jobs/quota-sync.job.js";
+import { runSupervisorRequestReminderJob } from "../jobs/supervisor-request-reminder.job.js";
+import { runSupervisorAssignmentReminderJob } from "../jobs/supervisor-assignment-reminder.job.js";
 import { runInternshipStatusJob } from "../jobs/internship-status.job.js";
 import { runInternshipSeminarReminderJob } from "../jobs/internship-seminar-reminder.job.js";
 import { runInternshipLogbookReminderJob } from "../jobs/internship-logbook-reminder.job.js";
@@ -81,26 +81,6 @@ async function safeAdd(name, opts) {
   }
 }
 
-export async function scheduleDailyThesisStatus() {
-  const pattern = ENV.THESIS_STATUS_CRON || "30 2 * * *";
-  const tz = ENV.THESIS_STATUS_TZ || "Asia/Jakarta";
-  const ok = await safeAdd("thesis-status", { repeat: { pattern, tz }, removeOnComplete: true, removeOnFail: true });
-  if (ok) console.log(`🗓️  Scheduled repeatable thesis-status job with cron: "${pattern}" tz="${tz}"`);
-
-  try {
-    if (!ok) return;
-    const repeats = await maintenanceQueue.getRepeatableJobs();
-    const jobInfo = repeats.find((r) => r.name === "thesis-status");
-    if (jobInfo) {
-      const nextIso = jobInfo.next ? new Date(jobInfo.next).toISOString() : "unknown";
-      const nextLocal = jobInfo.next ? new Date(jobInfo.next).toLocaleString() : "unknown";
-      console.log(`📌 Repeat registered: next=${nextIso} (local ${nextLocal}) key=${jobInfo.key || "n/a"}`);
-    }
-  } catch (e) {
-    // non-fatal
-  }
-}
-
 export async function scheduleAcademicYearSync() {
   const pattern = ENV.ACADEMIC_YEAR_SYNC_CRON || "0 1 * * *";
   const tz = ENV.ACADEMIC_YEAR_SYNC_TZ || "Asia/Jakarta";
@@ -114,17 +94,50 @@ export async function scheduleAcademicYearSync() {
   if (ok) console.log(`🗓️  Scheduled repeatable academic-year-sync job with cron: "${pattern}" tz="${tz}"`);
 }
 
-export async function scheduleQuotaCurrentCountSync() {
-  const pattern = ENV.QUOTA_SYNC_CRON || "15 1 * * *";
-  const tz = ENV.QUOTA_SYNC_TZ || "Asia/Jakarta";
-  const ok = await safeAdd("quota-current-count-sync", {
+export async function scheduleSupervisorRequestReminder() {
+  const pattern = process.env.SUPERVISOR_REQUEST_REMINDER_CRON || "30 7 * * *";
+  const tz = process.env.SUPERVISOR_REQUEST_REMINDER_TZ || "Asia/Jakarta";
+  const ok = await safeAdd("supervisor-request-reminder", {
     repeat: { pattern, tz },
     removeOnComplete: 50,
     removeOnFail: 100,
     attempts: 3,
     backoff: { type: "exponential", delay: 5000 },
   });
-  if (ok) console.log(`🗓️  Scheduled repeatable quota-current-count-sync job with cron: "${pattern}" tz="${tz}"`);
+  if (ok) console.log(`🗓️  Scheduled repeatable supervisor-request-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
+export async function scheduleSupervisorAssignmentReminder() {
+  const pattern = process.env.SUPERVISOR_ASSIGNMENT_REMINDER_CRON || "0 8 * * *";
+  const tz = process.env.SUPERVISOR_ASSIGNMENT_REMINDER_TZ || "Asia/Jakarta";
+  const ok = await safeAdd("supervisor-assignment-reminder", {
+    repeat: { pattern, tz },
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+  if (ok) console.log(`🗓️  Scheduled repeatable supervisor-assignment-reminder job with cron: "${pattern}" tz="${tz}"`);
+}
+
+/** Jobs that no longer exist; a schedule left in Redis by an earlier version is removed. */
+const RETIRED_JOBS = ["research-method-promotion"];
+
+/**
+ * Removes the repeatable schedules of retired jobs. The proposal pass now starts the research
+ * phase when the second final score is sent, so the scheduled promotion is gone.
+ */
+export async function removeRetiredMaintenanceJobs() {
+  if (!MAINTENANCE_ENABLED || !maintenanceQueue || !queueReady) return;
+  try {
+    const repeats = await maintenanceQueue.getRepeatableJobs();
+    for (const job of repeats.filter((r) => RETIRED_JOBS.includes(r.name))) {
+      await maintenanceQueue.removeRepeatableByKey(job.key);
+      console.log(`🧹 Removed retired repeatable job ${job.name}`);
+    }
+  } catch (err) {
+    console.warn(`⚠️  Failed to remove retired jobs (non-fatal): ${err.message}`);
+  }
 }
 
 export async function scheduleSiaSync() {
@@ -277,17 +290,17 @@ export const maintenanceWorker = MAINTENANCE_ENABLED
       MAINTENANCE_QUEUE,
       async (job) => {
         switch (job.name) {
-          case "thesis-status":
-            await runThesisStatusJob();
-            break;
           case "sia-sync":
             await runSiaSync();
             break;
           case "academic-year-sync":
             await syncActiveAcademicYear();
             break;
-          case "quota-current-count-sync":
-            await runQuotaCurrentCountSyncJob();
+          case "supervisor-request-reminder":
+            await runSupervisorRequestReminderJob();
+            break;
+          case "supervisor-assignment-reminder":
+            await runSupervisorAssignmentReminderJob();
             break;
           case "guidance-reminder":
             await runGuidanceReminderJob();

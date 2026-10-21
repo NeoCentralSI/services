@@ -20,12 +20,13 @@ function isPembimbing2(roleName) {
 /**
  * Get all milestone templates
  */
-// ThesisMilestoneTemplate is shared by both phases (K18). TA template management
-// (Kelola > Tugas Akhir > Milestone) only covers thesis-phase templates.
+// ThesisMilestoneTemplate is shared by both phases. Without a phase argument the
+// functions read thesis-phase templates (Kelola > Tugas Akhir > Milestone); the general
+// proposal templates (Kelola > Metode Penelitian) pass THESIS_PHASE.PROPOSAL.
 const TA_TEMPLATE_PHASE = THESIS_PHASE.RESEARCH;
 
-export function findAllTemplates(isActive = true, topicId = null) {
-  const where = { phase: TA_TEMPLATE_PHASE };
+export function findAllTemplates(isActive = true, topicId = null, phase = TA_TEMPLATE_PHASE) {
+  const where = { phase };
   if (isActive !== null) {
     where.isActive = isActive;
   }
@@ -57,9 +58,9 @@ export function findTemplatesByTopic(topicId, isActive = true) {
 /**
  * Get template by ID
  */
-export function findTemplateById(id) {
+export function findTemplateById(id, phase = TA_TEMPLATE_PHASE) {
   return prisma.thesisMilestoneTemplate.findFirst({
-    where: { id, phase: TA_TEMPLATE_PHASE },
+    where: { id, phase },
     include: { topic: true },
   });
 }
@@ -76,9 +77,9 @@ export function findTemplatesByIds(ids) {
 /**
  * Create template
  */
-export function createTemplate(data) {
+export function createTemplate(data, phase = TA_TEMPLATE_PHASE) {
   return prisma.thesisMilestoneTemplate.create({
-    data: { ...data, phase: TA_TEMPLATE_PHASE },
+    data: { ...data, phase },
   });
 }
 
@@ -113,8 +114,8 @@ export function deleteTemplatesMany(ids) {
 /**
  * Get max order index for templates
  */
-export async function getMaxTemplateOrderIndex(topicId = null) {
-  const where = topicId ? { topicId, phase: TA_TEMPLATE_PHASE } : { phase: TA_TEMPLATE_PHASE };
+export async function getMaxTemplateOrderIndex(topicId = null, phase = TA_TEMPLATE_PHASE) {
+  const where = topicId ? { topicId, phase } : { phase };
   const result = await prisma.thesisMilestoneTemplate.aggregate({
     where,
     _max: { orderIndex: true },
@@ -138,8 +139,8 @@ export function findAllTopics() {
 /**
  * Get all milestones for a thesis
  */
-export function findByThesisId(thesisId, status = null) {
-  const where = { thesisId, ...TA_PHASE };
+export function findByThesisId(thesisId, status = null, phase = THESIS_PHASE.RESEARCH) {
+  const where = { thesisId, phase };
   if (status) {
     where.status = status;
   }
@@ -305,10 +306,10 @@ export async function updateProgress(id, progressPercentage) {
 /**
  * Count milestones by status for a thesis
  */
-export function countByThesisAndStatus(thesisId) {
+export function countByThesisAndStatus(thesisId, phase = THESIS_PHASE.RESEARCH) {
   return prisma.thesisMilestone.groupBy({
     by: ["status"],
-    where: { thesisId, ...TA_PHASE },
+    where: { thesisId, phase },
     _count: { id: true },
   });
 }
@@ -316,9 +317,9 @@ export function countByThesisAndStatus(thesisId) {
 /**
  * Get overall progress for a thesis
  */
-export async function getThesisProgress(thesisId) {
+export async function getThesisProgress(thesisId, phase = THESIS_PHASE.RESEARCH) {
   const milestones = await prisma.thesisMilestone.findMany({
-    where: { thesisId, ...TA_PHASE },
+    where: { thesisId, phase },
     select: {
       id: true,
       status: true,
@@ -327,7 +328,7 @@ export async function getThesisProgress(thesisId) {
   });
 
   const total = milestones.length;
-  // Same shape as the non-empty result, so every summary card shows 0 (Paket C, C3).
+  // Same shape as the non-empty result, so every summary card shows 0.
   if (total === 0) {
     return { total: 0, completed: 0, inProgress: 0, notStarted: 0, pendingReview: 0, revisionNeeded: 0, averageProgress: 0, percentComplete: 0, isComplete: false };
   }
@@ -355,7 +356,7 @@ export async function getThesisProgress(thesisId) {
 // ============================================
 
 /**
- * Paket C (C9): adds `feedbackByName` to milestone rows (one user lookup for all rows).
+ * Adds `feedbackByName` to milestone rows (one user lookup for all rows).
  * Accepts a single row or an array; rows without feedback are returned unchanged.
  */
 export async function withFeedbackAuthor(input) {
@@ -372,9 +373,9 @@ export async function withFeedbackAuthor(input) {
 /**
  * Get max order index for a thesis
  */
-export async function getMaxOrderIndex(thesisId) {
+export async function getMaxOrderIndex(thesisId, phase = THESIS_PHASE.RESEARCH) {
   const result = await prisma.thesisMilestone.aggregate({
-    where: { thesisId, ...TA_PHASE },
+    where: { thesisId, phase },
     _max: { orderIndex: true },
   });
   return result._max.orderIndex ?? -1;
@@ -460,6 +461,7 @@ export function getThesisSeminarReadiness(thesisId) {
     select: {
       id: true,
       title: true,
+      status: true,
       student: {
         select: {
           id: true,
@@ -497,6 +499,11 @@ export function getThesisSeminarReadiness(thesisId) {
             },
           },
         },
+      },
+      // Once the results seminar is passed the card turns read-only.
+      thesisSeminars: {
+        select: { id: true, status: true, date: true, resultFinalizedAt: true },
+        orderBy: { createdAt: "desc" },
       },
     },
   });
@@ -650,17 +657,7 @@ export function getThesisDefenceReadiness(thesisId) {
     select: {
       id: true,
       title: true,
-      finalThesisDocumentId: true,
-      defenceRequestedAt: true,
       status: true,
-      finalThesisDocument: {
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-          createdAt: true,
-        },
-      },
       student: {
         select: {
           id: true,
@@ -703,11 +700,18 @@ export function getThesisDefenceReadiness(thesisId) {
         select: {
           id: true,
           status: true,
+          date: true,
+          resultFinalizedAt: true,
           revisionFinalizedAt: true,
         },
         orderBy: {
           createdAt: "desc",
         },
+      },
+      // Once the defence is passed the card turns read-only.
+      thesisDefences: {
+        select: { id: true, status: true, date: true, resultFinalizedAt: true },
+        orderBy: { createdAt: "desc" },
       },
     },
   });
@@ -769,53 +773,39 @@ export async function revokeDefenceReadiness(thesisId, lecturerId) {
 }
 
 /**
- * Update thesis with final document and request defence
+ * Latest research-phase guidance attachment of a thesis: what a supervisor reads as the
+ * current draft before approving seminar/defence readiness. Null when none was uploaded.
  */
-export function updateThesisDefenceRequest(thesisId, documentId) {
-  return prisma.thesis.update({
-    where: { id: thesisId },
-    data: {
-      finalThesisDocumentId: documentId,
-      defenceRequestedAt: new Date(),
-    },
-    select: {
-      id: true,
-      title: true,
-      finalThesisDocumentId: true,
-      defenceRequestedAt: true,
-      finalThesisDocument: {
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-        },
-      },
-    },
+export async function findLatestGuidanceAttachment(thesisId) {
+  const guidance = await prisma.thesisGuidance.findFirst({
+    where: { thesisId, ...TA_PHASE, filePath: { not: null }, status: { not: "deleted" } },
+    orderBy: [{ fileUploadedAt: "desc" }, { createdAt: "desc" }],
+    select: { id: true, fileName: true, filePath: true, fileUploadedAt: true },
   });
+  if (!guidance) return null;
+  return {
+    guidanceId: guidance.id,
+    fileName: guidance.fileName,
+    filePath: guidance.filePath,
+    uploadedAt: guidance.fileUploadedAt,
+  };
 }
 
 /**
- * Get list of students ready for defence (both supervisors approved)
+ * Get list of students ready for defence (every active supervisor approved)
  */
 export function findStudentsReadyForDefence() {
   return prisma.thesis.findMany({
     where: {
-      defenceRequestedAt: { not: null },
       thesisSupervisors: {
+        some: { status: "active", defenceReady: true },
         every: { OR: [{ status: { not: "active" } }, { defenceReady: true }] },
       },
     },
     select: {
       id: true,
       title: true,
-      defenceRequestedAt: true,
-      finalThesisDocument: {
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-        },
-      },
+      updatedAt: true,
       student: {
         select: {
           id: true,
@@ -841,7 +831,7 @@ export function findStudentsReadyForDefence() {
         },
       },
     },
-    orderBy: { defenceRequestedAt: "desc" },
+    orderBy: { updatedAt: "desc" },
   });
 }
 

@@ -28,6 +28,11 @@ const repo = vi.hoisted(() => ({
 }));
 
 vi.mock("../../repositories/researchMethodAssessmentAdmin.repository.js", () => repo);
+// No Penilaian Proposal detail and no final result yet: nothing is locked (the locks have their own test).
+vi.mock("../../repositories/research-method/assessment.repository.js", () => ({
+  periodHasAssessmentDetails: vi.fn(async () => false),
+  periodHasFinalResult: vi.fn(async () => false),
+}));
 
 const service = await import("../researchMethodAssessmentAdmin.service.js");
 
@@ -139,7 +144,7 @@ describe("researchMethodAssessmentAdmin.service", () => {
     };
     repo.getWeightSummary.mockResolvedValue(summary);
 
-    await expect(service.getWeightSummary("ay-1")).resolves.toEqual(summary);
+    await expect(service.getWeightSummary("ay-1")).resolves.toEqual({ ...summary, assessmentStarted: false, minimumScoreLocked: false });
   });
 
   it("menolak pemindahan kriteria ke tahun ajaran berbeda", async () => {

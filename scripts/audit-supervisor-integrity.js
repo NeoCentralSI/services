@@ -1,5 +1,4 @@
 import prisma from "../src/config/prisma.js";
-import { getLecturerQuotaSnapshots } from "../src/services/advisorQuota.service.js";
 import { ROLES } from "../src/constants/roles.js";
 
 function groupBy(rows, keyFn) {
@@ -48,7 +47,6 @@ async function findDuplicateActiveSupervisorRoles() {
           id: true,
           title: true,
           academicYearId: true,
-          proposalStatus: true,
           status: true,
           student: { select: { user: { select: { fullName: true, identityNumber: true } } } },
         },
@@ -79,72 +77,17 @@ async function findDuplicateActiveSupervisorRoles() {
   }));
 }
 
-async function findOrphanQuotaRows() {
-  return prisma.$queryRaw`
-    SELECT q.id, q.lecturer_id AS lecturerId, q.academic_year_id AS academicYearId
-    FROM lecturer_supervision_quotas q
-    LEFT JOIN lecturers l ON l.user_id = q.lecturer_id
-    LEFT JOIN academic_years ay ON ay.id = q.academic_year_id
-    WHERE l.user_id IS NULL
-       OR ay.id IS NULL
-  `;
-}
-
-async function findStaleQuotaRows() {
-  const quotaRows = await prisma.lecturerSupervisionQuota.findMany({
-    select: {
-      id: true,
-      lecturerId: true,
-      academicYearId: true,
-      currentCount: true,
-    },
-    orderBy: [{ academicYearId: "asc" }, { lecturerId: "asc" }],
-  });
-
-  const academicYearIds = [...new Set(quotaRows.map((row) => row.academicYearId).filter(Boolean))];
-  const snapshotByKey = new Map();
-  for (const academicYearId of academicYearIds) {
-    const snapshots = await getLecturerQuotaSnapshots({ academicYearId, includeEntries: false });
-    for (const snapshot of snapshots) {
-      snapshotByKey.set(`${academicYearId}:${snapshot.lecturerId}`, snapshot);
-    }
-  }
-
-  return quotaRows
-    .map((row) => {
-      const snapshot = snapshotByKey.get(`${row.academicYearId}:${row.lecturerId}`);
-      const expectedCurrentCount = snapshot?.currentCount ?? 0;
-      if (row.currentCount === expectedCurrentCount) return null;
-      return {
-        id: row.id,
-        lecturerId: row.lecturerId,
-        academicYearId: row.academicYearId,
-        currentCount: row.currentCount,
-        expectedCurrentCount,
-      };
-    })
-    .filter(Boolean);
-}
-
 async function main() {
-  const [duplicateRoleNames, duplicateActiveSupervisorRoles, orphanQuotaRows, staleQuotaRows] =
-    await Promise.all([
-      findDuplicateRoleNames(),
-      findDuplicateActiveSupervisorRoles(),
-      findOrphanQuotaRows(),
-      findStaleQuotaRows(),
-    ]);
+  // Supervision load is computed, not stored (plan 10.1), so there are no quota rows to audit.
+  const [duplicateRoleNames, duplicateActiveSupervisorRoles] = await Promise.all([
+    findDuplicateRoleNames(),
+    findDuplicateActiveSupervisorRoles(),
+  ]);
 
   const result = {
-    ok:
-      duplicateRoleNames.length === 0 &&
-      duplicateActiveSupervisorRoles.length === 0 &&
-      orphanQuotaRows.length === 0 &&
-      staleQuotaRows.length === 0,
+    ok: duplicateRoleNames.length === 0 && duplicateActiveSupervisorRoles.length === 0,
     duplicateRoleNames,
     duplicateActiveSupervisorRoles,
-    orphanQuotaRows,
-    staleQuotaRows,
   };
 
   console.log(JSON.stringify(result, null, 2));

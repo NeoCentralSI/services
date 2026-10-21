@@ -8,13 +8,6 @@ class NotFoundError extends Error {
   }
 }
 
-class ForbiddenError extends Error {
-  constructor(message) {
-    super(message);
-    this.statusCode = 403;
-  }
-}
-
 class ConflictError extends Error {
   constructor(message) {
     super(message);
@@ -82,7 +75,7 @@ export async function createTopic(user, data) {
 
   const scienceGroup = await topicRepo.findScienceGroupById(data.scienceGroupId);
   if (!scienceGroup) {
-    throw new BadRequestError("KBK topik tidak ditemukan");
+    throw new BadRequestError("Kelompok keilmuan topik tidak ditemukan");
   }
 
   const topic = await topicRepo.create({
@@ -123,7 +116,7 @@ export async function updateTopic(id, user, data) {
   if (data.scienceGroupId !== undefined) {
     const scienceGroup = await topicRepo.findScienceGroupById(data.scienceGroupId);
     if (!scienceGroup) {
-      throw new BadRequestError("KBK topik tidak ditemukan");
+      throw new BadRequestError("Kelompok keilmuan topik tidak ditemukan");
     }
   }
 
@@ -166,90 +159,6 @@ export async function deleteTopic(id, user) {
   await topicRepo.remove(id);
 
   return { message: "Topik berhasil dihapus" };
-}
-
-// ============================================
-// Lecturer-Offered Topics (Bursa Topik Dosen)
-// ============================================
-
-/**
- * Get topics offered by the authenticated lecturer
- */
-export async function getMyOfferedTopics(userId) {
-  return topicRepo.findByLecturerId(userId);
-}
-
-/**
- * Create a new topic offered by the authenticated lecturer
- */
-export async function createOfferedTopic(userId, data) {
-  const existing = await topicRepo.findByName(data.name.trim());
-  if (existing) {
-    throw new ConflictError("Topik dengan nama tersebut sudah ada");
-  }
-
-  const lecturer = await topicRepo.findLecturerScienceGroupById(userId);
-  if (!lecturer?.scienceGroupId) {
-    throw new BadRequestError("Dosen belum memiliki KBK. Hubungi Admin/Sekdep sebelum membuat topik.");
-  }
-
-  const topic = await topicRepo.create({
-    name: data.name.trim(),
-    description: data.description?.trim() || null,
-    lecturerId: userId,
-    scienceGroupId: lecturer.scienceGroupId,
-    isPublished: true,
-  });
-
-  return topic;
-}
-
-/**
- * Update a topic offered by the authenticated lecturer
- */
-export async function updateOfferedTopic(id, userId, data) {
-  const existing = await topicRepo.findById(id);
-  if (!existing) throw new NotFoundError("Topik tidak ditemukan");
-  if (existing.lecturerId !== userId) throw new ForbiddenError("Anda hanya bisa mengedit topik milik sendiri");
-
-  if (data.name && data.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
-    const duplicate = await topicRepo.findByName(data.name.trim());
-    if (duplicate) throw new ConflictError("Topik dengan nama tersebut sudah ada");
-  }
-
-  const updateData = {};
-  if (data.name) updateData.name = data.name.trim();
-  if (data.description !== undefined) updateData.description = data.description?.trim() || null;
-
-  return topicRepo.update(id, updateData);
-}
-
-/**
- * Delete a topic offered by the authenticated lecturer
- */
-export async function deleteOfferedTopic(id, userId) {
-  const existing = await topicRepo.findById(id);
-  if (!existing) throw new NotFoundError("Topik tidak ditemukan");
-  if (existing.lecturerId !== userId) throw new ForbiddenError("Anda hanya bisa menghapus topik milik sendiri");
-
-  const hasRelated = await topicRepo.hasRelatedData(id);
-  if (hasRelated) {
-    throw new BadRequestError("Topik tidak dapat dihapus karena masih digunakan");
-  }
-
-  await topicRepo.remove(id);
-  return { message: "Topik berhasil dihapus" };
-}
-
-/**
- * Toggle publish status of a topic offered by the authenticated lecturer
- */
-export async function togglePublishOfferedTopic(id, userId) {
-  const existing = await topicRepo.findById(id);
-  if (!existing) throw new NotFoundError("Topik tidak ditemukan");
-  if (existing.lecturerId !== userId) throw new ForbiddenError("Anda hanya bisa mengelola topik milik sendiri");
-
-  return topicRepo.update(id, { isPublished: !existing.isPublished });
 }
 
 /**

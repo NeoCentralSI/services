@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import prisma from "../src/config/prisma.js";
-import { syncAllLecturerQuotaCurrentCounts } from "../src/services/advisorQuota.service.js";
 import { ROLES } from "../src/constants/roles.js";
 
 function parseArgs(argv) {
@@ -114,25 +113,14 @@ function buildPlan(groups, keepIds) {
 }
 
 async function applyPlan(plan) {
+  // Supervision load is computed from active relations (plan 10.1); nothing else to sync.
   return prisma.$transaction(async (tx) => {
-    const academicYearIds = new Set();
     for (const item of plan) {
-      if (item.academicYearId) academicYearIds.add(item.academicYearId);
       await tx.thesisSupervisors.updateMany({
         where: { id: { in: item.terminate.map((row) => row.participantId) } },
         data: { status: "terminated" },
       });
     }
-
-    const quotaResults = [];
-    for (const academicYearId of academicYearIds) {
-      quotaResults.push({
-        academicYearId,
-        results: await syncAllLecturerQuotaCurrentCounts(academicYearId, { client: tx }),
-      });
-    }
-
-    return quotaResults;
   });
 }
 
@@ -147,8 +135,8 @@ async function main() {
     return;
   }
 
-  const quotaResults = await applyPlan(plan);
-  console.log(JSON.stringify({ dryRun: false, repairedGroups: plan.length, plan, quotaResults }, null, 2));
+  await applyPlan(plan);
+  console.log(JSON.stringify({ dryRun: false, repairedGroups: plan.length, plan }, null, 2));
 }
 
 main()

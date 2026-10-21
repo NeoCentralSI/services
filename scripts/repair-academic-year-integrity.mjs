@@ -56,59 +56,15 @@ async function mergeSingletonConfig(tx, delegateName, duplicateId, canonicalId, 
   await tx[delegateName].delete({ where: { academicYearId: duplicateId } });
 }
 
-async function mergeLecturerQuotas(tx, duplicateId, canonicalId) {
-  const rows = await tx.lecturerSupervisionQuota.findMany({
-    where: { academicYearId: duplicateId },
-  });
-
-  for (const row of rows) {
-    const existing = await tx.lecturerSupervisionQuota.findUnique({
-      where: {
-        lecturerId_academicYearId: {
-          lecturerId: row.lecturerId,
-          academicYearId: canonicalId,
-        },
-      },
-    });
-    if (!existing) {
-      await tx.lecturerSupervisionQuota.update({
-        where: { id: row.id },
-        data: { academicYearId: canonicalId },
-      });
-      continue;
-    }
-
-    const same =
-      existing.quotaMax === row.quotaMax &&
-      existing.quotaSoftLimit === row.quotaSoftLimit &&
-      existing.currentCount === row.currentCount &&
-      (existing.notes ?? null) === (row.notes ?? null);
-    if (!same) {
-      throw new Error(
-        `Kuota dosen ${row.lecturerId} berbeda pada periode duplikat; gabungan otomatis dibatalkan`,
-      );
-    }
-    await tx.lecturerSupervisionQuota.delete({ where: { id: row.id } });
-  }
-}
-
 async function mergeAcademicYear(duplicate, canonical) {
   await prisma.$transaction(async (tx) => {
     await mergeSingletonConfig(
       tx,
-      "metopenScoreComposition",
+      "supervisionQuota",
       duplicate.id,
       canonical.id,
-      ["ta03aCap", "ta03bCap"],
+      ["softLimit", "hardLimit"],
     );
-    await mergeSingletonConfig(
-      tx,
-      "supervisionQuotaDefault",
-      duplicate.id,
-      canonical.id,
-      ["quotaMax", "quotaSoftLimit"],
-    );
-    await mergeLecturerQuotas(tx, duplicate.id, canonical.id);
 
     await assertNoUniqueChildConflict(
       tx,
@@ -133,16 +89,39 @@ async function mergeAcademicYear(duplicate, canonical) {
     );
     await assertNoUniqueChildConflict(
       tx,
-      "ta04Batch",
+      "thesisSupervisorAssignmentBatch",
       duplicate.id,
       canonical.id,
       ["version"],
+    );
+    await assertNoUniqueChildConflict(
+      tx,
+      "researchMethodCpmk",
+      duplicate.id,
+      canonical.id,
+      ["code"],
+    );
+    await assertNoUniqueChildConflict(
+      tx,
+      "researchMethodAssessment",
+      duplicate.id,
+      canonical.id,
+      ["thesisId"],
+    );
+    await assertNoUniqueChildConflict(
+      tx,
+      "studentAcademicYearSnapshot",
+      duplicate.id,
+      canonical.id,
+      ["studentId"],
     );
 
     const simpleUpdates = [
       ["cpmk", "academicYearId"],
       ["thesisCpmk", "academicYearId"],
-      ["metopenCpmk", "academicYearId"],
+      ["researchMethodCpmk", "academicYearId"],
+      ["researchMethodAssessment", "academicYearId"],
+      ["studentAcademicYearSnapshot", "academicYearId"],
       ["thesisSeminarRequirement", "academicYearId"],
       ["thesisDefenceRequirement", "academicYearId"],
       ["yudisium", "academicYearId"],
@@ -150,8 +129,8 @@ async function mergeAcademicYear(duplicate, canonical) {
       ["internshipGuidanceQuestion", "academicYearId"],
       ["internshipGuidanceLecturerCriteria", "academicYearId"],
       ["internshipCpmk", "academicYearId"],
-      ["ta04Batch", "academicYearId"],
-      ["metopenAttendanceImport", "academicYearId"],
+      ["thesisSupervisorAssignmentBatch", "academicYearId"],
+      ["thesisSupervisorRequest", "academicYearId"],
     ];
 
     for (const [delegateName, field] of simpleUpdates) {
@@ -165,23 +144,6 @@ async function mergeAcademicYear(duplicate, canonical) {
       where: { academicYearId: duplicate.id },
       data: { academicYearId: canonical.id },
     });
-    await tx.thesis.updateMany({
-      where: { ta04AssignmentAcademicYearId: duplicate.id },
-      data: { ta04AssignmentAcademicYearId: canonical.id },
-    });
-    await tx.thesis.updateMany({
-      where: { activeAcademicYearId: duplicate.id },
-      data: { activeAcademicYearId: canonical.id },
-    });
-    await tx.thesisAdvisorRequest.updateMany({
-      where: { academicYearId: duplicate.id },
-      data: { academicYearId: canonical.id },
-    });
-    await tx.thesisAdvisorRequest.updateMany({
-      where: { releasedAcademicYearId: duplicate.id },
-      data: { releasedAcademicYearId: canonical.id },
-    });
-
     await tx.academicYear.delete({ where: { id: duplicate.id } });
   });
 }

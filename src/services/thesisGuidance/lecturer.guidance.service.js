@@ -6,6 +6,7 @@ import {
 	approveGuidanceById,
 	rejectGuidanceById,
 	getLecturerTheses,
+	supervisorRelationState,
 	countTotalProgressComponents,
 	getValidatedCompletionsByThesis,
 	getStudentActiveThesis,
@@ -17,25 +18,9 @@ import {
 	findGuidancesPendingApproval,
 	approveSessionSummary,
 	findScheduledGuidances,
-	// Transfer
-	findEligibleTransferLecturers,
-	findSupervisorRecords,
-	lecturerHasRole,
 	findActiveSupervisorRelation,
-	createTransferNotification,
-	findPendingTransferNotifications,
-	findTransferNotificationById,
-	markNotificationRead,
-	createInfoNotification,
-	// Kadep Transfer
-	findKadepUsers,
-	createKadepTransferNotification,
-	findPendingKadepTransferNotifications,
-	findAllKadepTransferNotifications,
-	updateNotificationMessage,
-	findKadepTransferNotificationsBySrcTgt,
 } from "../../repositories/thesisGuidance/lecturer.guidance.repository.js";
-import { THESIS_STATUS, TA_PHASE } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS } from "../../constants/thesisStatus.js";
 import { THESIS_STATUS_LABELS, GUIDANCE_STATUS_LABELS } from "../../constants/thesisLabels.js";
 import {
 	GUIDANCE_STATUS,
@@ -57,11 +42,19 @@ import path from "path";
 import { toTitleCaseName } from "../../utils/global.util.js";
 import prisma from "../../config/prisma.js";
 import { ForbiddenError } from "../../utils/errors.js";
-import { syncLecturerQuotaCurrentCount } from "../advisorQuota.service.js";
+import { changeActionsForLecturerRow, positionOfSupervisorRoleName } from "../thesis-change-request.service.js";
+import {
+	THESIS_PROGRESS_SELECT,
+	WARNING_SKIP_LABELS,
+	resolveProgressWarning,
+	summarizeThesisProgress,
+} from "../../helpers/thesis-progress.helper.js";
+import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
+import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 
 function ensureLecturer(lecturer) {
 	if (!lecturer) {
-		const err = new Error("Lecturer profile not found for this user");
+		const err = new Error("Data dosen untuk akun ini tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -79,13 +72,18 @@ async function assertActiveSupervisorForThesis(lecturerId, thesisId) {
 		err.statusCode = 403;
 		throw err;
 	}
-	// Session actions only for a thesis in the TA phase (not proposal, BSS, or closed).
+	// Session actions: research, or proposal after Penetapan Pembimbing; not BSS or closed.
 	const thesisStatus = relation.thesis?.status;
+	if (thesisStatus === THESIS_STATUS.PROPOSAL && (await getProposalPhaseAccess(relation.thesis)).open) {
+		return relation;
+	}
 	if (thesisStatus !== THESIS_STATUS.RESEARCH) {
 		const err = new Error(
 			thesisStatus === THESIS_STATUS.ON_LEAVE
 				? `Tugas akhir mahasiswa sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Aksi bimbingan tidak dapat dilakukan.`
-				: "Aksi bimbingan hanya dapat dilakukan untuk tugas akhir yang sedang berjalan.",
+				: thesisStatus === THESIS_STATUS.PROPOSAL && !(await isRepeatingProposal(relation.thesis.id))
+					? PROPOSAL_NOT_ASSIGNED_REASON
+					: "Aksi bimbingan hanya dapat dilakukan untuk tugas akhir yang sedang berjalan.",
 		);
 		err.statusCode = 403;
 		throw err;
@@ -95,7 +93,7 @@ async function assertActiveSupervisorForThesis(lecturerId, thesisId) {
 
 const guidanceStatusLabel = (status) => GUIDANCE_STATUS_LABELS[status] ?? status;
 
-/** K19: a transition starts from an allowed status; otherwise 400 with labels. */
+/** A transition starts from an allowed status; otherwise 400 with labels. */
 function assertGuidanceStatus(guidance, allowed, actionText) {
 	if (allowed.includes(guidance.status)) return;
 	const allowedText = [...new Set(allowed.map(guidanceStatusLabel))].map((l) => `"${l}"`).join(" atau ");
@@ -131,6 +129,8 @@ function toFlatGuidance(g) {
 		studentNim: g.thesis?.student?.user?.identityNumber || null,
 		supervisorName: g?.supervisor?.user?.fullName || null,
 		status: g.status,
+		// Jenis (Proposal / Tugas Akhir)
+		phase: g.phase,
 		requestedDate: g.requestedDate || null,
 		requestedDateFormatted: g.requestedDate ? formatDateTimeJakarta(g.requestedDate, { withDay: true }) : null,
 		approvedDate: g.approvedDate || null,
@@ -149,7 +149,7 @@ function toFlatGuidance(g) {
 		duration: g.duration || null,
 		completedAt: g.completedAt || null,
 		rejectionReason: g.rejectionReason || null,
-		// K19 fields
+		// Rejection, reschedule and cancellation fields
 		suggestedDate: g.suggestedDate || null,
 		suggestedDateFormatted: g.suggestedDate ? formatDateTimeJakarta(g.suggestedDate, { withDay: true }) : null,
 		rescheduleReason: g.rescheduleReason || null,
@@ -184,6 +184,19 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		{ filter },
 	);
 
+	// Theses whose proposal revision waits for this lecturer as Pembimbing 1 (the row's
+	// "Tinjau Proposal Revisi" action).
+	const reviewable = rawStudents
+		.filter((s) => s.thesisStatus === THESIS_STATUS.PROPOSAL && s.role === ROLES.PEMBIMBING_1
+			&& (s.supervisorStatus ?? "active") === "active" && !s.noLongerSupervising)
+		.map((s) => s.thesisId);
+	const waitingRevision = reviewable.length
+		? new Set((await prisma.thesisProposalRevision.findMany({
+			where: { thesisId: { in: reviewable }, status: "submitted" },
+			select: { thesisId: true },
+		})).map((row) => row.thesisId))
+		: new Set();
+
 	// Transform data to flat structure for frontend
 	const students = rawStudents.map(s => ({
 		studentId: s.studentId,
@@ -195,7 +208,12 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		thesisStatus: s.thesisStatus ?? null,
 		roles: s.role ? [s.role] : [],
 		supervisorStatus: s.supervisorStatus || null,
-		thesisRating: s.thesisRating || "ONGOING",
+		noLongerSupervising: Boolean(s.noLongerSupervising),
+		// Derived when read
+		activityLevel: s.activityLevel ?? null,
+		lastActivityAt: s.lastActivityAt ?? null,
+		daysSinceActivity: s.daysSinceActivity ?? null,
+		supervisionClock: s.supervisionClock ?? null,
 		latestMilestone: s.latestMilestone || "Belum mulai",
 		// Milestone progress info
 		totalMilestones: s.totalMilestones || 0,
@@ -204,10 +222,18 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		// Guidance info
 		completedGuidanceCount: s.completedGuidanceCount || 0,
 		lastGuidanceDate: s.lastGuidanceDate ? formatDateTimeJakarta(s.lastGuidanceDate, { withDay: true }) : null,
-		// ISO value; the frontend formats it (Paket C, C5)
+		// ISO value; the frontend formats it
 		lastGuidanceAt: s.lastGuidanceDate || null,
-		deadlineDate: s.deadlineDate || null,
-		startDate: s.startDate || null
+		startDate: s.startDate || null,
+		proposalRevisionPending: waitingRevision.has(s.thesisId),
+		// "Ajukan Perubahan", "Alihkan" and the open-request marker of the row.
+		changeRequest: s.changeState
+			? changeActionsForLecturerRow({
+				position: positionOfSupervisorRoleName(s.role),
+				active: (s.supervisorStatus ?? "active") === "active" && !s.noLongerSupervising,
+				thesis: s.changeState,
+			})
+			: null,
 	}));
 
 	return { count: students.length, students };
@@ -219,20 +245,21 @@ export async function getStudentDetailService(userId, thesisId) {
 
 	const thesis = await findThesisDetailForLecturer(thesisId, lecturer.id);
 	if (!thesis) {
-		const err = new Error("Thesis not found or you are not a supervisor");
+		const err = new Error("Tugas akhir tidak ditemukan atau Anda bukan pembimbingnya");
 		err.statusCode = 404;
 		throw err;
 	}
 
-	// Fetch per-guidance uploaded documents (file versioning), stored on session rows (K17)
+	// Fetch per-guidance uploaded documents (file versioning), stored on session rows
+	// Attachments of both phases: proposal drafts travel as session attachments (10.3).
 	const guidanceDocuments = await prisma.thesisGuidance.findMany({
 		where: {
 			thesisId: thesis.id,
-			...TA_PHASE,
 			filePath: { not: null },
 		},
 		select: {
 			id: true,
+			phase: true,
 			requestedDate: true,
 			approvedDate: true,
 			filePath: true,
@@ -244,14 +271,23 @@ export async function getStudentDetailService(userId, thesisId) {
 	// "Laporan terbaru" = attachment of the latest TA-phase session that has a file
 	const latestReport = await findLatestThesisReport(prisma, thesis.id);
 	const latestReportDocument = guidanceDocument(latestReport);
+	// Activity level and supervision clock are derived when read.
+	const progressSource = await prisma.thesis.findUnique({ where: { id: thesis.id }, select: THESIS_PROGRESS_SELECT });
+	const progress = summarizeThesisProgress(progressSource ?? thesis);
 
 	return {
 		thesisId: thesis.id,
 		title: thesis.title,
 		status: thesis.status,
-		rating: thesis.rating,
+		activityLevel: progress.activityLevel,
+		lastActivityAt: progress.lastActivityAt,
+		daysSinceActivity: progress.daysSinceActivity,
+		supervisionClock: progress.supervisionClock,
+		// True while the thesis is back in proposal because of a guidance evaluation.
+		repeatingProposal: thesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(thesis.id) : false,
+		// Current phase, Penetapan Pembimbing, and per-phase counts for display.
+		...(await getPhaseSummary(thesis)),
 		startDate: thesis.startDate,
-		deadlineDate: thesis.deadlineDate,
 		student: {
 			id: thesis.student?.id,
 			fullName: thesis.student?.user?.fullName,
@@ -261,20 +297,19 @@ export async function getStudentDetailService(userId, thesisId) {
 		document: latestReportDocument
 			? { id: latestReportDocument.id, fileName: latestReportDocument.fileName, url: latestReportDocument.url }
 			: null,
-		// Revival adaptation (A2): final proposal version, fallback legacy proposal document.
+		// Final proposal of the latest Research Method attempt.
 		proposalDocument: (() => {
-			const doc = thesis.finalProposalVersion?.document ?? thesis.proposalDocument ?? null;
-			if (!doc) return null;
-			const docPath = doc.filePath || "";
+			const attempt = thesis.researchMethodAssessments?.[0];
+			if (!attempt?.proposalFilePath) return null;
 			return {
-				id: doc.id,
-				fileName: path.basename(docPath) || doc.fileName,
-				// Documents without a stored file have no URL.
-				url: uploadUrl(docPath),
+				id: attempt.id,
+				fileName: attempt.proposalFileName || path.basename(attempt.proposalFilePath),
+				url: uploadUrl(attempt.proposalFilePath),
 			};
 		})(),
 		uploadedFiles: guidanceDocuments.map((g) => ({
 			id: g.id,
+			phase: g.phase,
 			fileName: g.fileName || path.basename(g.filePath || ""),
 			filePath: g.filePath,
 			uploadedAt: g.fileUploadedAt,
@@ -284,6 +319,7 @@ export async function getStudentDetailService(userId, thesisId) {
 			id: m.id,
 			title: m.title,
 			status: m.status,
+			phase: m.phase,
 			// C9: decision notes and supervisor feedback are separate
 			supervisorNotes: m.supervisorNotes || null,
 			feedback: m.feedback || null,
@@ -306,8 +342,15 @@ export async function getStudentDetailService(userId, thesisId) {
 			return { count: items.length, items };
 		})(),
 		startDateFormatted: thesis.startDate ? formatDateTimeJakarta(thesis.startDate) : null,
-		deadlineDateFormatted: thesis.deadlineDate ? formatDateTimeJakarta(thesis.deadlineDate) : null,
 		userRole: thesis.thesisSupervisors?.find(p => p.lecturer?.user?.id === userId)?.role?.name || null,
+		// A lecturer whose relation ended before the thesis closed reads only.
+		noLongerSupervising: await (async () => {
+			const relations = (await prisma.thesisSupervisors.findMany({
+				where: { thesisId: thesis.id, lecturerId: lecturer.id },
+				select: { status: true, updatedAt: true },
+			})) ?? [];
+			return relations.length > 0 && relations.every((relation) => supervisorRelationState(relation, thesis) === "ended");
+		})(),
 	};
 }
 
@@ -349,7 +392,7 @@ export async function rejectGuidanceService(userId, guidanceId, { reason, feedba
 	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
 	assertGuidanceStatus(guidance, [GUIDANCE_STATUS.REQUESTED], "ditolak");
 
-	// K19: a rejection always carries a reason; a suggested time is optional and future.
+	// A rejection always carries a reason; a suggested time is optional and future.
 	const rejectReason = String(reason ?? feedback ?? "").trim();
 	if (!rejectReason) {
 		const err = new Error("Alasan penolakan wajib diisi");
@@ -414,7 +457,7 @@ export async function rejectGuidanceService(userId, guidanceId, { reason, feedba
 // Cancel an accepted guidance session (lecturer cannot attend)
 export async function cancelGuidanceByLecturerService(userId, guidanceId, { reason } = {}) {
 	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
-	// K19: the lecturer cancels a scheduled session (legacy "rescheduled" included).
+	// The lecturer cancels a scheduled session (legacy "rescheduled" included).
 	assertGuidanceStatus(guidance, SCHEDULED_GUIDANCE_STATUSES, "dibatalkan");
 	reason = String(reason ?? "").trim();
 
@@ -596,7 +639,7 @@ export async function getStudentProgressDetailService(userId, studentId) {
 	ensureLecturer(lecturer);
 	const thesis = await getStudentActiveThesis(studentId, lecturer.id);
 	if (!thesis) {
-		const err = new Error("Student thesis not found for this lecturer");
+		const err = new Error("Tugas akhir mahasiswa ini tidak ada di daftar bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -615,7 +658,7 @@ export async function getStudentProgressDetailService(userId, studentId) {
 
 export async function approveStudentProgressComponentsService(userId, studentId, componentIds = []) {
 	// Guidance revival correction: this legacy endpoint marked milestones completed for
-	// P1 or P2 without the milestone review flow. Completion is only through
+	// Pembimbing 1 or Pembimbing 2 without the milestone review flow. Completion is only through
 	// POST /milestones/:id/validate by the active Pembimbing 1.
 	void userId;
 	void studentId;
@@ -632,7 +675,7 @@ export async function postGuidanceFeedbackService(userId, guidanceId, { feedback
 	ensureLecturer(lecturer);
 	const guidance = await findGuidanceByIdForLecturer(guidanceId, lecturer.id);
 	if (!guidance) {
-		const err = new Error("Guidance not found or not assigned to you");
+		const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -647,7 +690,7 @@ export async function finalApprovalService(userId, studentId) {
 	ensureLecturer(lecturer);
 	const thesis = await getStudentActiveThesis(studentId, lecturer.id);
 	if (!thesis) {
-		const err = new Error("Student thesis not found for this lecturer");
+		const err = new Error("Tugas akhir mahasiswa ini tidak ada di daftar bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -683,20 +726,6 @@ export async function supervisorEligibilityService(userId, threshold = 4) {
 	return { eligible, graduatedAsSup2, required: threshold };
 }
 
-// Paket A (K15): this endpoint read ThesisStatus rows "at_risk"/"failed" that never existed
-// (it always failed with 500) and has no UI caller. Stopping a thesis (status `failed` with a
-// mandatory reason) is an Admin action that is not built yet, so the endpoint is closed.
-export async function failStudentThesisService(userId, studentId, { reason } = {}) {
-	void userId;
-	void studentId;
-	void reason;
-	const err = new Error(
-		"Penghentian tugas akhir oleh pembimbing tidak tersedia. Penghentian dilakukan Admin Departemen dengan alasan yang wajib dicatat.",
-	);
-	err.statusCode = 410;
-	throw err;
-}
-
 // ==================== SESSION SUMMARY APPROVAL ====================
 
 /**
@@ -710,6 +739,7 @@ export async function getPendingApprovalService(userId, { page = 1, pageSize = 1
 
 	const guidances = rows.map((g) => ({
 		id: g.id,
+		phase: g.phase,
 		studentName: g.thesis?.student?.user?.fullName || null,
 		studentId: g.thesis?.student?.user?.identityNumber || null,
 		approvedDate: g.approvedDate,
@@ -729,7 +759,7 @@ export async function getPendingApprovalService(userId, { page = 1, pageSize = 1
  */
 export async function approveSessionSummaryService(userId, guidanceId) {
 	const { lecturer, guidance } = await loadLecturerGuidance(userId, guidanceId);
-	// K19: only a submitted summary can be approved (-> completed).
+	// Only a submitted summary can be approved (-> completed).
 	assertGuidanceStatus(guidance, [GUIDANCE_STATUS.SUMMARY_PENDING], "disetujui ringkasannya");
 
 	const updated = await approveSessionSummary(guidanceId);
@@ -792,7 +822,7 @@ export async function approveSessionSummaryService(userId, guidanceId) {
 }
 
 /**
- * K19: the lecturer moves a scheduled session. The new time applies immediately, the status
+ * The lecturer moves a scheduled session. The new time applies immediately, the status
  * stays `accepted`, a reason is required, the student is notified, and the change is
  * audited. Outlook events are moved when their ids exist; a calendar failure never fails
  * the action.
@@ -826,7 +856,7 @@ export async function rescheduleGuidanceByLecturerService(userId, guidanceId, { 
 	const updated = await prisma.thesisGuidance.update({
 		where: { id: guidance.id },
 		data: {
-			// Legacy "rescheduled" is normalized to "accepted" (K19).
+			// Legacy "rescheduled" is normalized to "accepted".
 			status: GUIDANCE_STATUS.ACCEPTED,
 			approvedDate: start,
 			duration: durationMinutes,
@@ -893,7 +923,7 @@ export async function rescheduleGuidanceByLecturerService(userId, guidanceId, { 
 }
 
 /**
- * K19: the lecturer asks for a revised summary: summary_pending -> summary_rejected, with
+ * The lecturer asks for a revised summary: summary_pending -> summary_rejected, with
  * mandatory notes kept in `supervisorFeedback`. The student resubmits via submit-summary.
  */
 export async function rejectSessionSummaryService(userId, guidanceId, { notes } = {}) {
@@ -975,7 +1005,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 	});
 
 	if (!guidance) {
-		const err = new Error("Guidance not found or not assigned to you");
+		const err = new Error("Bimbingan tidak ditemukan atau bukan bimbingan Anda");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -986,6 +1016,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 	const flat = {
 		id: guidance.id,
 		status: guidance.status,
+		phase: guidance.phase,
 		studentId: guidance.thesis?.studentId || guidance.thesis?.student?.id || null,
 		studentName: guidance.thesis?.student?.user?.fullName || null,
 		studentNim: guidance.thesis?.student?.user?.identityNumber || null,
@@ -1014,7 +1045,7 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 		studentNotes: guidance.studentNotes || null,
 		supervisorFeedback: guidance.supervisorFeedback || null,
 		rejectionReason: guidance.rejectionReason || null,
-		// K19: suggested time, lecturer reschedule, cancellation
+		// Suggested time, lecturer reschedule, cancellation
 		suggestedDate: guidance.suggestedDate || null,
 		suggestedDateFormatted: guidance.suggestedDate ? formatDateTimeJakarta(guidance.suggestedDate, { withDay: true }) : null,
 		rescheduleReason: guidance.rescheduleReason || null,
@@ -1047,25 +1078,29 @@ export async function getGuidanceDetailService(userId, guidanceId) {
 }
 
 /**
- * Send warning notification to student about thesis progress
+ * Send warning notification to student about thesis progress.
+ * The wording follows the activity level of the thesis, derived here: the client does not
+ * choose it. A thesis that is not `research`, or whose activity is Lancar, gets no warning (400).
  */
-export async function sendWarningNotificationService(userId, thesisId, warningType) {
+export async function sendWarningNotificationService(userId, thesisId) {
 	const lecturer = await getLecturerByUserId(userId);
 	ensureLecturer(lecturer);
 
-	// Get thesis with student info
+	// Get thesis with student info and what the activity helper reads
 	const thesis = await prisma.thesis.findUnique({
 		where: { id: thesisId },
-		include: {
+		select: {
+			id: true,
+			...THESIS_PROGRESS_SELECT,
 			student: {
-				include: {
+				select: {
 					user: { select: { id: true, fullName: true } }
 				}
 			},
 			thesisSupervisors: {
 				// Only an ACTIVE supervisor relation may send a warning as supervisor.
 				where: { lecturerId: lecturer.id, status: "active" },
-				include: {
+				select: {
 					role: { select: { name: true } }
 				}
 			}
@@ -1073,7 +1108,7 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 	});
 
 	if (!thesis) {
-		const err = new Error("Thesis not found");
+		const err = new Error("Tugas akhir tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -1090,31 +1125,33 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 	const lecturerName = toTitleCaseName((await prisma.user.findUnique({ where: { id: userId } }))?.fullName || "Dosen");
 
 	if (!studentUserId) {
-		const err = new Error("Student not found for this thesis");
+		const err = new Error("Mahasiswa pada tugas akhir ini tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
 
-	// Define warning messages based on type
+	const { level, skipReason } = resolveProgressWarning(thesis);
+	if (!level) {
+		const err = new Error(`Peringatan tidak dikirim: ${WARNING_SKIP_LABELS[skipReason]}.`);
+		err.statusCode = 400;
+		throw err;
+	}
+
+	// Warning text per activity level (`slow` | `at_risk`).
 	const warningMessages = {
-		SLOW: {
+		slow: {
 			title: "⚠️ Peringatan Progress Tugas Akhir",
-			body: `Halo ${toTitleCaseName(studentName)}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
+			body: `Halo ${studentName}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
 			notifBody: `Progress tugas akhir Anda terdeteksi lambat. Dosen pembimbing ${lecturerName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`
 		},
-		AT_RISK: {
+		at_risk: {
 			title: "🚨 Peringatan Serius: Progress Tugas Akhir",
-			body: `Halo ${toTitleCaseName(studentName)}, status tugas akhir Anda dalam kondisi BERISIKO. Segera hubungi dosen pembimbing untuk menghindari kegagalan.`,
-			notifBody: `Status tugas akhir Anda dalam kondisi BERISIKO. Dosen pembimbing ${lecturerName} meminta Anda segera menghubungi beliau.`
+			body: `Halo ${studentName}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
+			notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Dosen pembimbing ${lecturerName} meminta Anda segera menghubungi beliau.`
 		},
-		FAILED: {
-			title: "❌ Pemberitahuan Status Tugas Akhir",
-			body: `Halo ${toTitleCaseName(studentName)}, tugas akhir Anda telah melampaui batas waktu. Segera hubungi dosen pembimbing untuk langkah selanjutnya.`,
-			notifBody: `Tugas akhir Anda telah melampaui batas waktu. Segera lakukan pendaftaran ulang tugas akhir ke Departemen.`
-		}
 	};
 
-	const message = warningMessages[warningType] || warningMessages.SLOW;
+	const message = warningMessages[level];
 
 	// Send FCM notification
 	await sendFcmToUsers([studentUserId], {
@@ -1123,7 +1160,7 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 		data: {
 			type: "thesis_warning",
 			thesisId: thesis.id,
-			warningType
+			warningType: level
 		}
 	});
 
@@ -1137,7 +1174,8 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
 
 	return {
 		success: true,
-		message: `Peringatan telah dikirim ke ${toTitleCaseName(studentName)}`
+		message: `Peringatan telah dikirim ke ${studentName}`,
+		warningType: level
 	};
 }
 
@@ -1148,815 +1186,10 @@ export async function sendWarningNotificationService(userId, thesisId, warningTy
  */
 export async function approveThesisProposalService(userId, thesisId) {
 	// Revival decision (e3): baseline let a supervisor activate a proposal directly
-	// (thesisStatusId=null). That would bypass TA-03/TA-04 promotion, so the lock is kept.
+	// (thesisStatusId=null). That would bypass Penilaian Proposal and the start of the research phase, so the lock is kept.
 	void userId;
 	void thesisId;
 	throw new ForbiddenError(
-		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan proses melalui penilaian TA-03; promosi aktif berjalan otomatis setelah TA-03 final dan KRS Tugas Akhir terkonfirmasi.",
+		"Pengesahan proposal tidak lagi dilakukan oleh dosen pembimbing. Lanjutkan lewat Nilai Proposal di Tugas Akhir > Proposal; tugas akhir masuk fase Penelitian setelah lulus Metode Penelitian dan KRS Tugas Akhir terkonfirmasi.",
 	);
-}
-
-// ==================== STUDENT TRANSFER ====================
-
-/**
- * Get eligible lecturers for student transfer (have active "Pembimbing 1" role)
- */
-export async function getEligibleTransferLecturersService(userId) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-	const lecturers = await findEligibleTransferLecturers(lecturer.id);
-	return { lecturers };
-}
-
-/**
- * Request student transfer to another lecturer
- */
-export async function requestStudentTransferService(userId, { thesisIds, targetLecturerId, reason }) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-
-	// Verify current lecturer owns these theses
-	const supervisorRecords = await findSupervisorRecords(thesisIds, lecturer.id);
-	if (supervisorRecords.length !== thesisIds.length) {
-		const err = new Error("Some theses are not supervised by you");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	// Verify target lecturer has "Pembimbing 1" role
-	const targetHasP1 = await lecturerHasRole(targetLecturerId, ROLES.PEMBIMBING_1);
-	if (!targetHasP1) {
-		const err = new Error("Dosen tujuan tidak memiliki role Pembimbing 1");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	// Verify target is not the same as source
-	if (targetLecturerId === lecturer.id) {
-		const err = new Error("Tidak bisa transfer ke diri sendiri");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	// Build minimal student refs (IDs only, no names — keeps payload small)
-	const refs = supervisorRecords.map((sr) => ({
-		tId: sr.thesisId,
-		sId: sr.id,
-	}));
-
-	// Find all active Kadep users
-	const kadepUsers = await findKadepUsers();
-	if (kadepUsers.length === 0) {
-		const err = new Error("Tidak ditemukan Ketua Departemen aktif untuk menyetujui transfer");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	// --- Send notification to TARGET LECTURER (Dosen B) ---
-	const txPayload = JSON.stringify({
-		t: "TX",
-		src: lecturer.id,
-		refs,
-		r: reason,
-	});
-	await createTransferNotification(targetLecturerId, txPayload);
-
-	// --- Send notification to KADEP ---
-	const kadepPayload = JSON.stringify({
-		t: "TX_KADEP",
-		src: lecturer.id,
-		tgt: targetLecturerId,
-		refs,
-		r: reason,
-		tgtApproved: false,
-		st: "pending",
-	});
-	for (const kadep of kadepUsers) {
-		await createKadepTransferNotification(kadep.id, kadepPayload);
-	}
-
-	// Build student names for readable notifications
-	const studentNames = supervisorRecords
-		.map((sr) => toTitleCaseName(sr.thesis?.student?.user?.fullName || "Mahasiswa"))
-		.join(", ");
-
-	// Get names
-	const sourceUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
-	const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
-	const targetUser = await prisma.user.findUnique({ where: { id: targetLecturerId }, select: { fullName: true } });
-	const targetName = toTitleCaseName(targetUser?.fullName || "Dosen");
-
-	// Send human-readable notification to target lecturer
-	await createInfoNotification(
-		targetLecturerId,
-		"Permintaan Transfer Mahasiswa",
-		`${sourceName} ingin mentransfer ${refs.length} mahasiswa (${studentNames}) kepada Anda. Silakan review.`
-	);
-
-	// Send FCM to target lecturer
-	await sendFcmToUsers([targetLecturerId], {
-		title: "Permintaan Transfer Mahasiswa",
-		body: `${sourceName} ingin mentransfer ${refs.length} mahasiswa kepada Anda`,
-		data: { type: "transfer-request-incoming" },
-	});
-
-	// Send human-readable notification to all Kadep
-	const kadepUserIds = kadepUsers.map((k) => k.id);
-	await createNotificationsForUsers(kadepUserIds, {
-		title: "Permintaan Transfer Mahasiswa",
-		message: `${sourceName} mengajukan transfer ${refs.length} mahasiswa (${studentNames}) ke ${targetName}. Menunggu persetujuan dosen tujuan.`,
-	});
-
-	// Send FCM push notification to Kadep
-	await sendFcmToUsers(kadepUserIds, {
-		title: "Permintaan Transfer Mahasiswa",
-		body: `${sourceName} mengajukan transfer ${refs.length} mahasiswa ke ${targetName}`,
-		data: { type: "transfer-request-kadep" },
-	});
-
-	// Also notify source lecturer that request was sent
-	await createInfoNotification(
-		userId,
-		"Transfer Mahasiswa Dikirim",
-		`Permintaan transfer ${refs.length} mahasiswa ke ${targetName} telah dikirim. Menunggu persetujuan dosen tujuan dan Ketua Departemen.`
-	);
-
-	return {
-		message: `Permintaan transfer ${refs.length} mahasiswa ke ${targetName} berhasil dikirim. Menunggu persetujuan dosen tujuan dan Ketua Departemen.`,
-		studentCount: refs.length,
-	};
-}
-
-/**
- * Get incoming transfer requests for the current lecturer
- * Reads compact payload from notification and enriches with student details from DB
- */
-export async function getIncomingTransferRequestsService(userId) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-
-	const notifications = await findPendingTransferNotifications(lecturer.id);
-	const transfers = [];
-
-	for (const notif of notifications) {
-		try {
-			const payload = JSON.parse(notif.message);
-			if (payload.t !== "TX") continue;
-
-			// Look up source lecturer name
-			const srcUser = await prisma.user.findUnique({
-				where: { id: payload.src },
-				select: { fullName: true },
-			});
-
-			// Enrich student details from thesis supervisor records
-			const thesisIds = (payload.refs || []).map((r) => r.tId);
-			const supRecords = thesisIds.length
-				? await prisma.thesisSupervisors.findMany({
-					where: { thesisId: { in: thesisIds } },
-					include: {
-						role: { select: { name: true } },
-						thesis: {
-							include: {
-								student: {
-									include: { user: { select: { fullName: true, identityNumber: true } } },
-								},
-							},
-						},
-					},
-				})
-				: [];
-
-			// Build look-up map: thesisId -> first matching supervisor record
-			const byThesis = {};
-			for (const sr of supRecords) {
-				if (!byThesis[sr.thesisId]) byThesis[sr.thesisId] = sr;
-			}
-
-			const students = (payload.refs || []).map((ref) => {
-				const sr = byThesis[ref.tId];
-				return {
-					thesisId: ref.tId,
-					thesisSupervisorId: ref.sId,
-					studentName: sr?.thesis?.student?.user?.fullName || "Unknown",
-					studentNim: sr?.thesis?.student?.user?.identityNumber || "-",
-					thesisTitle: sr?.thesis?.title || "Untitled",
-					role: sr?.role?.name || "Pembimbing",
-				};
-			});
-
-			transfers.push({
-				notificationId: notif.id,
-				sourceLecturerId: payload.src,
-				sourceLecturerName: toTitleCaseName(srcUser?.fullName || "Dosen"),
-				students,
-				reason: payload.r,
-				createdAt: notif.createdAt,
-			});
-		} catch {
-			// Skip non-JSON or malformed notifications
-		}
-	}
-
-	return { count: transfers.length, transfers };
-}
-
-/**
- * Approve a transfer request (TARGET LECTURER) — does NOT execute swap yet.
- * Marks target notification read, updates kadep notifications to tgtApproved=true,
- * and notifies kadep + source that target has approved.
- */
-export async function approveTransferRequestService(userId, notificationId) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-
-	// Find and validate the notification
-	const notif = await findTransferNotificationById(notificationId);
-	if (!notif || notif.userId !== lecturer.id) {
-		const err = new Error("Transfer request not found");
-		err.statusCode = 404;
-		throw err;
-	}
-	if (notif.isRead) {
-		const err = new Error("Transfer request already processed");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	let payload;
-	try {
-		payload = JSON.parse(notif.message);
-	} catch {
-		const err = new Error("Invalid transfer data");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	if (payload.t !== "TX") {
-		const err = new Error("Invalid or already processed transfer request");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const sourceLecturerId = payload.src;
-	const refs = payload.refs || [];
-
-	// Mark target notification as read
-	await markNotificationRead(notificationId);
-
-	// Update all kadep TX_KADEP notifications for this transfer to tgtApproved=true
-	const kadepNotifs = await findKadepTransferNotificationsBySrcTgt(sourceLecturerId, lecturer.id);
-	for (const kn of kadepNotifs) {
-		try {
-			const kPayload = JSON.parse(kn.message);
-			kPayload.tgtApproved = true;
-			await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
-		} catch {
-			// skip malformed
-		}
-	}
-
-	// Get names for notifications
-	const approverUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
-	const approverName = toTitleCaseName(approverUser?.fullName || "Dosen");
-	const sourceUser = await prisma.user.findUnique({ where: { id: sourceLecturerId }, select: { fullName: true } });
-	const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
-
-	// Notify source lecturer
-	await createInfoNotification(
-		sourceLecturerId,
-		"Transfer Disetujui Dosen Tujuan",
-		`${approverName} telah menyetujui transfer ${refs.length} mahasiswa. Menunggu persetujuan Ketua Departemen.`
-	);
-
-	// Notify kadep that target has approved
-	const kadepUsers = await findKadepUsers();
-	const kadepUserIds = kadepUsers.map((k) => k.id);
-	await createNotificationsForUsers(kadepUserIds, {
-		title: "Dosen Tujuan Menyetujui Transfer",
-		message: `${approverName} menyetujui permintaan transfer dari ${sourceName}. Silakan berikan persetujuan akhir.`,
-	});
-	await sendFcmToUsers(kadepUserIds, {
-		title: "Dosen Tujuan Menyetujui Transfer",
-		body: `${approverName} menyetujui transfer dari ${sourceName}. Menunggu approval Kadep.`,
-		data: { type: "transfer-target-approved" },
-	});
-
-	return {
-		message: `Transfer disetujui. Menunggu persetujuan Ketua Departemen.`,
-		results: refs.map((r) => ({ thesisId: r.tId, success: true })),
-	};
-}
-
-/**
- * Reject a transfer request (TARGET LECTURER)
- * Marks target notification read, updates kadep notifications to st=target_rejected, notifies source.
- */
-export async function rejectTransferRequestService(userId, notificationId, { reason } = {}) {
-	const lecturer = await getLecturerByUserId(userId);
-	ensureLecturer(lecturer);
-
-	const notif = await findTransferNotificationById(notificationId);
-	if (!notif || notif.userId !== lecturer.id) {
-		const err = new Error("Transfer request not found");
-		err.statusCode = 404;
-		throw err;
-	}
-	if (notif.isRead) {
-		const err = new Error("Transfer request already processed");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	let payload;
-	try {
-		payload = JSON.parse(notif.message);
-	} catch {
-		const err = new Error("Invalid transfer data");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	// Mark target notification as read (processed)
-	await markNotificationRead(notificationId);
-
-	// Update all kadep TX_KADEP notifications: mark as rejected by target, mark read
-	const kadepNotifs = await findKadepTransferNotificationsBySrcTgt(payload.src, lecturer.id);
-	for (const kn of kadepNotifs) {
-		try {
-			const kPayload = JSON.parse(kn.message);
-			kPayload.st = "target_rejected";
-			await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
-			await markNotificationRead(kn.id);
-		} catch {
-			// skip malformed
-		}
-	}
-
-	// Notify source lecturer
-	const rejecterUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
-	const rejecterName = toTitleCaseName(rejecterUser?.fullName || "Dosen");
-	const rejectReason = reason ? ` Alasan: ${reason}` : "";
-
-	await createInfoNotification(
-		payload.src,
-		"Transfer Mahasiswa Ditolak",
-		`${rejecterName} menolak permintaan transfer mahasiswa.${rejectReason}`
-	);
-
-	// Notify kadep that target rejected
-	const kadepUsers = await findKadepUsers();
-	const kadepUserIds = kadepUsers.map((k) => k.id);
-	if (kadepUserIds.length > 0) {
-		const sourceUser = await prisma.user.findUnique({ where: { id: payload.src }, select: { fullName: true } });
-		const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
-		await createNotificationsForUsers(kadepUserIds, {
-			title: "Transfer Ditolak Dosen Tujuan",
-			message: `${rejecterName} menolak permintaan transfer dari ${sourceName}.${rejectReason}`,
-		});
-	}
-
-	return { message: "Transfer request ditolak" };
-}
-
-// ==================== KADEP TRANSFER APPROVAL ====================
-
-/**
- * Get pending transfer requests for Kadep review
- */
-export async function getKadepPendingTransfersService(userId) {
-	const notifications = await findPendingKadepTransferNotifications(userId);
-	const transfers = [];
-
-	for (const notif of notifications) {
-		try {
-			const payload = JSON.parse(notif.message);
-			if (payload.t !== "TX_KADEP") continue;
-
-			// Get source lecturer info
-			const srcUser = await prisma.user.findUnique({
-				where: { id: payload.src },
-				select: { fullName: true },
-			});
-
-			// Get target lecturer info
-			const tgtUser = await prisma.user.findUnique({
-				where: { id: payload.tgt },
-				select: { fullName: true },
-			});
-
-			// Get student details
-			const thesisIds = (payload.refs || []).map((r) => r.tId);
-			const supRecords = thesisIds.length
-				? await prisma.thesisSupervisors.findMany({
-					where: { thesisId: { in: thesisIds } },
-					include: {
-						role: { select: { name: true } },
-						thesis: {
-							include: {
-								student: {
-									include: { user: { select: { fullName: true, identityNumber: true } } },
-								},
-							},
-						},
-					},
-				})
-				: [];
-
-			const byThesis = {};
-			for (const sr of supRecords) {
-				if (!byThesis[sr.thesisId]) byThesis[sr.thesisId] = sr;
-			}
-
-			const students = (payload.refs || []).map((ref) => {
-				const sr = byThesis[ref.tId];
-				return {
-					thesisId: ref.tId,
-					thesisSupervisorId: ref.sId,
-					studentName: sr?.thesis?.student?.user?.fullName || "Unknown",
-					studentNim: sr?.thesis?.student?.user?.identityNumber || "-",
-					thesisTitle: sr?.thesis?.title || "Untitled",
-					role: sr?.role?.name || "Pembimbing",
-				};
-			});
-
-			transfers.push({
-				notificationId: notif.id,
-				sourceLecturerId: payload.src,
-				sourceLecturerName: toTitleCaseName(srcUser?.fullName || "Dosen"),
-				targetLecturerId: payload.tgt,
-				targetLecturerName: toTitleCaseName(tgtUser?.fullName || "Dosen"),
-				students,
-				reason: payload.r,
-				targetApproved: !!payload.tgtApproved,
-				status: payload.st || "pending",
-				createdAt: notif.createdAt,
-			});
-		} catch {
-			// Skip non-JSON or malformed notifications
-		}
-	}
-
-	return { count: transfers.length, transfers };
-}
-
-/**
- * Get ALL kadep transfer notifications (for history view with pagination)
- */
-export async function getKadepAllTransfersService(userId, { page = 1, pageSize = 10, search = "", status = "" } = {}) {
-	const { notifications, total } = await findAllKadepTransferNotifications(userId, { page, pageSize, search });
-	const transfers = [];
-
-	for (const notif of notifications) {
-		try {
-			const payload = JSON.parse(notif.message);
-			if (payload.t !== "TX_KADEP") continue;
-
-			// Filter by status if provided
-			const transferStatus = payload.st || "pending";
-			if (status && transferStatus !== status) continue;
-
-			const srcUser = await prisma.user.findUnique({ where: { id: payload.src }, select: { fullName: true } });
-			const tgtUser = await prisma.user.findUnique({ where: { id: payload.tgt }, select: { fullName: true } });
-
-			const thesisIds = (payload.refs || []).map((r) => r.tId);
-			const supRecords = thesisIds.length
-				? await prisma.thesisSupervisors.findMany({
-					where: { thesisId: { in: thesisIds } },
-					include: {
-						role: { select: { name: true } },
-						thesis: {
-							include: {
-								student: {
-									include: { user: { select: { fullName: true, identityNumber: true } } },
-								},
-							},
-						},
-					},
-				})
-				: [];
-
-			const byThesis = {};
-			for (const sr of supRecords) {
-				if (!byThesis[sr.thesisId]) byThesis[sr.thesisId] = sr;
-			}
-
-			const students = (payload.refs || []).map((ref) => {
-				const sr = byThesis[ref.tId];
-				return {
-					thesisId: ref.tId,
-					thesisSupervisorId: ref.sId,
-					studentName: sr?.thesis?.student?.user?.fullName || "Unknown",
-					studentNim: sr?.thesis?.student?.user?.identityNumber || "-",
-					thesisTitle: sr?.thesis?.title || "Untitled",
-					role: sr?.role?.name || "Pembimbing",
-				};
-			});
-
-			transfers.push({
-				notificationId: notif.id,
-				sourceLecturerId: payload.src,
-				sourceLecturerName: toTitleCaseName(srcUser?.fullName || "Dosen"),
-				targetLecturerId: payload.tgt,
-				targetLecturerName: toTitleCaseName(tgtUser?.fullName || "Dosen"),
-				students,
-				reason: payload.r,
-				targetApproved: !!payload.tgtApproved,
-				status: transferStatus,
-				createdAt: notif.createdAt,
-			});
-		} catch {
-			// Skip non-JSON or malformed
-		}
-	}
-
-	return {
-		data: transfers,
-		pagination: {
-			total,
-			page,
-			pageSize,
-			totalPages: Math.ceil(total / pageSize),
-		},
-	};
-}
-
-/**
- * Kadep approves a transfer request → executes the actual supervisor swap
- * Only allowed if target lecturer has already approved (tgtApproved=true)
- */
-export async function kadepApproveTransferService(userId, notificationId) {
-	const notif = await findTransferNotificationById(notificationId);
-	if (!notif || notif.userId !== userId) {
-		const err = new Error("Transfer request not found");
-		err.statusCode = 404;
-		throw err;
-	}
-	if (notif.isRead) {
-		const err = new Error("Transfer request already processed");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	let payload;
-	try {
-		payload = JSON.parse(notif.message);
-	} catch {
-		const err = new Error("Invalid transfer data");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	if (payload.t !== "TX_KADEP") {
-		const err = new Error("Invalid kadep transfer request");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	if (!payload.tgtApproved) {
-		const err = new Error("Dosen tujuan belum menyetujui transfer ini");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	const targetLecturerId = payload.tgt;
-	const sourceLecturerId = payload.src;
-	const refs = payload.refs || [];
-
-	// Revival decision (e5): baseline flow is kept, but the transaction body follows the
-	// active app (status-based rows, quota sync, no P2 deletion or automatic P2->P1 promotion).
-	// Execute the actual supervisor swap in a transaction
-	const results = await prisma.$transaction(async (tx) => {
-		const txResults = [];
-		for (const ref of refs) {
-			const sourceRecord = await tx.thesisSupervisors.findFirst({
-				where: { id: ref.sId, thesisId: ref.tId, status: "active" },
-				include: {
-					role: { select: { id: true, name: true } },
-					thesis: { select: { academicYearId: true } },
-				},
-			});
-
-			if (!sourceRecord) {
-				throw new Error(`Active supervisor record not found for thesis ${ref.tId}`);
-			}
-
-			const targetActiveRecords = await tx.thesisSupervisors.findMany({
-				where: {
-					thesisId: ref.tId,
-					lecturerId: targetLecturerId,
-					status: "active",
-					id: { not: ref.sId },
-				},
-				select: { id: true },
-			});
-
-			if (targetActiveRecords.length > 0) {
-				await tx.thesisSupervisors.updateMany({
-					where: { id: { in: targetActiveRecords.map((record) => record.id) } },
-					data: { status: "terminated", activeRoleKey: null },
-				});
-			}
-
-			// Transfer the supervisor record to the target lecturer.
-			await tx.thesisSupervisors.update({
-				where: { id: ref.sId },
-				data: { lecturerId: targetLecturerId },
-			});
-
-			const allSupRecords = await tx.thesisSupervisors.findMany({
-				where: { thesisId: ref.tId, status: "active" },
-				include: { role: { select: { id: true, name: true } } },
-			});
-
-			const duplicateRole = [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2].find(
-				(roleName) => allSupRecords.filter((record) => record.role?.name === roleName).length > 1,
-			);
-			if (duplicateRole) {
-				throw new Error(`Duplicate active ${duplicateRole} remains after transfer for thesis ${ref.tId}`);
-			}
-
-			if (sourceRecord.thesis?.academicYearId) {
-				await syncLecturerQuotaCurrentCount(sourceLecturerId, sourceRecord.thesis.academicYearId, { client: tx });
-				await syncLecturerQuotaCurrentCount(targetLecturerId, sourceRecord.thesis.academicYearId, { client: tx });
-			}
-
-			txResults.push({ thesisId: ref.tId, success: true, promoted: false });
-		}
-		return txResults;
-	});
-
-	// Mark kadep notification as read and update status
-	const updatedPayload = { ...payload, st: "approved" };
-	await updateNotificationMessage(notificationId, JSON.stringify(updatedPayload));
-	await markNotificationRead(notificationId);
-
-	// Also mark other kadep notifications for the same transfer
-	const allKadepNotifs = await findKadepTransferNotificationsBySrcTgt(sourceLecturerId, targetLecturerId);
-	for (const kn of allKadepNotifs) {
-		if (kn.id !== notificationId) {
-			try {
-				const kPayload = JSON.parse(kn.message);
-				kPayload.st = "approved";
-				await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
-				await markNotificationRead(kn.id);
-			} catch {
-				// skip
-			}
-		}
-	}
-
-	// Get names for notifications
-	const kadepUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
-	const kadepName = toTitleCaseName(kadepUser?.fullName || "Ketua Departemen");
-	const sourceUser = await prisma.user.findUnique({ where: { id: sourceLecturerId }, select: { fullName: true } });
-	const sourceName = toTitleCaseName(sourceUser?.fullName || "Dosen");
-	const targetUser = await prisma.user.findUnique({ where: { id: targetLecturerId }, select: { fullName: true } });
-	const targetName = toTitleCaseName(targetUser?.fullName || "Dosen");
-
-	const successCount = results.filter((r) => r.success).length;
-
-	// Notify source lecturer
-	await createInfoNotification(
-		sourceLecturerId,
-		"Transfer Mahasiswa Disetujui",
-		`${kadepName} telah menyetujui transfer ${successCount} mahasiswa ke ${targetName}. Transfer berhasil dilaksanakan.`
-	);
-
-	// Notify target lecturer
-	await createInfoNotification(
-		targetLecturerId,
-		"Transfer Mahasiswa Selesai",
-		`${kadepName} menyetujui transfer. ${successCount} mahasiswa dari ${sourceName} sekarang menjadi bimbingan Anda.`
-	);
-
-	// Send FCM
-	await sendFcmToUsers([targetLecturerId], {
-		title: "Transfer Mahasiswa Selesai",
-		body: `${successCount} mahasiswa dari ${sourceName} sekarang menjadi bimbingan Anda`,
-		data: { type: "transfer-completed" },
-	});
-
-	// Notify students that their supervisor has changed
-	try {
-		for (const ref of refs) {
-			const thesis = await prisma.thesis.findUnique({
-				where: { id: ref.tId },
-				include: { student: { include: { user: { select: { id: true } } } } },
-			});
-			const studentUserId = thesis?.student?.user?.id;
-			if (studentUserId) {
-				await createNotificationsForUsers([studentUserId], {
-					title: "Dosen Pembimbing Berubah",
-					message: `Dosen pembimbing Anda telah berubah. ${targetName} sekarang menjadi pembimbing Anda.`,
-				});
-				await sendFcmToUsers([studentUserId], {
-					title: "Dosen Pembimbing Berubah",
-					body: `${targetName} sekarang menjadi dosen pembimbing Anda.`,
-					data: { type: "thesis-guidance:supervisor-changed", thesisId: ref.tId },
-				});
-			}
-		}
-	} catch (e) {
-		console.error("Failed to notify students about transfer:", e?.message || e);
-	}
-
-	return {
-		message: `Transfer ${successCount} mahasiswa berhasil disetujui dan dilaksanakan`,
-		results,
-	};
-}
-
-/**
- * Kadep rejects a transfer request
- */
-export async function kadepRejectTransferService(userId, notificationId, { reason } = {}) {
-	const notif = await findTransferNotificationById(notificationId);
-	if (!notif || notif.userId !== userId) {
-		const err = new Error("Transfer request not found");
-		err.statusCode = 404;
-		throw err;
-	}
-	if (notif.isRead) {
-		const err = new Error("Transfer request already processed");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	let payload;
-	try {
-		payload = JSON.parse(notif.message);
-	} catch {
-		const err = new Error("Invalid transfer data");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	if (payload.t !== "TX_KADEP") {
-		const err = new Error("Invalid kadep transfer request");
-		err.statusCode = 400;
-		throw err;
-	}
-
-	// Update status and mark as read
-	const updatedPayload = { ...payload, st: "rejected" };
-	await updateNotificationMessage(notificationId, JSON.stringify(updatedPayload));
-	await markNotificationRead(notificationId);
-
-	// Also mark other kadep notifications for the same transfer
-	const allKadepNotifs = await findKadepTransferNotificationsBySrcTgt(payload.src, payload.tgt);
-	for (const kn of allKadepNotifs) {
-		if (kn.id !== notificationId) {
-			try {
-				const kPayload = JSON.parse(kn.message);
-				kPayload.st = "rejected";
-				await updateNotificationMessage(kn.id, JSON.stringify(kPayload));
-				await markNotificationRead(kn.id);
-			} catch {
-				// skip
-			}
-		}
-	}
-
-	// Also mark target lecturer's TX notification as read (cancel it)
-	const targetTxNotifs = await findPendingTransferNotifications(payload.tgt);
-	for (const txn of targetTxNotifs) {
-		try {
-			const txPayload = JSON.parse(txn.message);
-			if (txPayload.t === "TX" && txPayload.src === payload.src) {
-				await markNotificationRead(txn.id);
-			}
-		} catch {
-			// skip
-		}
-	}
-
-	// Notify source lecturer about rejection
-	const kadepUser = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
-	const kadepName = toTitleCaseName(kadepUser?.fullName || "Ketua Departemen");
-	const rejectReason = reason ? ` Alasan: ${reason}` : "";
-
-	await createInfoNotification(
-		payload.src,
-		"Transfer Mahasiswa Ditolak oleh Kadep",
-		`${kadepName} menolak permintaan transfer mahasiswa.${rejectReason}`
-	);
-
-	// Notify target lecturer that transfer was cancelled
-	const targetUser = await prisma.user.findUnique({ where: { id: payload.tgt }, select: { fullName: true } });
-	const targetName = toTitleCaseName(targetUser?.fullName || "Dosen");
-	await createInfoNotification(
-		payload.tgt,
-		"Transfer Mahasiswa Dibatalkan",
-		`${kadepName} menolak permintaan transfer mahasiswa. Transfer tidak dilanjutkan.`
-	);
-
-	// Send FCM to source lecturer
-	await sendFcmToUsers([payload.src], {
-		title: "Transfer Mahasiswa Ditolak",
-		body: `${kadepName} menolak permintaan transfer mahasiswa`,
-		data: { type: "transfer-request-rejected-kadep" },
-	});
-
-	return { message: "Transfer request ditolak oleh Kadep" };
 }

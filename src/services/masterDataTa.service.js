@@ -15,12 +15,12 @@ import {
     replaceSupervisorAssignments,
     getCanonicalSupervisorRoles,
 } from "../utils/supervisorIntegrity.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
+import { summarizeThesisProgress } from "../helpers/thesis-progress.helper.js";
 
 const ALL_THESIS_STATUSES = Object.values(THESIS_STATUS);
 
-/** Legacy status names accepted from imported spreadsheets (K15 mapping). */
+/** Legacy status names accepted from imported spreadsheets, mapped to the status enum. */
 const LEGACY_STATUS_NAMES = {
     "diajukan": THESIS_STATUS.PROPOSAL,
     "proposal": THESIS_STATUS.PROPOSAL,
@@ -66,13 +66,16 @@ export const getAllThesesMasterData = async () => {
     const theses = await masterDataTaRepository.findAllTheses();
 
     // Map data to the format expected by the frontend table
+    const now = new Date();
     return theses.map((thesis) => {
-        const isCompleted = thesis.status === THESIS_STATUS.COMPLETED;
+        const progress = summarizeThesisProgress(thesis, now);
 
         return {
             id: thesis.id,
             title: thesis.title,
-            rating: isCompleted ? null : thesis.rating,
+            // Derived, read-only: activity level and supervision clock.
+            activityLevel: progress.activityLevel,
+            supervisionClock: progress.supervisionClock,
             startDate: thesis.startDate,
             student: {
                 id: thesis.student?.id,
@@ -90,7 +93,7 @@ export const getAllThesesMasterData = async () => {
                 roleName: ts.role?.name
             })),
             status: thesis.status,
-            // K21: the form offers only allowed transitions (on_leave returns to statusBeforeLeave)
+            // The form offers only allowed transitions (on_leave returns to statusBeforeLeave)
             statusBeforeLeave: thesis.statusBeforeLeave ?? null,
             terminationReason: thesis.terminationReason ?? null,
             terminationNote: thesis.terminationNote ?? null,
@@ -103,7 +106,7 @@ export const getAllThesesMasterData = async () => {
     });
 };
 
-/** Supervisor input -> [{ lecturerId, roleId }]; P1 required when `requireP1`. */
+/** Supervisor input -> [{ lecturerId, roleId }]; Pembimbing 1 required when `requireP1`. */
 async function buildSupervisors(client, { pembimbing1, pembimbing2 }, { requireP1 }) {
     const p1 = pembimbing1 && pembimbing1 !== "none" ? pembimbing1 : null;
     const p2 = pembimbing2 && pembimbing2 !== "none" ? pembimbing2 : null;
@@ -126,8 +129,8 @@ async function assertTopicExists(client, thesisTopicId) {
 }
 
 /**
- * K21 create: one open thesis per student, explicit status (default research), P1 required,
- * `failed` needs a termination reason. Rating is never taken from input (computed by the job).
+ * Create: one open thesis per student, explicit status (default research), Pembimbing 1 required,
+ * `failed` needs a termination reason. The activity level is derived, never an input.
  */
 export const createThesisMasterData = async (data, { actorUserId = null, client = prisma } = {}) => {
     const status = data.status ?? THESIS_STATUS.RESEARCH;
@@ -145,8 +148,6 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
     }
 
     const startDate = data.startDate ? new Date(data.startDate) : new Date();
-    const deadlineDate = data.deadlineDate ? new Date(data.deadlineDate) : new Date(startDate);
-    if (!data.deadlineDate) deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
 
     const run = async (tx) => {
         if (OPEN_THESIS_STATUSES.includes(status)) {
@@ -169,19 +170,14 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
                 thesisTopicId: data.thesisTopicId || null,
                 academicYearId: activeYear.id,
                 startDate,
-                deadlineDate,
-                rating: "ONGOING",
                 ...statusData,
             },
         });
 
-        const result = await createSupervisorAssignments(tx, thesis.id, supervisors, { requireP1: true });
+        await createSupervisorAssignments(tx, thesis.id, supervisors, { requireP1: true });
         // A thesis created as failed keeps its supervisors only as history (released).
         if (status === THESIS_STATUS.FAILED) {
             await applyTerminationSideEffects(tx, thesis.id, { now });
-        }
-        for (const lecturerId of result.affectedLecturerIds) {
-            await syncQuotaCount(tx, lecturerId, activeYear.id);
         }
         await tx.auditLog.create({
             data: {
@@ -198,9 +194,9 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
 };
 
 /**
- * K21 update: status follows the K15 transitions (failed / on_leave rules in
+ * Update: status follows the allowed transitions (failed / on_leave rules in
  * thesisLifecycle.service), topic and supervisors can be set, replaced supervisors become
- * "released". Rating is not editable here.
+ * "released". `startDate` stays editable: it is where the supervision clock starts.
  */
 export const updateThesisMasterData = async (id, data, { actorUserId = null, client = prisma } = {}) => {
     const run = async (tx) => {
@@ -227,15 +223,9 @@ export const updateThesisMasterData = async (id, data, { actorUserId = null, cli
             thesis = await tx.thesis.update({ where: { id }, data: fields });
         }
 
-        const ayId = thesis.academicYearId;
         if (wantsSupervisorChange && !closed) {
             const supervisors = await buildSupervisors(tx, data, { requireP1: true });
-            const result = await replaceSupervisorAssignments(tx, id, supervisors, { requireP1: true });
-            if (ayId) {
-                for (const lecturerId of result.affectedLecturerIds) {
-                    await syncQuotaCount(tx, lecturerId, ayId);
-                }
-            }
+            await replaceSupervisorAssignments(tx, id, supervisors, { requireP1: true });
         }
 
         if (data.status && data.status !== existing.status) {
@@ -249,51 +239,6 @@ export const updateThesisMasterData = async (id, data, { actorUserId = null, cli
         return thesis;
     };
     return client === prisma ? prisma.$transaction(run) : run(client);
-};
-
-export const syncSia = async () => {
-    const theses = await masterDataTaRepository.findAllTheses();
-
-    // Format JSON needed for SIA Snapshot
-    const syncData = theses.map((thesis) => ({
-        id: thesis.id,
-        judul: thesis.title || "Belum Ada Judul",
-        mahasiswa: {
-            nim: thesis.student?.user?.identityNumber,
-            nama: thesis.student?.user?.fullName
-        },
-        pembimbing: thesis.thesisSupervisors.map(ts => ({
-            nama: ts.lecturer?.user?.fullName,
-            peran: ts.role?.name
-        }))
-    }));
-
-    try {
-        const siaBase = process.env.SIA_BASE_URL || "http://localhost:4000";
-        const response = await fetch(`${siaBase}/sync-ta`, {
-            method: "POST",
-            body: JSON.stringify({ data: syncData }),
-            headers: {
-                "x-api-token": process.env.SIA_API_TOKEN || "dev-sia-token",
-                "Content-Type": "application/json"
-            }
-        });
-
-        if (!response.ok) {
-            let errBody;
-            try {
-                errBody = await response.json();
-            } catch (e) {
-                errBody = { message: response.statusText };
-            }
-            throw new Error(errBody.message || "Request failed");
-        }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        throw new Error("Gagal melakukan sinkronisasi dengan SIA: " + error.message);
-    }
 };
 
 /** Lecturer by full name (exact, case-insensitive), else a unique partial match. */
@@ -314,10 +259,10 @@ async function findLecturerByName(name) {
 }
 
 /**
- * K21 import: each row follows the same rules as add/edit (one open thesis per student,
- * K15 transitions, `failed` needs "Alasan Penghentian", P1 required for a new thesis).
+ * Import: each row follows the same rules as add/edit (one open thesis per student,
+ * allowed status transitions, `failed` needs "Alasan Penghentian", Pembimbing 1 required for a new thesis).
  * A failing row is reported with its row number and never stops the other rows.
- * The "Rating" column is ignored: rating is computed by the rating job.
+ * The "Aktivitas" column of an exported file is ignored: the activity level is derived.
  */
 export const importThesesMasterData = async (rows, { actorUserId = null } = {}) => {
     const results = {
@@ -325,7 +270,7 @@ export const importThesesMasterData = async (rows, { actorUserId = null } = {}) 
         updated: 0,
         failed: 0,
         errors: [],
-        ignoredColumns: ["Rating"],
+        ignoredColumns: ["Aktivitas"],
     };
 
     for (let i = 0; i < rows.length; i++) {

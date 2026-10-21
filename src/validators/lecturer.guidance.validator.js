@@ -4,7 +4,7 @@ export const feedbackSchema = z.object({
   feedback: z.string().min(1, "feedback is required"),
 });
 
-// K19: a time "in the future" allows the same 5-minute tolerance as a student request.
+// A time "in the future" allows the same 5-minute tolerance as a student request.
 const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 const futureDate = (message) =>
   z.preprocess(
@@ -23,7 +23,7 @@ const reasonText = (label) =>
   );
 
 /**
- * K19: rejecting a request needs a reason; the lecturer may suggest another time.
+ * Rejecting a request needs a reason; the lecturer may suggest another time.
  * `feedback`/`message` are accepted as aliases of `reason` for older clients.
  */
 export const rejectGuidanceSchema = z
@@ -42,14 +42,14 @@ export const rejectGuidanceSchema = z
     }),
   );
 
-/** K19: the lecturer moves an accepted session; the new time applies immediately. */
+/** The lecturer moves an accepted session; the new time applies immediately. */
 export const lecturerRescheduleGuidanceSchema = z.object({
   newDate: futureDate("Jadwal baru harus di masa depan"),
   reason: reasonText("Alasan perubahan jadwal"),
   duration: z.coerce.number().int().min(15).max(480).optional(),
 });
 
-/** K19: the lecturer asks the student to revise the session summary. */
+/** The lecturer asks the student to revise the session summary. */
 export const rejectSummarySchema = z.object({
   notes: reasonText("Catatan perbaikan ringkasan"),
 });
@@ -64,20 +64,4 @@ export const cancelGuidanceSchema = z.object({
 
 export const approveComponentsSchema = z.object({
   componentIds: z.array(z.string().min(1)).min(1, "componentIds cannot be empty"),
-});
-
-export const failThesisSchema = z.object({
-  reason: z.string().min(1).optional(),
-});
-
-// ==================== STUDENT TRANSFER ====================
-
-export const transferStudentsSchema = z.object({
-  thesisIds: z.array(z.string().uuid("Each thesisId must be a valid UUID")).min(1, "Select at least 1 student"),
-  targetLecturerId: z.string().uuid("targetLecturerId must be a valid UUID"),
-  reason: z.string().min(10, "Alasan transfer minimal 10 karakter"),
-});
-
-export const rejectTransferSchema = z.object({
-  reason: z.string().optional(),
 });

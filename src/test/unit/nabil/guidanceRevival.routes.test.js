@@ -85,7 +85,7 @@ describe("Endpoint penyelesaian langsung ditutup", () => {
     expect(milestoneRow("m-progress").status).toBe("in_progress");
   });
 
-  it("PATCH /lecturer/progress/:studentId/approve → 410 bahkan untuk P1 aktif", async () => {
+  it("PATCH /lecturer/progress/:studentId/approve → 410 bahkan untuk Pembimbing 1 aktif", async () => {
     const res = await request(app)
       .patch("/thesisGuidance/lecturer/progress/stu1/approve")
       .set(as("p1"))
@@ -109,7 +109,7 @@ describe("Endpoint penyelesaian langsung ditutup", () => {
 });
 
 describe("Alur resmi lewat route", () => {
-  it("ringkasan → persetujuan P1 → completed; summary_rejected dapat dikirim ulang", async () => {
+  it("ringkasan → persetujuan Pembimbing 1 → completed; summary_rejected dapat dikirim ulang", async () => {
     const submit = await request(app)
       .post("/thesisGuidance/student/guidance/g-acc/submit-summary")
       .set(as("stu1"))
@@ -131,7 +131,7 @@ describe("Alur resmi lewat route", () => {
     expect(guidanceRow("g-rej").status).toBe("summary_pending");
   });
 
-  it("progres 100% → pending_review; validasi: mahasiswa 403 (guard), P2 403 (service), P1 200", async () => {
+  it("progres 100% → pending_review; validasi: mahasiswa 403 (guard), Pembimbing 2 403 (service), Pembimbing 1 200", async () => {
     const progress = await request(app)
       .patch("/milestones/m-progress/progress")
       .set(as("stu1"))
@@ -151,7 +151,7 @@ describe("Alur resmi lewat route", () => {
 });
 
 describe("Otorisasi pembimbing dan GKM lewat route", () => {
-  it("pembimbing released memegang role P1 global tetapi ditolak menyetujui ringkasan (403)", async () => {
+  it("pembimbing released memegang role Pembimbing 1 global tetapi ditolak menyetujui ringkasan (403)", async () => {
     const res = await request(app)
       .put("/thesisGuidance/lecturer/guidance/g-pend-rel/approve-summary")
       .set(as("rel"));
@@ -164,11 +164,54 @@ describe("Otorisasi pembimbing dan GKM lewat route", () => {
     expect(res.status).toBe(403);
   });
 
-  it("peringatan monitoring: mahasiswa 403 (guard), GKM 403 (service), KaDep 200", async () => {
+  it("peringatan monitoring: mahasiswa 403 (guard); KaDep, Sekdep, dan GKM 200", async () => {
+    // 90 days without activity: Lambat, so a warning may be sent.
+    store.state.thesis[0].startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     const path = "/thesisGuidance/monitoring/theses/t1/send-warning";
-    expect((await request(app).post(path).set(as("stu1")).send({ warningType: "SLOW" })).status).toBe(403);
-    expect((await request(app).post(path).set(as("gkm")).send({ warningType: "SLOW" })).status).toBe(403);
-    expect((await request(app).post(path).set(as("kadep")).send({ warningType: "SLOW" })).status).toBe(200);
+    expect((await request(app).post(path).set(as("stu1")).send({ warningType: "slow" })).status).toBe(403);
+    expect((await request(app).post(path).set(as("gkm")).send({ warningType: "slow" })).status).toBe(200);
+    expect((await request(app).post(path).set(as("sekdep")).send({ warningType: "slow" })).status).toBe(200);
+    expect((await request(app).post(path).set(as("kadep")).send({ warningType: "slow" })).status).toBe(200);
+    // An unrelated lecturer without a department role is still refused (router guard).
+    expect((await request(app).post(path).set(as("other")).send({ warningType: "slow" })).status).toBe(403);
+  });
+
+  it("peringatan: tingkat dihitung server, `warningType` dari klien diabaikan; TA Lancar ditolak 400", async () => {
+    store.state.thesis[0].startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const single = await request(app)
+      .post("/thesisGuidance/monitoring/theses/t1/send-warning")
+      .set(as("kadep"))
+      .send({ warningType: "at_risk" });
+    expect(single.status).toBe(200);
+    expect(single.body.warningType).toBe("slow");
+
+    const fromLecturerPage = await request(app)
+      .post("/thesisGuidance/lecturer/my-students/t1/send-warning")
+      .set(as("p1"))
+      .send({ warningType: "at_risk" });
+    expect(fromLecturerPage.status).toBe(200);
+    expect(fromLecturerPage.body.warningType).toBe("slow");
+
+    const batch = await request(app)
+      .post("/thesisGuidance/monitoring/batch-warning")
+      .set(as("kadep"))
+      .send({ thesisIds: ["t1"], warningType: "at_risk" });
+    expect(batch.status).toBe(200);
+    expect(batch.body.sent).toEqual([{ thesisId: "t1", studentName: "Mahasiswa Uji", warningType: "slow" }]);
+
+    // The same thesis with activity today is Lancar: nothing is sent.
+    store.state.thesis[0].startDate = new Date();
+    const active = await request(app)
+      .post("/thesisGuidance/monitoring/theses/t1/send-warning")
+      .set(as("kadep"))
+      .send({ warningType: "at_risk" });
+    expect(active.status).toBe(400);
+    const activeBatch = await request(app)
+      .post("/thesisGuidance/monitoring/batch-warning")
+      .set(as("kadep"))
+      .send({ thesisIds: ["t1"], warningType: "at_risk" });
+    expect(activeBatch.status).toBe(200);
+    expect(activeBatch.body).toMatchObject({ sentCount: 0, notSent: [{ thesisId: "t1", reason: "active" }] });
   });
 
   it("GKM tetap dapat membaca dashboard monitoring (akses baca dipertahankan)", async () => {

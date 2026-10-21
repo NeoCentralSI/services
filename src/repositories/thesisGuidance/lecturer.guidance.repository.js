@@ -3,12 +3,32 @@ import { ROLES } from "../../constants/roles.js";
 import { byScheduledAt } from "../../constants/guidanceStatus.js";
 import {
 	THESIS_STATUS,
-	POST_PROPOSAL_THESIS_STATUSES,
+	THESIS_PHASE,
 	TA_PHASE,
+	CLOSED_THESIS_STATUSES,
+	currentPhaseOf,
 } from "../../constants/thesisStatus.js";
+import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
+
+/** Derived progress fields carried by a "my students" row. */
+const pickProgress = ({ activityLevel, lastActivityAt, daysSinceActivity, supervisionClock }) => ({
+	activityLevel,
+	lastActivityAt,
+	daysSinceActivity,
+	supervisionClock,
+});
 
 /** TA fase TA yang sedang berjalan, termasuk yang ditangguhkan (BSS). */
 const RUNNING_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE];
+
+/**
+ * A thesis sent back to `proposal` by an approved guidance evaluation. Its supervisors
+ * keep seeing it among their students, with the reason guidance is locked.
+ */
+const REPEATING_PROPOSAL_THESIS = Object.freeze({
+	status: THESIS_STATUS.PROPOSAL,
+	thesisGuidanceEvaluations: { some: { status: "approved", recommendation: "revise_proposal" } },
+});
 
 // Helper to resolve lecturer by userId (JWT sub)
 // Schema baru: Lecturer.id adalah foreign key ke User.id
@@ -16,10 +36,34 @@ export async function getLecturerByUserId(userId) {
 	return prisma.lecturer.findUnique({ where: { id: userId } });
 }
 
+/** A release at the same moment the thesis was closed (same transaction) counts as "at closing". */
+const CLOSE_TOLERANCE_MS = 60 * 1000;
+
+/**
+ * Where a supervisor relation stands for "Mahasiswa Bimbingan".
+ * - `active`: supervising now (or still active on a completed thesis);
+ * - `closed`: released together with the closing of a failed/completed thesis, so the
+ *   lecturer was supervising when it ended (history filters Selesai/Gagal);
+ * - `ended`: released earlier (replaced through a change request, cancelled request, Admin):
+ *   the lecturer no longer supervises; only "Semua" shows it, read-only.
+ */
+export function supervisorRelationState(relation, thesis) {
+	if (relation?.status === "active") return "active";
+	if (relation?.status !== "released") return "ended";
+	if (!CLOSED_THESIS_STATUSES.includes(thesis?.status)) return "ended";
+	const closedAt = thesis.terminatedAt ?? thesis.statusChangedAt;
+	if (!closedAt || !relation.updatedAt) return "closed";
+	return new Date(relation.updatedAt).getTime() >= new Date(closedAt).getTime() - CLOSE_TOLERANCE_MS ? "closed" : "ended";
+}
+
 // List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
-/** K21: "Mahasiswa Bimbingan" filters. Default = active (research + on_leave). */
+/**
+ * "Mahasiswa Bimbingan" filters. Default = active (research + on_leave). `proposal` lists
+ * the proposal-phase students; one repeating its proposal stays under "Aktif".
+ */
 export const MY_STUDENTS_FILTERS = Object.freeze({
 	active: RUNNING_TA_STATUSES,
+	proposal: [THESIS_STATUS.PROPOSAL],
 	completed: [THESIS_STATUS.COMPLETED],
 	failed: [THESIS_STATUS.FAILED],
 	all: [...RUNNING_TA_STATUSES, THESIS_STATUS.COMPLETED, THESIS_STATUS.FAILED],
@@ -29,10 +73,15 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 	const statuses = MY_STUDENTS_FILTERS[filter] ?? MY_STUDENTS_FILTERS.active;
 	const where = {
 		lecturerId,
-		// Revival adaptation (A1): terminated supervisor rows no longer grant access.
-		// Released rows stay visible so finished/failed students remain in the history filters.
-		status: { not: "terminated" },
-		thesis: { status: { in: statuses } }
+		// Running theses count active relations only; the history filters also
+		// read released rows and keep those released at closing (supervisorRelationState).
+		status: filter === "active" || filter === "proposal" ? "active" : { in: ["active", "released"] },
+		// A thesis that repeats its proposal is still a running one for its supervisors.
+		thesis: filter === "active" || filter === "all"
+			? { OR: [{ status: { in: statuses } }, REPEATING_PROPOSAL_THESIS] }
+			: filter === "proposal"
+				? { status: THESIS_STATUS.PROPOSAL, NOT: { thesisGuidanceEvaluations: REPEATING_PROPOSAL_THESIS.thesisGuidanceEvaluations } }
+				: { status: { in: statuses } }
 	};
 	if (Array.isArray(roles) && roles.length) {
 		// Filter by role.name from UserRole
@@ -49,34 +98,53 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 							user: { select: { id: true, fullName: true, email: true, identityNumber: true } },
 						},
 					},
-					// Include ALL milestones to calculate progress
+					// Milestones and completed sessions of both phases; each row counts its current phase.
 					thesisMilestones: {
-						where: TA_PHASE,
-						select: { id: true, title: true, status: true, progressPercentage: true }
+						where: { status: { not: 'deleted' } },
+						select: { id: true, title: true, status: true, phase: true, progressPercentage: true, updatedAt: true, completedAt: true }
 					},
-					// Get completed guidances count
 					thesisGuidances: {
-						where: { status: 'completed', ...TA_PHASE },
+						where: { status: 'completed' },
 						orderBy: { completedAt: 'desc' },
-						select: { id: true, completedAt: true }
+						select: { id: true, phase: true, approvedDate: true, completedAt: true }
 					},
+					// Read by the derived activity level (helpers/thesis-progress.helper.js)
+					thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
+					thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
+					// The open change request (marker and rules of Ajukan Perubahan / Alihkan).
+					thesisChangeRequests: { where: { status: "pending" }, select: { id: true }, take: 1 },
+					// A title-only change waits while the defence is in process.
+					thesisDefences: { select: { status: true } },
 				},
 			},
 		},
 	});
 
-	// One row per thesis (a student may have a failed thesis and a new one under "Semua")
+	// One row per thesis (a student may have a failed thesis and a new one under "Semua"); a
+	// lecturer with several relations to one thesis is represented by the active one first.
+	const STATE_ORDER = { active: 0, closed: 1, ended: 2 };
+	const rows = participants
+		.filter((p) => p.thesis && p.thesis.student)
+		.map((p) => ({ p, state: supervisorRelationState(p, p.thesis) }))
+		.filter(({ state }) => filter === "all" || state !== "ended")
+		.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]);
+	const now = new Date();
 	const seen = new Set();
 	const result = [];
-	for (const p of participants) {
-		if (!p.thesis || !p.thesis.student) continue;
+	for (const { p, state } of rows) {
 		const sid = p.thesis.student.id;
 		if (seen.has(p.thesis.id)) continue;
 		seen.add(p.thesis.id);
 
-		// Get safe values
-		const milestones = p.thesis.thesisMilestones || [];
-		const guidances = p.thesis.thesisGuidances || [];
+		// Counts follow the thesis's current phase; activity stays research-only.
+		const phase = currentPhaseOf(p.thesis.status);
+		const milestones = (p.thesis.thesisMilestones || []).filter((m) => m.phase === phase);
+		const guidances = (p.thesis.thesisGuidances || []).filter((g) => g.phase === phase);
+		const researchThesis = {
+			...p.thesis,
+			thesisMilestones: (p.thesis.thesisMilestones || []).filter((m) => m.phase === THESIS_PHASE.RESEARCH),
+			thesisGuidances: (p.thesis.thesisGuidances || []).filter((g) => g.phase === THESIS_PHASE.RESEARCH),
+		};
 
 		// Calculate milestone progress
 		const totalMilestones = milestones.length;
@@ -95,13 +163,16 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 		result.push({
 			thesisId: p.thesisId,
 			thesisTitle: p.thesis?.title ?? null,
-			thesisRating: p.thesis?.rating || "ONGOING", // Enum from Thesis model
+			// Derived when read: activity level and supervision clock
+			...pickProgress(summarizeThesisProgress(researchThesis, now)),
 			thesisStatus: p.thesis?.status ?? null,
 			studentId: sid,
 			studentUser: p.thesis.student.user,
 			role: p.role?.name || null,
 			// Relation status (active/released) so the UI only offers actions to active supervisors.
 			supervisorStatus: p.status || null,
+			// Released before the thesis closed (e.g. replaced): "Tidak lagi membimbing", read-only.
+			noLongerSupervising: state === "ended",
 			latestMilestone: latestMilestone ? latestMilestone.title : "Belum mulai",
 			// New fields for progress info
 			totalMilestones,
@@ -109,8 +180,14 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			milestoneProgress, // percentage 0-100
 			completedGuidanceCount,
 			lastGuidanceDate,
-			deadlineDate: p.thesis?.deadlineDate ?? null,
 			startDate: p.thesis?.startDate ?? null,
+			// Read by the change rules of the row (thesis-change-request.service.js).
+			changeState: {
+				status: p.thesis?.status ?? null,
+				thesisSeminars: p.thesis?.thesisSeminars ?? [],
+				thesisDefences: p.thesis?.thesisDefences ?? [],
+				hasOpenRequest: (p.thesis?.thesisChangeRequests ?? []).length > 0,
+			},
 		});
 	}
 	return result;
@@ -126,7 +203,6 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 	const where = {
 		supervisorId: lecturerId,
 		status: "requested",
-		...TA_PHASE,
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -158,7 +234,8 @@ export async function findGuidanceRequests(lecturerId, { page = 1, pageSize = 10
 
 export async function findGuidanceByIdForLecturer(guidanceId, lecturerId) {
 	return prisma.thesisGuidance.findFirst({
-		where: { id: guidanceId, supervisorId: lecturerId, ...TA_PHASE },
+		// Sessions of either phase are acted on the same way.
+		where: { id: guidanceId, supervisorId: lecturerId },
 		include: {
 			thesis: { include: { student: { include: { user: true } } } },
 			supervisor: { include: { user: true } },
@@ -249,15 +326,15 @@ export function findActiveSupervisorRelation(thesisId, lecturerId) {
 		},
 		include: {
 			role: { select: { id: true, name: true } },
-			// Thesis status gates session actions (only research, K15).
-			thesis: { select: { status: true } },
+			// Thesis status gates session actions: research, or proposal after Penetapan.
+			thesis: { select: { id: true, status: true, supervisorAssignedAt: true } },
 		},
 	});
 }
 
 export async function getLecturerTheses(lecturerId) {
 	const parts = await prisma.thesisSupervisors.findMany({
-		where: { lecturerId, status: { not: "terminated" }, role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } }, thesis: { status: { in: RUNNING_TA_STATUSES } } },
+		where: { lecturerId, status: "active", role: { name: { in: [ROLES.PEMBIMBING_1, ROLES.PEMBIMBING_2] } }, thesis: { status: { in: RUNNING_TA_STATUSES } } },
 		select: { thesisId: true },
 	});
 	return parts.map((p) => p.thesisId);
@@ -382,7 +459,6 @@ export async function upsertCompletionsValidated(thesisId, componentIds = [], va
 export async function listGuidanceHistory(studentId, lecturerId) {
 	const rows = await prisma.thesisGuidance.findMany({
 		where: {
-			...TA_PHASE,
 			thesis: { studentId },
 			status: { not: "deleted" },
 		},
@@ -427,12 +503,9 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 	// History read: any supervisor relation (active, released, terminated) may read the
 	// detail, as before the revival. Action authority is checked separately via
 	// findActiveSupervisorRelation; userRole in the response comes from active rows only.
+	// Proposal-phase theses are read here too (guidance and milestones of both phases).
 	const participant = await prisma.thesisSupervisors.findFirst({
-		where: {
-			thesisId,
-			lecturerId,
-			thesis: { status: { in: POST_PROPOSAL_THESIS_STATUSES } }
-		},
+		where: { thesisId, lecturerId },
 		include: { role: { select: { id: true, name: true } } },
 	});
 	if (!participant) return null;
@@ -452,13 +525,16 @@ export async function findThesisDetailForLecturer(thesisId, lecturerId) {
 					}
 				}
 			},
-			// Revival adaptation (A2): baseline `thesisProposal` relation no longer exists.
-			proposalDocument: true,
-			finalProposalVersion: {
-				include: { document: true }
+			// Final proposal of the latest Research Method attempt.
+			researchMethodAssessments: {
+				where: { proposalFilePath: { not: null } },
+				orderBy: { createdAt: "desc" },
+				take: 1,
+				select: { id: true, proposalFilePath: true, proposalFileName: true },
 			},
+			// Both phases; each milestone carries its phase (10.7).
 			thesisMilestones: {
-				where: TA_PHASE,
+				where: { status: { not: "deleted" } },
 				orderBy: { updatedAt: "desc" }
 			},
 			thesisSupervisors: {
@@ -485,7 +561,6 @@ export async function findGuidancesPendingApproval(lecturerId, { page = 1, pageS
 	const where = {
 		supervisorId: lecturerId,
 		status: "summary_pending",
-		...TA_PHASE,
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -551,7 +626,6 @@ export async function findPendingGuidanceById(guidanceId, lecturerId) {
 			id: guidanceId,
 			supervisorId: lecturerId,
 			status: "summary_pending",
-			...TA_PHASE,
 		},
 		include: {
 			thesis: {
@@ -575,9 +649,8 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 
 	const where = {
 		supervisorId: lecturerId,
-		// K19: every post-request state; legacy "rescheduled" stays visible as a scheduled session.
+		// Every post-request state; legacy "rescheduled" stays visible as a scheduled session.
 		status: { in: ["accepted", "rescheduled", "summary_rejected", "summary_pending", "completed", "cancelled", "rejected"] },
-		...TA_PHASE,
 	};
 
 	const [total, rows] = await prisma.$transaction([
@@ -605,270 +678,4 @@ export async function findScheduledGuidances(lecturerId, { page = 1, pageSize = 
 	]);
 
 	return { total, rows, page: currentPage, pageSize: take };
-}
-
-// ==================== STUDENT TRANSFER ====================
-
-/**
- * Find lecturers eligible to receive student transfers (have active "Pembimbing 1" role)
- */
-export async function findEligibleTransferLecturers(excludeLecturerId) {
-	const pembimbing1Lecturers = await prisma.userHasRole.findMany({
-		where: {
-			role: { name: ROLES.PEMBIMBING_1 },
-			status: "active",
-			userId: { not: excludeLecturerId },
-		},
-		include: {
-			user: {
-				select: {
-					id: true, fullName: true, identityNumber: true,
-					lecturer: {
-						select: {
-							id: true,
-							thesisSupervisors: {
-								where: { role: { name: ROLES.PEMBIMBING_1 } },
-								select: { id: true },
-							},
-						},
-					},
-				},
-			},
-		},
-	});
-
-	return pembimbing1Lecturers
-		.filter((uhr) => uhr.user?.lecturer)
-		.map((uhr) => ({
-			id: uhr.user.id,
-			fullName: uhr.user.fullName,
-			identityNumber: uhr.user.identityNumber,
-			currentStudentCount: uhr.user.lecturer?.thesisSupervisors?.length || 0,
-		}));
-}
-
-/**
- * Find ThesisSupervisors records for given thesisIds belonging to a specific lecturer
- */
-export async function findSupervisorRecords(thesisIds, lecturerId) {
-	return prisma.thesisSupervisors.findMany({
-		where: {
-			thesisId: { in: thesisIds },
-			lecturerId,
-			status: "active",
-			thesis: { status: { in: RUNNING_TA_STATUSES } }
-		},
-		include: {
-			role: { select: { id: true, name: true } },
-			thesis: {
-				include: {
-					student: { include: { user: { select: { id: true, fullName: true, identityNumber: true } } } },
-					thesisSupervisors: {
-						include: {
-							role: { select: { id: true, name: true } },
-							lecturer: { include: { user: { select: { id: true, fullName: true } } } },
-						},
-					},
-				},
-			},
-		},
-	});
-}
-
-/**
- * Transfer a ThesisSupervisors record to a new lecturer
- */
-export async function transferSupervisor(thesisSupervisorId, newLecturerId) {
-	return prisma.thesisSupervisors.update({
-		where: { id: thesisSupervisorId },
-		data: { lecturerId: newLecturerId },
-	});
-}
-
-/**
- * Change the roleId on a ThesisSupervisors record (e.g. P2→P1 promotion)
- */
-export async function updateSupervisorRole(thesisSupervisorId, newRoleId) {
-	return prisma.thesisSupervisors.update({
-		where: { id: thesisSupervisorId },
-		data: { roleId: newRoleId },
-	});
-}
-
-/**
- * Get the UserRole id for a role by name
- */
-export async function getRoleIdByName(roleName) {
-	const role = await prisma.userRole.findFirst({ where: { name: roleName } });
-	return role?.id || null;
-}
-
-/**
- * Check if a lecturer has a specific active role (via UserHasRole)
- */
-export async function lecturerHasRole(lecturerId, roleName) {
-	const record = await prisma.userHasRole.findFirst({
-		where: {
-			userId: lecturerId,
-			role: { name: roleName },
-			status: "active",
-		},
-	});
-	return !!record;
-}
-
-/**
- * Create a transfer notification (stored as Notification with JSON payload in message)
- */
-export async function createTransferNotification(targetLecturerId, message) {
-	return prisma.notification.create({
-		data: {
-			userId: targetLecturerId,
-			title: "[TRANSFER_REQUEST]",
-			message,
-			isRead: false,
-		},
-	});
-}
-
-/**
- * Find pending (unread) transfer notifications for a lecturer
- */
-export async function findPendingTransferNotifications(lecturerId) {
-	return prisma.notification.findMany({
-		where: {
-			userId: lecturerId,
-			title: "[TRANSFER_REQUEST]",
-			isRead: false,
-		},
-		orderBy: { createdAt: "desc" },
-	});
-}
-
-/**
- * Get a transfer notification by id
- */
-export async function findTransferNotificationById(notificationId) {
-	return prisma.notification.findUnique({ where: { id: notificationId } });
-}
-
-/**
- * Mark a notification as read
- */
-export async function markNotificationRead(notificationId) {
-	return prisma.notification.update({
-		where: { id: notificationId },
-		data: { isRead: true },
-	});
-}
-
-/**
- * Create a simple info notification
- */
-export async function createInfoNotification(userId, title, message) {
-	return prisma.notification.create({
-		data: { userId, title, message, isRead: false },
-	});
-}
-
-// ==================== KADEP TRANSFER APPROVAL ====================
-
-/**
- * Find all users with the Ketua Departemen role (active)
- */
-export async function findKadepUsers() {
-	const kadepUsers = await prisma.user.findMany({
-		where: {
-			userHasRoles: {
-				some: {
-					role: { name: ROLES.KETUA_DEPARTEMEN },
-					status: "active",
-				},
-			},
-		},
-		select: { id: true, fullName: true },
-	});
-	return kadepUsers;
-}
-
-/**
- * Create a transfer notification for Kadep (title: [TRANSFER_REQUEST_KADEP])
- */
-export async function createKadepTransferNotification(kadepUserId, message) {
-	return prisma.notification.create({
-		data: {
-			userId: kadepUserId,
-			title: "[TRANSFER_REQUEST_KADEP]",
-			message,
-			isRead: false,
-		},
-	});
-}
-
-/**
- * Find pending (unread) kadep transfer notifications
- */
-export async function findPendingKadepTransferNotifications(kadepUserId) {
-	return prisma.notification.findMany({
-		where: {
-			userId: kadepUserId,
-			title: "[TRANSFER_REQUEST_KADEP]",
-			isRead: false,
-		},
-		orderBy: { createdAt: "desc" },
-	});
-}
-
-/**
- * Find ALL kadep transfer notifications (for history - both read and unread)
- */
-export async function findAllKadepTransferNotifications(kadepUserId, { page = 1, pageSize = 10, search = "" } = {}) {
-	const where = {
-		userId: kadepUserId,
-		title: "[TRANSFER_REQUEST_KADEP]",
-	};
-
-	const [notifications, total] = await Promise.all([
-		prisma.notification.findMany({
-			where,
-			orderBy: { createdAt: "desc" },
-			skip: (page - 1) * pageSize,
-			take: pageSize,
-		}),
-		prisma.notification.count({ where }),
-	]);
-
-	return { notifications, total };
-}
-
-/**
- * Update a notification's message field (used to update JSON payload state)
- */
-export async function updateNotificationMessage(notificationId, message) {
-	return prisma.notification.update({
-		where: { id: notificationId },
-		data: { message },
-	});
-}
-
-/**
- * Find kadep transfer notifications that match a specific src+tgt+refs combo
- * Used to find all kadep copies of the same transfer request
- */
-export async function findKadepTransferNotificationsBySrcTgt(srcLecturerId, tgtLecturerId) {
-	const notifications = await prisma.notification.findMany({
-		where: {
-			title: "[TRANSFER_REQUEST_KADEP]",
-			isRead: false,
-		},
-	});
-	// Filter by payload content
-	return notifications.filter((n) => {
-		try {
-			const p = JSON.parse(n.message);
-			return p.t === "TX_KADEP" && p.src === srcLecturerId && p.tgt === tgtLecturerId;
-		} catch {
-			return false;
-		}
-	});
 }

@@ -2,7 +2,7 @@
  * Seeder regression tests for scripts/seed-milestone-templates.js (no database).
  * Uses the in-memory Prisma stand-in so repeated runs and the "never delete / never touch
  * real data of another phase" guarantees are checked against real query arguments.
- * Paket A: templates are written with an explicit `phase: "research"` (no column default).
+ * Templates are written with an explicit `phase: "research"` (no column default).
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { prismaFake, resetDb, store, callsTo } from "./helpers/fakePrisma.js";

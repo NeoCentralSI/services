@@ -14,7 +14,7 @@ const importThesisRowSchema = z.object({
     "Pembimbing 2": importCellSchema,
     "Tanggal Mulai": importCellSchema,
     "Judul Tugas Akhir": importCellSchema,
-    "Rating": importCellSchema, // ignored (K21: rating is computed)
+    "Aktivitas": importCellSchema, // ignored: derived from the last activity date
     "Alasan Penghentian": importCellSchema,
     "Catatan Penghentian": importCellSchema,
     "No": importCellSchema,
@@ -22,7 +22,7 @@ const importThesisRowSchema = z.object({
     "Nama": importCellSchema,
 }).passthrough();
 
-// K21: a stopped thesis needs a reason (validated again in thesisLifecycle.service).
+// A stopped thesis needs a reason (validated again in thesisLifecycle.service).
 const terminationReasonSchema = z.enum(["supervision_evaluation", "withdrawn", "dropped_out", "other"]);
 const terminationNoteSchema = z.string().trim().max(2000, "Catatan penghentian maksimal 2000 karakter").nullable().optional();
 
@@ -32,11 +32,11 @@ export const createThesisSchema = z.object({
     thesisTopicId: z.string().uuid().nullable().optional(),
     pembimbing1: z.string().uuid({ message: "Pembimbing 1 wajib diisi" }),
     pembimbing2: z.union([z.string().uuid(), z.literal("none")]).nullable().optional(),
-    // K15: explicit thesis status; defaults to research (running TA) in the service.
+    // Explicit thesis status; defaults to research (running TA) in the service.
     status: thesisLifecycleStatusSchema.optional(),
     terminationReason: terminationReasonSchema.optional(),
     terminationNote: terminationNoteSchema,
-    // K21: rating is computed by the rating job; unknown keys (e.g. rating) are stripped.
+    // The activity level is derived; unknown keys (e.g. rating, deadlineDate) are stripped.
 }).refine((data) => !data.pembimbing2 || data.pembimbing1 !== data.pembimbing2, {
     message: "Pembimbing 1 dan Pembimbing 2 harus dosen yang berbeda",
     path: ["pembimbing2"],

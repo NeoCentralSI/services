@@ -53,7 +53,7 @@ try {
   // Backward compatibility for documents generated before the folder rename.
   app.use("/uploads/seminar-minutes", express.static(path.join(uploadsDir, "seminar")));
 
-  console.log("📁 Serving authenticated uploads (thesis, yudisium, metopen, internship) and guarded document downloads via /documents/:id/download");
+  console.log("📁 Serving authenticated uploads (thesis, yudisium, internship) and guarded document downloads via /documents/:id/download");
 } catch (err) {
   console.warn("⚠️ Failed to set up static uploads serving:", err.message);
 }

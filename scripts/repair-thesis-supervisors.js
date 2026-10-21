@@ -228,7 +228,7 @@ function findSingle(index, name, kind) {
 }
 
 function pickTargetThesis(theses) {
-  // K15: status is the phase marker; `failed` covers the legacy Gagal/Dibatalkan.
+  // Status is the phase marker; `failed` covers the legacy Gagal/Dibatalkan.
   const nonProposal = theses.filter((thesis) => thesis.status && thesis.status !== "proposal");
   const active = nonProposal.filter((thesis) => thesis.status !== "failed");
   return (active[0] || nonProposal[0] || theses[0]) ?? null;

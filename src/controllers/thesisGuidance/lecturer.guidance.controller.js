@@ -13,7 +13,6 @@ import {
 	finalApprovalService,
 	guidanceHistoryService,
 	supervisorEligibilityService,
-	failStudentThesisService,
 	getPendingApprovalService,
 	approveSessionSummaryService,
 	rescheduleGuidanceByLecturerService,
@@ -21,12 +20,6 @@ import {
 	getGuidanceDetailService,
 	sendWarningNotificationService,
 	approveThesisProposalService,
-	// Transfer
-	getEligibleTransferLecturersService,
-	requestStudentTransferService,
-	getIncomingTransferRequestsService,
-	approveTransferRequestService,
-	rejectTransferRequestService,
 } from "../../services/thesisGuidance/lecturer.guidance.service.js";
 import { SUPERVISOR_ROLES } from "../../constants/roles.js";
 
@@ -44,8 +37,8 @@ export async function myStudents(req, res, next) {
 			roles = SUPERVISOR_ROLES;
 		}
 
-		// K21: ?status=active (default) | completed | failed | all
-		const filter = ["active", "completed", "failed", "all"].includes(req.query?.status) ? req.query.status : "active";
+		// ?status=active (default) | proposal | completed | failed | all
+		const filter = ["active", "proposal", "completed", "failed", "all"].includes(req.query?.status) ? req.query.status : "active";
 		const result = await getMyStudentsService(req.user.sub, roles, { filter });
 		res.json({ success: true, ...result });
 	} catch (err) {
@@ -88,7 +81,7 @@ export async function listScheduledGuidances(req, res, next) {
 export async function rejectGuidance(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
-		// K19: validated body -> { reason, suggestedDate } (feedback/message accepted as aliases)
+		// Validated body -> { reason, suggestedDate } (feedback/message accepted as aliases)
 		const { reason, suggestedDate } = req.validated ?? req.body ?? {};
 		const result = await rejectGuidanceService(req.user.sub, guidanceId, { reason, suggestedDate });
 		res.json({ success: true, ...result });
@@ -200,17 +193,6 @@ export async function supervisorEligibility(req, res, next) {
 	}
 }
 
-export async function failStudentThesis(req, res, next) {
-	try {
-		const { studentId } = req.params;
-		const { reason } = req.body || {};
-		const result = await failStudentThesisService(req.user.sub, studentId, { reason });
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
 // ==================== SESSION SUMMARY APPROVAL ====================
 
 /**
@@ -231,7 +213,7 @@ export async function pendingApproval(req, res, next) {
  * PUT /thesis-guidance/:guidanceId/approve-summary
  * Approve session summary - 1 click, minimal interaction
  */
-/** K19: PATCH /thesisGuidance/lecturer/guidance/:guidanceId/reschedule { newDate, reason } */
+/** PATCH /thesisGuidance/lecturer/guidance/:guidanceId/reschedule { newDate, reason } */
 export async function rescheduleGuidanceByLecturer(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
@@ -243,7 +225,7 @@ export async function rescheduleGuidanceByLecturer(req, res, next) {
 	}
 }
 
-/** K19: PUT /thesisGuidance/lecturer/guidance/:guidanceId/reject-summary { notes } */
+/** PUT /thesisGuidance/lecturer/guidance/:guidanceId/reject-summary { notes } */
 export async function rejectSummary(req, res, next) {
 	try {
 		const { guidanceId } = req.params;
@@ -286,8 +268,8 @@ export async function guidanceDetail(req, res, next) {
 export async function sendWarningNotification(req, res, next) {
 	try {
 		const { thesisId } = req.params;
-		const { warningType } = req.body;
-		const result = await sendWarningNotificationService(req.user.sub, thesisId, warningType);
+		// The warning level is derived from the thesis; `warningType` in the body is ignored.
+		const result = await sendWarningNotificationService(req.user.sub, thesisId);
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -302,57 +284,6 @@ export async function approveThesisProposal(req, res, next) {
 	try {
 		const { thesisId } = req.params;
 		const result = await approveThesisProposalService(req.user.sub, thesisId);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-// ==================== STUDENT TRANSFER ====================
-
-export async function getTransferLecturers(req, res, next) {
-	try {
-		const result = await getEligibleTransferLecturersService(req.user.sub);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function requestTransfer(req, res, next) {
-	try {
-		const { thesisIds, targetLecturerId, reason } = req.body;
-		const result = await requestStudentTransferService(req.user.sub, { thesisIds, targetLecturerId, reason });
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function getIncomingTransfers(req, res, next) {
-	try {
-		const result = await getIncomingTransferRequestsService(req.user.sub);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function approveTransfer(req, res, next) {
-	try {
-		const { notificationId } = req.params;
-		const result = await approveTransferRequestService(req.user.sub, notificationId);
-		res.json({ success: true, ...result });
-	} catch (err) {
-		next(err);
-	}
-}
-
-export async function rejectTransfer(req, res, next) {
-	try {
-		const { notificationId } = req.params;
-		const { reason } = req.body || {};
-		const result = await rejectTransferRequestService(req.user.sub, notificationId, { reason });
 		res.json({ success: true, ...result });
 	} catch (err) {
 		next(err);

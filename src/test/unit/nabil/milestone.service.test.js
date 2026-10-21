@@ -23,6 +23,7 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
     getThesisProgress: vi.fn(),
     getThesisSeminarReadiness: vi.fn(),
     approveSeminarReadiness: vi.fn(),
+    findLatestGuidanceAttachment: vi.fn(),
     // Template functions
     findTemplates: vi.fn(),
     findTemplatesByTopicId: vi.fn(),
@@ -38,6 +39,8 @@ const { mockMilestoneRepo, mockPrisma, mockRoles, mockPush, mockNotifRepo, mockL
     thesisMilestone: { updateMany: vi.fn() },
     // Guidance revival correction: history-read lookup for former supervisors.
     thesisSupervisors: { findFirst: vi.fn().mockResolvedValue(null) },
+    // Approval dates are read from the audit log.
+    auditLog: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockRoles: {
     ROLES: { MAHASISWA: "Mahasiswa", PEMBIMBING_1: "Pembimbing 1", PEMBIMBING_2: "Pembimbing 2" },
@@ -177,7 +180,7 @@ describe("Module 4: Milestone Management", () => {
   // ─── Bulk create from templates ──────────────────────────
   describe("createMilestonesFromTemplates (bulk)", () => {
     it("creates milestones from templates with auto-calculated deadlines", async () => {
-      // Paket B (K20): templates follow the thesis topic; the body topicId is ignored.
+      // Templates follow the thesis topic; the body topicId is ignored.
       mockPrisma.thesis.findUnique.mockResolvedValue({ ...THESIS_WITH_STUDENT, thesisTopicId: "topic-1" });
       mockMilestoneRepo.findByThesisId.mockResolvedValue([]); // no existing
       mockMilestoneRepo.findTemplatesByIds.mockResolvedValue([{
@@ -366,7 +369,7 @@ describe("Module 4: Milestone Management", () => {
     });
 
     it("rejects (403) if user is Pembimbing 2 (only Pembimbing 1 can validate)", async () => {
-      // Mock thesis with TWO supervisors: one is P1, one is P2 (current user)
+      // Mock thesis with TWO supervisors: one is Pembimbing 1, one is Pembimbing 2 (current user)
       const thesisWithTwoSup = {
         ...THESIS_WITH_STUDENT,
         thesisSupervisors: [

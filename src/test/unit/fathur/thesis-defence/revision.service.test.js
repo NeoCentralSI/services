@@ -22,7 +22,16 @@ const { mockRevisionRepo, mockCoreRepo, mockPrisma } = vi.hoisted(() => ({
     lecturer: { findMany: vi.fn() },
     thesisDefenceExaminer: { findMany: vi.fn() },
     thesisDefenceRevision: { findFirst: vi.fn() },
+    // Paket E7 (K28): the finalization runs in a transaction with the thesis lifecycle.
+    $transaction: vi.fn((fn) => fn(mockPrisma)),
   },
+}));
+
+// Paket E7 (K28): the thesis lifecycle has its own tests (thesis-lifecycle.defence.test.js).
+vi.mock("../../../../services/thesisLifecycle.service.js", () => ({
+  completeThesisFromDefence: vi.fn(async () => ({ changed: false })),
+  reopenThesisFromDefence: vi.fn(async () => ({ changed: false })),
+  announceThesisLifecycle: vi.fn(async () => undefined),
 }));
 
 vi.mock("../../../../repositories/thesis-defence/revision.repository.js", () => mockRevisionRepo);

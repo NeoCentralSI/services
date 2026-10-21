@@ -12,7 +12,8 @@ export const ROLES = {
   PENGUJI: "Penguji",
   MAHASISWA: "Mahasiswa",
   GKM: "GKM",
-  KOORDINATOR_METOPEN: "Koordinator Matkul Metopen",
+  /** The database value keeps the old name; the UI says "Koordinator Metode Penelitian". */
+  KOORDINATOR_METODE_PENELITIAN: "Koordinator Matkul Metopen",
   KOORDINATOR_YUDISIUM: "Koordinator Yudisium",
   TIM_PENGELOLA_CPL: "Tim Pengelola CPL",
 };
@@ -32,7 +33,7 @@ export const LECTURER_ROLES = [
   ROLES.KETUA_DEPARTEMEN,
   ROLES.SEKRETARIS_DEPARTEMEN,
   ROLES.GKM,
-  ROLES.KOORDINATOR_METOPEN,
+  ROLES.KOORDINATOR_METODE_PENELITIAN,
   ROLES.KOORDINATOR_YUDISIUM,
   ROLES.TIM_PENGELOLA_CPL,
 ];

@@ -32,8 +32,6 @@ async function check() {
             nim: student.user.identityNumber,
             thesisTitle: t.title,
             createdAt: t.createdAt,
-            deadlineDate: t.deadlineDate,
-            rating: t.rating,
             status: t.status,
             academicYear: t.academicYear?.name,
             lastMilestone: t.thesisMilestones?.[0]?.updatedAt,

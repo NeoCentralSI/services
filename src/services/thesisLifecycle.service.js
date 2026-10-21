@@ -1,5 +1,5 @@
 /**
- * Thesis lifecycle rules (K15 transitions, K21 data master).
+ * Thesis lifecycle rules (status transitions and the data master).
  *
  * One place that decides:
  * - which status transitions are allowed;
@@ -8,6 +8,7 @@
  *   transaction, releases every active supervisor relation and cancels open guidance
  *   sessions; `on_leave` remembers the previous status and the start date; leaving
  *   `on_leave` only goes back to that previous status; `statusChangedAt` is always set;
+ *   leaving `on_leave` adds the days spent on leave to `totalLeaveDays`;
  * - the audit log entry of every status change.
  *
  * Callers pass a Prisma transaction client (`tx`) so the change is atomic.
@@ -20,9 +21,9 @@ import {
 import { THESIS_STATUS_LABELS, THESIS_TERMINATION_REASON_LABELS } from "../constants/thesisLabels.js";
 import { GUIDANCE_STATUS, GUIDANCE_ACTOR, OPEN_GUIDANCE_STATUSES } from "../constants/guidanceStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
+import { wholeDaysBetween } from "../helpers/thesis-progress.helper.js";
 
-/** K15: allowed status transitions. `on_leave` may only return to `statusBeforeLeave`. */
+/** Allowed status transitions. `on_leave` may only return to `statusBeforeLeave`. */
 export const THESIS_STATUS_TRANSITIONS = Object.freeze({
   [THESIS_STATUS.PROPOSAL]: [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE, THESIS_STATUS.FAILED],
   [THESIS_STATUS.RESEARCH]: [THESIS_STATUS.ON_LEAVE, THESIS_STATUS.COMPLETED, THESIS_STATUS.FAILED],
@@ -41,6 +42,8 @@ export const CREATABLE_THESIS_STATUSES = Object.freeze([
 
 /** Reason text written on guidance sessions cancelled by a thesis termination. */
 export const SYSTEM_CANCEL_REASON = "Dibatalkan otomatis: tugas akhir dihentikan (status Gagal).";
+/** Reason text written on guidance sessions cancelled when a thesis repeats its proposal. */
+export const REPEAT_PROPOSAL_CANCEL_REASON = "Dibatalkan otomatis: mengulang proposal berdasarkan evaluasi bimbingan.";
 
 const label = (status) => THESIS_STATUS_LABELS[status] ?? status;
 
@@ -63,7 +66,7 @@ export function parseTerminationReason(value) {
 }
 
 /**
- * K21: rejects a change that would give a student two open theses.
+ * Rejects a change that would give a student two open theses.
  * @param {object} tx Prisma client/transaction
  */
 export async function assertSingleOpenThesis(tx, studentId, { excludeThesisId = null } = {}) {
@@ -82,7 +85,7 @@ export async function assertSingleOpenThesis(tx, studentId, { excludeThesisId = 
   }
 }
 
-/** Throws 400 when `from -> to` is not an allowed K15 transition. */
+/** Throws 400 when `from -> to` is not an allowed status transition. */
 export function assertStatusTransition(thesis, toStatus) {
   const from = thesis.status;
   if (from === toStatus) return;
@@ -123,12 +126,20 @@ export function statusChangeData(thesis, toStatus, { actorUserId = null, termina
     data.terminatedAt = now;
     data.terminatedByUserId = actorUserId;
   }
+  // The supervision clock starts when a thesis enters research without a start date (a
+  // thesis that repeated its proposal had it cleared).
+  if (toStatus === THESIS_STATUS.RESEARCH && thesis?.status === THESIS_STATUS.PROPOSAL && !thesis.startDate) {
+    data.startDate = now;
+  }
   if (toStatus === THESIS_STATUS.ON_LEAVE) {
     data.statusBeforeLeave = thesis?.status ?? THESIS_STATUS.RESEARCH;
     data.leaveStartedAt = now;
   } else if (thesis?.status === THESIS_STATUS.ON_LEAVE) {
     data.statusBeforeLeave = null;
     data.leaveStartedAt = null;
+    // The supervision clock does not count leave: remember how long this leave lasted.
+    const leaveDays = wholeDaysBetween(thesis.leaveStartedAt, now) ?? 0;
+    if (leaveDays > 0) data.totalLeaveDays = { increment: leaveDays };
   }
   return data;
 }
@@ -176,12 +187,6 @@ export async function changeThesisStatus(tx, thesis, toStatus, options = {}) {
   let effects = { releasedLecturerIds: [], cancelledGuidances: 0 };
   if (toStatus === THESIS_STATUS.FAILED) {
     effects = await applyTerminationSideEffects(tx, thesis.id, { now });
-    const ayId = updated.academicYearId;
-    if (ayId) {
-      for (const lecturerId of effects.releasedLecturerIds) {
-        await syncQuotaCount(tx, lecturerId, ayId);
-      }
-    }
   }
 
   await tx.auditLog.create({
@@ -204,4 +209,171 @@ export async function changeThesisStatus(tx, thesis, toStatus, options = {}) {
   });
 
   return { thesis: updated, changed: true, ...effects };
+}
+
+/**
+ * "Mengulang proposal": research -> proposal. This transition is not in
+ * `THESIS_STATUS_TRANSITIONS` on purpose: the data master cannot make it; only an approved
+ * guidance evaluation calls this function.
+ *
+ * Supervisors and the title stay. Open guidance sessions are cancelled by the system. The
+ * start date is cleared (and the leave days with it), so the supervision clock starts again
+ * when the thesis returns to research.
+ * @returns {{ thesis: object, cancelledGuidances: number }}
+ */
+export async function returnThesisToProposal(tx, thesis, { actorUserId = null, evaluationId = null, now = new Date() } = {}) {
+  if (thesis.status !== THESIS_STATUS.RESEARCH) {
+    throw badRequest(
+      `Hanya tugas akhir berstatus "${label(THESIS_STATUS.RESEARCH)}" yang dapat mengulang proposal. Status saat ini "${label(thesis.status)}".`,
+    );
+  }
+  const updated = await tx.thesis.update({
+    where: { id: thesis.id },
+    data: { status: THESIS_STATUS.PROPOSAL, statusChangedAt: now, startDate: null, totalLeaveDays: 0 },
+  });
+  const cancelled = await tx.thesisGuidance.updateMany({
+    where: { thesisId: thesis.id, status: { in: OPEN_GUIDANCE_STATUSES } },
+    data: {
+      status: GUIDANCE_STATUS.CANCELLED,
+      cancelReason: REPEAT_PROPOSAL_CANCEL_REASON,
+      cancelledAt: now,
+      cancelledBy: GUIDANCE_ACTOR.SYSTEM,
+    },
+  });
+  await tx.auditLog.create({
+    data: {
+      userId: actorUserId,
+      action: AUDIT_ACTIONS.THESIS_STATUS_CHANGED,
+      entity: ENTITY_TYPES.THESIS,
+      entityId: thesis.id,
+      changes: {
+        oldValues: { status: THESIS_STATUS.RESEARCH, startDate: thesis.startDate ?? null },
+        newValues: { status: THESIS_STATUS.PROPOSAL, startDate: null },
+        metadata: { source: "guidance-evaluation", evaluationId, cancelledGuidances: cancelled.count ?? 0 },
+      },
+    },
+  });
+  return { thesis: updated, cancelledGuidances: cancelled.count ?? 0 };
+}
+
+// ── A passed defence ends the thesis ────────────────────────────────
+
+/** Reason written on what the system closes when a thesis is finished by its defence. */
+export const THESIS_COMPLETED_CANCEL_REASON = "Dibatalkan otomatis: tugas akhir selesai.";
+/** Notes written on a guidance evaluation that still waited for the Ketua Departemen. */
+export const THESIS_COMPLETED_EVALUATION_NOTE = "Ditutup otomatis: tugas akhir selesai.";
+
+async function findThesisForDefenceLifecycle(tx, thesisId) {
+  return tx.thesis.findUnique({
+    where: { id: thesisId },
+    select: {
+      id: true,
+      status: true,
+      student: { select: { user: { select: { id: true } } } },
+      thesisSupervisors: { where: { status: "active" }, select: { lecturerId: true } },
+    },
+  });
+}
+
+const recipientsOf = (thesis) =>
+  [...new Set([thesis.student?.user?.id, ...(thesis.thesisSupervisors ?? []).map((s) => s.lecturerId)].filter(Boolean))];
+
+/**
+ * A thesis in research becomes Selesai when its defence is passed (without revision, or
+ * once the revision is finalized). Called by the defence module inside the transaction of the
+ * finalization. In the same transaction:
+ * - `status = completed`, `statusChangedAt` (the supervision clock, activity and evaluations
+ *   stop; supervision quotas only count open theses);
+ * - the supervisor relations stay active, as history;
+ * - open guidance sessions and pending change requests are cancelled by the system, and a
+ *   guidance evaluation that waited for the Ketua Departemen is closed, all with
+ *   THESIS_COMPLETED_CANCEL_REASON;
+ * - an audit log entry.
+ * A thesis that is not in research is left as it is (`changed: false`). The notifications are
+ * sent after the commit with `announceThesisLifecycle`.
+ */
+export async function completeThesisFromDefence(tx, thesisId, { defenceId = null, actorUserId = null, now = new Date() } = {}) {
+  const thesis = await findThesisForDefenceLifecycle(tx, thesisId);
+  if (!thesis || thesis.status !== THESIS_STATUS.RESEARCH) {
+    return { changed: false, kind: "completed", thesisId, recipients: [] };
+  }
+  await tx.thesis.update({ where: { id: thesisId }, data: { status: THESIS_STATUS.COMPLETED, statusChangedAt: now } });
+  const guidances = await tx.thesisGuidance.updateMany({
+    where: { thesisId, status: { in: OPEN_GUIDANCE_STATUSES } },
+    data: { status: GUIDANCE_STATUS.CANCELLED, cancelReason: THESIS_COMPLETED_CANCEL_REASON, cancelledAt: now, cancelledBy: GUIDANCE_ACTOR.SYSTEM },
+  });
+  const changeRequests = await tx.thesisChangeRequest.updateMany({
+    where: { thesisId, status: "pending" },
+    data: { status: "cancelled", decisionNotes: THESIS_COMPLETED_CANCEL_REASON, decidedAt: now, decidedByUserId: null },
+  });
+  const evaluations = await tx.thesisGuidanceEvaluation.updateMany({
+    where: { thesisId, status: "pending" },
+    data: { status: "rejected", kadepNotes: THESIS_COMPLETED_EVALUATION_NOTE, kadepApprovedAt: now, kadepApprovedBy: null },
+  });
+  const effects = {
+    cancelledGuidances: guidances.count ?? 0,
+    cancelledChangeRequests: changeRequests.count ?? 0,
+    closedEvaluations: evaluations.count ?? 0,
+  };
+  await tx.auditLog.create({
+    data: {
+      userId: actorUserId,
+      action: AUDIT_ACTIONS.THESIS_STATUS_CHANGED,
+      entity: ENTITY_TYPES.THESIS,
+      entityId: thesisId,
+      changes: {
+        oldValues: { status: THESIS_STATUS.RESEARCH },
+        newValues: { status: THESIS_STATUS.COMPLETED },
+        metadata: { source: "defence", defenceId, ...effects },
+      },
+    },
+  });
+  return { changed: true, kind: "completed", thesisId, recipients: recipientsOf(thesis), ...effects };
+}
+
+/**
+ * The defence result that made the thesis Selesai was undone (the revision finalization
+ * was cancelled, or the defence was cancelled): the thesis returns to research. What was closed
+ * when it became Selesai is not restored. The only way back from Selesai, like
+ * `returnThesisToProposal` for the evaluation; the data master cannot make it.
+ */
+export async function reopenThesisFromDefence(tx, thesisId, { defenceId = null, actorUserId = null, reason = null, now = new Date() } = {}) {
+  const thesis = await findThesisForDefenceLifecycle(tx, thesisId);
+  if (!thesis || thesis.status !== THESIS_STATUS.COMPLETED) {
+    return { changed: false, kind: "reopened", thesisId, recipients: [] };
+  }
+  await tx.thesis.update({ where: { id: thesisId }, data: { status: THESIS_STATUS.RESEARCH, statusChangedAt: now } });
+  await tx.auditLog.create({
+    data: {
+      userId: actorUserId,
+      action: AUDIT_ACTIONS.THESIS_STATUS_CHANGED,
+      entity: ENTITY_TYPES.THESIS,
+      entityId: thesisId,
+      changes: {
+        oldValues: { status: THESIS_STATUS.COMPLETED },
+        newValues: { status: THESIS_STATUS.RESEARCH },
+        metadata: { source: "defence", defenceId, reason },
+      },
+    },
+  });
+  return { changed: true, kind: "reopened", thesisId, reason, recipients: recipientsOf(thesis) };
+}
+
+/**
+ * After the commit: tells the student and the supervisors that the thesis is finished, or back
+ * in research. Never throws (a failed notification does not undo the defence result).
+ */
+export async function announceThesisLifecycle(result) {
+  if (!result?.changed || result.recipients.length === 0) return;
+  const completed = result.kind === "completed";
+  const title = completed ? "Tugas Akhir Selesai" : "Tugas Akhir Kembali Berstatus Penelitian";
+  const message = completed
+    ? "Tugas akhir dinyatakan selesai."
+    : `Tugas akhir kembali berstatus Penelitian${result.reason ? `: ${result.reason}` : "."}`;
+  try {
+    const { createNotificationsForUsers } = await import("./notification.service.js");
+    await createNotificationsForUsers(result.recipients, { title, message, data: { thesisId: result.thesisId, type: "thesis_lifecycle" } });
+  } catch (error) {
+    console.error("[ThesisLifecycle] notification failed:", error?.message);
+  }
 }

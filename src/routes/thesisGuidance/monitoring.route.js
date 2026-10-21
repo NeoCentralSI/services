@@ -15,6 +15,7 @@ import {
   getProgressReport,
   downloadProgressReport,
 } from "../../controllers/thesisGuidance/monitoring.controller.js";
+import { getSeminarMonitoring, getDefenceMonitoring } from "../../controllers/thesisGuidance/thesis-event-monitoring.controller.js";
 
 const router = express.Router();
 
@@ -49,6 +50,10 @@ router.get("/ready-seminar", getStudentsReadyForSeminar);
 
 // Lecturer supervision workload
 router.get("/supervisor-loads", getSupervisorWorkloads);
+
+// Seminar Hasil and Sidang of the semester (read-only)
+router.get("/seminars", getSeminarMonitoring);
+router.get("/defences", getDefenceMonitoring);
 
 // Thesis detail by ID
 router.get("/theses/:thesisId", getThesisDetail);

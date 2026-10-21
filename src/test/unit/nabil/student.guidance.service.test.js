@@ -7,8 +7,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // ── hoisted mocks ──────────────────────────────────────────────
 const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles, mockAcademicYear } = vi.hoisted(() => ({
   mockPrisma: {
-    thesisGuidance: { delete: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-    thesisMilestone: { update: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
+    thesisGuidance: { delete: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), groupBy: vi.fn().mockResolvedValue([]) },
+    thesisMilestone: { update: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn(), groupBy: vi.fn().mockResolvedValue([]) },
     document: { create: vi.fn() },
     thesis: { update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
     thesisDocument: { create: vi.fn() },
@@ -18,6 +18,8 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
   mockRepo: {
     getStudentByUserId: vi.fn(),
     getActiveThesisForStudent: vi.fn(),
+    // The history reads the current thesis, a Selesai one included.
+    getCurrentThesisForStudent: vi.fn(),
     getSupervisorsForThesis: vi.fn(),
     listGuidancesForThesis: vi.fn(),
     getGuidanceByIdForStudent: vi.fn(),
@@ -279,7 +281,7 @@ describe("Module 2: Request Guidance", () => {
   });
 
   describe("cancelGuidanceService", () => {
-    // Paket B (K19): a cancelled request is kept as history (no delete), with its reason.
+    // A cancelled request is kept as history (no delete), with its reason.
     it("keeps a 'requested' guidance as 'cancelled' with the reason (no delete)", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getGuidanceByIdForStudent.mockResolvedValue(GUIDANCE_REQUESTED);
@@ -448,7 +450,7 @@ describe("Module 7: Riwayat Bimbingan", () => {
   describe("getCompletedGuidanceHistoryService", () => {
     it("returns completed guidance sessions ordered by completedAt desc", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockRepo.getActiveThesisForStudent.mockResolvedValue(THESIS);
+      mockRepo.getCurrentThesisForStudent.mockResolvedValue(THESIS);
       // Service uses prisma.thesisGuidance.findMany directly (not the repo)
       mockPrisma.thesisGuidance.findMany.mockResolvedValue([
         {
@@ -473,11 +475,24 @@ describe("Module 7: Riwayat Bimbingan", () => {
 
     it("returns empty array if no active thesis", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockRepo.getActiveThesisForStudent.mockResolvedValue(null);
+      mockRepo.getCurrentThesisForStudent.mockResolvedValue(null);
 
       const result = await getCompletedGuidanceHistoryService("user-1");
 
       expect(result.guidances).toEqual([]);
+    });
+
+    it("Still reads the history of a thesis made Selesai by its defence", async () => {
+      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
+      mockRepo.getCurrentThesisForStudent.mockResolvedValue({ ...THESIS, status: "completed" });
+      mockPrisma.thesisGuidance.findMany.mockResolvedValue([
+        { id: "guid-9", completedAt: new Date("2026-10-01"), approvedDate: new Date("2026-09-30"), duration: 60, supervisor: { user: { fullName: "Dr. Andi" } }, milestone: null, thesis: { title: "Sistem Monitoring" } },
+      ]);
+
+      const result = await getCompletedGuidanceHistoryService("user-1");
+
+      expect(mockRepo.getActiveThesisForStudent).not.toHaveBeenCalled();
+      expect(result.guidances.map((g) => g.id)).toEqual(["guid-9"]);
     });
 
     it("rejects (404) if student profile not found", async () => {
@@ -613,12 +628,27 @@ describe("List Guidances & Supervisors", () => {
       expect(result.items[0].id).toBe("g2");
     });
 
-    it("rejects (404) if no active thesis", async () => {
+    it("rejects (404) if the student has no thesis at all", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getActiveThesisForStudent.mockResolvedValue(null);
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
+      mockPrisma.thesis.findFirst.mockResolvedValue(null);
 
       await expect(listMyGuidancesService("user-1")).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("A stopped thesis keeps its sessions readable, system cancellations with their reason", async () => {
+      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
+      mockRepo.getActiveThesisForStudent.mockResolvedValue(null);
+      mockPrisma.thesis.findFirst.mockResolvedValue({ id: "thesis-failed", status: "failed" });
+      mockRepo.listGuidancesForThesis.mockResolvedValue([
+        { id: "g9", status: "cancelled", requestedDate: new Date("2026-01-10"), duration: 60, cancelledBy: "system", cancelReason: "Dibatalkan otomatis: tugas akhir dihentikan (status Gagal)." },
+      ]);
+
+      const result = await listMyGuidancesService("user-1");
+
+      expect(mockRepo.listGuidancesForThesis).toHaveBeenCalledWith("thesis-failed", undefined);
+      expect(result.items[0]).toMatchObject({ id: "g9", status: "cancelled", cancelledBy: "system", cancelReason: expect.stringContaining("dihentikan") });
     });
   });
 
@@ -672,7 +702,7 @@ describe("Student Progress & Milestones", () => {
       expect(result.components[1]).toHaveProperty("validatedBySupervisor", false);
     });
 
-    // Paket B (K20): a GET never writes; templates are applied explicitly.
+    // A GET never writes; templates are applied explicitly.
     it("does not create milestones when there are none (no hidden seeding)", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getActiveThesisForStudent.mockResolvedValue({ ...THESIS, thesisTopicId: "topic-1" });
@@ -703,8 +733,8 @@ describe("Module 5: Thesis Overview & History", () => {
         status: "research",
         thesisTopic: { id: "t1", name: "ML" },
         academicYear: { semester: "Ganjil", year: 2025 },
-        startDate: new Date(), deadlineDate: new Date(),
-        rating: "on_track", createdAt: new Date(), updatedAt: new Date(),
+        startDate: new Date(),
+        createdAt: new Date(), updatedAt: new Date(),
         thesisSupervisors: [
           { lecturerId: "lec-1", lecturer: { user: { fullName: "Dr. Andi", email: "andi@test.com" } }, role: { name: "pembimbing_1" } },
         ],
@@ -738,8 +768,11 @@ describe("Module 5: Thesis Overview & History", () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getThesisHistory.mockResolvedValue([
         {
-          id: "thesis-1", title: "TA Lama", rating: "ONGOING",
+          id: "thesis-1", title: "TA Lama",
           status: "failed",
+          terminationReason: "supervision_evaluation",
+          terminationNote: "Tidak ada kemajuan.",
+          terminatedAt: new Date("2025-10-01T03:00:00.000Z"),
           thesisTopic: { name: "ML" },
           academicYear: { year: "2024", semester: "ganjil" },
           createdAt: new Date(),
@@ -755,6 +788,12 @@ describe("Module 5: Thesis Overview & History", () => {
 
       expect(result.theses).toHaveLength(1);
       expect(result.theses[0]).toHaveProperty("status", "failed");
+      // The Riwayat tab shows why and when a thesis was stopped.
+      expect(result.theses[0]).toMatchObject({
+        terminationReason: "supervision_evaluation",
+        terminationNote: "Tidak ada kemajuan.",
+        terminatedAt: new Date("2025-10-01T03:00:00.000Z"),
+      });
     });
 
     it("rejects (404) if student not found", async () => {
@@ -772,7 +811,7 @@ describe("Module 6b: Propose New Thesis", () => {
   beforeEach(() => vi.clearAllMocks());
 
   // Guidance revival (decision e6): the baseline flow (new Thesis + copied supervisor
-  // rows) bypasses the TA-01/TA-02 advisor and quota flow, so the active block is kept.
+  // rows) bypasses Pengajuan Pembimbing and the quota flow, so the active block is kept.
   describe("proposeThesisService", () => {
     it("rejects (400) because direct thesis proposal is no longer facilitated", async () => {
       await expect(

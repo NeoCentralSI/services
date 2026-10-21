@@ -1,4 +1,4 @@
-/** Paket C (C5): Indonesian date-time text for notifications ("14 Oktober 2026 14.00 WIB"). */
+/** Indonesian date-time text for notifications ("14 Oktober 2026 14.00 WIB"). */
 import { describe, expect, it } from "vitest";
 import { formatDateTimeWib, formatDateTimeJakarta } from "../../../utils/date.util.js";
 

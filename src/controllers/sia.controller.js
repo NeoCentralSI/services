@@ -1,16 +1,13 @@
 import { getSyncStatus, getAllCachedStudents } from "../services/sia.store.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
 import { fetchStudentsFull } from "../services/sia.client.js";
-import {
-  backfillPeriodSnapshots,
-  getPeriodSnapshotCoverage,
-} from "../services/studentPeriodSnapshot.service.js";
-import { getMetopenSiaOperations } from "../services/metopenOperations.service.js";
-import { releaseWaitingKrsBookingByAdmin } from "../services/metopen.service.js";
-import { ENV } from "../config/env.js";
+import { getPeriodFlagCoverage } from "../services/research-method/eligibility.service.js";
+import { assertSiaConfigured, isSiaConfigured } from "../helpers/sia-availability.helper.js";
 
 export async function triggerSiaSync(req, res, next) {
   try {
+    // Refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
+    assertSiaConfigured();
     const summary = await runSiaSync();
     res.json({ success: true, message: "SIA sync triggered", summary });
   } catch (err) {
@@ -28,44 +25,28 @@ export async function triggerSiaSync(req, res, next) {
 export async function siaSyncStatus(req, res, next) {
   try {
     const status = await getSyncStatus();
-    // Status sinkronisasi ikut melaporkan kelengkapan snapshot periode operasional
-    // supaya Admin tidak perlu menunggu laporan Koordinator untuk tahu roster kosong.
+    // Status sinkronisasi ikut melaporkan berapa mahasiswa yang sudah punya penanda semester
+    // berjalan (mengambil Metode Penelitian / Tugas Akhir).
     let periodSnapshots = null;
     try {
-      periodSnapshots = await getPeriodSnapshotCoverage();
+      periodSnapshots = await getPeriodFlagCoverage();
     } catch (coverageErr) {
       console.warn(
         "⚠️  Gagal membaca kelengkapan snapshot periode:",
         coverageErr?.message ?? coverageErr,
       );
     }
-    res.json({ success: true, data: { ...status, periodSnapshots } });
+    // `configured`: false while SIA_BASE_URL is empty; the page disables every SIA read.
+    res.json({ success: true, data: { ...status, periodSnapshots, configured: isSiaConfigured() } });
   } catch (err) {
     next(err);
   }
 }
 
-export async function periodSnapshotCoverage(req, res, next) {
+export async function periodFlagCoverage(req, res, next) {
   try {
     const academicYearId = req.query.academicYearId || null;
-    const data = await getPeriodSnapshotCoverage(academicYearId);
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function triggerPeriodSnapshotBackfill(req, res, next) {
-  try {
-    const {
-      academicYearId = null,
-      apply = false,
-      includeThesisCourse = false,
-    } = req.validated ?? {};
-    const data = await backfillPeriodSnapshots(academicYearId, {
-      apply,
-      includeThesisCourse,
-    });
+    const data = await getPeriodFlagCoverage(academicYearId);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -73,8 +54,8 @@ export async function triggerPeriodSnapshotBackfill(req, res, next) {
 }
 
 /**
- * Full SIA roster. Admin-only. Students must use GET /metopen/eligibility
- * plus their own `authUser.student` fields — never this dump (KC-20260814-03).
+ * Full SIA roster. Admin-only. Students read their own flags through the proposal
+ * endpoints, never this dump (KC-20260814-03).
  */
 export async function getCachedStudents(req, res, next) {
   try {
@@ -87,8 +68,9 @@ export async function getCachedStudents(req, res, next) {
       console.warn("⚠️  Redis unavailable, falling back to SIA source:", redisErr.message);
     }
 
-    // If Redis is empty (not yet synced) or errored, try SIA directly (mock or real)
-    if (!data || data.length === 0) {
+    // If Redis is empty (not yet synced) or errored, try SIA directly (mock or real), unless SIA is
+    // not configured.
+    if ((!data || data.length === 0) && isSiaConfigured()) {
       console.log("ℹ️  Redis cache empty, reading from SIA source directly...");
       try {
         data = await fetchStudentsFull(1);
@@ -99,25 +81,6 @@ export async function getCachedStudents(req, res, next) {
     }
 
     res.json({ success: true, count: data.length, data });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function getMetopenOperations(req, res, next) {
-  try {
-    const data = await getMetopenSiaOperations();
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function releaseWaitingKrs(req, res, next) {
-  try {
-    const requestId = req.params.requestId;
-    const data = await releaseWaitingKrsBookingByAdmin(requestId, req.user?.sub ?? null);
-    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

@@ -1,5 +1,17 @@
 import { BadRequestError, NotFoundError } from "../utils/errors.js";
+import prisma from "../config/prisma.js";
+import { LOCKED_DELETE_REASON, LOCKED_SCORE_REASON } from "../constants/research-method.js";
 import * as repo from "../repositories/researchMethodAssessmentAdmin.repository.js";
+import { periodHasAssessmentDetails, periodHasFinalResult } from "../repositories/research-method/assessment.repository.js";
+
+/**
+ * Once a semester has Penilaian Proposal details (a draft or a sent score), its CPMK, criteria and
+ * rubrics cannot be deleted, no criterion or rubric is added, and maximum scores and rubric ranges
+ * stay; names and descriptions can still change.
+ */
+async function assertAssessmentNotStarted(academicYearId, reason) {
+  if (await periodHasAssessmentDetails(academicYearId)) throw new BadRequestError(reason);
+}
 
 const VALID_ASSESSORS = new Set(["supervisor", "coordinator"]);
 
@@ -93,7 +105,9 @@ async function assertGlobalMaximum(
 }
 
 export async function listCpmks(academicYearIdInput) {
-  return repo.findAllCpmks(requireAcademicYearId(academicYearIdInput));
+  const academicYearId = requireAcademicYearId(academicYearIdInput);
+  const [rows, started] = await Promise.all([repo.findAllCpmks(academicYearId), periodHasAssessmentDetails(academicYearId)]);
+  return rows.map((row) => ({ ...row, hasAssessmentDetails: started }));
 }
 
 export async function createCpmk(payload) {
@@ -135,7 +149,8 @@ export async function updateCpmk(id, payload) {
 }
 
 export async function deleteCpmk(id) {
-  await ensureCpmk(id);
+  const cpmk = await ensureCpmk(id);
+  await assertAssessmentNotStarted(cpmk.academicYearId, LOCKED_DELETE_REASON);
   return repo.deleteCpmk(id);
 }
 
@@ -148,6 +163,7 @@ export async function getConfiguredCpmks(assessorInput, academicYearIdInput) {
 export async function createCriteria(assessorInput, payload) {
   const assessor = requireAssessor(assessorInput);
   const cpmk = await ensureCpmk(payload.researchMethodCpmkId);
+  await assertAssessmentNotStarted(cpmk.academicYearId, LOCKED_SCORE_REASON);
   await assertGlobalMaximum(cpmk.academicYearId, assessor, payload.maxScore);
 
   const displayOrder =
@@ -175,6 +191,9 @@ export async function updateCriteria(assessorInput, id, payload) {
     }
   }
 
+  if (payload.maxScore !== undefined && payload.maxScore !== existing.maxScore) {
+    await assertAssessmentNotStarted(cpmk.academicYearId, LOCKED_SCORE_REASON);
+  }
   if (payload.maxScore !== undefined) {
     const rubricAboveMaximum = existing.assessmentRubrics?.find(
       (rubric) => rubric.maxScore > payload.maxScore,
@@ -208,7 +227,8 @@ export async function updateCriteria(assessorInput, id, payload) {
 
 export async function deleteCriteria(assessorInput, id) {
   const assessor = requireAssessor(assessorInput);
-  await ensureCriteria(assessor, id);
+  const criteria = await ensureCriteria(assessor, id);
+  await assertAssessmentNotStarted(criteria.researchMethodCpmk.academicYearId, LOCKED_DELETE_REASON);
   return repo.deleteCriteria(assessor, id);
 }
 
@@ -217,7 +237,8 @@ export async function removeCpmkConfig(
   cpmkId,
 ) {
   const assessor = requireAssessor(assessorInput);
-  await ensureCpmk(cpmkId);
+  const cpmk = await ensureCpmk(cpmkId);
+  await assertAssessmentNotStarted(cpmk.academicYearId, LOCKED_DELETE_REASON);
   return repo.removeConfigByCpmk(assessor, cpmkId);
 }
 
@@ -230,6 +251,7 @@ export async function listRubrics(assessorInput, criteriaId) {
 export async function createRubric(assessorInput, criteriaId, payload) {
   const assessor = requireAssessor(assessorInput);
   const criteria = await ensureCriteria(assessor, criteriaId);
+  await assertAssessmentNotStarted(criteria.researchMethodCpmk.academicYearId, LOCKED_SCORE_REASON);
   const rubrics = await repo.findRubricsByCriteria(assessor, criteriaId);
   assertRubricRange(
     criteria,
@@ -259,6 +281,9 @@ export async function updateRubric(assessorInput, id, payload) {
   );
   const minScore = payload.minScore ?? existing.minScore;
   const maxScore = payload.maxScore ?? existing.maxScore;
+  if (minScore !== existing.minScore || maxScore !== existing.maxScore) {
+    await assertAssessmentNotStarted(criteria.researchMethodCpmk.academicYearId, LOCKED_SCORE_REASON);
+  }
   const rubrics = await repo.findRubricsByCriteria(
     assessor,
     existing.assessmentCriteriaId,
@@ -271,12 +296,20 @@ export async function deleteRubric(assessorInput, id) {
   const assessor = requireAssessor(assessorInput);
   const existing = await repo.findRubricById(assessor, id);
   if (!existing) throw new NotFoundError("Rubrik penilaian tidak ditemukan");
-  await ensureCriteria(assessor, existing.assessmentCriteriaId);
+  const criteria = await ensureCriteria(assessor, existing.assessmentCriteriaId);
+  await assertAssessmentNotStarted(criteria.researchMethodCpmk.academicYearId, LOCKED_DELETE_REASON);
   return repo.deleteRubric(assessor, id);
 }
 
+/** The weights of the semester, with its locks (assessment started, minimum score locked). */
 export async function getWeightSummary(academicYearIdInput) {
-  return repo.getWeightSummary(requireAcademicYearId(academicYearIdInput));
+  const academicYearId = requireAcademicYearId(academicYearIdInput);
+  const [summary, assessmentStarted, minimumScoreLocked] = await Promise.all([
+    repo.getWeightSummary(academicYearId),
+    periodHasAssessmentDetails(academicYearId),
+    periodHasFinalResult(academicYearId),
+  ]);
+  return { ...summary, assessmentStarted, minimumScoreLocked };
 }
 
 function assertExactIds(actualRows, orderedIds, label) {
@@ -307,4 +340,21 @@ export async function reorderRubrics(assessorInput, payload) {
   const rubrics = await repo.findRubricsByCriteria(assessor, criteria.id);
   assertExactIds(rubrics, payload.orderedIds, "rubrik");
   return repo.reorderRubrics(assessor, payload.orderedIds);
+}
+
+/**
+ * "Salin Template" of Kelola > Metode Penelitian, as in the thesis CPMK master
+ * data: the CPMK, criteria and rubrics of a source period go into an empty target period. The
+ * minimum passing score is not copied (it is set on the Rubrik tab, like seminar and defence).
+ */
+export async function copyCpmkTemplate(sourceInput, targetInput) {
+  const source = requireAcademicYearId(sourceInput);
+  const target = requireAcademicYearId(targetInput);
+  if (source === target) throw new BadRequestError("Tahun ajaran sumber dan tujuan tidak boleh sama");
+  const [sourceYear, targetYear] = await Promise.all([
+    prisma.academicYear.findUnique({ where: { id: source }, select: { id: true } }),
+    prisma.academicYear.findUnique({ where: { id: target }, select: { id: true } }),
+  ]);
+  if (!sourceYear || !targetYear) throw new NotFoundError("Tahun ajaran tidak ditemukan");
+  return repo.copyCpmkTemplate(source, target);
 }

@@ -10,15 +10,15 @@
  * 1. A phase "research" template with that topic + name already exists -> skipped (user edits to
  *    its description/order/status are kept).
  * 2. Otherwise -> a new template is created with `phase: "research"` written explicitly (the
- *    column has no default, K18). A same-named template of the proposal phase is real data of
+ *    column has no default). A same-named template of the proposal phase is real data of
  *    that phase: it is left untouched and only reported.
  * Topics are never created; missing or ambiguous topics are reported and skipped. Templates
  * that are not in the catalogue (custom or proposal templates) are never modified.
  * Order: a topic without TA templates gets the catalogue order; otherwise new templates are
  * appended after the current max, so existing (possibly reordered) ones keep their positions.
  *
- * Paket A: the old reclassification of legacy `phase = "metopen"` rows was removed. The
- * `metopen` phase value no longer exists (ThesisPhase is proposal/thesis) and the database is
+ * The old reclassification of legacy proposal-phase rows was removed. That old
+ * phase value no longer exists (ThesisPhase is proposal/thesis) and the database is
  * rebuilt from empty, so such rows cannot occur.
  */
 import { pathToFileURL } from "node:url";

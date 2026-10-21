@@ -66,7 +66,7 @@ describe("auditLog.service", () => {
     expect(prismaMock.auditLog.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          action: { in: expect.arrayContaining(["USER_ROLES_UPDATED", "QUOTA_DEFAULT_UPDATED"]) },
+          action: { in: expect.arrayContaining(["USER_ROLES_UPDATED", "SUPERVISION_LIMIT_UPDATED"]) },
         }),
       }),
     );

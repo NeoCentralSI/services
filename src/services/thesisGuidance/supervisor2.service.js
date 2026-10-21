@@ -20,7 +20,7 @@ import {
 	getActiveThesisForStudent,
 } from "../../repositories/thesisGuidance/student.guidance.repository.js";
 
-import { findUsersByActiveRole } from "../../repositories/thesisGuidanceEvaluation.repository.js";
+import { findUsersByActiveRole } from "../../repositories/thesis-guidance-evaluation.repository.js";
 
 import prisma from "../../config/prisma.js";
 import { sendFcmToUsers } from "../push.service.js";
@@ -30,7 +30,7 @@ import { ROLES } from "../../constants/roles.js";
 import { CLOSED_THESIS_STATUSES, THESIS_STATUS } from "../../constants/thesisStatus.js";
 import { getThesisStatusLabel } from "../../constants/thesisLabels.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
-import { checkQuotaAvailability, browseLecturerQuotas } from "../quota.service.js";
+import { getLecturerLoads } from "../thesis-proposal/supervision-quota.service.js";
 
 // Catatan audit pass 2 (F2-4, keputusan OQ-2.1 2026-06-10): auto-promotion role
 // Pembimbing 2 → Pembimbing 1 (threshold 10 bimbingan selesai) DIHAPUS.
@@ -40,7 +40,7 @@ import { checkQuotaAvailability, browseLecturerQuotas } from "../quota.service.j
 
 function ensureStudent(student) {
 	if (!student) {
-		const err = new Error("Student profile not found for this user");
+		const err = new Error("Data mahasiswa untuk akun ini tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -51,7 +51,7 @@ async function getActiveThesisOrThrow(userId) {
 	ensureStudent(student);
 	const thesis = await getActiveThesisForStudent(student.id);
 	if (!thesis) {
-		const err = new Error("Active thesis not found for this student");
+		const err = new Error("Tugas akhir aktif tidak ditemukan");
 		err.statusCode = 404;
 		throw err;
 	}
@@ -73,9 +73,11 @@ async function ensurePembimbing1Exists(thesisId) {
 }
 
 /**
- * Guard status: penambahan Pembimbing 2 boleh dilakukan di fase mana pun
- * (proposal maupun pasca promosi aktif), selama thesis masih aktif/terbuka.
- * P2 dibutuhkan sejak awal agar bisa co-sign TA-03A (BR-20, canon §5.7.1).
+ * Guard status: permintaan Pembimbing 2 lewat alur ini hanya untuk TA berstatus `proposal`
+ * (alur Pembimbing 2 fase proposal, dipertahankan dari modul lama).
+ * Setelah TA masuk fase penelitian, Pembimbing 2 ditambahkan melalui Pengajuan Perubahan
+ * Tugas Akhir (`thesis-change-request.service.js`), yang menyimpan keadaannya di tabel
+ * pengajuan dan melewati Pembimbing 1, calon Pembimbing 2, lalu Ketua Departemen.
  */
 function ensureThesisOpenForSupervisor2(thesis) {
 	if (!thesis) {
@@ -91,6 +93,13 @@ function ensureThesisOpenForSupervisor2(thesis) {
 		err.statusCode = 400;
 		throw err;
 	}
+	if (statusName !== THESIS_STATUS.PROPOSAL) {
+		const err = new Error(
+			`Permintaan Pembimbing 2 ini hanya tersedia selama tugas akhir berstatus "${getThesisStatusLabel(THESIS_STATUS.PROPOSAL)}". Untuk tugas akhir berstatus "${getThesisStatusLabel(statusName)}", tambahkan Pembimbing 2 melalui Pengajuan Perubahan Tugas Akhir.`,
+		);
+		err.statusCode = 400;
+		throw err;
+	}
 }
 
 /** Ambil thesis minimal untuk re-validasi pada tahap approve. */
@@ -101,24 +110,29 @@ async function getThesisForValidation(thesisId) {
 			id: true,
 			title: true,
 			academicYearId: true,
-			proposalStatus: true,
-			ta04AssignmentIssuedAt: true,
 			status: true,
 		},
 	});
 }
 
-/** Re-check kuota dosen (audit pass 2 F2-3) — dipanggil di setiap titik keputusan. */
+const LOAD_TRAFFIC_LIGHT = { available: "green", near_limit: "yellow", full: "red" };
+
+/**
+ * Re-checked at every decision point. As before, a full load is informational (the Head of
+ * Department decides); only a lecturer who closed intake blocks the request.
+ */
 async function ensureLecturerQuotaAvailable(lecturerId, academicYearId) {
-	const quotaResult = await checkQuotaAvailability(lecturerId, academicYearId);
-	if (!quotaResult.allowed) {
-		const err = new Error(
-			quotaResult.reason || "Kuota pembimbing penuh, pilih dosen lain atau tunggu.",
-		);
+	const lecturer = await prisma.lecturer.findUnique({
+		where: { id: lecturerId },
+		select: { acceptingRequests: true },
+	});
+	if (lecturer && lecturer.acceptingRequests === false) {
+		const err = new Error("Dosen sedang menutup penerimaan permintaan pembimbing.");
 		err.statusCode = 400;
 		throw err;
 	}
-	return quotaResult;
+	const load = (await getLecturerLoads([lecturerId], academicYearId)).get(lecturerId);
+	return { allowed: true, trafficLight: LOAD_TRAFFIC_LIGHT[load.level], ...load };
 }
 
 /**
@@ -128,21 +142,24 @@ async function ensureLecturerQuotaAvailable(lecturerId, academicYearId) {
  */
 async function enrichWithQuotaVisibility(lecturers, academicYearId) {
 	if (!Array.isArray(lecturers) || lecturers.length === 0) return lecturers;
-	let quotaMap = new Map();
+	let loads = new Map();
+	let accepting = new Map();
 	try {
-		const quotas = await browseLecturerQuotas(academicYearId);
-		quotaMap = new Map(quotas.map((q) => [q.lecturerId, q]));
+		const ids = lecturers.map((l) => l.id);
+		loads = await getLecturerLoads(ids, academicYearId);
+		const rows = await prisma.lecturer.findMany({ where: { id: { in: ids } }, select: { id: true, acceptingRequests: true } });
+		accepting = new Map(rows.map((r) => [r.id, r.acceptingRequests]));
 	} catch {
-		// Jika snapshot kuota gagal, tetap kembalikan daftar dosen tanpa info kuota.
+		// Jika beban gagal dihitung, tetap kembalikan daftar dosen tanpa info beban.
 	}
 	return lecturers.map((l) => {
-		const q = quotaMap.get(l.id);
+		const load = loads.get(l.id);
 		return {
 			...l,
-			trafficLight: q?.trafficLight ?? null,
-			normalAvailable: q?.normalAvailable ?? null,
-			activeCount: q?.activeCount ?? null,
-			acceptingRequests: q?.acceptingRequests ?? null,
+			trafficLight: load ? LOAD_TRAFFIC_LIGHT[load.level] : null,
+			normalAvailable: load ? Math.max(0, load.hardLimit - load.activeCount) : null,
+			activeCount: load?.activeCount ?? null,
+			acceptingRequests: accepting.get(l.id) ?? null,
 		};
 	});
 }
@@ -175,7 +192,7 @@ async function getUserFullName(userId, fallback) {
 export async function getAvailableSupervisor2Service(userId) {
 	const { thesis } = await getActiveThesisOrThrow(userId);
 
-	// Guard fase/status (F2-2) + hardening P1 wajib ada.
+	// Guard fase/status (F2-2) + hardening Pembimbing 1 wajib ada.
 	ensureThesisOpenForSupervisor2(thesis);
 	await ensurePembimbing1Exists(thesis.id);
 
@@ -197,7 +214,7 @@ export async function getAvailableSupervisor2Service(userId) {
 export async function requestSupervisor2Service(userId, { lecturerId }) {
 	const { student, thesis } = await getActiveThesisOrThrow(userId);
 
-	// 0. Guard fase/status (F2-2) + hardening P1 wajib ada.
+	// 0. Guard fase/status (F2-2) + hardening Pembimbing 1 wajib ada.
 	ensureThesisOpenForSupervisor2(thesis);
 	await ensurePembimbing1Exists(thesis.id);
 
@@ -261,7 +278,7 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 	// Audit log: supervisor-2 request created
 	await logAudit({
 		actorUserId: userId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_CREATED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_CREATED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: request.id,
 		newValues: { thesisId: thesis.id, lecturerId, lecturerName: selectedLecturer.fullName },
@@ -318,7 +335,7 @@ export async function cancelSupervisor2RequestService(userId) {
 	// Audit log: supervisor-2 request cancelled
 	await logAudit({
 		actorUserId: userId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_CANCELLED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_CANCELLED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: pending.id,
 		newValues: { thesisId: thesis.id, stage: pending.title === SUPERVISOR2_STAGE_TITLES.KADEP ? "kadep" : "lecturer" },
@@ -389,7 +406,7 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 	// 2. Parse request data — format: "thesisId|studentId"
 	const { thesisId, studentId } = parseSupervisor2Message(request.message);
 
-	// 3. Re-validasi: thesis masih terbuka + belum punya P2
+	// 3. Re-validasi: thesis masih terbuka + belum punya Pembimbing 2
 	const thesis = await getThesisForValidation(thesisId);
 	ensureThesisOpenForSupervisor2(thesis);
 	const alreadyHas = await hasPembimbing2(thesisId);
@@ -439,7 +456,7 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 	const kadepUserIds = kadepUsers.map((u) => u.id);
 	await createNotificationsForUsers(kadepUserIds, {
 		title: "Persetujuan Pembimbing 2",
-		message: `${lecturerName} bersedia menjadi Pembimbing 2 untuk mahasiswa bimbingan baru. Tinjau dan putuskan di Kelola TA-01 s.d. TA-04 (tab Pembimbing 2).`,
+		message: `${lecturerName} bersedia menjadi Pembimbing 2 untuk mahasiswa bimbingan baru. Tinjau dan putuskan di Tugas Akhir > Penetapan Pembimbing (tab Pembimbing 2).`,
 	});
 	await sendFcmToUsers(kadepUserIds, {
 		title: "Persetujuan Pembimbing 2",
@@ -451,7 +468,7 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 	// Audit log: lecturer bersedia → forwarded to KaDep
 	await logAudit({
 		actorUserId: lecturerId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_ACCEPTED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_ACCEPTED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: requestId,
 		newValues: { thesisId, studentId, lecturerId, lecturerName, role: "pembimbing_2", forwardedToKadep: true },
@@ -498,7 +515,7 @@ export async function rejectSupervisor2RequestService(lecturerId, requestId, { r
 	// Audit log: supervisor-2 request rejected by lecturer
 	await logAudit({
 		actorUserId: lecturerId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_REJECTED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_REJECTED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: requestId,
 		newValues: { thesisId, studentId, reason: reason || null },
@@ -554,8 +571,8 @@ export async function getSupervisor2KadepQueueService(kadepUserId) {
 
 /**
  * Keputusan KaDep atas permintaan Pembimbing 2.
- * Approve → buat `thesis_supervisors` P2. Jika TA-04 sudah pernah
- * difinalisasi, Formulir TA-04 batch periode perlu diperbarui.
+ * Approve → buat `thesis_supervisors` Pembimbing 2. Bila Penetapan Pembimbing periode itu sudah
+ * diterbitkan, susunannya berubah sehingga Kadep menerbitkan versi baru.
  * Reject  → tutup permintaan + notifikasi mahasiswa & dosen.
  */
 export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { approve, reason }) {
@@ -596,7 +613,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 
 		await logAudit({
 			actorUserId: kadepUserId,
-			action: AUDIT_ACTIONS.REQUEST_ADVISOR_KADEP_REJECTED,
+			action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_KADEP_REJECTED,
 			entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 			entityId: requestId,
 			newValues: { thesisId, studentId, lecturerId, reason: reason || null },
@@ -606,7 +623,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	}
 
 	// ── Approve path ──
-	// Re-validasi: thesis masih terbuka + belum punya P2 + kuota dosen masih tersedia.
+	// Re-validasi: thesis masih terbuka + belum punya Pembimbing 2 + kuota dosen masih tersedia.
 	const thesis = await getThesisForValidation(thesisId);
 	ensureThesisOpenForSupervisor2(thesis);
 	const alreadyHas = await hasPembimbing2(thesisId);
@@ -618,100 +635,26 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 	}
 	await ensureLecturerQuotaAvailable(lecturerId, thesis.academicYearId);
 
-	// Atomik: buat participant P2 + tutup seluruh record request thesis ini.
-	// Jika score TA-03A sudah pernah di-finalize tanpa P2 (P1-only), reset
-	// isFinalized agar P2 bisa co-sign — tanpa reset ini P2 deadlock (403 immutable).
+	// Atomik: buat participant Pembimbing 2 + tutup seluruh record request thesis ini. Tanpa co-sign
+	// dan tanpa lapisan reservasi, penetapan yang sudah terbit tidak dibatalkan.
 	await prisma.$transaction(async (tx) => {
 		await createThesisSupervisors(thesisId, lecturerId, tx);
 
-		// TA-04 adalah satu-satunya surat penugasan. Jika komposisi pembimbing
-		// berubah, batch lama tidak lagi menjadi otorisasi yang berlaku. KaDep
-		// harus memfinalisasi refresh batch sebelum P2 dapat membimbing/co-sign.
-		if (thesis.ta04AssignmentIssuedAt) {
-			await tx.thesis.update({
-				where: { id: thesisId },
-				data: {
-					ta04AssignmentIssuedAt: null,
-					ta04AssignmentIssuedByUserId: null,
-					ta04AssignmentSupervisorNames: null,
-					ta04AssignmentAcademicYearId: null,
-					titleApprovalDocumentId: null,
-				},
-			});
-		}
-
-		const existingScore = await tx.researchMethodScore.findFirst({
-			where: { thesisId },
-			orderBy: { createdAt: "desc" },
-			select: { id: true, isFinalized: true, coSignedAt: true, supervisorScore: true },
-		});
-		if (existingScore?.isFinalized && !existingScore.coSignedAt && existingScore.supervisorScore != null) {
-			await tx.researchMethodScore.update({
-				where: { id: existingScore.id },
-				data: { isFinalized: false, finalizedBy: null, finalizedAt: null },
-			});
-		}
-
-		if (thesis.proposalStatus === "accepted") {
-			await tx.thesis.update({
-				where: { id: thesisId },
-				data: { titleApprovalDocumentId: null },
-			});
-		}
 		await markSupervisor2RequestsProcessedForThesis(thesisId, tx);
 	});
 
-	// Backward-compatible lifecycle sync after P2 assignment.
-	// BUKAN fire-and-forget — kegagalan di-log tapi tidak membatalkan approval P2
-	// (participant sudah terbuat di transaction di atas, konsistensi dijamin oleh
-	// evaluateKadepProposalQueueReadiness yang akan memblokir di GET berikutnya).
-	let dequeued = false;
-	try {
-		const { syncKadepProposalQueueByThesisId } = await import("../metopen.service.js");
-		const syncResult = await syncKadepProposalQueueByThesisId(thesisId);
-		dequeued = syncResult?.dequeued === true;
-	} catch (syncErr) {
-		console.warn("[supervisor2] TA-04 lifecycle sync failed:", syncErr?.message || syncErr);
-	}
-
-	// Notifikasi P1 bahwa co-sign diperlukan sebelum promosi aktif bisa berjalan.
-	const p1Participant = await prisma.thesisSupervisors.findFirst({
-		where: {
-			thesisId,
-			status: "active",
-			role: { is: { name: ROLES.PEMBIMBING_1 } },
-		},
-		select: { lecturerId: true },
-	});
-	if (dequeued) {
-		const notifyTargets = [];
-		if (p1Participant?.lecturerId) notifyTargets.push(p1Participant.lecturerId);
-		notifyTargets.push(lecturerId);
-
-		await createNotificationsForUsers(notifyTargets, {
-			title: "Co-sign Pembimbing 2 Diperlukan",
-			message: `${lecturerName} telah ditambahkan sebagai Pembimbing 2. Promosi aktif menunggu co-sign TA-03A diberikan oleh Pembimbing 2.`,
-		});
-		await sendFcmToUsers(notifyTargets, {
-			title: "Co-sign Pembimbing 2 Diperlukan",
-			body: `Promosi aktif menunggu co-sign TA-03A dari Pembimbing 2.`,
-			data: { type: "supervisor2_cosign_needed", thesisId },
-			dataOnly: true,
-		});
-	}
-
-	// Notifikasi mahasiswa + dosen. "Promoted" = thesis past the proposal phase (K15).
+	// Notifikasi mahasiswa + dosen. "Promoted" = thesis past the proposal phase.
 	const isPromoted = Boolean(thesis.status) && thesis.status !== THESIS_STATUS.PROPOSAL;
 	await createNotificationsForUsers([studentId], {
 		title: "Pembimbing 2 Disetujui",
 		message: isPromoted
-			? `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem.`
+			? `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda. Penetapan Pembimbing yang sudah terbit tetap berlaku sampai Ketua Departemen menerbitkan versi barunya; relasi pembimbing terbaru tercatat di sistem.`
 			: `Ketua Departemen menyetujui ${lecturerName} sebagai Pembimbing 2 Anda.`,
 	});
 	await createNotificationsForUsers([lecturerId], {
 		title: "Penetapan Pembimbing 2",
 		message: isPromoted
-			? "Ketua Departemen menyetujui Anda sebagai Pembimbing 2. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem."
+			? "Ketua Departemen menyetujui Anda sebagai Pembimbing 2. Penetapan Pembimbing yang sudah terbit tetap berlaku sampai Ketua Departemen menerbitkan versi barunya; relasi pembimbing terbaru tercatat di sistem."
 			: "Ketua Departemen menyetujui Anda sebagai Pembimbing 2.",
 	});
 	await sendFcmToUsers([studentId, lecturerId], {
@@ -721,7 +664,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		dataOnly: true,
 	});
 
-	// Jika thesis sudah promoted, TA-04 awal tetap memakai snapshot batch pertama.
+	// Jika thesis sudah promoted, PDF Penetapan Pembimbing yang terbit tetap berlaku sampai versi baru terbit (R17).
 	// Notifikasi KaDep bersifat informatif, bukan instruksi regenerasi dokumen.
 	if (isPromoted) {
 		const kadepUsers = await findUsersByActiveRole(ROLES.KETUA_DEPARTEMEN);
@@ -729,14 +672,14 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		if (kadepIds.length > 0) {
 			await createNotificationsForUsers(kadepIds, {
 				title: "Pembimbing 2 Ditambahkan Pasca-Promosi",
-				message: `Pembimbing 2 (${lecturerName}) ditambahkan pada thesis yang sudah aktif. TA-04 awal tetap memakai snapshot batch pertama; relasi pembimbing terbaru tercatat di sistem.`,
+				message: `Pembimbing 2 (${lecturerName}) ditambahkan pada thesis yang sudah aktif. Penetapan Pembimbing yang sudah terbit tetap berlaku sampai Ketua Departemen menerbitkan versi barunya; relasi pembimbing terbaru tercatat di sistem.`,
 			});
 		}
 	}
 
 	await logAudit({
 		actorUserId: kadepUserId,
-		action: AUDIT_ACTIONS.REQUEST_ADVISOR_KADEP_APPROVED,
+		action: AUDIT_ACTIONS.SUPERVISOR_REQUEST_KADEP_APPROVED,
 		entityType: ENTITY_TYPES.SUPERVISOR2_REQUEST,
 		entityId: requestId,
 		newValues: { thesisId, studentId, lecturerId, lecturerName, role: "pembimbing_2" },

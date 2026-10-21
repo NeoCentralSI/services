@@ -702,7 +702,7 @@ export const getOverview = async (userId) => {
 
   let cplScores = [];
 
-  if (thesis?.id) {
+  if (student.id) {
 
     const studentId = student.id;
 

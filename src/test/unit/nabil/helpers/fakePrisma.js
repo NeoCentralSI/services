@@ -3,7 +3,7 @@
  *
  * Unlike "always allow" mocks, queries are evaluated against fixture rows using the
  * real `where` arguments (equality, `in`, `not`, nested relation objects, `some`), and
- * `include: { relation: { where } }` filters array relations. This lets tests prove
+ * `include: { relation: { where } }` (or the same under `select`) filters array relations. This lets tests prove
  * that authorization queries (e.g. ThesisSupervisors `status: "active"`) actually
  * exclude released/terminated relations. Top-level scalar `orderBy` (object or array
  * of objects, asc/desc) is applied, so "latest row" lookups are meaningful.
@@ -35,6 +35,8 @@ export function matches(row, where = {}) {
       } else if ("contains" in cond) {
         if (typeof value !== "string" || !value.toLowerCase().includes(String(cond.contains).toLowerCase())) return false;
       } else if ("lte" in cond || "gte" in cond) {
+        // SQL: a comparison with NULL is never true.
+        if (value === undefined || value === null) return false;
         const v = value instanceof Date ? value.getTime() : new Date(value).getTime();
         if ("lte" in cond && !(v <= new Date(cond.lte).getTime())) return false;
         if ("gte" in cond && !(v >= new Date(cond.gte).getTime())) return false;
@@ -42,9 +44,14 @@ export function matches(row, where = {}) {
         if (!Array.isArray(value) || !value.some((item) => matches(item, cond.some))) return false;
       } else if ("every" in cond) {
         if (!Array.isArray(value) || !value.every((item) => matches(item, cond.every))) return false;
+      } else if ("none" in cond) {
+        if (Array.isArray(value) && value.some((item) => matches(item, cond.none))) return false;
       } else {
         if (!isPlainObject(value) || !matches(value, cond)) return false;
       }
+    } else if (cond === null) {
+      // `{ column: null }` matches a row that has no value there.
+      if (value !== undefined && value !== null) return false;
     } else if (value !== cond) {
       return false;
     }
@@ -105,9 +112,9 @@ function makeDelegate(state, name) {
   const rows = () => state[name] || (state[name] = []);
   const select = (args = {}) => applyOrderBy(rows().filter((r) => matches(r, args.where)), args.orderBy);
   return {
-    findFirst: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include),
-    findUnique: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include),
-    findMany: async (args = {}) => select(args).map((r) => applyInclude(r, args.include)),
+    findFirst: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include ?? args.select),
+    findUnique: async (args = {}) => applyInclude(select(args)[0] ?? null, args.include ?? args.select),
+    findMany: async (args = {}) => select(args).map((r) => applyInclude(r, args.include ?? args.select)),
     count: async (args = {}) => select(args).length,
     aggregate: async (args = {}) => {
       const list = select(args);

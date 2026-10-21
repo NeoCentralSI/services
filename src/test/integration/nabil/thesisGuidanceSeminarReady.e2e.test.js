@@ -2,8 +2,9 @@
  * E2E Integration Test: Thesis Guidance to Seminar Ready Flow & FCM Push Notifications
  *
  * Tests the complete flow:
- *   1. Student guidance request submission (ThesisGuidance)
- *   2. Lecturer review and session summary approval
+ *   1. Eight completed research-phase guidance sessions (the seminar needs at least 8
+ *      sessions of the research phase with status Selesai; proposal-phase sessions do not count)
+ *   2. Approval refused while a milestone is not finished
  *   3. Milestone completion validation
  *   4. Supervisor 1 seminar readiness approval + FCM check (partial approval)
  *   5. Supervisor 2 seminar readiness approval + FCM check (full approval -> Acc Seminar)
@@ -77,7 +78,6 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
           create: {
             enrollmentYear: 2022,
             sksCompleted: 125,
-            takingThesisCourse: true,
             researchMethodCompleted: true,
             status: "active",
           },
@@ -87,7 +87,7 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
     });
     testStudent = testStudentUser.student;
 
-    // 6. Create active Thesis with 2 Supervisors (P1 and P2)
+    // 6. Create active Thesis with 2 Supervisors
     testThesis = await prisma.thesis.create({
       data: {
         studentId: testStudent.id,
@@ -95,8 +95,6 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
         status: "research",
         academicYearId: activeAcademicYear.id,
         title: "Rancang Bangun Sistem Realtime IoT Menggunakan WebSockets",
-        proposalStatus: "accepted",
-        rating: "ONGOING",
         startDate: new Date(),
         thesisSupervisors: {
           create: [
@@ -134,22 +132,27 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
     }
   });
 
-  it("1. Mahasiswa mencatatkan sesi bimbingan dan disetujui dosen", async () => {
-    const guidance = await prisma.thesisGuidance.create({
-      data: {
-        thesisId: testThesis.id,
-        requestedDate: new Date(),
-        approvedDate: new Date(),
-        studentNotes: "Konsultasi BAB 4 & Analisis Kinerja WebSocket",
-        sessionSummary: "Pembahasan grafik perbandingan latency telah tervalidasi. Lanjutkan ke penulisan draf final.",
-        status: "completed",
-        phase: "research",
-        completedAt: new Date(),
-      },
+  it("1. Delapan sesi bimbingan fase penelitian berstatus Selesai (syarat seminar)", async () => {
+    const now = Date.now();
+    await prisma.thesisGuidance.createMany({
+      data: Array.from({ length: 8 }, (_, index) => {
+        const at = new Date(now - (8 - index) * 7 * 24 * 60 * 60 * 1000);
+        return {
+          thesisId: testThesis.id,
+          supervisorId: lecturerP1.id,
+          requestedDate: at,
+          approvedDate: at,
+          studentNotes: `Konsultasi ke-${index + 1}: BAB 4 & Analisis Kinerja WebSocket`,
+          sessionSummary: "Pembahasan grafik perbandingan latency telah tervalidasi. Lanjutkan ke penulisan draf final.",
+          status: "completed",
+          phase: "research",
+          completedAt: at,
+        };
+      }),
     });
 
-    expect(guidance.id).toBeDefined();
-    expect(guidance.status).toBe("completed");
+    const completed = await prisma.thesisGuidance.count({ where: { thesisId: testThesis.id, phase: "research", status: "completed" } });
+    expect(completed).toBe(8);
   });
 
   it("2. Validasi gagal approval seminar readiness jika milestone belum lengkap 100%", async () => {
@@ -165,10 +168,10 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
       },
     });
 
-    // P1 mencoba approve sebelum milestone selesai
+    // Pembimbing 1 mencoba approve sebelum milestone selesai
     await expect(
       approveSeminarReadiness(testThesis.id, lecturerP1.user.id, "Draf bab 1 masih separuh")
-    ).rejects.toThrow(/belum menyelesaikan semua milestone/i);
+    ).rejects.toThrow(/belum memenuhi syarat seminar hasil: Seluruh milestone selesai \(100%\) \(0 dari 1 milestone selesai\)/);
   });
 
   it("3. Mahasiswa menyelesaikan semua milestone progress 100%", async () => {
@@ -193,7 +196,7 @@ describe("E2E Test: Bimbingan Mahasiswa to Seminar Ready & FCM Notification Flow
     const result = await approveSeminarReadiness(testThesis.id, lecturerP1.user.id, "BAB 1-5 dan prototype telah lengkap");
 
     expect(result.data.approvedBySupervisor1).toBe(true);
-    expect(result.data.isFullyApproved).toBe(false); // P2 belum approve
+    expect(result.data.isFullyApproved).toBe(false); // Pembimbing 2 belum approve
 
     // Verifikasi FCM push notification terpanggil dengan payload yang sesuai
     expect(sendFcmToUsers).toHaveBeenCalledTimes(1);

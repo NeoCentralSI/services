@@ -5,11 +5,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────
-const { mockRepo, mockPrisma, mockPush, mockNotif } = vi.hoisted(() => ({
+const { mockRepo, mockPrisma, mockPush, mockNotif, mockAcademicYear } = vi.hoisted(() => ({
+  mockAcademicYear: { getActiveAcademicYearId: vi.fn().mockResolvedValue(null) },
   mockRepo: {
     getThesesOverview: vi.fn(),
     getStatusDistribution: vi.fn(),
-    getRatingDistribution: vi.fn(),
+    getActivityDistribution: vi.fn(),
+    getEvaluationDueStudents: vi.fn().mockResolvedValue([]),
     getProgressStatistics: vi.fn(),
     getAtRiskStudents: vi.fn(),
     getSlowStudents: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock("../../../repositories/thesisGuidance/monitoring.repository.js", () => m
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../services/push.service.js", () => mockPush);
 vi.mock("../../../services/notification.service.js", () => mockNotif);
+vi.mock("../../../helpers/academicYear.helper.js", () => mockAcademicYear);
 
 import {
   getMonitoringDashboard,
@@ -68,6 +71,26 @@ const THESIS_DETAIL = {
   updatedAt: new Date().toISOString(),
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (days) => new Date(Date.now() - days * DAY_MS);
+
+/** A thesis as the warning services read it: `daysIdle` whole days without any activity. */
+const warningThesis = (id, daysIdle, overrides = {}) => ({
+  id,
+  status: "research",
+  startDate: daysAgo(daysIdle),
+  statusChangedAt: null,
+  createdAt: daysAgo(daysIdle),
+  totalLeaveDays: 0,
+  leaveStartedAt: null,
+  thesisGuidances: [],
+  thesisMilestones: [],
+  thesisSeminars: [],
+  thesisGuidanceEvaluations: [],
+  student: { user: { id: `user-${id}`, fullName: `MAHASISWA ${id.toUpperCase()}` } },
+  ...overrides,
+});
+
 // ══════════════════════════════════════════════════════════════
 describe("Module 11: Monitoring Tugas Akhir", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -77,7 +100,11 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     it("returns summary stats, distributions, charts, at-risk and slow students", async () => {
       mockRepo.getProgressStatistics.mockResolvedValue({ total: 100, active: 80 });
       mockRepo.getStatusDistribution.mockResolvedValue([{ status: "Bimbingan", count: 60 }]);
-      mockRepo.getRatingDistribution.mockResolvedValue([{ rating: "on_track", count: 50 }]);
+      mockRepo.getActivityDistribution.mockResolvedValue([
+        { id: "active", name: "Lancar", value: "active", count: 50 },
+        { id: "slow", name: "Lambat", value: "slow", count: 4 },
+        { id: "at_risk", name: "Berisiko", value: "at_risk", count: 2 },
+      ]);
       mockRepo.getAtRiskStudents.mockResolvedValue([{ id: "s1", name: "At Risk Student" }]);
       mockRepo.getSlowStudents.mockResolvedValue([{ id: "s2", name: "Slow Student" }]);
       mockRepo.getStudentsReadyForSeminar.mockResolvedValue([]);
@@ -114,7 +141,9 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
       expect(result).toHaveProperty("summary");
       expect(result).toHaveProperty("statusDistribution");
-      expect(result).toHaveProperty("ratingDistribution");
+      expect(result).toHaveProperty("activityDistribution");
+      expect(result).not.toHaveProperty("ratingDistribution");
+      expect(result.summary).toMatchObject({ totalSlow: 4, totalAtRisk: 2 });
       expect(result).toHaveProperty("topicDistribution");
       expect(result).toHaveProperty("batchDistribution");
       expect(result).toHaveProperty("progressDistribution");
@@ -213,6 +242,48 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         name: "Machine Learning",
       });
     });
+
+    it("labels the start semester by the semester that holds the start, without a 30-day margin", async () => {
+      const row = (id, studentId, startDate) => ({
+        id,
+        title: `Thesis ${id}`,
+        thesisMilestones: [],
+        thesisSupervisors: [],
+        student: { id: studentId, user: { id: studentId, fullName: "Budi", identityNumber: "123" } },
+        status: "research",
+        startDate: startDate ? new Date(startDate) : null,
+        statusChangedAt: null,
+        createdAt: new Date("2025-03-03T00:00:00.000Z"),
+      });
+      mockRepo.getThesesOverview.mockResolvedValue({
+        theses: [
+          row("t1", "s1", "2026-08-13T00:00:00.000Z"),
+          // 20 days before Ganjil starts: still the Genap semester.
+          row("t2", "s2", "2026-07-12T00:00:00.000Z"),
+          // No start date: the creation date decides.
+          row("t3", "s3", null),
+          // Before every listed semester.
+          row("t4", "s4", "2019-01-01T00:00:00.000Z"),
+        ],
+        total: 4,
+        page: 1,
+        pageSize: 10,
+      });
+      mockRepo.getAllAcademicYears.mockResolvedValue([
+        { id: "ay3", name: "Ganjil 2026/2027 ", startDate: new Date("2026-08-01"), endDate: new Date("2027-01-31") },
+        { id: "ay2", name: "Genap 2025/2026 ", startDate: new Date("2026-02-01"), endDate: new Date("2026-07-31") },
+        { id: "ay1", name: "Genap 2024/2025 ", startDate: new Date("2025-02-01"), endDate: new Date("2025-07-31") },
+      ]);
+
+      const result = await getThesesList({ page: 1, pageSize: 10 });
+
+      expect(result.data.map((thesis) => [thesis.id, thesis.startSemester])).toEqual([
+        ["t1", "Ganjil 2026/2027"],
+        ["t2", "Genap 2025/2026"],
+        ["t3", "Genap 2024/2025"],
+        ["t4", null],
+      ]);
+    });
   });
 
   // ─── Filter Options ───────────────────────────────────────
@@ -231,6 +302,41 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         { value: "topic-1", label: "Machine Learning", count: 2 },
       ]);
       expect(result).toHaveProperty("academicYears");
+    });
+
+    describe("the running semester", () => {
+      const semesters = [
+        { id: "ay-old", name: "Genap 2025/2026 ", isActive: true }, // stale stored flag
+        { id: "ay-now", name: "Ganjil 2026/2027 ", isActive: false },
+      ];
+
+      beforeEach(() => {
+        mockRepo.getStatusDistribution.mockResolvedValue([]);
+        mockRepo.getAllSupervisors.mockResolvedValue([]);
+        mockRepo.getTopicDistribution.mockResolvedValue([]);
+        mockRepo.getAllAcademicYears.mockResolvedValue(semesters);
+      });
+
+      it("is the one the academic year helper resolves, not the stored flag", async () => {
+        mockAcademicYear.getActiveAcademicYearId.mockResolvedValue("ay-now");
+
+        expect((await getFilterOptions()).academicYears).toEqual([
+          { value: "ay-old", label: "Genap 2025/2026 ", isActive: false },
+          { value: "ay-now", label: "Ganjil 2026/2027 ", isActive: true },
+        ]);
+      });
+
+      it("is none when no semester is running", async () => {
+        mockAcademicYear.getActiveAcademicYearId.mockResolvedValue(null);
+
+        expect((await getFilterOptions()).academicYears.map((ay) => ay.isActive)).toEqual([false, false]);
+      });
+
+      it("follows the stored flag when the calendar is ambiguous", async () => {
+        mockAcademicYear.getActiveAcademicYearId.mockRejectedValue(new Error("Konfigurasi tahun akademik overlap."));
+
+        expect((await getFilterOptions()).academicYears.map((ay) => ay.isActive)).toEqual([true, false]);
+      });
     });
   });
 
@@ -271,8 +377,6 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
         thesisTopic: { name: "ML" },
         academicYear: { semester: "ganjil", year: "2024/2025" },
         startDate: new Date(),
-        deadlineDate: new Date(),
-        rating: "on_track",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -280,6 +384,62 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       const result = await getThesisDetail("thesis-1");
 
       expect(result).toHaveProperty("title", "AI Research");
+    });
+
+    it("gives the Seminar and Sidang cards room, assigned examiners and revision progress", async () => {
+      const examiner = (order, name, extra = {}) => ({
+        id: `ex-${order}`, order, lecturerId: `l-${order}`, assessmentScore: null,
+        availabilityStatus: "available", lecturer: { user: { fullName: name } }, ...extra,
+      });
+      mockRepo.getThesisDetailById.mockResolvedValue({
+        ...THESIS_DETAIL,
+        thesisSeminars: [{
+          id: "sem-1", status: "passed_with_revision", finalScore: 81.5,
+          date: new Date("2026-10-14T00:00:00.000Z"), startTime: new Date("1970-01-01T09:00:00.000Z"),
+          endTime: new Date("1970-01-01T11:00:00.000Z"), updatedAt: new Date(),
+          resultFinalizedAt: new Date("2026-10-14T05:00:00.000Z"), revisionFinalizedAt: null,
+          room: { name: "Ruang Seminar 1" },
+          examiners: [
+            examiner(1, "Penguji Satu", {
+              assessmentScore: 80,
+              thesisSeminarRevisions: [
+                { id: "r1", supervisorApprovedAt: new Date() },
+                { id: "r2", supervisorApprovedAt: null },
+              ],
+            }),
+            examiner(2, "Penguji Dua", { assessmentScore: 83, thesisSeminarRevisions: [{ id: "r3", supervisorApprovedAt: new Date() }] }),
+            // A declined examiner stays in the table but is not shown.
+            examiner(3, "Penguji Menolak", { availabilityStatus: "unavailable", thesisSeminarRevisions: [] }),
+          ],
+        }],
+        thesisDefences: [{
+          id: "def-1", status: "scheduled", finalScore: null, grade: null,
+          date: null, startTime: null, endTime: null, updatedAt: new Date(),
+          examiners: [],
+        }],
+      });
+
+      const result = await getThesisDetail("thesis-1");
+
+      expect(result.seminars[0]).toMatchObject({
+        id: "sem-1",
+        status: "passed_with_revision",
+        finalScore: 81.5,
+        room: "Ruang Seminar 1",
+        examiners: [{ order: 1, name: "Penguji Satu" }, { order: 2, name: "Penguji Dua" }],
+        revisions: { total: 3, completed: 2 },
+        revisionFinalizedAt: null,
+      });
+      expect(result.seminars[0].resultFinalizedAt).toEqual(new Date("2026-10-14T05:00:00.000Z"));
+      // Without a room, examiners or revisions the card fields are empty, never undefined.
+      expect(result.defences[0]).toMatchObject({
+        id: "def-1",
+        room: null,
+        examiners: [],
+        resultFinalizedAt: null,
+        revisionFinalizedAt: null,
+        revisions: { total: 0, completed: 0 },
+      });
     });
 
     it("calculates lastActivity correctly prioritizing the newest date from multiple sources", async () => {
@@ -300,18 +460,21 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result.lastActivity).toBe(now.toISOString());
     });
 
-    it("falls back to thesis updatedAt if no specific activities exist", async () => {
-      const updatedAt = new Date();
+    it("falls back to the start of supervision if no activity exists (not to the row's updatedAt)", async () => {
+      const startDate = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
       mockRepo.getThesisDetailById.mockResolvedValue({
         ...THESIS_DETAIL,
-        updatedAt,
+        createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+        startDate,
+        statusChangedAt: startDate,
+        updatedAt: new Date(),
         thesisGuidances: [],
         thesisMilestones: [],
         thesisSeminars: [],
       });
 
       const result = await getThesisDetail("thesis-1");
-      expect(result.lastActivity).toBe(updatedAt.toISOString());
+      expect(result.lastActivity).toBe(startDate.toISOString());
     });
 
     it("throws 404 if thesis not found", async () => {
@@ -325,39 +488,78 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
   // ─── Warning Notification ─────────────────────────────────
   describe("sendWarningNotificationService", () => {
-    it("sends FCM + in-app notification for SLOW warning", async () => {
+    const asKadep = () =>
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1",
-        title: "AI Research",
-        student: { user: { id: "user-1", fullName: "Budi" } },
-      });
 
-      await sendWarningNotificationService("user-1", "thesis-1", "SLOW");
+    it("warns a Lambat thesis with the Lambat wording, from the level derived on the server", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(warningThesis("thesis-1", 90));
 
-      expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
+      // A client value is not a parameter any more; an extra argument changes nothing.
+      const result = await sendWarningNotificationService("user-1", "thesis-1", "at_risk");
+
+      expect(result).toMatchObject({ success: true, warningType: "slow" });
+      const [recipients, push] = mockPush.sendFcmToUsers.mock.calls[0];
+      expect(recipients).toEqual(["user-thesis-1"]);
+      expect(push.title).toBe("⚠️ Peringatan Progress Tugas Akhir");
+      expect(push.body).toContain("terdeteksi lambat");
+      expect(push.data.warningType).toBe("slow");
+      expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("terdeteksi lambat");
     });
 
-    it("sends notification for AT_RISK warning type", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1",
-        title: "AI Research",
-        student: { user: { id: "user-1", fullName: "Budi" } },
-      });
+    it("warns a Berisiko thesis with the Berisiko wording", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(warningThesis("thesis-1", 200));
 
-      await sendWarningNotificationService("user-1", "thesis-1", "AT_RISK");
+      const result = await sendWarningNotificationService("user-1", "thesis-1", "slow");
 
-      expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
+      expect(result.warningType).toBe("at_risk");
+      const push = mockPush.sendFcmToUsers.mock.calls[0][1];
+      expect(push.title).toBe("🚨 Peringatan Serius: Progress Tugas Akhir");
+      expect(push.body).toContain("Berisiko");
+      expect(push.data.warningType).toBe("at_risk");
+    });
+
+    it("reads the activity of the thesis with the columns of the progress helper", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(warningThesis("thesis-1", 90));
+
+      await sendWarningNotificationService("user-1", "thesis-1");
+
+      const { select } = mockPrisma.thesis.findUnique.mock.calls[0][0];
+      expect(select).toMatchObject({ status: true, startDate: true, statusChangedAt: true });
+      expect(select.thesisGuidances.where).toEqual({ status: "completed", phase: "research" });
+    });
+
+    it.each([
+      ["Lancar", warningThesis("thesis-1", 10), "Peringatan tidak dikirim: Aktivitas tugas akhir Lancar."],
+      ["not in Penelitian (BSS)", warningThesis("thesis-1", 200, { status: "on_leave" }), "Peringatan tidak dikirim: Tugas akhir tidak berstatus Penelitian."],
+      ["Selesai", warningThesis("thesis-1", 200, { status: "completed" }), "Peringatan tidak dikirim: Tugas akhir tidak berstatus Penelitian."],
+    ])("sends nothing for a thesis that is %s (400)", async (_label, thesis, message) => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(thesis);
+
+      await expect(sendWarningNotificationService("user-1", "thesis-1", "at_risk")).rejects.toMatchObject({ statusCode: 400, message });
+
+      expect(mockPush.sendFcmToUsers).not.toHaveBeenCalled();
+      expect(mockNotif.createNotificationsForUsers).not.toHaveBeenCalled();
+    });
+
+    it("counts a recent completed guidance session as activity", async () => {
+      asKadep();
+      mockPrisma.thesis.findUnique.mockResolvedValue(
+        warningThesis("thesis-1", 200, { thesisGuidances: [{ approvedDate: daysAgo(5), completedAt: daysAgo(5) }] }),
+      );
+
+      await expect(sendWarningNotificationService("user-1", "thesis-1")).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it("throws 404 if thesis not found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
+      asKadep();
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
-        sendWarningNotificationService("user-1", "nonexistent", "SLOW")
+        sendWarningNotificationService("user-1", "nonexistent")
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
@@ -367,7 +569,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     it("returns comprehensive report data for PDF generation", async () => {
       mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: "2024/2025" });
       mockRepo.getStatusDistribution.mockResolvedValue([]);
-      mockRepo.getRatingDistribution.mockResolvedValue([]);
+      mockRepo.getActivityDistribution.mockResolvedValue([]);
       mockRepo.getThesesForReport.mockResolvedValue([]);
 
       const result = await getProgressReportService({ academicYearId: "ay1" });
@@ -406,38 +608,129 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
   // ─── Batch Warning Notification ─────────────────────
   describe("sendBatchWarningNotificationService", () => {
-    it("sends batch SLOW warnings to multiple students", async () => {
+    const asKadep = () =>
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
+    const pushFor = (userId) => mockPush.sendFcmToUsers.mock.calls.find(([recipients]) => recipients[0] === userId)?.[1];
+    const notifFor = (userId) => mockNotif.createNotificationsForUsers.mock.calls.find(([recipients]) => recipients[0] === userId)?.[1];
+
+    it("gives a mix of Lambat and Berisiko theses each their own wording and skips the Lancar one", async () => {
+      asKadep();
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([
-        {
-          id: "thesis-1", daysSinceActivity: 65,
-          student: { user: { id: "user-1", fullName: "Budi" } },
-        },
-        {
-          id: "thesis-2", daysSinceActivity: 70,
-          student: { user: { id: "user-2", fullName: "Andi" } },
-        },
+        warningThesis("t-slow", 90, { student: { user: { id: "u-slow", fullName: "BUDI SANTOSO" } } }),
+        warningThesis("t-risk", 200, { student: { user: { id: "u-risk", fullName: "ANDI WIJAYA" } } }),
+        warningThesis("t-active", 10, { student: { user: { id: "u-active", fullName: "CITRA LESTARI" } } }),
       ]);
 
-      const result = await sendBatchWarningNotificationService("admin-user", ["thesis-1", "thesis-2"], "SLOW");
+      // The client asks for "slow" for everyone; the level of each thesis decides.
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-slow", "t-risk", "t-active"], "slow");
 
-      expect(result.success).toBe(true);
       expect(mockPush.sendFcmToUsers).toHaveBeenCalledTimes(2);
       expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledTimes(2);
+
+      expect(pushFor("u-slow")).toMatchObject({
+        title: "⚠️ Peringatan: Progress Tugas Akhir",
+        body: "Halo BUDI SANTOSO, Anda sudah tidak ada update progress tugas akhir selama 90 hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.",
+        data: { thesisId: "t-slow", warningType: "slow" },
+      });
+      expect(notifFor("u-slow")).toMatchObject({ title: "⚠️ Peringatan: Progress Tugas Akhir", referenceId: "t-slow" });
+      expect(notifFor("u-slow").message).not.toContain("Berisiko");
+
+      expect(pushFor("u-risk")).toMatchObject({
+        title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+        body: "Halo ANDI WIJAYA, Anda sudah tidak ada update progress tugas akhir selama 200 hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.",
+        data: { thesisId: "t-risk", warningType: "at_risk" },
+      });
+      expect(notifFor("u-risk").message).toBe("Progress Anda terhenti selama 200 hari (aktivitas: Berisiko). Segera hubungi dosen pembimbing Anda.");
+
+      // The Lancar thesis got nothing and is reported.
+      expect(pushFor("u-active")).toBeUndefined();
+      expect(notifFor("u-active")).toBeUndefined();
+      expect(result).toEqual({
+        success: true,
+        message: "Peringatan dikirim ke 2 mahasiswa (1 Berisiko, 1 Lambat). 1 tidak dikirim.",
+        sentCount: 2,
+        sentCounts: { slow: 1, at_risk: 1 },
+        sent: [
+          { thesisId: "t-slow", studentName: "BUDI SANTOSO", warningType: "slow" },
+          { thesisId: "t-risk", studentName: "ANDI WIJAYA", warningType: "at_risk" },
+        ],
+        notSent: [
+          { thesisId: "t-active", studentName: "CITRA LESTARI", reason: "active", reasonLabel: "Aktivitas tugas akhir Lancar" },
+        ],
+      });
+    });
+
+    it("does not let the client turn a Lambat warning into a Berisiko one", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([warningThesis("t-slow", 90)]);
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-slow"], "at_risk");
+
+      expect(result.sent).toEqual([{ thesisId: "t-slow", studentName: "MAHASISWA T-SLOW", warningType: "slow" }]);
+      expect(mockPush.sendFcmToUsers.mock.calls[0][1].title).toBe("⚠️ Peringatan: Progress Tugas Akhir");
+    });
+
+    it("skips theses that are not in Penelitian, unknown ids and theses without a student account", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([
+        warningThesis("t-risk", 130),
+        warningThesis("t-leave", 200, { status: "on_leave" }),
+        warningThesis("t-done", 200, { status: "completed" }),
+        warningThesis("t-orphan", 200, { student: null }),
+      ]);
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-risk", "t-leave", "t-done", "t-orphan", "t-gone", "t-risk"]);
+
+      // Duplicate ids are one thesis.
+      expect(mockPrisma.thesis.findMany.mock.calls[0][0].where).toEqual({ id: { in: ["t-risk", "t-leave", "t-done", "t-orphan", "t-gone"] } });
+      expect(mockPush.sendFcmToUsers).toHaveBeenCalledTimes(1);
+      expect(result.sentCount).toBe(1);
+      expect(result.sentCounts).toEqual({ slow: 0, at_risk: 1 });
+      expect(result.notSent.map(({ thesisId, reason, reasonLabel }) => [thesisId, reason, reasonLabel])).toEqual([
+        ["t-leave", "not_research", "Tugas akhir tidak berstatus Penelitian"],
+        ["t-done", "not_research", "Tugas akhir tidak berstatus Penelitian"],
+        ["t-orphan", "no_student", "Akun mahasiswa tidak ditemukan"],
+        ["t-gone", "not_found", "Tugas akhir tidak ditemukan"],
+      ]);
+      expect(result.message).toBe("Peringatan dikirim ke 1 mahasiswa (1 Berisiko, 0 Lambat). 4 tidak dikirim.");
+    });
+
+    it("reports it when nothing at all is sent", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([warningThesis("t-active", 3)]);
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-active"]);
+
+      expect(result).toMatchObject({ success: true, sentCount: 0, sent: [], message: "Tidak ada peringatan yang dikirim. 1 tidak dikirim." });
+      expect(mockPush.sendFcmToUsers).not.toHaveBeenCalled();
+      expect(mockNotif.createNotificationsForUsers).not.toHaveBeenCalled();
+    });
+
+    it("reports a thesis whose notification could not be sent, and still sends the others", async () => {
+      asKadep();
+      mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([warningThesis("t-a", 90), warningThesis("t-b", 90)]);
+      mockPush.sendFcmToUsers.mockRejectedValueOnce(new Error("FCM down"));
+
+      const result = await sendBatchWarningNotificationService("admin-user", ["t-a", "t-b"]);
+
+      expect(result.sent.map((item) => item.thesisId)).toEqual(["t-b"]);
+      expect(result.notSent).toEqual([
+        { thesisId: "t-a", studentName: "MAHASISWA T-A", reason: "failed", reasonLabel: "Notifikasi gagal dikirim" },
+      ]);
     });
 
     it("throws error if thesisIds is empty", async () => {
       await expect(
-        sendBatchWarningNotificationService("admin-user", [], "SLOW")
+        sendBatchWarningNotificationService("admin-user", [])
       ).rejects.toThrow();
     });
 
     it("throws error if no theses are found", async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Admin", userHasRoles: [{ role: { name: "Ketua Departemen" }, status: "active" }] });
+      asKadep();
       mockPrisma.thesis.findMany = vi.fn().mockResolvedValue([]);
 
       await expect(
-        sendBatchWarningNotificationService("admin-user", ["nonexistent"], "SLOW")
+        sendBatchWarningNotificationService("admin-user", ["nonexistent"])
       ).rejects.toThrow();
     });
   });
@@ -447,7 +740,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
     it("returns report data with all-semester filter", async () => {
       mockRepo.getThesesForReport.mockResolvedValue([]);
       mockRepo.getStatusDistribution.mockResolvedValue([]);
-      mockRepo.getRatingDistribution.mockResolvedValue([]);
+      mockRepo.getActivityDistribution.mockResolvedValue([]);
 
       const result = await getProgressReportService({});
 
@@ -459,7 +752,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       mockRepo.getAcademicYearById.mockResolvedValue({ id: "ay1", semester: "ganjil", year: "2025/2026" });
       mockRepo.getThesesForReport.mockResolvedValue([
         {
-          id: "t1", title: "Thesis 1", rating: "ONGOING",
+          id: "t1", title: "Thesis 1",
           student: { user: { identityNumber: "123", fullName: "Budi" } },
           status: "research",
           thesisTopic: { name: "ML" },
@@ -470,11 +763,11 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
           thesisGuidances: [
             { status: "completed" }, { status: "accepted" },
           ],
-          startDate: new Date(), deadlineDate: new Date(), createdAt: new Date(),
+          startDate: new Date(), createdAt: new Date(),
         },
       ]);
       mockRepo.getStatusDistribution.mockResolvedValue([]);
-      mockRepo.getRatingDistribution.mockResolvedValue([]);
+      mockRepo.getActivityDistribution.mockResolvedValue([]);
 
       const result = await getProgressReportService({ academicYearId: "ay1" });
 

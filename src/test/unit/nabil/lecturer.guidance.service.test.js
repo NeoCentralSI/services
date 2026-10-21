@@ -2,17 +2,13 @@
  * Unit Tests — Module 2 (Dosen): Approve/Reject Guidance
  *              Module 3 (Dosen): Approve Session Summary
  *              Module 8: Dashboard Dosen (My Students)
- *              Module 9: Transfer Mahasiswa Bimbingan
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-vi.mock("../../../services/ta04Authorization.service.js", () => ({
-  assertTa04GuidanceAuthorized: vi.fn().mockResolvedValue(true)
-}));
-
 // ── hoisted mocks ──────────────────────────────────────────────
 const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, mockGlobalUtil, mockRoles } = vi.hoisted(() => ({
   mockPrisma: {
-    thesisGuidance: { update: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
+    thesisGuidance: { update: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn().mockResolvedValue([]) },
+    thesisMilestone: { groupBy: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     user: { findUnique: vi.fn() },
@@ -33,17 +29,6 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
     findActiveSupervisorRelation: vi.fn().mockResolvedValue({ id: "ts-active", status: "active", role: { name: "Pembimbing 1" }, thesis: { status: "research" } }),
     approveSessionSummary: vi.fn(),
     findScheduledGuidances: vi.fn(),
-    findEligibleTransferLecturers: vi.fn(),
-    findSupervisorRecords: vi.fn(),
-    transferSupervisor: vi.fn(),
-    updateSupervisorRole: vi.fn(),
-    getRoleIdByName: vi.fn(),
-    lecturerHasRole: vi.fn(),
-    createTransferNotification: vi.fn(),
-    findPendingTransferNotifications: vi.fn(),
-    findTransferNotificationById: vi.fn(),
-    markNotificationRead: vi.fn(),
-    createInfoNotification: vi.fn(),
     getThesisStatusMap: vi.fn(),
     updateThesisStatusById: vi.fn(),
     getStudentActiveThesis: vi.fn(),
@@ -56,13 +41,6 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
     listGuidanceHistory: vi.fn(),
     findThesisDetailForLecturer: vi.fn(),
     findGuidancesPendingApproval: vi.fn(),
-    // Kadep Transfer
-    findKadepUsers: vi.fn().mockResolvedValue([]),
-    createKadepTransferNotification: vi.fn(),
-    findPendingKadepTransferNotifications: vi.fn(),
-    findAllKadepTransferNotifications: vi.fn(),
-    updateNotificationMessage: vi.fn().mockResolvedValue({}),
-    findKadepTransferNotificationsBySrcTgt: vi.fn().mockResolvedValue([]),
   },
   mockPush: { sendFcmToUsers: vi.fn().mockResolvedValue(undefined) },
   mockNotif: { createNotificationsForUsers: vi.fn().mockResolvedValue(undefined) },
@@ -94,14 +72,10 @@ import {
   rejectGuidanceService,
   approveGuidanceService,
   approveSessionSummaryService,
-  requestStudentTransferService,
-  approveTransferRequestService,
-  rejectTransferRequestService,
   cancelGuidanceByLecturerService,
   getStudentDetailService,
   getPendingApprovalService,
   approveThesisProposalService,
-  failStudentThesisService,
   sendWarningNotificationService,
   getGuidanceDetailService,
 } from "../../../services/thesisGuidance/lecturer.guidance.service.js";
@@ -133,18 +107,6 @@ const GUIDANCE_SUMMARY_PENDING = {
   thesisId: "thesis-1",
 };
 
-const TRANSFER_NOTIFICATION = {
-  id: "notif-tx-1",
-  userId: "lec-1",
-  isRead: false,
-  message: JSON.stringify({
-    t: "TX",
-    src: "lec-source",
-    refs: [{ thesisId: "thesis-1", supId: "sup-rec-1" }],
-    reason: "Pindah bidang",
-  }),
-};
-
 // ══════════════════════════════════════════════════════════════
 // Module 8: Dashboard Dosen (My Students)
 // ══════════════════════════════════════════════════════════════
@@ -161,7 +123,7 @@ describe("Module 8: Dashboard Dosen (My Students)", () => {
             id: "thesis-1",
             title: "Sistem Monitoring",
             status: "research",
-            thesisRating: "Ongoing",
+            activityLevel: "active",
             student: { userId: "user-mhs-1", user: { fullName: "Budi", email: "budi@test.com", identityNumber: "123" } },
             milestones: [{ status: "completed" }, { status: "in_progress" }],
             guidances: [{ status: "completed" }],
@@ -412,169 +374,6 @@ describe("Module 3 (Dosen): Approve Session Summary", () => {
   });
 });
 
-// ══════════════════════════════════════════════════════════════
-// Module 9: Transfer Mahasiswa Bimbingan
-// ══════════════════════════════════════════════════════════════
-describe("Module 9: Transfer Mahasiswa Bimbingan", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  describe("requestStudentTransferService", () => {
-    it("sends transfer request with reason to target lecturer", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([
-        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
-      ]);
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
-      mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
-      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
-      mockRepo.createKadepTransferNotification.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      const result = await requestStudentTransferService("user-dosen-1", {
-        thesisIds: ["thesis-1"],
-        targetLecturerId: "lec-target",
-        reason: "Pindah bidang",
-      });
-
-      expect(result).toMatchObject({ studentCount: 1 });
-      expect(mockRepo.createTransferNotification).toHaveBeenCalled();
-    });
-
-    it("rejects (400) if reason is missing", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([]);
-
-      await expect(
-        requestStudentTransferService("user-dosen-1", {
-          thesisIds: ["thesis-1"],
-          targetLecturerId: "lec-target",
-          reason: "",
-        })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects (400) if target is self", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([
-        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
-      ]);
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
-
-      await expect(
-        requestStudentTransferService("user-dosen-1", {
-          thesisIds: ["thesis-1"],
-          targetLecturerId: "lec-1", // self
-          reason: "Test",
-        })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("sends notification with [TRANSFER_REQUEST] tag to target lecturer", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findSupervisorRecords.mockResolvedValue([
-        { id: "sup-1", thesisId: "thesis-1", thesis: { student: { user: { fullName: "Budi" } } } },
-      ]);
-      mockRepo.lecturerHasRole.mockResolvedValue(true);
-      mockRepo.createTransferNotification.mockResolvedValue({ id: "notif-1" });
-      mockRepo.findKadepUsers.mockResolvedValue([{ id: "user-kadep-1" }]);
-      mockRepo.createKadepTransferNotification.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      await requestStudentTransferService("user-dosen-1", {
-        thesisIds: ["thesis-1"],
-        targetLecturerId: "lec-target",
-        reason: "Pindah bidang",
-      });
-
-      expect(mockRepo.createTransferNotification).toHaveBeenCalledWith(
-        "lec-target",
-        expect.stringContaining("\"t\":\"TX\"")
-      );
-    });
-  });
-
-  describe("approveTransferRequestService", () => {
-    it("approves transfer request, marks notification read and notifies kadep", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.markNotificationRead.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      const result = await approveTransferRequestService("user-dosen-1", "notif-tx-1");
-
-      expect(result).toHaveProperty("message");
-      expect(mockRepo.markNotificationRead).toHaveBeenCalledWith("notif-tx-1");
-    });
-
-    it("rejects (400) if transfer request already processed", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue({
-        ...TRANSFER_NOTIFICATION,
-        isRead: true,
-      });
-
-      await expect(
-        approveTransferRequestService("user-dosen-1", "notif-tx-1")
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects (404) if transfer request not found", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(null);
-
-      await expect(
-        approveTransferRequestService("user-dosen-1", "nonexistent")
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it("sends notification to source and kadep after transfer approval", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.markNotificationRead.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      await approveTransferRequestService("user-dosen-1", "notif-tx-1");
-
-      // Notifies source lecturer
-      expect(mockRepo.createInfoNotification).toHaveBeenCalled();
-    });
-  });
-
-  describe("rejectTransferRequestService", () => {
-    it("rejects transfer request with reason and notifies source lecturer", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue(TRANSFER_NOTIFICATION);
-      mockRepo.markNotificationRead.mockResolvedValue({});
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-      mockRepo.createInfoNotification.mockResolvedValue({});
-
-      const result = await rejectTransferRequestService("user-dosen-1", "notif-tx-1", {
-        reason: "Sudah banyak mahasiswa",
-      });
-
-      expect(result).toMatchObject({ message: "Transfer request ditolak" });
-      expect(mockRepo.markNotificationRead).toHaveBeenCalledWith("notif-tx-1");
-    });
-
-    it("rejects (400) if already processed", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockRepo.findTransferNotificationById.mockResolvedValue({
-        ...TRANSFER_NOTIFICATION,
-        isRead: true,
-      });
-
-      await expect(
-        rejectTransferRequestService("user-dosen-1", "notif-tx-1", { reason: "test" })
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
 // Module 8b: Student Detail (Lecturer View)
 // ══════════════════════════════════════════════════════════════
 describe("Module 8b: Student Detail (Lecturer View)", () => {
@@ -588,7 +387,7 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         status: "research",
         document: null, thesisProposal: null,
-        rating: "on_track", startDate: new Date(), deadlineDate: new Date(),
+        startDate: new Date(),
         thesisMilestones: [{ id: "m1", title: "Bab 1", status: "completed", updatedAt: new Date(), progressPercentage: 100, targetDate: null }],
         studentId: "stu-1",
       });
@@ -608,8 +407,9 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         id: "thesis-1", title: "AI Research",
         student: { id: "stu-1", user: { fullName: "Budi", identityNumber: "123", email: "budi@test.com" } },
         status: "research",
-        proposalDocument: { id: "doc-2", fileName: "lama.pdf", filePath: null },
-        rating: "ONGOING", startDate: new Date(), deadlineDate: new Date(),
+        // Final proposal of the latest Research Method attempt.
+        researchMethodAssessments: [{ id: "rma-2", proposalFileName: "proposal.pdf", proposalFilePath: "uploads/thesis/thesis-1/proposal/rma-2/proposal.pdf" }],
+        startDate: new Date(),
         thesisMilestones: [],
         studentId: "stu-1",
       });
@@ -633,7 +433,11 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
         fileName: "bab3.pdf",
         url: "/uploads/thesis/thesis-1/guidance/g-9/1700000000000-bab3.pdf",
       });
-      expect(result.proposalDocument).toEqual({ id: "doc-2", fileName: "lama.pdf", url: null });
+      expect(result.proposalDocument).toEqual({
+        id: "rma-2",
+        fileName: "proposal.pdf",
+        url: "/uploads/thesis/thesis-1/proposal/rma-2/proposal.pdf",
+      });
 
       mockPrisma.thesisGuidance.findFirst.mockResolvedValue(null);
       const empty = await getStudentDetailService("user-dosen-1", "thesis-1");
@@ -671,71 +475,94 @@ describe("Module 8b: Student Detail (Lecturer View)", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// Fail Student Thesis
-// ══════════════════════════════════════════════════════════════
-describe("Fail Student Thesis", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  describe("failStudentThesisService", () => {
-    // Paket A (K15): the endpoint read ThesisStatus rows that never existed; stopping a
-    // thesis is an Admin action (status gagal + reason). The endpoint is closed (410).
-    it("is closed (410) and writes nothing", async () => {
-      await expect(
-        failStudentThesisService("user-dosen-1", "stu-1", { reason: "Tidak aktif" })
-      ).rejects.toMatchObject({ statusCode: 410 });
-      expect(mockRepo.getStudentActiveThesis).not.toHaveBeenCalled();
-      expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
-    });
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
 // Lecturer Warning Notification
 // ══════════════════════════════════════════════════════════════
 describe("Lecturer Warning Notification", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("sendWarningNotificationService (Lecturer)", () => {
-    it("sends SLOW warning to student via FCM and in-app", async () => {
-      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", title: "AI Research",
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-        thesisSupervisors: [{ lecturerId: "lec-1", role: { name: "pembimbing_1" } }],
-      });
-      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
-
-      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "SLOW");
-
-      expect(result.success).toBe(true);
-      expect(mockPush.sendFcmToUsers).toHaveBeenCalled();
-      expect(mockNotif.createNotificationsForUsers).toHaveBeenCalled();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    /** A supervised research thesis with `daysIdle` whole days without any activity. */
+    const supervisedThesis = (daysIdle, overrides = {}) => ({
+      id: "thesis-1",
+      status: "research",
+      startDate: new Date(Date.now() - daysIdle * DAY_MS),
+      statusChangedAt: null,
+      createdAt: new Date(Date.now() - daysIdle * DAY_MS),
+      totalLeaveDays: 0,
+      leaveStartedAt: null,
+      thesisGuidances: [],
+      thesisMilestones: [],
+      thesisSeminars: [],
+      thesisGuidanceEvaluations: [],
+      student: { user: { id: "user-mhs-1", fullName: "Budi" } },
+      thesisSupervisors: [{ role: { name: "pembimbing_1" } }],
+      ...overrides,
     });
 
-    it("sends AT_RISK warning to student", async () => {
+    it("sends the Lambat warning to a Lambat thesis via FCM and in-app, whatever the client asks", async () => {
       mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", title: "AI Research",
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-        thesisSupervisors: [{ lecturerId: "lec-1", role: { name: "pembimbing_1" } }],
-      });
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(90));
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
 
-      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "AT_RISK");
+      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "at_risk");
 
-      expect(result.success).toBe(true);
+      expect(result).toMatchObject({ success: true, warningType: "slow" });
+      const [recipients, push] = mockPush.sendFcmToUsers.mock.calls[0];
+      expect(recipients).toEqual(["user-mhs-1"]);
+      expect(push.title).toBe("⚠️ Peringatan Progress Tugas Akhir");
+      expect(push.data.warningType).toBe("slow");
+      expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("terdeteksi lambat");
+    });
+
+    it("sends the Berisiko warning to a Berisiko thesis", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(200));
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+
+      const result = await sendWarningNotificationService("user-dosen-1", "thesis-1", "slow");
+
+      expect(result).toMatchObject({ success: true, warningType: "at_risk" });
+      const push = mockPush.sendFcmToUsers.mock.calls[0][1];
+      expect(push.title).toBe("🚨 Peringatan Serius: Progress Tugas Akhir");
+      expect(push.data.warningType).toBe("at_risk");
+      expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("Berisiko");
+    });
+
+    it.each([
+      ["Lancar", supervisedThesis(10), "Peringatan tidak dikirim: Aktivitas tugas akhir Lancar."],
+      ["on leave (BSS)", supervisedThesis(200, { status: "on_leave" }), "Peringatan tidak dikirim: Tugas akhir tidak berstatus Penelitian."],
+    ])("sends nothing for a thesis that is %s (400)", async (_label, thesis, message) => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockPrisma.thesis.findUnique.mockResolvedValue(thesis);
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+
+      await expect(
+        sendWarningNotificationService("user-dosen-1", "thesis-1", "at_risk")
+      ).rejects.toMatchObject({ statusCode: 400, message });
+
+      expect(mockPush.sendFcmToUsers).not.toHaveBeenCalled();
+      expect(mockNotif.createNotificationsForUsers).not.toHaveBeenCalled();
+    });
+
+    it("keeps the active-supervisor filter on the thesis query", async () => {
+      mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(90));
+      mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Dr. Andi" });
+
+      await sendWarningNotificationService("user-dosen-1", "thesis-1");
+
+      const { select } = mockPrisma.thesis.findUnique.mock.calls[0][0];
+      expect(select.thesisSupervisors.where).toEqual({ lecturerId: "lec-1", status: "active" });
+      expect(select).toMatchObject({ status: true, startDate: true });
     });
 
     it("rejects (403) if lecturer is not a supervisor of the thesis", async () => {
       mockRepo.getLecturerByUserId.mockResolvedValue(LECTURER);
-      mockPrisma.thesis.findUnique.mockResolvedValue({
-        id: "thesis-1", title: "AI Research",
-        student: { user: { id: "user-mhs-1", fullName: "Budi" } },
-        thesisSupervisors: [], // empty = not a supervisor
-      });
+      mockPrisma.thesis.findUnique.mockResolvedValue(supervisedThesis(90, { thesisSupervisors: [] })); // empty = not a supervisor
 
       await expect(
-        sendWarningNotificationService("user-dosen-1", "thesis-1", "SLOW")
+        sendWarningNotificationService("user-dosen-1", "thesis-1")
       ).rejects.toMatchObject({ statusCode: 403 });
     });
 
@@ -744,7 +571,7 @@ describe("Lecturer Warning Notification", () => {
       mockPrisma.thesis.findUnique.mockResolvedValue(null);
 
       await expect(
-        sendWarningNotificationService("user-dosen-1", "nonexistent", "SLOW")
+        sendWarningNotificationService("user-dosen-1", "nonexistent")
       ).rejects.toMatchObject({ statusCode: 404 });
     });
   });

@@ -2,7 +2,7 @@ import prisma from "../config/prisma.js";
 import { ROLES } from "../constants/roles.js";
 
 /**
- * Guard for `/uploads/thesis/<thesisId>/...` (Paket B §2.4).
+ * Guard for `/uploads/thesis/<thesisId>/...`.
  *
  * The access token carries only `{ sub, email }`, so access is decided from the database
  * by `req.user.sub` (the user id, which is also the Student / Lecturer id):
@@ -14,6 +14,8 @@ import { ROLES } from "../constants/roles.js";
  * |                                   | Ketua/Sekretaris Departemen, GKM, Admin (active role)          |
  * | `/<thesisId>/seminar/...`         | the above + seminar examiners + registered seminar audiences   |
  * | `/<thesisId>/defence/...`         | the above + defence examiners (kept from the old guard)        |
+ * | `/<thesisId>/proposal/...`        | final proposal: owner; ACTIVE supervisors; Koordinator|
+ * |                                   | Metode Penelitian, Ketua/Sekretaris Departemen, Admin (active) |
  * | anything else                     | 403                                                            |
  *
  * Two queries run in parallel per request: the caller's privileged roles, and the thesis
@@ -24,6 +26,14 @@ export const THESIS_FILE_PRIVILEGED_ROLES = Object.freeze([
   ROLES.SEKRETARIS_DEPARTEMEN,
   ROLES.GKM,
   ROLES.ADMIN,
+]);
+
+/** Final proposal files (`/<thesisId>/proposal/...`): the research-method roles, not GKM. */
+export const PROPOSAL_FILE_PRIVILEGED_ROLES = Object.freeze([
+  ROLES.KETUA_DEPARTEMEN,
+  ROLES.SEKRETARIS_DEPARTEMEN,
+  ROLES.ADMIN,
+  ROLES.KOORDINATOR_METODE_PENELITIAN,
 ]);
 
 const forbidden = (res) =>
@@ -58,19 +68,29 @@ export const checkThesisFileAccess = async (req, res, next) => {
   const subfolder = parts.length > 2 ? parts[1] : null;
   const isSeminarFile = subfolder === "seminar";
   const isDefenceFile = subfolder === "defence";
+  const isProposalFile = subfolder === "proposal";
 
   try {
     const [privilegedRole, thesis] = await Promise.all([
       prisma.userHasRole.findFirst({
-        where: { userId, status: "active", role: { name: { in: THESIS_FILE_PRIVILEGED_ROLES } } },
+        where: {
+          userId,
+          status: "active",
+          role: { name: { in: isProposalFile ? PROPOSAL_FILE_PRIVILEGED_ROLES : THESIS_FILE_PRIVILEGED_ROLES } },
+        },
         select: { roleId: true },
       }),
       prisma.thesis.findUnique({
         where: { id: thesisId },
         select: {
           studentId: true,
-          // any relation status: former supervisors keep read access to history
-          thesisSupervisors: { where: { lecturerId: userId }, select: { id: true }, take: 1 },
+          // any relation status: former supervisors keep read access to history;
+          // a final proposal is read by active supervisors only
+          thesisSupervisors: {
+            where: isProposalFile ? { lecturerId: userId, status: "active" } : { lecturerId: userId },
+            select: { id: true },
+            take: 1,
+          },
           ...(isSeminarFile
             ? {
                 thesisSeminars: {

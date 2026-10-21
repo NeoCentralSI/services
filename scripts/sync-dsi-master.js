@@ -157,8 +157,8 @@ async function upsertOfficialTopics(client, groups) {
 
 async function moveTopicReferences(client, oldTopicId, targetTopicId) {
   const thesis = await client.thesis.updateMany({ where: { thesisTopicId: oldTopicId }, data: { thesisTopicId: targetTopicId } });
-  const requests = await client.thesisAdvisorRequest.updateMany({ where: { topicId: oldTopicId }, data: { topicId: targetTopicId } });
-  const drafts = await client.thesisAdvisorRequestDraft.updateMany({ where: { topicId: oldTopicId }, data: { topicId: targetTopicId } });
+  const requests = await client.thesisSupervisorRequest.updateMany({ where: { topicId: oldTopicId }, data: { topicId: targetTopicId } });
+  const drafts = await client.thesisSupervisorRequestDraft.updateMany({ where: { topicId: oldTopicId }, data: { topicId: targetTopicId } });
   const changes = await client.thesisChangeRequest.updateMany({ where: { newTopicId: oldTopicId }, data: { newTopicId: targetTopicId } });
   return { thesis: thesis.count, requests: requests.count, drafts: drafts.count, changes: changes.count };
 }

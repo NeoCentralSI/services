@@ -10,7 +10,7 @@ import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import { ENV } from "../../config/env.js";
 import prisma from "../../config/prisma.js";
-import { OPEN_THESIS_STATUSES } from "../../constants/thesisStatus.js";
+import { CURRENT_THESIS_STATUSES } from "../../constants/thesisStatus.js";
 
 const MIN_BIMBINGAN = ENV.SEMINAR_MIN_BIMBINGAN;
 const MIN_KEHADIRAN = ENV.SEMINAR_MIN_KEHADIRAN;
@@ -169,8 +169,9 @@ export async function getOverview(userId) {
 
 export async function getAnnouncements(userId) {
   const student = await resolveStudent(userId);
+  // Paket E7 (K28): a thesis made Selesai by its defence is still the student's own.
   const ownThesis = await prisma.thesis.findFirst({
-    where: { studentId: student.id, status: { in: OPEN_THESIS_STATUSES } },
+    where: { studentId: student.id, status: { in: CURRENT_THESIS_STATUSES } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: { thesisSeminars: { select: { id: true } } },
   });

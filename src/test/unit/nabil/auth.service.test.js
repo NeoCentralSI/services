@@ -53,6 +53,10 @@ vi.mock("../../../config/mailer.js", () => mockMailer);
 vi.mock("../../../config/env.js", () => ({ ENV: mockEnv }));
 vi.mock("../../../utils/emailTemplate.js", () => mockEmailTemplate);
 vi.mock("../../../utils/password.util.js", () => mockPasswordUtil);
+// SIA flags of the running semester come from the per-semester table (plan 10.6).
+vi.mock("../../../services/research-method/eligibility.service.js", () => ({
+  getCurrentStudentFlags: vi.fn(async () => ({ eligibleResearchMethod: true, takingThesisCourse: true })),
+}));
 vi.mock("bcrypt", () => ({
   default: {
     compare: vi.fn(),
@@ -123,8 +127,6 @@ describe("Module 1: Authentication & Account Management", () => {
           enrollmentYear: 2022,
           sksCompleted: 120,
           currentSemester: 8,
-          eligibleMetopen: true,
-          takingThesisCourse: true,
           status: "Aktif",
         },
         lecturer: null,
@@ -313,12 +315,6 @@ describe("Module 1: Authentication & Account Management", () => {
           enrollmentYear: 2022,
           sksCompleted: 120,
           currentSemester: 8,
-          eligibleMetopen: true,
-          metopenEligibilitySource: "sia",
-          metopenEligibilityUpdatedAt: new Date("2026-04-20T00:00:00.000Z"),
-          takingThesisCourse: true,
-          thesisCourseEnrollmentSource: "sia",
-          thesisCourseEnrollmentUpdatedAt: new Date("2026-04-20T00:00:00.000Z"),
           status: "Aktif",
         },
         lecturer: null,
@@ -334,10 +330,8 @@ describe("Module 1: Authentication & Account Management", () => {
         id: "s1",
         sksCompleted: 120,
         currentSemester: 8,
-        eligibleMetopen: true,
-        metopenEligibilitySource: "sia",
+        eligibleResearchMethod: true,
         takingThesisCourse: true,
-        thesisCourseEnrollmentSource: "sia",
       });
     });
 

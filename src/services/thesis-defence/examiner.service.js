@@ -4,6 +4,7 @@ import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import prisma from "../../config/prisma.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
+import { announceThesisLifecycle, completeThesisFromDefence } from "../thesisLifecycle.service.js";
 
 // ============================================================
 // HELPERS
@@ -919,6 +920,8 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
     targetStatus = "passed_with_revision";
   }
 
+  // Paket E7 (K28): a pass without revision finishes the thesis, in the same transaction.
+  let lifecycle = null;
   const finalized = await coreRepo.finalizeDefenceResult({
     defenceId,
     status: targetStatus,
@@ -927,7 +930,13 @@ export async function finalizeDefence(defenceId, payload, lecturerId) {
     finalScore,
     grade: finalGrade,
     resultFinalizedBy: mySupervisor.id,
+    afterFinalize: targetStatus === "passed"
+      ? async (tx, row) => {
+        lifecycle = await completeThesisFromDefence(tx, row.thesis?.id ?? defence.thesisId, { defenceId, actorUserId: lecturerId });
+      }
+      : undefined,
   });
+  await announceThesisLifecycle(lifecycle);
 
   if (targetStatus === "passed_with_revision") {
     try {

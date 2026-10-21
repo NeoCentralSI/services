@@ -69,7 +69,7 @@ describe("supervisorIntegrity", () => {
     ).rejects.toThrow("sudah memiliki Pembimbing 1");
   });
 
-  it("replace releases removed active participants (K21 history) and reactivates explicit targets", async () => {
+  it("replace releases removed active participants (kept as history) and reactivates explicit targets", async () => {
     client.thesisSupervisors.findMany.mockResolvedValue([
       { id: "old-p1", lecturerId: "lecturer-old", roleId: "role-p1" },
       { id: "keep-p2", lecturerId: "lecturer-b", roleId: "role-p2" },

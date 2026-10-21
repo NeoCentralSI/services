@@ -10,6 +10,7 @@ import { renderAndIssueOfficialHtmlDocument } from "../official-document.service
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import * as examinerService from "./examiner.service.js";
+import { announceThesisLifecycle, reopenThesisFromDefence } from "../thesisLifecycle.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -594,10 +595,20 @@ export async function cancelDefence(defenceId, { cancelledReason }) {
   const defence = await coreRepo.findDefenceBasicById(defenceId);
   if (!defence) throwError("Sidang tidak ditemukan.", 404);
 
-  await coreRepo.updateDefence(defenceId, {
-    status: "cancelled",
-    cancelledReason: cancelledReason || null,
+  // Paket E7 (K28): cancelling a defence whose pass finished the thesis returns the thesis to
+  // research, in the same transaction.
+  const finishedThesis = defence.status === "passed" || (defence.status === "passed_with_revision" && !!defence.revisionFinalizedAt);
+  let lifecycle = null;
+  await prisma.$transaction(async (tx) => {
+    await coreRepo.updateDefence(defenceId, {
+      status: "cancelled",
+      cancelledReason: cancelledReason || null,
+    }, tx);
+    if (finishedThesis && defence.thesisId) {
+      lifecycle = await reopenThesisFromDefence(tx, defence.thesisId, { defenceId, reason: "sidang dibatalkan." });
+    }
   });
+  await announceThesisLifecycle(lifecycle);
 
   // Reset supervisor defenceReady so student must re-get approval for next attempt
   if (defence.thesisId) {

@@ -14,6 +14,8 @@ const { mockPrisma, mockXlsx } = vi.hoisted(() => ({
     user: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
     lecturer: { findMany: vi.fn().mockResolvedValue([]) },
     academicYear: { findMany: vi.fn().mockResolvedValue([{ id: "ay-1", startDate: new Date(0), endDate: new Date(4102444800000) }]) },
+    // Paket E7 (K28): cancelling runs in a transaction with the thesis lifecycle.
+    $transaction: vi.fn((fn) => fn(mockPrisma)),
   },
   mockXlsx: {
     read: vi.fn().mockReturnValue({
@@ -34,6 +36,12 @@ vi.mock('../../../../repositories/thesis-defence/thesis-defence.repository.js');
 vi.mock('../../../../repositories/thesis-defence/doc.repository.js');
 vi.mock('../../../../config/prisma.js', () => ({ default: mockPrisma }));
 vi.mock('xlsx', () => ({ default: mockXlsx }));
+// Paket E7 (K28): the thesis lifecycle has its own tests (thesis-lifecycle.defence.test.js).
+vi.mock('../../../../services/thesisLifecycle.service.js', () => ({
+  completeThesisFromDefence: vi.fn(async () => ({ changed: false })),
+  reopenThesisFromDefence: vi.fn(async () => ({ changed: false })),
+  announceThesisLifecycle: vi.fn(async () => undefined),
+}));
 vi.mock('../../../../services/notification.service.js', () => ({
   createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }),
 }));

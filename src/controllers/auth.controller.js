@@ -1,6 +1,7 @@
 import { loginWithEmailPassword, refreshTokens, logout, verifyAccessToken, changePassword, requestPasswordReset, verifyPasswordResetToken, resetPasswordWithToken, verifyAccountToken, requestAccountVerification, getUserProfile } from "../services/auth.service.js";
 import { ENV } from "../config/env.js";
 import prisma from "../config/prisma.js";
+import { getCurrentStudentFlags } from "../services/research-method/eligibility.service.js";
 
 export async function login(req, res, next) {
 	try {
@@ -104,17 +105,15 @@ export async function updateProfileHandler(req, res, next) {
 		};
 
 		if (updatedUser.student) {
+			// SIA flags of the running semester (plan 10.6), read from the per-semester table.
+			const flags = await getCurrentStudentFlags(updatedUser.student.id);
 			response.student = {
 				id: updatedUser.student.id,
 				enrollmentYear: updatedUser.student.enrollmentYear,
 				sksCompleted: updatedUser.student.sksCompleted ?? 0,
 				currentSemester: updatedUser.student.currentSemester ?? null,
-				eligibleMetopen: updatedUser.student.eligibleMetopen ?? null,
-				metopenEligibilitySource: updatedUser.student.metopenEligibilitySource ?? null,
-				metopenEligibilityUpdatedAt: updatedUser.student.metopenEligibilityUpdatedAt ?? null,
-				takingThesisCourse: updatedUser.student.takingThesisCourse ?? null,
-				thesisCourseEnrollmentSource: updatedUser.student.thesisCourseEnrollmentSource ?? null,
-				thesisCourseEnrollmentUpdatedAt: updatedUser.student.thesisCourseEnrollmentUpdatedAt ?? null,
+				eligibleResearchMethod: flags.eligibleResearchMethod,
+				takingThesisCourse: flags.takingThesisCourse,
 				status: updatedUser.student.status || null,
 			};
 		}

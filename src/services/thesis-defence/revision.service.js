@@ -1,10 +1,14 @@
 import * as revisionRepo from "../../repositories/thesis-defence/revision.repository.js";
 import * as coreRepo from "../../repositories/thesis-defence/thesis-defence.repository.js";
 import prisma from "../../config/prisma.js";
+import { announceThesisLifecycle, completeThesisFromDefence, reopenThesisFromDefence } from "../thesisLifecycle.service.js";
 
 // ============================================================
 // HELPERS
 // ============================================================
+
+/** Lanjutan Paket E7: an approval stays while the revision is finalized. */
+export const REVISION_FINALIZED_UNAPPROVE_MESSAGE = "Revisi sudah difinalkan. Batalkan finalisasi lebih dulu.";
 
 function throwError(message, statusCode) {
   const err = new Error(message);
@@ -196,7 +200,7 @@ export async function updateRevision(defenceId, revisionId, body, user) {
       return approveRevision(defenceId, revision, user, defence);
     case "unapprove":
       if (!isSupervisor) throwError("Aksi ini hanya untuk dosen pembimbing.", 403);
-      return unapproveRevision(defenceId, revision, user);
+      return unapproveRevision(defenceId, revision, user, defence);
     default:
       throwError(
         "Action tidak valid. Gunakan: save_action, submit, cancel_submit, approve, unapprove.",
@@ -291,11 +295,13 @@ async function approveRevision(defenceId, revision, user, defence) {
   return { id: approved.id, supervisorApprovedAt: approved.supervisorApprovedAt };
 }
 
-async function unapproveRevision(defenceId, revision, user) {
+async function unapproveRevision(defenceId, revision, user, defence) {
   const supervisorRelation = await coreRepo.findDefenceSupervisorRole(defenceId, user.lecturerId);
   if (!resolveSupervisorMembership(supervisorRelation)) {
     throwError("Anda bukan dosen pembimbing pada sidang ini.", 403);
   }
+  // Lanjutan Paket E7: the finalization (and the Selesai thesis it made) is undone first.
+  if (defence?.revisionFinalizedAt) throwError(REVISION_FINALIZED_UNAPPROVE_MESSAGE, 400);
 
   if (!isRevisionFinished(revision)) throwError("Revisi ini belum disetujui.", 400);
 
@@ -364,10 +370,17 @@ export async function finalizeRevisions(defenceId, lecturerId) {
   const unfinished = revisions.filter((item) => !isRevisionFinished(item));
   if (unfinished.length > 0) throwError("Masih ada item revisi yang belum disetujui.", 400);
 
-  const finalized = await coreRepo.updateDefence(defenceId, {
-    revisionFinalizedAt: new Date(),
-    revisionFinalizedBy: supervisorRole.id,
+  // Paket E7 (K28): finalizing the revision finishes the thesis, in the same transaction.
+  let lifecycle = null;
+  const finalized = await prisma.$transaction(async (tx) => {
+    const row = await coreRepo.updateDefence(defenceId, {
+      revisionFinalizedAt: new Date(),
+      revisionFinalizedBy: supervisorRole.id,
+    }, tx);
+    lifecycle = await completeThesisFromDefence(tx, defence.thesisId, { defenceId, actorUserId: lecturerId });
+    return row;
   });
+  await announceThesisLifecycle(lifecycle);
 
   // Notify student
   const studentUserId = defence.thesis?.student?.user?.id;
@@ -404,10 +417,21 @@ export async function unfinalizeRevisions(defenceId, lecturerId) {
 
   if (!defence.revisionFinalizedBy) throwError("Revisi sidang belum difinalisasi.", 400);
 
-  const updated = await coreRepo.updateDefence(defenceId, {
-    revisionFinalizedAt: null,
-    revisionFinalizedBy: null,
+  // Paket E7 (K28): undoing the finalization returns the thesis to research, in the same transaction.
+  let lifecycle = null;
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await coreRepo.updateDefence(defenceId, {
+      revisionFinalizedAt: null,
+      revisionFinalizedBy: null,
+    }, tx);
+    lifecycle = await reopenThesisFromDefence(tx, defence.thesisId, {
+      defenceId,
+      actorUserId: lecturerId,
+      reason: "finalisasi revisi sidang dibatalkan.",
+    });
+    return row;
   });
+  await announceThesisLifecycle(lifecycle);
 
   return {
     defenceId: updated.id,

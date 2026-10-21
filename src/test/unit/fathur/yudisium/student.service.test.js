@@ -820,4 +820,13 @@ describe("Unit Test: Yudisium Student Service", () => {
 
   });
 
+  it("returns the student's stored CPL scores even without a current thesis", async () => {
+    mockPrisma.student.findUnique.mockResolvedValue(makeStudent({ thesis: [] }));
+    mockParticipantRepo.findStudentCplScores.mockResolvedValue([
+      { cplId: "cpl-1", score: 80, status: "calculated", cpl: { code: "CPL01", description: "Analisis", minimalScore: 60 } },
+    ]);
+    const result = await service.getOverview("student-1");
+    expect(mockParticipantRepo.findStudentCplScores).toHaveBeenCalledWith("student-1");
+    expect(result.cplScores).toEqual([expect.objectContaining({ code: "CPL01", score: 80, passed: true })]);
+  });
 });

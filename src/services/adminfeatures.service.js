@@ -27,6 +27,7 @@ import {
 	getActiveAcademicYear,
 	resolveOperationalAcademicYear,
 	ensureOperationalAcademicYearWindow,
+	formatAcademicYearLabel,
 } from "../helpers/academicYear.helper.js";
 import {
 	BadRequestError,
@@ -394,7 +395,8 @@ export function normalizeRoleInputName(name) {
 	if (lower === "sekretaris departemen" || lower === "sekdep") return [ROLES.SEKRETARIS_DEPARTEMEN];
 	if (lower === "gkm") return [ROLES.GKM];
 	if (lower === "admin") return [ROLES.ADMIN];
-	if (lower === "koordinator matkul metopen" || lower === "koordinator metopen") return [ROLES.KOORDINATOR_METOPEN];
+	// The stored role value keeps the old name; the import also accepts the UI label.
+	if (["koordinator matkul metopen", "koordinator metopen", "koordinator metode penelitian"].includes(lower)) return [ROLES.KOORDINATOR_METODE_PENELITIAN];
 	if (lower === "koordinator yudisium") return [ROLES.KOORDINATOR_YUDISIUM];
 	if (lower === "tim pengelola cpl" || lower === "pengelola cpl") return [ROLES.TIM_PENGELOLA_CPL];
 	return [raw];
@@ -644,15 +646,7 @@ export async function createAcademicYear(payload, actor = {}) {
 			throw new ConflictError("Tahun akademik untuk semester tersebut sudah ada");
 		}
 
-		const row = await tx.academicYear.create({ data });
-		await tx.metopenScoreComposition.create({
-			data: {
-				academicYearId: row.id,
-				ta03aCap: 75,
-				ta03bCap: 25,
-			},
-		});
-		return row;
+		return tx.academicYear.create({ data });
 	}, { isolationLevel: "Serializable" });
 
 	await logAudit({
@@ -1085,14 +1079,62 @@ export async function getUsers({ page = 1, pageSize = 10, search = "", identityT
 }
 
 // Get all Students with detailed information
-export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined, sortBy = undefined, sortOrder = "desc" } = {}) {
+const SEMESTER_FLAGS_SELECT = {
+	academicYearId: true,
+	eligibleResearchMethod: true,
+	takingThesisCourse: true,
+	eligibilitySource: true,
+	thesisCourseSource: true,
+	capturedAt: true,
+};
+
+/** SIA flags of one period for the student master data. */
+function toSemesterFlags(snapshot, academicYear) {
+	if (!academicYear) return null;
+	return {
+		academicYearId: academicYear.id,
+		academicYearLabel: formatAcademicYearLabel(academicYear),
+		takingResearchMethod: snapshot?.eligibleResearchMethod ?? null,
+		takingThesisCourse: snapshot?.takingThesisCourse ?? null,
+		source: snapshot?.thesisCourseSource ?? snapshot?.eligibilitySource ?? null,
+		// Each flag has its own source (sia, admin, devtools); "admin" is kept by the sync.
+		researchMethodSource: snapshot?.eligibilitySource ?? null,
+		thesisCourseSource: snapshot?.thesisCourseSource ?? null,
+		capturedAt: snapshot?.capturedAt ?? null,
+	};
+}
+
+/**
+ * "Program" filter of the student list: the SIA flags of the operational
+ * period — taking Metode Penelitian and/or Tugas Akhir.
+ */
+const NOT_TRUE = [false, null];
+const PROGRAM_SNAPSHOT_FILTERS = {
+	"research-method": { eligibleResearchMethod: true, OR: NOT_TRUE.map((takingThesisCourse) => ({ takingThesisCourse })) },
+	thesis: { takingThesisCourse: true, OR: NOT_TRUE.map((eligibleResearchMethod) => ({ eligibleResearchMethod })) },
+	both: { eligibleResearchMethod: true, takingThesisCourse: true },
+};
+
+export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined, sortBy = undefined, sortOrder = "desc", program = undefined, academicYearId = undefined } = {}) {
 	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;
 	const take = pageSize > 0 ? pageSize : undefined;
+	// SIA flags and the program filter follow the chosen period, else the operational one.
+	const period = academicYearId
+		? await prisma.academicYear.findUnique({ where: { id: academicYearId } })
+		: await resolveOperationalAcademicYear();
 
 	// Build student filter: always require student exists, optionally filter by enrollmentYear
 	const studentFilter = enrollmentYear
 		? { isNot: null, enrollmentYear: parseInt(enrollmentYear) }
 		: { isNot: null };
+	if (period && program && (PROGRAM_SNAPSHOT_FILTERS[program] || program === "none")) {
+		studentFilter.is = program === "none"
+			? { academicYearSnapshots: { none: { academicYearId: period.id, OR: [{ eligibleResearchMethod: true }, { takingThesisCourse: true }] } } }
+			: { academicYearSnapshots: { some: { academicYearId: period.id, ...PROGRAM_SNAPSHOT_FILTERS[program] } } };
+		if (enrollmentYear) studentFilter.is.enrollmentYear = parseInt(enrollmentYear);
+		delete studentFilter.isNot;
+		delete studentFilter.enrollmentYear;
+	}
 
 	const where = {
 		student: studentFilter,
@@ -1128,6 +1170,10 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 			include: {
 				student: {
 					include: {
+						academicYearSnapshots: {
+							where: { academicYearId: period?.id ?? "" },
+							select: SEMESTER_FLAGS_SELECT,
+						},
 						thesis: {
 							where: {
 								status: { in: OPEN_THESIS_STATUSES },
@@ -1184,6 +1230,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 				researchMethodCompleted: user.student.researchMethodCompleted,
 				currentSemester: user.student.currentSemester,
 				status: user.student.status || null,
+				semesterFlags: toSemesterFlags(user.student.academicYearSnapshots[0], period),
 				activeTheses: user.student.thesis.map((thesis) => ({
 					title: thesis.title,
 					supervisors: thesis.thesisSupervisors
@@ -1204,6 +1251,15 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 
 	return {
 		students: transformedStudents,
+		academicYearContext: period
+			? {
+				id: period.id,
+				year: period.year,
+				semester: period.semester,
+				label: formatAcademicYearLabel(period),
+				isActive: Boolean(period.isActive),
+			}
+			: null,
 		meta: {
 			page,
 			pageSize,
@@ -1492,12 +1548,17 @@ export async function getStudentDetail(userId) {
 		throw err;
 	}
 
+	const allYears = await prisma.academicYear.findMany({ select: { id: true, year: true, semester: true }, orderBy: { startDate: "desc" } });
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		omit: USER_CREDENTIAL_OMIT,
 		include: {
 			student: {
 				include: {
+					academicYearSnapshots: {
+						select: { ...SEMESTER_FLAGS_SELECT, academicYear: { select: { id: true, year: true, semester: true } } },
+						orderBy: { academicYear: { startDate: "desc" } },
+					},
 					thesis: {
 						include: {
 							thesisTopic: true,
@@ -1533,18 +1594,14 @@ export async function getStudentDetail(userId) {
 									completedAt: true,
 								},
 							},
+							// Read only: the latest seminar and defence of each thesis for the "Tugas Akhir" card.
 							thesisSeminars: {
-								select: {
-									id: true,
-									status: true,
-									createdAt: true,
-								},
+								select: { id: true, status: true, date: true, registeredAt: true, createdAt: true },
+								orderBy: { createdAt: "desc" },
 							},
 							thesisDefences: {
-								select: {
-									id: true,
-									createdAt: true,
-								},
+								select: { id: true, status: true, date: true, registeredAt: true, createdAt: true },
+								orderBy: { createdAt: "desc" },
 							},
 						},
 					},
@@ -1564,6 +1621,7 @@ export async function getStudentDetail(userId) {
 		throw err;
 	}
 
+	const snapshotsByYear = new Map(user.student.academicYearSnapshots.map((row) => [row.academicYearId ?? row.academicYear?.id, row]));
 	const studentCplScores = await prisma.studentCplScore.findMany({
 		where: { studentId: user.student.id },
 		include: {
@@ -1615,7 +1673,6 @@ export async function getStudentDetail(userId) {
 			status: thesis.status || null,
 			topic: thesis.thesisTopic?.name || null,
 			startDate: thesis.startDate,
-			deadlineDate: thesis.deadlineDate,
 			supervisors,
 			examiners,
 			milestones: {
@@ -1632,10 +1689,13 @@ export async function getStudentDetail(userId) {
 			seminars: thesis.thesisSeminars.map((s) => ({
 				id: s.id,
 				status: s.status,
+				date: s.date ?? s.registeredAt ?? null,
 				createdAt: s.createdAt,
 			})),
 			defences: thesis.thesisDefences.map((d) => ({
 				id: d.id,
+				status: d.status,
+				date: d.date ?? d.registeredAt ?? null,
 				createdAt: d.createdAt,
 			})),
 		};
@@ -1662,6 +1722,8 @@ export async function getStudentDetail(userId) {
 			researchMethodCompleted: user.student.researchMethodCompleted,
 			currentSemester: user.student.currentSemester,
 			status: user.student.status || null,
+			// Every semester, so the Admin can set a flag where SIA reported none.
+			semesterFlags: allYears.map((year) => toSemesterFlags(snapshotsByYear.get(year.id), year)),
 		},
 		roles: user.userHasRoles.map((ur) => ({
 			id: ur.role.id,
@@ -1682,6 +1744,49 @@ export async function getStudentDetail(userId) {
 		})),
 		theses,
 	};
+}
+
+const EXAMINED_EVENT_SELECT = {
+	id: true,
+	status: true,
+	date: true,
+	registeredAt: true,
+	thesis: {
+		select: {
+			id: true,
+			title: true,
+			student: { select: { user: { select: { id: true, fullName: true, identityNumber: true } } } },
+		},
+	},
+};
+
+/**
+ * "Penguji Seminar dan Sidang" of the lecturer detail, read only from the seminar and defence
+ * examiner tables: kind, student, title, event day and status, newest first.
+ */
+export async function findExaminerAssignments(lecturerId, client = prisma) {
+	const [seminars, defences] = await Promise.all([
+		client.thesisSeminarExaminer.findMany({ where: { lecturerId }, select: { id: true, assignedAt: true, seminar: { select: EXAMINED_EVENT_SELECT } } }),
+		client.thesisDefenceExaminer.findMany({ where: { lecturerId }, select: { id: true, assignedAt: true, defence: { select: EXAMINED_EVENT_SELECT } } }),
+	]);
+	const row = (kind, examiner, event) => ({
+		id: examiner.id,
+		kind,
+		eventId: event.id,
+		status: event.status,
+		date: event.date ?? event.registeredAt ?? examiner.assignedAt ?? null,
+		thesisId: event.thesis.id,
+		title: event.thesis.title,
+		student: {
+			id: event.thesis.student?.user?.id ?? null,
+			fullName: event.thesis.student?.user?.fullName ?? null,
+			nim: event.thesis.student?.user?.identityNumber ?? null,
+		},
+	});
+	return [
+		...seminars.map((examiner) => row("seminar", examiner, examiner.seminar)),
+		...defences.map((examiner) => row("defence", examiner, examiner.defence)),
+	].sort((a, b) => new Date(b.date ?? 0) - new Date(a.date ?? 0));
 }
 
 // Get Lecturer detail by ID
@@ -1764,19 +1869,7 @@ export async function getLecturerDetail(userId) {
 			},
 		}));
 
-	const examining = user.lecturer.thesisSupervisors
-		.filter((tp) => tp.role.name.toLowerCase().includes("penguji"))
-		.map((tp) => ({
-			thesisId: tp.thesis.id,
-			title: tp.thesis.title,
-			status: tp.thesis.status || null,
-			role: tp.role.name,
-			student: {
-				id: tp.thesis.student.user.id,
-				fullName: tp.thesis.student.user.fullName,
-				nim: tp.thesis.student.user.identityNumber,
-			},
-		}));
+	const examining = await findExaminerAssignments(user.lecturer.id);
 
 	// Active vs completed supervising
 	const activeSupervising = supervising.filter((s) => !CLOSED_THESIS_STATUSES.includes(s.status));
@@ -1894,7 +1987,7 @@ export async function getThesisListForAdmin({ page = 1, pageSize = 10, search = 
 		];
 	}
 	if (status) {
-		// K15 enum; unknown values match nothing.
+		// Status enum; unknown values match nothing.
 		where.status = Object.values(THESIS_STATUS).includes(status) ? status : { in: [] };
 	}
 
@@ -1925,7 +2018,7 @@ export async function getThesisById(id) {
 	return thesis;
 }
 
-/** Validate an admin-supplied thesis status (K15 enum). Throws 400 for unknown values. */
+/** Validate an admin-supplied thesis status (an enum value). Throws 400 for unknown values. */
 function resolveThesisStatusInput(status) {
 	if (status === undefined || status === null || status === "") return null;
 	if (!Object.values(THESIS_STATUS).includes(status)) {
@@ -1952,12 +2045,12 @@ async function supervisorsToPembimbing(supervisors) {
 }
 
 /**
- * K21: manual thesis creation follows the same rules as the data master (one open thesis
- * per student, K15 statuses, P1 required, rating computed). Not mounted on a route today;
+ * Manual thesis creation follows the same rules as the data master (one open thesis
+ * per student, the status enum, Pembimbing 1 required). Not mounted on a route today;
  * it delegates so a future route cannot bypass the rules.
  */
 export async function createThesisManually(payload = {}) {
-	const { studentId, title, status, academicYearId, thesisTopicId, startDate, deadlineDate, supervisors = [], actorUserId = null } = payload;
+	const { studentId, title, status, academicYearId, thesisTopicId, startDate, supervisors = [], actorUserId = null } = payload;
 	if (!studentId) {
 		const err = new Error("Mahasiswa wajib dipilih");
 		err.statusCode = 400;
@@ -1971,7 +2064,6 @@ export async function createThesisManually(payload = {}) {
 			academicYearId,
 			thesisTopicId,
 			startDate,
-			deadlineDate,
 			terminationReason: payload.terminationReason,
 			terminationNote: payload.terminationNote,
 			...(await supervisorsToPembimbing(supervisors)),
@@ -1981,7 +2073,7 @@ export async function createThesisManually(payload = {}) {
 	return prisma.thesis.findUnique({ where: { id: thesis.id }, include: thesisInclude });
 }
 
-/** K21: see createThesisManually; rating is not editable. */
+/** See createThesisManually. */
 export async function updateThesisManually(id, payload = {}) {
 	const { title, status, academicYearId, thesisTopicId, startDate, actorUserId = null } = payload;
 	await updateThesisMasterData(
@@ -2009,7 +2101,8 @@ export async function deleteThesis(id, reason = null, actorUserId = null) {
 export async function getAvailableStudents() {
 	return prisma.student.findMany({
 		where: {
-			thesis: { none: { rating: "ONGOING" } },
+			// Students without an open (proposal / research / on leave) thesis.
+			thesis: { none: { status: { in: OPEN_THESIS_STATUSES } } },
 		},
 		include: { user: { omit: USER_CREDENTIAL_OMIT } },
 		orderBy: { user: { fullName: "asc" } },
@@ -2031,6 +2124,35 @@ export async function getSupervisorRoles() {
 }
 
 export async function getThesisStatuses() {
-	// K15: statuses are an enum on thesis.status (no lookup table).
+	// Statuses are an enum on thesis.status (no lookup table).
 	return Object.values(THESIS_STATUS).map((status) => ({ id: status, name: status }));
+}
+
+/**
+ * Get count of failed theses (status `failed`)
+ */
+export async function getFailedThesesCount() {
+	return prisma.thesis.count({ where: { status: THESIS_STATUS.FAILED } });
+}
+
+/**
+ * Get list of failed theses (status `failed`) with student info
+ */
+export async function getFailedTheses() {
+	return prisma.thesis.findMany({
+		where: { status: THESIS_STATUS.FAILED },
+		select: {
+			id: true,
+			title: true,
+			createdAt: true,
+			student: {
+				select: {
+					user: {
+						select: { id: true, fullName: true, identityNumber: true, email: true },
+					},
+				},
+			},
+		},
+		orderBy: { createdAt: "asc" },
+	});
 }

@@ -6,6 +6,9 @@ import prisma from "../../config/prisma.js";
 // HELPERS
 // ============================================================
 
+/** Lanjutan Paket E7: an approval stays while the revision is finalized. */
+export const REVISION_FINALIZED_UNAPPROVE_MESSAGE = "Revisi sudah difinalkan. Batalkan finalisasi lebih dulu.";
+
 function throwError(message, statusCode) {
   const err = new Error(message);
   err.statusCode = statusCode;
@@ -92,6 +95,8 @@ export async function createRevision(seminarId, body, studentId) {
   if (seminar.thesis?.studentId !== studentId) {
     throwError("Anda tidak memiliki akses untuk menambahkan revisi pada seminar ini.", 403);
   }
+  // Lanjutan Paket E7: no new item once the revision is finalized, as in the defence module.
+  if (seminar.revisionFinalizedBy) throwError("Revisi sudah difinalisasi dan tidak dapat diubah.", 400);
 
   // Validate examiner belongs to this seminar
   const examiner = await prisma.thesisSeminarExaminer.findFirst({
@@ -221,6 +226,10 @@ async function approveRevision(seminarId, revision, user, seminar) {
 async function unapproveRevision(seminarId, revision, user) {
   const supervisorRelation = await coreRepo.findSeminarSupervisorRole(seminarId, user.lecturerId);
   if (!resolveSupervisorMembership(supervisorRelation)) throwError("Anda bukan dosen pembimbing pada seminar ini.", 403);
+  // Lanjutan Paket E7: the finalization is undone first. The revision lookup does not carry the
+  // finalization, so it is read here, by the marker finalize/unfinalize use (revisionFinalizedBy).
+  const current = await coreRepo.findSeminarBasicById(seminarId);
+  if (current?.revisionFinalizedBy) throwError(REVISION_FINALIZED_UNAPPROVE_MESSAGE, 400);
 
   if (!isRevisionFinished(revision)) throwError("Revisi ini belum disetujui.", 400);
 

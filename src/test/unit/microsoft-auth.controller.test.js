@@ -101,7 +101,7 @@ describe("microsoft-auth.controller", () => {
 
   it("does not leak internal Prisma errors into Microsoft callback redirect URLs", async () => {
     const internalError = new Error(
-      "Invalid `prisma.user.findFirst()` invocation: The column `neocentral.students.eligible_metopen` does not exist in the current database.",
+      "Invalid `prisma.user.findFirst()` invocation: The column `neocentral.students.legacy_flag` does not exist in the current database.",
     );
     mocks.loginWithMicrosoftAuthorizationCode.mockRejectedValue(internalError);
 
@@ -117,7 +117,7 @@ describe("microsoft-auth.controller", () => {
       "/login?error=Sistem%20autentikasi%20belum%20siap.%20Hubungi%20admin.",
     );
     expect(redirectUrl).not.toContain("prisma");
-    expect(redirectUrl).not.toContain("eligible_metopen");
+    expect(redirectUrl).not.toContain("legacy_flag");
     expect(next).not.toHaveBeenCalled();
   });
 });

@@ -1,9 +1,9 @@
 import prisma from "../config/prisma.js";
-import { syncQuotaCount } from "../utils/quotaSync.js";
 import {
     createSupervisorAssignments,
     replaceSupervisorAssignments,
 } from "../utils/supervisorIntegrity.js";
+import { THESIS_PROGRESS_SELECT } from "../helpers/thesis-progress.helper.js";
 
 export const findAllTheses = async () => {
     return await prisma.thesis.findMany({
@@ -29,7 +29,12 @@ export const findAllTheses = async () => {
                     role: true
                 }
             },
-            academicYear: true
+            academicYear: true,
+            // Read by the derived activity level (helpers/thesis-progress.helper.js).
+            thesisGuidances: THESIS_PROGRESS_SELECT.thesisGuidances,
+            thesisMilestones: THESIS_PROGRESS_SELECT.thesisMilestones,
+            thesisSeminars: THESIS_PROGRESS_SELECT.thesisSeminars,
+            thesisGuidanceEvaluations: THESIS_PROGRESS_SELECT.thesisGuidanceEvaluations,
         },
         orderBy: { createdAt: "desc" }
     });
@@ -71,26 +76,18 @@ export const createThesis = async (data) => {
                 studentId: data.studentId,
                 title: data.title,
                 thesisTopicId: data.thesisTopicId,
-                // K15: status is always written explicitly by the caller.
+                // Status is always written explicitly by the caller.
                 status: data.status,
                 statusChangedAt: new Date(),
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
-                deadlineDate: data.deadlineDate,
-                rating: "ONGOING",
             }
         });
 
         if (data.supervisors && data.supervisors.length > 0) {
-            const supervisorResult = await createSupervisorAssignments(tx, thesis.id, data.supervisors, {
+            await createSupervisorAssignments(tx, thesis.id, data.supervisors, {
                 requireP1: true,
             });
-
-            if (data.academicYearId) {
-                for (const lecturerId of supervisorResult.affectedLecturerIds) {
-                    await syncQuotaCount(tx, lecturerId, data.academicYearId);
-                }
-            }
         }
 
         return thesis;
@@ -99,13 +96,6 @@ export const createThesis = async (data) => {
 
 export const updateThesis = async (id, data) => {
     return await prisma.$transaction(async (tx) => {
-        const oldSupervisors = data.supervisors
-            ? await tx.thesisSupervisors.findMany({
-                  where: { thesisId: id },
-                  select: { lecturerId: true },
-              })
-            : [];
-
         const thesis = await tx.thesis.update({
             where: { id },
             data: {
@@ -115,25 +105,13 @@ export const updateThesis = async (id, data) => {
                 ...(data.status ? { statusChangedAt: new Date() } : {}),
                 academicYearId: data.academicYearId,
                 startDate: data.startDate,
-                rating: data.rating,
             }
         });
 
         if (data.supervisors) {
-            const supervisorResult = await replaceSupervisorAssignments(tx, id, data.supervisors, {
+            await replaceSupervisorAssignments(tx, id, data.supervisors, {
                 requireP1: data.supervisors.length > 0,
             });
-
-            const ayId = data.academicYearId || thesis.academicYearId;
-            if (ayId) {
-                const affectedIds = new Set([
-                    ...oldSupervisors.map((s) => s.lecturerId),
-                    ...supervisorResult.affectedLecturerIds,
-                ]);
-                for (const lecturerId of affectedIds) {
-                    await syncQuotaCount(tx, lecturerId, ayId);
-                }
-            }
         }
 
         return thesis;

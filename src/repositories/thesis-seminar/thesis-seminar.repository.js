@@ -1,5 +1,5 @@
 import prisma from "../../config/prisma.js";
-import { OPEN_THESIS_STATUSES, TA_PHASE } from "../../constants/thesisStatus.js";
+import { CURRENT_THESIS_STATUSES, TA_PHASE } from "../../constants/thesisStatus.js";
 
 // ============================================================
 // SHARED INCLUDES — reused across list, detail, and CRUD queries
@@ -619,14 +619,14 @@ export async function findLecturerAvailabilities(lecturerIds) {
  * Get the student's thesis with full seminar info for the overview page.
  */
 export async function getStudentThesisWithSeminarInfo(studentId) {
-  // K15: the student's latest thesis that has not ended (a failed older thesis is skipped).
+  // K15: the student's latest thesis that has not failed (a failed older thesis is skipped).
+  // Paket E7 (K28): a thesis made Selesai by its defence is still found.
   return prisma.thesis.findFirst({
-    where: { studentId, status: { in: OPEN_THESIS_STATUSES } },
+    where: { studentId, status: { in: CURRENT_THESIS_STATUSES } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
       title: true,
-      rating: true,
       thesisSupervisors: {
         select: {
           id: true,
