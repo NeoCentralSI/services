@@ -21,6 +21,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `e5-api.mjs` | Permohonan sebagai kotak masuk persetujuan dosen (dua jenis baris, urutan prioritas, filter, badge), Perubahan dan Evaluasi milik Ketua Departemen (urutan prioritas, 403 untuk pembimbing), urutan tabel Monitoring Seminar Hasil/Sidang, aksi Mahasiswa Bimbingan (penanda pengajuan berjalan, kelayakan Ajukan Perubahan dan Alihkan) dan alur Alihkan → pembimbing baru → Ketua Departemen | delapan seeder |
 | `e6-api.mjs` | Aturan perubahan judul per tahap (seminar/sidang berproses, setelah seminar, setelah hasil sidang, TA Selesai), judul `ta_lulus_seminar` berubah setelah seminar dan tampil di detail seminar, Jenis Permohonan, beban dosen di pemilih, endpoint `…/lecturer` dan `…/department` dihapus | delapan seeder |
 | `e7-api.mjs` | Sidang lulus tanpa revisi → TA Selesai (bimbingan terbuka, perubahan yang menunggu dan evaluasi yang menunggu Ketua Departemen ditutup; beban pembimbing turun satu; notifikasi), lulus dengan revisi tetap Penelitian sampai revisi difinalkan, batal finalisasi → kembali Penelitian, tidak lulus tetap Penelitian, halaman sidang/seminar/Overview/riwayat bimbingan/Yudisium untuk TA Selesai, data seed, sidang lulus dibatalkan Admin → kembali Penelitian. Sidang yang sudah berlangsung disiapkan lewat Prisma (tanpa API untuk itu); sisanya lewat API. Juga: nilai minimum kelulusan dari seed, batalkan persetujuan item revisi setelah final ditolak, catatan evaluasi yang ditutup sistem di tabel Evaluasi | delapan seeder |
+| `n1-api.mjs` | Status mahasiswa sebagai satu-satunya sumber cuti dan berhenti studi (Cuti → TA dijeda dengan penanda di Bimbingan dosen, Monitoring, Data TA, beban, detail dosen; Aktif → dilanjutkan; Drop Out → TA Gagal, beban turun, notifikasi; akun uji Drop Out dari seed), aturan akun Admin (peran dan aktivasi akun sendiri, Admin tidak digabung peran lain di form, buat, dan impor), Log Aktivitas (akses Admin/Kadep/Sekdep, dosen dan mahasiswa 403, terbaru di atas, cari, filter tindakan, rentang tanggal, aktivitas rutin tidak tampil) | delapan seeder |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 
@@ -37,7 +38,7 @@ Delapan seeder, dalam urutan ini: `seed-master`, `seed-thesis-topics`, `seed-the
 Dari `app/backend`:
 
 ```bash
-scripts/api-checks/run-all.sh            # p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7 — masing-masing setelah bangun ulang + seed
+scripts/api-checks/run-all.sh            # p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7, n1 — masing-masing setelah bangun ulang + seed
 scripts/api-checks/run-all.sh p4 p7      # hanya yang disebut
 ```
 

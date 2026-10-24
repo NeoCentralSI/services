@@ -21,7 +21,7 @@ import prisma from "../config/prisma.js";
 import * as repo from "../repositories/thesis-change-request.repository.js";
 import { ROLES } from "../constants/roles.js";
 import { pageAcrossGroups, pageMeta, pageWindow, priorityGroups } from "../helpers/priority-paging.helper.js";
-import { THESIS_STATUS } from "../constants/thesisStatus.js";
+import { THESIS_STATUS, isThesisOnLeave } from "../constants/thesisStatus.js";
 import {
   THESIS_STATUS_LABELS,
   SUPERVISOR_POSITION_LABELS,
@@ -148,6 +148,7 @@ export function getApplyBlockReason(request, thesis = request?.thesis) {
  */
 export function getChangeBlockReason(thesis, { hasOpenRequest = false, requestType } = {}) {
   if (!thesis) return "Belum ada tugas akhir.";
+  if (isThesisOnLeave(thesis)) return "Pengajuan perubahan tidak dapat diajukan selama mahasiswa cuti.";
   if (thesis.status !== THESIS_STATUS.RESEARCH) {
     return `Pengajuan perubahan hanya untuk tugas akhir berstatus "${THESIS_STATUS_LABELS.research}". Status saat ini: "${THESIS_STATUS_LABELS[thesis.status] ?? "-"}".`;
   }

@@ -9,9 +9,20 @@
 export const THESIS_STATUS_LABELS = Object.freeze({
   proposal: "Proposal",
   research: "Penelitian",
-  on_leave: "Berhenti Studi Sementara (BSS)",
   completed: "Selesai",
   failed: "Gagal",
+});
+
+/** Badge di samping status TA selama mahasiswanya cuti (status mahasiswa `bss`). */
+export const THESIS_ON_LEAVE_LABEL = "Cuti";
+
+/** `StudentStatus` (status studi mahasiswa, dari SIA atau Admin). */
+export const STUDENT_STATUS_LABELS = Object.freeze({
+  active: "Aktif",
+  bss: "Cuti (BSS)",
+  lulus: "Lulus",
+  mengundurkan_diri: "Mengundurkan Diri",
+  dropout: "Drop Out",
 });
 
 /** `ThesisPhase` */

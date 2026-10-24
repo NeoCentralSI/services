@@ -126,7 +126,7 @@ describe("deriveActivityLevel", () => {
   it("only applies to a thesis in research", () => {
     const base = { startDate: daysAgo(200), statusChangedAt: daysAgo(200) };
     expect(getActivityLevel({ ...base, status: "research" }, NOW)).toBe(ACTIVITY_LEVEL.AT_RISK);
-    for (const status of ["proposal", "on_leave", "completed", "failed"]) {
+    for (const status of ["proposal", "completed", "failed"]) {
       expect(getActivityLevel({ ...base, status }, NOW)).toBeNull();
     }
   });
@@ -180,7 +180,8 @@ describe("getSupervisionClock", () => {
   it("stops while on leave and resumes from the same point", () => {
     const startDate = new Date("2026-03-11T05:00:00.000Z");
     const leaveStartedAt = daysAgo(30);
-    const onLeave = getSupervisionClock({ status: "on_leave", startDate, totalLeaveDays: 0, leaveStartedAt }, [], NOW);
+    // The student is on leave (status bss): the thesis stays in research, paused.
+    const onLeave = getSupervisionClock(research(startDate, { leaveStartedAt, student: { status: "bss" } }), [], NOW);
     expect(onLeave.isPaused).toBe(true);
     expect(onLeave.evaluationDue).toBeNull();
     // Stopped at the start of the leave: 2026-03-11 -> 2026-09-11 is exactly six months.
@@ -188,13 +189,22 @@ describe("getSupervisionClock", () => {
 
     // Later during the same leave the elapsed time has not moved.
     const later = new Date(NOW.getTime() + 20 * DAY);
-    expect(getSupervisionClock({ status: "on_leave", startDate, totalLeaveDays: 0, leaveStartedAt }, [], later).elapsedLabel).toBe("6 bulan");
+    expect(getSupervisionClock(research(startDate, { leaveStartedAt }), [], later).elapsedLabel).toBe("6 bulan");
 
     // Back in research with the 30 leave days recorded: same elapsed time, clock running again.
     const resumed = getSupervisionClock(research(startDate, { totalLeaveDays: 30 }), [], NOW);
     expect(resumed.isPaused).toBe(false);
     expect(resumed.elapsedLabel).toBe("6 bulan");
     expect(resumed.evaluationDue).toBe(EVALUATION_DUE.SIX_MONTH);
+  });
+
+  it("reads the leave from the student status when it is selected, else from leaveStartedAt", () => {
+    const startDate = new Date("2026-03-11T05:00:00.000Z");
+    expect(getSupervisionClock(research(startDate, { student: { status: "bss" } }), [], NOW).isPaused).toBe(true);
+    expect(getSupervisionClock(research(startDate, { student: { status: "active" }, leaveStartedAt: daysAgo(3) }), [], NOW).isPaused).toBe(false);
+    expect(getSupervisionClock(research(startDate, { leaveStartedAt: daysAgo(3) }), [], NOW).isPaused).toBe(true);
+    // A finished thesis is never paused.
+    expect(getSupervisionClock({ status: "completed", startDate, statusChangedAt: NOW, student: { status: "bss" } }, [], NOW).isPaused).toBe(false);
   });
 
   it("stops at the closing date of a finished thesis and never reports a due evaluation", () => {

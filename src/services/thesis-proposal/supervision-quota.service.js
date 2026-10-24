@@ -5,7 +5,7 @@ import {
   SUPERVISION_LOAD_LEVEL,
 } from "../../constants/supervisionQuota.js";
 import * as repo from "../../repositories/thesis-proposal/supervision-quota.repository.js";
-import { THESIS_STATUS } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS, isThesisOnLeave } from "../../constants/thesisStatus.js";
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 import { formatAcademicYearLabel, resolveOperationalAcademicYear } from "../../helpers/academicYear.helper.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../auditLog.service.js";
@@ -88,11 +88,12 @@ export async function getLoadOverview(academicYearId = null, { client = prisma }
     const entry = breakdown.get(row.lecturerId) ?? { total: 0, waitingAssignment: 0, proposal: 0, research: 0, onLeave: 0, asSupervisor2: 0 };
     entry.total += 1;
     if (row.role?.name === "Pembimbing 2") entry.asSupervisor2 += 1;
-    if (row.thesis.status === THESIS_STATUS.PROPOSAL) {
+    // A thesis paused by the student's leave is counted under "BSS", not under its phase.
+    if (isThesisOnLeave(row.thesis)) entry.onLeave += 1;
+    else if (row.thesis.status === THESIS_STATUS.PROPOSAL) {
       if (row.thesis.supervisorAssignedAt) entry.proposal += 1;
       else entry.waitingAssignment += 1;
-    } else if (row.thesis.status === THESIS_STATUS.RESEARCH) entry.research += 1;
-    else entry.onLeave += 1;
+    } else entry.research += 1;
     breakdown.set(row.lecturerId, entry);
   }
   const limit = (row) => (row ? { semesterQuota: row.semesterQuota, totalLimit: row.totalLimit, updatedAt: row.updatedAt } : null);

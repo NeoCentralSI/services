@@ -3,10 +3,10 @@ import { sendFcmToUsers } from "../push.service.js";
 import { DEPARTMENT_ROLES, ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
-import { THESIS_STATUS } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS, isThesisOnLeave } from "../../constants/thesisStatus.js";
 import { getActiveAcademicYearId } from "../../helpers/academicYear.helper.js";
 import { getSemesterRange, getThesisStartedAt, isDateInSemester } from "../../helpers/semester-scope.helper.js";
-import { getThesisStatusLabel, getThesisActivityLabel, getEvaluationDueLabel } from "../../constants/thesisLabels.js";
+import { getThesisStatusLabel, getThesisActivityLabel, getEvaluationDueLabel, THESIS_ON_LEAVE_LABEL } from "../../constants/thesisLabels.js";
 import {
   ACTIVITY_LEVEL,
   THESIS_PROGRESS_SELECT,
@@ -208,6 +208,8 @@ export async function getThesesList(filters) {
         email: t.student?.user?.email,
       },
       status: t.status,
+      // The student is on leave: the thesis is paused ("Cuti" badge).
+      isOnLeave: isThesisOnLeave(t),
       topic: t.thesisTopic
         ? {
             id: t.thesisTopic.id,
@@ -477,6 +479,7 @@ export async function getThesisDetail(thesisId) {
     id: thesis.id,
     title: thesis.title,
     status: thesis.status,
+    isOnLeave: isThesisOnLeave(thesis),
     ...progress,
     topic: thesis.thesisTopic?.name || null,
     academicYear: thesis.academicYear
@@ -867,7 +870,7 @@ export async function getProgressReportService(options = {}) {
       topic: t.thesisTopic?.name || "-",
       // The codes, and beside each the text the report prints (never the code itself).
       status: t.status || "-",
-      statusLabel: getThesisStatusLabel(t.status),
+      statusLabel: isThesisOnLeave(t) ? `${getThesisStatusLabel(t.status)} (${THESIS_ON_LEAVE_LABEL})` : getThesisStatusLabel(t.status),
       activityLevel,
       activityLabel: getThesisActivityLabel(activityLevel),
       supervisionLabel: t.progress?.supervisionClock?.elapsedLabel ?? "-",

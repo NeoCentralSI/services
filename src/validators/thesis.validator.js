@@ -5,7 +5,7 @@ export const createThesisSchema = z.object({
   studentId: z.string().uuid("Mahasiswa wajib dipilih"),
   title: z.string().min(10, "Judul minimal 10 karakter").max(500, "Judul maksimal 500 karakter"),
   thesisTopicId: z.string().uuid().nullable().optional(),
-  status: z.enum(["proposal", "research", "on_leave", "completed", "failed"]).optional(),
+  status: z.enum(["proposal", "research", "completed", "failed"]).optional(),
   academicYearId: academicYearIdSchema.nullable().optional(),
   supervisors: z.array(
     z.object({
@@ -18,7 +18,7 @@ export const createThesisSchema = z.object({
 export const updateThesisSchema = z.object({
   title: z.string().min(10, "Judul minimal 10 karakter").max(500, "Judul maksimal 500 karakter").optional(),
   thesisTopicId: z.string().uuid().nullable().optional(),
-  status: z.enum(["proposal", "research", "on_leave", "completed", "failed"]).optional(),
+  status: z.enum(["proposal", "research", "completed", "failed"]).optional(),
   supervisors: z.array(
     z.object({
       lecturerId: z.string().uuid(),

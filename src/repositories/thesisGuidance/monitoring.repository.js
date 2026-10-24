@@ -19,8 +19,8 @@ import { buildReadyToRegisterWhere } from "../../helpers/thesis-event-monitoring
 
 /** Monitoring aggregates cover running TA-phase theses only. */
 const RUNNING_TA = THESIS_STATUS.RESEARCH;
-/** TA that has not failed (running, suspended, or finished). */
-const NOT_FAILED_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE, THESIS_STATUS.COMPLETED];
+/** TA that has not failed (running, paused by a leave, or finished). */
+const NOT_FAILED_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.COMPLETED];
 
 /** Status filter from the client: only valid post-proposal values match; anything else matches nothing. */
 function statusFilter(values) {
@@ -417,7 +417,7 @@ export async function getStudentsReadyForSeminar(academicYear) {
  */
 export async function getSupervisorWorkloadRows(academicYear) {
   const thesisWhere = await inSemester({
-    status: { in: [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE] },
+    status: THESIS_STATUS.RESEARCH,
   }, academicYear);
 
   return prisma.thesisSupervisors.findMany({

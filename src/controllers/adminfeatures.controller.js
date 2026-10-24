@@ -12,7 +12,7 @@ export async function importStudentsCsv(req, res, next) {
 			err.statusCode = 400;
 			throw err;
 		}
-		const summary = await importStudentsCsvFromUpload(file.buffer);
+		const summary = await importStudentsCsvFromUpload(file.buffer, auditActor(req));
 		res.status(200).json({ success: true, summary });
 	} catch (err) {
 		next(err);
@@ -82,7 +82,10 @@ export async function getAdminAuditLogsController(req, res, next) {
 		const pageSize = parseInt(req.query.pageSize, 10) || 20;
 		const action = req.query.action || null;
 		const entity = req.query.entity || null;
-		const result = await listAdminAuditLogs({ page, pageSize, action, entity });
+		const search = req.query.search || "";
+		const dateFrom = req.query.dateFrom || null;
+		const dateTo = req.query.dateTo || null;
+		const result = await listAdminAuditLogs({ page, pageSize, action, entity, search, dateFrom, dateTo });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -384,7 +387,7 @@ export async function updateStudentByAdminController(req, res, next) {
 	try {
 		const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
-		const result = await adminUpdateStudent(id, body);
+		const result = await adminUpdateStudent(id, body, auditActor(req));
 		res.status(200).json({ success: true, data: result });
 	} catch (err) {
 		next(err);
@@ -395,7 +398,7 @@ export async function updateLecturerByAdminController(req, res, next) {
 	try {
 		const { id } = req.params;
 		const body = req.validated ?? req.body ?? {};
-		const result = await adminUpdateLecturer(id, body);
+		const result = await adminUpdateLecturer(id, body, auditActor(req));
 		res.status(200).json({ success: true, data: result });
 	} catch (err) {
 		next(err);
@@ -405,7 +408,7 @@ export async function updateLecturerByAdminController(req, res, next) {
 export async function importStudentsExcelController(req, res, next) {
 	try {
 		const { rows } = req.body || {};
-		const result = await importStudentsExcel(rows);
+		const result = await importStudentsExcel(rows, auditActor(req));
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -415,7 +418,7 @@ export async function importStudentsExcelController(req, res, next) {
 export async function importLecturersExcelController(req, res, next) {
 	try {
 		const { rows } = req.body || {};
-		const result = await importLecturersExcel(rows);
+		const result = await importLecturersExcel(rows, auditActor(req));
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -425,7 +428,7 @@ export async function importLecturersExcelController(req, res, next) {
 export async function importUsersExcelController(req, res, next) {
 	try {
 		const rows = Array.isArray(req.body) ? req.body : (req.body?.rows || []);
-		const result = await importUsersExcel(rows);
+		const result = await importUsersExcel(rows, auditActor(req));
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);

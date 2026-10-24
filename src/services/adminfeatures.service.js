@@ -34,7 +34,7 @@ import {
 	ConflictError,
 	NotFoundError,
 } from "../utils/errors.js";
-import { THESIS_STATUS, OPEN_THESIS_STATUSES, CLOSED_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { THESIS_STATUS, OPEN_THESIS_STATUSES, CLOSED_THESIS_STATUSES, isThesisOnLeave } from "../constants/thesisStatus.js";
 import { SCHEDULED_GUIDANCE_STATUSES } from "../constants/guidanceStatus.js";
 import { createThesisMasterData, updateThesisMasterData } from "./masterDataTa.service.js";
 import { THESIS_STATUS_LABELS } from "../constants/thesisLabels.js";
@@ -46,6 +46,8 @@ import {
 } from "./auditLog.service.js";
 
 export { listAdminAuditLogs };
+import { assertAdminRoleExclusive, assertUserUpdateAllowed } from "./admin-account-rules.service.js";
+import { applyStudentStatusChange, announceStudentStatusChange } from "./thesisLifecycle.service.js";
 
 import {
 	getOrCreateRole,
@@ -138,6 +140,27 @@ export async function adminUpdateUser(id, payload = {}, actor = {}) {
 		}
 	}
 
+	// Normalized roles asked for (string or { name, status }); undefined keeps the roles.
+	const desired = Array.isArray(roles)
+		? roles
+			.map((r) => (typeof r === "string" ? { name: r, status: undefined } : r && typeof r.name === "string" ? { name: r.name, status: r.status } : null))
+			.filter(Boolean)
+			.map((x) => ({ name: x.name.trim(), status: x.status }))
+			.filter((x) => x.name)
+		: undefined;
+	const existingRoles = await getUserRolesWithIds(id);
+	const currentRoles = existingRoles.map((ur) => ({ name: ur.role?.name ?? "", status: ur.status ?? "active" }));
+	await assertUserUpdateAllowed({
+		actorUserId: actor.actorUserId ?? null,
+		user,
+		currentRoles,
+		desiredRoles: desired?.map((x) => {
+			const current = currentRoles.find((r) => normalize(r.name) === normalize(x.name));
+			return { name: x.name, status: x.status || current?.status || "active" };
+		}),
+		isVerified: typeof isVerified === "boolean" ? isVerified : undefined,
+	});
+
 	// Prepare update data
 	const updateData = {};
 	if (typeof fullName === "string" && fullName.trim()) updateData.fullName = fullName.trim();
@@ -147,6 +170,8 @@ export async function adminUpdateUser(id, payload = {}, actor = {}) {
 	if (typeof isVerified === "boolean") updateData.isVerified = isVerified;
 	if (gender !== undefined) updateData.gender = gender;
 
+	const profileFields = ["fullName", "email", "identityNumber", "identityType", "gender"];
+	const profileBefore = Object.fromEntries(profileFields.map((k) => [k, user[k] ?? null]));
 	if (Object.keys(updateData).length) {
 		try {
 			await repoUpdateUserById(id, updateData);
@@ -161,21 +186,37 @@ export async function adminUpdateUser(id, payload = {}, actor = {}) {
 		}
 	}
 
-	// Update roles if provided (manage only non-admin roles)
-	if (Array.isArray(roles)) {
-		// roles can be string[] or {name, status}[]
-		const desired = [];
-		for (const r of roles) {
-			if (typeof r === "string") desired.push({ name: r, status: undefined });
-			else if (r && typeof r.name === "string") desired.push({ name: r.name, status: r.status });
-		}
-		// Normalize
-		const desiredClean = desired
-			.map((x) => ({ name: x.name.trim().toLowerCase(), status: x.status }))
-			.filter((x) => x.name && normalize(x.name) !== normalize(ROLES.ADMIN));
+	// Profile and activation changes in the activity log.
+	const profileChanged = profileFields.filter((k) => k in updateData && (updateData[k] ?? null) !== profileBefore[k]);
+	if (profileChanged.length) {
+		await logAudit({
+			actorUserId: actor.actorUserId ?? null,
+			action: AUDIT_ACTIONS.USER_UPDATED,
+			entityType: ENTITY_TYPES.USER,
+			entityId: id,
+			oldValues: Object.fromEntries(profileChanged.map((k) => [k, profileBefore[k]])),
+			newValues: Object.fromEntries(profileChanged.map((k) => [k, updateData[k] ?? null])),
+			ipAddress: actor.ipAddress ?? null,
+			userAgent: actor.userAgent ?? null,
+		});
+	}
+	if ("isVerified" in updateData && updateData.isVerified !== user.isVerified) {
+		await logAudit({
+			actorUserId: actor.actorUserId ?? null,
+			action: AUDIT_ACTIONS.USER_ACTIVATION_CHANGED,
+			entityType: ENTITY_TYPES.USER,
+			entityId: id,
+			oldValues: { isVerified: user.isVerified },
+			newValues: { isVerified: updateData.isVerified },
+			ipAddress: actor.ipAddress ?? null,
+			userAgent: actor.userAgent ?? null,
+		});
+	}
 
-		// Get existing roles
-		const existing = await getUserRolesWithIds(id);
+	// Update roles if provided: the list is the full role set (Admin included).
+	if (desired) {
+		const desiredClean = desired.map((x) => ({ name: x.name.toLowerCase(), status: x.status }));
+		const existing = existingRoles;
 		const existingByRoleId = new Map(existing.map((ur) => [ur.roleId, ur]));
 		const existingByName = new Map(existing.map((ur) => [normalize(ur.role?.name || ""), ur]));
 
@@ -191,12 +232,9 @@ export async function adminUpdateUser(id, payload = {}, actor = {}) {
 			await upsertUserRole(id, role.id, status);
 		}
 
-		// Remove roles that are no longer desired (except Admin role)
+		// Remove roles that are no longer desired
 		const rolesToRemove = [];
 		for (const ur of existing) {
-			const roleName = ur.role?.name || "";
-			// Never remove Admin role via this endpoint
-			if (normalize(roleName) === normalize(ROLES.ADMIN)) continue;
 			if (!desiredRoleIds.has(ur.roleId)) {
 				rolesToRemove.push(ur.roleId);
 			}
@@ -228,8 +266,8 @@ export async function adminUpdateUser(id, payload = {}, actor = {}) {
 
 	// Ensure Student/Lecturer records when relevant
 	const latest = await findUserById(id);
-	const currentRoles = await getUserRolesWithIds(id);
-	const roleNames = currentRoles.map((r) => r.role?.name || "");
+	const latestRoles = await getUserRolesWithIds(id);
+	const roleNames = latestRoles.map((r) => r.role?.name || "");
 	const type = (latest?.identityType || identityType || "").toString();
 
 	// Student
@@ -290,6 +328,7 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 			throw err;
 		}
 	}
+	assertAdminRoleExclusive(roles);
 
 	const existing = await findUserByEmailOrIdentity(String(email).toLowerCase(), identityNumber);
 	if (existing) {
@@ -310,12 +349,8 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 		gender: gender ?? null,
 	});
 
-	// Roles: admin can set any roles EXCEPT 'Admin' for this endpoint
-	const rawRoles = Array.isArray(roles) ? roles.filter((r) => r !== ROLES.ADMIN) : [];
-	const uniqueRoles = [...new Set(rawRoles)];
-	console.log("[adminCreateUser] email:", String(email).toLowerCase(), "identityType:", identityType, "identityNumber:", identityNumber);
-	console.log("[adminCreateUser] incoming roles:", roles);
-	console.log("[adminCreateUser] unique roles:", uniqueRoles);
+	// Roles: any role; Admin only on its own (checked above).
+	const uniqueRoles = [...new Set(Array.isArray(roles) ? roles : [])];
 	for (const rn of uniqueRoles) {
 		const role = await getOrCreateRole(rn);
 		await addRolesToUser(user.id, [role.id]); // idempotent via skipDuplicates
@@ -333,14 +368,9 @@ export async function adminCreateUser({ fullName, email, roles = [], identityNum
 	// If identityType is NIP OR lecturer-related role is assigned, ensure Lecturer record exists
 	const hasLecturerRole = uniqueRoles.some((r) => isLecturerRole(r));
 	const isLecturerIdentity = String(identityType || "").toUpperCase() === "NIP";
-	console.log("[adminCreateUser] lecturer-role detected:", hasLecturerRole, "; identityType=NIP:", isLecturerIdentity);
 	if (hasLecturerRole || isLecturerIdentity) {
 		const existingLect = await findLecturerByUserId(user.id);
-		if (!existingLect) {
-			console.log("[adminCreateUser] creating Lecturer for user", user.id);
-			const createdLect = await createLecturerForUser({ userId: user.id });
-			console.log("[adminCreateUser] Lecturer created id:", createdLect?.id);
-		}
+		if (!existingLect) await createLecturerForUser({ userId: user.id });
 	}
 
 	// Send invitation email with verification link
@@ -376,10 +406,11 @@ export function normalizeStudentStatus(val) {
 	if (valid.includes(s)) return s;
 	if (s === "aktif" || s === "active") return "active";
 	if (s === "lulus" || s === "lulusan") return "lulus";
-	if (s === "cuti" || s === "bss") return "bss";
+	if (s === "cuti" || s === "bss" || s === "cuti (bss)") return "bss";
 	if (s === "dropout" || s === "drop out" || s === "do" || s === "keluar") return "dropout";
 	if (s === "mengundurkan diri" || s === "undur diri" || s === "mengundurkan_diri") return "mengundurkan_diri";
-	return "active";
+	// Empty means active; an unknown value is refused by the import (null).
+	return s ? null : "active";
 }
 
 export function normalizeRoleInputName(name) {
@@ -402,7 +433,25 @@ export function normalizeRoleInputName(name) {
 	return [raw];
 }
 
-export async function processImportUserRows(rows) {
+/** An imported row may not give an Admin account another role, nor Admin to another account. */
+async function assertImportRolesAllowed(existingUserId, roleNames) {
+	const current = existingUserId ? await getUserRolesWithIds(existingUserId) : [];
+	assertAdminRoleExclusive([...current.map((ur) => ur.role?.name ?? ""), ...roleNames]);
+}
+
+/** One activity log entry per import, with its row counts. */
+async function logImport(kind, results, actor = {}) {
+	await logAudit({
+		actorUserId: actor.actorUserId ?? null,
+		action: AUDIT_ACTIONS.USERS_IMPORTED,
+		entityType: ENTITY_TYPES.USER,
+		newValues: { kind, created: results.success ?? results.created ?? 0, updated: results.updated ?? 0, failed: results.failed ?? 0 },
+		ipAddress: actor.ipAddress ?? null,
+		userAgent: actor.userAgent ?? null,
+	});
+}
+
+export async function processImportUserRows(rows, actor = {}) {
 	const results = { success: 0, updated: 0, failed: 0, errors: [] };
 
 	for (let i = 0; i < rows.length; i++) {
@@ -446,6 +495,7 @@ export async function processImportUserRows(rows) {
 			}
 
 			const existingUser = await findUserByEmailOrIdentity(email, identityNumber);
+			await assertImportRolesAllowed(existingUser?.id ?? null, roleNames);
 			let user;
 			if (existingUser) {
 				user = await prisma.user.update({
@@ -485,26 +535,32 @@ export async function processImportUserRows(rows) {
 
 			if (hasStudent) {
 				const studentStatus = normalizeStudentStatus(rawStudentStatus);
+				if (!studentStatus) throw new Error(`Status mahasiswa "${rawStudentStatus}" tidak dikenal`);
 				const enrollmentYear = identityNumber ? deriveEnrollmentYearFromNIM(identityNumber) : null;
 				const parsedSksCompleted = Number.parseInt(rawSksCompleted, 10);
 				const sksCompleted =
 					Number.isInteger(parsedSksCompleted) && parsedSksCompleted >= 0
 						? parsedSksCompleted
 						: 0;
-				await prisma.student.upsert({
-					where: { id: user.id },
-					create: {
-						id: user.id,
-						enrollmentYear,
-						status: studentStatus,
-						sksCompleted,
-					},
-					update: {
-						status: studentStatus,
-						...(enrollmentYear ? { enrollmentYear } : {}),
-						...(rawSksCompleted ? { sksCompleted } : {}),
-					},
-				});
+				const existingStudent = await prisma.student.findUnique({ where: { id: user.id }, select: { id: true } });
+				if (!existingStudent) {
+					await prisma.student.create({ data: { id: user.id, enrollmentYear, status: studentStatus, sksCompleted } });
+				} else {
+					await prisma.student.update({
+						where: { id: user.id },
+						data: {
+							...(enrollmentYear ? { enrollmentYear } : {}),
+							...(rawSksCompleted ? { sksCompleted } : {}),
+						},
+					});
+					// An empty cell keeps the status; a change goes through the thesis lifecycle.
+					if (rawStudentStatus) {
+						const change = await prisma.$transaction((tx) =>
+							applyStudentStatusChange(tx, user.id, studentStatus, { actorUserId: actor.actorUserId ?? null, source: "import" }),
+						);
+						await announceStudentStatusChange(change);
+					}
+				}
 			}
 
 			if (hasLecturer) {
@@ -520,6 +576,7 @@ export async function processImportUserRows(rows) {
 		}
 	}
 
+	await logImport("users", results, actor);
 	return {
 		created: results.success,
 		updated: results.updated,
@@ -533,7 +590,7 @@ export async function processImportUserRows(rows) {
 	};
 }
 
-export async function importStudentsCsvFromUpload(fileBuffer) {
+export async function importStudentsCsvFromUpload(fileBuffer, actor = {}) {
 	if (!fileBuffer || !fileBuffer.length) {
 		const err = new Error("CSV file is required");
 		err.statusCode = 400;
@@ -580,7 +637,7 @@ export async function importStudentsCsvFromUpload(fileBuffer) {
 			.on("error", (err) => reject(err));
 	});
 
-	return processImportUserRows(rows);
+	return processImportUserRows(rows, actor);
 }
 
 const ACADEMIC_YEAR_FORMAT = /^\d{4}\/\d{4}$/;
@@ -1269,7 +1326,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 	};
 }
 
-export async function importStudentsExcel(rows) {
+export async function importStudentsExcel(rows, actor = {}) {
 	const results = { success: 0, updated: 0, failed: 0, errors: [] };
 	const studentRole = await getOrCreateRole(ROLES.MAHASISWA);
 
@@ -1286,6 +1343,7 @@ export async function importStudentsExcel(rows) {
 			if (!nim || !email) throw new Error("NIM dan Email wajib diisi");
 
 			const existingUser = await findUserByEmailOrIdentity(email, nim);
+			await assertImportRolesAllowed(existingUser?.id ?? null, [ROLES.MAHASISWA]);
 			if (existingUser) {
 				// Update existing student
 				await prisma.user.update({
@@ -1325,10 +1383,11 @@ export async function importStudentsExcel(rows) {
 			results.errors.push(`Baris ${rowNum}: ${err.message}`);
 		}
 	}
+	await logImport("students", results, actor);
 	return results;
 }
 
-export async function importLecturersExcel(rows) {
+export async function importLecturersExcel(rows, actor = {}) {
 	const results = { success: 0, updated: 0, failed: 0, errors: [] };
 
 	for (let i = 0; i < rows.length; i++) {
@@ -1350,6 +1409,7 @@ export async function importLecturersExcel(rows) {
 			}
 
 			const existingUser = await findUserByEmailOrIdentity(email, nip);
+			await assertImportRolesAllowed(existingUser?.id ?? null, [ROLES.PEMBIMBING_1]);
 			if (existingUser) {
 				await prisma.user.update({
 					where: { id: existingUser.id },
@@ -1388,10 +1448,11 @@ export async function importLecturersExcel(rows) {
 			results.errors.push(`Baris ${rowNum}: ${err.message}`);
 		}
 	}
+	await logImport("lecturers", results, actor);
 	return results;
 }
 
-export async function importUsersExcel(rows) {
+export async function importUsersExcel(rows, actor = {}) {
 	if (!Array.isArray(rows) || rows.length === 0) {
 		return { success: 0, updated: 0, failed: 0, errors: ["Data baris Excel kosong"] };
 	}
@@ -1406,7 +1467,7 @@ export async function importUsersExcel(rows) {
 		sksCompleted: clean(row["SKS"] || row["SKS Completed"] || row["sksCompleted"] || row["sks_completed"] || ""),
 	}));
 
-	return processImportUserRows(normalizedRows);
+	return processImportUserRows(normalizedRows, actor);
 }
 
 export async function importAcademicYearsExcel(rows) {
@@ -1671,6 +1732,8 @@ export async function getStudentDetail(userId) {
 			id: thesis.id,
 			title: thesis.title,
 			status: thesis.status || null,
+			// The student is on leave: the thesis is paused ("Cuti" badge).
+			isOnLeave: isThesisOnLeave({ status: thesis.status, student: { status: user.student.status } }),
 			topic: thesis.thesisTopic?.name || null,
 			startDate: thesis.startDate,
 			supervisors,
@@ -1861,6 +1924,9 @@ export async function getLecturerDetail(userId) {
 			thesisId: tp.thesis.id,
 			title: tp.thesis.title,
 			status: tp.thesis.status || null,
+			// The student is on leave: the thesis is paused ("Cuti" badge).
+			isOnLeave: isThesisOnLeave(tp.thesis),
+			relationStatus: tp.status,
 			role: tp.role.name,
 			student: {
 				id: tp.thesis.student.user.id,
@@ -1872,7 +1938,7 @@ export async function getLecturerDetail(userId) {
 	const examining = await findExaminerAssignments(user.lecturer.id);
 
 	// Active vs completed supervising
-	const activeSupervising = supervising.filter((s) => !CLOSED_THESIS_STATUSES.includes(s.status));
+	const activeSupervising = supervising.filter((s) => s.relationStatus === "active" && !CLOSED_THESIS_STATUSES.includes(s.status));
 	const completedSupervising = supervising.filter((s) => s.status === THESIS_STATUS.COMPLETED);
 
 	// Recent guidances
@@ -1926,19 +1992,28 @@ export async function getLecturerDetail(userId) {
 
 // Removed Science Group functions
 
-export async function adminUpdateLecturer(id, data) {
-	return prisma.lecturer.update({
-		where: { id },
-		data: {
-			scienceGroupId: data.scienceGroupId === "" ? null : data.scienceGroupId
-		}
-	});
+export async function adminUpdateLecturer(id, data, actor = {}) {
+	const before = await prisma.lecturer.findUnique({ where: { id }, select: { scienceGroupId: true } });
+	const scienceGroupId = data.scienceGroupId === "" ? null : data.scienceGroupId;
+	const updated = await prisma.lecturer.update({ where: { id }, data: { scienceGroupId } });
+	if ((before?.scienceGroupId ?? null) !== (updated.scienceGroupId ?? null)) {
+		await logAudit({
+			actorUserId: actor.actorUserId ?? null,
+			action: AUDIT_ACTIONS.LECTURER_UPDATED,
+			entityType: ENTITY_TYPES.LECTURER,
+			entityId: id,
+			oldValues: { scienceGroupId: before?.scienceGroupId ?? null },
+			newValues: { scienceGroupId: updated.scienceGroupId ?? null },
+			ipAddress: actor.ipAddress ?? null,
+			userAgent: actor.userAgent ?? null,
+		});
+	}
+	return updated;
 }
 
-export async function adminUpdateStudent(id, data) {
+export async function adminUpdateStudent(id, data, actor = {}) {
 	const updateData = {};
 
-	if (data.status !== undefined) updateData.status = data.status;
 	const rawSksCompleted = data.sksCompleted ?? data.skscompleted;
 	if (rawSksCompleted !== undefined) updateData.sksCompleted = parseInt(rawSksCompleted);
 	if (data.enrollmentYear !== undefined) updateData.enrollmentYear = parseInt(data.enrollmentYear);
@@ -1950,17 +2025,45 @@ export async function adminUpdateStudent(id, data) {
 			: null;
 	}
 
-
 	if (data.mandatoryCoursesCompleted !== undefined) updateData.mandatoryCoursesCompleted = !!data.mandatoryCoursesCompleted;
 	if (data.mkwuCompleted !== undefined) updateData.mkwuCompleted = !!data.mkwuCompleted;
 	if (data.internshipCompleted !== undefined) updateData.internshipCompleted = !!data.internshipCompleted;
 	if (data.kknCompleted !== undefined) updateData.kknCompleted = !!data.kknCompleted;
 	if (data.researchMethodCompleted !== undefined) updateData.researchMethodCompleted = !!data.researchMethodCompleted;
 
-	return prisma.student.update({
-		where: { id },
-		data: updateData
+	const before = await prisma.student.findUnique({ where: { id } });
+	if (!before) throw new NotFoundError("Mahasiswa tidak ditemukan.");
+
+	// The student status drives the thesis (leave, end of studies): one transaction.
+	let statusChange = null;
+	const updated = await prisma.$transaction(async (tx) => {
+		if (data.status !== undefined && data.status !== before.status) {
+			statusChange = await applyStudentStatusChange(tx, id, data.status, { actorUserId: actor.actorUserId ?? null, source: "admin" });
+		}
+		const changedKeys = Object.keys(updateData).filter((key) => String(before[key] ?? "") !== String(updateData[key] ?? ""));
+		if (changedKeys.length) {
+			await tx.auditLog.create({
+				data: {
+					userId: actor.actorUserId ?? null,
+					action: AUDIT_ACTIONS.STUDENT_ACADEMIC_UPDATED,
+					entity: ENTITY_TYPES.STUDENT,
+					entityId: id,
+					changes: {
+						oldValues: Object.fromEntries(changedKeys.map((key) => [key, before[key] ?? null])),
+						newValues: Object.fromEntries(changedKeys.map((key) => [key, updateData[key] ?? null])),
+						metadata: null,
+					},
+					ipAddress: actor.ipAddress ?? null,
+					userAgent: actor.userAgent ?? null,
+				},
+			});
+		}
+		return Object.keys(updateData).length
+			? tx.student.update({ where: { id }, data: updateData })
+			: tx.student.findUnique({ where: { id } });
 	});
+	await announceStudentStatusChange(statusChange);
+	return updated;
 }
 
 const thesisInclude = {

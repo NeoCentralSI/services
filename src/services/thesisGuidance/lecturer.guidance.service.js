@@ -50,6 +50,7 @@ import {
 	summarizeThesisProgress,
 } from "../../helpers/thesis-progress.helper.js";
 import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
+import { assertThesisNotOnLeave, ON_LEAVE_LECTURER_REASON } from "../../helpers/thesis-leave.helper.js";
 import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 
 function ensureLecturer(lecturer) {
@@ -72,18 +73,17 @@ async function assertActiveSupervisorForThesis(lecturerId, thesisId) {
 		err.statusCode = 403;
 		throw err;
 	}
-	// Session actions: research, or proposal after Penetapan Pembimbing; not BSS or closed.
+	// Session actions: research, or proposal after Penetapan Pembimbing; not during a leave or closed.
+	await assertThesisNotOnLeave(relation.thesis, ON_LEAVE_LECTURER_REASON);
 	const thesisStatus = relation.thesis?.status;
 	if (thesisStatus === THESIS_STATUS.PROPOSAL && (await getProposalPhaseAccess(relation.thesis)).open) {
 		return relation;
 	}
 	if (thesisStatus !== THESIS_STATUS.RESEARCH) {
 		const err = new Error(
-			thesisStatus === THESIS_STATUS.ON_LEAVE
-				? `Tugas akhir mahasiswa sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Aksi bimbingan tidak dapat dilakukan.`
-				: thesisStatus === THESIS_STATUS.PROPOSAL && !(await isRepeatingProposal(relation.thesis.id))
-					? PROPOSAL_NOT_ASSIGNED_REASON
-					: "Aksi bimbingan hanya dapat dilakukan untuk tugas akhir yang sedang berjalan.",
+			thesisStatus === THESIS_STATUS.PROPOSAL && !(await isRepeatingProposal(relation.thesis.id))
+				? PROPOSAL_NOT_ASSIGNED_REASON
+				: "Aksi bimbingan hanya dapat dilakukan untuk tugas akhir yang sedang berjalan.",
 		);
 		err.statusCode = 403;
 		throw err;
@@ -206,6 +206,7 @@ export async function getMyStudentsService(userId, roles, { filter = "active" } 
 		thesisId: s.thesisId,
 		thesisTitle: s.thesisTitle,
 		thesisStatus: s.thesisStatus ?? null,
+		isOnLeave: Boolean(s.isOnLeave),
 		roles: s.role ? [s.role] : [],
 		supervisorStatus: s.supervisorStatus || null,
 		noLongerSupervising: Boolean(s.noLongerSupervising),

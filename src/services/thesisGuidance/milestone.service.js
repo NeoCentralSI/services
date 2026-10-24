@@ -3,8 +3,9 @@ import prisma from "../../config/prisma.js";
 import { ROLES, isSupervisorRole, normalize, isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotification } from "../../repositories/notification.repository.js";
-import { THESIS_PHASE, THESIS_STATUS, TA_PHASE, currentPhaseOf, phaseForThesisStatus } from "../../constants/thesisStatus.js";
+import { THESIS_PHASE, THESIS_STATUS, TA_PHASE, currentPhaseOf, phaseForThesisStatus, isThesisOnLeave } from "../../constants/thesisStatus.js";
 import { THESIS_STATUS_LABELS, THESIS_PHASE_LABELS, MILESTONE_STATUS_LABELS } from "../../constants/thesisLabels.js";
+import { isThesisPausedByLeave, ON_LEAVE_LECTURER_REASON } from "../../helpers/thesis-leave.helper.js";
 import { getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 
 const milestoneStatusLabel = (status) => MILESTONE_STATUS_LABELS[status] ?? status;
@@ -95,10 +96,11 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
 
 /**
  * Milestone writes (create, update, progress, review, validation): a thesis in the TA phase,
- * or in the proposal phase once Penetapan Pembimbing is issued. BSS, closed theses and a
+ * or in the proposal phase once Penetapan Pembimbing is issued. A leave, closed theses and a
  * thesis repeating its proposal get a clear 403.
  */
 async function ensureThesisWritable(thesis) {
+  if (await isThesisPausedByLeave(thesis)) throw forbidden(ON_LEAVE_LECTURER_REASON);
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
   if (thesis?.status === THESIS_STATUS.PROPOSAL) {
     const { open, repeating } = await getProposalPhaseAccess(thesis);
@@ -108,9 +110,6 @@ async function ensureThesisWritable(thesis) {
       throw forbidden(`${REPEAT_PROPOSAL_LOCK_REASON} Milestone terkunci sampai Pembimbing 1 menyetujui proposal revisi (Tugas Akhir > Proposal).`);
     }
     throw forbidden(PROPOSAL_NOT_ASSIGNED_REASON);
-  }
-  if (thesis?.status === THESIS_STATUS.ON_LEAVE) {
-    throw forbidden(`Tugas akhir sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Milestone tidak dapat diubah.`);
   }
   throw forbidden("Tugas akhir sudah tidak aktif. Milestone tidak dapat diubah.");
 }
@@ -1154,6 +1153,7 @@ function studentOf(thesis) {
 
 /** Why the readiness flow is closed for this thesis status, or null when it is open. */
 function readinessStatusBlock(thesis, kind) {
+  if (isThesisOnLeave(thesis)) return `Mahasiswa sedang cuti. Persetujuan kesiapan ${READINESS_KINDS[kind].noun} tidak dapat diproses selama cuti.`;
   if (thesis?.status === THESIS_STATUS.RESEARCH) return null;
   return `Persetujuan kesiapan ${READINESS_KINDS[kind].noun} hanya berlaku untuk tugas akhir berstatus "${THESIS_STATUS_LABELS.research}". Status saat ini "${THESIS_STATUS_LABELS[thesis?.status] ?? "-"}".`;
 }

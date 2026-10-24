@@ -32,6 +32,7 @@ import { ForbiddenError } from "../../utils/errors.js";
 import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
 import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
 import { REPEAT_PROPOSAL_LOCK_REASON } from "../../constants/thesis-guidance-evaluation.js";
+import { assertThesisNotOnLeave, ON_LEAVE_STUDENT_REASON } from "../../helpers/thesis-leave.helper.js";
 import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 import {
   THESIS_STATUS,
@@ -145,8 +146,6 @@ function ensureStudent(student) {
 
 const NOT_WRITABLE_MESSAGES = {
   [THESIS_STATUS.PROPOSAL]: PROPOSAL_NOT_ASSIGNED_REASON,
-  [THESIS_STATUS.ON_LEAVE]:
-    `Tugas akhir Anda sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Bimbingan dan milestone tidak dapat diubah.`,
 };
 
 /**
@@ -154,6 +153,7 @@ const NOT_WRITABLE_MESSAGES = {
  * Pembimbing. TA yang dikembalikan ke proposal oleh evaluasi bimbingan tetap terkunci.
  */
 async function ensureThesisWritable(thesis) {
+  await assertThesisNotOnLeave(thesis, ON_LEAVE_STUDENT_REASON);
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
   const { open, repeating } = await getProposalPhaseAccess(thesis);
   if (open) return;

@@ -10,9 +10,11 @@ const LECTURER_ID = "22222222-2222-4222-8222-222222222222";
 // The thesis status is the enum `status`; thesisStatusId/isProposal are gone.
 describe("masterDataTa validator", () => {
   it("mempertahankan status enum saat pembaruan", () => {
-    const result = updateThesisSchema.parse({ status: "on_leave" });
+    const result = updateThesisSchema.parse({ status: "completed" });
 
-    expect(result).toEqual({ status: "on_leave" });
+    expect(result).toEqual({ status: "completed" });
+    // Leave follows the student status; it is not a thesis status any more.
+    expect(() => updateThesisSchema.parse({ status: "on_leave" })).toThrow();
   });
 
   it("menolak nilai status di luar enum dan field lama tidak diteruskan", () => {

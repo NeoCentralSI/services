@@ -13,7 +13,7 @@ export function getStudentByUserId(userId) {
 }
 
 /**
- * TA mahasiswa yang belum berakhir (proposal, research, on_leave), terbaru lebih dulu.
+ * TA mahasiswa yang belum berakhir (proposal, research), terbaru lebih dulu.
  * Dipakai bimbingan/milestone (aksi tulis wajib cek status === research) dan
  * fase proposal untuk TA berstatus proposal.
  */

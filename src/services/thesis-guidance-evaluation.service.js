@@ -17,7 +17,7 @@ import prisma from "../config/prisma.js";
 import * as repo from "../repositories/thesis-guidance-evaluation.repository.js";
 import { ROLES, isPembimbing1, isPembimbing2 } from "../constants/roles.js";
 import { pageAcrossGroups, pageMeta, pageWindow, priorityGroups } from "../helpers/priority-paging.helper.js";
-import { THESIS_STATUS, THESIS_TERMINATION_REASON } from "../constants/thesisStatus.js";
+import { THESIS_STATUS, THESIS_TERMINATION_REASON, isThesisOnLeave } from "../constants/thesisStatus.js";
 import {
   EVALUATION_DUE_LABELS,
   GUIDANCE_EVALUATION_RECOMMENDATION_LABELS,
@@ -118,6 +118,7 @@ function viewerRoleOn(thesis, userId) {
  */
 function getSubmitBlockReason(thesis, clock, { viewerRole, hasPending }) {
   if (viewerRole !== "pembimbing_1") return "Evaluasi bimbingan diisi oleh Pembimbing 1.";
+  if (isThesisOnLeave(thesis)) return "Evaluasi bimbingan tidak dapat diisi selama mahasiswa cuti.";
   if (thesis.status !== THESIS_STATUS.RESEARCH) {
     return `Evaluasi bimbingan hanya untuk tugas akhir berstatus "${THESIS_STATUS_LABELS.research}". Status saat ini: "${THESIS_STATUS_LABELS[thesis.status] ?? "-"}".`;
   }

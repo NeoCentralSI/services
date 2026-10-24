@@ -462,6 +462,7 @@ export function getThesisSeminarReadiness(thesisId) {
       id: true,
       title: true,
       status: true,
+      leaveStartedAt: true,
       student: {
         select: {
           id: true,
@@ -658,6 +659,7 @@ export function getThesisDefenceReadiness(thesisId) {
       id: true,
       title: true,
       status: true,
+      leaveStartedAt: true,
       student: {
         select: {
           id: true,

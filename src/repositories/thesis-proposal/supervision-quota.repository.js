@@ -47,7 +47,7 @@ export function findActiveSupervisionRows(lecturerIds = null, client = prisma) {
     select: {
       lecturerId: true,
       role: { select: { name: true } },
-      thesis: { select: { status: true, supervisorAssignedAt: true } },
+      thesis: { select: { status: true, supervisorAssignedAt: true, student: { select: { status: true } } } },
     },
   });
 }

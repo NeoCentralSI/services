@@ -747,10 +747,10 @@ model Thesis {
   terminationNote    String?                  @map("termination_note") @db.Text
   terminatedAt       DateTime?                @map("terminated_at")
   terminatedByUserId String?                  @map("terminated_by_user_id")
-  /// Berhenti Studi Sementara (status `on_leave`): status sebelumnya dan tanggal mulai.
-  statusBeforeLeave  ThesisLifecycleStatus?   @map("status_before_leave")
+  /// Awal cuti yang sedang berjalan. Diisi dan dikosongkan hanya bersama perubahan status
+  /// mahasiswa (`students.student_status = bss`), sumber satu-satunya status cuti.
   leaveStartedAt     DateTime?                @map("leave_started_at")
-  /// Jumlah hari cuti (BSS) yang sudah selesai. Ditambah saat TA kembali dari `on_leave`,
+  /// Jumlah hari cuti yang sudah selesai. Ditambah saat mahasiswa kembali aktif,
   /// supaya masa bimbingan (dihitung dari `startDate`) tidak menghitung masa cuti.
   totalLeaveDays     Int                      @default(0) @map("total_leave_days")
   /// Periode saat TA lahir (pengajuan pembimbing diterima).
@@ -2890,7 +2890,6 @@ enum ThesisPhase {
 enum ThesisLifecycleStatus {
   proposal
   research
-  on_leave
   completed
   failed
 }

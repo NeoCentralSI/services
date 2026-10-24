@@ -151,7 +151,7 @@ describe("monitoring repository — guidance trend per semester", () => {
 
     expect(total(await repo.getGuidanceTrend("ay-x"))).toBe(6);
     expect(prismaMock.thesisGuidance.findMany.mock.calls[0][0].where.thesis).toEqual({
-      AND: [{ status: { in: ["research", "on_leave", "completed"] } }, { academicYearId: "ay-x" }],
+      AND: [{ status: { in: ["research", "completed"] } }, { academicYearId: "ay-x" }],
     });
   });
 });

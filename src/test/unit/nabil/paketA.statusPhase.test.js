@@ -110,8 +110,9 @@ describe("Pengajuan bimbingan fase TA", () => {
     });
   });
 
-  it("TA on_leave ditolak (403) di aksi mahasiswa, dosen, dan milestone", async () => {
-    thesisRow().status = "on_leave";
+  it("mahasiswa cuti: TA dijeda, ditolak (403) di aksi mahasiswa, dosen, dan milestone", async () => {
+    // Leave follows the student status; the thesis stays in research with the leave start set.
+    thesisRow().leaveStartedAt = new Date();
     const known = fixtureGuidanceIds();
 
     await expect(
