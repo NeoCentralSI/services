@@ -52,8 +52,18 @@ describe.sequential("Use Scenario Integration — Yudisium (UC-25 s.d. UC-32)", 
   let createdCurriculum;
   let rejectedThesis;
   let rejectedParticipant;
+  // Only one registration window may be open at a time; periods already open in the database
+  // (e.g. the seeded demo period) are set aside during this scenario and restored after it.
+  let parkedPeriods = [];
 
   beforeAll(async () => {
+    parkedPeriods = await prisma.yudisium.findMany({
+      where: { registrationOpenDate: { not: null, lte: new Date(Date.now() + 4 * DAY) }, registrationCloseDate: { not: null, gte: new Date(Date.now() - 2 * DAY) } },
+      select: { id: true, registrationOpenDate: true, registrationCloseDate: true },
+    });
+    for (const period of parkedPeriods) {
+      await prisma.yudisium.update({ where: { id: period.id }, data: { registrationOpenDate: null, registrationCloseDate: null } });
+    }
     const roles = await prisma.userRole.findMany({
       where: { name: { in: ["Mahasiswa", "Admin", "GKM", "Koordinator Yudisium"] } },
     });
@@ -126,6 +136,9 @@ describe.sequential("Use Scenario Integration — Yudisium (UC-25 s.d. UC-32)", 
   });
 
   afterAll(async () => {
+    for (const period of parkedPeriods) {
+      await prisma.yudisium.update({ where: { id: period.id }, data: { registrationOpenDate: period.registrationOpenDate, registrationCloseDate: period.registrationCloseDate } }).catch(() => {});
+    }
     for (const filePath of uploadedPaths) {
       const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
       await unlink(absolutePath).catch(() => {});

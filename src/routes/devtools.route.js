@@ -22,6 +22,7 @@ import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 import { GUIDANCE_STATUS } from "../constants/guidanceStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../services/auditLog.service.js";
 import { applyStudentStatusChange, announceStudentStatusChange } from "../services/thesisLifecycle.service.js";
+import finalStagesRouter from "./devtools/final-stages.routes.js";
 
 const router = express.Router();
 
@@ -63,6 +64,9 @@ if (isProduction && !devtoolsExplicitlyEnabled) {
   router.use(authGuard);
   router.use(requireAnyRole([ROLES.ADMIN]));
 }
+
+// Seminar Hasil, Sidang TA and Yudisium (behind the same guard)
+router.use(finalStagesRouter);
 
 /** Select of the SIA flags of the running semester (plan 10.6). */
 const ACTIVE_PERIOD_FLAGS_SELECT = {

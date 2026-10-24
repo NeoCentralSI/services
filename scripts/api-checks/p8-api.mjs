@@ -58,8 +58,9 @@ await run("1 angka panduan pada hari seed (GET saja)", async () => {
 
   const monitoring = (await api(HUSNIL, "GET", `/research-method/monitoring?academicYearId=${current.id}`)).data;
   const s = monitoring?.summary;
-  check("Monitoring Kelas: Peserta 16, Punya Pembimbing 10, Ditetapkan 8, Proposal Final 6, Dinilai 2, Mulai Penelitian 2; Tidak Lulus 0, Belum Dinilai 14",
-    s && [s.total, s.withSupervisor, s.assigned, s.finalProposal, s.finalized, s.passed, s.failed, s.notFinalized].join(",") === "16,10,8,6,2,2,0,14",
+  // Peserta includes Uji Demo Metopen dan TA Semester Ini (seed-thesis-final-stages), who has no supervisor yet.
+  check("Monitoring Kelas: Peserta 17, Punya Pembimbing 10, Ditetapkan 8, Proposal Final 6, Dinilai 2, Mulai Penelitian 2; Tidak Lulus 0, Belum Dinilai 15",
+    s && [s.total, s.withSupervisor, s.assigned, s.finalProposal, s.finalized, s.passed, s.failed, s.notFinalized].join(",") === "17,10,8,6,2,2,0,15",
     s);
   const started = ["2211528012", "2211528015"].map((nim) => byNim(monitoring?.rows, nim)?.thesis?.status);
   check("yang lulus semester ini sudah Penelitian (Lulus; Lulus Presensi Kurang)", started.every((status) => status === "research"), started);

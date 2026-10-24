@@ -22,10 +22,10 @@ await run("1 filter Data Mahasiswa dan Data Dosen", async () => {
   check("Status Cuti: hanya mahasiswa cuti, hitungan mengikuti filter", cuti?.meta?.total === 1 && cuti.students.every((s) => s.student?.status === "bss") && cuti.meta.total < all.meta.total, `${cuti?.meta?.total} dari ${all?.meta?.total}`);
   const dropout = await students("statusFilter=dropout");
   check("Status Drop Out: akun uji Drop Out", dropout?.students?.some((s) => s.fullName === "Uji TA Drop Out") && dropout.students.every((s) => s.student?.status === "dropout"));
-  // In the seed nobody takes both this semester (Uji Proposal Masuk Penelitian took Metode
-  // Penelitian last semester and Tugas Akhir now); the Admin marks one student taking both.
+  // In the seed only Uji Demo Metopen dan TA Semester Ini takes both this semester (Uji Proposal
+  // Masuk Penelitian took Metode Penelitian last semester and Tugas Akhir now); the Admin marks a second one.
   const noneYet = await students("programFilter=both");
-  check("seed: tidak ada yang mengambil keduanya semester ini; Uji Proposal Masuk Penelitian di Tugas Akhir saja", noneYet?.meta?.total === 0 && (await students("programFilter=thesis"))?.students?.some((s) => s.fullName === "Uji Proposal Masuk Penelitian"), noneYet?.meta?.total);
+  check("seed: hanya Uji Demo Metopen dan TA yang mengambil keduanya semester ini; Uji Proposal Masuk Penelitian di Tugas Akhir saja", noneYet?.meta?.total === 1 && noneYet.students[0]?.fullName === "Uji Demo Metopen dan TA Semester Ini" && (await students("programFilter=thesis"))?.students?.some((s) => s.fullName === "Uji Proposal Masuk Penelitian"), noneYet?.meta?.total);
   const naik = (await students("search=Uji Proposal Masuk Penelitian"))?.students?.[0];
   const ayId = all?.academicYearContext?.id;
   const set = await api(ADMIN, "PATCH", `/adminfeatures/students/${naik?.id}/period-flags/${ayId}`, { eligibleResearchMethod: true, takingThesisCourse: true });
