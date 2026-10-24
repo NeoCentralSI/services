@@ -2,7 +2,7 @@
  * Penetapan Pembimbing as an official document with a verification QR.
  *
  * The PDF keeps its own renderer (pdf-lib); the record follows the rules of
- * `official-document.service.js` (same table, read by `/verify/document/:token`):
+ * `official-document.service.js` (same table, read by the Cek Dokumen page `/cek-dokumen/:token`):
  * one record per issued version, keyed by the period (`sourceId`), the previous version of the
  * period becomes "superseded", and the stored file is checked against its hash when downloaded.
  * Previews get no QR and no record.
@@ -11,7 +11,7 @@ import crypto from "crypto";
 import QRCode from "qrcode";
 
 import prisma from "../../config/prisma.js";
-import { ENV } from "../../config/env.js";
+import { officialDocumentVerificationUrl } from "../official-document.service.js";
 import { renderAssignmentPdf, semesterLabel } from "../../helpers/supervisor-assignment.helper.js";
 
 export const SUPERVISOR_ASSIGNMENT_DOCUMENT_KIND = "supervisor_assignment";
@@ -21,9 +21,7 @@ const SUPERSEDED = "superseded";
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
-export function verificationUrlOf(token) {
-  return `${String(ENV.FRONTEND_URL ?? "").replace(/\/$/, "")}/verify/document/${token}`;
-}
+export const verificationUrlOf = officialDocumentVerificationUrl;
 
 /**
  * Renders an issued version with its verification QR. Returns the PDF and the record to write

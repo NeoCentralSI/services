@@ -58,16 +58,16 @@ describe("issued version", () => {
       issuerName: KADEP.fullName,
     });
     expect(document.verificationToken).toMatch(/^[0-9a-f]{64}$/);
-    expect(qrSpy.mock.calls[0][0]).toMatch(new RegExp(`/verify/document/${document.verificationToken}$`));
+    expect(qrSpy.mock.calls[0][0]).toMatch(new RegExp(`/cek-dokumen/${document.verificationToken}$`));
+    expect(qrSpy.mock.calls[0][1]).toMatchObject({ errorCorrectionLevel: "H" });
 
     const doc = await PDFDocument.load(buffer);
     const signature = doc.getPages().find((page) => pageContent(doc, page).includes(hex("C. Pengesahan")));
     const content = pageContent(doc, signature);
-    expect(content).toContain(hex("Validasi Dokumen NeoCentral"));
-    // The URL is printed beside the QR in lines of 48 characters; every line is on the page.
-    const url = qrSpy.mock.calls[0][0];
-    for (let i = 0; i < url.length; i += 48) expect(content).toContain(hex(url.slice(i, i + 48)));
-    expect(imagesOf(doc, signature)).toHaveLength(1);
+    // Only the QR (with the NeoCentral logo in its middle): no caption and no printed URL.
+    expect(content).not.toContain(hex("Validasi Dokumen"));
+    expect(content).not.toContain(hex("cek-dokumen"));
+    expect(imagesOf(doc, signature)).toHaveLength(2);
     expect(doc.getPages().some((page) => pageContent(doc, page).includes(hex("PRATINJAU")))).toBe(false);
     qrSpy.mockRestore();
   });

@@ -155,7 +155,7 @@ describe("issue", () => {
     });
     expect(tx.thesis.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["b"] } }, data: { supervisorAssignedAt: expect.any(Date) } });
     // The issued version is an official document (QR); the previous one of the period is superseded.
-    expect(helper.renderAssignmentPdf.mock.calls[0][0].verification).toMatchObject({ qrPng: expect.any(Buffer), url: expect.stringMatching(/\/verify\/document\/[0-9a-f]{64}$/) });
+    expect(helper.renderAssignmentPdf.mock.calls[0][0].verification).toMatchObject({ qrPng: expect.any(Buffer), url: expect.stringMatching(/\/cek-dokumen\/[0-9a-f]{64}$/) });
     expect(tx.officialGeneratedDocument.updateMany).toHaveBeenCalledWith({
       where: { documentKind: "supervisor_assignment", sourceId: "ay-1", status: "current" },
       data: { status: "superseded", supersededAt: expect.any(Date) },

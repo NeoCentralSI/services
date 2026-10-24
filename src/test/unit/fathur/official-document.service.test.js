@@ -64,12 +64,12 @@ describe("Official Document Service", () => {
     });
 
     expect(result).toEqual(Buffer.from("official-pdf"));
-    expect(mockPdf.convertHtmlToPdf).toHaveBeenCalledWith(
-      expect.stringContaining("Validasi Dokumen NeoCentral"),
-    );
+    // The QR alone at the end of the document; its link opens Cek Dokumen.
+    expect(mockPdf.convertHtmlToPdf).toHaveBeenCalledWith(expect.stringContaining('class="official-document-qr"'));
+    expect(mockPdf.convertHtmlToPdf.mock.calls[0][0]).not.toContain("Validasi Dokumen");
     expect(mockQRCode.toDataURL).toHaveBeenCalledWith(
-      expect.stringMatching(/^https:\/\/neocentral\.dev\/verify\/document\/[a-f0-9]{64}$/),
-      expect.any(Object),
+      expect.stringMatching(/^https:\/\/neocentral\.dev\/cek-dokumen\/[a-f0-9]{64}$/),
+      expect.objectContaining({ errorCorrectionLevel: "H" }),
     );
     expect(mockPrisma.officialGeneratedDocument.create).toHaveBeenCalledWith({
       data: expect.objectContaining({

@@ -729,14 +729,17 @@ function drawSignatureBlockAt(page, startTopY, dateGenerated, kadepName, kadepNi
   if (preview) {
     drawTextAtTop(page, "(belum diterbitkan)", 365, startTopY + 150, regularFont, 11);
   } else if (verification?.qr) {
-    // An issued version: the verification QR takes the place of the university logo.
+    // An issued version: the verification QR alone takes the place of the university logo,
+    // with the NeoCentral logo on a white patch in its middle (about 20% of its width).
     const size = 80;
-    page.drawImage(verification.qr, { x: 425 - size / 2, y: page.getHeight() - startTopY - 117 - size, width: size, height: size });
-    const lines = ["Validasi Dokumen NeoCentral", "Pindai QR di samping untuk memeriksa", "status resmi dan keutuhan dokumen."];
-    lines.forEach((line, index) => drawTextAtTop(page, line, FLOW_PAGE.left, startTopY + 130 + index * 12, index === 0 ? boldFont : regularFont, 9));
-    const url = String(verification.url ?? "");
-    for (let i = 0, row = 0; i < url.length; i += 48, row += 1) {
-      drawTextAtTop(page, url.slice(i, i + 48), FLOW_PAGE.left, startTopY + 170 + row * 10, regularFont, 7);
+    const x = 425 - size / 2;
+    const y = page.getHeight() - startTopY - 117 - size;
+    page.drawImage(verification.qr, { x, y, width: size, height: size });
+    if (verification.centerLogo) {
+      const box = size * 0.22;
+      page.drawRectangle({ x: x + (size - box) / 2, y: y + (size - box) / 2, width: box, height: box, color: rgb(1, 1, 1) });
+      const fit = verification.centerLogo.scaleToFit(size * 0.18, size * 0.18);
+      page.drawImage(verification.centerLogo, { x: x + (size - fit.width) / 2, y: y + (size - fit.height) / 2, ...fit });
     }
   } else if (logo) {
     const dimensions = logo.scaleToFit(65, 65);
@@ -962,7 +965,8 @@ export async function generateSupervisorAssignmentPdf(opts) {
   // An issued version carries the verification QR (PNG bytes and its URL); the logo is the fallback.
   const qr = !opts.preview && opts.verification?.qrPng ? await outputDoc.embedPng(opts.verification.qrPng) : null;
   const logo = opts.preview || qr ? null : await outputDoc.embedPng(await readFile(join(__dirname, "..", "assets", "unand-logo.png")));
-  const verification = qr ? { qr, url: opts.verification.url } : null;
+  const centerLogo = qr ? await outputDoc.embedPng(await readFile(join(__dirname, "..", "assets", "neocentral-logo.png"))) : null;
+  const verification = qr ? { qr, centerLogo } : null;
   const flowOptions = { dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview: opts.preview, logo, verification };
 
   for (const planPage of plan.pages) {

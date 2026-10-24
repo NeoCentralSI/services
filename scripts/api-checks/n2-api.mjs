@@ -75,6 +75,20 @@ await run("3 QR Penetapan Pembimbing", async () => {
   const data = verify?.data ?? verify;
   check("verifikasi publik: data Penetapan, berlaku", data?.title === "Penetapan Pembimbing Tugas Akhir" && data?.isCurrent === true && /^Semester /.test(data?.subjectName ?? ""), data);
 
+  // Cek Dokumen by upload: the downloaded PDF is found by its hash; a changed copy is not.
+  const byFile = async (buffer, name = "penetapan.pdf", type = "application/pdf") => {
+    const form = new FormData();
+    form.append("file", new Blob([buffer], { type }), name);
+    const res = await fetch(`${BASE}/official-documents/find-by-file`, { method: "POST", body: form });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const match = await byFile(a.buffer);
+  check("unggah PDF asli: ditemukan lewat hash, tanpa login", match.status === 200 && match.json?.data?.token === record?.verificationToken, match.status);
+  const changed = await byFile(Buffer.concat([a.buffer, Buffer.from("\n% disimpan ulang")]));
+  check("unggah PDF yang diubah: tidak cocok", changed.status === 404 && /tidak cocok dengan dokumen resmi/.test(changed.json?.message ?? ""), changed.json?.message);
+  const notPdf = await byFile(Buffer.from("bukan pdf"), "catatan.txt", "text/plain");
+  check("unggah bukan PDF: ditolak", notPdf.status === 400, notPdf.json?.message);
+
   const preview = await download(KADEP, `/thesis-proposals/supervisor-assignments/preview?academicYearId=${overview.academicYear.id}`);
   const afterPreview = await prisma.officialGeneratedDocument.count({ where: { documentKind: "supervisor_assignment" } });
   check("pratinjau tidak tercatat sebagai dokumen resmi", preview.status === 200 && afterPreview === before, `${preview.status} ${before} -> ${afterPreview}`);
