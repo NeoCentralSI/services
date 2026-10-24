@@ -57,8 +57,9 @@ export function assignmentPdfFileName(academicYear, version) {
 }
 
 /** The PDF of a batch, titled "Formulir TA-04" (the form code only in the PDF). */
-export async function renderAssignmentPdf({ academicYear, entries, kadep, now = new Date() }) {
+export async function renderAssignmentPdf({ academicYear, entries, kadep, preview = false, now = new Date() }) {
   return generateSupervisorAssignmentPdf({
+    preview,
     semester: semesterLabel(academicYear),
     entries: entries.map((entry) => ({
       studentName: entry.studentName,

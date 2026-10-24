@@ -155,7 +155,7 @@ export async function getAssignmentBoard(academicYearId = null, viewerUserId = n
   const closedIntake = new Set(intake.filter((l) => l.acceptingRequests === false).map((l) => l.id));
   const loadOf = (lecturerId) => {
     const load = lecturerId ? loads.get(lecturerId) : null;
-    return load ? { activeCount: load.activeCount, softLimit: load.softLimit, hardLimit: load.hardLimit, level: load.level } : null;
+    return load ? { activeCount: load.activeCount, acceptedCount: load.acceptedCount, semesterQuota: load.semesterQuota, totalLimit: load.totalLimit, level: load.level } : null;
   };
   // The intake switch of a lecturer ("Menerima pengajuan baru"); a closed one cannot be approved as Pembimbing 2.
   const person = (lecturerId, fullName, role) => ({ lecturerId, fullName, role, load: loadOf(lecturerId), acceptingRequests: !closedIntake.has(lecturerId) });
@@ -187,7 +187,7 @@ export async function getAssignmentBoard(academicYearId = null, viewerUserId = n
     const request = main ? mapRequest(main, operationalId) : null;
     if (request && waitingKadep?.route === ROUTE.OVER_QUOTA) {
       const load = loadOf(waitingKadep.lecturerId);
-      request.lecturerLoad = load ? { ...load, projectedCount: load.activeCount + 1, overBy: Math.max(0, load.activeCount + 1 - load.hardLimit) } : null;
+      request.lecturerLoad = load ? { ...load, projectedCount: load.activeCount + 1, overBy: Math.max(0, load.activeCount + 1 - load.totalLimit) } : null;
     }
     return {
       studentId,

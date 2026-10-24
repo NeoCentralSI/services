@@ -7,7 +7,7 @@
 import express from "express";
 import { authGuard, requireAnyRole } from "../middlewares/auth.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
-import { uploadThesisFile } from "../middlewares/file.middleware.js";
+import { uploadProposalFile } from "../middlewares/file.middleware.js";
 import { ROLES, SUPERVISOR_ROLES } from "../constants/roles.js";
 import * as controller from "../controllers/thesis-proposal.controller.js";
 import * as validator from "../validators/thesis-proposal.validator.js";
@@ -20,8 +20,8 @@ const KADEP = [ROLES.KETUA_DEPARTEMEN];
 
 // Student
 router.get("/me", requireAnyRole(STUDENT), controller.getMyOverview);
-router.post("/me/final-proposal", requireAnyRole(STUDENT), uploadThesisFile, controller.submitFinalProposal);
-router.post("/me/proposal-revision", requireAnyRole(STUDENT), uploadThesisFile, controller.submitProposalRevision);
+router.post("/me/final-proposal", requireAnyRole(STUDENT), uploadProposalFile, controller.submitFinalProposal);
+router.post("/me/proposal-revision", requireAnyRole(STUDENT), uploadProposalFile, controller.submitProposalRevision);
 router.get("/me/supervisor-requests", requireAnyRole(STUDENT), controller.getMySupervisorRequests);
 router.put("/me/supervisor-request-draft", requireAnyRole(STUDENT), validate(validator.saveDraftSchema), controller.saveMyDraft);
 router.get("/catalog", requireAnyRole(STUDENT), controller.getCatalog);

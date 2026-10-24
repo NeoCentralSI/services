@@ -152,19 +152,19 @@ await run("4 katalog dosen dan nilai mahasiswa", async () => {
 });
 
 await run("5 batas semester di Penetapan → Beban Dosen (Kadep saja)", async () => {
-  const sekdepSet = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${current.id}`, { softLimit: 6, hardLimit: 12 });
+  const sekdepSet = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${current.id}`, { semesterQuota: 6 });
   const sekdepRead = await api(SEKDEP, "GET", `/supervision-quotas?academicYearId=${current.id}`);
-  const general = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 8, hardLimit: 10 });
+  const general = await api(SEKDEP, "PUT", "/supervision-quotas/general", { semesterQuota: 5, totalLimit: 10 });
   check("Sekdep membaca Beban Dosen dan tetap mengatur batas umum, tetapi tidak batas semester (403)",
     sekdepSet.status === 403 && sekdepRead.status === 200 && general.status === 200, [sekdepSet.status, sekdepRead.status, general.status]);
-  const set = await api(KADEP, "PUT", `/supervision-quotas/periods/${current.id}`, { softLimit: 6, hardLimit: 12 });
+  const set = await api(KADEP, "PUT", `/supervision-quotas/periods/${current.id}`, { semesterQuota: 6 });
   const overview = (await api(KADEP, "GET", `/supervision-quotas?academicYearId=${current.id}`)).data;
-  check("Kadep mengatur batas semester ini; tampil sebagai batas yang berlaku", set.status === 200 && overview?.period?.hardLimit === 12 && overview?.applicable?.source === "period", { status: set.status, applicable: overview?.applicable });
+  check("Kadep mengatur batas semester ini; tampil sebagai batas yang berlaku", set.status === 200 && overview?.period?.semesterQuota === 6 && overview?.applicable?.totalLimit === 10 && overview?.applicable?.source === "period", { status: set.status, applicable: overview?.applicable });
   const sekdepClear = await api(SEKDEP, "DELETE", `/supervision-quotas/periods/${current.id}`);
-  check("Sekdep tidak bisa Kembalikan ke Batas Umum (403)", sekdepClear.status === 403, sekdepClear.status);
+  check("Sekdep tidak bisa Ikuti Kuota Bawaan (403)", sekdepClear.status === 403, sekdepClear.status);
   const clear = await api(KADEP, "DELETE", `/supervision-quotas/periods/${current.id}`);
   const back = (await api(KADEP, "GET", `/supervision-quotas?academicYearId=${current.id}`)).data;
-  check("Kembalikan ke Batas Umum: batas umum 8/10 berlaku lagi", clear.status === 200 && back?.period === null && back?.applicable?.hardLimit === 10 && back?.applicable?.source === "general", back?.applicable);
+  check("Ikuti Kuota Bawaan: batas total 10 dan kuota bawaan 5 berlaku lagi", clear.status === 200 && back?.period === null && back?.applicable?.totalLimit === 10 && back?.applicable?.source === "general", back?.applicable);
 });
 
 await run("6 Impor Keikutsertaan (impor massal)", async () => {
@@ -228,4 +228,21 @@ await run("6 Impor Keikutsertaan (impor massal)", async () => {
 
 const failed = summary();
 await prisma.$disconnect();
+await run("Admin membaca Monitoring Kelas dan ekspor", async () => {
+  for (const path of [`/research-method/monitoring?academicYearId=${current.id}`, `/research-method/exports/scores?academicYearId=${current.id}`, `/research-method/exports/passed-titles?academicYearId=${current.id}`]) {
+    const response = await api(ADMIN, "GET", path);
+    check(`Admin membaca ${path}`, response.status === 200, response.status);
+  }
+  const rejected = await api(ADMIN, "POST", "/research-method/assessments/not-an-assessment/coordinator-score", {});
+  check("Admin tidak dapat menilai proposal", rejected.status === 403, rejected.status);
+  const historical = (await api(KADEP, "GET", "/academic-years")).data;
+  const years = Array.isArray(historical) ? historical : historical?.academicYears ?? [];
+  const previous = years.find((year) => year.id !== current.id);
+  if (previous) {
+    const set = await api(KADEP, "PUT", `/supervision-quotas/periods/${previous.id}`, { semesterQuota: 7 });
+    const clear = await api(KADEP, "DELETE", `/supervision-quotas/periods/${previous.id}`);
+    check("kuota semester lampau tidak dapat ditulis atau dihapus", set.status === 400 && clear.status === 400, [set.status, clear.status]);
+  }
+});
+
 process.exit(failed ? 1 : 0);

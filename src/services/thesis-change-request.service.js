@@ -349,7 +349,7 @@ async function loadOf(lecturerId, client = prisma) {
   if (!lecturerId) return null;
   const { activeCount, quotaMax } = await repo.getSupervisorLoad(lecturerId, client);
   // No limits set for the running period or in general: the system default (one place).
-  const max = quotaMax ?? DEFAULT_SUPERVISION_LIMITS.hardLimit;
+  const max = quotaMax ?? DEFAULT_SUPERVISION_LIMITS.totalLimit;
   // Shown to the new supervisor and the Ketua Departemen. Being full does not block the
   // request: the Ketua Departemen decides.
   return { activeCount, quotaMax: max, isFull: activeCount >= max };

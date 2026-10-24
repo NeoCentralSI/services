@@ -89,6 +89,12 @@ export const uploadCsv = upload.single("file");
 export const uploadExcelFile = excelUpload.single("file");
 /** One .xlsx/.xls/.csv file in `file` (Impor Keikutsertaan). */
 export const uploadSpreadsheetFile = spreadsheetUpload.single("file");
+/** Proposal uploads have their own limit so other thesis and internship uploads are unaffected. */
+const proposalUpload = multer({ storage, fileFilter: thesisFileFilter, limits: { fileSize: 10 * 1024 * 1024 } }).single("file");
+export const uploadProposalFile = (req, res, next) => proposalUpload(req, res, (error) => {
+  if (error?.code === "LIMIT_FILE_SIZE") return res.status(400).json({ success: false, message: "Ukuran berkas maksimal 10 MB." });
+  next(error);
+});
 export const uploadThesisFile = thesisUpload.single("file");
 export const uploadInternshipFile = thesisUpload.single("file");
 export const uploadSeminarDocFile = seminarDocUpload.single("file");

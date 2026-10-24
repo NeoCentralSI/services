@@ -143,3 +143,8 @@ describe("final proposal (10.3)", () => {
     expect(state.history[0]).toMatchObject({ id: "a-1", result: "failed", finalScore: 47 });
   });
 });
+
+it("rejects proposal files above 10 MB before storing anything", async () => {
+  await expect(service.submitFinalProposal("stu-1", { ...pdf, size: 10 * 1024 * 1024 + 1 })).rejects.toThrow("Ukuran berkas maksimal 10 MB.");
+  expect(fileHelper.storeFile).not.toHaveBeenCalled();
+});

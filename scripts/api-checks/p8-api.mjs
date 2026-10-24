@@ -28,8 +28,8 @@ await run("1 angka panduan pada hari seed (GET saja)", async () => {
   const catalog = await api(U("layak"), "GET", "/thesis-proposals/catalog");
   const load = (name) => (catalog.data ?? []).find((c) => (c.fullName ?? "").toUpperCase().includes(name));
   check("katalog: Husnil 31/10 penuh, Afriyanti 18/10 penuh, Aina 9/10 mendekati batas, Ullya 7/10 tersedia",
-    load("HUSNIL")?.activeCount === 31 && load("HUSNIL")?.level === "full" && load("AFRIYANTI")?.activeCount === 18 && load("AINA")?.activeCount === 9 && load("AINA")?.level === "near_limit" && load("ULLYA")?.activeCount === 7 && load("HUSNIL")?.hardLimit === 10,
-    ["HUSNIL", "AFRIYANTI", "AINA", "ULLYA"].map((n) => `${n}:${load(n)?.activeCount}/${load(n)?.hardLimit}:${load(n)?.level}`));
+    load("HUSNIL")?.activeCount === 31 && load("HUSNIL")?.level === "full" && load("AFRIYANTI")?.activeCount === 18 && load("AINA")?.activeCount === 9 && load("AINA")?.level === "near_limit" && load("ULLYA")?.activeCount === 7 && load("HUSNIL")?.totalLimit === 10,
+    ["HUSNIL", "AFRIYANTI", "AINA", "ULLYA"].map((n) => `${n}:${load(n)?.activeCount}/${load(n)?.totalLimit}:${load(n)?.level}`));
 
   const queue = (await api(KADEP, "GET", "/thesis-proposals/supervisor-requests/kadep-queue")).data;
   check("antrean Kadep: 1 lewat departemen, 1 di atas kuota (Husnil 31 → 32, lebih 22)",
@@ -66,8 +66,8 @@ await run("1 angka panduan pada hari seed (GET saja)", async () => {
 });
 
 await run("2 Batas Bimbingan hanya Kadep dan Sekdep", async () => {
-  const sekdep = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 8, hardLimit: 10 });
-  const admin = await api(ADMIN, "PUT", "/supervision-quotas/general", { softLimit: 9, hardLimit: 11 });
+  const sekdep = await api(SEKDEP, "PUT", "/supervision-quotas/general", { semesterQuota: 8, totalLimit: 10 });
+  const admin = await api(ADMIN, "PUT", "/supervision-quotas/general", { semesterQuota: 9, totalLimit: 11 });
   check("Sekdep menyimpan batas umum; Admin ditolak 403", sekdep.status === 200 && admin.status === 403, `${sekdep.status} ${admin.status}`);
 });
 

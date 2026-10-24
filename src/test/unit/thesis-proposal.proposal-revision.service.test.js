@@ -200,3 +200,8 @@ describe("review by the Pembimbing 1", () => {
     expect(tx.thesis.update).not.toHaveBeenCalled();
   });
 });
+
+it("rejects proposal files above 10 MB before storing anything", async () => {
+  await expect(service.submitProposalRevision("stu-1", { ...pdf, size: 10 * 1024 * 1024 + 1 })).rejects.toThrow("Ukuran berkas maksimal 10 MB.");
+  expect(fileHelper.storeFile).not.toHaveBeenCalled();
+});

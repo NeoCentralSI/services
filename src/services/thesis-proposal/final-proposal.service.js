@@ -109,6 +109,7 @@ export async function getFinalProposalState(thesis) {
 }
 
 function assertPdf(file) {
+  if (Math.max(file?.size ?? 0, file?.buffer?.length ?? 0) > 10 * 1024 * 1024) throw new BadRequestError("Ukuran berkas maksimal 10 MB.");
   if (!file?.buffer?.length) throw new BadRequestError("Berkas proposal final (PDF) wajib diunggah.");
   if (file.buffer.subarray(0, 5).toString("utf8") !== "%PDF-") {
     throw new BadRequestError("Berkas proposal final harus berupa PDF yang valid.");

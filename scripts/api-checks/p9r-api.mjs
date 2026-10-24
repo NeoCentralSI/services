@@ -28,6 +28,10 @@ const form = (extra = {}) => ({
 
 await run("0 persiapan", async () => {
   for (const u of [AINA, ULLYA, HUSNIL, KADEP]) await login(u);
+  // This long replay accepts several students with the same lecturer. The quota-only route
+  // is verified separately; reserve enough semester places for this assignment replay.
+  const current = await board();
+  await api(KADEP, "PUT", `/supervision-quotas/periods/${current.academicYear.id}`, { semesterQuota: 10 });
   lecturer = { aina: ids[AINA], ullya: ids[ULLYA], husnil: ids[HUSNIL] };
   const topics = await api(U("layak"), "GET", "/topics");
   const list = topics.data?.topics ?? topics.data ?? [];

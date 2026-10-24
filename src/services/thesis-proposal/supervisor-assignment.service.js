@@ -114,7 +114,7 @@ export async function previewAssignmentPdf(academicYearId = null) {
   const year = await resolveYear(academicYearId);
   const { cohort } = await loadCohort(year);
   const kadep = await repo.findActiveUserByRole(ROLES.KETUA_DEPARTEMEN);
-  const buffer = await renderAssignmentPdf({ academicYear: year, entries: cohort.entries, kadep });
+  const buffer = await renderAssignmentPdf({ preview: true, academicYear: year, entries: cohort.entries, kadep });
   return { buffer, fileName: `Pratinjau-${assignmentPdfFileName(year, "baru")}` };
 }
 

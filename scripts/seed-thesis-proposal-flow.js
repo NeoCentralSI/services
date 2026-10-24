@@ -69,7 +69,7 @@ const TOPIC = "Pengembangan Sistem (Enterprise Application)";
 const TOPIC_RD = "Business Intelligence (BI)";
 
 export const MINIMUM_SCORE = 60;
-export const SUPERVISION_LIMITS = { softLimit: 8, hardLimit: 10 };
+export const SUPERVISION_LIMITS = { semesterQuota: 5, totalLimit: 10 };
 
 /** Request form content shared by every account (title differs). */
 function requestFields(title) {
@@ -386,7 +386,7 @@ async function setFlags(studentId, academicYearId, flags, capturedAt) {
 
 async function ensureSupervisionLimits() {
   const general = await prisma.supervisionQuota.findFirst({ where: { academicYearId: null } });
-  if (!general) await prisma.supervisionQuota.create({ data: { academicYearId: null, ...SUPERVISION_LIMITS } });
+  if (!general) await prisma.supervisionQuota.create({ data: { id: "general", academicYearId: null, ...SUPERVISION_LIMITS } });
 }
 
 async function ensureMasterData(academicYear) {
@@ -518,7 +518,7 @@ async function main() {
     previous: await ensureMasterData(SEMESTER.previous),
   };
   const templates = await ensureProposalTemplates();
-  console.log(`✅ Batas bimbingan umum ${SUPERVISION_LIMITS.softLimit}/${SUPERVISION_LIMITS.hardLimit}, master data Metode Penelitian 2 semester, ${templates.length} template milestone proposal`);
+  console.log(`✅ Batas bimbingan umum ${SUPERVISION_LIMITS.semesterQuota}/${SUPERVISION_LIMITS.totalLimit}, master data Metode Penelitian 2 semester, ${templates.length} template milestone proposal`);
 
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
   const seeded = [];

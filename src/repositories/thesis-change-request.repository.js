@@ -159,12 +159,12 @@ export async function userHasActiveRole(userId, roleName, client = prisma) {
 export async function getSupervisorLoad(lecturerId, client = prisma) {
   const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
   const load = await getLecturerLoad(lecturerId, activeYear?.id ?? null, { client });
-  return { activeCount: load.activeCount, quotaMax: load.hardLimit };
+  return { activeCount: load.activeCount, quotaMax: load.totalLimit };
 }
 
 /** The loads of several lecturers at once (the supervisor picker). */
 export async function getSupervisorLoads(lecturerIds, client = prisma) {
   const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
   const loads = await getLecturerLoads(lecturerIds, activeYear?.id ?? null, { client });
-  return new Map([...loads].map(([id, load]) => [id, { activeCount: load.activeCount, quotaMax: load.hardLimit }]));
+  return new Map([...loads].map(([id, load]) => [id, { activeCount: load.activeCount, quotaMax: load.totalLimit }]));
 }

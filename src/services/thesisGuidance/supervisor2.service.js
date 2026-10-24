@@ -30,6 +30,7 @@ import { ROLES } from "../../constants/roles.js";
 import { CLOSED_THESIS_STATUSES, THESIS_STATUS } from "../../constants/thesisStatus.js";
 import { getThesisStatusLabel } from "../../constants/thesisLabels.js";
 import { logAudit, AUDIT_ACTIONS, ENTITY_TYPES } from "../auditLog.service.js";
+import { resolveOperationalAcademicYear } from "../../helpers/academicYear.helper.js";
 import { getLecturerLoads } from "../thesis-proposal/supervision-quota.service.js";
 
 // Catatan audit pass 2 (F2-4, keputusan OQ-2.1 2026-06-10): auto-promotion role
@@ -121,7 +122,7 @@ const LOAD_TRAFFIC_LIGHT = { available: "green", near_limit: "yellow", full: "re
  * Re-checked at every decision point. As before, a full load is informational (the Head of
  * Department decides); only a lecturer who closed intake blocks the request.
  */
-async function ensureLecturerQuotaAvailable(lecturerId, academicYearId) {
+async function ensureLecturerQuotaAvailable(lecturerId) {
 	const lecturer = await prisma.lecturer.findUnique({
 		where: { id: lecturerId },
 		select: { acceptingRequests: true },
@@ -131,7 +132,7 @@ async function ensureLecturerQuotaAvailable(lecturerId, academicYearId) {
 		err.statusCode = 400;
 		throw err;
 	}
-	const load = (await getLecturerLoads([lecturerId], academicYearId)).get(lecturerId);
+	const load = (await getLecturerLoads([lecturerId], (await resolveOperationalAcademicYear())?.id)).get(lecturerId);
 	return { allowed: true, trafficLight: LOAD_TRAFFIC_LIGHT[load.level], ...load };
 }
 
@@ -140,13 +141,13 @@ async function ensureLecturerQuotaAvailable(lecturerId, academicYearId) {
  * hanya trafficLight, sisa normal (normalAvailable), dan beban aktif (activeCount).
  * Sembunyikan booking, pending KaDep, dan overquota (anti-pattern #17).
  */
-async function enrichWithQuotaVisibility(lecturers, academicYearId) {
+async function enrichWithQuotaVisibility(lecturers) {
 	if (!Array.isArray(lecturers) || lecturers.length === 0) return lecturers;
 	let loads = new Map();
 	let accepting = new Map();
 	try {
 		const ids = lecturers.map((l) => l.id);
-		loads = await getLecturerLoads(ids, academicYearId);
+		loads = await getLecturerLoads(ids, (await resolveOperationalAcademicYear())?.id);
 		const rows = await prisma.lecturer.findMany({ where: { id: { in: ids } }, select: { id: true, acceptingRequests: true } });
 		accepting = new Map(rows.map((r) => [r.id, r.acceptingRequests]));
 	} catch {
@@ -157,8 +158,11 @@ async function enrichWithQuotaVisibility(lecturers, academicYearId) {
 		return {
 			...l,
 			trafficLight: load ? LOAD_TRAFFIC_LIGHT[load.level] : null,
-			normalAvailable: load ? Math.max(0, load.hardLimit - load.activeCount) : null,
+			normalAvailable: load ? Math.max(0, load.totalLimit - load.activeCount) : null,
 			activeCount: load?.activeCount ?? null,
+            acceptedCount: load?.acceptedCount ?? null,
+            semesterQuota: load?.semesterQuota ?? null,
+            totalLimit: load?.totalLimit ?? null,
 			acceptingRequests: accepting.get(l.id) ?? null,
 		};
 	});
@@ -205,7 +209,7 @@ export async function getAvailableSupervisor2Service(userId) {
 	}
 
 	const lecturers = await findAvailableSupervisor2Lecturers(thesis.id);
-	return enrichWithQuotaVisibility(lecturers, thesis.academicYearId);
+	return enrichWithQuotaVisibility(lecturers);
 }
 
 /**
@@ -244,7 +248,7 @@ export async function requestSupervisor2Service(userId, { lecturerId }) {
 	}
 
 	// 3b. Quota enforcement — reject if lecturer quota is full
-	await ensureLecturerQuotaAvailable(lecturerId, thesis.academicYearId);
+	await ensureLecturerQuotaAvailable(lecturerId);
 
 	// 4. Get student name and thesis title for notification
 	const studentName = await getUserFullName(userId, "Mahasiswa");
@@ -418,7 +422,7 @@ export async function approveSupervisor2RequestService(lecturerId, requestId) {
 	}
 
 	// 3b. Re-check kuota (F2-3) — slot bisa terisi antara request dan kesediaan dosen.
-	await ensureLecturerQuotaAvailable(lecturerId, thesis.academicYearId);
+	await ensureLecturerQuotaAvailable(lecturerId);
 
 	// 4. Resolve akun KaDep aktif sebagai penerima tahap persetujuan.
 	const kadepUsers = await findUsersByActiveRole(ROLES.KETUA_DEPARTEMEN);
@@ -633,7 +637,7 @@ export async function decideSupervisor2ByKadepService(kadepUserId, requestId, { 
 		err.statusCode = 400;
 		throw err;
 	}
-	await ensureLecturerQuotaAvailable(lecturerId, thesis.academicYearId);
+	await ensureLecturerQuotaAvailable(lecturerId);
 
 	// Atomik: buat participant Pembimbing 2 + tutup seluruh record request thesis ini. Tanpa co-sign
 	// dan tanpa lapisan reservasi, penetapan yang sudah terbit tidak dibatalkan.
