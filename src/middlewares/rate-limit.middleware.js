@@ -1,7 +1,7 @@
 /**
  * In-memory rate limit per client IP (fixed one-minute window), without a dependency. Kept per
  * process: enough for a public endpoint of one server, not shared across instances.
- * `req.ip` is the client only when Express trusts the proxy in front of it.
+ * `req.ip` is the client address: app.js trusts the one proxy in front of the server.
  */
 export const RATE_LIMIT_MESSAGE = "Terlalu banyak permintaan. Coba lagi sebentar.";
 

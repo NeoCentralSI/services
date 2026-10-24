@@ -21,8 +21,8 @@ export async function importStudentsCsv(req, res, next) {
 
 
 function auditActor(req) {
-	const forwarded = req.headers?.["x-forwarded-for"];
-	const ip = (typeof forwarded === "string" ? forwarded.split(",")[0] : null) || req.ip || null;
+	// req.ip follows "trust proxy" (app.js); the left end of X-Forwarded-For is client-supplied.
+	const ip = req.ip || null;
 	return {
 		actorUserId: req.user?.sub ?? null,
 		ipAddress: ip ? String(ip).slice(0, 45) : null,
