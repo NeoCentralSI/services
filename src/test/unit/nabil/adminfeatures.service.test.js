@@ -382,10 +382,23 @@ describe("Module 15: Data Master Mahasiswa", () => {
       mockPrisma.user.findMany.mockResolvedValue([]);
       mockPrisma.user.count.mockResolvedValue(0);
 
-      await getStudents({ page: 1, pageSize: 10, enrollmentYear: 2021 });
+      await getStudents({ page: 1, pageSize: 10 });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.student).toEqual({ isNot: null });
 
-      const call = mockPrisma.user.findMany.mock.calls[0][0];
-      expect(call.where.student).toEqual({ isNot: null, enrollmentYear: 2021 });
+      await getStudents({ page: 1, pageSize: 10, enrollmentYear: 2021 });
+      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student).toEqual({ is: { AND: [{ enrollmentYear: 2021 }] } });
+    });
+
+    it("status filter is applied in the query (count and rows); an unknown value is ignored", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+
+      await getStudents({ page: 1, pageSize: 10, status: "bss" });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.student).toEqual({ is: { AND: [{ status: "bss" }] } });
+      expect(mockPrisma.user.count.mock.calls[0][0].where).toEqual(mockPrisma.user.findMany.mock.calls[0][0].where);
+
+      await getStudents({ page: 1, pageSize: 10, status: "cuti" });
+      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student).toEqual({ isNot: null });
     });
 
     it("program filter reads the SIA flags of the chosen period; unknown flags count as not taking", async () => {
@@ -396,17 +409,46 @@ describe("Module 15: Data Master Mahasiswa", () => {
       await getStudents({ page: 1, pageSize: 10, program: "research-method", academicYearId: "ay-genap", enrollmentYear: 2022 });
       expect(mockPrisma.user.findMany.mock.calls[0][0].where.student).toEqual({
         is: {
-          enrollmentYear: 2022,
-          academicYearSnapshots: {
-            some: { academicYearId: "ay-genap", eligibleResearchMethod: true, OR: [{ takingThesisCourse: false }, { takingThesisCourse: null }] },
-          },
+          AND: [
+            { enrollmentYear: 2022 },
+            { academicYearSnapshots: { some: { academicYearId: "ay-genap", eligibleResearchMethod: true, OR: [{ takingThesisCourse: false }, { takingThesisCourse: null }] } } },
+          ],
         },
       });
 
       await getStudents({ page: 1, pageSize: 10, program: "none", academicYearId: "ay-genap" });
-      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student.is.academicYearSnapshots).toEqual({
+      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student.is.AND[0].academicYearSnapshots).toEqual({
         none: { academicYearId: "ay-genap", OR: [{ eligibleResearchMethod: true }, { takingThesisCourse: true }] },
       });
+    });
+
+    it("program 'both' needs both flags in the chosen period, and combines with status, search and sorting", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+      mockPrisma.academicYear.findUnique.mockResolvedValue({ id: "ay-ganjil", year: "2026/2027", semester: "ganjil" });
+
+      await getStudents({ page: 2, pageSize: 10, program: "both", status: "active", search: "Uji", academicYearId: "ay-ganjil", sortBy: "fullName", sortOrder: "asc" });
+      const call = mockPrisma.user.findMany.mock.calls[0][0];
+      expect(call.where.student).toEqual({
+        is: {
+          AND: [
+            { status: "active" },
+            { academicYearSnapshots: { some: { academicYearId: "ay-ganjil", eligibleResearchMethod: true, takingThesisCourse: true } } },
+          ],
+        },
+      });
+      expect(call.where.OR).toEqual(expect.arrayContaining([{ fullName: { contains: "Uji" } }]));
+      expect(call.orderBy).toEqual([{ fullName: "asc" }]);
+      expect(call.skip).toBe(10);
+      expect(mockPrisma.user.count.mock.calls[0][0].where).toEqual(call.where);
+    });
+
+    it("program filter without a resolvable period matches nothing instead of every student", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+      mockAcademicYear.resolveOperationalAcademicYear.mockResolvedValue(null);
+      await getStudents({ page: 1, pageSize: 10, program: "both" });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.student.is.AND[0].academicYearSnapshots.some.academicYearId).toBe("__none__");
     });
   });
 
@@ -515,6 +557,13 @@ describe("Module 16: Data Master Dosen", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("getLecturers", () => {
+    it("filters by science group in the query", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+      await getLecturers({ page: 1, pageSize: 10, scienceGroupId: "sg-1" });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.AND).toContainEqual({ lecturer: { is: { scienceGroupId: "sg-1" } } });
+    });
+
     it("returns paginated lecturer list", async () => {
       mockPrisma.user.findMany.mockResolvedValue([{
         id: "user-lec",

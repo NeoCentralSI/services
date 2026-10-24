@@ -140,7 +140,8 @@ export async function getStudentsController(req, res, next) {
 		const sortOrder = req.query.sortOrder || "desc";
 		const program = req.query.programFilter || undefined;
 		const academicYearId = req.query.academicYearFilter || undefined;
-		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder, program, academicYearId });
+		const status = req.query.statusFilter || undefined;
+		const result = await getStudents({ page, pageSize, search, enrollmentYear, sortBy, sortOrder, program, academicYearId, status });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);
@@ -152,7 +153,8 @@ export async function getLecturersController(req, res, next) {
 		const page = parseInt(req.query.page) || 1;
 		const pageSize = parseInt(req.query.pageSize) || 10;
 		const search = req.query.search || "";
-		const result = await getLecturers({ page, pageSize, search });
+		const scienceGroupId = req.query.scienceGroupId || "";
+		const result = await getLecturers({ page, pageSize, search, scienceGroupId });
 		res.status(200).json({ success: true, ...result });
 	} catch (err) {
 		next(err);

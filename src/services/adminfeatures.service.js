@@ -1166,13 +1166,14 @@ function toSemesterFlags(snapshot, academicYear) {
  * period — taking Metode Penelitian and/or Tugas Akhir.
  */
 const NOT_TRUE = [false, null];
+const STUDENT_STATUS_VALUES = ["active", "bss", "lulus", "mengundurkan_diri", "dropout"];
 const PROGRAM_SNAPSHOT_FILTERS = {
 	"research-method": { eligibleResearchMethod: true, OR: NOT_TRUE.map((takingThesisCourse) => ({ takingThesisCourse })) },
 	thesis: { takingThesisCourse: true, OR: NOT_TRUE.map((eligibleResearchMethod) => ({ eligibleResearchMethod })) },
 	both: { eligibleResearchMethod: true, takingThesisCourse: true },
 };
 
-export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined, sortBy = undefined, sortOrder = "desc", program = undefined, academicYearId = undefined } = {}) {
+export async function getStudents({ page = 1, pageSize = 10, search = "", enrollmentYear = undefined, sortBy = undefined, sortOrder = "desc", program = undefined, academicYearId = undefined, status = undefined } = {}) {
 	const skip = pageSize > 0 ? (page - 1) * pageSize : undefined;
 	const take = pageSize > 0 ? pageSize : undefined;
 	// SIA flags and the program filter follow the chosen period, else the operational one.
@@ -1180,21 +1181,21 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 		? await prisma.academicYear.findUnique({ where: { id: academicYearId } })
 		: await resolveOperationalAcademicYear();
 
-	// Build student filter: always require student exists, optionally filter by enrollmentYear
-	const studentFilter = enrollmentYear
-		? { isNot: null, enrollmentYear: parseInt(enrollmentYear) }
-		: { isNot: null };
-	if (period && program && (PROGRAM_SNAPSHOT_FILTERS[program] || program === "none")) {
-		studentFilter.is = program === "none"
-			? { academicYearSnapshots: { none: { academicYearId: period.id, OR: [{ eligibleResearchMethod: true }, { takingThesisCourse: true }] } } }
-			: { academicYearSnapshots: { some: { academicYearId: period.id, ...PROGRAM_SNAPSHOT_FILTERS[program] } } };
-		if (enrollmentYear) studentFilter.is.enrollmentYear = parseInt(enrollmentYear);
-		delete studentFilter.isNot;
-		delete studentFilter.enrollmentYear;
+	// Every filter is applied in the query, before pagination, so the count follows it.
+	const studentWhere = [];
+	if (enrollmentYear && Number.isInteger(parseInt(enrollmentYear))) studentWhere.push({ enrollmentYear: parseInt(enrollmentYear) });
+	if (status && STUDENT_STATUS_VALUES.includes(status)) studentWhere.push({ status });
+	if (program && (PROGRAM_SNAPSHOT_FILTERS[program] || program === "none")) {
+		const periodId = period?.id ?? "__none__";
+		studentWhere.push(
+			program === "none"
+				? { academicYearSnapshots: { none: { academicYearId: periodId, OR: [{ eligibleResearchMethod: true }, { takingThesisCourse: true }] } } }
+				: { academicYearSnapshots: { some: { academicYearId: periodId, ...PROGRAM_SNAPSHOT_FILTERS[program] } } },
+		);
 	}
 
 	const where = {
-		student: studentFilter,
+		student: studentWhere.length ? { is: { AND: studentWhere } } : { isNot: null },
 		...(search
 			? {
 				OR: [
@@ -1522,9 +1523,7 @@ export async function getLecturers({ page = 1, pageSize = 10, search = "", scien
 				],
 			} : {},
 			scienceGroupId ? {
-				lecturer: {
-					scienceGroupId: scienceGroupId
-				}
+				lecturer: { is: { scienceGroupId } },
 			} : {}
 		]
 	};

@@ -12,7 +12,6 @@ import {
   getSupervisorAvailabilityService,
   getGuidancesNeedingSummaryService,
   submitSessionSummaryService,
-  getCompletedGuidanceHistoryService,
   getGuidanceForExportService,
   markSessionCompleteService,
   getMyThesisDetailService,
@@ -185,19 +184,6 @@ export async function submitSummary(req, res, next) {
       sessionSummary,
       actionItems,
     });
-    res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
- * GET /thesis-guidance/completed-history
- * Get completed guidance history for documentation
- */
-export async function completedHistory(req, res, next) {
-  try {
-    const result = await getCompletedGuidanceHistoryService(req.user.sub);
     res.json({ success: true, ...result });
   } catch (err) {
     next(err);

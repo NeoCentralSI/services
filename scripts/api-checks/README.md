@@ -22,6 +22,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `e6-api.mjs` | Aturan perubahan judul per tahap (seminar/sidang berproses, setelah seminar, setelah hasil sidang, TA Selesai), judul `ta_lulus_seminar` berubah setelah seminar dan tampil di detail seminar, Jenis Permohonan, beban dosen di pemilih, endpoint `…/lecturer` dan `…/department` dihapus | delapan seeder |
 | `e7-api.mjs` | Sidang lulus tanpa revisi → TA Selesai (bimbingan terbuka, perubahan yang menunggu dan evaluasi yang menunggu Ketua Departemen ditutup; beban pembimbing turun satu; notifikasi), lulus dengan revisi tetap Penelitian sampai revisi difinalkan, batal finalisasi → kembali Penelitian, tidak lulus tetap Penelitian, halaman sidang/seminar/Overview/riwayat bimbingan/Yudisium untuk TA Selesai, data seed, sidang lulus dibatalkan Admin → kembali Penelitian. Sidang yang sudah berlangsung disiapkan lewat Prisma (tanpa API untuk itu); sisanya lewat API. Juga: nilai minimum kelulusan dari seed, batalkan persetujuan item revisi setelah final ditolak, catatan evaluasi yang ditutup sistem di tabel Evaluasi | delapan seeder |
 | `n1-api.mjs` | Status mahasiswa sebagai satu-satunya sumber cuti dan berhenti studi (Cuti → TA dijeda dengan penanda di Bimbingan dosen, Monitoring, Data TA, beban, detail dosen; Aktif → dilanjutkan; Drop Out → TA Gagal, beban turun, notifikasi; akun uji Drop Out dari seed), aturan akun Admin (peran dan aktivasi akun sendiri, Admin tidak digabung peran lain di form, buat, dan impor), Log Aktivitas (akses Admin/Kadep/Sekdep, dosen dan mahasiswa 403, terbaru di atas, cari, filter tindakan, rentang tanggal, aktivitas rutin tidak tampil) | delapan seeder |
+| `n2-api.mjs` | Filter Data Mahasiswa (status, program termasuk keduanya, kombinasi dengan cari dan urutan, sebelum pagination) dan Data Dosen (kelompok keilmuan), log perubahan kriteria Seminar Hasil, Penetapan Pembimbing sebagai dokumen resmi (token dan QR versi terbit, unduhan berkas yang sama dengan hash sesuai, verifikasi publik, pratinjau tidak tercatat, penerbitan ulang membuat versi lama diganti) | delapan seeder |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 
@@ -38,7 +39,7 @@ Delapan seeder, dalam urutan ini: `seed-master`, `seed-thesis-topics`, `seed-the
 Dari `app/backend`:
 
 ```bash
-scripts/api-checks/run-all.sh            # p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7, n1 — masing-masing setelah bangun ulang + seed
+scripts/api-checks/run-all.sh            # p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7, n1, n2 — masing-masing setelah bangun ulang + seed
 scripts/api-checks/run-all.sh p4 p7      # hanya yang disebut
 ```
 

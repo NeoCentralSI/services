@@ -31,7 +31,6 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
     listMilestoneTemplates: vi.fn(),
     createMilestonesDirectly: vi.fn(),
     submitSessionSummary: vi.fn(),
-    getCompletedGuidanceHistory: vi.fn(),
     getGuidanceForExport: vi.fn(),
     getGuidancesNeedingSummary: vi.fn(),
     getThesisHistory: vi.fn(),
@@ -64,7 +63,6 @@ import {
   rescheduleGuidanceService,
   cancelGuidanceService,
   submitSessionSummaryService,
-  getCompletedGuidanceHistoryService,
   getGuidanceForExportService,
   markSessionCompleteService,
   updateStudentNotesService,
@@ -445,63 +443,6 @@ describe("Module 3: Guidance Session", () => {
 describe("Module 7: Riwayat Bimbingan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  describe("getCompletedGuidanceHistoryService", () => {
-    it("returns completed guidance sessions ordered by completedAt desc", async () => {
-      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockRepo.getCurrentThesisForStudent.mockResolvedValue(THESIS);
-      // Service uses prisma.thesisGuidance.findMany directly (not the repo)
-      mockPrisma.thesisGuidance.findMany.mockResolvedValue([
-        {
-          id: "guid-3",
-          completedAt: new Date("2026-01-10"),
-          approvedDate: new Date("2026-01-05"),
-          duration: 60,
-          studentNotes: "Bab 3",
-          sessionSummary: "Summary bab 3",
-          actionItems: "Revisi",
-          supervisor: { user: { fullName: "Dr. Andi" } },
-          milestone: { title: "Milestone 3" },
-          thesis: { title: "Sistem Monitoring" },
-        },
-      ]);
-
-      const result = await getCompletedGuidanceHistoryService("user-1");
-
-      expect(result.guidances).toHaveLength(1);
-      expect(result.guidances[0]).toHaveProperty("id", "guid-3");
-    });
-
-    it("returns empty array if no active thesis", async () => {
-      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockRepo.getCurrentThesisForStudent.mockResolvedValue(null);
-
-      const result = await getCompletedGuidanceHistoryService("user-1");
-
-      expect(result.guidances).toEqual([]);
-    });
-
-    it("Still reads the history of a thesis made Selesai by its defence", async () => {
-      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
-      mockRepo.getCurrentThesisForStudent.mockResolvedValue({ ...THESIS, status: "completed" });
-      mockPrisma.thesisGuidance.findMany.mockResolvedValue([
-        { id: "guid-9", completedAt: new Date("2026-10-01"), approvedDate: new Date("2026-09-30"), duration: 60, supervisor: { user: { fullName: "Dr. Andi" } }, milestone: null, thesis: { title: "Sistem Monitoring" } },
-      ]);
-
-      const result = await getCompletedGuidanceHistoryService("user-1");
-
-      expect(mockRepo.getActiveThesisForStudent).not.toHaveBeenCalled();
-      expect(result.guidances.map((g) => g.id)).toEqual(["guid-9"]);
-    });
-
-    it("rejects (404) if student profile not found", async () => {
-      mockRepo.getStudentByUserId.mockResolvedValue(null);
-
-      await expect(getCompletedGuidanceHistoryService("user-unknown")).rejects.toMatchObject({
-        statusCode: 404,
-      });
-    });
   });
 
   describe("getGuidanceForExportService", () => {

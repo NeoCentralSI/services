@@ -6,6 +6,7 @@ const { repo, prismaMock, tx, notify, requestRepo, helper, fileHelper, audit } =
     thesisSupervisorAssignmentBatch: { updateMany: vi.fn(), create: vi.fn() },
     thesisSupervisorRequest: { updateMany: vi.fn() },
     thesis: { updateMany: vi.fn() },
+    officialGeneratedDocument: { updateMany: vi.fn(), create: vi.fn() },
   };
   return {
     tx,
@@ -153,11 +154,29 @@ describe("issue", () => {
       data: { status: "assigned" },
     });
     expect(tx.thesis.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["b"] } }, data: { supervisorAssignedAt: expect.any(Date) } });
+    // The issued version is an official document (QR); the previous one of the period is superseded.
+    expect(helper.renderAssignmentPdf.mock.calls[0][0].verification).toMatchObject({ qrPng: expect.any(Buffer), url: expect.stringMatching(/\/verify\/document\/[0-9a-f]{64}$/) });
+    expect(tx.officialGeneratedDocument.updateMany).toHaveBeenCalledWith({
+      where: { documentKind: "supervisor_assignment", sourceId: "ay-1", status: "current" },
+      data: { status: "superseded", supersededAt: expect.any(Date) },
+    });
+    expect(tx.officialGeneratedDocument.create.mock.calls[0][0].data).toMatchObject({ documentKind: "supervisor_assignment", sourceId: "ay-1", version: 2, status: "current", filePath: "uploads/x.pdf" });
     expect(notify.createNotificationEventForUsers).toHaveBeenCalledWith(
       ["stu-a", "stu-b"],
       expect.objectContaining({ type: "supervisor_assignment_issued", data: expect.objectContaining({ route: "/tugas-akhir/proposal" }) }),
       { push: true },
     );
+  });
+
+  it("a preview is rendered without QR and is never recorded as an official document", async () => {
+    repo.findCohortTheses.mockResolvedValue([thesis("a", "2211528001")]);
+    prismaMock.academicYear.findUnique.mockResolvedValue({ id: "ay-1", semester: "ganjil", year: "2026/2027" });
+    const { fileName } = await service.previewAssignmentPdf("ay-1");
+    expect(fileName).toMatch(/^Pratinjau-/);
+    expect(helper.renderAssignmentPdf.mock.calls[0][0]).toMatchObject({ preview: true });
+    expect(helper.renderAssignmentPdf.mock.calls[0][0].verification).toBeUndefined();
+    expect(tx.officialGeneratedDocument.create).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
   it("removes the stored PDF when the transaction fails", async () => {
@@ -180,6 +199,30 @@ describe("batch file access", () => {
 
     requestRepo.userHasAnyActiveRole.mockResolvedValue(false);
     await expect(service.getBatchFile("batch-1", "student")).rejects.toThrow(/tidak memiliki akses/);
+  });
+});
+
+describe("download of an issued version", () => {
+  it("returns the stored official file itself (same bytes, same QR), and refuses a file that no longer matches its hash", async () => {
+    const { mkdtemp, writeFile } = await import("fs/promises");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const { createHash } = await import("crypto");
+    const dir = await mkdtemp(join(tmpdir(), "assignment-"));
+    const filePath = join(dir, "v1.pdf");
+    const bytes = Buffer.from("%PDF-1.7 issued");
+    await writeFile(filePath, bytes);
+    const fileHash = createHash("sha256").update(bytes).digest("hex");
+    requestRepo.userHasAnyActiveRole.mockResolvedValue(true);
+    repo.findBatchById.mockResolvedValue({ id: "batch-1", academicYearId: "ay-1", status: "superseded", filePath, fileName: "v1.pdf", mimeType: "application/pdf", fileHash });
+
+    const first = await service.getBatchFile("batch-1", "kadep");
+    const second = await service.getBatchFile("batch-1", "kadep");
+    expect(first.buffer.equals(bytes) && second.buffer.equals(bytes)).toBe(true);
+    expect(helper.renderAssignmentPdf).not.toHaveBeenCalled();
+
+    await writeFile(filePath, Buffer.from("%PDF-1.7 changed"));
+    await expect(service.getBatchFile("batch-1", "kadep")).rejects.toThrow(/tidak sesuai dengan versi yang diterbitkan/);
   });
 });
 

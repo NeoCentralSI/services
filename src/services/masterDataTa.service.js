@@ -34,6 +34,15 @@ const LEGACY_STATUS_NAMES = {
     "drop out": THESIS_STATUS.FAILED,
 };
 
+/** "Ganjil 2026/2027" or "2026/2027 - Ganjil" -> its year and semester parts. */
+export function splitAcademicYearCell(value) {
+    const text = String(value ?? "").trim();
+    const labelled = /^(ganjil|genap)\s+(\S+)$/i.exec(text);
+    if (labelled) return { yearPart: labelled[2], semesterPart: labelled[1] };
+    const [yearPart, semesterPart] = text.split(" - ").map((part) => part.trim());
+    return { yearPart, semesterPart };
+}
+
 /** Parse a spreadsheet "Status" cell into a ThesisLifecycleStatus (null when unknown/empty).
  * Accepts the enum value, its Indonesian label (§2.2b), or a legacy status name. */
 export function parseThesisStatusCell(value) {
@@ -337,10 +346,10 @@ export const importThesesMasterData = async (rows, { actorUserId = null } = {}) 
                 orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             });
 
-            // Academic Year lookup from "2024 - Ganjil" or "2024/2025 - Ganjil" format
+            // Academic Year: "Ganjil 2026/2027" (the export), or the older "2024 - Ganjil" / "2024/2025 - Ganjil"
             let academicYearId;
             if (row["Tahun Ajaran"] && row["Tahun Ajaran"] !== "-") {
-                const [yearPart, semesterPart] = String(row["Tahun Ajaran"]).split(" - ").map(s => s.trim());
+                const { yearPart, semesterPart } = splitAcademicYearCell(row["Tahun Ajaran"]);
                 const yearRange = yearPart && yearPart.includes("/") ? yearPart : (yearPart ? `${yearPart}/${parseInt(yearPart, 10) + 1}` : null);
                 const semester = semesterPart && String(semesterPart).toLowerCase() === "genap" ? "genap" : "ganjil";
                 const ay = yearRange ? await masterDataTaRepository.findAcademicYearByYearAndSemester(yearRange, semester) : null;

@@ -636,7 +636,7 @@ function drawBulletBlock(page, text, topY, regularFont) {
   return topY + height + FLOW_PAGE.bulletGap;
 }
 
-function drawSignatureBlockAt(page, startTopY, dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview, logo) {
+function drawSignatureBlockAt(page, startTopY, dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview, logo, verification = null) {
   const layout = {
     pengesahanTitleBox: {
       x0: FLOW_PAGE.left,
@@ -728,6 +728,16 @@ function drawSignatureBlockAt(page, startTopY, dateGenerated, kadepName, kadepNi
 
   if (preview) {
     drawTextAtTop(page, "(belum diterbitkan)", 365, startTopY + 150, regularFont, 11);
+  } else if (verification?.qr) {
+    // An issued version: the verification QR takes the place of the university logo.
+    const size = 80;
+    page.drawImage(verification.qr, { x: 425 - size / 2, y: page.getHeight() - startTopY - 117 - size, width: size, height: size });
+    const lines = ["Validasi Dokumen NeoCentral", "Pindai QR di samping untuk memeriksa", "status resmi dan keutuhan dokumen."];
+    lines.forEach((line, index) => drawTextAtTop(page, line, FLOW_PAGE.left, startTopY + 130 + index * 12, index === 0 ? boldFont : regularFont, 9));
+    const url = String(verification.url ?? "");
+    for (let i = 0, row = 0; i < url.length; i += 48, row += 1) {
+      drawTextAtTop(page, url.slice(i, i + 48), FLOW_PAGE.left, startTopY + 170 + row * 10, regularFont, 7);
+    }
   } else if (logo) {
     const dimensions = logo.scaleToFit(65, 65);
     page.drawImage(logo, { x: 425 - dimensions.width / 2, y: page.getHeight() - startTopY - 190, ...dimensions });
@@ -881,6 +891,7 @@ function drawKetentuanPage(page, planPage, {
   boldFont,
   preview,
   logo,
+  verification,
 }) {
   let cursor = planPage.startTop ?? FLOW_PAGE.top;
   if (planPage.section === SECTION.B) {
@@ -899,7 +910,7 @@ function drawKetentuanPage(page, planPage, {
     } else {
       cursor = planPage.startTop ?? FLOW_PAGE.top;
     }
-    drawSignatureBlockAt(page, cursor, dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview, logo);
+    drawSignatureBlockAt(page, cursor, dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview, logo, verification);
   }
 }
 
@@ -948,8 +959,11 @@ export async function generateSupervisorAssignmentPdf(opts) {
 
   const aChunks = chunkEntriesForSectionA(entries);
   let aChunkIndex = 0;
-  const logo = opts.preview ? null : await outputDoc.embedPng(await readFile(join(__dirname, "..", "assets", "unand-logo.png")));
-  const flowOptions = { dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview: opts.preview, logo };
+  // An issued version carries the verification QR (PNG bytes and its URL); the logo is the fallback.
+  const qr = !opts.preview && opts.verification?.qrPng ? await outputDoc.embedPng(opts.verification.qrPng) : null;
+  const logo = opts.preview || qr ? null : await outputDoc.embedPng(await readFile(join(__dirname, "..", "assets", "unand-logo.png")));
+  const verification = qr ? { qr, url: opts.verification.url } : null;
+  const flowOptions = { dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview: opts.preview, logo, verification };
 
   for (const planPage of plan.pages) {
     if (planPage.section === SECTION.A) {

@@ -34,6 +34,7 @@ import {
   SUPERVISOR_REQUEST_STATUS as STATUS,
 } from "../src/constants/thesis-proposal.js";
 import { RESEARCH_METHOD_RESULT } from "../src/constants/research-method.js";
+import { recordIssuedAssignmentDocument, renderIssuedAssignmentPdf } from "../src/services/thesis-proposal/supervisor-assignment-document.service.js";
 import { storeGuidanceAttachment } from "../src/helpers/guidanceFile.helper.js";
 import {
   assignmentBatchDir,
@@ -43,7 +44,6 @@ import {
 import {
   assignmentPdfFileName,
   buildAssignmentCohort,
-  renderAssignmentPdf,
 } from "../src/helpers/supervisor-assignment.helper.js";
 
 const prisma = new PrismaClient();
@@ -468,7 +468,8 @@ async function createBatch({ academicYear, theses, kadep, generatedAt }) {
   });
   const { entries, cohortHash } = buildAssignmentCohort(full);
   const batchId = randomUUID();
-  const pdf = await renderAssignmentPdf({ academicYear, entries, kadep, now: generatedAt });
+  // An issued version, as the app issues it: verification QR and an official document record.
+  const { buffer: pdf, document } = await renderIssuedAssignmentPdf({ academicYear, entries, kadep, now: generatedAt, version: 1, cohortHash });
   const stored = await storeFile({
     relDir: assignmentBatchDir(batchId),
     file: { buffer: pdf, originalname: assignmentPdfFileName(academicYear, 1), mimetype: "application/pdf" },
@@ -487,6 +488,7 @@ async function createBatch({ academicYear, theses, kadep, generatedAt }) {
       members: { create: full.map((t) => ({ thesisId: t.id })) },
     },
   });
+  await recordIssuedAssignmentDocument(prisma, document, stored);
   return { batchId, members: full.length };
 }
 

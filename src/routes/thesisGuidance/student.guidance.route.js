@@ -23,7 +23,6 @@ import {
 	supervisorAvailability,
 	needsSummary,
 	submitSummary,
-	completedHistory,
 	exportGuidance,
 	markSessionComplete,
 	getMyThesis,
@@ -71,7 +70,6 @@ router.get("/thesis-history", thesisHistory);
 router.get("/needs-summary", needsSummary);
 router.post("/guidance/:guidanceId/submit-summary", submitSummary);
 router.post("/guidance/:guidanceId/complete", markSessionComplete); // Quick complete without lecturer approval
-router.get("/completed-history", completedHistory);
 router.get("/guidance/:guidanceId/export", exportGuidance);
 router.post("/guidance/generate-log", generateGuidanceLog);
 
