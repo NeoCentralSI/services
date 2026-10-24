@@ -14,7 +14,8 @@ vi.mock("../../config/prisma.js", async () => ({
 const { resetDb, store } = await import("./nabil/helpers/fakePrisma.js");
 const { appendOfficialDocumentValidation } = await import("../../utils/official-document-html.util.js");
 const service = await import("../../services/official-document.service.js");
-const { default: router } = await import("../../routes/official-documents.route.js");
+const { default: router, findByFileRateLimit } = await import("../../routes/official-documents.route.js");
+const { createRateLimit } = await import("../../middlewares/rate-limit.middleware.js");
 const { default: errorHandler } = await import("../../middlewares/error.middleware.js");
 
 const app = express();
@@ -32,6 +33,7 @@ const record = (overrides) => ({
   supersededAt: null, ...overrides,
 });
 
+beforeEach(() => findByFileRateLimit.reset());
 beforeEach(() => resetDb({
   officialGeneratedDocument: [
     record({ verificationToken: "t1", status: "superseded", supersededAt: new Date("2026-10-01"), fileHash: sha(PDF_V1) }),
@@ -95,5 +97,40 @@ describe("lookup by file hash", () => {
     const res = await request(app).get("/official-documents/t1");
     expect(res.body.data).toMatchObject({ status: "superseded", supersededAt: expect.any(String) });
     expect(new Date(res.body.data.replacedByIssuedAt).toISOString()).toBe("2026-10-01T00:00:00.000Z");
+  });
+});
+
+describe("rate limit of the upload check", () => {
+  it("answers 429 after 20 requests in a minute from one IP", async () => {
+    const send = () => request(app).post("/official-documents/find-by-file").attach("file", PDF_V2, { filename: "p.pdf", contentType: "application/pdf" });
+    for (let i = 0; i < 20; i += 1) expect((await send()).status).toBe(200);
+    const blocked = await send();
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.message).toBe("Terlalu banyak permintaan. Coba lagi sebentar.");
+    expect(Number(blocked.headers["retry-after"])).toBeGreaterThan(0);
+    // The token page is not limited.
+    expect((await request(app).get("/official-documents/t2")).status).toBe(200);
+  });
+
+  it("counts each IP on its own and opens again after the minute", () => {
+    let clock = 0;
+    const limit = createRateLimit({ limit: 2, windowMs: 60_000, now: () => clock });
+    const run = (ip) => {
+      let status = 200;
+      const res = { set: () => res, status: (code) => { status = code; return res; }, json: () => res };
+      limit({ ip }, res, () => {});
+      return status;
+    };
+    expect([run("a"), run("a"), run("a")]).toEqual([200, 200, 429]);
+    expect(run("b")).toBe(200);
+    clock = 60_000;
+    expect(run("a")).toBe(200);
+  });
+});
+
+describe("removed endpoint", () => {
+  it("the old per-token hash check is gone", async () => {
+    const res = await request(app).post("/official-documents/t2/check-hash").attach("file", PDF_V2, { filename: "p.pdf", contentType: "application/pdf" });
+    expect(res.status).toBe(404);
   });
 });

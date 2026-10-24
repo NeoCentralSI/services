@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import * as controller from "../controllers/official-document.controller.js";
-import { uploadOfficialDocumentFile } from "../middlewares/file.middleware.js";
+import { createRateLimit } from "../middlewares/rate-limit.middleware.js";
 
 const router = express.Router();
 
@@ -32,8 +32,9 @@ function uploadCheckFile(req, res, next) {
 }
 
 // Public (no login): find the official document of an uploaded PDF by its SHA-256.
-router.post("/find-by-file", uploadCheckFile, controller.findDocumentByFile);
+// At most 20 requests per minute per IP.
+export const findByFileRateLimit = createRateLimit({ limit: 20, windowMs: 60 * 1000 });
+router.post("/find-by-file", findByFileRateLimit, uploadCheckFile, controller.findDocumentByFile);
 router.get("/:token", controller.verifyDocument);
-router.post("/:token/check-hash", uploadOfficialDocumentFile, controller.checkDocumentHash);
 
 export default router;

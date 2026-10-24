@@ -196,27 +196,3 @@ export async function findOfficialDocumentByFile(fileBuffer) {
   return toPublicData(record, await findReplacement(record));
 }
 
-export async function checkOfficialDocumentHash(token, fileBuffer) {
-  const record = await prisma.officialGeneratedDocument.findUnique({
-    where: { verificationToken: token },
-  });
-  if (!record) {
-    const error = new Error("Dokumen resmi tidak ditemukan atau token verifikasi tidak valid.");
-    error.statusCode = 404;
-    throw error;
-  }
-  if (!record.fileHash) {
-    const error = new Error("Dokumen ini belum memiliki hash integritas.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const isValid = sha256(fileBuffer) === record.fileHash;
-  return {
-    isValid,
-    status: record.status,
-    message: isValid
-      ? "Integritas dokumen sesuai dengan dokumen resmi NeoCentral."
-      : "Dokumen tidak sesuai dengan versi resmi atau telah mengalami perubahan.",
-  };
-}
