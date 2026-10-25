@@ -10,6 +10,8 @@ import { fileURLToPath } from "url";
 import * as examinerService from "./examiner.service.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import { renderAndIssueOfficialHtmlDocument } from "../official-document.service.js";
+import { documentBaseStyles, findPositionHolder, letterheadHtml, signatureBlockHtml, supervisorSigner } from "../../utils/document-template.util.js";
+import { ROLES } from "../../constants/roles.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -828,110 +830,27 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
   const seminarTime = formatTime(seminar.startTime);
   const seminarPlace = seminar.room ? seminar.room.name : (seminar.meetingLink || 'Daring');
 
-  // Logo base64
-  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
-  let logoBase64 = "";
-  try {
-    if (fs.existsSync(logoPath)) {
-      const logoBuffer = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-    }
-  } catch (e) {
-    console.error("Invitation letter logo load failed:", e);
-  }
+  // The Ketua Departemen signs the invitation (no other signer is printed on it).
+  const signer = await findPositionHolder(ROLES.KETUA_DEPARTEMEN);
 
   const html = `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
   <title>Surat Undangan Seminar Hasil</title>
-  <style>
-    @page {
-      size: A4;
-      margin: 1.5cm 2cm 1.5cm 2.5cm;
-    }
-    body {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 11pt;
-      line-height: 1.3;
-      color: #000;
-    }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
-    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
-    .logo-img { width: 80px; height: auto; }
-    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
-    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
-    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
-    .ta-box {
-      border: 1px solid #000;
-      padding: 3px 8px;
-      font-size: 11pt;
-      font-weight: bold;
-      text-align: center;
-    }
-    .details-table {
-      width: 100%;
-      margin-bottom: 12px;
-    }
-    .details-table td {
-      vertical-align: top;
-    }
-    .recipient-list {
-      margin-left: 20px;
-      padding-left: 0;
-      list-style-type: decimal;
-    }
-    .recipient-list li {
-      margin-bottom: 2px;
-    }
-    .content-table {
-      width: 100%;
-      margin: 10px 0;
-    }
-    .content-table td {
-      vertical-align: top;
-      padding: 1px 4px;
-    }
-    .signature-block {
-      float: right;
-      width: 220px;
-      margin-top: 25px;
-      text-align: left;
-    }
-    .signature-block .space {
-      height: 55px;
-    }
-    .tembusan {
-      margin-top: 25px;
-      font-size: 10pt;
-    }
-    .tembusan ol {
-      margin: 3px 0 0 15px;
-      padding: 0;
-    }
-    .clear {
-      clear: both;
-    }
-  </style>
+  <style>${documentBaseStyles(`
+    .details-table { width: 100%; margin-bottom: 12px; }
+    .details-table td { vertical-align: top; }
+    .recipient-list { margin-left: 20px; padding-left: 0; list-style-type: decimal; }
+    .recipient-list li { margin-bottom: 2px; }
+    .content-table { width: 100%; margin: 10px 0; }
+    .content-table td { vertical-align: top; padding: 1px 4px; }
+    .tembusan { margin-top: 25px; font-size: 10pt; }
+    .tembusan ol { margin: 3px 0 0 15px; padding: 0; }
+  `)}</style>
 </head>
 <body>
-  <table class="header-table">
-    <tr>
-      <td class="logo-cell">
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
-      </td>
-      <td class="header-text">
-        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
-        <h4>Universitas Andalas</h4>
-        <h4>Fakultas Teknologi Informasi</h4>
-        <h2>Departemen Sistem Informasi</h2>
-        <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
-        <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
-      </td>
-    </tr>
-  </table>
+  ${letterheadHtml()}
 
   <table class="details-table">
     <tr>
@@ -1005,6 +924,7 @@ export async function generateInvitationLetter(seminarId, nomorSurat) {
 
 
 
+  ${signatureBlockHtml({ date: null, title: "Ketua Departemen Sistem Informasi", name: signer?.name, nip: signer?.nip, withQr: true })}
   <div class="tembusan">
     <p style="margin: 0; font-weight: bold;">Tembusan :</p>
     <ol>
@@ -1065,18 +985,6 @@ export async function generateAssessmentResultPdf(seminarId) {
     return `${String(d.getUTCHours()).padStart(2, '0')}.${String(d.getUTCMinutes()).padStart(2, '0')}`;
   }
 
-  // Logo base64
-  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
-  let logoBase64 = "";
-  try {
-    if (fs.existsSync(logoPath)) {
-      const logoBuffer = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-    }
-  } catch (e) {
-    console.error("Assessment result logo load failed:", e);
-  }
-
   const student = seminar.thesis?.student?.user;
   const studentName = student?.fullName || '-';
   const studentNim = student?.identityNumber || '-';
@@ -1093,24 +1001,20 @@ export async function generateAssessmentResultPdf(seminarId) {
   const isPassedWithRevision = status === 'passed_with_revision';
   const isFailed = status === 'failed';
 
+  // The supervisor who finalized the result signs the minutes.
+  const signer = await supervisorSigner(seminar.thesisId, seminar.resultFinalizedBy);
   const html = `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <style>
-    @page { size: A4; margin: 1.5cm 2cm; }
-    body { font-family: "Times New Roman", Times, serif; font-size: 10.5pt; line-height: 1.3; color: #000; }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
-    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
-    .logo-img { width: 80px; height: auto; }
-    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
-    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
-    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
+  <style>${documentBaseStyles(`body { font-size: 10.5pt; }
+    .decision-signature { width: 100%; border-collapse: collapse; }
+    .decision-signature td { vertical-align: top; padding: 0; }
+    .decision-signature .signature-cell { width: 270px; }
+    .decision-signature .signature-row { margin-top: 0; }`)}
 
     .doc-title-table { width: 100%; border: 1.5px solid #000; border-collapse: collapse; margin-bottom: 20px; }
-    .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; text-align: center; vertical-align: middle; }
+    .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #e0e0e0; text-align: center; vertical-align: middle; }
     .doc-title-table td.doc-no { width: 100px; font-size: 14pt; letter-spacing: 1px; }
 
     .section-title { font-weight: bold; margin: 15px 0 8px 0; }
@@ -1121,38 +1025,18 @@ export async function generateAssessmentResultPdf(seminarId) {
 
     .assessment-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9.5pt; }
     .assessment-table th, .assessment-table td { border: 1px solid #000; padding: 4px 6px; }
-    .assessment-table th { background-color: #f3f4f6; text-align: center; font-weight: bold; }
-    .assessment-table .bg-gray { background-color: #f3f4f6; }
+    .assessment-table th { background-color: #f2f2f2; text-align: center; font-weight: bold; }
+    .assessment-table .bg-gray { background-color: #f2f2f2; }
     .text-center { text-align: center; }
 
     .decision-list { list-style: none; padding: 0; margin-left: 25px; }
     .decision-list li { margin-bottom: 6px; display: flex; align-items: center; }
     .checkbox { width: 14px; height: 14px; border: 1px solid #000; display: inline-block; margin-right: 10px; position: relative; text-align: center; line-height: 14px; font-weight: bold; }
 
-    .signature-grid { width: 100%; margin-top: 25px; border-collapse: collapse; }
-    .signature-grid td { vertical-align: top; padding-top: 10px; }
-    .sig-label { width: 40px; text-align: center; }
-    .sig-name { width: 220px; border-bottom: 1px dotted #000; height: 16px; margin-bottom: 2px; }
-    .sig-role { width: 150px; }
-    .sig-box { width: 150px; border-bottom: 1px dotted #000; height: 16px; }
   </style>
 </head>
 <body>
-  <table class="header-table">
-    <tr>
-      <td class="logo-cell">
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
-      </td>
-      <td class="header-text">
-        <h3>KEMENTERIAN PENDIDIKAN TINGGI, SAINS, DAN TEKNOLOGI</h3>
-        <h4>UNIVERSITAS ANDALAS</h4>
-        <h4>FAKULTAS TEKNOLOGI INFORMASI</h4>
-        <h2>DEPARTEMEN SISTEM INFORMASI</h2>
-        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
-        <p>Website: <a href="http://si.fti.unand.ac.id">http://si.fti.unand.ac.id</a> dan email: <a href="mailto:jurusan_si@fti.unand.ac.id">jurusan_si@fti.unand.ac.id</a></p>
-      </td>
-    </tr>
-  </table>
+  ${letterheadHtml()}
 
   <table class="doc-title-table">
     <tr>
@@ -1252,13 +1136,19 @@ export async function generateAssessmentResultPdf(seminarId) {
 
   <div class="section-title" style="margin-top: 20px;">C. Keputusan Seminar Hasil</div>
   <p style="margin-left: 20px;">Berdasarkan hasil seminar, mahasiswa dinyatakan:</p>
-  <ul class="decision-list">
-    <li><span class="checkbox">${isPassed ? '&#10003;' : ''}</span> Lulus dan dapat melanjutkan ke sidang tanpa perbaikan</li>
-    <li><span class="checkbox">${isPassedWithRevision ? '&#10003;' : ''}</span> Lulus dengan syarat melakukan perbaikan sebelum mendaftar sidang</li>
-    <li><span class="checkbox">${isFailed ? '&#10003;' : ''}</span> Tidak lulus dan harus mengulang seminar hasil</li>
-  </ul>
-
-
+  <!-- The decision and the signature side by side, so the minutes stay on one page. -->
+  <table class="decision-signature">
+    <tr>
+      <td>
+      <ul class="decision-list">
+        <li><span class="checkbox">${isPassed ? '&#10003;' : ''}</span> Lulus dan dapat melanjutkan ke sidang tanpa perbaikan</li>
+        <li><span class="checkbox">${isPassedWithRevision ? '&#10003;' : ''}</span> Lulus dengan syarat melakukan perbaikan sebelum mendaftar sidang</li>
+        <li><span class="checkbox">${isFailed ? '&#10003;' : ''}</span> Tidak lulus dan harus mengulang seminar hasil</li>
+      </ul>
+      </td>
+      <td class="signature-cell">${signatureBlockHtml({ date: semDetail.resultFinalizedAt ?? new Date(), title: signer.title, name: signer.name, nip: signer.nip, withQr: true })}</td>
+    </tr>
+  </table>
 </body>
 </html>`;
 

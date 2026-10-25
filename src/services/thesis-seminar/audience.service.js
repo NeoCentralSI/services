@@ -3,6 +3,7 @@ import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repo
 import * as xlsx from "xlsx";
 import prisma from "../../config/prisma.js";
 import { renderAndIssueOfficialHtmlDocument } from "../official-document.service.js";
+import { documentBaseStyles, letterheadHtml, signatureBlockHtml, supervisorSigner } from "../../utils/document-template.util.js";
 import path from "path";
 import fs from "fs";
 import * as outlookService from "../outlook-calendar.service.js";
@@ -344,39 +345,15 @@ export async function exportAudiencesPdf(seminarId) {
 
   const rows = (await audienceRepo.findAudiencesBySeminarId(seminarId)).filter((row) => row.approvedAt);
 
-  // Logo loading - try multiple possible paths to be robust
-  const possibleLogoPaths = [
-    path.resolve(__dirname, "../../assets/unand-logo.png"),
-    path.resolve(__dirname, "../assets/unand-logo.png"),
-    path.resolve(process.cwd(), "src/assets/unand-logo.png"),
-  ];
 
-  let logoBase64 = "";
-  for (const p of possibleLogoPaths) {
-    try {
-      if (fs.existsSync(p)) {
-        const logoBuffer = fs.readFileSync(p);
-        logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-        break; // Stop if found
-      }
-    } catch (err) { /* continue */ }
-  }
-
+  // The presenting student's Pembimbing 1 verifies the attendance and signs the list.
+  const signer = await supervisorSigner(seminar.thesisId);
   const html = `
 <!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <style>
-    body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.4; color: #000; margin: 0; padding: 0.5in; }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
-    .logo-cell { width: 80px; vertical-align: middle; padding-bottom: 10px; }
-    .logo-img { width: 75px; height: auto; display: block; }
-    .header-text { text-align: center; vertical-align: middle; padding-right: 80px; } /* Increased padding to balance logo */
-    .header-text h3 { margin: 0; font-size: 11pt; font-weight: normal; text-transform: uppercase; }
-    .header-text h4 { margin: 0; font-size: 11pt; font-weight: normal; text-transform: uppercase; }
-    .header-text h2 { margin: 1px 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
-    .header-text p { margin: 1px 0; font-size: 9pt; font-weight: normal; }
+  <style>${documentBaseStyles()}
 
     .title { text-align: center; font-size: 12pt; font-weight: bold; text-decoration: underline; margin: 15px 0 5px 0; text-transform: uppercase; }
     .subtitle { text-align: center; font-size: 11pt; font-weight: normal; margin-bottom: 20px; }
@@ -392,28 +369,10 @@ export async function exportAudiencesPdf(seminarId) {
     .text-center { text-align: center; }
 
     .footer-container { margin-top: 40px; width: 100%; }
-    .signature-wrapper { width: 100%; border-collapse: collapse; }
-    .signature-block { width: 50%; vertical-align: top; padding-top: 10px; }
-    .signature-block p { margin: 2px 0; }
-    .signature-block .space { height: 60px; }
   </style>
 </head>
 <body>
-  <table class="header-table">
-    <tr>
-      <td class="logo-cell">
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
-      </td>
-      <td class="header-text">
-        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
-        <h4>Universitas Andalas</h4>
-        <h4>Fakultas Teknologi Informasi</h4>
-        <h2>Departemen Sistem Informasi</h2>
-        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
-        <p>Website: http://si.fti.unand.ac.id dan email: jurusan_si@fti.unand.ac.id</p>
-      </td>
-    </tr>
-  </table>
+  ${letterheadHtml()}
 
   <div class="title">Daftar Hadir Peserta Seminar Hasil</div>
   <div class="subtitle">Tugas Akhir Mahasiswa</div>
@@ -469,6 +428,7 @@ export async function exportAudiencesPdf(seminarId) {
     </tbody>
   </table>
 
+  ${signatureBlockHtml({ date: seminar.date ?? new Date(), title: signer.title, name: signer.name, nip: signer.nip, withQr: true })}
 </body>
 </html>
   `;

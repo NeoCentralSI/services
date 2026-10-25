@@ -13,6 +13,8 @@ import { findStudentContext } from "./student.service.js";
 import prisma from "../../config/prisma.js";
 import { summarize } from "../../helpers/graduation-predicate.helper.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
+import { documentBaseStyles, findPositionHolder, letterheadHtml, signatureBlockHtml } from "../../utils/document-template.util.js";
+import { ROLES } from "../../constants/roles.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -456,7 +458,7 @@ const buildChoiceQuestionStats = (form, responses) => {
   });
 };
 
-const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
+const buildExitSurveyReportHtml = ({ form, responses, periodLabel, signer = null }) => {
   const logoBase64 = getUnandLogoBase64();
   const summary = buildRespondentSummary(responses);
   const questionStats = buildChoiceQuestionStats(form, responses);
@@ -470,15 +472,15 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
   `).join("");
 
   const genderRows = summary.gender.map(([label, count]) => `
-    <tr><td>${escapeHtml(label)}</td><td class="text-center">${count}</td><td class="text-center">${percentage(count, summary.totalRespondents)}%</td></tr>
+    <tr><td>${escapeHtml(label)}</td><td class="text-center">${count}</td><td class="text-center nowrap">${percentage(count, summary.totalRespondents)}%</td></tr>
   `).join("");
 
   const enrollmentRows = summary.enrollmentYear.map(([label, count]) => `
-    <tr><td>${escapeHtml(label)}</td><td class="text-center">${count}</td><td class="text-center">${percentage(count, summary.totalRespondents)}%</td></tr>
+    <tr><td>${escapeHtml(label)}</td><td class="text-center">${count}</td><td class="text-center nowrap">${percentage(count, summary.totalRespondents)}%</td></tr>
   `).join("");
 
   const tocRows = questionStats.map((question) => `
-    <tr><td>${question.index}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(question.sessionName || "-")}</td></tr>
+    <tr><td class="text-center">${question.index + 1}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(question.sessionName || "-")}</td></tr>
   `).join("");
 
   const questionSections = questionStats.map((question) => {
@@ -491,7 +493,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
         <td>
           <div class="bar-row">
             <div class="bar" style="width: ${Math.max(4, (option.count / maxCount) * 100)}%"></div>
-            <span>${option.percent}%</span>
+            <span class="nowrap">${option.percent}%</span>
           </div>
         </td>
       </tr>
@@ -504,7 +506,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
             <div class="question-kicker">Pertanyaan ${question.index}</div>
             <h3>${escapeHtml(question.question)}</h3>
           </div>
-          <div class="question-meta">${question.respondentCount} responden</div>
+          <div class="question-meta">Responden: ${question.respondentCount}</div>
         </div>
         <table class="data-table">
           <thead>
@@ -512,7 +514,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
               <th style="width: 9%;">No</th>
               <th>Pilihan Jawaban</th>
               <th style="width: 14%;">Jumlah</th>
-              <th style="width: 28%;">Persentase</th>
+              <th style="width: 32%;">Persentase</th>
             </tr>
           </thead>
           <tbody>${optionRows}</tbody>
@@ -526,27 +528,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
 <head>
   <meta charset="UTF-8">
   <title>Laporan Exit Survey</title>
-  <style>
-    @page { size: A4; margin: 1.35cm 1.55cm; }
-    body {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 11pt;
-      line-height: 1.35;
-      color: #111827;
-      margin: 0;
-    }
-    .header-table {
-      width: 100%;
-      border-collapse: collapse;
-      border-bottom: 2px solid #111;
-      margin-bottom: 18px;
-    }
-    .logo-cell { width: 84px; vertical-align: middle; padding-bottom: 8px; }
-    .logo-img { width: 74px; display: block; }
-    .header-text { text-align: center; vertical-align: middle; padding-right: 84px; }
-    .header-text h3, .header-text h4 { margin: 0; font-size: 11pt; text-transform: uppercase; }
-    .header-text h2 { margin: 1px 0; font-size: 15pt; text-transform: uppercase; color: #003c73; }
-    .header-text p { margin: 1px 0; font-size: 8.7pt; }
+  <style>${documentBaseStyles()}
     .cover {
       min-height: 245mm;
       display: flex;
@@ -607,13 +589,12 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
       font-size: 14pt;
       text-transform: uppercase;
       font-weight: bold;
-      border-bottom: 1px solid #9ca3af;
+      border-bottom: 1px solid #000;
       padding-bottom: 5px;
       margin: 0 0 10px;
     }
     .section-title {
       font-size: 12pt;
-      text-transform: uppercase;
       font-weight: bold;
       margin: 18px 0 8px;
     }
@@ -624,13 +605,13 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
       margin-bottom: 10px;
     }
     .data-table th, .data-table td {
-      border: 1px solid #1f4e79;
+      border: 1px solid #000;
       padding: 5px 7px;
       vertical-align: top;
       overflow-wrap: anywhere;
     }
     .data-table th {
-      background: #eef6ff;
+      background: #f2f2f2;
       text-align: center;
       font-weight: bold;
     }
@@ -655,8 +636,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
     }
     .question-kicker {
       font-size: 9pt;
-      color: #6b7280;
-      text-transform: uppercase;
+      color: #444;
       font-weight: bold;
       letter-spacing: .04em;
     }
@@ -667,8 +647,8 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
     }
     .question-meta {
       white-space: nowrap;
-      border: 1px solid #f59e0b;
-      color: #b45309;
+      border: 1px solid #000;
+      color: #000;
       padding: 3px 8px;
       border-radius: 999px;
       font-size: 9pt;
@@ -680,21 +660,23 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
       gap: 8px;
     }
     .bar {
+      flex: 0 1 auto;
       height: 10px;
-      background: #f7931e;
+      background: #555;
       border-radius: 999px;
       min-width: 4px;
     }
     .bar-row span {
-      min-width: 34px;
+      min-width: 48px;
+      white-space: nowrap;
       text-align: right;
       font-weight: bold;
-      color: #92400e;
+      color: #000;
     }
     .footer-note {
       margin-top: 18px;
       font-size: 9pt;
-      color: #6b7280;
+      color: #444;
       text-align: right;
     }
   </style>
@@ -717,21 +699,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
     </div>
   </section>
 
-  <table class="header-table">
-    <tr>
-      <td class="logo-cell">
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ""}
-      </td>
-      <td class="header-text">
-        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
-        <h4>Universitas Andalas</h4>
-        <h4>Fakultas Teknologi Informasi</h4>
-        <h2>Departemen Sistem Informasi</h2>
-        <p>Kampus Universitas Andalas, Limau Manis, Padang, Kode Pos 25163</p>
-        <p>Email: jurusan_si@fti.unand.ac.id dan website: http://si.fti.unand.ac.id</p>
-      </td>
-    </tr>
-  </table>
+  ${letterheadHtml()}
 
   <section class="toc">
     <h2 class="page-title">Daftar Isi</h2>
@@ -767,6 +735,7 @@ const buildExitSurveyReportHtml = ({ form, responses, periodLabel }) => {
 
   <h2 class="page-title" style="margin-top: 20px;">Ringkasan Jawaban Pilihan</h2>
   ${questionSections || `<p>Tidak ada pertanyaan pilihan yang dapat dianalisis pada laporan ini.</p>`}
+  ${signatureBlockHtml({ date: new Date(), acknowledged: true, title: "Koordinator Yudisium", name: signer?.name, nip: signer?.nip })}
   <div class="footer-note">Dicetak melalui NeoCentral pada ${escapeHtml(formatDateTimeLong(new Date()))}</div>
 </body>
 </html>`;
@@ -781,7 +750,9 @@ export const exportFormResponsesPdf = async (formId, filters = {}) => {
     ? "Semua Periode"
     : responses[0]?.yudisiumName || "Periode Terpilih";
 
-  const html = buildExitSurveyReportHtml({ form, responses, periodLabel });
+  // No QR: the Koordinator Yudisium acknowledges the report by hand.
+  const signer = await findPositionHolder(ROLES.KOORDINATOR_YUDISIUM);
+  const html = buildExitSurveyReportHtml({ form, responses, periodLabel, signer });
   return await convertHtmlToPdf(html);
 };
 

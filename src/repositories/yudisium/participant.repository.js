@@ -825,6 +825,7 @@ export const findStudentCplScores = async (studentId, db = prisma) => {
       score: true,
       status: true,
       oldCplScore: true,
+      validatedAt: true,
       recommendationDocumentPath: true,
       recommendationDocumentName: true,
       recommendationDocumentMimeType: true,

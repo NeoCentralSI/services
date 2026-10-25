@@ -19,6 +19,7 @@ import * as xlsx from "xlsx";
 
 import { ROLES } from "../../constants/roles.js";
 import { getStudentGraduationSummary } from "../../helpers/graduation-predicate.helper.js";
+import { DOCUMENT_QR_PLACEHOLDER, documentBaseStyles, findPositionHolder, formatDocumentDate, letterheadHtml, signatureBlockHtml } from "../../utils/document-template.util.js";
 
 
 
@@ -1753,6 +1754,19 @@ const padCertificateNumber = (value) => String(Math.max(1, Number(value) || 1)).
 
 
 
+let iabeeLogoCache = null;
+/** The IABEE accreditation logo (CPL certificate only), or "" when the asset is missing. */
+const getIabeeLogoBase64 = () => {
+  if (iabeeLogoCache === null) {
+    try {
+      iabeeLogoCache = `data:image/png;base64,${fs.readFileSync(path.resolve(__dirname, "../../assets/iabee-logo.png")).toString("base64")}`;
+    } catch {
+      iabeeLogoCache = "";
+    }
+  }
+  return iabeeLogoCache;
+};
+
 const getUnandLogoBase64 = () => {
 
   const possibleLogoPaths = [
@@ -1874,7 +1888,7 @@ const buildRadarSvg = (scores) => {
 
       ).join(" ");
 
-      return `<polygon points="${points}" fill="none" stroke="#d8dee9" stroke-width="1" />`;
+      return `<polygon points="${points}" fill="none" stroke="#cccccc" stroke-width="1" />`;
 
     })
 
@@ -1892,9 +1906,9 @@ const buildRadarSvg = (scores) => {
 
       return `
 
-        <line x1="${centerX}" y1="${centerY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" />
+        <line x1="${centerX}" y1="${centerY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#dddddd" stroke-width="1" />
 
-        <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#41668f">${escapeHtml(score.code)}</text>
+        <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#000000">${escapeHtml(score.code)}</text>
 
       `;
 
@@ -1918,17 +1932,17 @@ const buildRadarSvg = (scores) => {
 
       ${axes}
 
-      <polygon points="${polygon(scoreValues)}" fill="#2f78c4" fill-opacity="0.84" stroke="#2f78c4" stroke-width="2" />
+      <polygon points="${polygon(scoreValues)}" fill="#555555" fill-opacity="0.55" stroke="#000000" stroke-width="2" />
 
-      <polygon points="${polygon(thresholdValues)}" fill="#df4b43" fill-opacity="0.82" stroke="#df4b43" stroke-width="2" />
+      <polygon points="${polygon(thresholdValues)}" fill="none" stroke="#000000" stroke-width="1.5" stroke-dasharray="4 3" />
 
-      <rect x="92" y="314" width="8" height="8" fill="#2f78c4" />
+      <rect x="92" y="314" width="8" height="8" fill="#555555" />
 
-      <text x="104" y="321" font-size="8" fill="#45556c">Nilai CPL</text>
+      <text x="104" y="321" font-size="8" fill="#000000">Nilai CPL</text>
 
-      <rect x="158" y="314" width="8" height="8" fill="#df4b43" />
+      <rect x="158" y="314" width="8" height="8" fill="none" stroke="#000000" stroke-dasharray="2 1" />
 
-      <text x="170" y="321" font-size="8" fill="#45556c">Threshold</text>
+      <text x="170" y="321" font-size="8" fill="#000000">Threshold</text>
 
     </svg>
 
@@ -1940,9 +1954,11 @@ const buildRadarSvg = (scores) => {
 
 const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) => {
 
-  const logoBase64 = getUnandLogoBase64();
 
   const mappedScores = mapCplScoresForReport(scores);
+  // Dated by the last CPL validation, so the same scores give the same document.
+  const validatedDates = scores.map((score) => score.validatedAt).filter(Boolean).map((date) => new Date(date).getTime());
+  const issuedOn = validatedDates.length ? new Date(Math.max(...validatedDates)) : new Date();
 
   const rows = mappedScores.length > 0
 
@@ -1968,6 +1984,8 @@ const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) 
 
 
 
+  // The Koordinator Yudisium signs the CPL report.
+  const signer = await findPositionHolder(ROLES.KOORDINATOR_YUDISIUM);
   const html = `<!DOCTYPE html>
 
 <html lang="id">
@@ -1978,67 +1996,14 @@ const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) 
 
   <title>Formulir Penilaian CPL</title>
 
-  <style>
+  <style>${documentBaseStyles()}
 
-    @page { size: A4; margin: 1.25cm 1.6cm; }
 
-    body {
 
-      font-family: 'Times New Roman', Times, serif;
 
-      font-size: 10.5pt;
 
-      line-height: 1.22;
 
-      color: #000;
 
-      margin: 0;
-
-    }
-
-    .header-table {
-
-      width: 100%;
-
-      border-collapse: collapse;
-
-      border-bottom: 2px solid #000;
-
-      margin-bottom: 10px;
-
-    }
-
-    .logo-cell { width: 78px; vertical-align: middle; padding-bottom: 8px; }
-
-    .logo-img { width: 70px; height: auto; display: block; }
-
-    .header-text { text-align: center; vertical-align: middle; padding-right: 78px; }
-
-    .header-text h3, .header-text h4 {
-
-      margin: 0;
-
-      font-size: 10.5pt;
-
-      font-weight: bold;
-
-      text-transform: uppercase;
-
-    }
-
-    .header-text h2 {
-
-      margin: 1px 0;
-
-      font-size: 13pt;
-
-      font-weight: bold;
-
-      text-transform: uppercase;
-
-    }
-
-    .header-text p { margin: 1px 0; font-size: 8.5pt; }
 
     .title {
 
@@ -2122,7 +2087,7 @@ const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) 
 
       font-weight: bold;
 
-      color: #2f5597;
+      color: #000;
 
       line-height: 1.15;
 
@@ -2168,7 +2133,7 @@ const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) 
 
       text-align: center;
 
-      background: #f3f3f3;
+      background: #f2f2f2;
 
     }
 
@@ -2176,59 +2141,12 @@ const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) 
 
     .conclusion-list { margin: 2px 0 0 14px; padding: 0; list-style: none; }
 
-    .signature {
-
-      width: 255px;
-
-      margin-left: auto;
-
-      margin-top: 22px;
-
-      text-align: left;
-
-      page-break-inside: avoid;
-
-    }
-
-    .signature-space { height: 58px; }
-
-    .signature-name { font-weight: bold; text-decoration: underline; }
-
   </style>
 
 </head>
 
 <body>
-
-  <table class="header-table">
-
-    <tr>
-
-      <td class="logo-cell">
-
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ""}
-
-      </td>
-
-      <td class="header-text">
-
-        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
-
-        <h4>Universitas Andalas</h4>
-
-        <h4>Fakultas Teknologi Informasi</h4>
-
-        <h2>Departemen Sistem Informasi</h2>
-
-        <p>Kampus Universitas Andalas, Limau Manis, Padang, Kode Pos 25163</p>
-
-        <p>Email: jurusan_si@fti.unand.ac.id dan website: http://si.fti.unand.ac.id</p>
-
-      </td>
-
-    </tr>
-
-  </table>
+  ${letterheadHtml()}
 
 
 
@@ -2301,6 +2219,7 @@ const buildCplReportPdf = async ({ sourceId, studentName, studentNim, scores }) 
 
 
 
+  ${signatureBlockHtml({ date: issuedOn, title: "Koordinator Yudisium", name: signer?.name, nip: signer?.nip, withQr: true })}
 </body>
 
 </html>`;
@@ -2401,6 +2320,9 @@ const buildLearningCertificatePdf = async ({
 }) => {
 
   const logoBase64 = getUnandLogoBase64();
+  const iabeeLogo = getIabeeLogoBase64();
+  // The Ketua Departemen signs the certificate; the QR replaces the handwritten signature and stamp.
+  const signer = await findPositionHolder(ROLES.KETUA_DEPARTEMEN);
 
   const student = participant.thesis?.student || {};
 
@@ -2511,11 +2433,11 @@ const buildLearningCertificatePdf = async ({
 
       text-transform: uppercase;
 
-      color: #003c73;
+      color: #000;
 
     }
 
-    .header-text p { margin: 1px 0; font-size: 8.7pt; }
+    .header-text p { margin: 1px 0; font-size: 8.7pt; color: #000; }
 
     .title {
 
@@ -2565,7 +2487,7 @@ const buildLearningCertificatePdf = async ({
 
       padding-right: 16px;
 
-      min-height: 590px;
+      min-height: 520px;
 
     }
 
@@ -2687,48 +2609,14 @@ const buildLearningCertificatePdf = async ({
 
     }
 
-    .signature {
-
-      width: 270px;
-
-      margin-left: auto;
-
-      margin-top: 20px;
-
-      text-align: right;
-
-      color: #000;
-
-      page-break-inside: avoid;
-
-    }
-
-    .signature-space {
-      height: 66px;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      position: relative;
-    }
-
-    .signature-img {
-      max-height: 64px;
-      max-width: 170px;
-      object-fit: contain;
-      display: block;
-      margin-left: auto;
-    }
-
-    .signature-name {
-
-      color: #003c73;
-
-      font-weight: bold;
-
-      text-decoration: underline;
-
-    }
-
+    .certificate-footer { width: 100%; border-collapse: collapse; margin-top: 14px; page-break-inside: avoid; break-inside: avoid; }
+    .certificate-footer td { vertical-align: bottom; padding: 0; }
+    .accreditation { width: 45%; color: #003c73; font-size: 8pt; font-weight: bold; line-height: 1.3; }
+    .accreditation img { display: block; width: 46px; height: auto; margin-bottom: 4px; }
+    .certificate-signature { text-align: right; color: #000; }
+    .certificate-signature p { margin: 0; }
+    .certificate-signature .signature-space { height: 26mm; margin: 4px 0; line-height: 0; text-align: right; }
+    .signer-name { color: #003c73; font-weight: bold; text-decoration: underline; }
   </style>
 
 </head>
@@ -2755,7 +2643,7 @@ const buildLearningCertificatePdf = async ({
 
         <h2>Departemen Sistem Informasi</h2>
 
-        <p>Kampus Universitas Andalas, Limau Manis, Padang, Kode Pos 25163</p>
+        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
 
         <p>Website: http://si.fti.unand.ac.id dan email: jurusan_si@fti.unand.ac.id</p>
 
@@ -2864,6 +2752,23 @@ const buildLearningCertificatePdf = async ({
 
   </div>
 
+  <table class="certificate-footer">
+    <tr>
+      <td class="accreditation">
+        ${iabeeLogo ? `<img src="${iabeeLogo}" alt="Logo IABEE" />` : ""}
+        <div>Program Studi Terakreditasi IABEE</div>
+        <div>Sertifikat No. 000255.A</div>
+      </td>
+      <td class="certificate-signature">
+        <p>Padang, ${escapeHtml(formatDocumentDate(signatureDate))}</p>
+        <p>Ketua Departemen Sistem Informasi</p>
+        <p>Fakultas Teknologi Informasi, Universitas Andalas</p>
+        <div class="signature-space">${DOCUMENT_QR_PLACEHOLDER}</div>
+        <p class="signer-name">${signer?.name ? escapeHtml(signer.name) : "______________________________"}</p>
+        <p>NIP. ${signer?.nip ? escapeHtml(signer.nip) : "____________________"}</p>
+      </td>
+    </tr>
+  </table>
 </body>
 
 </html>`;
@@ -3223,7 +3128,6 @@ export const exportParticipants = async (yudisiumId, _userId) => {
 
 
 
-  const logoBase64 = getUnandLogoBase64();
 
 
 
@@ -3269,6 +3173,8 @@ export const exportParticipants = async (yudisiumId, _userId) => {
 
 
 
+  // The Koordinator Yudisium signs the participant list.
+  const signer = await findPositionHolder(ROLES.KOORDINATOR_YUDISIUM);
   const html = `<!DOCTYPE html>
 
 <html lang="id">
@@ -3279,109 +3185,14 @@ export const exportParticipants = async (yudisiumId, _userId) => {
 
   <title>Daftar Peserta Yudisium</title>
 
-  <style>
+  <style>${documentBaseStyles()}
 
-    @page {
 
-      size: A4;
 
-      margin: 1.5cm 2cm 1.5cm 2.5cm;
 
-    }
 
-    body {
 
-      font-family: 'Times New Roman', Times, serif;
 
-      font-size: 11pt;
-
-      line-height: 1.35;
-
-      color: #000;
-
-      margin: 0;
-
-      padding: 0;
-
-    }
-
-    .header-table {
-
-      width: 100%;
-
-      border-collapse: collapse;
-
-      border-bottom: 2px solid #000;
-
-      padding-bottom: 8px;
-
-      margin-bottom: 14px;
-
-    }
-
-    .logo-cell {
-
-      width: 80px;
-
-      vertical-align: middle;
-
-      padding-bottom: 10px;
-
-    }
-
-    .logo-img {
-
-      width: 75px;
-
-      height: auto;
-
-      display: block;
-
-    }
-
-    .header-text {
-
-      text-align: center;
-
-      vertical-align: middle;
-
-      padding-right: 80px;
-
-    }
-
-    .header-text h3, .header-text h4 {
-
-      margin: 0;
-
-      font-size: 11pt;
-
-      font-weight: normal;
-
-      text-transform: uppercase;
-
-    }
-
-    .header-text h2 {
-
-      margin: 1px 0;
-
-      font-size: 14pt;
-
-      font-weight: bold;
-
-      text-transform: uppercase;
-
-    }
-
-    .header-text p {
-
-      margin: 1px 0;
-
-      font-size: 9pt;
-
-      font-weight: normal;
-
-    }
 
     .title {
 
@@ -3467,46 +3278,6 @@ export const exportParticipants = async (yudisiumId, _userId) => {
 
     .text-center { text-align: center; }
 
-    .signature-note { margin: 0 0 18px 20px; }
-
-    .signature-block {
-
-      margin-left: 20px;
-
-      margin-top: 18px;
-
-      width: 100%;
-
-    }
-
-    .signature-table {
-
-      border-collapse: collapse;
-
-      margin-top: 8px;
-
-      margin-left: 18px;
-
-      width: 80%;
-
-    }
-
-    .signature-table td {
-
-      padding: 2px 0;
-
-      vertical-align: top;
-
-    }
-
-    .signature-label { width: 92px; }
-
-    .signature-colon { width: 14px; text-align: center; }
-
-    .signature-line { border-bottom: 1px dotted #000; min-width: 220px; display: inline-block; }
-
-    .signature-gap { height: 22px; }
-
     .page-break-before { page-break-before: auto; }
 
     .avoid-break { page-break-inside: avoid; }
@@ -3522,36 +3293,7 @@ export const exportParticipants = async (yudisiumId, _userId) => {
 </head>
 
 <body>
-
-  <table class="header-table">
-
-    <tr>
-
-      <td class="logo-cell">
-
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
-
-      </td>
-
-      <td class="header-text">
-
-        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
-
-        <h4>Universitas Andalas</h4>
-
-        <h4>Fakultas Teknologi Informasi</h4>
-
-        <h2>Departemen Sistem Informasi</h2>
-
-        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
-
-        <p>Website: http://si.fti.unand.ac.id dan email: jurusan_si@fti.unand.ac.id</p>
-
-      </td>
-
-    </tr>
-
-  </table>
+  ${letterheadHtml()}
 
 
 
@@ -3654,6 +3396,7 @@ export const exportParticipants = async (yudisiumId, _userId) => {
 
 
 
+  ${signatureBlockHtml({ date: yudisium.appointedAt ?? yudisium.eventDate ?? new Date(), title: "Koordinator Yudisium", name: signer?.name, nip: signer?.nip, withQr: true })}
 </body>
 
 </html>`;

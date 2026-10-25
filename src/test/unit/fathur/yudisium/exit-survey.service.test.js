@@ -22,6 +22,7 @@ vi.mock("../../../../services/yudisium/student.service.js");
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
     academicYear: { findFirst: vi.fn(async () => null) },
+    userHasRole: { findFirst: vi.fn(async () => null) },
     yudisiumParticipant: {
       count: vi.fn(),
       findMany: vi.fn(),
@@ -310,6 +311,13 @@ describe("Unit Test: Exit Survey Service", () => {
       expect(html).toContain("Kesesuaian kurikulum");
       expect(html).toContain("Sangat Sesuai");
       expect(html).not.toContain("Bagus");
+      // Sentence-case labels, percentages on one line, an unsigned acknowledgement block.
+      expect(html).toContain("Responden: 1");
+      expect(html).not.toMatch(/\d+ responden/);
+      expect(html).toContain('<span class="nowrap">100%</span>');
+      expect(html).toContain("Mengetahui,");
+      expect(html).toContain("Koordinator Yudisium,");
+      expect(html).not.toContain("OFFICIAL_DOCUMENT_QR");
     });
 
     it("exports Excel report with respondent identity and answers", async () => {

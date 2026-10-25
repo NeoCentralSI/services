@@ -34,7 +34,8 @@ const { mockPrisma, mockXlsx } = vi.hoisted(() => ({
 
 vi.mock('../../../../repositories/thesis-defence/thesis-defence.repository.js');
 vi.mock('../../../../repositories/thesis-defence/doc.repository.js');
-vi.mock('../../../../config/prisma.js', () => ({ default: mockPrisma }));
+// The signature blocks look up the position holder (findPositionHolder).
+vi.mock('../../../../config/prisma.js', () => ({ default: Object.assign(mockPrisma, { userHasRole: { findFirst: vi.fn().mockResolvedValue(null) } }) }));
 vi.mock('xlsx', () => ({ default: mockXlsx }));
 // Paket E7 (K28): the thesis lifecycle has its own tests (thesis-lifecycle.defence.test.js).
 vi.mock('../../../../services/thesisLifecycle.service.js', () => ({

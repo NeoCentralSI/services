@@ -61,7 +61,8 @@ const { mockPrisma, mockCoreRepo, mockXlsx, mockStatusUtil, mockAcademicYear } =
   mockAcademicYear: { getActiveAcademicYear: vi.fn() },
 }));
 
-vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));
+// The signature blocks look up the position holder (findPositionHolder).
+vi.mock("../../../../config/prisma.js", () => ({ default: Object.assign(mockPrisma, { userHasRole: { findFirst: vi.fn().mockResolvedValue(null) } }) }));
 vi.mock("../../../../helpers/academicYear.helper.js", () => mockAcademicYear);
 vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
 vi.mock("xlsx", () => mockXlsx);

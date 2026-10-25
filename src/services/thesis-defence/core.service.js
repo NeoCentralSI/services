@@ -11,6 +11,8 @@ import { mapScoreToGrade } from "../../utils/score.util.js";
 import { getActiveAcademicYear } from "../../helpers/academicYear.helper.js";
 import * as examinerService from "./examiner.service.js";
 import { announceThesisLifecycle, reopenThesisFromDefence } from "../thesisLifecycle.service.js";
+import { ROLES } from "../../constants/roles.js";
+import { documentBaseStyles, findPositionHolder, letterheadHtml, signatureBlockHtml, supervisorSigner } from "../../utils/document-template.util.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -930,17 +932,6 @@ export async function generateAssessmentResultPdf(defenceId) {
     return `${String(d.getUTCHours()).padStart(2, '0')}.${String(d.getUTCMinutes()).padStart(2, '0')}`;
   };
 
-  // Logo load
-  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
-  let logoBase64 = "";
-  try {
-    if (fs.existsSync(logoPath)) {
-      const logoBuffer = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-    }
-  } catch (e) {
-    console.error("Assessment result logo load failed:", e);
-  }
 
   const student = defence.thesis?.student?.user;
   const studentName = student?.fullName || '-';
@@ -996,24 +987,16 @@ export async function generateAssessmentResultPdf(defenceId) {
     { label: '< 45', mutu: 'E', checked: na < 45 },
   ];
 
+  // The supervisor who finalized the result signs the minutes.
+  const signer = await supervisorSigner(defence.thesisId, defence.resultFinalizedBy);
   const html = `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <style>
-    @page { size: A4; margin: 1.2cm 1.5cm; }
-    body { font-family: "Times New Roman", Times, serif; font-size: 10pt; line-height: 1.2; color: #000; }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 10px; }
-    .logo-cell { width: 70px; vertical-align: middle; padding-right: 10px; }
-    .logo-img { width: 70px; height: auto; }
-    .header-text { text-align: center; vertical-align: middle; }
-    .header-text h3 { margin: 0; font-size: 11pt; font-weight: normal; text-transform: uppercase; }
-    .header-text h4 { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; }
-    .header-text h2 { margin: 0; font-size: 14pt; font-weight: bold; text-transform: uppercase; }
-    .header-text p { margin: 1px 0; font-size: 8.5pt; }
+  <style>${documentBaseStyles(`body { font-size: 10.5pt; }`)}
 
     .doc-title-table { width: 100%; border: 1.5px solid #000; border-collapse: collapse; margin-bottom: 20px; }
-    .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #d1d5db; text-align: center; vertical-align: middle; }
+    .doc-title-table td { border: 1.5px solid #000; padding: 8px; font-weight: bold; font-size: 11pt; text-transform: uppercase; background-color: #e0e0e0; text-align: center; vertical-align: middle; }
     .doc-title-table td.doc-no { width: 100px; font-size: 14pt; letter-spacing: 1px; }
 
     .section-title { font-weight: bold; margin: 12px 0 6px 0; font-size: 10.5pt; }
@@ -1024,36 +1007,17 @@ export async function generateAssessmentResultPdf(defenceId) {
 
     .assessment-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 9.5pt; }
     .assessment-table th, .assessment-table td { border: 1px solid #000; padding: 3px 6px; }
-    .assessment-table th { background-color: #d1d5db; text-align: center; font-weight: bold; }
-    .assessment-table .bg-gray { background-color: #d1d5db; }
+    .assessment-table th { background-color: #e0e0e0; text-align: center; font-weight: bold; }
+    .assessment-table .bg-gray { background-color: #e0e0e0; }
     .text-center { text-align: center; }
 
     .checkbox-container { margin: 15px 0 15px 40px; }
     .checkbox-item { margin-bottom: 8px; display: flex; align-items: center; }
     .box { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; margin-right: 10px; text-align: center; line-height: 10px; font-size: 10pt; font-weight: bold; }
-
-    .signature-grid { width: 100%; margin-top: 25px; border-collapse: collapse; }
-    .signature-grid td { vertical-align: bottom; padding: 4px 0; }
-    .sig-label { width: 30px; text-align: left; }
-    .sig-name-box { width: 180px; border-bottom: 1px dotted #000; }
-    .sig-role { width: 150px; }
-    .sig-line { width: 150px; border-bottom: 1px dotted #000; }
   </style>
 </head>
 <body>
-  <table class="header-table">
-    <tr>
-      <td class="logo-cell">${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}</td>
-      <td class="header-text">
-        <h3>KEMENTERIAN PENDIDIKAN TINGGI, SAINS, DAN TEKNOLOGI</h3>
-        <h4>UNIVERSITAS ANDALAS</h4>
-        <h4>FAKULTAS TEKNOLOGI INFORMASI</h4>
-        <h2>DEPARTEMEN SISTEM INFORMASI</h2>
-        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
-        <p>Website: <a href="http://si.fti.unand.ac.id">http://si.fti.unand.ac.id</a> dan email: <a href="mailto:jurusan_si@fti.unand.ac.id">jurusan_si@fti.unand.ac.id</a></p>
-      </td>
-    </tr>
-  </table>
+  ${letterheadHtml()}
 
   <table class="doc-title-table">
     <tr>
@@ -1135,19 +1099,7 @@ export async function generateAssessmentResultPdf(defenceId) {
 
   <div style="page-break-before: always;"></div>
 
-  <table class="header-table">
-    <tr>
-      <td class="logo-cell">${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}</td>
-      <td class="header-text">
-        <h3>KEMENTERIAN PENDIDIKAN TINGGI, SAINS, DAN TEKNOLOGI</h3>
-        <h4>UNIVERSITAS ANDALAS</h4>
-        <h4>FAKULTAS TEKNOLOGI INFORMASI</h4>
-        <h2>DEPARTEMEN SISTEM INFORMASI</h2>
-        <p>Kampus Universitas Andalas, Limau Manis 25163</p>
-        <p>Website: <a href="http://si.fti.unand.ac.id">http://si.fti.unand.ac.id</a> dan email: <a href="mailto:jurusan_si@fti.unand.ac.id">jurusan_si@fti.unand.ac.id</a></p>
-      </td>
-    </tr>
-  </table>
+  ${letterheadHtml()}
 
   <div class="section-title">D. Perhitungan Nilai Akhir</div>
   <table class="assessment-table">
@@ -1205,6 +1157,7 @@ export async function generateAssessmentResultPdf(defenceId) {
     </div>
   </div>
 
+  ${signatureBlockHtml({ date: defence.resultFinalizedAt ?? new Date(), title: signer.title, name: signer.name, nip: signer.nip, withQr: true })}
 </body>
 </html>`;
 
@@ -1315,42 +1268,14 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
   const defenceTime = formatTime(defence.startTime);
   const defencePlace = defence.room ? defence.room.name : (defence.meetingLink || 'Daring');
 
-  // Logo base64
-  const logoPath = path.resolve(__dirname, "../../assets/unand-logo.png");
-  let logoBase64 = "";
-  try {
-    if (fs.existsSync(logoPath)) {
-      const logoBuffer = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-    }
-  } catch (e) {
-    console.error("Invitation letter logo load failed:", e);
-  }
-
+  // The Ketua Departemen signs the invitation.
+  const signer = await findPositionHolder(ROLES.KETUA_DEPARTEMEN);
   const html = `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
   <title>Surat Undangan Sidang Tugas Akhir</title>
-  <style>
-    @page {
-      size: A4;
-      margin: 1.5cm 2cm 1.5cm 2.5cm;
-    }
-    body {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 11pt;
-      line-height: 1.3;
-      color: #000;
-    }
-    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2.5px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
-    .logo-cell { width: 85px; vertical-align: middle; padding-right: 15px; }
-    .logo-img { width: 80px; height: auto; }
-    .header-text { text-align: center; vertical-align: middle; padding-right: 40px; }
-    .header-text h3 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h4 { margin: 0; font-size: 12pt; font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-text h2 { margin: 2px 0; font-size: 16pt; font-weight: bold; color: #000; text-transform: uppercase; }
-    .header-text p { margin: 2px 0; font-size: 10pt; font-weight: normal; }
+  <style>${documentBaseStyles()}
     .details-table {
       width: 100%;
       margin-bottom: 12px;
@@ -1374,15 +1299,6 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
       vertical-align: top;
       padding: 1px 4px;
     }
-    .signature-block {
-      float: right;
-      width: 220px;
-      margin-top: 25px;
-      text-align: left;
-    }
-    .signature-block .space {
-      height: 55px;
-    }
     .tembusan {
       margin-top: 25px;
       font-size: 10pt;
@@ -1397,21 +1313,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
   </style>
 </head>
 <body>
-  <table class="header-table">
-    <tr>
-      <td class="logo-cell">
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" alt="Logo UNAND" />` : ''}
-      </td>
-      <td class="header-text">
-        <h3>Kementerian Pendidikan Tinggi, Sains, dan Teknologi</h3>
-        <h4>Universitas Andalas</h4>
-        <h4>Fakultas Teknologi Informasi</h4>
-        <h2>Departemen Sistem Informasi</h2>
-        <p>Kampus Universitas Andalas, Limau Manis Padang – 25163</p>
-        <p>http://si.fti.unand.ac.id, email: jurusan_si@fti.unand.ac.id</p>
-      </td>
-    </tr>
-  </table>
+  ${letterheadHtml()}
 
   <table class="details-table">
     <tr>
@@ -1492,6 +1394,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
       <li>Arsip</li>
     </ol>
   </div>
+  ${signatureBlockHtml({ date: null, title: "Ketua Departemen Sistem Informasi", name: signer?.name, nip: signer?.nip, withQr: true })}
 </body>
 </html>`;
 
