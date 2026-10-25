@@ -45,11 +45,11 @@ async function reportPeriodFlagCoverage(academicYear, { notify }) {
         await createNotificationEventForUsers(
             adminUserIds,
             {
-                title: "Data SIA Periode Baru Belum Lengkap",
+                title: "Data Keikutsertaan Periode Baru Belum Lengkap",
                 message:
-                    `Periode ${formatAcademicYearLabel(academicYear)} baru memiliki data SIA untuk ` +
-                    `${coverage.studentsWithFlags} dari ${coverage.totalStudents} mahasiswa. Jalankan sinkronisasi SIA ` +
-                    "agar kelayakan Metode Penelitian terbaca.",
+                    `Periode ${formatAcademicYearLabel(academicYear)} baru memiliki data keikutsertaan untuk ` +
+                    `${coverage.studentsWithFlags} dari ${coverage.totalStudents} mahasiswa. Lengkapi lewat sinkronisasi ` +
+                    "data akademik atau Impor Keikutsertaan agar kelayakan Metode Penelitian terbaca.",
                 type: "simpta_period_snapshot_incomplete",
                 data: {
                     academicYearId: academicYear.id,

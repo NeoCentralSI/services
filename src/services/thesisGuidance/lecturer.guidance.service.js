@@ -1141,12 +1141,12 @@ export async function sendWarningNotificationService(userId, thesisId) {
 	// Warning text per activity level (`slow` | `at_risk`).
 	const warningMessages = {
 		slow: {
-			title: "⚠️ Peringatan Progress Tugas Akhir",
+			title: "Peringatan Progress Tugas Akhir",
 			body: `Halo ${studentName}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
 			notifBody: `Progress tugas akhir Anda terdeteksi lambat. Dosen pembimbing ${lecturerName} mengingatkan Anda untuk segera menjadwalkan bimbingan.`
 		},
 		at_risk: {
-			title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+			title: "Peringatan Serius: Progress Tugas Akhir",
 			body: `Halo ${studentName}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
 			notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Dosen pembimbing ${lecturerName} meminta Anda segera menghubungi beliau.`
 		},

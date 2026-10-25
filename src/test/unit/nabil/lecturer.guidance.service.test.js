@@ -510,7 +510,7 @@ describe("Lecturer Warning Notification", () => {
       expect(result).toMatchObject({ success: true, warningType: "slow" });
       const [recipients, push] = mockPush.sendFcmToUsers.mock.calls[0];
       expect(recipients).toEqual(["user-mhs-1"]);
-      expect(push.title).toBe("⚠️ Peringatan Progress Tugas Akhir");
+      expect(push.title).toBe("Peringatan Progress Tugas Akhir");
       expect(push.data.warningType).toBe("slow");
       expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("terdeteksi lambat");
     });
@@ -524,7 +524,7 @@ describe("Lecturer Warning Notification", () => {
 
       expect(result).toMatchObject({ success: true, warningType: "at_risk" });
       const push = mockPush.sendFcmToUsers.mock.calls[0][1];
-      expect(push.title).toBe("🚨 Peringatan Serius: Progress Tugas Akhir");
+      expect(push.title).toBe("Peringatan Serius: Progress Tugas Akhir");
       expect(push.data.warningType).toBe("at_risk");
       expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("Berisiko");
     });

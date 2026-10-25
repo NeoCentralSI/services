@@ -1361,8 +1361,8 @@ async function approveReadiness(kind, thesisId, userId, notes) {
   if (studentUserId) {
     await notifyUsers([studentUserId], {
       title: isFullyApproved
-        ? `🎉 Kesiapan ${config.title} Disetujui Penuh!`
-        : `✅ Persetujuan ${config.title} dari ${roleLabel}`,
+        ? `Kesiapan ${config.title} Disetujui Penuh!`
+        : `Persetujuan ${config.title} dari ${roleLabel}`,
       message: isFullyApproved
         ? `Selamat! Semua pembimbing telah menyetujui kesiapan ${config.noun} Anda. Anda sekarang dapat mendaftar ${config.noun}.`
         : `${supervisorName} telah menyetujui kesiapan ${config.noun} Anda. Menunggu persetujuan dari pembimbing lainnya.`,
@@ -1413,7 +1413,7 @@ async function revokeReadiness(kind, thesisId, userId, notes) {
   const studentUserId = thesis.student?.user?.id;
   if (studentUserId) {
     await notifyUsers([studentUserId], {
-      title: `⚠️ Persetujuan ${config.title} Dibatalkan`,
+      title: `Persetujuan ${config.title} Dibatalkan`,
       message: `${supervisorName} telah membatalkan persetujuan kesiapan ${config.noun} Anda.${notes ? ` Alasan: ${notes}` : ""}`,
       data: { type: `${kind}_readiness_revoked`, thesisId },
     });
@@ -1475,7 +1475,7 @@ async function requestReadinessApproval(kind, thesisId, userId) {
   const studentName = thesis.student?.user?.fullName || "Mahasiswa";
   if (supervisorUserIds.length > 0) {
     await notifyUsers(supervisorUserIds, {
-      title: `🔔 Permintaan Persetujuan ${config.title}`,
+      title: `Permintaan Persetujuan ${config.title}`,
       message: `${studentName} meminta persetujuan kesiapan ${config.noun}. Syarat sistem sudah terpenuhi.`,
       data: { type: `${kind}_readiness_requested`, thesisId },
     });

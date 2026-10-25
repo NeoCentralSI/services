@@ -626,7 +626,7 @@ export const getOverview = async (userId) => {
 
     mataKuliahMkwu: {
 
-      label: "Lulus Semua Mata Kuliah MKWU",
+      label: "Lulus Semua Mata Kuliah Wajib Umum (MKWU)",
 
       met: !!student.mkwuCompleted,
 

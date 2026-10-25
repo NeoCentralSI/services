@@ -82,9 +82,9 @@ export async function runDailyThesisReminderJob() {
           daysSinceLastActivity = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
           
           if (daysSinceLastActivity > 14) {
-            activityMessage = `⚠️ Sudah ${daysSinceLastActivity} hari sejak aktivitas bimbingan terakhir.`;
+            activityMessage = `Sudah ${daysSinceLastActivity} hari sejak aktivitas bimbingan terakhir.`;
           } else if (daysSinceLastActivity > 7) {
-            activityMessage = `📝 ${daysSinceLastActivity} hari sejak bimbingan terakhir.`;
+            activityMessage = `${daysSinceLastActivity} hari sejak bimbingan terakhir.`;
           }
         }
 
@@ -118,7 +118,7 @@ export async function runDailyThesisReminderJob() {
 
         // Send FCM notification to student
         await sendFcmToUsers([studentUserId], {
-          title: "🎓 Reminder Tugas Akhir",
+          title: "Pengingat Tugas Akhir",
           body: notificationBody,
           data: {
             type: "daily_thesis_reminder",
@@ -139,7 +139,7 @@ export async function runDailyThesisReminderJob() {
     const finished = new Date();
     const duration = finished.getTime() - started.getTime();
     console.log(
-      `✅ [daily-thesis-reminder] Job finished at ${finished.toISOString()} ` +
+      `[daily-thesis-reminder] Job finished at ${finished.toISOString()} ` +
       `— sent: ${sentCount}, failed: ${failedCount}, duration: ${duration}ms`
     );
 

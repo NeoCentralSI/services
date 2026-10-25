@@ -76,8 +76,8 @@ export async function runGuidanceReminderJob() {
         // Send to student
         if (studentUserId) {
           await sendFcmToUsers([studentUserId], {
-            title: "🔔 Reminder: Bimbingan Hari Ini",
-            body: `Kamu memiliki jadwal bimbingan dengan ${supervisorName} hari ini, ${approvedTime}`,
+            title: "Pengingat: Bimbingan Hari Ini",
+            body: `Anda memiliki jadwal bimbingan dengan ${supervisorName} hari ini, ${approvedTime}`,
             data: {
               type: "guidance_reminder",
               guidanceId: guidance.id,
@@ -90,7 +90,7 @@ export async function runGuidanceReminderJob() {
         // Send to supervisor
         if (supervisorUserId) {
           await sendFcmToUsers([supervisorUserId], {
-            title: "🔔 Reminder: Bimbingan Hari Ini",
+            title: "Pengingat: Bimbingan Hari Ini",
             body: `Anda memiliki jadwal bimbingan dengan ${studentName} hari ini, ${approvedTime}`,
             data: {
               type: "guidance_reminder",
@@ -108,7 +108,7 @@ export async function runGuidanceReminderJob() {
 
     const finished = new Date();
     console.log(
-      `✅ [guidance-reminder] Job finished at ${finished.toISOString()} — total: ${guidances.length}, sent: ${sentCount}, failed: ${failedCount}`
+      `[guidance-reminder] Job finished at ${finished.toISOString()} — total: ${guidances.length}, sent: ${sentCount}, failed: ${failedCount}`
     );
 
     return { total: guidances.length, sent: sentCount, failed: failedCount };

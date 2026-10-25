@@ -27,6 +27,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `f2-api.mjs` | Mahasiswa yang tidak mengambil Tugas Akhir semester ini (atau belum diketahui) terblokir dari bimbingan, milestone, pendaftaran seminar/sidang, dan pengajuan perubahan, dengan baris syarat di Seminar dan Sidang; revisi dan yudisium tetap jalan; predikat kelulusan dihitung dari IPK dan masa studi; arsip urut tanggal pelaksanaan; Pembimbing 1 lebih dulu; peran Tim Pengelola CPL hilang | sembilan seeder |
 | `f3-api.mjs` | Formulir TA-07 Bukti Kehadiran Seminar: PDF, dokumen resmi yang dikenali Cek Dokumen, versi baru hanya bila isinya berubah, dan kehadiran yang belum diverifikasi ditolak. |
 | `f4-api.mjs` | Grafik detail periode Yudisium: ringkasan peserta per angkatan, predikat terhitung, dan topik (lima teratas + Lainnya); hanya untuk peran yang boleh melihat periode. |
+| `g1-api.mjs` | Kalender dan Agenda Mendatang: siapa melihat event apa (Admin, audiens), isi event seminar (judul, status, lokasi, peserta berperan, tanggal benar), dan agenda maksimal 5 dari sekarang. |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 

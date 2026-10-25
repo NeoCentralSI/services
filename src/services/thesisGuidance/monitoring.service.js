@@ -614,12 +614,12 @@ export async function sendWarningNotificationService(userId, thesisId) {
   // Warning text per activity level (`slow` | `at_risk`).
   const warningMessages = {
     slow: {
-      title: "⚠️ Peringatan Progress Tugas Akhir",
+      title: "Peringatan Progress Tugas Akhir",
       body: `Halo ${studentName}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
       notifBody: `Progress tugas akhir Anda terdeteksi lambat. Departemen mengingatkan Anda untuk segera menjadwalkan bimbingan.`
     },
     at_risk: {
-      title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+      title: "Peringatan Serius: Progress Tugas Akhir",
       body: `Halo ${studentName}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
       notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Departemen meminta Anda segera menghubungi dosen pembimbing.`
     },
@@ -727,12 +727,12 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
   // Warning text per activity level (`slow` | `at_risk`).
   const warningMessages = {
     slow: {
-      title: "⚠️ Peringatan: Progress Tugas Akhir",
+      title: "Peringatan: Progress Tugas Akhir",
       body: (name, days) => `Halo ${name}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
       notifBody: (days) => `Anda tidak ada update progress selama ${days} hari. Segera hubungi dosen pembimbing Anda.`
     },
     at_risk: {
-      title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+      title: "Peringatan Serius: Progress Tugas Akhir",
       body: (name, days) => `Halo ${name}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
       notifBody: (days) => `Progress Anda terhenti selama ${days} hari (aktivitas: Berisiko). Segera hubungi dosen pembimbing Anda.`
     }
