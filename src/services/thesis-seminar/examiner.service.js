@@ -331,6 +331,7 @@ export async function respondExaminerAssignment(seminarId, examinerId, payload, 
       select: {
         student: { select: { user: { select: { id: true, fullName: true } } } },
         thesisSupervisors: {
+          orderBy: { role: { name: "asc" } },
           include: { lecturer: { include: { user: { select: { id: true } } } } },
         },
       },

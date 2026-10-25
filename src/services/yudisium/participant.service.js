@@ -18,6 +18,7 @@ import * as requirementRepo from "../../repositories/yudisium/requirement.reposi
 import * as xlsx from "xlsx";
 
 import { ROLES } from "../../constants/roles.js";
+import { getStudentGraduationSummary } from "../../helpers/graduation-predicate.helper.js";
 
 
 
@@ -1745,41 +1746,6 @@ const formatGpa = (value) => {
 
 
 
-const formatStudyDuration = (enrollmentYear, endDate) => {
-
-  const year = Number(enrollmentYear);
-
-  if (!Number.isInteger(year) || !endDate) return "-";
-
-
-
-  const start = new Date(year, 7, 1);
-
-  const end = new Date(endDate);
-
-  if (Number.isNaN(end.getTime()) || end < start) return "-";
-
-
-
-  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-
-  if (end.getDate() >= start.getDate()) months += 1;
-
-  months = Math.max(months, 1);
-
-
-
-  const years = Math.floor(months / 12);
-
-  const remainingMonths = months % 12;
-
-  if (years <= 0) return `${remainingMonths} Bulan`;
-
-  if (remainingMonths <= 0) return `${years} Tahun`;
-
-  return `${years} Tahun ${remainingMonths} Bulan`;
-
-};
 
 
 
@@ -2448,6 +2414,9 @@ const buildLearningCertificatePdf = async ({
 
   const signatureDate = yudisium.appointedAt || yudisium.eventDate || new Date();
 
+  // Predicate and study length are computed up to the semester of this yudisium period.
+  const graduation = await getStudentGraduationSummary(student.id, { academicYear: yudisium.academicYear ?? null });
+
   const studentName = user.fullName || "-";
 
   const studentNim = user.identityNumber || "-";
@@ -2838,9 +2807,9 @@ const buildLearningCertificatePdf = async ({
 
         <div>Total SKS Lulus: <strong>${escapeHtml(student.sksCompleted ?? "-")} SKS</strong></div>
 
-        <div>Lama Studi: <strong>${escapeHtml(formatStudyDuration(student.enrollmentYear, signatureDate))}</strong></div>
+        <div>Lama Studi: <strong>${escapeHtml(graduation.studyLength)}</strong></div>
 
-        <div>Predikat: <strong>${escapeHtml(student.graduationPredicate || "-")}</strong></div>
+        <div>Predikat: <strong>${escapeHtml(graduation.predicate || "—")}</strong></div>
 
       </div>
 

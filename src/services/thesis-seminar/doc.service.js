@@ -4,6 +4,7 @@ import { mkdir, writeFile, unlink } from "fs/promises";
 import * as docRepo from "../../repositories/thesis-seminar/doc.repository.js";
 import * as coreRepo from "../../repositories/thesis-seminar/thesis-seminar.repository.js";
 import prisma from "../../config/prisma.js";
+import { assertStudentThesisActionAllowed } from "../thesisLifecycle.service.js";
 import { TA_PHASE } from "../../constants/thesisStatus.js";
 import { ENV } from "../../config/env.js";
 import { getActiveAcademicYear, formatAcademicYearLabel } from "../../helpers/academicYear.helper.js";
@@ -216,6 +217,8 @@ export async function uploadDocument(seminarId, studentId, file, requirementId) 
 
   const thesis = await coreRepo.getThesisWithSeminar(studentId);
   if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
+  // Registration and its documents need a student allowed to act (leave, the TA course).
+  await assertStudentThesisActionAllowed(studentId, { thesis: { id: thesis.id } });
   const academicYear = await getActiveAcademicYear();
   if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);
 

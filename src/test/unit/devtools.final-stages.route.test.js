@@ -4,37 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 
-const { finalStages, yudisium } = vi.hoisted(() => ({
-  finalStages: {
-    getFinalStagesOverview: vi.fn(async () => ({ seminar: null })),
-    previewEventStatus: vi.fn(async () => ({ prerequisites: [], effects: ["x"] })),
-    previewDeleteEvent: vi.fn(),
-    previewApproveRevisions: vi.fn(),
-    applyEventStatus: vi.fn(async () => ({ id: "s1" })),
-    approveAllRevisions: vi.fn(),
-    deleteEvent: vi.fn(),
-    updateEventSchedule: vi.fn(),
-    kindConfig: (kind) => {
-      if (!["seminar", "defence"].includes(kind)) {
-        const error = new Error("Jenis harus seminar atau defence.");
-        error.statusCode = 400;
-        throw error;
-      }
-      return {};
-    },
-    EVENT_STATUS_LABELS: { passed: "Lulus" },
-  },
-  yudisium: {
-    PARTICIPANT_STATUS_LABELS: {},
-    ...Object.fromEntries([
-      "listPeriods", "updatePeriodDates", "getStudentYudisium", "previewRegister", "registerParticipant", "previewRemoveParticipant",
-      "removeParticipant", "previewParticipantStatus", "applyParticipantStatus", "setRequirementItems", "setExitSurvey", "setCplScore",
-      "setAllCplPassing", "setOneCplFailing", "setCplRecommendation",
-    ].map((name) => [name, vi.fn(async () => ({}))])),
-  },
-}));
+const { prismaMock, logAudit } = vi.hoisted(() => {
+  const model = () => ({ findMany: vi.fn(async () => []), count: vi.fn(async () => 0), findUnique: vi.fn(), update: vi.fn() });
+  return {
+    prismaMock: { thesisSeminar: model(), thesisDefence: model(), yudisium: model(), yudisiumParticipant: model() },
+    logAudit: vi.fn(),
+  };
+});
 
-vi.mock("../../config/prisma.js", () => ({ default: {} }));
+vi.mock("../../config/prisma.js", () => ({ default: prismaMock }));
 vi.mock("../../middlewares/auth.middleware.js", () => ({
   authGuard: (req, res, next) => {
     const role = req.headers["x-test-role"];
@@ -46,8 +24,11 @@ vi.mock("../../middlewares/auth.middleware.js", () => ({
     roles.includes(req.user.role) ? next() : res.status(403).json({ success: false, message: "Forbidden" }),
 }));
 vi.mock("../../services/research-method/eligibility.service.js", () => ({ setStudentPeriodFlags: vi.fn(), ACADEMIC_FLAG_SOURCE: { DEVTOOLS: "devtools" } }));
-vi.mock("../../services/devtools/devtools-final-stages.service.js", () => finalStages);
-vi.mock("../../services/devtools/devtools-yudisium.service.js", () => yudisium);
+vi.mock("../../services/auditLog.service.js", () => ({
+  logAudit,
+  AUDIT_ACTIONS: { DEVTOOLS_DATA_CHANGED: "DEVTOOLS_DATA_CHANGED" },
+  ENTITY_TYPES: { THESIS: "THESIS", STUDENT: "STUDENT", YUDISIUM: "YUDISIUM" },
+}));
 
 async function appWith(env = {}) {
   vi.resetModules();
@@ -64,39 +45,39 @@ async function appWith(env = {}) {
 }
 
 const ENDPOINTS = [
-  ["get", "/devtools/final-stages/s1"],
-  ["post", "/devtools/final-stages/s1/seminar/preview"],
-  ["post", "/devtools/final-stages/s1/seminar/status"],
-  ["post", "/devtools/final-stages/s1/defence/approve-revisions"],
-  ["delete", "/devtools/final-stages/s1/defence"],
-  ["patch", "/devtools/final-stages/seminar/e1/schedule"],
-  ["get", "/devtools/yudisium/periods"],
-  ["patch", "/devtools/yudisium/periods/y1"],
-  ["get", "/devtools/yudisium/students/s1"],
-  ["post", "/devtools/yudisium/students/s1/register"],
-  ["delete", "/devtools/yudisium/participants/p1"],
-  ["post", "/devtools/yudisium/participants/p1/status"],
-  ["post", "/devtools/yudisium/participants/p1/requirements"],
-  ["post", "/devtools/yudisium/participants/p1/exit-survey"],
-  ["patch", "/devtools/yudisium/students/s1/cpl/c1"],
-  ["post", "/devtools/yudisium/students/s1/cpl/all-pass"],
-  ["post", "/devtools/yudisium/students/s1/cpl/one-fail"],
-  ["post", "/devtools/yudisium/students/s1/cpl/c1/recommendation"],
+  ["get", "/devtools/seminars"],
+  ["patch", "/devtools/seminars/s1"],
+  ["get", "/devtools/defences"],
+  ["patch", "/devtools/defences/d1"],
+  ["get", "/devtools/yudisium-periods"],
+  ["patch", "/devtools/yudisium-periods/y1"],
+  ["get", "/devtools/yudisium-participants"],
+  ["patch", "/devtools/yudisium-participants/p1"],
 ];
 
-describe("DevTools routes for Seminar Hasil, Sidang TA and Yudisium", () => {
+const seminarRow = (overrides = {}) => ({
+  id: "s1",
+  status: "scheduled",
+  date: new Date("2026-11-02T00:00:00.000Z"),
+  startTime: new Date("1970-01-01T13:30:00.000Z"),
+  endTime: new Date("1970-01-01T15:30:00.000Z"),
+  thesisId: "t1",
+  thesis: { student: { user: { fullName: "Uji Demo", identityNumber: "2211529202" } } },
+  ...overrides,
+});
+
+describe("DevTools tables for Seminar Hasil, Sidang and Yudisium", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("reject unauthenticated requests and every role except Admin, without writing", async () => {
     const app = await appWith();
     for (const [method, url] of ENDPOINTS) {
       expect((await request(app)[method](url).send({})).status).toBe(401);
-      for (const role of ["Mahasiswa", "Pembimbing 1", "Ketua Departemen", "Sekretaris Departemen", "GKM"]) {
+      for (const role of ["Mahasiswa", "Pembimbing 1", "Ketua Departemen", "GKM"]) {
         expect((await request(app)[method](url).set("x-test-role", role).send({})).status).toBe(403);
       }
     }
-    expect(finalStages.applyEventStatus).not.toHaveBeenCalled();
-    expect(yudisium.applyParticipantStatus).not.toHaveBeenCalled();
+    expect(prismaMock.thesisSeminar.update).not.toHaveBeenCalled();
   });
 
   it("are off in production unless ENABLE_DEVTOOLS is on", async () => {
@@ -105,19 +86,70 @@ describe("DevTools routes for Seminar Hasil, Sidang TA and Yudisium", () => {
       expect((await request(off)[method](url).set("x-test-role", "Admin").send({})).status).toBe(404);
     }
     const on = await appWith({ NODE_ENV: "production", ENABLE_DEVTOOLS: "true" });
-    expect((await request(on).get("/devtools/final-stages/s1").set("x-test-role", "Admin")).status).toBe(200);
+    expect((await request(on).get("/devtools/seminars").set("x-test-role", "Admin")).status).toBe(200);
   });
 
-  it("pass the Admin as actor", async () => {
+  it("writes the status and the schedule as given, with no application rule, and logs it", async () => {
     const app = await appWith();
-    const res = await request(app).post("/devtools/final-stages/s1/seminar/status").set("x-test-role", "Admin").send({ target: "passed" });
+    prismaMock.thesisSeminar.findUnique.mockResolvedValue(seminarRow());
+    prismaMock.thesisSeminar.update.mockImplementation(async ({ data }) => seminarRow(data));
+    const res = await request(app).patch("/devtools/seminars/s1").set("x-test-role", "Admin")
+      .send({ status: "passed", date: "2020-01-05", startTime: "23:00", endTime: "06:00" });
     expect(res.status).toBe(200);
-    expect(finalStages.applyEventStatus).toHaveBeenCalledWith({ kind: "seminar", studentId: "s1", target: "passed", mode: "change", actorUserId: "admin-1" });
+    expect(prismaMock.thesisSeminar.update.mock.calls[0][0].data).toEqual({
+      status: "passed",
+      date: new Date("2020-01-05T00:00:00.000Z"),
+      startTime: new Date("1970-01-01T23:00:00.000Z"),
+      endTime: new Date("1970-01-01T06:00:00.000Z"),
+    });
+    expect(res.body.data).toMatchObject({ status: "passed", date: "2020-01-05", startTime: "23:00", endTime: "06:00", studentName: "Uji Demo" });
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: "admin-1",
+      action: "DEVTOOLS_DATA_CHANGED",
+      entityId: "t1",
+      oldValues: { eventStatus: "scheduled", date: "2026-11-02", startTime: "13:30", endTime: "15:30" },
+      metadata: { source: "devtools", operation: "update", scope: "seminar" },
+    }));
   });
 
-  it("reject an unknown kind", async () => {
+  it("Mulai sekarang: start five minutes ago, end two hours from now", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-25T03:00:00.000Z") }); // 10:00 WIB
     const app = await appWith();
-    expect((await request(app).post("/devtools/final-stages/s1/proposal/status").set("x-test-role", "Admin").send({ target: "passed" })).status).toBe(400);
+    prismaMock.thesisDefence.findUnique.mockResolvedValue(seminarRow({ id: "d1" }));
+    prismaMock.thesisDefence.update.mockImplementation(async ({ data }) => seminarRow({ id: "d1", ...data }));
+    const res = await request(app).patch("/devtools/defences/d1").set("x-test-role", "Admin").send({ preset: "now" });
+    vi.useRealTimers();
+    expect(res.body.data).toMatchObject({ date: "2026-10-25", startTime: "09:55", endTime: "12:00", status: "scheduled" });
+  });
+
+  it("Sudah lewat: yesterday at the same clock", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-25T03:00:00.000Z") });
+    const app = await appWith();
+    prismaMock.thesisSeminar.findUnique.mockResolvedValue(seminarRow());
+    prismaMock.thesisSeminar.update.mockImplementation(async ({ data }) => seminarRow(data));
+    const res = await request(app).patch("/devtools/seminars/s1").set("x-test-role", "Admin").send({ preset: "past" });
+    vi.useRealTimers();
+    expect(res.body.data).toMatchObject({ date: "2026-10-24", startTime: "13:30", endTime: "15:30" });
+  });
+
+  it("rejects an unknown status and a malformed date", async () => {
+    const app = await appWith();
+    prismaMock.thesisSeminar.findUnique.mockResolvedValue(seminarRow());
+    expect((await request(app).patch("/devtools/seminars/s1").set("x-test-role", "Admin").send({ status: "ongoing" })).status).toBe(400);
+    expect((await request(app).patch("/devtools/seminars/s1").set("x-test-role", "Admin").send({ date: "5 Jan" })).status).toBe(400);
+    prismaMock.yudisiumParticipant.findUnique.mockResolvedValue({ id: "p1", status: "registered", thesis: { studentId: "st1" } });
+    expect((await request(app).patch("/devtools/yudisium-participants/p1").set("x-test-role", "Admin").send({ status: "lulus" })).status).toBe(400);
+    expect(prismaMock.thesisSeminar.update).not.toHaveBeenCalled();
+  });
+
+  it("sets a participant status directly", async () => {
+    const app = await appWith();
+    const row = { id: "p1", status: "registered", yudisium: { id: "y1", name: "Yudisium" }, thesis: { studentId: "st1", student: { user: { fullName: "A", identityNumber: "1" } } } };
+    prismaMock.yudisiumParticipant.findUnique.mockResolvedValue(row);
+    prismaMock.yudisiumParticipant.update.mockResolvedValue({ ...row, status: "finalized" });
+    const res = await request(app).patch("/devtools/yudisium-participants/p1").set("x-test-role", "Admin").send({ status: "finalized" });
+    expect(res.status).toBe(200);
+    expect(prismaMock.yudisiumParticipant.update.mock.calls[0][0].data).toEqual({ status: "finalized" });
   });
 
   it("are not auto-mounted by app.js outside /devtools", () => {

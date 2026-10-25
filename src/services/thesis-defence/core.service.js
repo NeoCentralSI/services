@@ -1228,6 +1228,7 @@ export async function generateInvitationLetter(defenceId, nomorSurat) {
         include: {
           student: { include: { user: true } },
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             include: {
               role: true,
               lecturer: { include: { user: true } }
@@ -1518,7 +1519,7 @@ export async function syncDefenceToOutlook(defenceId, adminId = null) {
         thesis: {
           include: {
             student: { include: { user: true } },
-            thesisSupervisors: { include: { lecturer: { include: { user: true } } } },
+            thesisSupervisors: { orderBy: { role: { name: "asc" } }, include: { lecturer: { include: { user: true } } } },
           },
         },
         examiners: true,

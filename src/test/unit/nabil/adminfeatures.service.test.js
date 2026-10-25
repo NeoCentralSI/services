@@ -78,6 +78,18 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
   },
 }));
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
+// The graduation predicate is computed from tables this test does not fake.
+vi.mock("../../../helpers/graduation-predicate.helper.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getGraduationSummaries: vi.fn(async (students) => new Map(students.map((s) => [s.id, { predicate: null, studySemesters: null, studyLength: "-" }]))),
+  getStudentGraduationSummary: vi.fn(async () => ({ predicate: null, studySemesters: null, studyLength: "-" })),
+}));
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../repositories/adminfeatures.repository.js", () => mockAdminRepo);
 vi.mock("../../../config/mailer.js", () => mockMailer);

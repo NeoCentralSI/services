@@ -35,7 +35,7 @@ export async function findEligibleExaminers(seminarId) {
     select: {
       thesis: {
         select: {
-          thesisSupervisors: { select: { lecturerId: true } },
+          thesisSupervisors: { orderBy: { role: { name: "asc" } }, select: { lecturerId: true } },
         },
       },
     },

@@ -33,6 +33,7 @@ import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/t
 import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
 import { REPEAT_PROPOSAL_LOCK_REASON } from "../../constants/thesis-guidance-evaluation.js";
 import { assertThesisNotOnLeave, ON_LEAVE_STUDENT_REASON } from "../../helpers/thesis-leave.helper.js";
+import { assertStudentThesisActionAllowed, getStudentThesisActionBlock } from "../thesisLifecycle.service.js";
 import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 import {
   THESIS_STATUS,
@@ -331,6 +332,7 @@ export async function requestGuidanceService(
 
   let { student, thesis } = await getActiveThesisOrThrow(userId);
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
   thesis = await ensureThesisAcademicYear(thesis);
   // Phase is set by the server from the thesis status, never by the client.
   const phase = phaseForThesisStatus(thesis.status);
@@ -599,6 +601,7 @@ export async function rescheduleGuidanceService(
     where: { id: guidance.thesisId },
   });
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // The student may move only a request the lecturer has not answered yet.
   if (guidance.status !== GUIDANCE_STATUS.REQUESTED) {
@@ -1525,6 +1528,11 @@ export async function getMyThesisDetailService(userId) {
       lastActivityAt: progress.lastActivityAt,
       daysSinceActivity: progress.daysSinceActivity,
       supervisionClock: progress.supervisionClock,
+      // Why the student may not act now (leave, the TA course of the semester), for the disabled buttons.
+      actionBlock: await (async () => {
+        const block = await getStudentThesisActionBlock(fullThesis.studentId ?? fullThesis.student?.id, { thesis: { id: fullThesis.id } });
+        return { code: block.code, reason: block.reason, takingThesisCourse: block.takingThesisCourse };
+      })(),
       // True while the thesis is back in proposal because of a guidance evaluation.
       repeatingProposal: fullThesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(fullThesis.id) : false,
       // Current phase, Penetapan Pembimbing, and per-phase counts for display.

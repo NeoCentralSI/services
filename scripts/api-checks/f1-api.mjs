@@ -1,8 +1,7 @@
-// DevTools for Seminar Hasil, Sidang TA and Yudisium: every demo account of
-// seed-thesis-final-stages.js is in the state it promises, read through the requirement checks of
-// the modules (student overviews, assessment access, revisions); then each DevTools action is
-// checked from the student, the lecturers and the Admin. Run on a clean seed (nine seeders); it
-// writes data.
+// Demo accounts of seed-thesis-final-stages.js are in the state they promise, read through the
+// requirement checks of the modules (student overviews, assessment access, revisions); then the
+// DevTools tables change status and dates directly (no side effect, no notification, logged).
+// Run on a clean seed (nine seeders); it writes data.
 import { api, BASE, check, login, run, summary } from "./lib-api.mjs";
 
 const prisma = (await import(process.cwd() + "/src/config/prisma.js")).default;
@@ -54,204 +53,66 @@ await run("1 akun seed", async () => {
   const both = await api(ADMIN, "GET", "/adminfeatures/students?page=1&pageSize=100&programFilter=both");
   check("Metopen + TA Semester Ini: mengambil keduanya di semester aktif", both.json?.students?.some((s) => s.fullName === "Uji Demo Metopen dan TA Semester Ini"), both.json?.meta?.total);
 
+  const blocked = await seminarOverview("tidak_ambil_ta");
+  check("Tidak Mengambil TA: TA Penelitian, syarat mata kuliah TA tidak terpenuhi", blocked?.checklist?.mataKuliahTa?.met === false && blocked.allChecklistMet === false, blocked?.checklist?.mataKuliahTa);
+
   const audienceSource = await prisma.thesisSeminar.count({ where: { status: { in: ["passed", "passed_with_revision"] }, thesis: { student: { user: { email: { startsWith: "ta_demo_" } } } } } });
   check("seed menyediakan seminar selesai sebagai sumber kehadiran audiens", audienceSource >= 1, audienceSource);
 });
 
 await run("2 akses DevTools", async () => {
-  const sid = await studentId("seminar_berlangsung");
-  const kadep = await api(KADEP, "GET", `/devtools/final-stages/${sid}`);
-  const student = await api(demo("seminar_berlangsung"), "POST", `/devtools/final-stages/${sid}/seminar/status`, { target: "passed" });
-  const anon = await fetch(`${BASE}/devtools/final-stages/${sid}`);
+  const kadep = await api(KADEP, "GET", "/devtools/seminars");
+  const student = await api(demo("seminar_berlangsung"), "PATCH", "/devtools/seminars/x", { status: "passed" });
+  const anon = await fetch(`${BASE}/devtools/seminars`);
   check("non-Admin ditolak (403), tanpa login 401", kadep.status === 403 && student.status === 403 && anon.status === 401, `${kadep.status} ${student.status} ${anon.status}`);
-  const bare = await fetch(`${BASE}/devtools-final-stages/final-stages/${sid}`);
+  const bare = await fetch(`${BASE}/devtools-final-stages/seminars`);
   check("rute DevTools tidak terpasang di luar /devtools", bare.status === 404, bare.status);
-  const overview = await dev("GET", `/final-stages/${sid}`);
-  check("Admin membaca kartu seminar dan sidang", overview.status === 200 && overview.data?.seminar?.displayStatus === "ongoing" && overview.data.defence === null, overview.data?.seminar?.displayStatus);
+  const old = await dev("GET", `/final-stages/${await studentId("seminar_berlangsung")}`);
+  check("panel dan endpoint F1 sudah tidak ada", old.status === 404, old.status);
 });
 
-await run("3 jadwal", async () => {
-  const sid = await studentId("seminar_berlangsung");
-  const card = (await dev("GET", `/final-stages/${sid}`)).data.seminar;
-  const tomorrow = await dev("PATCH", `/final-stages/seminar/${card.id}/schedule`, { preset: "tomorrow" });
-  const viewTomorrow = await seminarOverview("seminar_berlangsung");
-  check("Besok: Terjadwal, status tersimpan tetap", tomorrow.status === 200 && viewTomorrow?.seminar?.status === "scheduled" && tomorrow.data.status === "scheduled", tomorrow.data);
-  const now = await dev("PATCH", `/final-stages/seminar/${card.id}/schedule`, { preset: "now" });
-  const viewNow = await seminarOverview("seminar_berlangsung");
-  check("Mulai sekarang: Sedang Berlangsung bagi mahasiswa", now.status === 200 && viewNow?.seminar?.status === "ongoing", now.data);
-  const past = await dev("PATCH", `/final-stages/seminar/${card.id}/schedule`, { preset: "past" });
-  check("Sudah lewat: kemarin", past.status === 200 && past.data.date < new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10), past.data);
-  const manual = await dev("PATCH", `/final-stages/seminar/${card.id}/schedule`, { date: "2020-01-06", startTime: "07:00", endTime: "07:30" });
-  check("tanggal dan jam bebas, termasuk masa lampau", manual.status === 200 && manual.data.date === "2020-01-06" && manual.data.startTime === "07:00", manual.data);
-  const bad = await dev("PATCH", `/final-stages/seminar/${card.id}/schedule`, { date: "2020-01-06", startTime: "10:00", endTime: "09:00" });
-  check("jam mulai setelah jam selesai ditolak", bad.status === 400, bad.json?.message);
-  await dev("PATCH", `/final-stages/seminar/${card.id}/schedule`, { preset: "now" });
-  const audit = await prisma.auditLog.findFirst({ where: { action: "DEVTOOLS_DATA_CHANGED", entityId: card ? (await thesisOf("seminar_berlangsung")).id : "-" }, orderBy: { createdAt: "desc" } });
-  check("tercatat di log audit: pelaku Admin, sumber DevTools", audit?.changes?.metadata?.source === "devtools" && audit.changes.metadata.operation === "schedule" && !!audit.userId, audit?.changes?.metadata);
-});
-
-await run("4 status seminar", async () => {
-  const sid = await studentId("seminar_berlangsung");
-  const preview = await dev("POST", `/final-stages/${sid}/seminar/preview`, { target: "passed_with_revision" });
-  check("pratinjau efek samping sebelum konfirmasi", preview.status === 200 && preview.data?.effects?.some((e) => /Item revisi/.test(e)), preview.data?.effects);
+await run("3 tabel Seminar Hasil dan Sidang", async () => {
+  const list = await dev("GET", "/seminars?search=Uji Demo Seminar Berlangsung");
+  const row = list.data?.find?.((r) => r.studentName === "Uji Demo Seminar Berlangsung") ?? list.json?.data?.[0];
+  check("daftar seminar dengan cari: mahasiswa, status, tanggal, jam", list.status === 200 && row?.status === "scheduled" && !!row.date && !!row.startTime, row);
   const notificationsBefore = await prisma.notification.count();
-  const apply = await dev("POST", `/final-stages/${sid}/seminar/status`, { target: "passed_with_revision" });
+  const past = await dev("PATCH", `/seminars/${row.id}`, { preset: "past" });
+  check("Sudah lewat: kemarin, status tetap", past.status === 200 && past.json?.data?.status === "scheduled" && past.json.data.date < new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10), past.json?.data);
+  const now = await dev("PATCH", `/seminars/${row.id}`, { preset: "now" });
   const view = await seminarOverview("seminar_berlangsung");
-  const revisions = await api(demo("seminar_berlangsung"), "GET", `/thesis-seminars/${view?.seminar?.id}/revisions`);
-  check("Lulus dengan Revisi: mahasiswa melihat hasil dan revisi yang belum selesai", apply.status === 200 && view?.seminar?.status === "passed_with_revision" && !!view.seminar.resultFinalizedAt && revisions.data?.summary?.total >= 1 && revisions.data.summary.finished === 0, revisions.data?.summary);
-  const finalization = await api(KADEP, "GET", `/thesis-seminars/${view?.seminar?.id}/finalization`);
-  check("pembimbing: nilai penguji terkirim dan konsisten dengan hasil", finalization.data?.allExaminerSubmitted === true && finalization.data.averageScore >= finalization.data.minimumPassingScore, finalization.data?.averageScore);
-  const blocked = await defenceOverview("seminar_berlangsung");
-  check("syarat sidang belum terpenuhi selama revisi seminar belum selesai", blocked?.checklist?.revisiSeminar?.met === false, blocked?.checklist?.revisiSeminar);
-  const approve = await dev("POST", `/final-stages/${sid}/seminar/approve-revisions`);
-  const afterApprove = await defenceOverview("seminar_berlangsung");
-  check("Setujui semua revisi: revisi seminar selesai bagi syarat sidang", approve.status === 200 && afterApprove?.checklist?.revisiSeminar?.met === true, afterApprove?.checklist?.revisiSeminar);
-  check("aksi DevTools tidak mengirim notifikasi", (await prisma.notification.count()) === notificationsBefore, await prisma.notification.count());
-
-  const failed = await dev("POST", `/final-stages/${sid}/seminar/status`, { target: "failed" });
+  check("Mulai sekarang: mahasiswa melihat Sedang Berlangsung", now.status === 200 && view?.seminar?.status === "ongoing", view?.seminar?.status);
+  const direct = await dev("PATCH", `/seminars/${row.id}`, { status: "passed", date: "2020-01-06", startTime: "23:00", endTime: "06:00" });
+  const stored = await prisma.thesisSeminar.findUnique({ where: { id: row.id }, include: { examiners: true } });
   const thesis = await thesisOf("seminar_berlangsung");
   const supervisors = await prisma.thesisSupervisors.findMany({ where: { thesisId: thesis.id } });
-  const failedView = await seminarOverview("seminar_berlangsung");
-  check("Tidak Lulus: persetujuan pembimbing direset, seminar menjadi riwayat, mahasiswa harus mendaftar ulang", failed.status === 200 && supervisors.every((s) => !s.seminarReady) && failedView?.seminar === null && failedView.checklist.pembimbing.met === false, failedView?.checklist?.pembimbing);
-  const finalizationFailed = await api(KADEP, "GET", `/thesis-seminars/${(await prisma.thesisSeminar.findFirst({ where: { thesisId: thesis.id }, orderBy: { createdAt: "desc" } })).id}/finalization`);
-  check("nilai akhir di bawah nilai minimum", finalizationFailed.data?.seminar?.finalScore < finalizationFailed.data?.minimumPassingScore, finalizationFailed.data?.seminar?.finalScore);
-
-  const back = await dev("POST", `/final-stages/${sid}/seminar/status`, { target: "scheduled" });
-  const backView = await seminarOverview("seminar_berlangsung");
-  const restored = await prisma.thesisSupervisors.findMany({ where: { thesisId: thesis.id } });
-  const examiners = await prisma.thesisSeminarExaminer.findMany({ where: { thesisSeminarId: backView?.seminar?.id } });
-  check("mundur ke Terjadwal: hasil dan revisi hilang, nilai menjadi draf, persetujuan dipulihkan, bisa dinilai ulang", back.status === 200 && backView?.seminar?.status === "ongoing" && !backView.seminar.resultFinalizedAt && restored.every((s) => s.seminarReady) && examiners.every((e) => e.assessmentScore !== null && !e.assessmentSubmittedAt), examiners.map((e) => [e.assessmentScore, !!e.assessmentSubmittedAt]));
-  const finalize = await api(KADEP, "GET", `/thesis-seminars/${backView?.seminar?.id}/finalization`);
-  check("pembimbing bisa menetapkan hasil lagi setelah penguji mengirim nilai", finalize.data?.supervisor?.canFinalize === true && finalize.data.allExaminerSubmitted === false, finalize.data?.supervisor);
-
-  const registered = await dev("POST", `/final-stages/${sid}/seminar/status`, { target: "registered" });
-  const registeredRow = await prisma.thesisSeminar.findFirst({ where: { thesisId: thesis.id }, orderBy: { createdAt: "desc" }, include: { examiners: true, requirementDocuments: true } });
-  check("mundur ke Terdaftar: penguji dan jadwal dihapus, dokumen kembali menunggu verifikasi", registered.status === 200 && registeredRow.status === "registered" && registeredRow.examiners.length === 0 && !registeredRow.date && registeredRow.requirementDocuments.every((d) => d.status === "submitted"), registeredRow.requirementDocuments.length);
-  const adminView = await api(ADMIN, "GET", `/thesis-seminars/${registeredRow.id}`);
-  check("Admin melihat seminar Terdaftar dengan dokumen untuk diverifikasi", adminView.status === 200, adminView.status);
+  check("status dan jadwal ditulis langsung, tanpa validasi aplikasi dan tanpa efek samping", direct.status === 200 && stored.status === "passed" && !stored.resultFinalizedAt && stored.finalScore === null && stored.examiners.every((e) => !e.assessmentSubmittedAt) && supervisors.every((s) => s.seminarReady), { status: stored.status, finalScore: stored.finalScore });
+  check("tidak ada notifikasi", (await prisma.notification.count()) === notificationsBefore, await prisma.notification.count());
+  const audit = await prisma.auditLog.findFirst({ where: { action: "DEVTOOLS_DATA_CHANGED", entityId: thesis.id }, orderBy: { createdAt: "desc" } });
+  check("tercatat di Log Aktivitas: pelaku Admin, sumber DevTools", audit?.changes?.metadata?.source === "devtools" && audit.changes.newValues?.eventStatus === "passed" && !!audit.userId, audit?.changes);
+  const bad = await dev("PATCH", `/seminars/${row.id}`, { status: "ongoing" });
+  check("status di luar enum ditolak", bad.status === 400, bad.json?.message);
+  await dev("PATCH", `/seminars/${row.id}`, { status: "scheduled", preset: undefined });
+  const defences = await dev("GET", "/defences?status=passed_with_revision");
+  check("tabel sidang dengan filter status", defences.status === 200 && (defences.json?.data ?? []).every((r) => r.status === "passed_with_revision") && (defences.json?.data ?? []).some((r) => r.studentName === "Uji Demo Sidang Lulus Revisi"), defences.json?.meta);
 });
 
-await run("5 status sidang dan TA", async () => {
-  const sid = await studentId("sidang_berlangsung");
-  const guard = await dev("POST", `/final-stages/${sid}/seminar/status`, { target: "scheduled" });
-  check("penjaga urutan: seminar tidak bisa dimundurkan saat sudah ada sidang", guard.status === 409 && /Hapus sidang mahasiswa ini terlebih dahulu/.test(guard.json?.message ?? ""), guard.json?.message);
-  const guardDelete = await dev("DELETE", `/final-stages/${sid}/seminar`);
-  check("penjaga urutan: seminar tidak bisa dihapus saat sudah ada sidang", guardDelete.status === 409, guardDelete.status);
-
-  const preview = await dev("POST", `/final-stages/${sid}/defence/preview`, { target: "passed" });
-  check("pratinjau Lulus: TA akan menjadi Selesai", preview.data?.effects?.includes("TA akan menjadi Selesai"), preview.data?.effects);
-  const passed = await dev("POST", `/final-stages/${sid}/defence/status`, { target: "passed" });
-  const thesis = await thesisOf("sidang_berlangsung");
-  const yud = await yudisiumOverview("sidang_berlangsung");
-  check("Lulus: TA Selesai lewat jalur asli, syarat lulus sidang yudisium terpenuhi", passed.status === 200 && thesis.status === "completed" && yud?.checklist?.lulusSidang?.met === true, thesis.status);
-  const lifecycle = await prisma.auditLog.findFirst({ where: { entityId: thesis.id, action: "THESIS_STATUS_CHANGED" }, orderBy: { createdAt: "desc" } });
-  check("perubahan TA tercatat seperti jalur asli (sumber sidang)", lifecycle?.changes?.newValues?.status === "completed" && lifecycle.changes.metadata?.source === "defence", lifecycle?.changes);
-  const finalization = await api(KADEP, "GET", `/thesis-defences/${passed.data?.id}/finalization`);
-  check("nilai pembimbing dan penguji terisi, nilai akhir mencapai minimum", finalization.data?.defence?.finalScore >= finalization.data?.minimumPassingScore && finalization.data.supervisorAssessmentSubmitted === true, finalization.data?.defence?.finalScore);
-
-  const back = await dev("POST", `/final-stages/${sid}/defence/status`, { target: "scheduled" });
-  const reopened = await thesisOf("sidang_berlangsung");
-  const view = await defenceOverview("sidang_berlangsung");
-  const row = await prisma.thesisDefence.findUnique({ where: { id: passed.data?.id } });
-  check("mundur Lulus → Terjadwal: TA kembali Penelitian, hasil hilang, nilai pembimbing draf", back.status === 200 && reopened.status === "research" && view?.defence?.status === "ongoing" && !row.resultFinalizedAt && row.supervisorScore !== null && !row.supervisorAssessmentSubmittedAt, reopened.status);
-
-  const revision = await dev("POST", `/final-stages/${sid}/defence/status`, { target: "passed_with_revision" });
-  const stillResearch = await thesisOf("sidang_berlangsung");
-  check("Lulus dengan Revisi: TA tetap Penelitian sampai revisi difinalkan", revision.status === 200 && stillResearch.status === "research", stillResearch.status);
-  const approve = await dev("POST", `/final-stages/${sid}/defence/approve-revisions`);
-  const done = await thesisOf("sidang_berlangsung");
-  check("Setujui semua revisi sidang: TA Selesai", approve.status === 200 && done.status === "completed", done.status);
-
-  const failed = await dev("POST", `/final-stages/${sid}/defence/status`, { target: "failed" });
-  const failedThesis = await thesisOf("sidang_berlangsung");
-  const failedView = await defenceOverview("sidang_berlangsung");
-  check("Tidak Lulus: TA kembali Penelitian, persetujuan sidang direset", failed.status === 200 && failedThesis.status === "research" && failedView?.checklist?.pembimbing?.met === false && failedView.defence === null, failedView?.checklist?.pembimbing);
-
-  const create = await dev("POST", `/final-stages/${sid}/defence/preview`, { target: "scheduled", mode: "create" });
-  check("Buat sidang: syarat yang belum terpenuhi tampil di pratinjau", create.data?.prerequisites?.some((p) => /kesiapan sidang/.test(p)), create.data?.prerequisites);
-  const created = await dev("POST", `/final-stages/${sid}/defence/status`, { target: "scheduled", mode: "create" });
-  const createdView = await defenceOverview("sidang_berlangsung");
-  check("Buat sidang Terjadwal: percobaan baru, penguji dan jadwal terisi", created.status === 200 && createdView?.defence?.status === "scheduled" && createdView.defence.examiners?.length >= 2, createdView?.defence?.status);
-
-  const remove = await dev("DELETE", `/final-stages/${sid}/defence`);
-  const removedView = await defenceOverview("sidang_berlangsung");
-  check("Hapus sidang: kembali ke riwayat percobaan sebelumnya (Tidak Lulus)", remove.status === 200 && removedView?.defence === null, removedView?.defence);
-});
-
-await run("6 buat dan hapus seminar, dokumen resmi", async () => {
-  const sid = await studentId("seminar_revisi");
-  const view = await seminarOverview("seminar_revisi");
-  const pdf = await api(demo("seminar_revisi"), "GET", `/thesis-seminars/${view?.seminar?.id}/assessment-result`);
-  const doc = await prisma.officialGeneratedDocument.findFirst({ where: { sourceId: view?.seminar?.id, status: "current" } });
-  check("dokumen hasil terbit saat diunduh (jalur asli)", pdf.status === 200 && !!doc, pdf.status);
-  const preview = await dev("POST", `/final-stages/${sid}/seminar/preview`, { target: "passed" });
-  check("pratinjau menyebut dokumen resmi yang akan dicabut", preview.data?.effects?.some((e) => /1 dokumen resmi akan dicabut/.test(e)), preview.data?.effects);
-  await dev("POST", `/final-stages/${sid}/seminar/status`, { target: "passed" });
-  const verify = await fetch(`${BASE}/official-documents/${doc?.verificationToken}`).then((r) => r.json());
-  check("hasil berubah: dokumen resmi lama dicabut", (verify?.data ?? verify)?.status === "revoked", (verify?.data ?? verify)?.status);
-
-  const fresh = await prisma.user.findFirst({ where: { email: "ta_mon_mulai_lalu@fti.unand.ac.id" }, select: { id: true } });
-  const createPreview = await dev("POST", `/final-stages/${fresh.id}/seminar/preview`, { target: "verified", mode: "create" });
-  const create = await dev("POST", `/final-stages/${fresh.id}/seminar/status`, { target: "verified", mode: "create" });
-  const created = await api("ta_mon_mulai_lalu", "GET", "/thesis-seminars/me/overview");
-  check("Buat seminar Terverifikasi: syarat dipenuhi otomatis, dokumen terverifikasi", create.status === 200 && created.data?.allChecklistMet === true && created.data?.seminar?.status === "verified", createPreview.data?.prerequisites);
-  const removePreview = await dev("POST", `/final-stages/${fresh.id}/seminar/preview`, { mode: "delete" });
-  const remove = await dev("DELETE", `/final-stages/${fresh.id}/seminar`);
-  const removed = await api("ta_mon_mulai_lalu", "GET", "/thesis-seminars/me/overview");
-  check("Hapus seminar: belum mendaftar lagi, persetujuan pembimbing tetap", remove.status === 200 && removed.data?.seminar === null && removed.data?.checklist?.pembimbing?.met === true, removePreview.data?.effects);
-});
-
-await run("7 yudisium", async () => {
-  const periods = (await dev("GET", "/yudisium/periods")).data ?? [];
-  const period = periods.find((p) => p.status === "open");
-  check("periode yudisium terbuka dari seed", !!period, periods.map((p) => p.status));
-  const closed = await dev("PATCH", `/yudisium/periods/${period.id}`, { preset: "close" });
-  const adminList = await api(ADMIN, "GET", "/yudisiums");
-  const listed = (adminList.data ?? []).find?.((y) => y.id === period.id);
-  check("Tutup pendaftaran sekarang: status periode Ditutup (dihitung dari tanggal)", closed.data?.status === "closed" && (!listed || listed.status === "closed"), closed.data?.status);
-  const event = await dev("PATCH", `/yudisium/periods/${period.id}`, { preset: "event" });
-  check("Acara hari ini: berlangsung", event.data?.status === "ongoing", event.data?.status);
-  const opened = await dev("PATCH", `/yudisium/periods/${period.id}`, { preset: "open" });
-  check("Buka pendaftaran sekarang: dibuka lagi", opened.data?.status === "open", opened.data?.status);
-
-  const sid = await studentId("siap_yudisium");
-  const register = await dev("POST", `/yudisium/students/${sid}/register`, { yudisiumId: period.id });
+await run("4 tabel Yudisium", async () => {
+  const periods = await dev("GET", "/yudisium-periods");
+  const period = periods.json?.data?.find((p) => p.name.startsWith("Yudisium Ganjil"));
+  check("daftar periode: nama, buka, tutup, acara", periods.status === 200 && !!period?.registrationOpenDate && !!period.eventDate, period);
+  const close = new Date(Date.now() - 60 * 1000).toISOString();
+  const changed = await dev("PATCH", `/yudisium-periods/${period.id}`, { registrationCloseDate: close });
   const view = await yudisiumOverview("siap_yudisium");
-  check("Daftar ke periode: exit survey terisi, dokumen terunggah, status Terdaftar", register.status === 200 && view?.participantStatus === "registered" && view.checklist.exitSurvey.met === true, view?.participantStatus);
-  const participant = (await dev("GET", `/yudisium/students/${sid}`)).data.participants[0];
-  const eligible = await dev("POST", `/yudisium/participants/${participant.id}/status`, { target: "eligible" });
-  const eligibleRow = await prisma.yudisiumParticipant.findUnique({ where: { id: participant.id } });
-  const scores = await prisma.studentCplScore.findMany({ where: { studentId: sid } });
-  check("Memenuhi Syarat: berkas terverifikasi dan CPL tervalidasi", eligible.status === 200 && eligibleRow.status === "eligible" && !!eligibleRow.requirementVerifiedAt && !!eligibleRow.cplValidatedAt && scores.every((s) => s.status === "validated"), eligibleRow.status);
-  const final = await dev("POST", `/yudisium/participants/${participant.id}/status`, { target: "finalized" });
-  const student = await prisma.student.findUnique({ where: { id: sid } });
-  const finalView = await yudisiumOverview("siap_yudisium");
-  check("Final: CPL final, status mahasiswa tidak diubah DevTools", final.status === 200 && finalView?.participantStatus === "finalized" && student.status === "active", student.status);
-  const guard = await dev("POST", `/final-stages/${sid}/defence/status`, { target: "scheduled" });
-  check("penjaga urutan: sidang tidak bisa diubah saat sudah terdaftar di yudisium", guard.status === 409 && /periode yudisium/.test(guard.json?.message ?? ""), guard.json?.message);
-  const back = await dev("POST", `/yudisium/participants/${participant.id}/status`, { target: "rejected" });
-  const backRow = await prisma.yudisiumParticipant.findUnique({ where: { id: participant.id } });
-  check("Ditolak: tidak memenuhi kedua syarat", back.status === 200 && backRow.status === "rejected" && !(backRow.requirementVerifiedAt && backRow.cplValidatedAt), backRow.status);
-  const remove = await dev("DELETE", `/yudisium/participants/${participant.id}`);
-  const removed = await yudisiumOverview("siap_yudisium");
-  check("Hapus dari periode: keikutsertaan, persyaratan, dan exit survey hilang", remove.status === 200 && removed?.participantStatus === null && removed.checklist.exitSurvey.met === false, removed?.participantStatus);
-
-  const cplSid = await studentId("yudisium_cpl_kurang");
-  const cplStudent = (await dev("GET", `/yudisium/students/${cplSid}`)).data;
-  const failing = cplStudent.cpl.find((c) => !c.passed);
-  const rec = await dev("POST", `/yudisium/students/${cplSid}/cpl/${failing.cplId}/recommendation`, { action: "create" });
-  check("Rekomendasi CPL dibuat (nilai tetap di bawah minimal)", rec.status === 200 && rec.data.cpl.find((c) => c.cplId === failing.cplId)?.hasRecommendation === true, rec.json?.message);
-  const resolve = await dev("POST", `/yudisium/students/${cplSid}/cpl/${failing.cplId}/recommendation`, { action: "resolve" });
-  const resolved = resolve.data?.cpl?.find((c) => c.cplId === failing.cplId);
-  check("Rekomendasi diselesaikan: nilai lama disimpan, nilai baru memenuhi, tervalidasi", resolve.status === 200 && resolved?.passed && resolved.oldScore === failing.score && resolved.status === "validated", resolved);
-  const del = await dev("POST", `/yudisium/students/${cplSid}/cpl/${failing.cplId}/recommendation`, { action: "delete" });
-  const deleted = del.data?.cpl?.find((c) => c.cplId === failing.cplId);
-  check("Rekomendasi dihapus: nilai sebelum perbaikan kembali", del.status === 200 && deleted?.score === failing.score && !deleted.hasRecommendation && deleted.status === "calculated", deleted);
-  const allPass = await dev("POST", `/yudisium/students/${cplSid}/cpl/all-pass`);
-  const oneFail = await dev("POST", `/yudisium/students/${cplSid}/cpl/one-fail`);
-  check("Semua memenuhi lalu Buat satu CPL tidak memenuhi", allPass.data?.cpl?.every((c) => c.passed) && oneFail.data?.cpl?.filter((c) => !c.passed).length === 1, oneFail.data?.cpl?.map((c) => c.score));
-  const items = await dev("POST", `/yudisium/participants/${cplStudent.participants[0].id}/requirements`, { action: "approve" });
-  check("Semua item persyaratan terverifikasi; status tetap Terdaftar karena CPL belum tervalidasi", items.data?.requirementVerified === true && items.data.participantStatus === "registered", items.data);
+  check("tanggal ditulis langsung; status periode dihitung dari tanggal", changed.status === 200 && (view?.yudisium === null || view?.yudisium?.status === "closed"), view?.yudisium?.status ?? null);
+  await dev("PATCH", `/yudisium-periods/${period.id}`, { registrationCloseDate: new Date(Date.now() + 14 * 86400e3).toISOString() });
+  const participants = await dev("GET", "/yudisium-participants?search=Uji Demo Yudisium CPL Kurang");
+  const participant = participants.json?.data?.[0];
+  check("daftar peserta: mahasiswa, periode, status", participant?.status === "registered" && participant.periodName === period.name, participant);
+  const set = await dev("PATCH", `/yudisium-participants/${participant.id}`, { status: "finalized" });
+  const student = await prisma.student.findUnique({ where: { id: await studentId("yudisium_cpl_kurang") } });
+  const scores = await prisma.studentCplScore.findMany({ where: { studentId: student.id } });
+  check("status peserta langsung, tanpa efek samping (mahasiswa tetap Aktif, CPL tidak final)", set.status === 200 && set.json?.data?.status === "finalized" && student.status === "active" && scores.every((s) => s.status !== "finalized"), student.status);
+  await dev("PATCH", `/yudisium-participants/${participant.id}`, { status: "registered" });
 });
 
 await prisma.$disconnect();

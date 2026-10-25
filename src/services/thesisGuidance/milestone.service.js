@@ -6,6 +6,7 @@ import { createNotification } from "../../repositories/notification.repository.j
 import { THESIS_PHASE, THESIS_STATUS, TA_PHASE, currentPhaseOf, phaseForThesisStatus, isThesisOnLeave } from "../../constants/thesisStatus.js";
 import { THESIS_STATUS_LABELS, THESIS_PHASE_LABELS, MILESTONE_STATUS_LABELS } from "../../constants/thesisLabels.js";
 import { isThesisPausedByLeave, ON_LEAVE_LECTURER_REASON } from "../../helpers/thesis-leave.helper.js";
+import { assertStudentThesisActionAllowed } from "../thesisLifecycle.service.js";
 import { getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 
 const milestoneStatusLabel = (status) => MILESTONE_STATUS_LABELS[status] ?? status;
@@ -351,6 +352,7 @@ export async function getMilestoneDetail(milestoneId, userId) {
 export async function createMilestone(thesisId, userId, data) {
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Get next order index
   const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId, phaseForThesisStatus(thesis.status));
@@ -446,6 +448,7 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   void topicId;
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
   const phase = phaseForThesisStatus(thesis.status);
 
   // Proposal templates are general; only thesis-phase templates come from the topic.
@@ -523,6 +526,7 @@ export async function updateMilestone(milestoneId, userId, data) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Prevent updating completed/validated milestones
   if (milestone.validatedBy && data.status !== "in_progress") {
@@ -551,6 +555,7 @@ export async function deleteMilestone(milestoneId, userId) {
     throw forbidden("Hanya mahasiswa yang dapat menghapus milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // A student may delete only a milestone that is not completed.
   if (milestone.status === "completed" || milestone.validatedBy) {
@@ -576,6 +581,7 @@ export async function updateMilestoneStatus(milestoneId, userId, newStatus, note
     throw forbidden("Hanya mahasiswa yang dapat mengubah status milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Validate status transition
   const currentStatus = milestone.status;
@@ -616,6 +622,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     throw forbidden("Hanya mahasiswa yang dapat mengubah progress milestone");
   }
   await ensureMilestoneWritable(milestone, milestoneThesis);
+  await assertStudentThesisActionAllowed(milestoneThesis.studentId, { thesis: { id: milestoneThesis.id } });
 
   if (milestone.status === "completed") {
     throw createError("Tidak dapat mengubah progress milestone yang sudah selesai");
@@ -696,6 +703,7 @@ export async function submitForReview(milestoneId, userId, studentNotes = null) 
     throw forbidden("Hanya mahasiswa yang dapat mengajukan review milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Review is requested for work in progress or a revised milestone.
   assertMilestoneStatus(milestone, ["in_progress", "revision_needed"], "diajukan untuk review");
@@ -958,6 +966,7 @@ export async function reorderMilestones(thesisId, userId, milestoneOrders) {
     throw forbidden("Hanya mahasiswa yang dapat mengatur ulang urutan milestone");
   }
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Validate that all milestone IDs belong to this thesis
   const existingMilestones = await milestoneRepo.findByThesisId(thesisId);

@@ -4,6 +4,20 @@ import prisma from "../../../config/prisma.js";
 import * as docService from "../../../services/thesis-seminar/doc.service.js";
 import * as examinerService from "../../../services/thesis-seminar/examiner.service.js";
 import * as coreService from "../../../services/thesis-seminar/core.service.js";
+import { resolveOperationalAcademicYear } from "../../../helpers/academicYear.helper.js";
+
+// Student TA actions need the Tugas Akhir course of the semester: the test student takes it.
+const takingCourseStudents = [];
+async function markTakingThesisCourse(studentId) {
+  const year = await resolveOperationalAcademicYear();
+  if (!year || !studentId) return;
+  takingCourseStudents.push(studentId);
+  await prisma.studentAcademicYearSnapshot.upsert({
+    where: { studentId_academicYearId: { studentId, academicYearId: year.id } },
+    update: { takingThesisCourse: true },
+    create: { studentId, academicYearId: year.id, takingThesisCourse: true, thesisCourseSource: "admin", capturedAt: new Date() },
+  });
+}
 
 vi.mock("../../../services/notification.service.js", () => ({ createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }), createNotificationService: vi.fn().mockResolvedValue(true) }));
 vi.mock("../../../services/push.service.js", () => ({ sendFcmToUsers: vi.fn().mockResolvedValue({ success: true }) }));
@@ -49,6 +63,7 @@ describe("Integration: Thesis Seminar Flow (Registration to Scheduling)", () => 
       }
 
       thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Int Test", status: "research", academicYearId: academicYear.id } });
+      await markTakingThesisCourse(thesis.studentId);
       supervisor = await prisma.thesisSupervisors.create({ data: { thesisId: thesis.id, lecturerId: lecturer.id, roleId: role.id, seminarReady: true } });
 
       await prisma.thesisGuidance.createMany({
@@ -73,6 +88,7 @@ describe("Integration: Thesis Seminar Flow (Registration to Scheduling)", () => 
   });
 
   afterAll(async () => {
+    await prisma.studentAcademicYearSnapshot.deleteMany({ where: { studentId: { in: takingCourseStudents } } }).catch(() => {});
     try {
       for (const filePath of uploadedPaths) await unlink(filePath).catch(() => {});
       if (seminarId) {

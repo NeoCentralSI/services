@@ -52,6 +52,12 @@ function requestView(request) {
 const requests = () => world.state.requests;
 const isPending = (r) => r.status === "pending";
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
 vi.mock("../../repositories/thesis-change-request.repository.js", () => ({
   findById: async (id) => requestView(requests().find((r) => r.id === id)),
   findOpenByThesisId: async (thesisId) => requestView(requests().find((r) => r.thesisId === thesisId && isPending(r))),

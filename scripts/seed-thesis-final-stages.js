@@ -23,8 +23,7 @@ import { PrismaClient } from "../src/generated/prisma/index.js";
 import { ROLES } from "../src/constants/roles.js";
 import { THESIS_STATUS, THESIS_PHASE } from "../src/constants/thesisStatus.js";
 import { mapScoreToGrade } from "../src/utils/score.util.js";
-import { buildSamplePdf } from "../src/services/devtools/devtools-support.js";
-import { generateScores } from "../src/services/devtools/devtools-final-stages.service.js";
+import { buildSamplePdf, generateScores } from "./lib/final-stages-seed.js";
 import { seedReadinessApprovals } from "./lib/readiness-audit.js";
 
 const prisma = new PrismaClient();
@@ -87,6 +86,8 @@ const ACCOUNTS = [
   { key: "yudisium_cpl_kurang", fullName: "Uji Demo Yudisium CPL Kurang", nim: "2211529208", title: "Aplikasi Pengelolaan Kegiatan Himpunan Mahasiswa",
     seminar: { status: "passed", held: 70 }, defence: { status: "passed", held: 21 }, yudisium: "registered", failingCpl: true },
   { key: "metopen_ta", fullName: "Uji Demo Metopen dan TA Semester Ini", nim: "2211529209", flagsOnly: true },
+  // TA in research, but not taking the Tugas Akhir course this semester: every TA action is blocked.
+  { key: "tidak_ambil_ta", fullName: "Uji Demo Tidak Mengambil TA", nim: "2211529210", title: "Sistem Informasi Pengelolaan Beban Mengajar", notTakingThesis: true },
 ];
 
 const email = (key) => `ta_demo_${key}@fti.unand.ac.id`;
@@ -430,6 +431,21 @@ async function setPeriodFlags(studentId, academicYearId) {
   });
 }
 
+/** "Mengambil Tugas Akhir" of the running semester; keeps a value set before (by another seeder or the Admin). */
+async function setThesisCourseFlag(studentId, academicYearId, value, source) {
+  const existing = await prisma.studentAcademicYearSnapshot.findUnique({ where: { studentId_academicYearId: { studentId, academicYearId } } });
+  if (existing?.takingThesisCourse !== null && existing?.takingThesisCourse !== undefined) return false;
+  // Taking Metode Penelitian this semester already allows the TA actions (a proposal that passed, K37).
+  if (source === "sia" && existing?.eligibleResearchMethod === true) return false;
+  const data = { takingThesisCourse: value, thesisCourseSource: source, thesisCourseCapturedAt: NOW };
+  await prisma.studentAcademicYearSnapshot.upsert({
+    where: { studentId_academicYearId: { studentId, academicYearId } },
+    update: data,
+    create: { studentId, academicYearId, capturedAt: NOW, ...data },
+  });
+  return true;
+}
+
 /** Eight approved attendances at seminars that took place, those of the demo accounts first. */
 async function addAttendance(student, thesisIds) {
   const seminars = await prisma.thesisSeminar.findMany({
@@ -613,6 +629,19 @@ async function main() {
     const count = await addAttendance(ready.student, seeded.map((s) => s.thesis.id));
     console.log(`  ✅ ${count} kehadiran seminar untuk ${ready.account.fullName}.`);
   }
+  // The TA actions of a thesis in research need the Tugas Akhir course of the semester (an
+  // unknown flag blocks). Demo accounts take it, except the one that shows the block; every other
+  // seeded thesis in research without a flag is recorded as taking it, as the SIA sync would.
+  const yearId = ctx.semesters.current.id;
+  for (const { student, account } of seeded) {
+    const thesis = await prisma.thesis.findFirst({ where: { studentId: student.id }, orderBy: { createdAt: "desc" }, select: { status: true } });
+    if (account.notTakingThesis) await setThesisCourseFlag(student.id, yearId, false, "admin");
+    else if (thesis?.status === THESIS_STATUS.RESEARCH) await setThesisCourseFlag(student.id, yearId, true, "admin");
+  }
+  const research = await prisma.thesis.findMany({ where: { status: THESIS_STATUS.RESEARCH }, select: { studentId: true } });
+  let marked = 0;
+  for (const { studentId } of research) if (await setThesisCourseFlag(studentId, yearId, true, "sia")) marked += 1;
+  console.log(`  ✅ ${marked} mahasiswa TA Penelitian lain ditandai mengambil Tugas Akhir semester ini.`);
   console.log(`\n✨ Selesai. ${ACCOUNTS.length} akun uji diproses.`);
 }
 

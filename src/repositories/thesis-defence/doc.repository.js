@@ -17,6 +17,7 @@ const requirementDocumentInclude = {
             select: { id: true }
           },
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             select: { lecturerId: true }
           }
         }

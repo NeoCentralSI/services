@@ -79,6 +79,7 @@ export async function findRevisionById(revisionId) {
                     }
                   },
                   thesisSupervisors: {
+                    orderBy: { role: { name: "asc" } },
                     select: {
                       lecturer: {
                         select: { user: { select: { id: true } } }

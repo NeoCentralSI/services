@@ -27,6 +27,8 @@ import {
 import { GUIDANCE_STATUS, GUIDANCE_ACTOR, OPEN_GUIDANCE_STATUSES } from "../constants/guidanceStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES } from "./auditLog.service.js";
 import { wholeDaysBetween } from "../helpers/thesis-progress.helper.js";
+import prisma from "../config/prisma.js";
+import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 
 /** Allowed status transitions. Leave is not a thesis status: it follows the student status. */
 export const THESIS_STATUS_TRANSITIONS = Object.freeze({
@@ -536,4 +538,79 @@ export async function announceThesisLifecycle(result) {
   } catch (error) {
     console.error("[ThesisLifecycle] notification failed:", error?.message);
   }
+}
+
+// ─── Student actions on a thesis ───────────────────────────────────────────────────────────
+
+export const THESIS_ACTION_BLOCK = Object.freeze({
+  ON_LEAVE: "on_leave",
+  NOT_TAKING_THESIS: "not_taking_thesis",
+  THESIS_COURSE_UNKNOWN: "thesis_course_unknown",
+});
+
+export const THESIS_ACTION_BLOCK_REASONS = Object.freeze({
+  [THESIS_ACTION_BLOCK.ON_LEAVE]: "Anda sedang cuti. Tugas akhir dijeda selama cuti.",
+  [THESIS_ACTION_BLOCK.NOT_TAKING_THESIS]:
+    "Anda tidak tercatat mengambil mata kuliah Tugas Akhir semester ini. Hubungi Admin Departemen bila ini keliru.",
+  // "Not known yet" blocks like the proposal shield (Pengajuan Pembimbing) does.
+  [THESIS_ACTION_BLOCK.THESIS_COURSE_UNKNOWN]: "Data perkuliahan Anda semester ini belum tersedia. Hubungi Admin Departemen.",
+});
+
+/** The requirement row shown with the seminar and defence requirements. */
+export const TAKING_THESIS_COURSE_LABEL = "Mengambil mata kuliah Tugas Akhir semester ini";
+
+/**
+ * Why the student may not act on their thesis now, or null. One rule for every student action
+ * of the TA phase (guidance requests and reschedules, milestones, seminar and defence
+ * registration, change requests):
+ * - a student on leave (K40) cannot act on an open thesis;
+ * - a thesis in research needs the student to take the Tugas Akhir course in the operational
+ *   semester (K36 flag `taking_thesis_course`), or Metode Penelitian: a proposal that passed this
+ *   semester starts research at once, without the TA course (K37). A student recorded as not
+ *   taking the TA course is blocked; flags not known yet block too, like the proposal shield.
+ * Proposal-phase theses are governed by Metode Penelitian and are not blocked by the TA course.
+ * Reading, revisions of a held seminar or defence, yudisium, and lecturer or Admin actions are
+ * never blocked.
+ */
+export async function getStudentThesisActionBlock(studentId, { thesis = null, client = prisma } = {}) {
+  const row = thesis?.status !== undefined && thesis?.studentStatus !== undefined
+    ? thesis
+    : await client.thesis.findFirst({
+      where: { studentId, ...(thesis?.id ? { id: thesis.id } : { status: { in: OPEN_THESIS_STATUSES } }) },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true, status: true, student: { select: { status: true } } },
+    });
+  const studentStatus = row?.studentStatus ?? row?.student?.status ?? null;
+  const flags = await currentSemesterCourseFlags(studentId, client);
+  const takingThesisCourse = flags.takingThesisCourse;
+  const result = (code) => ({ blocked: !!code, code, reason: code ? THESIS_ACTION_BLOCK_REASONS[code] : null, takingThesisCourse });
+  if (!row || !OPEN_THESIS_STATUSES.includes(row.status)) return result(null);
+  if (studentStatus === STUDENT_STATUS.ON_LEAVE) return result(THESIS_ACTION_BLOCK.ON_LEAVE);
+  if (row.status !== THESIS_STATUS.RESEARCH) return result(null);
+  if (takingThesisCourse === true || flags.eligibleResearchMethod === true) return result(null);
+  if (takingThesisCourse === false) return result(THESIS_ACTION_BLOCK.NOT_TAKING_THESIS);
+  return result(THESIS_ACTION_BLOCK.THESIS_COURSE_UNKNOWN);
+}
+
+/** "Mengambil Tugas Akhir" and "Mengambil Metode Penelitian" of the operational semester (null when not known). */
+export async function currentSemesterCourseFlags(studentId, client = prisma) {
+  const year = await resolveOperationalAcademicYear(client);
+  if (!year) return { takingThesisCourse: null, eligibleResearchMethod: null };
+  const row = await client.studentAcademicYearSnapshot.findUnique({
+    where: { studentId_academicYearId: { studentId, academicYearId: year.id } },
+    select: { takingThesisCourse: true, eligibleResearchMethod: true },
+  });
+  return { takingThesisCourse: row?.takingThesisCourse ?? null, eligibleResearchMethod: row?.eligibleResearchMethod ?? null };
+}
+
+/** Throws 403 with the reason when the student may not act on the thesis. */
+export async function assertStudentThesisActionAllowed(studentId, options = {}) {
+  const block = await getStudentThesisActionBlock(studentId, options);
+  if (block.blocked) {
+    const error = new Error(block.reason);
+    error.statusCode = 403;
+    error.code = block.code;
+    throw error;
+  }
+  return block;
 }

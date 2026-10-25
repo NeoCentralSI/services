@@ -11,6 +11,7 @@ import * as xlsx from "xlsx";
 import * as repo from "../../repositories/yudisium/exit-survey.repository.js";
 import { findStudentContext } from "./student.service.js";
 import prisma from "../../config/prisma.js";
+import { summarize } from "../../helpers/graduation-predicate.helper.js";
 import { convertHtmlToPdf } from "../../utils/pdf.util.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -307,7 +308,7 @@ export const getFormResponses = async (formId, filters = {}) => {
       ...(filters.yudisiumId && filters.yudisiumId !== "all" ? { yudisiumId: filters.yudisiumId } : {}),
     },
     include: {
-      yudisium: true,
+      yudisium: { include: { academicYear: { select: { year: true, semester: true } } } },
       exitSurveyAnswers: {
         include: {
           option: true,
@@ -328,6 +329,7 @@ export const getFormResponses = async (formId, filters = {}) => {
     orderBy: { exitSurveySubmittedAt: "desc" },
   });
 
+  const activeYear = await prisma.academicYear.findFirst({ where: { isActive: true }, select: { year: true, semester: true } });
   return participants.map((p) => {
     const answers = p.exitSurveyAnswers.flatMap((a) => {
       if (a.question?.questionType === "multiple_choice") {
@@ -366,7 +368,8 @@ export const getFormResponses = async (formId, filters = {}) => {
       genderLabel: getGenderLabel(p.thesis?.student?.user?.gender ?? null),
       enrollmentYear: p.thesis?.student?.enrollmentYear || null,
       gpa: p.thesis?.student?.gpa ?? null,
-      graduationPredicate: p.thesis?.student?.graduationPredicate ?? null,
+      // Computed from the GPA and the study length up to the semester of this yudisium period.
+      graduationPredicate: summarize(p.thesis?.student, p.yudisium?.academicYear ?? activeYear).predicate,
       answers,
     };
   });

@@ -22,6 +22,7 @@ import * as repo from "../repositories/thesis-change-request.repository.js";
 import { ROLES } from "../constants/roles.js";
 import { pageAcrossGroups, pageMeta, pageWindow, priorityGroups } from "../helpers/priority-paging.helper.js";
 import { THESIS_STATUS, isThesisOnLeave } from "../constants/thesisStatus.js";
+import { getStudentThesisActionBlock, THESIS_ACTION_BLOCK } from "./thesisLifecycle.service.js";
 import {
   THESIS_STATUS_LABELS,
   SUPERVISOR_POSITION_LABELS,
@@ -424,7 +425,13 @@ export async function getThesisChangeContext(userId, thesisId = null) {
 
   const requests = await repo.findByThesisId(thesis.id);
   const open = requests.find((request) => request.status === CHANGE_REQUEST_STATUS.PENDING) ?? null;
-  const typeBlocks = changeTypeBlocksFor(thesis, viewerRole, { hasOpenRequest: !!open });
+  let typeBlocks = changeTypeBlocksFor(thesis, viewerRole, { hasOpenRequest: !!open });
+  // The student's own request also needs them allowed to act (the TA course of the semester).
+  if (viewerRole === "student") {
+    const block = await getStudentThesisActionBlock(thesis.studentId, { thesis: { id: thesis.id } });
+    // A leave already has its own rule (getChangeBlockReason); here only the TA course.
+    if (block.blocked && block.code !== THESIS_ACTION_BLOCK.ON_LEAVE) typeBlocks = Object.fromEntries(Object.entries(typeBlocks).map(([type, reason]) => [type, reason ?? block.reason]));
+  }
   const blockReason = summarizeTypeBlocks(typeBlocks);
 
   return {
@@ -652,6 +659,10 @@ export async function submitRequest(userId, input) {
   const requestId = await prisma.$transaction(async (tx) => {
     const thesis = await repo.findThesisForChange(thesisId, tx);
     if (!thesis) throw new NotFoundError("Tugas akhir tidak ditemukan.");
+    if (viewerRoleOn(thesis, userId) === "student") {
+      const block = await getStudentThesisActionBlock(thesis.studentId, { thesis: { id: thesis.id }, client: tx });
+      if (block.blocked && block.code !== THESIS_ACTION_BLOCK.ON_LEAVE) throw new ForbiddenError(block.reason);
+    }
     assertMaySubmit(thesis, userId, input);
     return createRequest(tx, thesis, userId, input);
   });

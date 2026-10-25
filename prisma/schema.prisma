@@ -109,7 +109,6 @@ model Student {
   academicYearSnapshots           StudentAcademicYearSnapshot[]
 
   gpa                 Float?
-  graduationPredicate String? @map("graduation_predicate") @db.VarChar(100)
 
   @@index([sksCompleted], map: "idx_students_skscompleted")
   @@map("students")

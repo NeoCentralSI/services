@@ -134,6 +134,8 @@ export const findDetailById = async (participantId) => {
 
           thesisSupervisors: {
 
+            orderBy: { role: { name: "asc" } },
+
             select: {
 
               lecturer: { select: { user: { select: { fullName: true } } } },

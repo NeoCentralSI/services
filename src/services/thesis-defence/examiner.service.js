@@ -435,6 +435,7 @@ export async function respondExaminerAssignment(defenceId, examinerId, payload, 
       select: {
         studentId: true,
         thesisSupervisors: {
+          orderBy: { role: { name: "asc" } },
           include: { lecturer: { include: { user: { select: { id: true } } } } },
         },
       },

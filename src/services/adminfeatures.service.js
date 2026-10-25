@@ -48,6 +48,7 @@ import {
 export { listAdminAuditLogs };
 import { assertAdminRoleExclusive, assertUserUpdateAllowed } from "./admin-account-rules.service.js";
 import { applyStudentStatusChange, announceStudentStatusChange } from "./thesisLifecycle.service.js";
+import { getGraduationSummaries, getStudentGraduationSummary } from "../helpers/graduation-predicate.helper.js";
 
 import {
 	getOrCreateRole,
@@ -424,12 +425,12 @@ export function normalizeRoleInputName(name) {
 	if (lower === "pembimbing 2" || lower === "pembimbing2") return [ROLES.PEMBIMBING_2];
 	if (lower === "ketua departemen" || lower === "kadep") return [ROLES.KETUA_DEPARTEMEN];
 	if (lower === "sekretaris departemen" || lower === "sekdep") return [ROLES.SEKRETARIS_DEPARTEMEN];
-	if (lower === "gkm") return [ROLES.GKM];
+	// CPL is managed by the GKM; the old "Tim Pengelola CPL" label maps to it.
+	if (["gkm", "tim pengelola cpl", "pengelola cpl"].includes(lower)) return [ROLES.GKM];
 	if (lower === "admin") return [ROLES.ADMIN];
 	// The stored role value keeps the old name; the import also accepts the UI label.
 	if (["koordinator matkul metopen", "koordinator metopen", "koordinator metode penelitian"].includes(lower)) return [ROLES.KOORDINATOR_METODE_PENELITIAN];
 	if (lower === "koordinator yudisium") return [ROLES.KOORDINATOR_YUDISIUM];
-	if (lower === "tim pengelola cpl" || lower === "pengelola cpl") return [ROLES.TIM_PENGELOLA_CPL];
 	return [raw];
 }
 
@@ -1266,6 +1267,7 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 	]);
 
 	// Transform data
+	const graduation = await getGraduationSummaries(students.filter((u) => u.student).map((u) => ({ id: u.student.id, gpa: u.student.gpa, enrollmentYear: u.student.enrollmentYear })));
 	const transformedStudents = students.map((user) => ({
 		id: user.id,
 		fullName: user.fullName,
@@ -1280,7 +1282,8 @@ export async function getStudents({ page = 1, pageSize = 10, search = "", enroll
 				enrollmentYear: user.student.enrollmentYear,
 				sksCompleted: user.student.sksCompleted,
 				gpa: user.student.gpa,
-				graduationPredicate: user.student.graduationPredicate,
+				// Computed from the GPA and the study length (never stored).
+				graduationPredicate: graduation.get(user.student.id)?.predicate ?? null,
 				mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
 				mkwuCompleted: user.student.mkwuCompleted,
 				internshipCompleted: user.student.internshipCompleted,
@@ -1762,6 +1765,7 @@ export async function getStudentDetail(userId) {
 			})),
 		};
 	});
+	const graduationSummary = await getStudentGraduationSummary(user.student.id);
 
 	return {
 		id: user.id,
@@ -1776,7 +1780,9 @@ export async function getStudentDetail(userId) {
 			enrollmentYear: user.student.enrollmentYear,
 			sksCompleted: user.student.sksCompleted,
 			gpa: user.student.gpa,
-			graduationPredicate: user.student.graduationPredicate,
+			// Computed from the GPA and the study length (never stored).
+			graduationPredicate: graduationSummary.predicate,
+			studyLength: graduationSummary.studyLength,
 			mandatoryCoursesCompleted: user.student.mandatoryCoursesCompleted,
 			mkwuCompleted: user.student.mkwuCompleted,
 			internshipCompleted: user.student.internshipCompleted,
@@ -2018,11 +2024,6 @@ export async function adminUpdateStudent(id, data, actor = {}) {
 	if (data.enrollmentYear !== undefined) updateData.enrollmentYear = parseInt(data.enrollmentYear);
 	if (data.currentSemester !== undefined) updateData.currentSemester = data.currentSemester === "" ? null : parseInt(data.currentSemester);
 	if (data.gpa !== undefined) updateData.gpa = normalizeGpa(data.gpa);
-	if (data.graduationPredicate !== undefined) {
-		updateData.graduationPredicate = data.graduationPredicate
-			? String(data.graduationPredicate).trim()
-			: null;
-	}
 
 	if (data.mandatoryCoursesCompleted !== undefined) updateData.mandatoryCoursesCompleted = !!data.mandatoryCoursesCompleted;
 	if (data.mkwuCompleted !== undefined) updateData.mkwuCompleted = !!data.mkwuCompleted;

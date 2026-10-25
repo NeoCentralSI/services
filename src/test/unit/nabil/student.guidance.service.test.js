@@ -48,6 +48,12 @@ const { mockPrisma, mockRepo, mockPush, mockNotif, mockCalendar, mockDateUtil, m
   mockAcademicYear: { getActiveAcademicYear: vi.fn().mockResolvedValue({ id: "ay-1", semester: "Ganjil", year: 2025 }) },
 }));
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../repositories/thesisGuidance/student.guidance.repository.js", () => mockRepo);
 vi.mock("../../../services/push.service.js", () => mockPush);
