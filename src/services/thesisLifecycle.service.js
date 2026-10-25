@@ -557,7 +557,7 @@ export const THESIS_ACTION_BLOCK_REASONS = Object.freeze({
 });
 
 /** The requirement row shown with the seminar and defence requirements. */
-export const TAKING_THESIS_COURSE_LABEL = "Mengambil mata kuliah Tugas Akhir semester ini";
+export const TAKING_THESIS_COURSE_LABEL = "Mengambil Mata Kuliah Tugas Akhir Semester Ini";
 
 /**
  * Why the student may not act on their thesis now, or null. One rule for every student action

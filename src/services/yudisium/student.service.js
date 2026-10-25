@@ -606,7 +606,7 @@ export const getOverview = async (userId) => {
 
       revisiSidang: {
 
-        label: "Menyelesaikan revisi sidang TA",
+        label: "Menyelesaikan Revisi Sidang TA",
 
         met: revisionFinalized,
 
@@ -618,7 +618,7 @@ export const getOverview = async (userId) => {
 
     mataKuliahWajib: {
 
-      label: "Lulus semua mata kuliah wajib",
+      label: "Lulus Semua Mata Kuliah Wajib",
 
       met: !!student.mandatoryCoursesCompleted,
 
@@ -626,7 +626,7 @@ export const getOverview = async (userId) => {
 
     mataKuliahMkwu: {
 
-      label: "Lulus semua mata kuliah MKWU",
+      label: "Lulus Semua Mata Kuliah MKWU",
 
       met: !!student.mkwuCompleted,
 
@@ -634,7 +634,7 @@ export const getOverview = async (userId) => {
 
     mataKuliahKerjaPraktik: {
 
-      label: "Lulus mata kuliah kerja praktik",
+      label: "Lulus Mata Kuliah Kerja Praktik",
 
       met: !!student.internshipCompleted,
 
@@ -642,7 +642,7 @@ export const getOverview = async (userId) => {
 
     mataKuliahKkn: {
 
-      label: "Lulus mata kuliah KKN",
+      label: "Lulus Mata Kuliah KKN",
 
       met: !!student.kknCompleted,
 

@@ -280,24 +280,24 @@ export const getStudentYudisiumOverview = async (userId) => {
             required: REQUIRED_SKS,
         },
         revisiSidang: {
-            label: "Menyelesaikan revisi sidang TA",
+            label: "Menyelesaikan Revisi Sidang TA",
             met: revisionFinalized,
             revisionFinalizedAt: latestDefence?.revisionFinalizedAt ?? null,
         },
         mataKuliahWajib: {
-            label: "Lulus semua mata kuliah wajib",
+            label: "Lulus Semua Mata Kuliah Wajib",
             met: !!student.mandatoryCoursesCompleted,
         },
         mataKuliahMkwu: {
-            label: "Lulus semua mata kuliah MKWU",
+            label: "Lulus Semua Mata Kuliah MKWU",
             met: !!student.mkwuCompleted,
         },
         mataKuliahKerjaPraktik: {
-            label: "Lulus mata kuliah kerja praktik",
+            label: "Lulus Mata Kuliah Kerja Praktik",
             met: !!student.internshipCompleted,
         },
         mataKuliahKkn: {
-            label: "Lulus mata kuliah KKN",
+            label: "Lulus Mata Kuliah KKN",
             met: !!student.kknCompleted,
         },
         exitSurvey: {
