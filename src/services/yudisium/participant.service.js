@@ -18,7 +18,8 @@ import * as requirementRepo from "../../repositories/yudisium/requirement.reposi
 import * as xlsx from "xlsx";
 
 import { ROLES } from "../../constants/roles.js";
-import { getStudentGraduationSummary } from "../../helpers/graduation-predicate.helper.js";
+import { GRADUATION_PREDICATE } from "../../constants/graduationPredicate.js";
+import { getStudentGraduationSummary, summarize } from "../../helpers/graduation-predicate.helper.js";
 import { DOCUMENT_QR_PLACEHOLDER, documentBaseStyles, findPositionHolder, formatDocumentDate, letterheadHtml, signatureBlockHtml } from "../../utils/document-template.util.js";
 
 
@@ -3495,3 +3496,67 @@ export const finalizeParticipants = async (yudisiumId, userId = null) => {
   };
 
 };
+
+const TOP_TOPICS = 5;
+// Best first; students below the last threshold have no predicate.
+const PREDICATE_ORDER = [...Object.values(GRADUATION_PREDICATE), "none"];
+
+/**
+ * The charts of a yudisium period: participants per cohort, per graduation predicate (computed,
+ * F2) and per thesis topic (five largest plus "Lainnya"). Rejected participants are left out.
+ */
+export const getParticipantSummary = async (yudisiumId) => {
+  const yudisium = await prisma.yudisium.findUnique({
+    where: { id: yudisiumId },
+    select: { id: true, academicYear: { select: { year: true, semester: true } } },
+  });
+  if (!yudisium) throwError("Periode yudisium tidak ditemukan", 404);
+
+  const participants = await prisma.yudisiumParticipant.findMany({
+    where: { yudisiumId, status: { not: "rejected" } },
+    select: {
+      thesis: {
+        select: {
+          thesisTopic: { select: { id: true, name: true } },
+          student: { select: { id: true, enrollmentYear: true, gpa: true } },
+        },
+      },
+    },
+  });
+  const activeYear = yudisium.academicYear
+    ? null
+    : await prisma.academicYear.findFirst({ where: { isActive: true }, select: { year: true, semester: true } });
+  const academicYear = yudisium.academicYear ?? activeYear;
+
+  const count = (map, key, name) => {
+    const entry = map.get(key) ?? { id: key, name, count: 0 };
+    entry.count += 1;
+    map.set(key, entry);
+  };
+  const cohorts = new Map();
+  const predicates = new Map();
+  const topics = new Map();
+  for (const participant of participants) {
+    const student = participant.thesis?.student;
+    const cohort = student?.enrollmentYear ? String(student.enrollmentYear) : "none";
+    count(cohorts, cohort, cohort === "none" ? "Belum diisi" : cohort);
+    const predicate = summarize(student, academicYear).predicate ?? "none";
+    count(predicates, predicate, predicate === "none" ? "Tanpa predikat" : predicate);
+    const topic = participant.thesis?.thesisTopic;
+    count(topics, topic?.id ?? "none", topic?.name ?? "Belum diisi");
+  }
+
+  const byCount = (a, b) => b.count - a.count || a.name.localeCompare(b.name);
+  const sortedTopics = [...topics.values()].sort(byCount);
+  const topTopics = sortedTopics.slice(0, TOP_TOPICS);
+  const others = sortedTopics.slice(TOP_TOPICS).reduce((sum, topic) => sum + topic.count, 0);
+  if (others > 0) topTopics.push({ id: "others", name: "Lainnya", count: others });
+
+  return {
+    total: participants.length,
+    enrollmentYears: [...cohorts.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    predicates: PREDICATE_ORDER.map((name) => predicates.get(name)).filter(Boolean).map((entry) => ({ ...entry, value: entry.id })),
+    topics: topTopics,
+  };
+};
+

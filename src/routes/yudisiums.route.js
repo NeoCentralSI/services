@@ -78,6 +78,7 @@ router.delete("/:id", requireAnyRole(EVENT_MANAGER_ROLES), ctrl.removeEvent);
 // PARTICIPANTS
 // ============================================================
 router.get("/:id/participants", requireAnyRole(VIEWER_ROLES), ctrl.getParticipants);
+router.get("/:id/participants/summary", requireAnyRole(VIEWER_ROLES), ctrl.getParticipantSummary);
 router.get(
   "/:id/participants/options",
   requireAnyRole(EVENT_MANAGER_ROLES),
