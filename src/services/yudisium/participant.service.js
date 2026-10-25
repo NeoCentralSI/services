@@ -1835,6 +1835,8 @@ const mapCplScoresForReport = (scores) =>
 
 
 
+// The radar keeps its colours (second exception to the monochrome rule, after the CPL
+// certificate): score and threshold are not readable in grey. The rest of the report is monochrome.
 const buildRadarSvg = (scores) => {
 
   const width = 310;
@@ -1889,7 +1891,7 @@ const buildRadarSvg = (scores) => {
 
       ).join(" ");
 
-      return `<polygon points="${points}" fill="none" stroke="#cccccc" stroke-width="1" />`;
+      return `<polygon points="${points}" fill="none" stroke="#d8dee9" stroke-width="1" />`;
 
     })
 
@@ -1907,9 +1909,9 @@ const buildRadarSvg = (scores) => {
 
       return `
 
-        <line x1="${centerX}" y1="${centerY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#dddddd" stroke-width="1" />
+        <line x1="${centerX}" y1="${centerY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" />
 
-        <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#000000">${escapeHtml(score.code)}</text>
+        <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#41668f">${escapeHtml(score.code)}</text>
 
       `;
 
@@ -1933,17 +1935,17 @@ const buildRadarSvg = (scores) => {
 
       ${axes}
 
-      <polygon points="${polygon(scoreValues)}" fill="#555555" fill-opacity="0.55" stroke="#000000" stroke-width="2" />
+      <polygon points="${polygon(scoreValues)}" fill="#2f78c4" fill-opacity="0.84" stroke="#2f78c4" stroke-width="2" />
 
-      <polygon points="${polygon(thresholdValues)}" fill="none" stroke="#000000" stroke-width="1.5" stroke-dasharray="4 3" />
+      <polygon points="${polygon(thresholdValues)}" fill="#df4b43" fill-opacity="0.82" stroke="#df4b43" stroke-width="2" />
 
-      <rect x="92" y="314" width="8" height="8" fill="#555555" />
+      <rect x="92" y="314" width="8" height="8" fill="#2f78c4" />
 
-      <text x="104" y="321" font-size="8" fill="#000000">Nilai CPL</text>
+      <text x="104" y="321" font-size="8" fill="#45556c">Nilai CPL</text>
 
-      <rect x="158" y="314" width="8" height="8" fill="none" stroke="#000000" stroke-dasharray="2 1" />
+      <rect x="158" y="314" width="8" height="8" fill="#df4b43" />
 
-      <text x="170" y="321" font-size="8" fill="#000000">Threshold</text>
+      <text x="170" y="321" font-size="8" fill="#45556c">Threshold</text>
 
     </svg>
 

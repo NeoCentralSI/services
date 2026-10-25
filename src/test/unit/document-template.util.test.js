@@ -56,13 +56,15 @@ describe("monochrome base style", () => {
 });
 
 // Every template of Seminar Hasil, Sidang and Yudisium (and its helpers) is checked; the CPL
-// certificate (buildLearningCertificatePdf) is the only coloured document and is left out.
+// certificate (buildLearningCertificatePdf) and the radar chart of the CPL report (buildRadarSvg)
+// are the coloured exceptions and are left out.
 const TEMPLATES = {
   "services/thesis-seminar/core.service.js": ["export async function generateInvitationLetter", "export async function generateAssessmentResultPdf"],
   "services/thesis-defence/core.service.js": ["export async function generateInvitationLetter", "export async function generateAssessmentResultPdf"],
   "services/thesis-seminar/audience.service.js": ["export async function exportAudiencesPdf"],
   "services/thesis-seminar/attendance-log.service.js": ["export function buildAttendanceFormHtml"],
-  "services/yudisium/participant.service.js": ["const buildRadarSvg", "const buildCplReportPdf", "export const exportParticipants = async"],
+  // buildRadarSvg keeps its colours (K41/F3 exception); the CPL report around it does not.
+  "services/yudisium/participant.service.js": ["const buildCplReportPdf", "export const exportParticipants = async"],
   "services/yudisium/exit-survey.service.js": ["const buildExitSurveyReportHtml"],
 };
 
@@ -94,10 +96,16 @@ describe("monochrome templates", () => {
   it("every official HTML template puts the QR in a signature block", () => {
     for (const [file, markers] of Object.entries(TEMPLATES)) {
       for (const marker of markers) {
-        if (marker.includes("buildRadarSvg") || marker.includes("buildExitSurveyReportHtml")) continue;
+        if (marker.includes("buildExitSurveyReportHtml")) continue;
         expect(templateSource(file, marker), `${file}: ${marker}`).toMatch(/signatureBlockHtml\(\{[^}]*withQr: true/);
       }
     }
+  });
+
+  it("the radar chart of the CPL report keeps its colours: score blue, threshold red", () => {
+    const source = templateSource("services/yudisium/participant.service.js", "const buildRadarSvg");
+    expect(source).toContain('fill="#2f78c4"');
+    expect(source).toContain('fill="#df4b43"');
   });
 
   it("the exit survey report has an unsigned \"Mengetahui,\" block of the Koordinator Yudisium", () => {
