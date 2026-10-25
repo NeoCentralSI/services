@@ -14,6 +14,7 @@ const range = { startDate: "2031-03-10T00:00:00.000Z", endDate: "2031-03-15T00:0
 const created = { users: [], theses: [], seminars: [], defences: [], yudisiums: [], guidances: [] };
 const people = {};
 let ids = {};
+let extra = {};
 
 async function user(label, { student = false, lecturer = false, role = null } = {}) {
   const u = await prisma.user.create({
@@ -86,6 +87,34 @@ beforeAll(async () => {
 
   const yudisium = await prisma.yudisium.create({ data: { name: `Yudisium Kalender ${ts}`, eventDate: new Date(`${DAY}T02:00:00.000Z`) } });
   created.yudisiums.push(yudisium.id);
+
+  // Going on now (WIB), and an archived seminar without a time.
+  const nowWib = new Date(Date.now() + 7 * 3600 * 1000);
+  const today = nowWib.toISOString().slice(0, 10);
+  const hhmm = (offsetMin) => {
+    const t = new Date(nowWib.getTime() + offsetMin * 60 * 1000);
+    return new Date(`1970-01-01T${t.toISOString().slice(11, 16)}:00.000Z`);
+  };
+  // Not across midnight: start 30 minutes ago, end at most at 23:59 WIB.
+  // Never before 00.00 WIB of today either.
+  const startOffset = Math.min(30, nowWib.getUTCHours() * 60 + nowWib.getUTCMinutes());
+  const endOffset = Math.min(60, (23 * 60 + 59) - (nowWib.getUTCHours() * 60 + nowWib.getUTCMinutes()));
+  const ongoingSeminar = await prisma.thesisSeminar.create({
+    data: { thesisId: thesis.id, status: "scheduled", registeredAt: new Date(), date: new Date(`${today}T00:00:00.000Z`), startTime: hhmm(-startOffset), endTime: hhmm(Math.max(endOffset, 1)) },
+  });
+  const ongoingDefence = await prisma.thesisDefence.create({
+    data: { thesisId: thesis.id, status: "scheduled", registeredAt: new Date(), date: new Date(`${today}T00:00:00.000Z`), startTime: hhmm(-startOffset), endTime: hhmm(Math.max(endOffset, 1)) },
+  });
+  const archived = await prisma.thesisSeminar.create({
+    data: { thesisId: thesis.id, status: "failed", registeredAt: new Date(), date: new Date("2031-03-11T00:00:00.000Z") },
+  });
+  created.seminars.push(ongoingSeminar.id, archived.id);
+  created.defences.push(ongoingDefence.id);
+  await prisma.thesisSeminarExaminer.create({ data: { thesisSeminarId: ongoingSeminar.id, lecturerId: people.examiner.id, order: 1, availabilityStatus: "available", assignedAt: new Date() } });
+  await prisma.thesisDefenceExaminer.create({ data: { thesisDefenceId: ongoingDefence.id, lecturerId: people.examiner.id, order: 1, availabilityStatus: "available", assignedAt: new Date() } });
+  await prisma.thesisSeminarAudience.create({ data: { thesisSeminarId: ongoingSeminar.id, thesisId: thesis.id, studentId: people.audience.id, registeredAt: new Date() } });
+  await prisma.thesisSeminarAudience.create({ data: { thesisSeminarId: archived.id, thesisId: thesis.id, studentId: people.audience.id, registeredAt: new Date() } });
+  extra = { ongoingSeminar: `seminar-${ongoingSeminar.id}`, ongoingDefence: `defence-${ongoingDefence.id}`, archived: `seminar-${archived.id}` };
 
   ids = { seminar: `seminar-${seminar.id}`, cancelled: `seminar-${cancelled.id}`, draft: `seminar-${draft.id}`, defence: `defence-${defence.id}`, guidance: `guidance-${guidance.id}`, yudisium: `yudisium-${yudisium.id}` };
 });
@@ -174,5 +203,32 @@ describe("calendar: who sees what", () => {
     const { events } = await getUpcomingEvents(people.presenter.id, null, 3650, 20);
     const agenda = events.map((e) => e.id);
     expect(agenda).toEqual(expect.arrayContaining([ids.seminar, ids.defence, ids.guidance, ids.yudisium]));
+  });
+});
+
+describe("Agenda Mendatang and event times", () => {
+  const agendaOf = async (person) => (await getUpcomingEvents(person.id, null, 3650, 20)).events.map((e) => e.id);
+
+  it("shows the seminar and defence going on now for every role that may see them", async () => {
+    for (const person of [people.presenter, people.p1, people.p2, people.examiner, people.admin]) {
+      const agenda = await agendaOf(person);
+      expect(agenda, person.fullName).toEqual(expect.arrayContaining([extra.ongoingSeminar, extra.ongoingDefence]));
+    }
+    const audience = await agendaOf(people.audience);
+    expect(audience).toContain(extra.ongoingSeminar);
+    expect(audience).not.toContain(extra.ongoingDefence);
+    expect(await agendaOf(people.outsider)).not.toContain(extra.ongoingSeminar);
+  });
+
+  it("puts what is going on first, then the coming events by time, at most five", async () => {
+    const { events } = await getUpcomingEvents(people.presenter.id, null, 3650, 5);
+    expect(events.length).toBeLessThanOrEqual(5);
+    expect([extra.ongoingSeminar, extra.ongoingDefence]).toContain(events[0].id);
+  });
+
+  it("a seminar without a time is an all-day event on its date, not 00.00", async () => {
+    const { events } = await getMyCalendarEvents(people.audience.id, null, range);
+    const event = events.find((e) => e.id === extra.archived);
+    expect(event).toMatchObject({ allDay: true, startDate: "2031-03-11", endDate: null });
   });
 });

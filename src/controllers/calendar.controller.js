@@ -20,11 +20,11 @@ export async function getMyCalendarEventsController(req, res, next) {
 
 /**
  * @route GET /calendar/upcoming
- * @desc Agenda Mendatang: the same events from now on (`limit`, default 5; `days`, default 90).
+ * @desc Agenda Mendatang: events still going on or coming (`limit`, default 5; `days`, default 730).
  */
 export async function getUpcomingEventsController(req, res, next) {
   try {
-    const days = Number.parseInt(req.query.days, 10) || 90;
+    const days = Number.parseInt(req.query.days, 10) || 730;
     const limit = Math.min(Number.parseInt(req.query.limit, 10) || 5, 20);
     const result = await getUpcomingEvents(req.user.sub, null, days, limit);
     res.status(200).json({ success: true, ...result });

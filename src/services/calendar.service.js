@@ -39,21 +39,52 @@ const COLORS = { guidance: "#3b82f6", seminar: "#8b5cf6", defence: "#f97316", yu
 
 const pad = (n) => String(n).padStart(2, "0");
 
+/** The WIB calendar day of a stored `@db.Date` (UTC midnight of that day): "2026-09-28". */
+const wibDay = (date) => {
+  const d = new Date(date);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+};
+
 /**
  * The instant of a seminar or defence: the stored calendar date (`@db.Date`, UTC midnight of the
- * WIB date) with the stored WIB wall-clock time (`@db.Time`).
+ * WIB date) with the stored WIB wall-clock time (`@db.Time`). Null without a time.
  */
 export function combineWibDateTime(date, time) {
-  if (!date) return null;
-  const d = new Date(date);
-  const day = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-  if (!time) return new Date(`${day}T00:00:00+07:00`).toISOString();
+  if (!date || !time) return null;
   const t = new Date(time);
-  return new Date(`${day}T${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}:00+07:00`).toISOString();
+  return new Date(`${wibDay(date)}T${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}:00+07:00`).toISOString();
 }
 
-const inRange = (startDate, endDate) =>
-  startDate && endDate ? { gte: new Date(startDate), lte: new Date(endDate) } : undefined;
+/**
+ * Start and end of a seminar or defence. Without a time (e.g. an archived or imported one) it is
+ * an all-day event on its WIB date, never 00.00.
+ */
+export function eventTimes(date, startTime, endTime) {
+  const start = combineWibDateTime(date, startTime);
+  if (!start) {
+    const day = wibDay(date);
+    const next = new Date(`${day}T00:00:00+07:00`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    return { startDate: day, endDate: null, allDay: true, endsAt: next.toISOString() };
+  }
+  const end = combineWibDateTime(date, endTime) ?? start;
+  return { startDate: start, endDate: end, allDay: false, endsAt: end };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Query bounds: one day of margin on each side, since `@db.Date` holds UTC midnight of the WIB date
+ * and guidance may last after its start. The exact overlap is checked afterwards.
+ */
+const queryRange = (startDate, endDate) =>
+  startDate && endDate
+    ? { gte: new Date(new Date(startDate).getTime() - DAY_MS), lte: new Date(new Date(endDate).getTime() + DAY_MS) }
+    : undefined;
+
+/** Instant an event starts, for sorting and overlap (an all-day date is its WIB midnight). */
+const startsAt = (e) => (e.allDay ? new Date(`${e.startDate}T00:00:00+07:00`) : new Date(e.startDate));
+const endsAt = (e) => new Date(e.endsAt ?? e.endDate ?? e.startDate);
 
 /** Who is asking: student and lecturer records, and whether an active role is an Admin one. */
 async function resolveViewer(userId) {
@@ -101,6 +132,7 @@ async function guidanceEvents(viewer, range) {
       const lecturer = g.supervisor?.user;
       const asLecturer = viewer.isLecturer && g.supervisorId === viewer.lecturerId;
       const at = effectiveGuidanceDate(g);
+      const end = at ? new Date(new Date(at).getTime() + (g.duration ?? 60) * 60 * 1000) : at;
       return {
         id: `guidance-${g.id}`,
         kind: "guidance",
@@ -111,7 +143,8 @@ async function guidanceEvents(viewer, range) {
         status: "accepted",
         statusLabel: GUIDANCE_STATUS_LABELS[g.status] ?? "Diterima",
         startDate: at,
-        endDate: at,
+        endDate: end,
+        allDay: false,
         relatedId: g.id,
         relatedType: "thesis_guidance",
         location: null,
@@ -187,8 +220,7 @@ async function thesisEvents(viewer, range, kind) {
       description: row.thesis?.title ?? null,
       status: effective,
       statusLabel: EVENT_STATUS_LABELS[effective] ?? effective,
-      startDate: combineWibDateTime(row.date, row.startTime),
-      endDate: combineWibDateTime(row.date, row.endTime ?? row.startTime),
+      ...eventTimes(row.date, row.startTime, row.endTime),
       relatedId: row.id,
       relatedType: kind === "seminar" ? "thesis_seminar" : "thesis_defence",
       location: row.room?.name ?? (row.meetingLink ? "Daring" : "TBA"),
@@ -226,6 +258,7 @@ async function yudisiumEvents(viewer, range) {
     statusLabel: null,
     startDate: p.eventDate,
     endDate: p.eventDate,
+    allDay: false,
     relatedId: p.id,
     relatedType: "yudisium",
     location: p.room?.name ?? null,
@@ -245,7 +278,7 @@ async function yudisiumEvents(viewer, range) {
 export async function getMyCalendarEvents(userId, _userRole, filters = {}) {
   const { startDate, endDate, types } = filters;
   const viewer = await resolveViewer(userId);
-  const range = inRange(startDate, endDate);
+  const range = queryRange(startDate, endDate);
   const lists = await Promise.all([
     guidanceEvents(viewer, range),
     thesisEvents(viewer, range, "seminar"),
@@ -253,18 +286,27 @@ export async function getMyCalendarEvents(userId, _userRole, filters = {}) {
     yudisiumEvents(viewer, range),
   ]);
   let events = lists.flat();
+  // Exact overlap with the asked range: an event shows while any part of it falls inside.
+  if (startDate && endDate) {
+    const from = new Date(startDate);
+    const to = new Date(endDate);
+    events = events.filter((e) => endsAt(e) >= from && startsAt(e) <= to);
+  }
   if (types?.length && !types.includes("all")) events = events.filter((e) => types.includes(e.type) || types.includes(e.kind));
-  events.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+  events.sort((a, b) => startsAt(a) - startsAt(b));
   return { events };
 }
 
-/** Agenda Mendatang: the same events, from now on, the first `limit`. */
-export async function getUpcomingEvents(userId, userRole, days = 90, limit = 5) {
+/**
+ * Agenda Mendatang: the same events and rules as the calendar. An event still going on counts
+ * (it ends now or later), then the coming ones by time, the first `limit`. The search is not tied
+ * to the month shown in the calendar: it looks `days` ahead (two years by default).
+ */
+export async function getUpcomingEvents(userId, userRole, days = 730, limit = 5) {
   const now = new Date();
-  const end = new Date(now);
-  end.setDate(end.getDate() + days);
+  const end = new Date(now.getTime() + days * DAY_MS);
   const { events } = await getMyCalendarEvents(userId, userRole, { startDate: now.toISOString(), endDate: end.toISOString() });
-  return { events: events.filter((e) => new Date(e.endDate ?? e.startDate) >= now).slice(0, limit) };
+  return { events: events.filter((e) => endsAt(e) >= now).slice(0, limit) };
 }
 
 /** Counts for the dashboard: today, the next 7 days, this month. */
@@ -282,7 +324,7 @@ export async function getEventStatistics(userId, userRole) {
   const week = await getMyCalendarEvents(userId, userRole, { startDate: todayStart.toISOString(), endDate: next7Days.toISOString() });
   const month = await getMyCalendarEvents(userId, userRole, { startDate: monthStart.toISOString(), endDate: monthEnd.toISOString() });
   return {
-    todayEvents: week.events.filter((e) => new Date(e.startDate) <= todayEnd).length,
+    todayEvents: week.events.filter((e) => startsAt(e) <= todayEnd).length,
     upcomingEvents: week.events.length,
     completedThisMonth: month.events.filter((e) => e.kind === "guidance").length,
     pendingActions: 0,

@@ -32,5 +32,26 @@ await run("2 Agenda Mendatang", async () => {
   check("maksimal 5, urut waktu, dari sekarang", res.status === 200 && events.length <= 5 && sorted && events.every((e) => new Date(e.endDate ?? e.startDate) >= new Date(Date.now() - 60_000)), events.map((e) => e.startDate));
 });
 
+await run("3 Agenda per peran dan event tanpa jam", async () => {
+  // The demo seeds a seminar and a defence going on now (DevTools-like "Mulai Sekarang").
+  for (const [name, kinds] of [
+    ["ta_demo_seminar_berlangsung", ["seminar"]],
+    ["ta_demo_sidang_berlangsung", ["defence"]],
+    ["kadep_si", ["seminar", "defence"]],
+  ]) {
+    const res = await api(name, "GET", "/calendar/upcoming");
+    const got = new Set((res.json?.events ?? []).map((e) => e.kind));
+    check(`${name}: Agenda memuat ${kinds.join(" dan ")} yang sedang berlangsung`, kinds.every((k) => got.has(k)), [...got]);
+  }
+  // An archived seminar without a time (as imported data) is all-day, never 00.00.
+  const archived = await prisma.thesisSeminar.findFirst({ where: { status: { in: ["passed", "passed_with_revision", "failed"] }, startTime: { not: null } }, select: { id: true, date: true, startTime: true, endTime: true } });
+  await prisma.thesisSeminar.update({ where: { id: archived.id }, data: { startTime: null, endTime: null } });
+  const day = archived.date.toISOString().slice(0, 10);
+  const res = await api("admin_si", "GET", `/calendar/my-events?startDate=${day}T00:00:00.000Z&endDate=${day}T23:59:59.000Z`);
+  const event = (res.json?.events ?? []).find((e) => e.id === `seminar-${archived.id}`);
+  check("seminar tanpa jam: event sepanjang hari pada tanggalnya", event?.allDay === true && event.startDate === day, event && { allDay: event.allDay, startDate: event.startDate });
+  await prisma.thesisSeminar.update({ where: { id: archived.id }, data: { startTime: archived.startTime, endTime: archived.endTime } });
+});
+
 await prisma.$disconnect();
 process.exit(summary() ? 1 : 0);
