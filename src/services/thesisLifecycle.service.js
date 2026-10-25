@@ -568,11 +568,13 @@ export const TAKING_THESIS_COURSE_LABEL = "Mengambil mata kuliah Tugas Akhir sem
  *   semester (K36 flag `taking_thesis_course`), or Metode Penelitian: a proposal that passed this
  *   semester starts research at once, without the TA course (K37). A student recorded as not
  *   taking the TA course is blocked; flags not known yet block too, like the proposal shield.
+ * Metode Penelitian only opens guidance, milestones and change requests (K43): seminar and
+ * defence registration pass `requireThesisCourse` and always need the TA course itself.
  * Proposal-phase theses are governed by Metode Penelitian and are not blocked by the TA course.
  * Reading, revisions of a held seminar or defence, yudisium, and lecturer or Admin actions are
  * never blocked.
  */
-export async function getStudentThesisActionBlock(studentId, { thesis = null, client = prisma } = {}) {
+export async function getStudentThesisActionBlock(studentId, { thesis = null, client = prisma, requireThesisCourse = false } = {}) {
   const row = thesis?.status !== undefined && thesis?.studentStatus !== undefined
     ? thesis
     : await client.thesis.findFirst({
@@ -587,7 +589,8 @@ export async function getStudentThesisActionBlock(studentId, { thesis = null, cl
   if (!row || !OPEN_THESIS_STATUSES.includes(row.status)) return result(null);
   if (studentStatus === STUDENT_STATUS.ON_LEAVE) return result(THESIS_ACTION_BLOCK.ON_LEAVE);
   if (row.status !== THESIS_STATUS.RESEARCH) return result(null);
-  if (takingThesisCourse === true || flags.eligibleResearchMethod === true) return result(null);
+  if (takingThesisCourse === true) return result(null);
+  if (!requireThesisCourse && flags.eligibleResearchMethod === true) return result(null);
   if (takingThesisCourse === false) return result(THESIS_ACTION_BLOCK.NOT_TAKING_THESIS);
   return result(THESIS_ACTION_BLOCK.THESIS_COURSE_UNKNOWN);
 }

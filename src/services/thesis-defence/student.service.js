@@ -148,7 +148,7 @@ export async function getOverview(userId) {
 
   const supervisors = thesis.thesisSupervisors || [];
   const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.defenceReady);
-  const actionBlock = await getStudentThesisActionBlock(thesis.studentId, { thesis: { id: thesis.id } });
+  const actionBlock = await getStudentThesisActionBlock(thesis.studentId, { thesis: { id: thesis.id }, requireThesisCourse: true });
   const takingCourseMet = ![THESIS_ACTION_BLOCK.NOT_TAKING_THESIS, THESIS_ACTION_BLOCK.THESIS_COURSE_UNKNOWN].includes(actionBlock.code);
 
   const checklist = {

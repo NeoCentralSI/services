@@ -238,7 +238,7 @@ export async function uploadDocument(defenceId, userId, file, requirementId) {
   const thesis = await coreRepo.getStudentThesisWithDefenceInfo(student.id);
   if (!thesis) throwError("Anda belum memiliki tugas akhir yang terdaftar.", 404);
   // Registration and its documents need a student allowed to act (leave, the TA course).
-  await assertStudentThesisActionAllowed(student.id, { thesis: { id: thesis.id } });
+  await assertStudentThesisActionAllowed(student.id, { thesis: { id: thesis.id }, requireThesisCourse: true });
 
   const academicYear = await getActiveAcademicYear();
   if (!academicYear) throwError("Tahun akademik yang sedang berjalan belum tersedia. Hubungi Admin.", 400);

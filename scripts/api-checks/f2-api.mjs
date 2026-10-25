@@ -53,6 +53,28 @@ await run("1 tidak mengambil Tugas Akhir semester ini", async () => {
   await prisma.studentAcademicYearSnapshot.update({ where: { studentId_academicYearId: { studentId: student.id, academicYearId: year.id } }, data: { takingThesisCourse: false } });
 });
 
+await run("1b batas K43: Metode Penelitian", async () => {
+  // A research thesis whose student takes Metode Penelitian but not the TA course this semester.
+  const year = await prisma.academicYear.findFirst({ where: { isActive: true } });
+  const row = await prisma.studentAcademicYearSnapshot.findFirst({
+    where: { academicYearId: year.id, eligibleResearchMethod: true, NOT: { takingThesisCourse: true }, student: { thesis: { some: { status: "research" } } } },
+    select: { student: { select: { user: { select: { email: true } }, thesis: { where: { status: "research" }, select: { id: true } } } } },
+  });
+  check("ada mahasiswa Penelitian yang hanya mengambil Metode Penelitian", !!row, row);
+  if (!row) return;
+  const name = row.student.user.email.split("@")[0];
+  const thesisId = row.student.thesis[0].id;
+  const milestone = await api(name, "POST", `/milestones/thesis/${thesisId}`, { title: "BAB I - Pendahuluan (K43)" });
+  check("milestone tetap boleh", milestone.status < 300, milestone.json?.message ?? milestone.status);
+  const overview = await api(name, "GET", "/thesis-seminars/me/overview");
+  check("syarat seminar: mata kuliah TA belum terpenuhi", overview.data?.checklist?.mataKuliahTa?.met === false, overview.data?.checklist?.mataKuliahTa);
+  const form = new FormData();
+  form.append("file", new Blob([Buffer.from("%PDF-1.4 uji")], { type: "application/pdf" }), "syarat.pdf");
+  form.append("requirementId", "x");
+  const upload = await api(name, "POST", "/thesis-seminars/active/documents", undefined, { form });
+  check("daftar seminar (unggah dokumen) ditolak", upload.status === 403, upload.json?.message);
+});
+
 await run("2 predikat otomatis", async () => {
   const student = await userOf("ta_demo_siap_yudisium");
   const cases = [[3.8, "Sangat Memuaskan"], [3.2, "Sangat Memuaskan"], [2.9, "Memuaskan"], [2.5, null]];

@@ -84,6 +84,17 @@ describe("getStudentThesisActionBlock", () => {
     expect((await lifecycle.getStudentThesisActionBlock(passed.student.id)).blocked).toBe(false);
   });
 
+  it("K43: Metode Penelitian opens guidance and milestones, not seminar or defence registration", async () => {
+    const mp = await studentWith("research", false, "mp", true);
+    const created = await milestone.createMilestone(mp.thesis.id, mp.student.id, { title: "BAB I" });
+    expect(created.id).toBeTruthy();
+    expect((await lifecycle.getStudentThesisActionBlock(mp.student.id, { requireThesisCourse: true })).code).toBe(NOT_TAKING_THESIS);
+    await expect(seminarDoc.uploadDocument("active", mp.student.id, pdf, "req")).rejects.toThrow(REASON[NOT_TAKING_THESIS]);
+    await expect(defenceDoc.uploadDocument("active", mp.student.id, pdf, "req")).rejects.toThrow(REASON[NOT_TAKING_THESIS]);
+    const overview = await seminarStudent.getOverview(mp.student.id);
+    expect(overview.checklist.mataKuliahTa.met).toBe(false);
+  });
+
   it("does not block a proposal-phase or finished thesis", async () => {
     const proposal = await studentWith("proposal", undefined, "proposal");
     const done = await studentWith("completed", false, "done");
